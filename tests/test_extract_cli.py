@@ -17,6 +17,7 @@ structure/round-trip, not scientific accuracy.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 import pytest
@@ -830,3 +831,110 @@ def test_extract_tdat_composes_with_tmap(tmp_path, monkeypatch) -> None:
     profile = _extraction_profile(out)
     assert profile["tmap_source"] == "map.tmap"
     assert profile["tdat_source"] == "data.tdat"
+
+
+# --- every flag and every default reaches the extraction (#744) ---------------
+#
+# `tether extract` is the only user surface for the ten flag-backed ExtractOptions
+# fields (docs/reference/parameters.md), so the step from argparse to ExtractOptions
+# in tether.cli._run_extract is where a flag or a default can be lost. Most tests
+# above build ExtractOptions directly; these go through tether.cli.main and read
+# back, from /settings/extraction, the options that the extraction applied.
+
+# (flag, value typed on the command line, ExtractOptions field, value it must record).
+# Every value differs from the field's default, and the synthetic movie still
+# extracts with it.
+_FLAG_CASES = [
+    ("--donor-side", "right", "donor_side", "right"),
+    ("--detection-mode", "intensity", "detection_mode", "intensity"),
+    ("--detection-threshold", "0.4", "detection_threshold", 0.4),
+    ("--window", "19", "window", 19),
+    ("--min-separation", "5", "min_separation", 5.0),
+    ("--detection-block", "10", "detection_block", 10),
+    ("--prealign", "similarity", "prealign", "similarity"),
+    ("--pair-tol", "3", "pair_tol", 3.0),
+    ("--coloc-distance", "2.5", "coloc_distance", 2.5),
+    ("--rms-gate", "0.75", "rms_gate", 0.75),
+]
+
+
+def _recorded_options(path) -> dict:
+    """The ExtractOptions fields as ``/settings/extraction`` recorded them."""
+    profile = _extraction_profile(path)
+    return {f.name: profile[f.name] for f in fields(ExtractOptions)}
+
+
+@pytest.mark.parametrize(
+    ("flag", "arg", "field", "value"), _FLAG_CASES, ids=[case[0] for case in _FLAG_CASES]
+)
+def test_each_extract_flag_reaches_the_extraction(tmp_path, flag, arg, field, value) -> None:
+    """A non-default value given on the command line is the value the extraction applied.
+
+    The whole recorded option set is compared, not only the one field: the flag must
+    move its own field and no other, so a flag wired to its neighbour's field fails too.
+    """
+    assert getattr(ExtractOptions(), field) != value, f"{flag}: the case must leave the default"
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "flag.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), flag, arg])
+
+    assert rc == 0, f"tether extract {flag} {arg} failed on the synthetic movie"
+    assert _recorded_options(out) == asdict(replace(ExtractOptions(), **{field: value})), (
+        f"tether extract {flag} {arg} did not reach ExtractOptions.{field} unchanged"
+    )
+
+
+def test_cli_donor_side_right_reads_the_donor_from_the_right_half(tmp_path) -> None:
+    """``--donor-side right`` swaps the channels, so the donor spots are the right half's.
+
+    A value lost on the way to ExtractOptions gives the left half as donor, which is a
+    project with every FRET efficiency inverted and no error (docs/cli.md).
+    """
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "right.tether"
+
+    assert main(["extract", str(movie), "-o", str(out), "--donor-side", "right"]) == 0
+
+    got = {tuple(np.round(xy).astype(int)) for xy in read_molecules(out)["donor_xy"]}
+    right_half = {(int(x - 48), int(y)) for x, y in _ACCEPTOR_CENTERS}  # within-half coords
+    assert got == right_half
+
+
+def test_extract_with_no_flags_applies_the_extract_options_defaults(tmp_path) -> None:
+    """With no option on the command line the extraction applies ``ExtractOptions()``.
+
+    The argparse defaults in tether.cli are literals of their own, and _run_extract
+    always passes them, so the dataclass default is never used on this surface. A
+    changed argparse literal therefore changes every CLI extraction; this fails then.
+    """
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "defaults.tether"
+
+    assert main(["extract", str(movie), "-o", str(out)]) == 0
+
+    assert _recorded_options(out) == asdict(ExtractOptions())
+
+
+def test_cli_warns_on_stderr_when_the_registration_exceeds_the_gate(tmp_path, capsys) -> None:
+    """An over-gate registration exits 0, so the stderr warning is the only signal.
+
+    docs/cli.md: extraction "still exits 0, but a warning goes to stderr". The same
+    movie under a gate it meets prints no warning, so the line is conditional.
+    """
+    movie = _make_movie(tmp_path, acceptor_centers=_OVER_GATE_ACCEPTOR, name="warp_010.tif")
+
+    rc = main(["extract", str(movie), "-o", str(tmp_path / "over.tether"), "--rms-gate", "0.2"])
+
+    captured = capsys.readouterr()
+    assert rc == 0  # ADR-0014: an over-gate fit is flagged, never failed
+    assert "Extracted 3 molecule(s)" in captured.out
+    assert "exceeds the 0.2 px gate" in captured.err
+    assert LOW_CONFIDENCE_TAG in captured.err
+    assert "exceeds" not in captured.out
+
+    rc = main(["extract", str(movie), "-o", str(tmp_path / "in.tether"), "--rms-gate", "5"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "exceeds" not in captured.err

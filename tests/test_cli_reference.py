@@ -17,7 +17,13 @@ reads the *live* parser rather than a transcript, so it cannot drift the way a c
 Direction 1 is scoped to each subcommand's own section rather than to the whole page.
 ``--tmap``, ``--tdat`` and ``--overwrite`` exist on *both* parsers, so a page-wide check
 would happily accept an ``extract``-only flag that had been documented under ``batch``
-and never mentioned where a reader of ``tether extract`` would look.
+and never mentioned where a reader of ``tether extract`` would look. Direction 2 runs
+page-wide *and* per section: the usage block and the option table of each subcommand may
+name only that subcommand's own options, so a flag removed from one parser is found even
+while the other parser still has it (#744).
+
+The option tables also print a **Default** column, and every default argparse holds is
+compared with its cell, so a changed argparse literal cannot leave the page behind (#744).
 
 Base-matrix only: :func:`tether.cli.build_parser` imports nothing beyond ``argparse``
 (the imaging/HDF5 stack is deliberately lazy so ``--version`` stays fast), and the page is
@@ -134,6 +140,54 @@ def _subcommand_section(name: str) -> str:
     return rest if end == -1 else rest[:end]
 
 
+def _option_table(section: str) -> list[tuple[str, str, str]]:
+    """The body rows of the section's ``| Argument | Default | Meaning |`` table.
+
+    Each row is returned as its three stripped cells. A row that does not split into
+    exactly three cells fails here, because a ``|`` inside a cell would shift the
+    Default column and the checks below would then read the wrong cell.
+    """
+    lines = section.splitlines()
+    header = next(
+        (i for i, line in enumerate(lines) if line.startswith("| Argument | Default |")), None
+    )
+    assert header is not None, "the section has no '| Argument | Default | Meaning |' table"
+    rows: list[tuple[str, str, str]] = []
+    for line in lines[header + 2 :]:  # skip the header and the |---| separator
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        assert len(cells) == 3, f"an option-table row does not have three cells: {line!r}"
+        rows.append((cells[0], cells[1], cells[2]))
+    assert rows, "the option table has no rows"
+    return rows
+
+
+def _usage_block(name: str, section: str) -> str:
+    """The section's usage synopsis: its first fenced block, ``tether <name> [-h] ...``."""
+    match = re.search(r"^```text\n(.*?)^```", section, re.DOTALL | re.MULTILINE)
+    assert match, f"the `tether {name}` section has no fenced usage block"
+    usage = match.group(1)
+    assert usage.startswith(f"tether {name} "), (
+        f"the first fenced block of the `tether {name}` section is not its usage synopsis"
+    )
+    return usage
+
+
+def _same_default(literal: str, default: object) -> bool:
+    """Does the page's backticked ``literal`` spell argparse's ``default``?
+
+    Numbers compare by value, so the page may print ``2`` for the float ``2.0`` as
+    argparse's own ``(default: 2)`` help text does.
+    """
+    if isinstance(default, int | float) and not isinstance(default, bool):
+        try:
+            return float(literal) == float(default)
+        except ValueError:
+            return False
+    return literal == default
+
+
 def test_the_reference_page_exists() -> None:
     """Sanity: guards a renamed page silently disabling every assertion below."""
     assert PAGE.is_file(), f"the CLI reference is missing from {PAGE}"
@@ -233,6 +287,97 @@ def test_the_page_invents_no_flags() -> None:
     )
 
 
+def test_each_section_usage_and_table_name_only_its_own_flags() -> None:
+    """Direction 2, per section — the usage block and option table use only own flags.
+
+    The page-wide check above unions the options of all parsers, and ``--tmap``,
+    ``--tdat`` and ``--overwrite`` are on both. So a flag removed from ``extract`` but
+    still on ``batch`` left ``tether extract [--tmap PATH]`` on the page, and only the
+    option-count tripwire failed; remove one flag and add another whose name the
+    section's prose already contains, and nothing failed (#744, GUI-F20). The prose of a
+    section may name the other subcommand's flags (``--policy`` on ``tether batch`` in the
+    extract section, ``--donor-side`` in the batch section), so the scope is the usage
+    block and the option table, which describe the one parser only.
+    """
+    invented: dict[str, list[str]] = {}
+    for name, sub in sorted(_subparsers(build_parser()).items()):
+        section = _subcommand_section(name)
+        table = "\n".join(" | ".join(row) for row in _option_table(section))
+        documented = _documented_flags(_usage_block(name, section)) | _documented_flags(table)
+        foreign = sorted(documented - _option_strings(sub) - set(_UNDOCUMENTED))
+        if foreign:
+            invented[name] = foreign
+    assert not invented, (
+        "the usage block or option table of these docs/cli.md sections names flags "
+        f"that the subcommand's own parser does not define: {invented}"
+    )
+
+
+def test_each_option_table_default_is_the_default_argparse_holds() -> None:
+    """The Default column states the value the parser applies when the flag is absent.
+
+    The page says a quoted default "is the string argparse prints", but only option
+    names were compared; every default in ``tether.cli`` is a literal of its own and
+    could change with the page left behind (#744, GUI-F3). Each option whose argparse
+    default is a value must have a row whose Default cell is that value, and each
+    ``store_true`` switch a row that reads ``off``. Options that default to ``None``
+    resolve their effective default elsewhere (the detection mode, the sidecar
+    supervision constants, the log path), and their cells are not read here.
+    """
+    for name, sub in sorted(_subparsers(build_parser()).items()):
+        by_flag = {
+            opt: action
+            for action in sub._actions  # noqa: SLF001 - mirrors _subparsers above
+            for opt in action.option_strings
+        }
+        checked: set[str] = set()
+        for argument, default_cell, _meaning in _option_table(_subcommand_section(name)):
+            flags = [flag for flag in _FLAG_RE.findall(argument) if flag in by_flag]
+            if not flags:
+                continue  # a positional argument
+            action = by_flag[flags[0]]
+            row = f"`tether {name}` row {argument!r}"
+            if isinstance(action, argparse._StoreTrueAction):  # noqa: SLF001
+                assert default_cell == "off", f"{row}: a switch's Default cell must read 'off'"
+            elif action.default is not None:
+                literals = re.findall(r"`([^`]+)`", default_cell)
+                assert len(literals) == 1 and _same_default(literals[0], action.default), (
+                    f"{row}: docs/cli.md prints the default {default_cell!r}, but the parser "
+                    f"holds {action.default!r}; change the page and tether.cli together"
+                )
+            else:
+                continue
+            checked.add(action.dest)
+        defaulted = {
+            action.dest
+            for action in sub._actions  # noqa: SLF001
+            if action.option_strings
+            and action.dest != "help"
+            and (isinstance(action, argparse._StoreTrueAction) or action.default is not None)  # noqa: SLF001
+        }
+        assert checked == defaulted, (
+            f"these `tether {name}` options hold a default that no option-table row states: "
+            f"{sorted(defaulted - checked)}"
+        )
+
+
+def test_the_batch_policy_default_is_the_run_batch_default() -> None:
+    """``tether batch --policy`` defaults to the policy ``run_batch`` applies by itself.
+
+    The argparse default is a literal, and ``_run_batch`` always passes it on, so the
+    library default would never be used from the command line. A changed literal
+    turns every unattended batch from "keep with a flag" into "fail" (#744, GUI-F3).
+    """
+    import inspect  # noqa: PLC0415 - test-local stdlib import
+
+    from tether.project.batch import POLICY_WARN, run_batch  # noqa: PLC0415
+
+    batch = _subparsers(build_parser())["batch"]
+    policy = next(a for a in batch._actions if a.dest == "policy")  # noqa: SLF001
+    assert policy.default == inspect.signature(run_batch).parameters["policy"].default
+    assert policy.default == POLICY_WARN
+
+
 def _exit_code_section() -> str:
     text = _page_text()
     start = text.find("## Exit codes")
@@ -287,10 +432,27 @@ def test_the_exit_code_table_documents_every_code() -> None:
 
     Presence of the row is the weak half; the exercised tests above are what pin the
     behaviour. What this adds is that the page cannot quietly drop a code.
+
+    The rows themselves are parsed: the prose after the table also spells `` `0` ``,
+    `` `1` `` and `` `2` ``, so a search of the section text passed with the whole table
+    deleted (#744, GUI-F19). Each code needs exactly one ``| `N` | … | … |`` row with a
+    non-empty cell for ``tether extract`` and one for ``tether batch``.
     """
-    section = _exit_code_section()
-    for code in ("`0`", "`1`", "`2`"):
-        assert code in section, f"the exit-code table no longer documents {code}"
+    rows: dict[str, list[list[str]]] = {}
+    for line in _exit_code_section().splitlines():
+        match = re.match(r"^\| `(\d+)` \|(.*)\|\s*$", line)
+        if match:
+            cells = [cell.strip() for cell in match.group(2).split("|")]
+            rows.setdefault(match.group(1), []).append(cells)
+    assert sorted(rows) == ["0", "1", "2"], (
+        f"the exit-code table documents the codes {sorted(rows)}, not 0, 1 and 2"
+    )
+    for code, found in sorted(rows.items()):
+        assert len(found) == 1, f"the exit-code table has {len(found)} rows for `{code}`"
+        assert len(found[0]) == 2 and all(found[0]), (
+            f"the `{code}` row must state the code's meaning for both `tether extract` "
+            f"and `tether batch`, found {found[0]}"
+        )
 
 
 def test_the_page_does_not_claim_extract_never_exits_2() -> None:
