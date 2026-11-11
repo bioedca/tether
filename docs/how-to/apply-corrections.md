@@ -27,11 +27,15 @@ bleach found the first time, so a window the first pass shortened stays as it wa
   factor needs at least 10 such molecules. For α the stretch between the two bleaches must be
   at least 20 frames long; for γ the stretch before the acceptor bleaches and the stretch after
   it must each be longer than 20 frames.
-- A project of one sample on one optical setup. The steps pool every molecule into one
-  dataset α, and molecules without a γ of their own take one dataset γ, so a project that
-  mixes samples or setups gets one value for all of them. `tether extract` and
-  `tether batch` make one project per movie; keep movies of different samples or setups
-  in separate projects.
+- A project whose molecules all have one [condition](../glossary.md#condition). One sample
+  on one optical setup can still give two conditions, for example at two laser powers. The
+  steps pool every molecule into one dataset α, and molecules without a γ of their own take
+  one dataset γ. The steps cannot select a condition, so a project that holds more than one
+  condition gets one value for all of them. `tether extract` and `tether batch` make one
+  project per movie, and give every molecule in it the one provisional condition parsed from
+  the movie's filename. They do not check the sample, so make sure that the movie holds
+  molecules of one condition only, for example of one construct, before you follow these
+  steps.
 - Each movie file in the project once. A file extracted into the project twice puts every
   trace in it twice, and the α and γ steps count both copies toward the 10 molecules each
   factor needs, so a factor can pass on half that many real traces.

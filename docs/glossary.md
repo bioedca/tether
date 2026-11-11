@@ -563,9 +563,12 @@ to the experiment-max frame count because one experiment spans movies of differi
 Not free text. A condition is identified by a **chemistry/optics key** — construct/variant,
 dye, ligand + concentration, buffer, temperature, laser power (`tether.io.filename`,
 `tether.project.conditions`). `date`, replicate and source file deliberately **vary within**
-a condition and are not part of its identity. `condition_id` is a content hash of that exact
-key, and validation is **referential**: an id is valid only if it resolves to a
-`/conditions` row whose stored fields hash back to it.
+a condition and are not part of its identity. Neither is the project file: two projects whose
+`/conditions` rows carry the same confirmed key hold the same condition (ADR-0068). A key parsed
+from a filename is provisional until it is confirmed: the parse gives no buffer, temperature or
+laser power, so two provisional keys can agree for two different conditions. `condition_id` is a
+content hash of that exact key, and validation is **referential**: an id is valid only if it
+resolves to a `/conditions` row whose stored fields hash back to it.
 
 **Keep-separate by default** — two near-miss filename parses yield different ids and stay
 separate; collapsing them requires an explicit confirmed re-key
@@ -599,7 +602,9 @@ survives only by exact intensity-trace matching. See the
 
 ### `.tether` project
 
-One HDF5 file per experiment, with root attribute `format = "tether-project"` and a
+One HDF5 file per experiment, that is, one day or one session of acquisition. A project can
+hold several movies and several conditions, and one condition can span several projects
+(ADR-0068). The file has the root attribute `format = "tether-project"` and a
 monotonic `schema_version` (currently `1`). The **entire group skeleton was forward-declared
 at M0**, so later milestones add *data*, never *structure*
 (ADR-0005); a `schema-guard` CI gate enforces it.
