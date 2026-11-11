@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from tether.gui import theme
+
 if TYPE_CHECKING:
     import pyqtgraph as pg
     from pyqtgraph.Qt import QtWidgets
@@ -96,6 +98,12 @@ class OverlapDock:
         # white), which is what a raw intensity patch wants — no lookup table needed.
         self._image = pg.ImageItem(axisOrder="row-major")
         self._view.addItem(self._image)
+        self.apply_theme(theme.current())
+        theme.subscribe(self.apply_theme)
+
+    def apply_theme(self, active: theme.Theme) -> None:
+        """Set the patch view's background from ``active`` (a theme change)."""
+        theme.style_graphics(self._graphics, active)
 
     # --- accessors -----------------------------------------------------------
 
@@ -192,6 +200,7 @@ class OverlapDock:
 
     def close(self) -> None:
         """Close and release the dock widget."""
+        theme.unsubscribe(self.apply_theme)
         self._widget.close()
 
     def __enter__(self) -> OverlapDock:

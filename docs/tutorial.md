@@ -146,8 +146,9 @@ the window stays usable meanwhile. When it is done the status bar reads:
 Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-click vbFRET)
 ```
 
-and a black stepped line is drawn over the blue trace, jumping between a low level near 0.25
-and a high level near 0.75 at the same places the blue trace does.
+and a stepped line is drawn over the blue trace, jumping between a low level near 0.25
+and a high level near 0.75 at the same places the blue trace does. The line is black in the
+light theme and white in the dark theme ([Window themes and trace colors](reference/gui-theme.md#trace-colors)).
 
 This step uses the separate tMAVEN environment the installer sets up for you. If you run
 Tether from a source checkout instead of an installer, set that environment up first as
