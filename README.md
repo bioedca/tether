@@ -75,9 +75,9 @@ brings it to the application.
 
 ### From Python today; planned for the application
 
-Each of these runs from a short script in the Python that comes with Tether. The linked how-to
-guide shows the script. `tether batch` also runs the corrections and the whole-project fit with
-their default settings.
+Each of these runs from a short script in the Python that comes with Tether. Where an entry
+links a how-to guide, that guide shows the script; the quality ranker has no how-to guide yet.
+`tether batch` also runs the corrections and the whole-project fit with their default settings.
 
 - **Corrections.** Native per-channel Bayesian photobleach detection → leakage α → γ →
   corrected FRET, with an apparent-E fallback that **never emits a NaN**
