@@ -444,15 +444,27 @@ def test_fixed_nstates_runs_once(tmp_path) -> None:
 
 def test_subset_selection_by_key_preserves_request_order(tmp_path) -> None:
     n, t = 3, 24
-    proj, keys = _build_store(tmp_path / "e.tether", _step_trace(n, t), _step_trace(n, t))
+    # ``_step_trace`` switches at a different frame for each molecule, and the acceptor is
+    # scaled, so every (molecule, channel) trace is distinct: a row of the wrong molecule or
+    # of the wrong channel is visible in the SMD data and in the provenance hash (#729 PRJ-F6).
+    donor = _step_trace(n, t)
+    acceptor = _step_trace(n, t) * 0.5
+    proj, keys = _build_store(tmp_path / "e.tether", donor, acceptor)
     calls: list = []
-    requested = [keys[2], keys[0]]  # reversed subset
+    requested_rows = [2, 0]  # reversed subset
+    requested = [keys[i] for i in requested_rows]
     stored = idealize_molecules(proj, requested, nstates=2, _runner=_make_runner({2: -1.0}, calls))
 
     assert stored.molecule_keys == requested
     smd = calls[-1]["smd"]
     assert smd.n_molecules == 2
     assert smd.molecule_keys == requested  # SMD carries the requested selection order
+    # ... and each SMD row carries the trace of the molecule its key names, not only the key.
+    assert smd.raw.shape == (2, t, 2)
+    for j, i in enumerate(requested_rows):
+        np.testing.assert_array_equal(smd.raw[j, :, 0], donor[i])
+        np.testing.assert_array_equal(smd.raw[j, :, 1], acceptor[i])
+        assert stored.input_hashes[j] == _uncorrected_hash(donor[i], acceptor[i], pre=0, post=t)
 
 
 def test_missing_key_raises(tmp_path) -> None:
