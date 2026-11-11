@@ -118,6 +118,26 @@ def test_each_menu_item_shows_its_icon_and_its_text(qapp, qtbot, scheme) -> None
             assert _lightness(action.icon()) < 0.3, name
 
 
+def test_the_menu_icons_show_where_the_platform_hides_menu_icons(qapp, qtbot, scheme) -> None:
+    # Qt 6.11.1 sets AA_DontShowIconsInMenus from the platform theme: the Cocoa theme does
+    # so on every macOS before Tahoe (qcocoatheme.mm, QPlatformTheme::ShowIconsInMenus).
+    # Each action then hides its icon in its menu unless it says otherwise.
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import TetherShell
+
+    attribute = QtCore.Qt.ApplicationAttribute.AA_DontShowIconsInMenus
+    before = QtCore.QCoreApplication.testAttribute(attribute)
+    QtCore.QCoreApplication.setAttribute(attribute, True)
+    try:
+        with TetherShell() as shell:
+            qtbot.addWidget(shell.window)
+            for action, name in shell.menu_icons:
+                assert action.isIconVisibleInMenu(), name
+    finally:
+        QtCore.QCoreApplication.setAttribute(attribute, before)
+
+
 def test_a_closed_shell_no_longer_follows_the_theme(qapp, qtbot, scheme) -> None:
     from tether.gui.shell import TetherShell
 

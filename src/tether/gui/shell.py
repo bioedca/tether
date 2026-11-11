@@ -659,6 +659,9 @@ class TetherShell:
 
         for action, name in self._menu_icons:
             action.setIcon(theme.icon(name, active))
+            # Qt hides menu icons where the platform asks (the Cocoa theme does on every
+            # macOS before Tahoe); these icons are meant to show on every OS.
+            action.setIconVisibleInMenu(True)
 
     def _sync_theme_menu(self) -> None:
         from tether.gui import theme
