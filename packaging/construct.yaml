@@ -102,6 +102,27 @@ extra_files:
 # build driver). Must be plain .txt for the shell (Linux) installer.
 license_file: staging/LICENSE.txt
 
+# --- Installer images and texts (issue #672) --------------------------------------
+# Without these keys constructor uses its own defaults (constructor 3.17.3; seen on the
+# #672 packaging run): on Windows a generated blue welcome and header image and a "T"
+# icon; on macOS a generated background that writes "Tether" and the version in blue, an
+# Anaconda read-me that also says the installer changes every shell (`initialize_conda:
+# false` above, so it does not), and an "Anaconda Cloud" conclusion. The images are the brand
+# kit's (#671; scripts/brand/ makes them) and each has the exact size constructor resizes
+# to, so it is used pixel for pixel. The macOS background is a transparent grey mark, for
+# the light and the dark appearance alike.
+welcome_image: images/windows-welcome-164x314.png   # [win]
+welcome_image: images/macos-welcome-1227x600.png    # [osx]
+header_image: images/windows-header-150x57.png      # [win]
+icon_image: images/windows-icon-256.png             # [win]
+# The three texts are macOS-only, on purpose: on Windows constructor would make the
+# first line of conclusion_text the title of the finish page. Each stays one
+# double-quoted line, because check_installer_branding.py reads them back from here to
+# compare with the built package. Wording approved on issue #672.
+welcome_text: "This program installs Tether on your computer. Tether is a desktop application for single-molecule FRET analysis. The installer contains all necessary files and downloads nothing."    # [osx]
+readme_text: "The installer is not signed. To make sure that your file is correct, compare its SHA-256 value with the value on the release page."    # [osx]
+conclusion_text: "Tether is installed. To start Tether, obey the instructions in the install guide at https://bioedca.github.io/tether/latest/install/."    # [osx]
+
 # Offline pip-install of the three wheels + wire the bundled sidecar interpreter.
 # ONE key, per-OS by selector; constructor builds one installer per target OS.
 post_install: scripts/post_install.sh    # [unix]

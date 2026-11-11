@@ -5,8 +5,9 @@
 
 ``construct.yaml`` names the images in ``packaging/images/`` and the three macOS texts.
 Without those keys constructor uses its own defaults: generated blue images and a "T" icon
-on Windows, and Anaconda's logo, read-me and conclusion on macOS. This script reads what the
-built installer holds and fails when that is not the Tether set.
+on Windows; a generated background, an Anaconda read-me and an Anaconda Cloud conclusion on
+macOS. This script reads what the built installer holds and fails when that is not the
+Tether set.
 
 ``install_smoke.sh`` runs it on the runner that built the installer, with the build env's
 Python (constructor brings Pillow on macOS and Windows)::

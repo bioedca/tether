@@ -69,7 +69,7 @@ def test_a_package_with_the_tether_background_and_texts_passes(tmp_path: Path) -
 
 
 def test_constructor_defaults_on_macos_fail_by_name(tmp_path: Path) -> None:
-    """No keys set: Anaconda's logo, read-me and conclusion, and no welcome text."""
+    """No keys set: a generated background, Anaconda's read-me and conclusion, no welcome."""
     root = _tether_pkg(tmp_path)
     resources = root / "Resources"
     Image.new("RGBA", (1227, 600), (40, 160, 70, 255)).save(resources / "welcome.png")
@@ -171,3 +171,49 @@ def test_install_smoke_checks_the_branding_on_windows_and_macos() -> None:
     # Both run before the installer is installed, so a failure names its cause.
     assert code.index(f"{check} exe") < code.index("/S /D=$prefix")
     assert code.index(f"{check} pkg") < code.index("installer -pkg")
+
+
+#: The three macOS texts as the maintainer approved them on issue #672.
+APPROVED = {
+    "welcome": (
+        "This program installs Tether on your computer. Tether is a desktop application for"
+        " single-molecule FRET analysis. The installer contains all necessary files and"
+        " downloads nothing."
+    ),
+    "readme": (
+        "The installer is not signed. To make sure that your file is correct, compare its"
+        " SHA-256 value with the value on the release page."
+    ),
+    "conclusion": (
+        "Tether is installed. To start Tether, obey the instructions in the install guide at"
+        " https://bioedca.github.io/tether/latest/install/."
+    ),
+}
+
+
+def test_construct_yaml_sets_the_approved_macos_texts() -> None:
+    texts = branding.expected_texts()
+    assert texts == APPROVED
+    assert not any(branding.FORBIDDEN.search(text) for text in texts.values())
+    # The read-me names the check that docs/install.md and ADR-0059 give for a download.
+    install = (_ROOT / "docs" / "install.md").read_text(encoding="utf-8")
+    assert "SHA-256 value the release lists" in install
+
+
+@pytest.mark.parametrize(
+    ("key", "selector", "name", "size"),
+    [
+        ("welcome_image", "win", "windows-welcome-164x314.png", (164, 314)),
+        ("welcome_image", "osx", "macos-welcome-1227x600.png", (1227, 600)),
+        ("header_image", "win", "windows-header-150x57.png", (150, 57)),
+        ("icon_image", "win", "windows-icon-256.png", (256, 256)),
+    ],
+)
+def test_construct_yaml_names_each_image_at_the_size_constructor_uses(
+    key: str, selector: str, name: str, size: tuple[int, int]
+) -> None:
+    """The size constructor resizes to, so the brand file reaches the installer unchanged."""
+    recipe = (_ROOT / "packaging" / "construct.yaml").read_text(encoding="utf-8")
+    assert re.search(rf"^{key}: images/{re.escape(name)}\s+# \[{selector}\]$", recipe, re.M)
+    with Image.open(_IMAGES / name) as image:
+        assert image.size == size
