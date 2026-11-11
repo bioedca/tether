@@ -10,6 +10,8 @@ that file here on every push to `main`, so an edit made in the GitHub wiki edito
 next time anything lands — change this page by opening a pull request against the repository.
 -->
 
+![Tether](https://raw.githubusercontent.com/bioedca/tether/main/docs/assets/brand/lockup-light.svg)
+
 > **This wiki is an index only.** The canonical documentation is the
 > [Tether documentation site](https://bioedca.github.io/tether/); add content there, never here.
 

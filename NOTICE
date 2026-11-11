@@ -40,6 +40,32 @@ kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.
   NOT vendored (PRD N2 — Tether ships no data simulator).
 
 --------------------------------------------------------------------------------
+Bundled font (redistributed under its own license)
+--------------------------------------------------------------------------------
+
+Red Hat Display  (OFL-1.1)  — Regular, Medium and Bold, version 1.030.
+  Copyright 2021 The Red Hat Project Authors (OFL.txt); the fonts' own name table
+  reads Copyright 2024 The Red Hat Project Authors. Upstream:
+  https://github.com/RedHatOfficial/RedHatFont at commit 6bb1048
+  (fonts/Proportional/RedHatDisplay/ttf/). Upstream states the license as the SIL
+  Open Font License 1.1 with Reserved Font Name "Red Hat".
+  Tether ships the three upstream TTF files unchanged, with no subset, under
+  src/tether/gui/assets/brand/fonts/, with the upstream OFL.txt beside them (see
+  also LICENSES/OFL-1.1.txt and the REUSE.toml annotation). The word mark in the
+  brand files is Red Hat Display Bold converted to outlines; no brand file loads
+  a font. scripts/brand/README.md records the SHA-256 of each font file.
+
+--------------------------------------------------------------------------------
+Tether brand files
+--------------------------------------------------------------------------------
+
+The Tether mark (mark 42a), its icons, the installer and documentation images
+and the color tokens (src/tether/gui/assets/brand/, packaging/images/,
+docs/assets/brand/) are licensed CC-BY-4.0, not GPL-3.0. Credit line and rules
+of use: the documentation page "Brand" (docs/brand.md). The scripts that make
+them (scripts/brand/) are GPL-3.0-or-later.
+
+--------------------------------------------------------------------------------
 Algorithm references (read-only; never vendored or redistributed)
 --------------------------------------------------------------------------------
 
