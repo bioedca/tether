@@ -4,7 +4,8 @@
 
 Takes ``-batch "addpath(...); tether_run_job('<job>')"`` like MATLAB, reads the job, reports the
 release ``R0000x`` and writes one small known output per task, so the tests can check what the
-harness records. ``params.fail = true`` makes it exit 1, like a MATLAB error under ``-batch``.
+harness records. ``params.fail = true`` makes it exit 1, like a MATLAB error under ``-batch``;
+``params.touch_inputs`` names inputs it changes during the "run".
 """
 
 from __future__ import annotations
@@ -30,6 +31,9 @@ def main(argv: list[str]) -> int:
     Path(job["matlab_info"]).write_text(json.dumps(info), encoding="utf-8")
     if job["params"].get("fail"):
         return 1
+    for name in job["params"].get("touch_inputs", []):
+        with open(job["inputs"][name], "a", encoding="utf-8") as fh:
+            fh.write("changed while MATLAB ran\n")
     out = Path(job["output_dir"], f"{job['task']}.csv")
     out.write_text(f"entry,value\n{job['entry']},1\n", encoding="utf-8", newline="\n")
     return 0

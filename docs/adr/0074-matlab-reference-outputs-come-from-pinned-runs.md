@@ -65,7 +65,11 @@ Chosen option 3, implemented in `scripts/reference/matlab/`:
   name, URL and commit, the MATLAB release and version, the operating system, the driver's Tether
   commit and whether its folder was clean, the task and its parameters, the SHA-256 of every input
   file (by file name only, never by path) and of every output file, the manual steps, and the date
-  in UTC. **Every record states its MATLAB release**; a record without one fails verification.
+  in UTC. **Every record states its MATLAB release** in the form `version('-release')` gives
+  (`2023b`); a record without one, or with a value such as `unknown`, is refused when it is
+  written and fails verification. No absolute path may appear in a parameter or a manual step,
+  and an input whose bytes change while MATLAB runs is refused, so the hashes name the bytes the
+  tool read.
 - **The checksum test.** `tests/test_matlab_reference.py` verifies every committed record under
   `tests/fixtures/reference/`: each recorded output must exist with its SHA-256, and a file that
   the record does not list fails too. A stand-in record (`stand-in/selftest`) is always committed,
@@ -75,7 +79,8 @@ Chosen option 3, implemented in `scripts/reference/matlab/`:
 - **Rule of saved files first (#700 item 5).** When a tool cannot run without its window, the
   files that the tool already saved (exports, project files) are the reference. `freeze` copies
   them and writes a record with the method `saved-files`, the tool version that saved them and the
-  MATLAB release as the maintainer states it. Manual steps in the tool are the last alternative,
+  MATLAB release as the maintainer states it, and, where known, the SHA-256 of the inputs the
+  tool read to make them. Manual steps in the tool are the last alternative,
   for a result that is in no saved file, and the record then lists the steps.
 - **Rule of scripts with no public commit (#700 item 7).** A pin of kind `files` (the laboratory
   cloud scripts of #710) records the SHA-256 of each script file in place of a commit. The driver

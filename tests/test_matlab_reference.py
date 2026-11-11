@@ -189,11 +189,14 @@ def test_freeze_records_saved_files_and_manual_steps(tmp_path) -> None:
         saved=[saved],
         out=tmp_path / "frozen",
         tool_version="121634e",
-        matlab_release="unknown (the file does not say)",
+        matlab_release="2023b",
+        inputs={"traces": saved},
         manual_steps=["choose the folder test-data/traces"],
     )
     record = harness.verify(tmp_path / "frozen")
     assert record["method"] == "saved-files"
+    assert record["tool"] == {"name": "smfret-analysis2", "version": "121634e"}
+    assert record["inputs"] == {"traces": {"total_XC.csv": harness.sha256(saved)}}
     assert record["manual_steps"] == ["choose the folder test-data/traces"]
     assert record["outputs"] == {"total_XC.csv": harness.sha256(saved)}
 
@@ -275,3 +278,67 @@ def test_a_relative_matlab_path_survives_the_temporary_working_directory(
         "x", "t", tasks, clone=clone[0], inputs={}, out=tmp_path / "o", matlab=rel, pins=pins
     )
     harness.verify(tmp_path / "o")
+
+
+@pytest.mark.parametrize("release", ["", "unknown", "unknown (the file does not say)", "R23b"])
+def test_freeze_refuses_a_value_that_is_not_a_matlab_release(tmp_path, release) -> None:
+    saved = tmp_path / "x.csv"
+    saved.write_text("1\n", encoding="utf-8")
+    with pytest.raises(harness.HarnessError, match="not a MATLAB release"):
+        harness.freeze(
+            "t", saved=[saved], out=tmp_path / "f", tool_version="1", matlab_release=release
+        )
+    assert not (tmp_path / "f").exists()
+
+
+@pytest.mark.parametrize(
+    "text", ["/home/lab/traces", "~/data", "C:\\Users\\lab", "D:/movies", "\\\\server\\share"]
+)
+def test_no_absolute_path_reaches_a_record(tmp_path, clone, text) -> None:
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e"}}
+    with pytest.raises(harness.HarnessError, match="absolute path"):
+        harness.run(
+            "x",
+            "t",
+            tasks,
+            clone=clone[0],
+            inputs={},
+            out=tmp_path / "o",
+            params={"p": [text]},
+            matlab=STANDIN,
+            pins=pins,
+        )
+    saved = tmp_path / "x.csv"
+    saved.write_text("1\n", encoding="utf-8")
+    with pytest.raises(harness.HarnessError, match="absolute path"):
+        harness.freeze(
+            "t",
+            saved=[saved],
+            out=tmp_path / "f",
+            tool_version="1",
+            matlab_release="2023b",
+            manual_steps=[f"open {text}"],
+        )
+
+
+def test_relative_names_pass_the_path_check() -> None:
+    harness._no_private_paths(["choose the folder test-data/traces", "ratio 1/2"], {"L": 300})
+
+
+def test_an_input_changed_during_the_run_is_refused(tmp_path, clone, traces) -> None:
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": {"touch_inputs": ["traces"]}}}
+    one = traces / "1 tr1.dat"
+    with pytest.raises(harness.HarnessError, match="input changed while MATLAB ran"):
+        harness.run(
+            "x",
+            "t",
+            tasks,
+            clone=clone[0],
+            inputs={"traces": one},
+            out=tmp_path / "o",
+            matlab=STANDIN,
+            pins=pins,
+        )
+    assert not (tmp_path / "o" / harness.RECORD).exists()

@@ -28,6 +28,7 @@ import datetime as _dt
 import hashlib
 import json
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,10 @@ PINS = HERE / "pins.toml"
 M_DIR = HERE / "m"
 RECORD = "provenance.json"
 RECORD_VERSION = 1
+# What `version('-release')` returns ("2023b"), optionally with the "R" of the product name.
+RELEASE = re.compile(r"R?\d{4}[a-z]")
+# An absolute path (POSIX, home, Windows drive or UNC share) at the start of a word.
+PRIVATE_PATH = re.compile(r"(?:^|[\s\"'(=])(?:/|~[/\\]|[A-Za-z]:[\\/]|\\\\)")
 
 
 class HarnessError(RuntimeError):
@@ -123,7 +128,30 @@ def _outputs(out: Path) -> dict[str, str]:
     return found
 
 
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def _no_private_paths(*values) -> None:
+    for text in (t for v in values for t in _strings(v)):
+        if PRIVATE_PATH.search(text):
+            raise HarnessError(f"a record may not hold an absolute path: {text!r}")
+
+
+def _check_release(release: str) -> None:
+    if not RELEASE.fullmatch(release or ""):
+        raise HarnessError(f"not a MATLAB release (like 2023b): {release!r}")
+
+
 def _write_record(out: Path, record: dict) -> Path:
+    _check_release(record["matlab"]["release"])
     record = {"record_version": RECORD_VERSION, **record}
     record["date"] = _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds")
     record["os"] = platform.platform()
@@ -164,6 +192,7 @@ def run(
     if missing:
         raise HarnessError(f"task {task} needs the inputs: {', '.join(sorted(missing))}")
     params = {**spec.get("params", {}), **(params or {})}
+    _no_private_paths(params)
     tool_part = verify_clone(tool, clone, load_pins() if pins is None else pins)
     input_part = {name: _files(path) for name, path in sorted(inputs.items())}
     _fresh_out(out)
@@ -189,6 +218,9 @@ def run(
             info = json.loads(Path(job["matlab_info"]).read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise HarnessError("the run did not report its MATLAB release") from exc
+    # The record must name the bytes MATLAB read, so an input changed during the run is refused.
+    if {name: _files(path) for name, path in sorted(inputs.items())} != input_part:
+        raise HarnessError("an input changed while MATLAB ran; no record written")
     return _write_record(
         out,
         {
@@ -210,9 +242,17 @@ def freeze(
     out: Path,
     tool_version: str,
     matlab_release: str,
+    inputs: dict[str, Path] | None = None,
     manual_steps: list[str] | None = None,
 ) -> Path:
-    """Freeze files that the tool already saved; the record says that no harness run made them."""
+    """Freeze files that the tool already saved; the record says that no harness run made them.
+
+    ``tool_version`` is the version that saved the files, as stated (the record keeps it apart
+    from a pinned ``commit``); ``inputs`` are the files the tool read to make them, if known.
+    """
+    _check_release(matlab_release)
+    _no_private_paths(tool_version, manual_steps or [])
+    input_part = {name: _files(path) for name, path in sorted((inputs or {}).items())}
     _fresh_out(out)
     for path in saved:
         if not path.is_file():
@@ -226,7 +266,7 @@ def freeze(
             "method": "saved-files",
             "tool": {"name": tool, "version": tool_version},
             "matlab": {"release": matlab_release},
-            "inputs": {},
+            "inputs": input_part,
             "manual_steps": list(manual_steps or []),
         },
     )
@@ -235,7 +275,7 @@ def freeze(
 def verify(out: Path) -> dict:
     """Check every file of a frozen directory against its record; return the record."""
     record = json.loads((out / RECORD).read_text(encoding="utf-8"))
-    if not record.get("matlab", {}).get("release"):
+    if not RELEASE.fullmatch(record.get("matlab", {}).get("release") or ""):
         raise HarnessError(f"{out.name}: the record states no MATLAB release")
     actual = {k: v for k, v in _files(out).items() if k != RECORD}
     for name, want in record["outputs"].items():
@@ -273,6 +313,7 @@ def main(tool: str, tasks: dict, argv: list[str] | None = None) -> int:
     p_frz.add_argument("--out", type=Path, required=True)
     p_frz.add_argument("--tool-version", required=True)
     p_frz.add_argument("--matlab-release", required=True)
+    p_frz.add_argument("--input", action="append", default=[], metavar="NAME=PATH")
     p_frz.add_argument("--manual-step", action="append", default=[])
     p_ver = sub.add_parser("verify", help="check a frozen directory against its record")
     p_ver.add_argument("out", type=Path)
@@ -299,6 +340,7 @@ def main(tool: str, tasks: dict, argv: list[str] | None = None) -> int:
                 out=args.out,
                 tool_version=args.tool_version,
                 matlab_release=args.matlab_release,
+                inputs={k: Path(v) for k, v in _pairs(args.input, "--input").items()},
                 manual_steps=args.manual_step,
             )
         else:

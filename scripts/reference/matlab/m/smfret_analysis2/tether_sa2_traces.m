@@ -7,6 +7,9 @@ if isfolder(path)
     found = dir(fullfile(path, '*.dat'));
     names = sort({found.name});
     files = fullfile(path, names);
+    if isempty(files)
+        error('tether:noTraces', 'no *.dat trace file in %s', path);
+    end
 else
     files = {path};
 end
