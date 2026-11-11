@@ -46,6 +46,8 @@ documented install.
 | `construct.yaml` | The recipe. Uses conda-build selectors + Jinja, so it is **not** plain YAML — render before use, and it is excluded from the `check-yaml` pre-commit hook. |
 | `scripts/post_install.sh` / `.bat` | Offline `pip --no-index --no-deps` of the three wheels into their envs; wire `TETHER_SIDECAR_PYTHON`. |
 | `scripts/install_smoke.sh` | CI/verification only — the per-platform offline install-smoke that both `packaging.yml` and `release.yml` run on a just-built installer (issue #217). **Not bundled** into the installer: `construct.yaml` names its `post_install:` files explicitly. |
+| `scripts/check_installer_branding.py` | CI/verification only — run by `install_smoke.sh` on the built Windows and macOS installers: fails unless they show the Tether images and the three macOS texts (issue #672). |
+| `images/` | The installer images from the brand kit (#671), each at the size `constructor` uses; `construct.yaml` names them. Sizes and placement: `docs/maintainers/building-installers.md`. |
 | `locks/`, `staging/` | **Build-time only** (git-ignored): rendered explicit locks; the staged wheels + `LICENSE.txt`. |
 | `dist/` | Built installers (git-ignored). |
 
