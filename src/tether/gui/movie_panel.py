@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from tether.gui import theme
 from tether.io.movie import MovieReader
 
 if TYPE_CHECKING:
@@ -68,12 +69,10 @@ _ACCEPTOR_LAYER_NAME = "acceptor"
 _DONOR_APERTURE_LAYER_NAME = "donor aperture"
 _ACCEPTOR_APERTURE_LAYER_NAME = "acceptor aperture"
 
-# Familiar smFRET channel colours (match the pyqtgraph trace dock, PRD §7.3 /
-# Appendix C D1): donor green (0, 170, 0), acceptor red (220, 45, 45). Passed as
-# hex so napari/vispy parses them unambiguously as a single colour.
-_DONOR_HEX = "#00aa00"
-_ACCEPTOR_HEX = "#dc2d2d"
-_TRANSPARENT = "transparent"
+# Familiar smFRET channel colours: the donor and acceptor tokens of tether.gui.theme,
+# so they match the pyqtgraph trace dock (PRD §7.3 / Appendix C D1). The tokens are
+# hex strings, which napari/vispy parses unambiguously as a single colour.
+_TRANSPARENT = theme.TRANSPARENT
 
 # Overlay marker sizes, in movie pixels (napari Points ``size`` is the marker
 # **diameter**). The centre marker is a small dot; the aperture ring is drawn at
@@ -249,6 +248,7 @@ class NapariMoviePanel:
         # show=False keeps the panel from popping a stray top-level window; a host
         # (the M2 shell, or a smoke launcher) calls .show()/embeds qt_window.
         self._viewer = napari.Viewer(title=title, ndisplay=2, show=show)
+        self._theme = theme.current()
         self._movies: list[_MovieEntry] = []
         self._active_index: int = -1
         # One reusable layer each — swapped in place on a movie switch.
@@ -261,6 +261,31 @@ class NapariMoviePanel:
         # Viewer-level mouse-drag callbacks registered by connect_spot_click, kept
         # so they can be detached on close (the pytest-qt QApplication is shared).
         self._spot_click_callbacks: list = []
+        self.apply_theme(self._theme)
+        theme.subscribe(self.apply_theme)
+
+    def apply_theme(self, active: theme.Theme) -> None:
+        """Give the viewer the ``light`` or ``dark`` napari theme and re-colour the spots.
+
+        napari 0.5.6 has the two built-in themes ``"light"`` and ``"dark"``
+        (``napari.utils.theme.available_themes``), the same names as Tether's.
+        """
+        self._theme = active
+        self._viewer.theme = active.name
+        for layer, token, filled in (
+            (self._donor_layer, "donor", True),
+            (self._acceptor_layer, "acceptor", True),
+            (self._donor_aperture_layer, "donor", False),
+            (self._acceptor_aperture_layer, "acceptor", False),
+        ):
+            if layer is None:
+                continue
+            colour = active.trace(token)
+            # Set both the existing points and the colour of points a later movie
+            # switch adds, so a switch after a theme change keeps the new colour.
+            layer.border_color = layer.current_border_color = colour
+            if filled:
+                layer.face_color = layer.current_face_color = colour
 
     # --- accessors -----------------------------------------------------------
 
@@ -495,8 +520,8 @@ class NapariMoviePanel:
             _DONOR_LAYER_NAME,
             _to_rowcol(donor),
             symbol="disc",
-            face=_DONOR_HEX,
-            border=_DONOR_HEX,
+            face=self._theme.trace("donor"),
+            border=self._theme.trace("donor"),
             size=_CENTER_MARKER_DIAMETER,
         )
         self._acceptor_layer = self._set_points(
@@ -504,8 +529,8 @@ class NapariMoviePanel:
             _ACCEPTOR_LAYER_NAME,
             _to_rowcol(acceptor),
             symbol="disc",
-            face=_ACCEPTOR_HEX,
-            border=_ACCEPTOR_HEX,
+            face=self._theme.trace("acceptor"),
+            border=self._theme.trace("acceptor"),
             size=_CENTER_MARKER_DIAMETER,
         )
         self._donor_aperture_layer = self._set_points(
@@ -514,7 +539,7 @@ class NapariMoviePanel:
             _to_rowcol(donor),
             symbol="ring",
             face=_TRANSPARENT,
-            border=_DONOR_HEX,
+            border=self._theme.trace("donor"),
             size=diameter,
         )
         self._acceptor_aperture_layer = self._set_points(
@@ -523,7 +548,7 @@ class NapariMoviePanel:
             _to_rowcol(acceptor),
             symbol="ring",
             face=_TRANSPARENT,
-            border=_ACCEPTOR_HEX,
+            border=self._theme.trace("acceptor"),
             size=diameter,
         )
 
@@ -620,6 +645,7 @@ class NapariMoviePanel:
 
     def close(self) -> None:
         """Close the viewer and release its window (and the switcher, if built)."""
+        theme.unsubscribe(self.apply_theme)
         self.disconnect_spot_clicks()
         if self._switcher is not None:
             self._switcher.deleteLater()

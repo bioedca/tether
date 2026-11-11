@@ -327,9 +327,14 @@ class TetherShell:
         overlap: OverlapSeam | None = None,
         conditions: Project | None = None,
     ) -> None:
-        from pyqtgraph.Qt import QtCore, QtWidgets
+        from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
+        from tether.gui import theme
         from tether.gui.trace_dock import TraceDock
+
+        # Fusion style, palette, style sheet and heading font for the whole
+        # application, following the OS light/dark scheme (#675). Idempotent.
+        theme.install()
 
         self._categories = (
             list(categories) if categories else [f"category {i}" for i in range(1, 13)]
@@ -443,17 +448,22 @@ class TetherShell:
         self._read_only_banner = QtWidgets.QLabel()
         self._read_only_banner.setAccessibleName("Read-only project warning")
         self._read_only_banner.setWordWrap(True)
-        self._read_only_banner.setStyleSheet(
-            "QLabel { background: #fff3cd; color: #664d03; "
-            "border: 1px solid #ffecb5; padding: 6px; }"
-        )
+        # The theme's style sheet draws it in the "caution" state token.
+        self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
-        vbox.addWidget(QtWidgets.QLabel("Movie"))
+        # Section titles use the heading font (Red Hat Display, else the system font).
+        self._section_titles = [
+            QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Category name")
+        ]
+        for title in self._section_titles:
+            title.setFont(theme.heading_font())
+        movie_title, molecules_title, category_title = self._section_titles
+        vbox.addWidget(movie_title)
         vbox.addWidget(self._movie_switcher)
         vbox.addWidget(self._read_only_banner)
-        vbox.addWidget(QtWidgets.QLabel("Molecules"))
+        vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
-        vbox.addWidget(QtWidgets.QLabel("Category name"))
+        vbox.addWidget(category_title)
         vbox.addWidget(self._category_field)
         vbox.addWidget(self._unreject_button)
         browser = QtWidgets.QDockWidget("Browser", self._window)
@@ -539,6 +549,22 @@ class TetherShell:
         self._act_import_deeplasi = self._legacy_menu.addAction("&Import Deep-LASI bundle…")
         self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
 
+        # View menu: View -> Theme -> System / Light / Dark (#675). The choice lasts
+        # for the session until the settings store (#330) can keep it.
+        self._view_menu = self._window.menuBar().addMenu("&View")
+        self._theme_menu = self._view_menu.addMenu("&Theme")
+        self._theme_group = QtGui.QActionGroup(self._window)
+        self._theme_actions: dict[str, Any] = {}
+        for value, label in (("system", "&System"), ("light", "&Light"), ("dark", "&Dark")):
+            action = self._theme_menu.addAction(label)
+            action.setCheckable(True)
+            action.setData(value)
+            self._theme_group.addAction(action)
+            action.triggered.connect(lambda _checked=False, v=value: theme.set_mode(v))
+            self._theme_actions[value] = action
+        self._theme_menu.aboutToShow.connect(self._sync_theme_menu)
+        self._sync_theme_menu()
+
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
 
     # --- accessors -----------------------------------------------------------
@@ -577,6 +603,26 @@ class TetherShell:
     def unreject_button(self) -> QtWidgets.QPushButton:
         """The visible one-click control that reverses the selected sticky reject."""
         return self._unreject_button
+
+    @property
+    def view_menu(self) -> QtWidgets.QMenu:
+        """The ``&View`` menu; its ``&Theme`` submenu selects System, Light or Dark."""
+        return self._view_menu
+
+    @property
+    def theme_actions(self) -> dict[str, Any]:
+        """The checkable **View → Theme** actions, by mode (``system``/``light``/``dark``)."""
+        return dict(self._theme_actions)
+
+    @property
+    def section_titles(self) -> list[QtWidgets.QLabel]:
+        """The browser panel's section-title labels (drawn in the heading font)."""
+        return list(self._section_titles)
+
+    def _sync_theme_menu(self) -> None:
+        from tether.gui import theme
+
+        self._theme_actions[theme.mode()].setChecked(True)
 
     @property
     def read_only_banner(self) -> QtWidgets.QLabel:
