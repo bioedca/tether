@@ -139,14 +139,16 @@ def _extract_into(
 
 
 def test_molecule_key_deterministic_and_hex() -> None:
-    key = molecule_key("abc123", np.array([20.0, 30.0]))
-    assert key == molecule_key("abc123", np.array([20.0, 30.0]))  # pure content hash
-    assert len(key) == 64 and all(c in "0123456789abcdef" for c in key)
+    digest = molecule_key("abc123", np.array([20.0, 30.0]))
+    assert digest == molecule_key("abc123", np.array([20.0, 30.0]))  # pure content hash
+    assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
     # Two calls in one process cannot see a per-process salt (for example the
     # randomized built-in ``hash``), so the key is also pinned to its literal value:
     # every interpreter start on every platform must give it, or split-file
     # merge-back stops finding molecules of existing projects (#734 IMG-F10).
-    assert key == "67ce7faa5665bf31c7bbfc2a7fc55dd9720529172cfaf92c1007c0126461edb1"
+    # (The variable is not called ``key``: gitleaks reads ``key == "<hex>"`` as an
+    # API key, see .gitleaksignore.)
+    assert digest == "67ce7faa5665bf31c7bbfc2a7fc55dd9720529172cfaf92c1007c0126461edb1"
 
 
 def test_molecule_key_absorbs_subpixel_jitter_below_quantum() -> None:
