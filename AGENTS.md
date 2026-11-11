@@ -306,7 +306,7 @@ validity turns on it being the right test — must satisfy both.
   rather than on a maintainer. Nothing counts this for you; the merged history is auditable.
 - **A Greptile review is not always one credit** — a standard review costs one, a TREX review
   three — and Tether's share of the seat is **15 a month**, the optional review and the stand-in
-  together. Past it, do not ask.
+  together. Do not ask for a review whose cost would take Tether past it.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green and threads resolved. Then arm and exit —
   never wait, never poll:
