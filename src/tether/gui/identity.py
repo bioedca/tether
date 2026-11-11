@@ -27,7 +27,9 @@ for it. This module sets all three, once, before the first window opens:
 
 Like the rest of :mod:`tether.gui`, importing this module costs no Qt: the Qt imports
 are inside the functions. ``post_install.sh`` imports it to find the icon files, and the
-install smoke reads the same paths.
+install smoke reads the same paths. The Qt import is PySide6 itself, not
+``pyqtgraph.Qt``: ``create_shell`` applies the identity before the startup splash
+(#676), which must be on the screen before pyqtgraph and NumPy load.
 """
 
 from __future__ import annotations
@@ -112,7 +114,8 @@ def application_icon(platform: str | None = None) -> Any:
     that is missing or does not decode adds no size at all, and
     ``QIcon.availableSizes()`` then shows the gap instead of hiding it.
     """
-    from pyqtgraph.Qt import QtGui
+    # PySide6 directly, not pyqtgraph.Qt, which loads NumPy (see the module docstring).
+    from PySide6 import QtGui
 
     icon = QtGui.QIcon()
     folder = app_icon_dir()

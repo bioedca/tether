@@ -6,7 +6,8 @@ Three groups:
 
 * **The running application** (``gui`` marker, headless): ``create_shell`` sets the
   Tether icon with the 16, 32, 48 and 256 px sizes on the ``QApplication`` and so on the
-  window, picks the drawing made for each small size, and names ``tether.desktop``.
+  window, picks the drawing made for each small size, and names ``tether.desktop``, all
+  before the startup splash (#676) and without loading NumPy or pyqtgraph.
 * **The Windows identity**: the AppUserModelID calls do nothing off Windows, never
   raise, and on the Windows leg of the matrix really set the ID on the process and
   write it into a shortcut, where Windows' own shell reads it back.
@@ -43,6 +44,9 @@ POST_INSTALL_SH = _SCRIPTS / "post_install.sh"
 POST_INSTALL_BAT = _SCRIPTS / "post_install.bat"
 INSTALL_SMOKE = _SCRIPTS / "install_smoke.sh"
 INSTALL_DOC = _REPO / "docs" / "install.md"
+
+#: The libraries the startup splash must show before (#676; tests/test_gui_splash.py).
+_SCIENTIFIC = ("numpy", "scipy", "h5py", "numba", "pyqtgraph", "napari", "pandas")
 
 #: The sizes the issue names for the application icon.
 _REQUIRED_SIZES = (16, 32, 48, 256)
@@ -328,6 +332,48 @@ def test_desktop_identity_matches_the_menu_entry(qtbot) -> None:
     assert app.desktopFileName() == identity.DESKTOP_FILE_NAME
     assert app.applicationName() == identity.APPLICATION_NAME
     shell.close()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_identity_is_set_before_the_splash_and_loads_no_scientific_library() -> None:
+    """When the splash opens (#676), the identity is set and NumPy is not yet loaded.
+
+    ``create_shell`` sets the identity before the splash, because Windows reads it only
+    before the first window and the splash is a window. The splash must be on the screen
+    before the slow import of pyqtgraph and NumPy, so the identity must not import them.
+    The splash is replaced by a recorder, in a clean interpreter whose ``sys.modules``
+    starts empty, so the check sees the state at the moment the splash would open.
+    """
+    code = (
+        "import sys\n"
+        "from tether.gui import splash\n"
+        "seen = {}\n"
+        "def record(app):\n"
+        f"    seen['loaded'] = sorted(m for m in {_SCIENTIFIC!r} if m in sys.modules)\n"
+        "    seen['icon'] = sorted(s.width() for s in app.windowIcon().availableSizes())\n"
+        "    seen['desktop'] = app.desktopFileName()\n"
+        "splash.open_splash = record\n"
+        "from tether.gui.app import create_shell\n"
+        "app, shell = create_shell([], splash=True)\n"
+        "shell.close()\n"
+        "print('LOADED', seen['loaded'])\n"
+        "print('ICON', seen['icon'])\n"
+        "print('DESKTOP', seen['desktop'])\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "LOADED []" in result.stdout, result.stdout
+    sizes = identity.icon_png_sizes()
+    assert f"ICON {sorted(sizes)!r}" in result.stdout, result.stdout
+    assert f"DESKTOP {identity.DESKTOP_FILE_NAME}" in result.stdout, result.stdout
 
 
 # --- the installer files ------------------------------------------------------
