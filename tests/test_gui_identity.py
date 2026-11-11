@@ -7,8 +7,9 @@ Three groups:
 * **The running application** (``gui`` marker, headless): ``create_shell`` sets the
   Tether icon with the 16, 32, 48 and 256 px sizes on the ``QApplication`` and so on the
   window, picks the drawing made for each small size, and names ``tether.desktop``.
-* **The Windows identity**: the AppUserModelID call does nothing off Windows, never
-  raises, and on the Windows leg of the matrix really sets the ID on the process.
+* **The Windows identity**: the AppUserModelID calls do nothing off Windows, never
+  raise, and on the Windows leg of the matrix really set the ID on the process and
+  write it into a shortcut, where Windows' own shell reads it back.
 * **The installer files**: ``post_install.sh`` run against a stub prefix copies the
   icon files and writes the ``Icon=`` and ``StartupWMClass`` lines; the paths in
   ``post_install.bat``, ``install_smoke.sh`` and the uninstall section of
@@ -158,6 +159,86 @@ def test_windows_app_id_is_set_on_the_process() -> None:
         assert value.value == identity.WINDOWS_APP_ID
     finally:
         ctypes.windll.ole32.CoTaskMemFree(value)
+
+
+def test_shortcut_app_id_does_nothing_on_other_systems(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert identity.set_shortcut_app_id(tmp_path / "Tether.lnk") is False
+    assert identity.shortcut_app_id(tmp_path / "Tether.lnk") is None
+
+
+def test_shortcut_app_id_failure_never_raises(monkeypatch, tmp_path) -> None:
+    """Any error in the shell calls is a "no", so the installer only warns."""
+    import ctypes
+
+    class _NoDlls:
+        def __getattr__(self, name: str) -> object:
+            raise OSError(f"no {name} here")
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(ctypes, "windll", _NoDlls(), raising=False)
+    assert identity.set_shortcut_app_id(tmp_path / "Tether.lnk") is False
+    assert identity.shortcut_app_id(tmp_path / "Tether.lnk") is None
+
+
+def _powershell(script: str, **env: str) -> str:
+    """Run *script* in Windows PowerShell; values reach it through the environment."""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+@pytest.fixture
+def windows_shortcut(tmp_path) -> Path:
+    """A shortcut made the way ``post_install.bat`` makes it, in a folder whose name has
+    a space and an apostrophe."""
+    lnk = tmp_path / "O'Brien folder" / "Tether.lnk"
+    lnk.parent.mkdir()
+    _powershell(
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TEST_LNK);"
+        "$s.TargetPath=$env:ComSpec; $s.Save()",
+        TEST_LNK=str(lnk),
+    )
+    assert lnk.is_file()
+    return lnk
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="shortcuts are a Windows feature")
+def test_shortcut_carries_the_app_id(windows_shortcut) -> None:
+    """A new shortcut has no ID; after the call it has Tether's, read back."""
+    assert identity.shortcut_app_id(windows_shortcut) is None
+    assert identity.set_shortcut_app_id(windows_shortcut) is True
+    assert identity.shortcut_app_id(windows_shortcut) == identity.WINDOWS_APP_ID
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="shortcuts are a Windows feature")
+def test_windows_shell_reads_the_shortcut_app_id(windows_shortcut) -> None:
+    """Windows' own shell, not this module, finds the ID under ``System.AppUserModel.ID``.
+
+    The module and this check name the property the same way, but they reach it by
+    different routes (the property store against ``Shell.Application``), so a write
+    under any other key fails here.
+    """
+    assert identity.set_shortcut_app_id(windows_shortcut) is True
+    value = _powershell(
+        "$f=(New-Object -ComObject Shell.Application).NameSpace("
+        "(Split-Path -Parent $env:TEST_LNK)).ParseName((Split-Path -Leaf $env:TEST_LNK));"
+        "$f.ExtendedProperty('System.AppUserModel.ID')",
+        TEST_LNK=str(windows_shortcut),
+    )
+    assert value == identity.WINDOWS_APP_ID
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="shortcuts are a Windows feature")
+def test_shortcut_app_id_on_a_missing_file_is_a_no(tmp_path) -> None:
+    missing = tmp_path / "missing.lnk"
+    assert identity.set_shortcut_app_id(missing) is False
+    assert identity.shortcut_app_id(missing) is None
 
 
 # --- the running application (Qt) ---------------------------------------------
@@ -347,6 +428,25 @@ def test_windows_shortcut_icon_path_is_the_shipped_ico() -> None:
     assert "\"$s.IconLocation=$env:TETHER_ICO + ',0';\"" in bat
     smoke = INSTALL_SMOKE.read_text(encoding="utf-8")
     assert f"*'\\{tail},0')" in smoke, "install_smoke.sh must expect the same .ico path"
+
+
+def test_installer_writes_and_smoke_reads_the_shortcut_app_id() -> None:
+    """``post_install.bat`` writes the ID after it saves the shortcut; the smoke reads it.
+
+    The shortcut's path goes to Python as an argument, never inside the source, and the
+    smoke compares with the same ID the running window sets.
+    """
+    bat = POST_INSTALL_BAT.read_text(encoding="utf-8")
+    write = (
+        '"%TETHER_PY%" -c "import sys; from tether.gui.identity import set_shortcut_app_id; '
+        'sys.exit(0 if set_shortcut_app_id(sys.argv[1]) else 1)" "%TETHER_LNK%"'
+    )
+    assert write in bat
+    assert bat.index('"$s.Save()"') < bat.index(write), "write the ID after the shortcut"
+    assert bat.index(write) < bat.index('del "%WHEELHOUSE%'), "and before the script ends"
+    smoke = INSTALL_SMOKE.read_text(encoding="utf-8")
+    assert "from tether.gui.identity import shortcut_app_id" in smoke
+    assert f'test "$lnk_app_id" = "{identity.WINDOWS_APP_ID}"' in smoke
 
 
 def test_install_smoke_and_uninstall_name_every_linux_icon_file() -> None:

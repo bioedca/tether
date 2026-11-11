@@ -16,7 +16,10 @@ for it. This module sets all three, once, before the first window opens:
 * **The Windows application identity.** A Python program's windows belong to
   ``pythonw.exe``, so without an identity of its own the taskbar groups Tether with every
   other Python program and shows Python's icon. :func:`set_windows_app_id` gives the
-  process an explicit AppUserModelID.
+  process an explicit AppUserModelID. The Start Menu shortcut must carry the same ID,
+  or a shortcut pinned to the taskbar and the window it opens show as two buttons:
+  ``post_install.bat`` writes it with :func:`set_shortcut_app_id`, and the install
+  smoke reads it back with :func:`shortcut_app_id`.
 * **The Linux desktop entry.** ``setDesktopFileName`` names ``tether.desktop`` (written
   by ``packaging/scripts/post_install.sh``), so a Wayland compositor matches the window
   to the menu entry and its ``Icon=tether``. On X11 the entry's ``StartupWMClass`` does
@@ -29,6 +32,7 @@ install smoke reads the same paths.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -45,7 +49,9 @@ __all__ = [
     "apply_application_identity",
     "hicolor_dir",
     "icon_png_sizes",
+    "set_shortcut_app_id",
     "set_windows_app_id",
+    "shortcut_app_id",
     "windows_icon_path",
 ]
 
@@ -135,6 +141,146 @@ def set_windows_app_id(app_id: str = WINDOWS_APP_ID) -> bool:
         return bool(setter(app_id) == 0)  # S_OK
     except Exception:  # noqa: BLE001 - cosmetic; a failure must not stop the start
         return False
+
+
+def set_shortcut_app_id(shortcut: str | os.PathLike[str], app_id: str = WINDOWS_APP_ID) -> bool:
+    """Write *app_id* into a Windows shortcut (``.lnk``); ``True`` if it reads back.
+
+    The property is ``System.AppUserModel.ID``. When a shortcut and a window have the
+    same ID, the taskbar shows one button for both, so a pinned Tether and a running
+    Tether do not become two buttons. ``WScript.Shell``, which creates the shortcut in
+    ``post_install.bat``, cannot write this property, so the installer calls this
+    function with the environment's own Python. It does nothing on other systems and,
+    like :func:`set_windows_app_id`, returns ``False`` instead of raising.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        _shortcut_property(os.fspath(shortcut), app_id)
+    except Exception:  # noqa: BLE001 - the shortcut still works without the ID
+        return False
+    return shortcut_app_id(shortcut) == app_id
+
+
+def shortcut_app_id(shortcut: str | os.PathLike[str]) -> str | None:
+    """The AppUserModelID a Windows shortcut carries, or ``None`` if it has none.
+
+    Also ``None`` on other systems and on any error, so a check that compares the
+    result with :data:`WINDOWS_APP_ID` fails instead of crashing.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        return _shortcut_property(os.fspath(shortcut), None)
+    except Exception:  # noqa: BLE001 - a missing or unreadable shortcut has no ID
+        return None
+
+
+def _shortcut_property(path: str, new_value: str | None) -> str | None:
+    """Read (``new_value=None``) or write ``System.AppUserModel.ID`` on *path*.
+
+    The shell's property store of the file does the work
+    (``SHGetPropertyStoreFromParsingName``, then ``IPropertyStore`` ``GetValue``, or
+    ``SetValue`` and ``Commit``). The property key comes from Windows by its canonical
+    name (``PSGetPropertyKeyFromName``), so no key is copied into this file. Raises
+    ``OSError`` when a call fails; the two public functions above turn that into their
+    "no" answer.
+    """
+    import ctypes
+    import uuid
+    from ctypes import wintypes
+
+    class _Guid(ctypes.Structure):
+        _fields_ = [
+            ("data1", wintypes.DWORD),
+            ("data2", wintypes.WORD),
+            ("data3", wintypes.WORD),
+            ("data4", ctypes.c_ubyte * 8),
+        ]
+
+    class _PropertyKey(ctypes.Structure):
+        _fields_ = [("fmtid", _Guid), ("pid", wintypes.DWORD)]
+
+    class _PropVariant(ctypes.Structure):
+        # vt, three reserved WORDs, then the value union (two pointers wide).
+        _fields_ = [
+            ("vt", wintypes.USHORT),
+            ("reserved1", wintypes.WORD),
+            ("reserved2", wintypes.WORD),
+            ("reserved3", wintypes.WORD),
+            ("value", ctypes.c_void_p),
+            ("value_high", ctypes.c_void_p),
+        ]
+
+    vt_lpwstr = 31
+    gps_default, gps_readwrite = 0, 2
+    iid_property_store = _Guid.from_buffer_copy(
+        uuid.UUID("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99").bytes_le
+    )
+
+    def check(hresult: int, what: str) -> None:
+        if hresult < 0:
+            raise OSError(f"{what} failed: HRESULT 0x{hresult & 0xFFFFFFFF:08X}")
+
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    ole32.CoInitializeEx.restype = ctypes.c_long
+    hresult = ole32.CoInitializeEx(None, 0x2)  # COINIT_APARTMENTTHREADED
+    initialised = hresult in (0, 1)  # S_OK, S_FALSE: pair with CoUninitialize
+    if not initialised and (hresult & 0xFFFFFFFF) != 0x80010106:  # RPC_E_CHANGED_MODE
+        check(hresult, "CoInitializeEx")
+    try:
+        key = _PropertyKey()
+        get_key = ctypes.windll.propsys.PSGetPropertyKeyFromName
+        get_key.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(_PropertyKey)]
+        get_key.restype = ctypes.c_long
+        check(get_key("System.AppUserModel.ID", ctypes.byref(key)), "PSGetPropertyKeyFromName")
+
+        open_store = ctypes.windll.shell32.SHGetPropertyStoreFromParsingName
+        open_store.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.POINTER(_Guid),
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        open_store.restype = ctypes.c_long
+        store = ctypes.c_void_p()
+        flags = gps_default if new_value is None else gps_readwrite
+        check(
+            open_store(path, None, flags, ctypes.byref(iid_property_store), ctypes.byref(store)),
+            "SHGetPropertyStoreFromParsingName",
+        )
+        vtable = ctypes.cast(store, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+
+        def method(index: int, *argtypes: Any) -> Any:
+            # IPropertyStore after IUnknown's three: GetCount 3, GetAt 4, GetValue 5,
+            # SetValue 6, Commit 7.
+            prototype = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)
+            return prototype(vtable[index])
+
+        key_p, variant_p = ctypes.POINTER(_PropertyKey), ctypes.POINTER(_PropVariant)
+        try:
+            if new_value is not None:
+                text = ctypes.create_unicode_buffer(new_value)
+                variant = _PropVariant(vt=vt_lpwstr, value=ctypes.addressof(text))
+                check(method(6, key_p, variant_p)(store, key, variant), "IPropertyStore.SetValue")
+                check(method(7)(store), "IPropertyStore.Commit")
+                return new_value
+            variant = _PropVariant()
+            check(method(5, key_p, variant_p)(store, key, variant), "IPropertyStore.GetValue")
+            try:
+                if variant.vt != vt_lpwstr or not variant.value:
+                    return None
+                return ctypes.wstring_at(variant.value)
+            finally:
+                ole32.PropVariantClear.argtypes = [variant_p]
+                ole32.PropVariantClear(variant)
+        finally:
+            method(2)(store)  # IUnknown.Release
+    finally:
+        if initialised:
+            ole32.CoUninitialize()
 
 
 def apply_application_identity(app: Any) -> None:

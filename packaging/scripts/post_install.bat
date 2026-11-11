@@ -153,6 +153,16 @@ set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
   "$s.Save()"
 if errorlevel 1 echo WARNING: could not create the Start Menu shortcut; launch via %BIN_D%\tether-gui.bat
 
+rem The shortcut carries the same AppUserModelID as the running window (issue #673;
+rem tether.gui.identity.WINDOWS_APP_ID). Without it, a shortcut pinned to the taskbar
+rem and the window it opens show as two buttons, as the first build of #673 did on a
+rem real desktop. WScript.Shell cannot write that property, so the env's own Python
+rem writes it through the shortcut's property store. The path reaches Python as an
+rem argument, never inside its source, for the same reason the paths above reach
+rem PowerShell through the environment.
+"%TETHER_PY%" -c "import sys; from tether.gui.identity import set_shortcut_app_id; sys.exit(0 if set_shortcut_app_id(sys.argv[1]) else 1)" "%TETHER_LNK%"
+if errorlevel 1 echo WARNING: could not give the Start Menu shortcut the Tether AppUserModelID; a pinned shortcut may show as a second taskbar button
+
 rem Drop the staged wheels; the environments now own the installed packages.
 del "%WHEELHOUSE%\tether-*.whl" "%WHEELHOUSE%\tmaven-*.whl" "%WHEELHOUSE%\setuptools-*.whl" 2>nul
 exit /b 0

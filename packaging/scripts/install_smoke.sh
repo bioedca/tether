@@ -100,6 +100,15 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   esac
   test -s "$(cygpath -u "${icon_loc%,0}")" || {
     echo "the shortcut's icon file is missing: ${icon_loc%,0}"; exit 1; }
+  # The shortcut carries the window's AppUserModelID, so a pinned shortcut and the
+  # running window are one taskbar button (issue #673). Read it back with the installed
+  # package's own reader, the path passed as an argument.
+  lnk_app_id="$("$prefix\\envs\\tether\\python.exe" -c \
+    'import sys; from tether.gui.identity import shortcut_app_id; print(shortcut_app_id(sys.argv[1]))' \
+    "$lnk_w" | tr -d '\r')"
+  echo "Start Menu shortcut AppUserModelID: $lnk_app_id"
+  test "$lnk_app_id" = "MondragonLab.Tether" || {
+    echo "the Start Menu shortcut does not carry the Tether AppUserModelID: $lnk_app_id"; exit 1; }
   # Uninstall last, through the uninstaller a user would run, and prove the
   # pre_uninstall step removed the shortcut and its folder (issue #551). `_?=`
   # makes the NSIS uninstaller run in place, so this call waits for it instead
