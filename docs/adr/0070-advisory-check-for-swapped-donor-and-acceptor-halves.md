@@ -90,10 +90,10 @@ lower them. They are listed because the rule here is to report the bound, not th
 ## Decision outcome
 
 Chosen option: **option 4 with `min_events` = 15 and `majority` = 0.8**. The first draft chose
-20 events, the smallest count whose worst bound is below 0.1 % everywhere. A real movie changed
-that (*A real movie extracted both ways*, below): Tether's own extraction gave about 10 votes per
-100 molecules, not the fixture's 57, and with the halves swapped 17 of 17 votes pointed the right
-way while 20 events stayed silent. 15 is the smallest count whose worst bound stays near 0.1 %
+20 events, the smallest count whose worst bound is below 0.1 % everywhere. Seven real movies
+changed that (*Seven real movies extracted both ways*, below): Tether's own extraction gave at most
+19 votes per 100 molecules, not the fixture's 57. No movie gave a false warning with the correct
+side, and with the halves swapped 15 events caught three of the seven where 20 caught two. 15 is the smallest count whose worst bound stays near 0.1 %
 (0.13 %, a small-pool bound; 10 events reach 5.9 %), and it raises detection on a typical
 50-molecule movie from 64.5 % to 96.7 %. 0.8 is the largest majority that keeps detection on the
 real fixture near 99 % at 50 molecules: 0.9 buys a lower bound that is already negligible and
@@ -227,26 +227,38 @@ pre-bleach scatter of the 281-molecule fixture. Every condition changes one of t
 typical row. This is a measurement aid in `scripts/`, not a shipped simulator, so PRD N2 (no data
 simulator in v1) is unaffected; the real fixtures remain the evidence the issue names.
 
-**A real movie extracted both ways.** The maintainer ran the check on one real movie that is not
-in the repository (UCKOPSB, 1,700 frames, native registration RMS 0.87 px), extracted with
+**Seven real movies extracted both ways.** The maintainer ran the check on seven real
+tRNA-binding movies that are not in the repository: three samples, one of them the construct of the
+281-molecule fixture, 1,700 frames each, native registration. Each was extracted with
 `--donor-side left`, the correct side, and with `--donor-side right`. The counts come from
 `classify_bleach_event` on the stored `donor_corrected` and `acceptor_corrected` traces:
 
-| Extraction | Molecules | Votes consistent / swapped | Together | No vote | Verdict at 20 | Verdict at 15 |
-|---|---|---|---|---|---|---|
-| `left` (correct) | 183 | 0 / 0 | 46 | 137 | insufficient | insufficient |
-| `right` (wrong) | 165 | 0 / 17 | 23 | 125 | insufficient | **swapped** |
+| Movie | Molecules, left / right | Votes with `left`, consistent / swapped | Votes with `right`, consistent / swapped | Wrong side warns at 20 | Wrong side warns at 15 |
+|---|---|---|---|---|---|
+| 1 (the fixture's construct) | 183 / 165 | 0 / 0 | 0 / 17 | no | **yes** |
+| 2 (second sample) | 147 / 138 | 0 / 0 | 0 / 0 | no | no |
+| 3 (second sample) | 144 / 140 | 0 / 0 | 1 / 0 | no | no |
+| 4 (third sample, replicate A) | 168 / 179 | 8 / 0 | 0 / 33 | **yes** | **yes** |
+| 5 (third sample, replicate A) | 159 / 178 | 10 / 0 | 1 / 33 | **yes** | **yes** |
+| 6 (third sample, replicate B) | 162 / 177 | 1 / 0 | 0 / 4 | no | no |
+| 7 (third sample, replicate B) | 166 / 167 | 2 / 0 | 0 / 4 | no | no |
 
-Two things differ from the fixture. The vote yield is about 10 per 100 molecules, not 57: most
-molecules bleach in view (the summed signal of 137 of the 183 ends below 20 % of its start), but
-few show a donor rise of three standard errors. And the two extractions do not see the same
-molecules. Colocalization is donor-anchored, so every spot on the half labelled donor becomes a
-molecule. The likely result is that the correct side keeps the bright donors, mostly low-FRET and
-donor-only molecules that rarely vote, and the wrong side keeps the bright acceptors, high-FRET
-molecules that vote clearly. On this movie that asymmetry worked for the check: the correct side
-collected no wrong vote and the swapped side collected only right ones. At this movie's yield a
-165-molecule movie with swapped halves warns with probability about 26 % at 20 events and 73 % at
-15 (binomial, with the observed rate as the point estimate).
+With the correct side every movie reads *insufficient* at both thresholds, so none gave a false
+warning. 112 of the 114 votes put the donor on the left; the two that do not are both on
+wrong-side runs.
+
+Two things differ from the fixture. The vote yield is low, 0 to 19 votes per 100 molecules against
+the fixture's 57: most molecules bleach in view (in movie 1 the summed signal of 137 of the 183
+ends below 20 % of its start), but few show a donor rise of three standard errors. And the two
+extractions do not see the same molecules. Colocalization is donor-anchored, so every spot on the
+half labelled donor becomes a molecule. The likely result is that the correct side keeps the
+bright donors, mostly low-FRET and donor-only molecules that rarely vote (3 to 47 *together*
+molecules per movie, against 2 to 23 on the wrong side), and the wrong side keeps the bright
+acceptors, high-FRET molecules that vote clearly. On these movies that asymmetry worked for the
+check: the correct side collected no wrong vote and never reached a verdict, and the swapped side
+collected the clearest votes. At movie 1's yield a 165-molecule movie with swapped halves warns
+with probability about 26 % at 20 events and 73 % at 15 (binomial, with the observed rate as the
+point estimate).
 
 ### Consequences
 
@@ -256,7 +268,7 @@ collected no wrong vote and the swapped side collected only right ones. At this 
   check said and why.
 - Bad / trade-off: the check is silent below about 20 % FRET, without an acceptor, on short
   movies, on most movies under about 35 molecules, and on real movies where few molecules show a
-  clear donor rise (the real movie above gave 10 votes per 100 molecules). In those cases the
+  clear donor rise (four of the seven real movies above stayed silent with the wrong side). In those cases the
   manual check in the docs remains the only defence, and the docs say so.
 - Bad / trade-off: a sample whose acceptor binds and unbinds can read *mixed*. That is a prompt to
   look, not a verdict, and it does not reach the batch summary.
