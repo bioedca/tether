@@ -48,6 +48,10 @@ requires_sidecar = pytest.mark.skipif(
     not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
 )
 
+#: The two fixed seeds of the ebFRET cross-seed gate (issue #311, ADR-0072). Chosen as
+#: as 1 and 2 before any seeded fit was run, and never re-chosen to make it pass.
+EBFRET_SEEDS = (1, 2)
+
 
 @requires_sidecar
 def test_281mol_fresh_fit_matches_reference_within_frozen_tolerance(tmp_path):
@@ -100,14 +104,70 @@ def test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance(tmp_path):
     ~0.68–0.74 vs vbconhmm's ~1.0), so the vbconhmm-derived 0.9 floor is too tight. Its
     per-method tolerance was ratified from 20 self-reseeded fits (run 28963324581).
     ``nstates=4`` matches the 281-mol fixture's state count.
+
+    **The two seeds are fixed** (:data:`EBFRET_SEEDS`; issue #311, ADR-0072). Unseeded,
+    tMAVEN draws each fit's starting points from operating-system entropy, so this
+    gate compared two *random* fits and its result was a draw from the cross-seed
+    distribution: a rare poor fit failed it (Viterbi 0.7568 against the 0.9034 floor)
+    and a re-run of the same commit passed. Seeded, both fits are reproducible, so the
+    gate gives one answer per commit and a failure is a change, not a draw. The frozen
+    band is unchanged; the two seeds were fixed before any seeded fit was scored.
     """
     tolerance = load_frozen_tolerance(FROZEN, method="ebhmm")
 
     smd = tmp_path / "smd_281mol.hdf5"
     shutil.copyfile(FIXTURES / "large" / "smd_281mol.hdf5", smd)
-    a = run_ebhmm(smd, nstates=4, timeout=1800.0)
-    b = run_ebhmm(smd, nstates=4, timeout=1800.0)
+    a = run_ebhmm(smd, nstates=4, timeout=1800.0, seed=EBFRET_SEEDS[0])
+    b = run_ebhmm(smd, nstates=4, timeout=1800.0, seed=EBFRET_SEEDS[1])
 
     metrics = compare_models(a.model, b.model)
+    # Seeded, these numbers are the same on every run of a commit; print them so the
+    # CI log records them (``pytest -s`` or ``-rP`` shows them on a pass).
+    print(f"ebFRET seeds {EBFRET_SEEDS} cross-seed metrics: {metrics}")
     ok, failures = within_tolerance(metrics, tolerance)
     assert ok, f"ebFRET cross-seed parity drift vs frozen ebhmm tolerance: {failures}"
+
+
+def _model_datasets(path):
+    """Every dataset in a tMAVEN model file, by HDF5 path (for a bit-level compare).
+
+    tMAVEN stamps each model and each per-trace result with a ``time_made`` wall-clock
+    string; those are the only datasets left out, because they record *when* the fit
+    ran, not what it found.
+    """
+    import h5py
+
+    out = {}
+
+    def _keep(name, obj):
+        if isinstance(obj, h5py.Dataset) and not name.endswith("time_made"):
+            out[name] = obj[()]
+
+    with h5py.File(path, "r") as f:
+        f.visititems(_keep)
+    return out
+
+
+@requires_sidecar
+def test_4mol_ebfret_same_seed_gives_the_same_model(tmp_path):
+    """Two ebFRET fits with one seed write the same model, value for value.
+
+    The guard behind the fixed-seed gate above (issue #311, ADR-0072): if a tMAVEN
+    change adds a random source the sidecar does not seed, the two fits differ here
+    and this fails on every run, instead of the 281-mol gate going back to a draw.
+    The 4-mol fixture keeps it to a few seconds of fitting.
+    """
+    import numpy as np
+
+    smd = tmp_path / "smd_4mol.hdf5"
+    shutil.copyfile(FIXTURES / "smd_4mol.hdf5", smd)
+    runs = []
+    for name in ("a", "b"):
+        out = tmp_path / f"model_{name}.hdf5"
+        run_ebhmm(smd, nstates=2, timeout=1800.0, seed=EBFRET_SEEDS[0], model_out=out)
+        runs.append(_model_datasets(out))
+
+    a, b = runs
+    assert a and a.keys() == b.keys()
+    for name in a:
+        np.testing.assert_array_equal(a[name], b[name], err_msg=name)

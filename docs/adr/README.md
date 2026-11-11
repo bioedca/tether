@@ -115,6 +115,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0068](0068-a-project-holds-one-experiment.md) | A project holds one experiment, and a condition can span projects | accepted | §5.1 (project, experiment, condition), §3.1 UC3, §5.4, §7.5, §7.6, §7.7, §7.11 |
 | [0069](0069-one-metered-review-then-the-codex-close.md) | One metered review, then the Codex close; Greptile stands in for a long CodeRabbit refusal | accepted; supersedes the two-review trigger and the third shutting condition of [ADR-0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
 | [0070](0070-advisory-check-for-swapped-donor-and-acceptor-halves.md) | An advisory check for swapped donor and acceptor halves | accepted | §7.1 (FR-EXTRACT), §7.11 (FR-BATCH), §11.2 (donor-side check rows) |
+| [0072](0072-seeded-ebfret-parity-gate.md) | The ebFRET parity gate runs on two fixed seeds | accepted | §7.4 (parity definition), §11.2 (the ebFRET tolerance row), §12.6 (`sidecar/parity`), §9 M6 |
 
 <!-- gen:adr-index end -->
 

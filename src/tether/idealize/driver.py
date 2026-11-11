@@ -371,6 +371,7 @@ def run_vbfret(
     nrestarts: int | None = None,
     model_out: str | PathLike[str] | None = None,
     timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
+    seed: int | None = None,
 ) -> IdealizationResult:
     """Run a headless vbFRET-family idealization on an existing SMD file.
 
@@ -390,12 +391,22 @@ def run_vbfret(
         Optional override of tMAVEN's restart count (lower = faster, for tests).
     timeout:
         Seconds before the sidecar is killed (``None`` to wait indefinitely).
+    seed:
+        Optional non-negative integer that makes the fit reproducible: the same
+        SMD, settings and seed give the same model on the same build. ``None``
+        (the default) keeps tMAVEN's own behaviour, which draws its starting
+        points from operating-system entropy, so two fits of one file differ
+        (PRD §7.4). The sidecar seeds both random streams tMAVEN's fits draw from
+        (issue #311; ADR-0072, and
+        :func:`tether.idealize._sidecar_runner.seed_random_streams`).
 
     Returns
     -------
     IdealizationResult
         The fitted model plus per-molecule state paths and dwell segments.
     """
+    if seed is not None and (isinstance(seed, bool) or int(seed) != seed or seed < 0):
+        raise ValueError(f"seed must be a non-negative integer or None, got {seed!r}")
     py = resolve_sidecar_python(sidecar_python)
     smd_path = Path(smd_path)
     if not smd_path.exists():
@@ -406,9 +417,10 @@ def run_vbfret(
         model_out = smd_path.with_name(smd_path.stem + ".model.hdf5")
     model_out = Path(model_out)
 
-    cmd = [
-        str(py),
-        str(_RUNNER),
+    cmd = [str(py), str(_RUNNER)]
+    if seed is not None:
+        cmd += ["--seed", str(int(seed))]
+    cmd += [
         str(smd_path),
         group,
         model_type,
@@ -509,7 +521,7 @@ def run_vbconhmm(
     fixture. A thin named alias for :func:`run_vbfret` with ``model_type`` fixed, so
     the M6 analysis suite has an explicit population-model entry point. All other
     keywords (``sidecar_python``, ``nrestarts``, ``timeout``, ``model_out``,
-    ``group``) forward unchanged.
+    ``group``, ``seed``) forward unchanged.
     """
     return run_vbfret(smd_path, model_type="vbconhmm", nstates=nstates, **kwargs)
 
