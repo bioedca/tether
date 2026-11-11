@@ -29,7 +29,7 @@
 *.icns  binary
 *.ttf   binary
 
-# Frozen MATLAB reference outputs (#700, ADR-0072): their SHA-256 is recorded, so the
+# Frozen MATLAB reference outputs (#700, ADR-0074): their SHA-256 is recorded, so the
 # checkout must keep their bytes on every platform (no CRLF on Windows).
 tests/fixtures/reference/** -text
 

@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""MATLAB reference driver for MASH-FRET (#700, ADR-0072; used by #713 and #714).
+"""MATLAB reference driver for MASH-FRET (#700, ADR-0074; used by #713 and #714).
 
 MASH-FRET has no function interface apart from its window. The ``simulate`` task opens the
 window from ``matlab -batch`` and drives it with MASH-FRET's own routine helpers (the ones its
 ``routinetest_S`` uses): the default simulation parameters of ``getDefault_S``, changed by the
 ``overrides`` parameter, then generation and export to the output directory. ``seed`` is given to
 ``rng`` before generation. Where a result is only in a file the window saved, use ``freeze``
-(ADR-0072, rule of saved files first).
+(ADR-0074, rule of saved files first).
 
     python scripts/reference/matlab/mash_fret.py run --clone PATH --task simulate \\
         --param seed=1 --param 'overrides={"L": 300}' --out <dir>

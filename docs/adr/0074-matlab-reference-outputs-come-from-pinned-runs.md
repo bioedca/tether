@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0072 — MATLAB reference outputs come from pinned runs with a provenance record
+# 0074 — MATLAB reference outputs come from pinned runs with a provenance record
 
 - **Status:** accepted
 - **Date:** 2026-11-11

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""MATLAB reference driver for smfret-analysis2 (#700, ADR-0072; used by #709).
+"""MATLAB reference driver for smfret-analysis2 (#700, ADR-0074; used by #709).
 
 Each task calls one function of the tool's ``bin/`` folder on every trace file of the input
 ``traces`` (a file or a folder of ``*.dat`` files: time, donor, acceptor in columns 1 to 3) and

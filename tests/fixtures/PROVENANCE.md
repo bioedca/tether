@@ -312,7 +312,7 @@ python scripts/make_tutorial_movie.py --check
 `tests/test_docs_tutorial.py` runs the `--check` derivation on every OS in the
 required matrix.
 
-## MATLAB reference outputs (#700, ADR-0072)
+## MATLAB reference outputs (#700, ADR-0074)
 
 Outputs of the MATLAB reference tools live under `tests/fixtures/reference/<tool>/<run>/`, each
 directory with a `provenance.json` that states the tool commit, the MATLAB release, the input and

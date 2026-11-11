@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The MATLAB reference harness (#700, ADR-0072), tested against a stand-in for ``matlab``.
+"""The MATLAB reference harness (#700, ADR-0074), tested against a stand-in for ``matlab``.
 
 CI has no MATLAB (#700 item 8). The stand-in ``tests/_matlab_standin.py`` takes the same
 ``-batch`` command, so these tests exercise everything but the tool's own MATLAB code: the pin

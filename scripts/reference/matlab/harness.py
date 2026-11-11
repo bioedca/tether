@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Run a MATLAB reference tool at its pinned commit and freeze its outputs (#700, ADR-0072).
+"""Run a MATLAB reference tool at its pinned commit and freeze its outputs (#700, ADR-0074).
 
 The drivers beside this file (``smfret_analysis2.py``, ``mash_fret.py``) name a tool and its
 tasks; this module does the rest:

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The one file that pins the MATLAB reference tools (#700, ADR-0072). A driver refuses a clone
+# The one file that pins the MATLAB reference tools (#700, ADR-0074). A driver refuses a clone
 # that is not at the pinned commit or has a local change. Changing a pin is a reviewed change, and
 # the same pull request regenerates every frozen output that the old pin made.
 #
