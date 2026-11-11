@@ -199,3 +199,19 @@ jobs:
           # That file also pins these two command lines exactly (#750): no narrowing
           # option, nothing after the pytest line that could replace its exit status.
           pytest -m sidecar tests/test_*sidecar*.py -q
+
+  report:
+    # A failed nightly or post-merge run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: parity
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: sidecar / parity
+      result: ${{ needs.parity.result }}
+      oracle: "(b) Idealization parity — state count / means / Viterbi / ELBO [M0.5→M2/M6]"
+      fixture-tier: "gated large (tests/fixtures/large/, LFS — large-fixtures.yml)"
