@@ -55,18 +55,20 @@ def _as_str(value: object) -> str:
     return value.decode() if isinstance(value, bytes | bytearray) else str(value)
 
 
-def _gaussian_frame(centers: np.ndarray) -> np.ndarray:
-    frame = np.full(_SHAPE, _BG, dtype=np.float64)
-    rows, cols = np.mgrid[0 : _SHAPE[0], 0 : _SHAPE[1]]
+def _gaussian_frame(centers: np.ndarray, shape: tuple[int, int] = _SHAPE) -> np.ndarray:
+    frame = np.full(shape, _BG, dtype=np.float64)
+    rows, cols = np.mgrid[0 : shape[0], 0 : shape[1]]
     for x, y in centers:
         frame += _AMP * np.exp(-((rows - y) ** 2 + (cols - x) ** 2) / (2.0 * _SIGMA**2))
     return frame
 
 
-def _write_movie(path, donor_centers=_DONOR_CENTERS, acceptor_centers=_ACCEPTOR_CENTERS) -> None:
+def _write_movie(
+    path, donor_centers=_DONOR_CENTERS, acceptor_centers=_ACCEPTOR_CENTERS, shape=_SHAPE
+) -> None:
     """Write a synthetic dual-channel big-endian uint16 movie (donor | acceptor)."""
-    frame = _gaussian_frame(np.vstack([donor_centers, acceptor_centers]))
-    stack = np.broadcast_to(frame, (_N_FRAMES, *_SHAPE))
+    frame = _gaussian_frame(np.vstack([donor_centers, acceptor_centers]), shape)
+    stack = np.broadcast_to(frame, (_N_FRAMES, *shape))
     be = np.ascontiguousarray(stack, dtype=">u2")
     tifffile.imwrite(path, be, photometric="minisblack", byteorder=">")
 
@@ -309,11 +311,12 @@ def test_low_confidence_registration_flags_not_drops(tmp_path) -> None:
 
 # --- imported .tmap registration path (S9 PR-C1; §7.1 "native AND imported") --
 #
-# There is no committed .tmap (the MCOS format is impractical to author, and
-# read_tmap's real decode is covered data-present in test_register.py). The
-# imported branch is exercised by reconstructing TmapChannel objects in memory --
-# the same shape read_tmap returns -- encoding the same +1 px map the native fit
-# recovers, and monkeypatching the decode at the extract.py seam.
+# The one committed .tmap is the bead map in the Git LFS large tier (the MCOS
+# format is impractical to author): test_register.py decodes it, and the last test
+# of this block runs it end to end. The required-matrix tests exercise the imported
+# branch by reconstructing TmapChannel objects in memory -- the same shape read_tmap
+# returns -- encoding the same +1 px map the native fit recovers, and monkeypatching
+# the decode at the extract.py seam.
 
 
 def _synthetic_tmap_channels(
@@ -513,6 +516,40 @@ def test_extract_imported_tmap_nonidentity_geometry_refused(
     assert rc == 1
     assert "rotation/flip" in capsys.readouterr().err
     assert not out.exists()
+
+
+_BEAD_TMAP = Path(__file__).resolve().parent / "fixtures" / "large" / "bead_prealign.tmap"
+_BEAD_ORACLE = Path(__file__).resolve().parent / "fixtures" / "bead_prealign_oracle.npz"
+
+
+@pytest.mark.large
+def test_cli_extract_with_committed_bead_tmap(tmp_path, capsys) -> None:
+    # #733 IMG-F2: one --tmap run with no monkeypatch, so read_tmap decodes a real file. The
+    # acceptor copies sit where the bead oracle's ground-truth similarity puts them, which does
+    # not depend on this decode; the similarity fits the map's polynomial to 0.19 px.
+    if not _BEAD_TMAP.is_file() or _BEAD_TMAP.read_bytes()[:64].startswith(
+        b"version https://git-lfs"
+    ):
+        pytest.skip("LFS large-tier fixture not materialized (default checkout)")
+    oracle = np.load(_BEAD_ORACLE)
+    theta = np.deg2rad(float(oracle["gt_rotation_deg"]))
+    rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    donor = np.array([[60.0, 180.0], [150.0, 260.0], [200.0, 330.0]])  # full-frame [x, y]
+    # crop-local acceptor -> donor is s*R*a + t, so a = R^T (d - t) / s (row vectors: @ R).
+    local = (donor - oracle["donor_crop_offset"] - oracle["gt_translation"]) @ rot
+    acceptor = local / float(oracle["gt_scale"]) + oracle["acceptor_crop_offset"]
+    movie = tmp_path / "bead_check.tif"
+    _write_movie(movie, donor, acceptor, shape=(512, 512))
+    out = tmp_path / "bead.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(_BEAD_TMAP)])
+
+    assert rc == 0, capsys.readouterr().err
+    mols = read_molecules(out)
+    order = np.argsort(mols["donor_xy"][:, 0])
+    np.testing.assert_allclose(mols["donor_xy"][order], donor, atol=0.01)
+    # acceptor_xy is local to the acceptor channel, whose crop origin in this map is [256, 0].
+    np.testing.assert_allclose(mols["acceptor_xy"][order] + [256.0, 0.0], acceptor, atol=0.5)
 
 
 # --- selectable detection mode + threshold (S9 PR-C3c; PRD §11.2, ADR-0021) --
