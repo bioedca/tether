@@ -80,6 +80,7 @@ nav:
       - Roadmap: roadmap.md
       - Stability policy: stability.md
       - Privacy policy: privacy.md
+      - Brand: brand.md
       - How AI tools are used: ai-use.md
       - Architecture decisions: adr/README.md
       - Releasing (tag-driven pipeline): release.md
