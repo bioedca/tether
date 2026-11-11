@@ -441,6 +441,16 @@ offers { accept-with-flag | import a `.tmap` | abort this movie } (default focus
 **headless batch**, the default is **accept-with-flag + a structured warning** in the per-movie log and end-of-run
 summary (do not abort), with the batch policy (warn-and-flag vs. fail-movie) configurable in the settings profile.
 
+**Donor-side check (advisory).** A wrong `--donor-side` raises no error and inverts every FRET efficiency, so at the
+end of extraction Tether **shall** check the side from the traces: among molecules with a complete single-step
+bleach sequence, an acceptor bleach drops the acceptor and raises the donor (dequenching), while a donor bleach
+takes both to background [Roy2008][McCann2010]. When the channel labelled acceptor shows the donor's pattern in a
+large majority of events, the extraction reports that the halves look swapped, names the evidence and the remedy,
+and records the result with the extraction provenance; the batch summary lists the flagged movies. The check is
+advisory: it never changes data and never blocks. With too few events it reports "not enough bleach events to
+check" and stays out of the batch summary. Thresholds and the measured false-alarm rates are in §11.2 and
+[ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md).
+
 ### 7.2 FR-CORRECT — Corrections & FRET computation
 
 Tether **shall** compute corrected FRET following the order **background → leakage α → direct-excitation δ (= 0)
@@ -1095,6 +1105,8 @@ this section.
 | Over-gate batch policy (headless) | `warn` = accept-with-flag + structured warning (default; never abort, never drop); `fail` = fail-the-movie | Tether (§7.1; ADR-0014) |
 | Batch sidecar supervision (auto-restart / liveness) | auto-restart up to **N = 3** per movie's idealization on a *transient* sidecar failure (crash/timeout; a sidecar-reported fit error is **not** retried); per-idealization-call timeout = **1800 s** (inherited from `run_vbfret`); startup liveness probe (probe timeout **120 s**) → sidecar absent/corrupt ⇒ idealization **deferred** for the run (extract + correct still run and checkpoint; a later run resumes only the deferred stage) | Tether (§7.11 FR-BATCH; ADR-0031) |
 | Colocalization distance | 3 px, donor-anchored (ADR-0015) | `deeplasi/functions/mapping/findColoc.m`, `traces/batchExtraction.m:182` |
+| Donor-side check — event rule (advisory) | a molecule votes when one channel bleaches ≥ **5** frames before the other, the other also bleaches ≥ **5** frames before the trace end, and across the first step the first channel drops **and** the other rises by ≥ **3** standard errors (levels = means of ≤ **10** frames each side; noise = 1.4826·MAD of first differences / √2); vote *consistent* when the dropping channel is the labelled acceptor, *swapped* when it is the labelled donor; the bleach frames come from the bleach-detection row below | Tether (§7.1; ADR-0070); acceptor-bleach dequenching vs. donor-bleach-to-background [Roy2008][McCann2010][Hellenkamp2018]; the second-bleach requirement keeps FRET transitions from voting (measured on the kinSoftChallenge sets, ADR-0070) |
+| Donor-side check — verdict (advisory) | ≥ **15** votes, else *insufficient* ("not enough bleach events to check"); *swapped* when ≥ **80 %** of the votes (⌈0.8·n⌉) are swapped, *consistent* when ≥ 80 % are consistent, else *mixed*; never changes data, never blocks. Measured worst false-alarm rate (one-sided 95 % upper bound) **0.13 %** (kinSoft `level2` at 250 molecules, a small-pool bound with no wrong vote), **0.10 %** for binding-like short movies, all other fixtures and simulated conditions < 0.01 %; the 281-molecule fixture reads *consistent* as stored (150 / 10 votes) and *swapped* with the channels exchanged; of seven real 1,700-frame movies extracted both ways, none warns with the correct side and three warn with the wrong side (two at 20 events) | Tether (§7.1, §7.11; ADR-0070); `scripts/measure_side_check.py`, seed 0 |
 | Bleach detection | native reimplementation of **tMAVEN's Bayesian single-step model** (signal→N(0)), run per channel; priors a = b = β = 1, μ = 1000; per-channel first-bleach validated by reference-formula parity with tMAVEN's formulas + synthesized known-step recovery (ADR-0026, §9.5 (g); the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | [Verma2024]; `tmaven/tmaven/controllers/photobleaching/photobleaching.py`. (Kalafut2008 is a parameter-free *multi-step* method — classical alternative only; the `penalty ≈ 5` is Deep-LASI's `stepFinder` L1 mode, `TRACEdata.m:110`, not a Kalafut parameter) |
 | Correction tolerance window (γ half-width) | 3 frames each side of the bleach step (configurable) | `MASH-FRET/docs/.../panel-factor-corrections.md`; [McCann2010] (§7.2, §9 M3) |
 | γ-agreement tolerance (M3) | γ within ±10% of the Deep-LASI median on the shared-frame, estimator-isolated comparison | Tether (§7.2, §9 M3) |

@@ -87,7 +87,7 @@ covers both axes). Empty or all-zero `Rotation`/`Flip` — what the reference UC
 stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 `tether.imaging.register`).
 
-> ### Getting `--donor-side` backwards is silent, and relabelling afterwards will not fix it
+> ### Getting `--donor-side` backwards raises no error, and relabelling afterwards will not fix it
 >
 > **A wrong `--donor-side` raises no error during extraction.** Both values are legal, so
 > extraction succeeds and every trace looks plausible.
@@ -104,6 +104,15 @@ stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 > acceptor dies, energy transfer stops and the donor de-quenches, so the **donor trace
 > steps up** at that instant. If the trace you have labelled "donor" steps *down* while the
 > other steps up, your halves are swapped.
+>
+> Tether makes this check for you after every extraction. It counts each molecule whose dyes
+> bleach one after the other, with a clear drop in one channel and a clear rise in the other,
+> and warns when at least 80 % of at least 15 such bleach events point to swapped halves;
+> `tether batch` lists those movies in its summary. The check is advisory and cannot decide
+> on every sample: with low FRET, no acceptor, short movies or few molecules
+> it reports "not enough bleach events to check", and then the check by eye above is the
+> one that remains. See [the donor-side
+> check](cli.md#get-donor-side-right-and-read-the-donor-side-check).
 >
 > This is a correctness risk, not a preference — which is why it is stated here, on a page
 > you read before installing.
