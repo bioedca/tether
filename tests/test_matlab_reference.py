@@ -292,7 +292,19 @@ def test_freeze_refuses_a_value_that_is_not_a_matlab_release(tmp_path, release) 
 
 
 @pytest.mark.parametrize(
-    "text", ["/home/lab/traces", "~/data", "C:\\Users\\lab", "D:/movies", "\\\\server\\share"]
+    "text",
+    [
+        "/home/lab/traces",
+        "~/data",
+        "C:\\Users\\lab",
+        "D:/movies",
+        "\\\\server\\share",
+        "`/home/lab/traces`",
+        "[the data](/home/lab/traces)",
+        "[C:\\Users\\lab]",
+        "<~/data>",
+        "{D:/movies}",
+    ],
 )
 def test_no_absolute_path_reaches_a_record(tmp_path, clone, text) -> None:
     pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
@@ -323,7 +335,15 @@ def test_no_absolute_path_reaches_a_record(tmp_path, clone, text) -> None:
 
 
 def test_relative_names_pass_the_path_check() -> None:
-    harness._no_private_paths(["choose the folder test-data/traces", "ratio 1/2"], {"L": 300})
+    harness._no_private_paths(
+        [
+            "choose the folder test-data/traces",
+            "open `test-data/traces`",
+            "ratio 1/2",
+            "~300 frames",
+        ],
+        {"L": 300},
+    )
 
 
 def test_an_input_changed_during_the_run_is_refused(tmp_path, clone, traces) -> None:

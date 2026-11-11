@@ -43,8 +43,9 @@ RECORD = "provenance.json"
 RECORD_VERSION = 1
 # What `version('-release')` returns ("2023b"), optionally with the "R" of the product name.
 RELEASE = re.compile(r"R?\d{4}[a-z]")
-# An absolute path (POSIX, home, Windows drive or UNC share) at the start of a word.
-PRIVATE_PATH = re.compile(r"(?:^|[\s\"'(=])(?:/|~[/\\]|[A-Za-z]:[\\/]|\\\\)")
+# An absolute path (POSIX, home, Windows drive or UNC share) that does not continue a word or a
+# relative path: any delimiter before it counts, so `/x`, [/x], <C:\x> and "~/x" are all found.
+PRIVATE_PATH = re.compile(r"(?:^|(?<=[^\w./\\~-]))(?:/|~[/\\]|[A-Za-z]:[\\/]|\\\\)")
 
 
 class HarnessError(RuntimeError):
