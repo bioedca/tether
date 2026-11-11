@@ -24,6 +24,7 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
+from _synth import step_traces as _step_trace  # noqa: E402
 from tether.idealize import IdealizationResult, StateModel, read_smd  # noqa: E402
 from tether.idealize.driver import NO_STATE  # noqa: E402
 from tether.imaging.aperture import IntegratedTraces  # noqa: E402
@@ -159,14 +160,6 @@ def _build_store(
         k.decode() if isinstance(k, bytes) else str(k) for k in read_molecules(path)["molecule_key"]
     ]
     return proj, keys
-
-
-def _step_trace(n: int, t: int, *, low: float = 200.0, high: float = 800.0) -> np.ndarray:
-    """``(n, t)`` two-level step (a distinct switch frame per molecule)."""
-    out = np.full((n, t), low, dtype="float64")
-    for i in range(n):
-        out[i, (t // 3) + i :] = high
-    return out
 
 
 # --- the fake sidecar --------------------------------------------------------
