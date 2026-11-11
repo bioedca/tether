@@ -135,7 +135,9 @@ def _write_record(out: Path, record: dict) -> Path:
 
 
 def _matlab_cmd(matlab: str) -> list[str]:
-    return [sys.executable, matlab] if matlab.endswith(".py") else [matlab]
+    # The run's working directory is a temporary one, so a relative path is resolved here.
+    exe = str(Path(matlab).resolve()) if Path(matlab).is_file() else matlab
+    return [sys.executable, exe] if exe.endswith(".py") else [exe]
 
 
 def _quote(text: str) -> str:

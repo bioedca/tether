@@ -260,5 +260,18 @@ def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
 
 def test_the_standin_is_a_python_script() -> None:
     # The harness runs a ``.py`` --matlab with this interpreter; any other value is executed.
-    assert harness._matlab_cmd(STANDIN) == [sys.executable, STANDIN]
+    assert harness._matlab_cmd(STANDIN) == [sys.executable, str(Path(STANDIN).resolve())]
     assert harness._matlab_cmd("matlab") == ["matlab"]
+
+
+def test_a_relative_matlab_path_survives_the_temporary_working_directory(
+    tmp_path, clone, monkeypatch
+) -> None:
+    monkeypatch.chdir(ROOT)
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e"}}
+    rel = Path(STANDIN).relative_to(ROOT).as_posix()
+    harness.run(
+        "x", "t", tasks, clone=clone[0], inputs={}, out=tmp_path / "o", matlab=rel, pins=pins
+    )
+    harness.verify(tmp_path / "o")
