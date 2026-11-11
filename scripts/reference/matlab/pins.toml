@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The one file that pins the MATLAB reference tools (#700, ADR-0072). A driver refuses a clone
+# that is not at the pinned commit or has a local change. Changing a pin is a reviewed change, and
+# the same pull request regenerates every frozen output that the old pin made.
+#
+# kind = "git":   `commit` is the full 40-hex commit of a public repository.
+# kind = "files": a tool with no public commit (the laboratory scripts of #710). `files` maps
+#                 each script's name to its SHA-256; the scripts stay on the workstation.
+
+[smfret-analysis2]
+kind = "git"
+url = "https://github.com/vafabakhsh-lab/smfret-analysis2"
+commit = "121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"  # 2022-05-20, the default branch head
+licence = "GPL-3.0"
+
+[mash-fret]
+kind = "git"
+url = "https://github.com/RNA-FRETools/MASH-FRET"
+commit = "83fcadf3b7274f2eeb22591429202dda0328c05b"  # tag v1.3.6, 2025-11-14
+licence = "GPL-3.0"
