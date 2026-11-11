@@ -95,6 +95,30 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   sm_dir="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Tether"
   test -f "$sm_dir/Tether.lnk" || {
     echo "missing Start Menu shortcut: $sm_dir/Tether.lnk"; exit 1; }
+  # The shortcut shows the Tether icon: tether.ico from the installed wheel, not the
+  # generic tether-gui.exe launcher (issue #673). Read it back from the .lnk itself, the
+  # way Start reads it; the path goes to PowerShell through the environment, as in
+  # post_install.bat. Then check that the file it names is there.
+  lnk_w="$(cygpath -w "$sm_dir/Tether.lnk")"
+  icon_loc="$(TETHER_LNK_W="$lnk_w" powershell -NoProfile -NonInteractive -Command \
+    '(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK_W).IconLocation' \
+    | tr -d '\r')"
+  echo "Start Menu shortcut IconLocation: $icon_loc"
+  case "$icon_loc" in
+    *'\envs\tether\Lib\site-packages\tether\gui\assets\brand\app-icon\tether.ico,0') ;;
+    *) echo "the Start Menu shortcut does not show tether.ico: $icon_loc"; exit 1 ;;
+  esac
+  test -s "$(cygpath -u "${icon_loc%,0}")" || {
+    echo "the shortcut's icon file is missing: ${icon_loc%,0}"; exit 1; }
+  # The shortcut carries the window's AppUserModelID, so a pinned shortcut and the
+  # running window are one taskbar button (issue #673). Read it back with the installed
+  # package's own reader, the path passed as an argument.
+  lnk_app_id="$("$prefix\\envs\\tether\\python.exe" -c \
+    'import sys; from tether.gui.identity import shortcut_app_id; print(shortcut_app_id(sys.argv[1]))' \
+    "$lnk_w" | tr -d '\r')"
+  echo "Start Menu shortcut AppUserModelID: $lnk_app_id"
+  test "$lnk_app_id" = "MondragonLab.Tether" || {
+    echo "the Start Menu shortcut does not carry the Tether AppUserModelID: $lnk_app_id"; exit 1; }
   # Uninstall last, through the uninstaller a user would run, and prove the
   # pre_uninstall step removed the shortcut and its folder (issue #551). `_?=`
   # makes the NSIS uninstaller run in place, so this call waits for it instead
@@ -166,7 +190,24 @@ else
   # `gui-scripts` on Unix is a normal console script, so this is safe headless.
   PATH="$prefix/bin:$PATH" tether-gui --version
   if [ "$RUNNER_OS" = "Linux" ]; then
-    test -f "$HOME/.local/share/applications/tether.desktop" || {
+    desktop="$HOME/.local/share/applications/tether.desktop"
+    test -f "$desktop" || {
       echo "missing desktop entry"; exit 1; }
+    # The menu entry's icon (issue #673): the two lines that name it and match the
+    # running window to the entry, and every icon file post_install copied into the
+    # user's hicolor tree, byte for byte the same as the wheel's copy.
+    grep -qx 'Icon=tether' "$desktop" || {
+      echo "desktop entry has no Icon=tether line"; exit 1; }
+    grep -qx 'StartupWMClass=Tether' "$desktop" || {
+      echo "desktop entry has no StartupWMClass=Tether line"; exit 1; }
+    icon_src="$("$prefix/envs/tether/bin/python" -c 'from tether.gui.identity import hicolor_dir; print(hicolor_dir())')"
+    for rel in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512; do
+      rel="$rel/apps/tether.png"
+      cmp -s "$icon_src/$rel" "$HOME/.local/share/icons/hicolor/$rel" || {
+        echo "icon not installed: ~/.local/share/icons/hicolor/$rel"; exit 1; }
+    done
+    cmp -s "$icon_src/scalable/apps/tether.svg" \
+      "$HOME/.local/share/icons/hicolor/scalable/apps/tether.svg" || {
+      echo "icon not installed: ~/.local/share/icons/hicolor/scalable/apps/tether.svg"; exit 1; }
   fi
 fi

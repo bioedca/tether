@@ -78,10 +78,14 @@ def create_shell(
     path on the command line was wrong.
 
     The arguments are parsed first, so ``--version`` and ``--help`` exit before any Qt
-    import and before any window. Then the startup splash shows, before the import of
-    :mod:`tether.gui.shell`, which is the slow part; it closes when the shell window is
-    shown, or before the error propagates when the start fails. ``splash=None`` shows it
-    unless the Qt platform is headless; ``True`` or ``False`` decides it explicitly.
+    import and before any window. Then the application identity — the Tether icon, the
+    Windows AppUserModelID and the Linux desktop file name (issue #673,
+    :mod:`tether.gui.identity`) — is set, before the splash: Windows reads the identity
+    only before the first window, and the splash is a window. Then the startup splash
+    shows, before the import of :mod:`tether.gui.shell`, which is the slow part; it
+    closes when the shell window is shown, or before the error propagates when the start
+    fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
+    ``False`` decides it explicitly.
     """
     args = build_parser().parse_args(argv)
 
@@ -90,12 +94,14 @@ def create_shell(
     from PySide6 import QtWidgets
 
     from tether.gui import splash as startup
+    from tether.gui.identity import APPLICATION_NAME, apply_application_identity
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    app.setApplicationName("Tether")
-    app.setApplicationDisplayName("Tether")
+    app.setApplicationName(APPLICATION_NAME)
+    app.setApplicationDisplayName(APPLICATION_NAME)
     app.setOrganizationName(_ORGANIZATION)
     app.setApplicationVersion(__version__)
+    apply_application_identity(app)
 
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
