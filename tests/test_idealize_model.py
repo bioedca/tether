@@ -398,7 +398,7 @@ def test_runner_main_wrong_argc():
 
 
 # --------------------------------------------------------------------------- #
-# Reproducible fits: the ``--seed`` contract (issue #311, ADR-0072)
+# Reproducible fits: the ``--seed`` contract (issue #311, ADR-0075)
 # --------------------------------------------------------------------------- #
 
 

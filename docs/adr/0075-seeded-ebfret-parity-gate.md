@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0072 — The ebFRET parity gate runs on two fixed seeds
+# 0075 — The ebFRET parity gate runs on two fixed seeds
 
 - **Status:** accepted
 - **Date:** 2026-11-11

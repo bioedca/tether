@@ -397,7 +397,7 @@ def run_vbfret(
         (the default) keeps tMAVEN's own behaviour, which draws its starting
         points from operating-system entropy, so two fits of one file differ
         (PRD §7.4). The sidecar seeds both random streams tMAVEN's fits draw from
-        (issue #311; ADR-0072, and
+        (issue #311; ADR-0075, and
         :func:`tether.idealize._sidecar_runner.seed_random_streams`).
 
     Returns

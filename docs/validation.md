@@ -190,7 +190,7 @@ observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor
 ([#311](https://github.com/bioedca/tether/issues/311)). `run_ebhmm(..., seed=N)` now seeds both
 streams in the sidecar, and the gate fits seeds 1 and 2, so it gives one answer per commit. The
 band is unchanged. `test_4mol_ebfret_same_seed_gives_the_same_model` fails if a seeded fit stops
-being reproducible ([ADR-0072](adr/0072-seeded-ebfret-parity-gate.md)). Unseeded fits, including
+being reproducible ([ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)). Unseeded fits, including
 every fit run from the GUI, keep tMAVEN's own behaviour.
 
 **Which build each tolerance was measured on — and the gap that opens.** Both `method`
@@ -594,7 +594,7 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
   recorded values *within* the bounds, so widening a bound keeps them passing. Only
   tightening below the evidence, or removing the evidence, is caught (see §(b)).
 - The ebFRET gate tests **one fixed pair of seeds** (1 and 2,
-  [ADR-0072](adr/0072-seeded-ebfret-parity-gate.md)), not a fresh pair per run. A regression
+  [ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)), not a fresh pair per run. A regression
   that shows only on some seeds can pass it. Unseeded ebFRET keeps a rare poor-optimum tail
   (one observed draw scored Viterbi 0.7568 against the 0.9034 floor,
   [#311](https://github.com/bioedca/tether/issues/311)) that the frozen band does not cover.

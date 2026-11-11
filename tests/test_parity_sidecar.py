@@ -48,7 +48,7 @@ requires_sidecar = pytest.mark.skipif(
     not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
 )
 
-#: The two fixed seeds of the ebFRET cross-seed gate (issue #311, ADR-0072). Chosen as
+#: The two fixed seeds of the ebFRET cross-seed gate (issue #311, ADR-0075). Chosen as
 #: as 1 and 2 before any seeded fit was run, and never re-chosen to make it pass.
 EBFRET_SEEDS = (1, 2)
 
@@ -105,7 +105,7 @@ def test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance(tmp_path):
     per-method tolerance was ratified from 20 self-reseeded fits (run 28963324581).
     ``nstates=4`` matches the 281-mol fixture's state count.
 
-    **The two seeds are fixed** (:data:`EBFRET_SEEDS`; issue #311, ADR-0072). Unseeded,
+    **The two seeds are fixed** (:data:`EBFRET_SEEDS`; issue #311, ADR-0075). Unseeded,
     tMAVEN draws each fit's starting points from operating-system entropy, so this
     gate compared two *random* fits and its result was a draw from the cross-seed
     distribution: a rare poor fit failed it (Viterbi 0.7568 against the 0.9034 floor)
@@ -152,7 +152,7 @@ def _model_datasets(path):
 def test_4mol_ebfret_same_seed_gives_the_same_model(tmp_path):
     """Two ebFRET fits with one seed write the same model, value for value.
 
-    The guard behind the fixed-seed gate above (issue #311, ADR-0072): if a tMAVEN
+    The guard behind the fixed-seed gate above (issue #311, ADR-0075): if a tMAVEN
     change adds a random source the sidecar does not seed, the two fits differ here
     and this fails on every run, instead of the 281-mol gate going back to a draw.
     The 4-mol fixture keeps it to a few seconds of fitting.
