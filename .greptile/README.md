@@ -105,5 +105,7 @@ conditions on that, and this page states none of them.
 **One exception makes Greptile the metered gate** (ADR-0069). Where CodeRabbit posts a refusal that
 names more than 30 minutes, §Review lets one **standard** Greptile review stand in for it — the one
 already on the pull request, or else a new one asked only while the seat has credits left and Tether
-is under its share of 15 for the month, both read from the script above at that moment. An unreadable
-balance is a no. §Review carries the conditions, and this page states none beyond these.
+is under its share of 15 for the month, both read from the script above at that moment. Count a TREX
+review as three in that reading, because the script counts it as one (see "Reading the balance before
+spending"). An unreadable balance is a no. §Review carries the conditions, and this page states none
+beyond these.

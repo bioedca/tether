@@ -208,9 +208,10 @@ validity turns on it being the right test — must satisfy both.
   usage-based-billing offer, which is the maintainer's spending decision.
   **Where the posted refusal names more than 30 minutes, one standard Greptile review may stand in
   as this gate** (ADR-0069): the one already on this PR, or else a new one — asked only if
-  `greptile_usage.py`, read then, shows credits left and Tether under its share of 15 a month; an
-  unreadable balance is a no. Quote the refusal. The stand-in is held to everything asked of
-  CodeRabbit's review, and CodeRabbit is not asked again. Codex never stands in.
+  `greptile_usage.py`, read then, shows credits left and Tether under its share of 15 a month, a
+  TREX review counted as three because the script counts it as one; an unreadable balance is a
+  no. Quote the refusal. The stand-in is held to everything asked of CodeRabbit's review, and
+  CodeRabbit is not asked again. Codex never stands in.
 - **A spent cap closes on Codex rather than on a maintainer.** When a *completed* CodeRabbit
   review, or the stand-in for it, stands on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
   inline findings of its own; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`

@@ -90,8 +90,9 @@ The maintainer answered one question for each route on 2026-11-10.
      minutes**. The worker quotes it in the pull request.
    - The stand-in is the Greptile review already on the pull request, if there is one. Otherwise it
      is a new one, asked only if `.agents/bin/greptile_usage.py`, read at that moment, shows that
-     the seat has credits left and that Tether is under its share. A balance the script cannot read
-     is a no, and the refusal is then a wait, as before.
+     the seat has credits left and that Tether is under its share. The script counts each review
+     submission as one credit, so the worker counts a TREX review as three in that reading. A
+     balance the script cannot read is a no, and the refusal is then a wait, as before.
    - It is a standard review. A TREX review costs three credits and is not a stand-in.
    - It is held to everything `AGENTS.md` §Review asks of CodeRabbit's review: posted by the
      provider, naming the commit it read, with no actionable comments — or, where it has findings,

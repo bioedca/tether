@@ -439,7 +439,8 @@ requests rather than batching them.
 minutes**, `AGENTS.md` §Review lets one standard Greptile review stand in as the metered
 gate: the one already on the pull request, or else a new one, asked only when
 `<py> .agents/bin/greptile_usage.py` — read at that moment — shows credits left on the seat and
-Tether under its share of 15 a month. A balance the script cannot read is a no, and the
+Tether under its share of 15 a month. Count each TREX review as three when you read it: the
+script counts a submission as one credit. A balance the script cannot read is a no, and the
 refusal is then the wait it always was. The stand-in is held to everything asked of
 CodeRabbit's review, CodeRabbit is not asked again on that pull request, and Codex never
 stands in — a refusal still opens no Codex close.
