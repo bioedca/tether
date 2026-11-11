@@ -11,8 +11,12 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Frozen reference outputs (#700, ADR-0072) are checked byte for byte against
+      # their SHA-256; a hook that rewrote their whitespace would break the record.
       - id: trailing-whitespace
+        exclude: ^tests/fixtures/reference/
       - id: end-of-file-fixer
+        exclude: ^tests/fixtures/reference/
       - id: check-yaml
         # packaging/construct.yaml is a `constructor` recipe, not plain YAML: it
         # uses conda-build line selectors (`# [win]`) and Jinja, so the same key

@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-11T20:57:26+00:00",
+  "driver": {
+    "clean": true,
+    "commit": "abfc61d81fefe299a1cb0de52bff25af42556b1c"
+  },
+  "inputs": {},
+  "manual_steps": [],
+  "matlab": {
+    "release": "0000x",
+    "version": "0.0.0 (stand-in)"
+  },
+  "method": "matlab-batch",
+  "os": "Linux-6.18.44-fc-v378-x86_64-with-glibc2.39",
+  "outputs": {
+    "selftest.csv": "ef5aa1c245f8a4790533a830aa5288356600ac7773a3f451c5c49740a9956ace"
+  },
+  "params": {},
+  "record_version": 1,
+  "task": "selftest",
+  "tool": {
+    "commit": "0d0aa402e7e07549b8532b34871e0efbc3750ab9",
+    "name": "stand-in",
+    "url": "none (a one-file repository made for this self-test)"
+  }
+}
