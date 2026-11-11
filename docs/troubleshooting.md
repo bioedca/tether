@@ -28,8 +28,10 @@ advisory [donor-side check](cli.md#get-donor-side-right-and-read-the-donor-side-
 which needs at least 15 bleach events. A bleach event here is a molecule whose dyes bleach
 one after the other, with a clear drop in one channel and a clear rise in the other at the
 first bleach. With fewer, the check does not warn: `tether extract` prints
-`donor side: not enough bleach events to check the donor side`, and `tether batch` does not
-list the movie. The CLI takes it as free text (`tether.cli`, `metavar="{left,right}"` rather than `choices=`), so
+`donor side: not enough bleach events to check the donor side`, and `tether batch` neither
+marks the movie `halves-swapped?` nor adds it to its list of movies whose halves look
+swapped. The CLI takes `--donor-side` as free text (`tether.cli`, `metavar="{left,right}"`
+rather than `choices=`), so
 a *typo* is rejected downstream by `ExtractOptions.__post_init__`:
 
 ```text
