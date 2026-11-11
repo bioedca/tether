@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# scheduled-failure — the one report step for scheduled jobs (#697). A scheduled run that fails
+# on `main` used to be visible on the Actions page only: a break from an upstream change, a
+# runner image or an expired cache has no pull request to show it. Each scheduled workflow
+# calls this after its watched job:
+#
+#   report:
+#     needs: <watched job>
+#     if: ${{ !cancelled() }}
+#     permissions: { actions: read, contents: read, issues: write }
+#     uses: ./.github/workflows/scheduled-failure.yml
+#     with: { job-name: <its name:>, result: "${{ needs.<watched job>.result }}" }
+#
+# The logic is scripts/report_scheduled_failure.py (unit-tested offline in
+# tests/test_scheduled_failure_report.py, which also holds every caller to the shape above).
+# A failure opens one issue with a fixed title, or adds at most one comment a day to the open
+# one; the next pass adds one comment; nothing closes the issue.
+#
+# `!cancelled()` in the caller, not `always()`: a run that a newer run replaced (the
+# `cancel-in-progress` concurrency of every caller) is not a failure and must not report. A job
+# that hit its own `timeout-minutes` ends `cancelled` inside a run that is not, and does report.
+name: scheduled-failure
+
+on:
+  workflow_call:
+    inputs:
+      job-name:
+        description: The watched job's `name:`. The issue title is built from it.
+        type: string
+        required: true
+      result:
+        description: The watched job's result, `needs.<job>.result`.
+        type: string
+        required: true
+      oracle:
+        description: >-
+          For an oracle job, the oracle option of the validation-oracle-failure form; the issue
+          then gets that form's fields and labels. Empty for any other job (`type:ci`).
+        type: string
+        default: ""
+      fixture-tier:
+        description: For an oracle job, the fixture-tier option of the same form.
+        type: string
+        default: ""
+      drill:
+        description: >-
+          A manual run that reports as a scheduled run would (#697), with the title prefix
+          `ci(drill)` so it never touches the real issue.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  issue:
+    name: issue
+    # Never for a pull request: a scheduled run, a push to the default branch, or a drill only.
+    # The script refuses the same events again, so a broken condition here still writes nothing.
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'workflow_dispatch' && inputs.drill)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The only job in any caller that may write, and it may write issues only.
+    permissions:
+      actions: read # the run's jobs and the failed job's log
+      contents: read # check out the report script
+      issues: write # open the issue, or comment on it
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/report_scheduled_failure.py
+          sparse-checkout-cone-mode: false
+      - name: Open or update the failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_JOB_NAME: ${{ inputs.job-name }}
+          REPORT_RESULT: ${{ inputs.result }}
+          REPORT_ORACLE: ${{ inputs.oracle }}
+          REPORT_FIXTURE_TIER: ${{ inputs.fixture-tier }}
+          REPORT_DRILL: ${{ inputs.drill }}
+        run: python3 scripts/report_scheduled_failure.py

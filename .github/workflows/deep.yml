@@ -82,3 +82,17 @@ jobs:
         # tests/test_marker_contract.py. `-m deep` still filters within the collected
         # files, so a non-deep-marked test that happened to match is deselected.
         run: pytest -m deep tests/test_*_deep.py -q
+
+  report:
+    # A failed nightly run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: smoke
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: deep / smoke
+      result: ${{ needs.smoke.result }}
