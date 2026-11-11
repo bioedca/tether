@@ -1,0 +1,292 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The workstation runner itself, on the required matrix (ADR-0071, #698).
+
+``scripts/workstation/run_private_checks.py`` runs the ``workstation`` tests on the maintainer's
+workstation, where the private data is. These tests prove its three promises without that data:
+
+* it refuses a commit that is not reachable from ``origin/main`` and fetches no other ref
+  (a synthetic git origin with a ``main`` and a pull-request branch);
+* its dry run writes a result file that the format check accepts (a tiny synthetic data folder);
+* no name from the name-mapping file reaches the result file or the console, also when a check
+  fails and pytest's own output does name the file (that output goes to the local log only).
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+_REPO = Path(__file__).resolve().parents[1]
+SCRIPT = _REPO / "scripts" / "workstation" / "run_private_checks.py"
+_spec = importlib.util.spec_from_file_location("tether_run_private_checks_test", SCRIPT)
+runner = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(runner)
+
+#: Names that look like the real ones: distinctive, so a leak of any of them is unambiguous.
+SECRET_FILES = {
+    "lab-01": "SECRET-series-alpha/acquisition-ZETA-001.tif",
+    "lab-02": {
+        "movie": "SECRET-series-alpha/acquisition-ZETA-002.tif",
+        "export": "deeplasi-OMEGA-export.mat",
+    },
+}
+
+
+def _leaks(text: str) -> list[str]:
+    names = []
+    for value in SECRET_FILES.values():
+        names += [value] if isinstance(value, str) else list(value.values())
+    found = []
+    for name in names:
+        path = Path(name)
+        found += [s for s in (name, name.replace("/", "\\"), path.name, path.stem) if s in text]
+    return found
+
+
+def _data_dir(root: Path, *, missing: str | None = None) -> Path:
+    data = root / "data"
+    for value in SECRET_FILES.values():
+        for rel in [value] if isinstance(value, str) else value.values():
+            if rel != missing:
+                (data / rel).parent.mkdir(parents=True, exist_ok=True)
+                (data / rel).write_bytes(b"synthetic")
+    (data / runner.MAPPING_FILE).write_text(json.dumps(SECRET_FILES), encoding="utf-8")
+    return data
+
+
+def _dry_run(root: Path, data: Path) -> subprocess.CompletedProcess:
+    cmd = [sys.executable, str(SCRIPT), "run", "--dry-run", "--state", str(root / "state")]
+    return subprocess.run([*cmd, "--data", str(data)], capture_output=True, text=True, timeout=300)
+
+
+@pytest.fixture(scope="module")
+def passing_run(tmp_path_factory):
+    root = tmp_path_factory.mktemp("passing")
+    proc = _dry_run(root, _data_dir(root))
+    return root, proc
+
+
+@pytest.fixture(scope="module")
+def failing_run(tmp_path_factory):
+    root = tmp_path_factory.mktemp("failing")
+    proc = _dry_run(root, _data_dir(root, missing=SECRET_FILES["lab-02"]["export"]))
+    return root, proc
+
+
+def _only_result(root: Path) -> tuple[str, dict]:
+    files = list((root / "state" / "results").glob("*.json"))
+    assert len(files) == 1, files
+    text = files[0].read_text(encoding="utf-8")
+    return text, json.loads(text)
+
+
+# --- The format and the privacy of a result ----------------------------------------------------
+
+
+def test_the_dry_run_writes_a_result_that_matches_the_format(passing_run) -> None:
+    root, proc = passing_run
+    assert proc.returncode == runner.EXIT_OK, proc.stdout + proc.stderr
+    _, result = _only_result(root)
+    assert runner.validate_result(result) == []
+    assert (result["mode"], result["status"], result["on_main"]) == ("dry-run", "passed", False)
+    (check,) = result["checks"]
+    assert check["check"] == f"{runner.SELF_CHECK}::test_every_neutral_id_names_readable_files"
+    assert check["outcome"] == "passed"
+    assert check["datasets"] == {
+        "lab-01": {"n_files": 1, "n_bytes": 9},
+        "lab-02": {"n_files": 2, "n_bytes": 18},
+    }
+    assert result["tools"]["python"] and "pytest" in result["tools"]
+
+
+def test_no_mapped_name_reaches_the_result_or_the_console(passing_run, failing_run) -> None:
+    for root, proc in (passing_run, failing_run):
+        text, _ = _only_result(root)
+        assert _leaks(text) == []
+        assert _leaks(proc.stdout + proc.stderr) == []
+    root, proc = failing_run
+    assert proc.returncode == runner.EXIT_FAILED, proc.stdout + proc.stderr
+    _, result = _only_result(root)
+    assert result["status"] == "failed" and result["checks"][0]["outcome"] == "failed"
+    # Not vacuous: pytest's own report of the failure does name the file, in the local log.
+    (log,) = (root / "state" / "logs").glob("*.log")
+    assert _leaks(log.read_text(encoding="utf-8"))
+
+
+def test_a_result_that_names_a_private_file_is_withheld(passing_run) -> None:
+    root, _ = passing_run
+    _, result = _only_result(root)
+    tokens = runner.private_tokens(runner.load_mapping(root / "data"))
+    result["checks"][0]["check"] = "tests/test_x.py::test_y[acquisition-ZETA-001]"
+    sealed, text = runner.seal(result, tokens)
+    assert sealed["status"] == "withheld" and sealed["checks"] == []
+    assert _leaks(text) == [] and runner.validate_result(sealed) == []
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda r: r["checks"][0]["datasets"].update({"acquisition-ZETA-001.tif": {}}),
+        lambda r: r["checks"][0]["datasets"]["lab-01"].update({"n_bytes": "9"}),
+        lambda r: r.update({"on_main": True}),
+        lambda r: r.update({"traces": [0.1, 0.2]}),
+    ],
+    ids=["file-name-as-dataset", "text-as-number", "dry-run-on-main", "extra-key"],
+)
+def test_the_format_check_rejects_what_a_result_may_not_hold(passing_run, change) -> None:
+    root, _ = passing_run
+    _, result = _only_result(root)
+    change(result)
+    assert runner.validate_result(result)
+
+
+@pytest.mark.parametrize(
+    "mapping",
+    [
+        {"acquisition-ZETA-001.tif": "acquisition-ZETA-001.tif"},
+        {"lab-01": "/data/acquisition-ZETA-001.tif"},
+        {"lab-01": "C:\\data\\acquisition-ZETA-001.tif"},
+        {"lab-01": "../acquisition-ZETA-001.tif"},
+        {"lab-01": {"Acquisition-ZETA-001": "x.tif"}},
+        {},
+    ],
+)
+def test_a_bad_mapping_is_refused_without_quoting_it(tmp_path, mapping) -> None:
+    (tmp_path / runner.MAPPING_FILE).write_text(json.dumps(mapping), encoding="utf-8")
+    with pytest.raises(runner.MappingError) as exc:
+        runner.load_mapping(tmp_path)
+    assert "ZETA" not in str(exc.value)
+
+
+def test_a_run_inside_the_interval_does_nothing(passing_run, capsys) -> None:
+    root, _ = passing_run
+    args = ["run", "--dry-run", "--state", str(root / "state"), "--data", str(root / "data")]
+    assert runner.main([*args, "--min-interval-hours", "24"]) == runner.EXIT_OK
+    assert capsys.readouterr().out.startswith("skipped:")
+    assert len(list((root / "state" / "results").glob("*.json"))) == 1
+
+
+# --- The refusal ---------------------------------------------------------------------------------
+
+
+def _git(cwd: Path, *args: str) -> str:
+    cfg = ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]
+    proc = subprocess.run(["git", *cfg, *args], cwd=cwd, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
+@pytest.fixture
+def origin(tmp_path) -> dict:
+    """A repository with two commits on ``main`` and a pull-request branch off the first."""
+    repo = tmp_path / "origin"
+    repo.mkdir()
+    _git(repo, "init", "--quiet", "-b", "main")
+    shas = []
+    for name in ("one", "two"):
+        (repo / f"{name}.txt").write_text(name, encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "--quiet", "-m", name)
+        shas.append(_git(repo, "rev-parse", "HEAD"))
+    _git(repo, "checkout", "--quiet", "-b", "pr", shas[0])
+    (repo / "pr.txt").write_text("unreviewed", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "-m", "pr")
+    pr = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "--quiet", "main")
+    return {"url": str(repo), "first": shas[0], "tip": shas[1], "pr": pr}
+
+
+def test_the_clone_gets_the_tip_of_main_and_no_other_ref(tmp_path, origin) -> None:
+    clone = tmp_path / "clone"
+    assert runner.prepare_clone(clone, origin["url"]) == origin["tip"]
+    assert _git(clone, "for-each-ref", "--format=%(refname)") == "refs/remotes/origin/main"
+    assert runner.prepare_clone(clone, origin["url"], origin["first"][:12]) == origin["first"]
+
+
+def test_the_runner_refuses_a_commit_that_is_not_on_main(tmp_path, origin) -> None:
+    clone = tmp_path / "clone"
+    with pytest.raises(runner.Refused, match="not in the history of origin/main"):
+        runner.prepare_clone(clone, origin["url"], origin["pr"])
+    # Also when someone fetched the pull request into the clone by hand.
+    _git(clone, "fetch", "--quiet", "origin", "refs/heads/pr:refs/heads/pr")
+    with pytest.raises(runner.Refused, match="not reachable from origin/main"):
+        runner.prepare_clone(clone, origin["url"], origin["pr"])
+    assert not (clone / "pr.txt").exists()
+
+
+def test_the_runner_refuses_a_dirty_clone_or_another_origin(tmp_path, origin) -> None:
+    clone = tmp_path / "clone"
+    runner.prepare_clone(clone, origin["url"])
+    (clone / "one.txt").write_text("edited", encoding="utf-8")
+    with pytest.raises(runner.Refused, match="local changes"):
+        runner.prepare_clone(clone, origin["url"])
+    with pytest.raises(runner.Refused, match="not the canonical repository"):
+        runner.prepare_clone(clone, str(tmp_path / "elsewhere"))
+
+
+def test_a_scheduled_run_refuses_before_it_builds_or_runs_anything(
+    tmp_path, origin, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(runner, "CANONICAL_REMOTE", origin["url"])
+    monkeypatch.setattr(runner, "ensure_env", lambda *a: pytest.fail("built an environment"))
+    data = _data_dir(tmp_path)
+    args = ["run", "--state", str(tmp_path / "state"), "--data", str(data)]
+    assert runner.main([*args, "--commit", origin["pr"]]) == runner.EXIT_REFUSED
+    assert "refused: commit" in capsys.readouterr().out
+    _, result = _only_result(tmp_path)  # the refusal is recorded, so `latest` shows it at once
+    assert (result["status"], result["on_main"], result["checks"]) == ("refused", False, [])
+    assert runner.validate_result(result) == []
+    titles = [i["title"] for i in runner.latest(tmp_path / "state" / "results")["open_or_update"]]
+    assert titles == [runner.RUN_ISSUE_TITLE]
+
+
+# --- What an agent reads, and the agreements with the rest of the repository ---------------------
+
+
+def test_latest_names_one_issue_for_each_check_that_did_not_pass(passing_run, tmp_path) -> None:
+    root, _ = passing_run
+    _, result = _only_result(root)
+    ok = result["checks"][0]
+    bad = {**ok, "check": "tests/test_x.py::test_y", "outcome": "failed"}
+    result.update(status="failed", checks=[ok, bad])
+    (tmp_path / "20261111T000000Z-0123456789ab.json").write_text(json.dumps(result), "utf-8")
+    report = runner.latest(tmp_path)
+    assert [i["title"] for i in report["open_or_update"]] == [
+        "test(workstation): tests/test_x.py::test_y failed on main"
+    ]
+    assert report["passed"] == [runner.issue_title(ok["check"])]
+
+
+def test_the_runner_and_ci_install_the_same_test_tooling() -> None:
+    ci = (_REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert all(f'"{pin}"' in ci for pin in runner.TEST_TOOLS), runner.TEST_TOOLS
+
+
+def test_the_conftest_hook_reads_the_runner_s_record_variable() -> None:
+    conftest = (_REPO / "tests" / "conftest.py").read_text(encoding="utf-8")
+    assert f'os.environ.get("{runner.RECORD_ENV}")' in conftest
+
+
+def test_a_workstation_test_with_another_tier_marker_stops_collection(tmp_path) -> None:
+    """``-m large`` would select such a test in ``large-fixtures.yml``; collection refuses it."""
+    (tmp_path / "conftest.py").write_bytes((_REPO / "tests" / "conftest.py").read_bytes())
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\nmarkers =\n    workstation: x\n    large: x\n    sidecar: x\n    deep: x\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_both.py").write_text(
+        "import pytest\n\n\n@pytest.mark.workstation\n@pytest.mark.large\n"
+        "def test_both():\n    pass\n",
+        encoding="utf-8",
+    )
+    cmd = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-m", "not workstation"]
+    proc = subprocess.run([*cmd, str(tmp_path)], cwd=tmp_path, capture_output=True, text=True)
+    assert proc.returncode == pytest.ExitCode.USAGE_ERROR, proc.stdout + proc.stderr
+    assert "test_both.py::test_both" in proc.stdout + proc.stderr
