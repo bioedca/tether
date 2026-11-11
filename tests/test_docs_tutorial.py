@@ -9,7 +9,8 @@ both on the page and what the program actually produces:
 
 * the sample movie still regenerates byte for byte from ``scripts/make_tutorial_movie.py``,
   and stays under the 200 KB budget the page's size line quotes;
-* ``tether extract``, run through :func:`tether.cli.main`, prints the summary line;
+* ``tether extract``, run through :func:`tether.cli.main`, prints the summary line and the
+  donor-side check's line;
 * the shell opens the project, browses, rejects, accepts and draws the population
   histogram with the status-bar lines the page quotes (``gui``; headless);
 * the export call on the page returns the molecule count it shows.
@@ -45,6 +46,10 @@ _HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("pyqtgraph", "Py
 _needs_qt = pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not installed")
 
 EXTRACT_LINE = "Extracted 3 molecule(s) -> tutorial.tether"
+#: The donor-side check (#646): three molecules are too few for it to judge.
+SIDE_CHECK_LINE = (
+    "  donor side: not enough bleach events to check the donor side (0 found, 15 needed)."
+)
 OPEN_LINE = "Opened tutorial.tether — 3 molecule(s)"
 BROWSE_LINE = "Molecule mol-1 (2/3)"
 REJECTED_ID = "b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d"
@@ -95,8 +100,8 @@ def test_page_builds_the_project_from_the_movie() -> None:
 
 def test_extract_prints_the_line_the_page_quotes(tmp_path, monkeypatch, capsys) -> None:
     out = _extract(tmp_path, monkeypatch, capsys)
-    assert out.splitlines() == [EXTRACT_LINE]
-    assert f"```text\n{EXTRACT_LINE}\n```" in _page()
+    assert out.splitlines() == [EXTRACT_LINE, SIDE_CHECK_LINE]
+    assert f"```text\n{EXTRACT_LINE}\n{SIDE_CHECK_LINE}\n```" in _page()
     assert (tmp_path / "tutorial.tether").is_file()
 
 
