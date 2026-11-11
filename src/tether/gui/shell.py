@@ -2132,11 +2132,13 @@ def launch() -> None:  # pragma: no cover - interactive smoke entry point
     import numpy as np
     from pyqtgraph.Qt import QtWidgets
 
+    from tether.gui.identity import apply_application_identity
     from tether.gui.trace_dock import TraceView
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     app.setApplicationName(_APP_NAME)
     app.setOrganizationName("MondragonLab")
+    apply_application_identity(app)
 
     rng = np.random.default_rng(0)
     traces = []

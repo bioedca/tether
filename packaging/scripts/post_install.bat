@@ -109,8 +109,12 @@ rem menu_packages stays [] and the shortcut is created directly. It targets the
 rem tether-gui.bat launcher above, not tether-gui.exe, so the GUI gets the same PATH
 rem as every other route (issue #553): a shortcut cannot set environment variables
 rem itself. WindowStyle 7 starts the launcher's console minimized, and it closes as
-rem soon as `start` hands off to the console-less tether-gui.exe, whose icon the
-rem shortcut shows.
+rem soon as `start` hands off to the console-less tether-gui.exe.
+rem
+rem The shortcut shows the Tether icon, tether.ico from the installed wheel (issue
+rem #673; tether.gui.identity.windows_icon_path). tether-gui.exe is a generic pip
+rem launcher without the Tether icon. The file is inside the prefix, so the uninstaller
+rem removes it with the rest of the installation.
 rem
 rem The shortcut's TARGET is cmd.exe, which runs the launcher as `/c ""<bat>""` (issue
 rem #578). rc3 pointed the shortcut straight at the .bat: the .lnk was created, but
@@ -135,14 +139,14 @@ if not exist "%SM_D%" mkdir "%SM_D%"
 set "TETHER_LNK=%SM_D%\Tether.lnk"
 set "TETHER_GUI_BAT=%BIN_D%\tether-gui.bat"
 set "CMD_EXE=%SystemRoot%\System32\cmd.exe"
-set "TETHER_GUI_EXE=%PREFIX%\envs\tether\Scripts\tether-gui.exe"
+set "TETHER_ICO=%PREFIX%\envs\tether\Lib\site-packages\tether\gui\assets\brand\app-icon\tether.ico"
 set "TETHER_GUI_WD=%PREFIX%\envs\tether"
 set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 "%PS_EXE%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);" ^
   "$s.TargetPath=$env:CMD_EXE;" ^
   "$q=[char]34; $s.Arguments='/c ' + $q + $q + $env:TETHER_GUI_BAT + $q + $q;" ^
-  "$s.IconLocation=$env:TETHER_GUI_EXE + ',0';" ^
+  "$s.IconLocation=$env:TETHER_ICO + ',0';" ^
   "$s.WindowStyle=7;" ^
   "$s.WorkingDirectory=$env:TETHER_GUI_WD;" ^
   "$s.Description='Tether - single-molecule FRET analysis';" ^
