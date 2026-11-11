@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The reference data sets of the regression suite (#696, ADR-0072). One [[dataset]] entry for
+# each file. tests/reference_data/fetch.py reads it, and tests/test_reference_data.py holds every
+# entry to the rules:
+#
+#   id            short, lower-case, unique; a test asks fetch.path_for(id) for the file
+#   source        "doi:10.…" or "accession:…"
+#   record_url    the landing page of the record (https)
+#   license       an SPDX id with a file in LICENSES/
+#   file          git / lfs: the committed path; download: the file name in the cache;
+#                 workstation: the path below the directory that `env` names
+#   size, sha256  bytes and SHA-256 of the file itself
+#   tier          git (at most 1 MB), lfs (all LFS files together at most 50 MB),
+#                 download (at most 200 MB, needs download_url), workstation (needs env)
+#   citation      the text to cite the set with
+#
+# A committed extract of a larger set names its sources in `extract_of`, and either the
+# `extract_script` that makes it or the `extract_member` it copies verbatim from one archive.
+# A committed third-party file also needs its REUSE.toml annotation, a NOTICE entry and a
+# tests/fixtures/PROVENANCE.md entry. Only data that can be downloaded now, with no request to a
+# person, under a licence that permits the copy or the download (#696, Q21).
+
+# --- kinSoftChallenge simulated data sets: Zenodo 10.5281/zenodo.5701310, CC-BY-4.0 ----------
+
+[[dataset]]
+id = "kinsoft-sim-fig2"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "sim_dataset_Fig2.zip"
+size = 859187
+sha256 = "07af3ab1b7e7427ab93b423fbc302cac112ea4487391c5cfdbc9b6668827344c"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/sim_dataset_Fig2.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
+
+[[dataset]]
+id = "kinsoft-sim-fig3"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "sim_dataset_Fig3.zip"
+size = 1267442
+sha256 = "f738698227eef76a2d1cd0118ca81453233a9d913de12ee2e6266888ee9eb284"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/sim_dataset_Fig3.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
+
+[[dataset]]
+id = "kinsoft-sim-fig4"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "sim_dataset_Fig4.zip"
+size = 948240
+sha256 = "cfecd68f8917b7e96d5f8eb1c838a1a0462f554d409ffc9671c072ba626d6425"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/sim_dataset_Fig4.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
+
+[[dataset]]
+id = "kinsoft-sim-packed"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "tests/fixtures/large/kinsoft_sim.hdf5"
+size = 2088914
+sha256 = "c1293315439070b959f6d8bac47f2746da178d5d206659c2126b97a0570d3b79"
+tier = "lfs"
+extract_of = ["kinsoft-sim-fig2", "kinsoft-sim-fig3", "kinsoft-sim-fig4"]
+extract_script = "scripts/make_kinsoft_fixture.py"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
+
+[[dataset]]
+id = "kinsoft-trace-sample"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "tests/fixtures/kinsoft_trace_sample.txt"
+size = 1979
+sha256 = "5eab80bc4a11b711712d78e898d9b79b3bc2997ce48a8fa2d0170ba883a23a05"
+tier = "git"
+extract_of = ["kinsoft-sim-fig4"]
+extract_member = "sim_level3_final_publish/trace_58.txt"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"

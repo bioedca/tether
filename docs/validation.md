@@ -21,17 +21,19 @@ with `--strict-markers`. Where a test runs follows from its marker:
 
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
-| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
+| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
 | Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, the workflow or the setup action reports a fast "not applicable" pass **without running the fits** |
 | Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
+| Reference downloads | `@pytest.mark.reference_download` | `.github/workflows/reference-data.yml` — weekly cron + manual dispatch; downloads the `download` tier of `tests/reference_data/manifest.toml` into a cache and verifies each SHA-256 | No — the required matrix makes no network call |
 
 The required set is the `main-baseline` ruleset: `lint`, `test` on the three platforms,
 `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
 `schema-guard` and `sidecar / parity`.
 
 **When a scheduled run fails.** `sidecar.yml` (nightly, and after each merge to `main`),
-`deep.yml` (nightly), `large-fixtures.yml` (weekly) and `docs-liveness.yml` (daily) call
+`deep.yml` (nightly), `large-fixtures.yml` (weekly), `reference-data.yml` (weekly) and
+`docs-liveness.yml` (daily) call
 `.github/workflows/scheduled-failure.yml` after their job. When the job fails on `main`, that
 workflow opens one issue with the title `ci(scheduled): <job> failed on main`. The issue gives
 the run, the commit, the failed step and the last 50 log lines up to the last error. The two
@@ -44,6 +46,17 @@ the Actions page lists every run. The issue does not close itself: close it with
 pull request never opens an issue. To test the report, run `docs-liveness` by hand on a test
 branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
 `ci(drill)`, so it never touches the real issue.
+
+**Reference data sets.** Each reference file of the regression suite has one entry in
+`tests/reference_data/manifest.toml`: its DOI or accession, record URL, SPDX licence, size,
+SHA-256, tier and citation. A test gets the file with `path_for(id)` from
+`tests/reference_data/fetch.py`, which calculates the SHA-256 before the first use and refuses a
+file whose checksum is not the manifest's. The tiers are `git` (at most 1 MB for each file), `lfs`
+(at most 50 MB for all LFS files together), `download` (at most 200 MB for each file; downloaded
+only when the environment variable `TETHER_REFERENCE_DOWNLOAD` is `1`) and `workstation` (a
+directory that an environment variable names). A test skips, with the reason, when its tier is not
+available. [ADR-0072](adr/0072-one-manifest-for-reference-data-sets.md) records the tiers, the
+limits and the cache rule.
 
 Which tier each oracle's *headline* assertion lives in:
 

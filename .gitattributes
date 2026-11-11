@@ -29,6 +29,10 @@
 *.icns  binary
 *.ttf   binary
 
+# Third-party reference files in plain git keep their exact bytes on every OS, so the SHA-256 in
+# tests/reference_data/manifest.toml also holds on a Windows (core.autocrlf) checkout (#696).
+tests/fixtures/kinsoft_trace_sample.txt -text
+
 # --- Git-LFS: the LARGE-fixture / benchmark tier only (PRD §8 NFR-FIXTURES) ---
 # The ≈0.9 GB UCKOPSB movie, kinSoftChallenge assets, and large *.hdf5 benchmarks
 # live under these gated paths and are tracked by LFS; the SMALL committed fixtures

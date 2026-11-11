@@ -217,10 +217,12 @@ jobs:
       # does not build (M0.5 S1) — exclude it too; it is a dev-machine check. The
       # `deep` marker drives the isolated torch `deep/` env (ADR-0047), built only
       # on the non-required deep.yml leg — exclude it; the base app has no torch.
+      # The `reference_download` marker needs the network, which the required
+      # matrix never uses — it runs in the weekly reference-data.yml (ADR-0072).
       - name: Run tests
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
-            xvfb-run -a pytest -v -m "not large and not sidecar and not deep"
+            xvfb-run -a pytest -v -m "not large and not sidecar and not deep and not reference_download"
           else
-            pytest -v -m "not large and not sidecar and not deep"
+            pytest -v -m "not large and not sidecar and not deep and not reference_download"
           fi

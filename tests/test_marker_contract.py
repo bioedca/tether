@@ -2324,3 +2324,111 @@ def test_no_dependabot_glob_overlaps_the_workflows_directory() -> None:
             '`directory: "/"` entry already scans implicitly -> duplicate PRs for every action '
             "(dependabot-core#10884). Keep non-root globs disjoint from `/`."
         )
+
+
+# --- The reference-download leg (reference-data.yml, #696 / ADR-0072) ---
+# `@pytest.mark.reference_download` tests download the `download` tier of
+# tests/reference_data/manifest.toml. The required matrix deselects the marker and makes no network
+# call; exactly one scheduled workflow collects them. A test with the marker that no workflow
+# collects would never run, so this contract fails on it.
+REFERENCE_MARKER = "reference_download"
+WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+TESTS_DIR = Path(__file__).resolve().parent
+
+
+def _pytest_commands(text: str) -> list[list[str]]:
+    """Each `pytest` command line in a workflow, as tokens from `pytest` on (comments ignored)."""
+    import shlex
+
+    commands = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("#") or not re.search(r"(^|\s)pytest\s", line):
+            continue
+        tokens = shlex.split(line.removeprefix("run:").strip())
+        if "pytest" in tokens:
+            commands.append(tokens[tokens.index("pytest") :])
+    return commands
+
+
+def _marker_expression(command: list[str]) -> str | None:
+    return command[command.index("-m") + 1] if "-m" in command else None
+
+
+def _collects(command: list[str], module: str) -> bool:
+    """Whether *command* collects the repo-relative *module* (no path argument: all of tests/)."""
+    paths, skip_next = [], False
+    for token in command[1:]:
+        if skip_next:
+            skip_next = False
+        elif token in ("-m", "-k", "-p", "-c", "--rootdir"):
+            skip_next = True
+        elif not token.startswith("-"):
+            paths.append(token)
+    if not paths:
+        return module.startswith("tests/")
+    return any(fnmatch.fnmatch(module, p) or module.startswith(p.rstrip("/") + "/") for p in paths)
+
+
+def _reference_collectors() -> dict[str, list[list[str]]]:
+    found: dict[str, list[list[str]]] = {}
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        commands = [
+            c
+            for c in _pytest_commands(path.read_text(encoding="utf-8"))
+            if _marker_expression(c) == REFERENCE_MARKER
+        ]
+        if commands:
+            found[path.name] = commands
+    return found
+
+
+def test_the_collection_check_sees_a_module_outside_the_glob() -> None:
+    assert _collects(["pytest", "-v", "-m", REFERENCE_MARKER], "tests/test_x.py")
+    assert _collects(["pytest", "-m", "x", "tests/test_*_ref.py"], "tests/test_a_ref.py")
+    assert not _collects(["pytest", "-m", "x", "tests/test_*_ref.py"], "tests/test_b.py")
+    assert _pytest_commands('run: xvfb-run -a pytest -v -m "a and b"\n# pytest -m c\n') == [
+        ["pytest", "-v", "-m", "a and b"]
+    ]
+
+
+def _reference_modules() -> list[str]:
+    return [
+        path.relative_to(TESTS_DIR.parent).as_posix()
+        for path in sorted(TESTS_DIR.glob("test_*.py"))
+        if _uses_marker(path.read_text(encoding="utf-8"), REFERENCE_MARKER)
+    ]
+
+
+def test_every_reference_download_test_runs_in_exactly_one_scheduled_job() -> None:
+    modules = _reference_modules()
+    assert modules, "tests/test_reference_data_download.py carries the marker"
+    collectors = _reference_collectors()
+    assert list(collectors) == ["reference-data.yml"], collectors
+    ((name, commands),) = collectors.items()
+    assert len(commands) == 1, f"{name} runs the marker in one job"
+    triggers = _on_block_child_keys((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
+    assert triggers == {"schedule", "workflow_dispatch"}, f"{name} must never gate a merge"
+    uncollected = [m for m in modules if not _collects(commands[0], m)]
+    assert not uncollected, f"reference_download tests no workflow collects: {uncollected}"
+
+
+def test_the_required_matrix_deselects_reference_download() -> None:
+    commands = _pytest_commands((WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8"))
+    matrix = [c for c in commands if _marker_expression(c)]
+    assert matrix, "ci.yml runs the required matrix with a marker expression"
+    for command in commands:
+        if any(_collects(command, m) for m in _reference_modules()):
+            expression = _marker_expression(command) or ""
+            assert f"not {REFERENCE_MARKER}" in expression, command
+
+
+def test_the_reference_job_downloads_into_its_keyed_cache() -> None:
+    workflow = yaml.safe_load((WORKFLOWS_DIR / "reference-data.yml").read_text(encoding="utf-8"))
+    job = workflow["jobs"]["reference-data"]
+    assert job["env"]["TETHER_REFERENCE_DOWNLOAD"] == "1"
+    (cache,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache@")]
+    assert cache["with"]["key"] == "reference-data-${{ steps.key.outputs.key }}"
+    assert job["env"]["TETHER_REFERENCE_CACHE"].endswith("/" + cache["with"]["path"])
+    (key,) = [s for s in job["steps"] if s.get("id") == "key"]
+    assert "tests/reference_data/fetch.py cache-key" in key["run"]
