@@ -94,3 +94,19 @@ jobs:
       # skipping rather than failing where data is unavailable.
       - name: Run large-fixture tests
         run: xvfb-run -a pytest -v -m large
+
+  report:
+    # A failed weekly run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: large
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: large-fixtures
+      result: ${{ needs.large.result }}
+      oracle: "other / unsure"
+      fixture-tier: "gated large (tests/fixtures/large/, LFS — large-fixtures.yml)"
