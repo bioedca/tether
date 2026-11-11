@@ -65,6 +65,9 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(urllib.request, "urlopen", refuse)
 
 
+BOT_USER = {"login": "github-actions[bot]", "type": "Bot"}  # the author on the drill issue #766
+
+
 class FakeGitHub:
     """The few REST endpoints the report uses, kept in memory."""
 
@@ -98,6 +101,7 @@ class FakeGitHub:
             return 200, json.dumps([i for i in self.issues if i["state"] == "open"]).encode(), {}
         if method == "POST" and path == "/issues":
             new = dict(json.loads(body or b"{}"), number=len(self.issues) + 1, state="open")
+            new["user"] = dict(BOT_USER)
             self.issues.append(new)
             return 201, json.dumps(new).encode(), {}
         if found := re.fullmatch(r"/issues/(\d+)/comments(\?.*)?", path):
@@ -105,7 +109,7 @@ class FakeGitHub:
             if method == "POST":
                 new_id = 1 + sum(len(c) for c in self.comments.values())
                 text = json.loads(body or b"{}")["body"]
-                thread.append({"id": new_id, "body": text, "created_at": stamp})
+                thread.append({"id": new_id, "body": text, "created_at": stamp, "user": BOT_USER})
                 return 201, b"{}", {}
             return 200, json.dumps(thread).encode(), {}
         if method == "PATCH" and (found := re.fullmatch(r"/issues/comments/(\d+)", path)):
@@ -277,6 +281,22 @@ def test_only_a_leading_marker_counts_as_a_report() -> None:
     gh = FakeGitHub(issues=[{"number": 1, "title": make_run().title, "body": "", "state": "open"}])
     gh.comments[1] = [{"body": "log:\n<!-- tether-scheduled-failure:passed run=9/1 -->"}]
     assert report(gh, result="success") == "commented on #1 (passed)"
+
+
+def test_a_marker_from_anyone_but_the_reporter_is_not_a_report() -> None:
+    """A pasted marker cannot change the state or use up the limit (CodeRabbit, #765)."""
+    gh = FakeGitHub()
+    report(gh)  # opened
+    assert report(gh, run_id="101", result="success") == "commented on #1 (passed)"
+    person = {"login": "someone", "type": "User"}
+    copied = "<!-- tether-scheduled-failure:failed run=999/1 as=failed -->\nnot a report"
+    gh.comments[1].append({"id": 50, "body": copied, "created_at": NOW.isoformat(), "user": person})
+    assert report(gh, run_id="102") == "commented on #1 (failed)"
+    copied = "<!-- tether-scheduled-failure:passed run=998/1 -->\nnot a report"
+    gh.comments[1].append({"id": 51, "body": copied, "created_at": NOW.isoformat(), "user": person})
+    assert report(gh, run_id="103", result="success") == "updated a comment on #1 (passed)"
+    assert gh.comments[1][-1]["body"] == copied, "never an edit of a person's comment"
+    assert "runs/103/attempts/1" in gh.comments[1][-2]["body"]
 
 
 def test_the_oldest_open_issue_with_the_exact_title_is_the_one() -> None:

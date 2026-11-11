@@ -61,6 +61,10 @@ _MARKER = "<!-- tether-scheduled-failure:{state} run={run}{kind} -->"
 _MARKER_RE = re.compile(
     r"<!-- tether-scheduled-failure:(opened|failed|passed) run=\S+?(?: as=(failed|passed))? -->"
 )
+#: The author of every issue and comment the job token writes (as on the drill issue #766). Only
+#: its markers count: anyone can comment on a public issue, and a copied marker must not change
+#: the state or use up the daily limit.
+REPORTER = "github-actions[bot]"
 _STAMP_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _NOT_KNOWN = "Not known yet: the log of the failed step tells it."
@@ -344,11 +348,13 @@ def report(run: Run, api: Api, now: dt.datetime) -> str:
         return f"opened #{created['number']}"
     number = issue["number"]
     comments = api.pages(f"/issues/{number}/comments?per_page=100")
-    # (state now, posted as, item) for each report, oldest first; the issue body says "opened".
+    # (state now, posted as, item) for each report by the reporter, oldest first; the issue body
+    # says "opened". A marker from anyone else is not a report.
     reports = [
         (m.group(1), m.group(2) or m.group(1), item)
-        for item in [{"body": issue.get("body") or ""}, *comments]
-        if (m := _MARKER_RE.match(item.get("body") or ""))
+        for item in [{"body": issue.get("body") or "", "user": issue.get("user")}, *comments]
+        if (item.get("user") or {}).get("login") == REPORTER
+        and (m := _MARKER_RE.match(item.get("body") or ""))
     ]
     failing = not reports or reports[-1][0] != "passed"  # an issue a person opened says "failed"
     if outcome == "passed" and not failing:
