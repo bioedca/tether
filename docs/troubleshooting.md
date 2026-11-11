@@ -23,15 +23,17 @@ where you expected its mirror image — a low-FRET construct reads high, a high-
 reads low — and every trace's donor and acceptor look swapped.
 
 **Cause.** `--donor-side` says which horizontal half of the dual-view frame is the donor
-channel. It defaults to `left`, and **nothing in Tether detects the true orientation.** The
-CLI takes it as free text (`tether.cli`, `metavar="{left,right}"` rather than `choices=`), so
+channel. It defaults to `left`, and Tether detects the true orientation only through the
+advisory [donor-side check](cli.md#get-donor-side-right-and-read-the-donor-side-check),
+which needs at least 20 molecules with a complete bleach sequence and is silent on samples
+without them. The CLI takes it as free text (`tether.cli`, `metavar="{left,right}"` rather than `choices=`), so
 a *typo* is rejected downstream by `ExtractOptions.__post_init__`:
 
 ```text
 tether extract: donor_side must be 'left' or 'right', got 'middle'
 ```
 
-…but a *valid-but-wrong* value is accepted in silence. All `donor_side` does is choose which
+…but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
 crop tuple is returned by `_half_split_geometry` in `tether.project.extract`, and detection
 is [donor-anchored](glossary.md#donor-anchored-colocalization) — so the swapped run still
 colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the two channels
@@ -65,9 +67,21 @@ Two related traps:
 > | `/movies/table` → `acceptor_crop` | `[1, 49, 64, 96]` | `[1, 1, 64, 48]` |
 > | mean apparent E | `0.1986` | `0.8014` |
 >
-> Both runs printed the same `Extracted 3 molecule(s) -> …` line and both exited `0`.
+> Both runs printed the same `Extracted 3 molecule(s) -> …` line and both exited `0`. Three
+> molecules are too few for the donor-side check, so neither run warned. On a movie with
+> enough bleach events the wrong run also prints, on standard error:
+>
+> ```text
+>   warning: 27 of 27 bleach events are consistent with swapped donor and acceptor halves; extract this movie again with --donor-side left.
+> ```
+>
+> and its `/settings/extraction.attrs["profile_json"]` → `donor_side_check` → `verdict` is
+> `"swapped"`.
 
-**Remedy.** Confirm the orientation *before* you trust a dataset, two ways:
+**Remedy.** Read the donor-side check first: the `donor side:` or `warning:` line after
+`tether extract`, or the `halves-swapped?` marker in the `tether batch` summary. When it
+says there are not enough bleach events, or that there is no clear majority, confirm the
+orientation *before* you trust a dataset, two ways:
 
 - **Against the instrument.** `donor_crop` in `/movies/table` is a 1-based
   `[y1, x1, y2, x2]` box; check that its half of the frame is the one the splitter sends

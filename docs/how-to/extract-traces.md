@@ -36,7 +36,9 @@ Tether assumes the donor is the **left** half. If yours is on the right, you wil
 ([`donor_side`](../reference/parameters.md#param-donor-side)).
 
 Getting this backwards raises no error. It swaps the channels and inverts every FRET
-efficiency, so step 5 shows you how to check it.
+efficiency. When the movie has enough bleach events, Tether checks the side after the
+extraction and warns you; step 5 shows what to look for, and how to check by eye when the
+check cannot decide.
 
 ## 2. Choose how molecules are found
 
@@ -92,10 +94,12 @@ file, add `--overwrite`.
 
 ## 5. Check that it worked
 
-A successful run prints one line naming the molecule count and the project:
+A successful run prints a line naming the molecule count and the project, then the result
+of the donor-side check:
 
 ```text
 Extracted 412 molecule(s) -> movie.tether
+  donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 
 With `--tmap` it adds a line starting `registration: imported from`, and with `--tdat` a line
@@ -109,12 +113,25 @@ starting `detection: mode`, naming what was applied. Then check three things:
    expected](../troubleshooting.md#extraction-found-far-fewer-or-far-more-molecules-than-expected).
    If the command stopped with `registration failed` instead, see
    [Extraction found no molecules](../troubleshooting.md#extraction-found-no-molecules).
-3. The donor half is right. Open the project with `tether-gui movie.tether` and find a
-   molecule whose acceptor bleaches partway through. When the acceptor goes dark, the
-   **donor** trace (green) should step **up**. If it steps down instead, close the project
-   in `tether-gui` and extract again with the other `--donor-side` and `--overwrite`, which
-   replaces `movie.tether`. With `--tmap`, `--donor-side` is ignored, so extract again with
-   a correctly oriented map or without `--tmap`.
+3. The donor half is right. Tether checks this from the molecules whose acceptor bleaches
+    before their donor ([how it works](../cli.md#get-donor-side-right-and-read-the-donor-side-check)):
+
+    - `donor side: 38 of 40 bleach events agree with the donor side as extracted.` The
+      side is right; go on.
+    - `warning: 38 of 40 bleach events are consistent with swapped donor and acceptor
+      halves; extract this movie again with --donor-side right.` The halves are swapped.
+      Extract again as the message says, with `--overwrite`, which replaces
+      `movie.tether`. With `--tmap` the message names the map's channel order instead,
+      because `--donor-side` is ignored: extract again with a correctly oriented map or
+      without `--tmap`.
+    - `donor side: not enough bleach events to check the donor side (…)`, or a result that
+      is *not a clear majority either way*. The check cannot decide, which is usual with
+      low FRET, with no acceptor, or with few molecules. Check by eye.
+
+    **To check by eye**, open the project with `tether-gui movie.tether` and find a
+    molecule whose acceptor bleaches partway through. When the acceptor goes dark, the
+    **donor** trace (green) should step **up**. If it steps down instead, close the project
+    in `tether-gui` and extract again with the other `--donor-side` and `--overwrite`.
 
 ## Many movies at once
 
@@ -137,7 +154,9 @@ movie is extracted with the donor on the left and the default detector. A shared
 replaces only the detector settings, never the donor side, and a shared `--tmap` sets the
 channel layout from the map. So use `tether batch` when your donor is on the left, or when
 you pass a `--tmap` from the same microscope; otherwise run `tether extract --donor-side
-right` on each movie. [Command
+right` on each movie. The batch summary marks a movie whose halves look swapped
+`halves-swapped?` and lists it at the end, so a right-side movie that slipped into a batch
+is named there when it has enough bleach events. [Command
 line](../cli.md#tether-batch) lists its options.
 
 `tether batch` corrects and idealizes every molecule before you have curated any. If you then

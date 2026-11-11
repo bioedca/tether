@@ -175,10 +175,22 @@ class StageResult:
 
 @dataclass(frozen=True)
 class MovieResult:
-    """Every stage's outcome for one movie."""
+    """Every stage's outcome for one movie.
+
+    ``donor_side`` is the advisory donor-side check read back from the movie's stored
+    extraction provenance (#646, ADR-0070): the check's record from
+    ``/settings/extraction`` plus the ``donor_side`` and ``registration_source`` it was
+    extracted with, or ``None`` when the movie has no readable record.
+    """
 
     job: MovieJob
     stages: dict[str, StageResult]
+    donor_side: dict[str, Any] | None = None
+
+    @property
+    def donor_side_swapped(self) -> bool:
+        """Whether the donor-side check says this movie's halves look swapped."""
+        return bool(self.donor_side) and self.donor_side.get("verdict") == "swapped"
 
     @property
     def ok(self) -> bool:
@@ -214,6 +226,11 @@ class BatchSummary:
         """Number of movies with at least one failed stage."""
         return sum(1 for r in self.results if not r.ok)
 
+    @property
+    def donor_side_flagged(self) -> list[MovieResult]:
+        """The movies whose donor and acceptor halves look swapped (#646)."""
+        return [r for r in self.results if r.donor_side_swapped]
+
     def format_report(self) -> str:
         """A human-readable summary enumerating every movie + naming any failure."""
         idealize = "on" if self.idealize_requested else "off"
@@ -234,8 +251,28 @@ class BatchSummary:
                 if sr.status == STATUS_FAILED and sr.error:
                     bit += f"({sr.error})"
                 stage_bits.append(bit)
+            if r.donor_side_swapped:
+                stage_bits.append("halves-swapped?")
             lines.append(f"  {flag}  {r.job.label:<{width}}  {' '.join(stage_bits)}")
+        flagged = self.donor_side_flagged
+        if flagged:
+            lines.append(
+                f"Donor and acceptor halves look swapped in {len(flagged)} movie(s) "
+                "(advisory; nothing was changed):"
+            )
+            for r in flagged:
+                lines.append(f"  {r.job.label}: {_describe_donor_side(r.donor_side)}")
         return "\n".join(lines)
+
+
+def _describe_donor_side(record: dict[str, Any] | None) -> str:
+    """The donor-side check's operator sentence for a stored record (#646)."""
+    from tether.imaging.side_check import DonorSideCheck  # noqa: PLC0415
+
+    record = dict(record or {})
+    donor_side = str(record.pop("extracted_donor_side", "left"))
+    imported = record.pop("registration_source", "native") == "imported"
+    return DonorSideCheck.from_dict(record).describe(donor_side=donor_side, imported_map=imported)
 
 
 # --- Structured log ----------------------------------------------------------
@@ -383,6 +420,34 @@ def _stored_extraction_is_over_gate(path: Path) -> bool:
         )
     except (KeyError, TypeError, ValueError, OverflowError, RecursionError, OSError):
         return False
+
+
+def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
+    """Read the advisory donor-side check back from a saved extraction profile (#646).
+
+    Reading the stored record, rather than the run's return value, gives the same
+    answer for a fresh extraction and for a resumed one whose extract stage was skipped.
+    A profile with no record (an extraction older than the check), or one that cannot be
+    read, gives ``None``: the check is advisory, so a missing record is silence.
+    """
+    try:
+        import h5py  # noqa: PLC0415
+
+        with h5py.File(path, "r") as f:
+            raw_profile = f[f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}"].attrs.get("profile_json")
+        if isinstance(raw_profile, bytes):
+            raw_profile = raw_profile.decode("utf-8")
+        profile = json.loads(raw_profile) if isinstance(raw_profile, str) else None
+        record = profile.get("donor_side_check") if isinstance(profile, dict) else None
+        if not isinstance(record, dict):
+            return None
+        return {
+            **record,
+            "extracted_donor_side": profile.get("donor_side", "left"),
+            "registration_source": profile.get("registration_source", "native"),
+        }
+    except (KeyError, TypeError, ValueError, RecursionError, OSError):
+        return None
 
 
 def _is_corrected(path: Path) -> bool:
@@ -805,6 +870,7 @@ def run_batch(
             destination_reservation: Any = None
             destination_lock_acquired = False
             ownership_guard: Callable[[], None] | None = None
+            donor_side: dict[str, Any] | None = None
             # Isolate the ENTIRE per-job body — not just each runner call. A failure of
             # the log sink itself (disk full, permission change, share drop) inside a
             # `rec.record()` must not abort the queue; it is caught here so the loop
@@ -893,6 +959,19 @@ def run_batch(
                     runner=_extract,
                     ownership_guard=ownership_guard,
                 )
+                if extract_ok:
+                    # Advisory (#646): reading or reporting the check must never cost the
+                    # movie its later stages, so any failure here is silence.
+                    with contextlib.suppress(Exception):
+                        donor_side = _stored_donor_side_check(job.output_path)
+                        if donor_side is not None and donor_side.get("verdict") == "swapped":
+                            _safe_event(
+                                log,
+                                movie=job.label,
+                                stage="donor-side-check",
+                                status=STATUS_WARNING,
+                                detail=_describe_donor_side(donor_side),
+                            )
                 correct_ok = _do_correct(
                     job,
                     rec,
@@ -980,7 +1059,7 @@ def run_batch(
                                 status=STATUS_WARNING,
                                 error=f"process reservation cleanup failed: {exc}",
                             )
-                results.append(MovieResult(job=job, stages=dict(rec.stages)))
+                results.append(MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side))
     finally:
         if own_log:
             log.close()

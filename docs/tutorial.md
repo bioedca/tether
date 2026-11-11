@@ -47,15 +47,18 @@ Run:
 tether extract tutorial_movie.tif -o tutorial.tether
 ```
 
-It finishes in a few seconds and prints one line:
+It finishes in a few seconds and prints two lines:
 
 ```text
 Extracted 3 molecule(s) -> tutorial.tether
+  donor side: not enough bleach events to check the donor side (0 found, 20 needed).
 ```
 
 Tether found the three molecules, matched each donor spot to its acceptor spot, and wrote
 their intensity traces into a new project file, `tutorial.tether`, next to the movie. That one
-file is where everything from here on is saved. The [Command line](cli.md#tether-extract)
+file is where everything from here on is saved. The second line is the check that the donor
+and acceptor halves are not swapped; it needs at least 20 molecules that photobleach, so on
+three molecules it says it cannot tell, which is expected here. The [Command line](cli.md#tether-extract)
 reference lists the options `tether extract` accepts; this tutorial needs none of them.
 
 ## 4. Open the project

@@ -236,8 +236,9 @@ Donor and acceptor imaged side by side on one chip through a splitter, so each f
 half-width channels that must be registered to each other. `--donor-side` names which
 horizontal half is the donor; the [registration](#registration-tmap) map relates the two.
 
-> Getting `--donor-side` wrong is silent and produces a complete, plausible, inverted
-> dataset — see
+> Getting `--donor-side` wrong raises no error and produces a complete, plausible, inverted
+> dataset. The [donor-side check](cli.md#get-donor-side-right-and-read-the-donor-side-check)
+> after extraction warns when the movie has enough bleach events to tell — see
 > [every efficiency is mirrored](troubleshooting.md#every-efficiency-is-mirrored-when-donor-side-is-backwards).
 
 ### aperture
