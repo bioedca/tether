@@ -57,8 +57,8 @@ Extracted 3 molecule(s) -> tutorial.tether
 Tether found the three molecules, matched each donor spot to its acceptor spot, and wrote
 their intensity traces into a new project file, `tutorial.tether`, next to the movie. That one
 file is where everything from here on is saved. The second line is the check that the donor
-and acceptor halves are not swapped; it needs at least 15 molecules that photobleach, so on
-three molecules it says it cannot tell, which is expected here. The [Command line](cli.md#tether-extract)
+and acceptor halves are not swapped; it needs at least 15 bleach events in which one channel
+drops and the other clearly rises, so on three molecules it says it cannot tell, which is expected here. The [Command line](cli.md#tether-extract)
 reference lists the options `tether extract` accepts; this tutorial needs none of them.
 
 ## 4. Open the project

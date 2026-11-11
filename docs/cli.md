@@ -117,9 +117,11 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > **The donor-side check.** After every extraction Tether reads the side back out of the
 > traces ([ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md)).
 > When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
-> when the donor bleaches first both drop. Among molecules with a complete bleach sequence,
-> if the channel labelled donor shows the acceptor's drop in at least 80 % of at least 15
-> events, the command warns on standard error, names the evidence and gives the remedy:
+> when the donor bleaches first both drop. A bleach event is a molecule whose dyes bleach
+> one after the other, with a clear drop in one channel and a clear rise in the other at the
+> first bleach. If the channel labelled donor shows the acceptor's drop in at least 80 % of
+> at least 15 bleach events, the command warns on standard error, names the evidence and
+> gives the remedy:
 >
 > ```text
 > Extracted 27 molecule(s) -> wrong.tether
