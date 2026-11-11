@@ -95,7 +95,9 @@ class GaussianHMM:
     uses everywhere, so state 0 is the lowest-FRET state). ``tmatrix`` is the
     row-stochastic discrete-time transition matrix; ``start_prob`` the initial
     distribution. ``log_likelihood`` is the final scaled forward log-likelihood
-    summed over all fitted traces.
+    summed over all fitted traces. ``n_iter`` is the number of EM iterations done;
+    ``converged`` is ``True`` only when the ``tol`` stop rule ended the loop, and
+    ``False`` when the ``n_iter`` cap ended it.
     """
 
     means: np.ndarray  # (nstates,) ascending
@@ -152,7 +154,10 @@ def fit_gaussian_hmm(
     nstates
         Number of hidden states (``>= 1``).
     n_iter, tol
-        EM iteration cap and the relative log-likelihood convergence threshold.
+        EM iteration cap and the relative log-likelihood convergence threshold. EM
+        stops when the total log-likelihood of two successive iterations differs by no
+        more than ``tol * (1 + |previous|)``, or after ``n_iter`` iterations. The first
+        iteration has no previous value, so it cannot meet the stop rule.
     var_floor
         Lower bound on each state's emission variance.
 
@@ -248,7 +253,10 @@ def fit_gaussian_hmm(
             tmatrix = np.where(rows[:, None], new_t, tmatrix)
             tmatrix = tmatrix / tmatrix.sum(axis=1, keepdims=True)
 
-        if abs(total_ll - prev_ll) <= tol * (1.0 + abs(prev_ll)):
+        # The first pass has no previous log-likelihood to compare with. Against the
+        # ``prev_ll = -inf`` seed the rule reads ``inf <= tol * inf``, which is true for
+        # every ``tol > 0`` and stopped every default fit after one EM step (#754).
+        if iteration > 1 and abs(total_ll - prev_ll) <= tol * (1.0 + abs(prev_ll)):
             converged = True
             prev_ll = total_ll
             break

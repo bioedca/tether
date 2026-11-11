@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from tether.analysis.kinetics import (
+    DEFAULT_HMM_MAX_ITER,
     evaluate_kinsoft_level,
     fit_gaussian_hmm,
     load_kinsoft_reference,
@@ -121,6 +122,45 @@ def test_viterbi_recovers_clean_two_state_signal() -> None:
     (path,) = viterbi_paths([x], hmm)
     expected = np.array([0] * 10 + [1] * 10, dtype=np.int64)
     assert np.array_equal(path, expected)
+
+
+def _overlapping_two_state() -> list[np.ndarray]:
+    """Two states 2 sigma apart, so the quantile initial guess is not already the fit.
+
+    On well-separated states (the generator calls below, 7.8 sigma apart) one EM step
+    lands on the answer, which is how a fit that never iterated passed them (#754).
+    """
+    obs, _ = _synthetic_two_state(
+        4, 1000, p01=0.05, p10=0.08, means=(0.40, 0.60), sigma=0.10, seed=3
+    )
+    return obs
+
+
+def test_fit_gaussian_hmm_iterates_past_the_first_pass() -> None:
+    # #754: the stop rule compared against ``prev_ll = -inf`` on the first pass, which is
+    # ``inf <= tol * inf`` and so true for every ``tol > 0``: each default call was one EM step.
+    obs = _overlapping_two_state()
+    one_step = fit_gaussian_hmm(obs, 2, n_iter=1)
+    default = fit_gaussian_hmm(obs, 2)
+    assert default.n_iter > 1
+    # EM never lowers the likelihood, and the first pass is far from a fixed point here.
+    assert default.log_likelihood > one_step.log_likelihood
+
+
+def test_fit_gaussian_hmm_converged_reports_what_ended_the_loop() -> None:
+    obs = _overlapping_two_state()
+    capped = fit_gaussian_hmm(obs, 2, n_iter=1)
+    assert capped.n_iter == 1
+    assert capped.converged is False  # the cap ended the loop, not the stop rule
+
+    default = fit_gaussian_hmm(obs, 2)
+    assert default.converged is True
+    assert default.n_iter < DEFAULT_HMM_MAX_ITER
+    # The fit is deterministic, so a cap one short of the iteration that met the stop
+    # rule replays the same iterations and must end on the cap.
+    short = fit_gaussian_hmm(obs, 2, n_iter=default.n_iter - 1)
+    assert short.n_iter == default.n_iter - 1
+    assert short.converged is False
 
 
 def test_fit_gaussian_hmm_recovers_synthetic_states() -> None:
