@@ -1242,10 +1242,12 @@ def _evidence_restatement_pins() -> list[Pin]:
     """Restatements of recorded evidence that no pin and no exclusion held (#748).
 
     DCN-F1: the donor and acceptor medians and the donor precision of oracle (a), stated
-    again outside (a)'s table, against ADR-0022. DCN-F6: the six figures that a committed
-    artifact holds and that were in neither :data:`REGISTRY` nor :data:`EXCLUSIONS` —
-    ebFRET's Viterbi floor in §Scope, the freeze margin, the two fixtures' state counts,
-    and the state and comparison counts that ``_EXPECTED_EVIDENCE`` pins.
+    again outside (a)'s table, against ADR-0022. DCN-F6: five of the six figures a
+    committed artifact holds that were in neither :data:`REGISTRY` nor :data:`EXCLUSIONS`
+    — ebFRET's Viterbi floor in §Scope, the freeze margin, the two fixtures' state
+    counts, and the state and comparison counts that ``_EXPECTED_EVIDENCE`` and
+    ``_EXPECTED_EVIDENCE_BY_METHOD`` pin. The sixth, the "~4x" quotation, is a
+    quotation and is in :data:`_VERBATIM_QUOTES`.
     """
     pins: list[Pin] = []
     adr = {metric: adr_0022_measured(ADR_0022_TEXT, metric) for metric, _ in _ADR_0022_METRICS}
@@ -1705,8 +1707,8 @@ EXCLUSIONS: dict[str, str] = {
         "to `$.spread_by_fixture.*.nstates` (#748)."
     ),
     "the observed ebFRET Viterbi '0.7568' in the #311 Scope bullet": (
-        "One nondeterministic live fit, recorded on issue #311, not in any artifact. The "
-        "frozen 0.9034 floor it is compared with is pinned (#748)."
+        "One nondeterministic live fit, tracked in #311 and stated in docs/PRD.md only as "
+        "prose; no artifact records it. The frozen 0.9034 floor beside it is pinned (#748)."
     ),
     "(c)'s '`abs=0.01`' (twice) and 'more than 500 pooled dwells'": (
         "The literals of tests/test_kinsoft_kinetics.py::"
@@ -1732,8 +1734,8 @@ EXCLUSIONS: dict[str, str] = {
         "frames; the page says the tolerance 'is asserted inline'. No constant holds them."
     ),
     "(g)'s 'constant 60 for all 250 molecules' and the bleach frames ≈97, ≈644, ≈1693": (
-        "Properties of a Deep-LASI `.mat` export that ADR-0026 records. Reading them needs "
-        "that export and SciPy, which this dependency-free guard does not load."
+        "Properties of a Deep-LASI `.mat` export that ADR-0026 records. The export is not "
+        "in the repository, so no committed file holds them."
     ),
     "(a)'s enforcing-tests sentence: 'RMS <= 0.5 px', '>= 95 %' and 'within 1 px'": (
         "All three are the hard-coded literals of the test that sentence describes, "
