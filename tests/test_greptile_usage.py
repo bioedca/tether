@@ -306,6 +306,36 @@ def test_the_month_is_queried_server_side_not_filtered_after_a_capped_fetch(
         )
 
 
+def test_tethers_own_spend_is_printed_against_its_share_of_the_seat(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The stand-in rule reads two figures, and the seat total is only one of them.
+
+    `AGENTS.md` §Review lets a Greptile review stand in for a refused CodeRabbit only while Tether
+    is under its share of the seat (ADR-0069), so the counter has to print Tether's own spend
+    against that share - and against Tether's reviews alone, not the seat's. Two credits here and
+    one in another repository are three against the 50 and two against the share.
+    """
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {
+                "bioedca/tether": [_pr(1), _pr(2)],
+                "bioedca/Yeliztli": [_pr(3)],
+                "bioedca/tbox-finder": [],
+            },
+            {1: [_review()], 2: [_review()], 3: [_review()]},
+        ),
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    out = capsys.readouterr().out
+    assert usage.REPO_SHARE == 15, "the maintainer set Tether's share at 15 a month (ADR-0069)"
+    assert f"(Tether share: 2/{usage.REPO_SHARE})" in out
+    assert f"used 3 of {usage.INCLUDED_CREDITS}" in out
+
+
 def test_the_configured_repositories_are_the_ones_billed_to_this_seat() -> None:
     """A repository that receives reviews and is not listed makes the remaining count read HIGH.
 
