@@ -51,7 +51,9 @@ Red Hat Display  (OFL-1.1)  — Regular, Medium and Bold, version 1.030.
   Open Font License 1.1 with Reserved Font Name "Red Hat".
   Tether ships the three upstream TTF files unchanged, with no subset, under
   src/tether/gui/assets/brand/fonts/, with the upstream OFL.txt beside them (see
-  also LICENSES/OFL-1.1.txt and the REUSE.toml annotation). The word mark in the
+  also LICENSES/OFL-1.1.txt and the REUSE.toml annotation). The documentation
+  site carries unchanged copies of Medium and Bold, with the same OFL.txt, under
+  docs/assets/fonts/ for its headings. The word mark in the
   brand files is Red Hat Display Bold converted to outlines; no brand file loads
   a font. scripts/brand/README.md records the SHA-256 of each font file.
 

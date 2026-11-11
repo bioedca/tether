@@ -1,3 +1,8 @@
+<div class="tether-hero">
+  <img class="on-light" src="assets/brand/lockup-light.svg" alt="The Tether logo" width="420" height="120">
+  <img class="on-dark" src="assets/brand/lockup-dark.svg" alt="The Tether logo" width="420" height="120">
+</div>
+
 # Tether
 
 **Tether** is a cross-platform single-molecule FRET (smFRET) desktop suite built for the
