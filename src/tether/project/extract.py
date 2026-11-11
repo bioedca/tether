@@ -42,6 +42,11 @@ The imported ``.tmap``'s per-channel ``Rotation``/``Flip`` are decoded but their
 is **refused** (a clean ``ExtractionError``) rather than silently split at the wrong
 frame; the UCKOPSB calibration map stores neither, so only the crop is needed.
 
+After the traces are integrated, an advisory check reads the acceptor-bleach steps for
+the signature of swapped donor and acceptor halves (:mod:`tether.imaging.side_check`,
+#646, ADR-0070). Its verdict is returned in :class:`ExtractionSummary` and stored in
+``/settings/extraction``; it never changes the data and never fails the extraction.
+
 Scope note (M1 S9 split): the extraction-vs-Deep-LASI acceptance oracle (recall /
 Pearson / RMS, PRD §8 NFR-VALID(a)) lands in the follow-up PR (S9 PR-C), with the
 gated full-movie fixture + full Deep-LASI export; that PR also lands the rotation/
@@ -74,13 +79,19 @@ from tether.imaging.calibrate import (
 )
 from tether.imaging.coloc import colocalize
 from tether.imaging.detect import ParticleDetectionMode, detect_spots_by_mode, detection_image
-from tether.imaging.extract import MovieMetadata, extract_molecules, write_extraction
+from tether.imaging.extract import (
+    MoleculeTraces,
+    MovieMetadata,
+    extract_molecules,
+    write_extraction,
+)
 from tether.imaging.register import (
     estimate_similarity_prealign,
     estimate_translation_prealign,
     pair_control_points,
     read_tmap,
 )
+from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_donor_side
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
 from tether.io.movie import open_movie
@@ -203,6 +214,8 @@ class ExtractionSummary:
     molecule_tags: tuple[str, ...]
     registration_source: str  # "native" (paired fit) or "imported" (.tmap)
     detection_mode: str  # the ParticleDetectionMode actually run (post .tdat apply)
+    #: The advisory donor-side check (#646, ADR-0070); also stored in /settings/extraction.
+    donor_side_check: DonorSideCheck | None = None
 
 
 def _half_split_geometry(
@@ -246,6 +259,7 @@ def _settings(
     source: str,
     tmap_source: str | None,
     tdat_source: str | None,
+    donor_side_check: DonorSideCheck,
 ) -> dict:
     """Assemble the JSON-serialisable ``/settings/extraction`` provenance dict."""
     settings = {"app_version": __version__, "pipeline": "native"}
@@ -262,7 +276,23 @@ def _settings(
     # resolved options.detection_mode / detection_threshold above already record
     # the values that were actually applied.
     settings["tdat_source"] = tdat_source
+    # The advisory donor-side check's verdict, its counts and the thresholds it used
+    # (#646, ADR-0070). It describes the traces stored here and never changed them.
+    settings["donor_side_check"] = donor_side_check.to_dict()
     return settings
+
+
+def _run_donor_side_check(traces: MoleculeTraces) -> DonorSideCheck:
+    """Run the advisory donor-side check on the extracted traces; never raise.
+
+    The check reads the background-subtracted traces and changes nothing. It is
+    advisory, so any failure inside it is recorded as ``not-run`` with the reason
+    instead of failing the extraction (#646).
+    """
+    try:
+        return check_donor_side(traces.donor.intensity, traces.acceptor.intensity)
+    except Exception as exc:  # advisory: an error here must never fail an extraction
+        return DonorSideCheck(verdict=VERDICT_NOT_RUN, reason=f"{type(exc).__name__}: {exc}")
 
 
 def _apply_tdat_detection(
@@ -401,7 +431,10 @@ def extract_movie(
     Returns
     -------
     ExtractionSummary
-        Counts + registration verdict for the run.
+        Counts + registration verdict for the run, and the advisory donor-side check
+        (``donor_side_check``, #646): a verdict on whether the donor and acceptor halves
+        look swapped. The check never changes the data and never fails the run; its
+        result is also stored in ``/settings/extraction``.
 
     Raises
     ------
@@ -548,6 +581,9 @@ def extract_movie(
     except Exception as exc:  # primitive/IO failure -> clean operator message
         raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
 
+    # The advisory donor-side check reads the finished traces (#646, ADR-0070).
+    side_check = _run_donor_side_check(traces)
+
     # --- Persist atomically (movie memmap is now closed) -----------------------
     parsed = parse_filename(movie_path.name)
     movie_id = f"mov-{uuid4()}"
@@ -576,6 +612,7 @@ def extract_movie(
         source=reg_map.source,
         tmap_source=Path(tmap).name if tmap is not None else None,
         tdat_source=Path(tdat).name if tdat is not None else None,
+        donor_side_check=side_check,
     )
 
     # Build at a sibling temp path, then atomically replace the destination only
@@ -616,4 +653,5 @@ def extract_movie(
         molecule_tags=tuple(reg_map.molecule_tags),
         registration_source=reg_map.source,
         detection_mode=options.detection_mode,
+        donor_side_check=side_check,
     )

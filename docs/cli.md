@@ -102,7 +102,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
 | `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with; mutually exclusive with `--detection-mode`/`--detection-threshold` |
 
-### Get `--donor-side` right, because nothing will tell you it is wrong
+### Get `--donor-side` right, and read the donor-side check
 
 > **This is the one flag that can silently invert your results.** `left` and `right` name
 > which *horizontal half* of the dual-channel frame carries donor emission. The two halves
@@ -111,12 +111,40 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > legal. `{left,right}` in the help text above is a *metavar*, not an argparse `choices`
 > list: a value that is neither, such as `--donor-side sideways`, is not rejected at parse
 > time either. It is caught downstream by `ExtractOptions` and reported as a clean error
-> with exit code 1, but a valid-but-wrong value is caught by nothing.
+> with exit code 1. A valid-but-wrong value is not an error, so the extraction itself
+> cannot refuse it.
 >
-> **How to check.** Look at a molecule whose acceptor photobleaches mid-trace. When the
-> acceptor dies the donor stops transferring energy, so the *donor* trace steps **up** at
-> that moment. If instead the trace you have labelled "donor" steps *down* while the other
-> steps up, your halves are swapped — re-extract with the other value.
+> **The donor-side check.** After every extraction Tether reads the side back out of the
+> traces ([ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md)).
+> When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
+> when the donor bleaches first both drop. A bleach event is a molecule whose dyes bleach
+> one after the other, with a clear drop in one channel and a clear rise in the other at the
+> first bleach. If the channel labelled donor shows the acceptor's drop in at least 80 % of
+> at least 15 bleach events, the command warns on standard error, names the evidence and
+> gives the remedy:
+>
+> ```text
+> Extracted 27 molecule(s) -> wrong.tether
+>   warning: 27 of 27 bleach events are consistent with swapped donor and acceptor halves; extract this movie again with --donor-side left.
+> ```
+>
+> Otherwise it prints one `donor side:` line on standard output — for example
+> `donor side: 32 of 32 bleach events agree with the donor side as extracted.` The check
+> is **advisory**: it never changes the project and never changes the exit code. Its result
+> and thresholds are stored as `donor_side_check` in `/settings/extraction`, and
+> `tether batch` lists the flagged movies in its summary.
+>
+> **It cannot always decide.** With fewer than 15 bleach events it says `not enough bleach
+> events to check the donor side`. Expect that with low FRET (below about E = 0.2), with no
+> acceptor, with short movies, and with most movies of fewer than about 35 molecules. A
+> verdict of "not a clear majority either way" means the votes split. In both cases, and
+> whenever the result matters, check by eye.
+>
+> **How to check by eye (the fallback).** Look at a molecule whose acceptor photobleaches
+> mid-trace. When the acceptor dies the donor stops transferring energy, so the *donor*
+> trace steps **up** at that moment. If instead the trace you have labelled "donor" steps
+> *down* while the other steps up, your halves are swapped — re-extract with the other
+> value.
 >
 > **How to audit it afterward.** Every `ExtractOptions` field is written verbatim into
 > `/settings/extraction` in the project file, so for a **natively registered** project the
@@ -127,7 +155,9 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > geometry, and `--donor-side` is ignored when one is supplied. Note that it is still
 > recorded, so on a `--tmap` run `/settings/extraction` preserves the value you *requested*
 > and not the effective geometry. Audit the imported map itself in that case; the map's
-> filename is recorded alongside it as `tmap_source`.
+> filename is recorded alongside it as `tmap_source`. The donor-side check still runs on a
+> `--tmap` run, and its warning then points at the map's channel order instead of at
+> `--donor-side`.
 
 `--detection-mode` and `--prealign` are metavars in the same way — an unrecognised value
 reaches `ExtractOptions` rather than argparse, and comes back as an error message on
@@ -153,8 +183,10 @@ tether extract movie.tif -o movie.tether
 
 ```console
 Extracted 412 molecule(s) -> movie.tether
+  donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 
+The second line is the [donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
 If the registration RMS residual exceeds `--rms-gate`, extraction still succeeds and
 still exits 0, but a warning goes to stderr and the affected molecules are tagged
 `low-confidence-registration` in the project — a flag you can filter on later rather
@@ -232,6 +264,27 @@ that movie as locked without refreshing or releasing the caller's lock. A proces
 per-destination reservation also prevents another local thread from refreshing that
 same-identity sidecar or writing through it. Both claims remain held while batch creates,
 skips, or re-extracts the destination.
+
+### The donor-side check in the batch summary
+
+`tether batch` has no `--donor-side` option, so every movie is extracted with the donor on
+the left. After each extraction it reads the stored [donor-side
+check](#get-donor-side-right-and-read-the-donor-side-check), also on a resumed run that skips
+the extract stage. A movie whose halves look swapped is marked `halves-swapped?` and listed
+in a footer; the check never changes a movie's status or the exit code:
+
+```text
+Batch run: 2 movie(s), 2 ok, 0 failed (policy=warn, idealize=off)
+  ok    fine_012     extract=done correct=done idealize=not-requested
+  ok    flipped_011  extract=done correct=done idealize=not-requested halves-swapped?
+Donor and acceptor halves look swapped in 1 movie(s) (advisory; nothing was changed):
+  flipped_011: 27 of 27 bleach events are consistent with swapped donor and acceptor halves; extract this movie again with --donor-side right
+```
+
+The structured log carries the same finding as a `donor-side-check` event with status
+`warning`. A movie with too few bleach events to check, or with no clear majority, adds
+nothing to the summary. To act on a flagged movie, extract it again with `tether extract`
+and the remedy the message names.
 
 ### Example — a folder of movies, extraction and correction only
 
