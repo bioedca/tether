@@ -9,7 +9,9 @@ over a total weight of exactly 1). The audit of #695 found a surviving mutant at
 of these lines; #739 (findings ANB-F7 and ANB-F10) asks for one assertion each. The
 dwell-time rows of ANB-F10 are in ``test_analysis_dwell.py``, next to their cores.
 
-All headless (no Qt, no store) -> base CI matrix.
+All headless (no Qt, no store) -> base CI matrix. The worst agreement on the three CI
+systems is 8.9e-16 for the normalized heights and 1.8e-15 for a zero std, so the
+limits are 1e-12.
 """
 
 from __future__ import annotations
@@ -153,7 +155,7 @@ def test_bootstrap_density_of_one_frame_is_normalized() -> None:
     np.testing.assert_allclose(ci.counts, want, rtol=1e-12)
     np.testing.assert_allclose(ci.ci_low, want, rtol=1e-12)
     np.testing.assert_allclose(ci.ci_high, want, rtol=1e-12)
-    # identical replicates: the std is zero up to rounding (measured 1.8e-15)
+    # identical replicates: the std is zero up to rounding
     np.testing.assert_allclose(ci.std, np.zeros(10), rtol=0.0, atol=1e-12)
 
 

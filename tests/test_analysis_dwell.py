@@ -226,7 +226,7 @@ def test_fit_single_recovers_an_amplitude_below_one() -> None:
     # A noise-free single exponential whose amplitude is below 1 (a fast component that
     # the frame grid cannot resolve). The fitted A in the other tests is above 1, so the
     # lower bound of A is never active there (#739 ANB-F10, dwell.py:328).
-    # Measured agreement: 1.2e-10 (rate) and 6.0e-11 (amplitude); limit 1e-6.
+    # Worst agreement on the three CI systems: 1.2e-10 (rate), 6.0e-11 (amplitude).
     tau = np.arange(40, dtype=float)
     surv = 0.6 * np.exp(-0.3 * tau)
     fit = fit_survival(tau, surv, model="single")
@@ -336,8 +336,8 @@ def test_fit_double_sorted_by_rate() -> None:
     assert fit.success
     assert fit.rates.shape == (2,) and fit.amplitudes.shape == (2,)
     assert fit.rates[0] < fit.rates[1]  # ascending
-    # Noise-free curve: measured agreement 5.6e-13 (rates) and 4.4e-13 (amplitudes), so
-    # the limit is 1e-6, not 0.15 (#739 ANB-F6).
+    # Noise-free curve. Worst agreement on the three CI systems: 6.3e-9 (rates) and
+    # 5.1e-9 (amplitudes), both on Windows, so the limit is 1e-6, not 0.15 (#739 ANB-F6).
     np.testing.assert_allclose(fit.rates, [0.05, 0.8], rtol=1e-6)
     np.testing.assert_allclose(fit.amplitudes, [0.5, 0.5], rtol=1e-6)
 
@@ -404,14 +404,16 @@ def test_fit_triple_recovers_known_rates_and_amplitudes() -> None:
     # 0.5 exp(-0.02 t) + 0.3 exp(-0.2 t) + 0.2 exp(-2 t). The test above fakes
     # curve_fit and checks only the sort order, so this is the test that the optimizer
     # and triple_exp_survival give the right numbers (#739 ANB-F3).
-    # Measured agreement: 3.0e-13 (rates), 2.3e-13 (amplitudes), 2.1e-14 (model curve).
+    # Worst agreement on the three CI systems, all on Windows: 1.3e-7 (rates), 5.9e-8
+    # (amplitudes), 4.0e-9 (model curve); Linux and macOS agree to 1e-10 or better. The
+    # limits are at least 10 times the worst agreement.
     tau = np.arange(200, dtype=float)
     surv = 0.5 * np.exp(-0.02 * tau) + 0.3 * np.exp(-0.2 * tau) + 0.2 * np.exp(-2.0 * tau)
     fit = fit_survival(tau, surv, model="triple")
     assert fit.success
     assert fit.model == "triple"
-    np.testing.assert_allclose(fit.rates, [0.02, 0.2, 2.0], rtol=1e-6)
-    np.testing.assert_allclose(fit.amplitudes, [0.5, 0.3, 0.2], rtol=1e-6)
+    np.testing.assert_allclose(fit.rates, [0.02, 0.2, 2.0], rtol=1e-5)
+    np.testing.assert_allclose(fit.amplitudes, [0.5, 0.3, 0.2], rtol=1e-5)
     np.testing.assert_allclose(fit.model_survival, surv, rtol=1e-6)
 
 
@@ -421,8 +423,8 @@ def test_fit_stretched_reports_beta() -> None:
     fit = fit_survival(tau, surv, model="stretched")
     assert fit.success
     assert fit.beta is not None
-    # Noise-free curve: measured agreement 2.4e-13 (beta), 1.7e-13 (rate) and 9.3e-14
-    # (amplitude), so the limit is 1e-6, not 0.15 (#739 ANB-F6).
+    # Noise-free curve. Worst agreement on the three CI systems: 2.5e-13 (beta), 1.7e-13
+    # (rate) and 9.3e-14 (amplitude), so the limit is 1e-6, not 0.15 (#739 ANB-F6).
     np.testing.assert_allclose(fit.beta, 0.7, rtol=1e-6)
     np.testing.assert_allclose(fit.rates, [0.1], rtol=1e-6)
     np.testing.assert_allclose(fit.amplitudes, [1.0], rtol=1e-6)
@@ -457,7 +459,7 @@ def test_fit_stretched_maps_stderr_and_ci_to_each_parameter(monkeypatch) -> None
 def test_fit_stretched_beta_stays_at_most_one() -> None:
     # beta is bounded to (0, 1]: a compressed curve exp(-(k t)^1.5) is fitted with the
     # bound active, so the reported beta is at most 1 (#739 ANB-F10, dwell.py:335).
-    # Measured: beta = 1 - 1.1e-16 at the bound.
+    # Measured on the three CI systems: beta = 1 - 1.1e-16 at the bound.
     tau = np.arange(50, dtype=float)
     surv = np.exp(-((0.1 * tau) ** 1.5))
     fit = fit_survival(tau, surv, model="stretched")
@@ -643,7 +645,10 @@ def test_population_fit_is_in_time_units_of_dt(tmp_path) -> None:
     # The store path fits tau in seconds (frames * dt), so with dt = 0.1 s every rate
     # is 10 times the per-frame rate, in 1/s. A fit on frames would report the
     # per-frame rate in 1/s (#739 ANB-F4, dwell.py:578).
-    # Measured agreement: 1.1e-9; limit 1e-6.
+    # The two fits stop at slightly different points of the same optimum: the agreement
+    # is 5.2e-7 (rates) and 2.0e-7 (amplitudes) on all three CI systems, so the limit is
+    # 1e-5 (a limit of 1e-6 would be less than 10 times the agreement). A fit on frames
+    # is wrong by the factor 10.
     proj, _s = _chained_store(tmp_path, seed=99, n_runs=600, name="dt.tether")
     per_frame = population_dwell_times(proj, "vbconhmm", model="single")
     per_second = population_dwell_times(proj, "vbconhmm", model="single", dt=0.1)
@@ -651,15 +656,16 @@ def test_population_fit_is_in_time_units_of_dt(tmp_path) -> None:
     for st, a in per_second.items():
         assert a.fit is not None and a.fit.success
         np.testing.assert_allclose(a.fit.tau, per_frame[st].fit.tau * 0.1)
-        np.testing.assert_allclose(a.fit.rates, per_frame[st].fit.rates / 0.1, rtol=1e-6)
+        np.testing.assert_allclose(a.fit.rates, per_frame[st].fit.rates / 0.1, rtol=1e-5)
         # the amplitude has no unit, so dt does not change it
-        np.testing.assert_allclose(a.fit.amplitudes, per_frame[st].fit.amplitudes, rtol=1e-6)
+        np.testing.assert_allclose(a.fit.amplitudes, per_frame[st].fit.amplitudes, rtol=1e-5)
 
 
 def test_population_ci_level_reaches_the_fit(tmp_path) -> None:
     # The requested ci_level is the level of the reported intervals: at 0.68 the
     # half-width is the Student-t multiplier of 0.68 times the same standard error, so
-    # it is narrower than at 0.95 (#739 ANB-F4, dwell.py:578).
+    # it is narrower than at 0.95 (#739 ANB-F4, dwell.py:578). Worst agreement on the
+    # three CI systems: 6.8e-16.
     from scipy import stats
 
     proj, _s = _chained_store(tmp_path, seed=99, n_runs=600, name="ci.tether")
