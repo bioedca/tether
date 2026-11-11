@@ -40,11 +40,12 @@ SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 # Red Hat Display (Regular, Medium, Bold), the upstream TTF files unchanged, with the upstream
-# OFL.txt beside them. From github.com/RedHatOfficial/RedHatFont at commit 6bb1048; the
+# OFL.txt beside them; the documentation site carries copies of Medium and Bold for its
+# headings (#674). From github.com/RedHatOfficial/RedHatFont at commit 6bb1048; the
 # copyright years are those of that OFL.txt (2021) and of the fonts' name table (2024).
 # Listed after the brand entry above: when two annotations match a file, the last one wins.
 [[annotations]]
-path = "src/tether/gui/assets/brand/fonts/**"
+path = ["src/tether/gui/assets/brand/fonts/**", "docs/assets/fonts/**"]
 precedence = "override"
 SPDX-FileCopyrightText = [
   "2021 The Red Hat Project Authors (https://github.com/RedHatOfficial/RedHatFont)",
