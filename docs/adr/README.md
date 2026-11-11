@@ -112,6 +112,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md) | A spent metered cap closes on the unmetered provider, not on a maintainer | accepted; supersedes the review-gate terminus of [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
 | [0066](0066-read-issue-markdown-with-a-real-parser.md) | Read issue Markdown with a real parser, as a dev-only dependency | accepted | §4.1 (pin-and-hold), §12.5–§12.6 |
 | [0067](0067-github-releases-are-the-only-change-record.md) | GitHub Releases are the only change record | accepted; supersedes the committed-`CHANGELOG.md` wording of PRD §12.7 and its single "Internal" changelog bucket | §12.7 (Releases & versioning), §12.2 / §12.6 (Conventional Commits) |
+| [0068](0068-a-project-holds-one-experiment.md) | A project holds one experiment, and a condition can span projects | accepted | §5.1 (project, experiment, condition), §3.1 UC3, §5.4, §7.5, §7.6, §7.7, §7.11 |
 
 <!-- gen:adr-index end -->
 
