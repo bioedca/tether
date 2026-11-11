@@ -6,7 +6,9 @@
 FR-ROUNDTRIP browser: donor/acceptor/total intensity + the FRET time-series with
 its marginal histograms. It is tMAVEN's per-trace viewer (Appendix C, **D1**)
 reimagined as Tether's curation surface, so it keeps the familiar conventions —
-**donor green / acceptor red / FRET blue**, the FRET axis fixed to ``0–1``, the
+**donor green / acceptor red / FRET blue** (the ``classic`` data colours of
+:mod:`tether.gui.theme`, which also colours the plots for the light or dark theme
+and redraws them when the theme changes), the FRET axis fixed to ``0–1``, the
 x-axis in **seconds** (from the linked ``/movies`` row's ``frame_time``, when the
 movie declares one) with a **frame-index toggle**, and an idealization **step
 overlay** drawn over the FRET panel.
@@ -36,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from tether.fret.efficiency import apparent_fret
+from tether.gui import theme
 
 if TYPE_CHECKING:
     # Type-only imports (never executed at runtime, so the module stays Qt-free to
@@ -48,12 +51,9 @@ __all__ = ["TimeMode", "TraceDock", "TraceView", "trace_from_smd"]
 TimeMode = Literal["seconds", "frames"]
 
 # --- familiar smFRET display conventions (PRD §7.3) --------------------------
-# RGB triples; pyqtgraph accepts these directly as pen colours.
-_DONOR_RGB = (0, 170, 0)  # green
-_ACCEPTOR_RGB = (220, 45, 45)  # red
-_TOTAL_RGB = (140, 140, 140)  # neutral grey (donor + acceptor)
-_FRET_RGB = (40, 90, 220)  # blue
-_IDEALIZATION_RGB = (20, 20, 20)  # near-black step overlay
+# The colours are named tokens of tether.gui.theme (donor green, acceptor red, FRET
+# blue, total grey, and an idealized line that stays visible in both themes, #617).
+_MARGINAL_ALPHA = 160  # opacity of the marginal-histogram bars (0-255)
 
 _FRET_LABEL = "apparent E"
 _FRET_RANGE = (0.0, 1.0)
@@ -271,27 +271,43 @@ class TraceDock:
         layout.setColumnStretchFactor(1, 1)
 
         # --- persistent curves (updated in place by set_trace) ---------------
-        self._donor_curve = self._intensity_plot.plot(
-            [], [], pen=pg.mkPen(_DONOR_RGB, width=1), name="Donor"
-        )
-        self._acceptor_curve = self._intensity_plot.plot(
-            [], [], pen=pg.mkPen(_ACCEPTOR_RGB, width=1), name="Acceptor"
-        )
-        self._total_curve = self._intensity_plot.plot(
-            [], [], pen=pg.mkPen(_TOTAL_RGB, width=1), name="Total"
-        )
-        self._fret_curve = self._fret_plot.plot(
-            [], [], pen=pg.mkPen(_FRET_RGB, width=1), connect="finite"
-        )
+        # Pens come from the theme in apply_theme, which runs below and on each
+        # change of theme.
+        self._donor_curve = self._intensity_plot.plot([], [], name="Donor")
+        self._acceptor_curve = self._intensity_plot.plot([], [], name="Acceptor")
+        self._total_curve = self._intensity_plot.plot([], [], name="Total")
+        self._fret_curve = self._fret_plot.plot([], [], connect="finite")
         # Reserved idealization step overlay (empty/hidden until M2 S6).
-        self._idealization_curve = self._fret_plot.plot(
-            [], [], pen=pg.mkPen(_IDEALIZATION_RGB, width=1.5), stepMode="center"
-        )
+        self._idealization_curve = self._fret_plot.plot([], [], stepMode="center")
         self._idealization_curve.setVisible(False)
 
         # Marginal-histogram bar items (created lazily; replaced on each update).
         self._intensity_bars: Any | None = None
         self._fret_bars: Any | None = None
+
+        self._theme = theme.current()
+        self.apply_theme(self._theme)
+        theme.subscribe(self.apply_theme)
+
+    def apply_theme(self, active: theme.Theme) -> None:
+        """Colour the plots, the curves and the bars from ``active`` (a theme change)."""
+        pg = self._pg
+        self._theme = active
+        theme.style_graphics(self._graphics, active)
+        for curve, token, width in (
+            (self._donor_curve, "donor", 1.0),
+            (self._acceptor_curve, "acceptor", 1.0),
+            (self._total_curve, "total", 1.0),
+            (self._fret_curve, "fret", 1.0),
+            (self._idealization_curve, "idealized", 1.5),
+        ):
+            curve.setPen(pg.mkPen(active.trace(token), width=width))
+        for bars in (self._intensity_bars, self._fret_bars):
+            if bars is not None:
+                bars.setOpts(brush=self._bar_brush())
+
+    def _bar_brush(self) -> tuple[int, int, int, int]:
+        return theme.rgba(self._theme.color("plot-axis"), _MARGINAL_ALPHA)
 
     # --- accessors -----------------------------------------------------------
 
@@ -537,7 +553,7 @@ class TraceDock:
             existing.setOpts(x0=0.0, width=counts, y=centers, height=width * 0.9)
             return existing
         bars = self._pg.BarGraphItem(
-            x0=0.0, width=counts, y=centers, height=width * 0.9, brush=(120, 120, 120, 160)
+            x0=0.0, width=counts, y=centers, height=width * 0.9, brush=self._bar_brush()
         )
         plot.addItem(bars)
         return bars
@@ -556,6 +572,7 @@ class TraceDock:
 
     def close(self) -> None:
         """Close and release the dock widget."""
+        theme.unsubscribe(self.apply_theme)
         self._widget.close()
 
     def __enter__(self) -> TraceDock:
