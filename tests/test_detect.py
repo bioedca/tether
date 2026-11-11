@@ -196,13 +196,49 @@ def test_detect_spots_min_separation_keeps_brightest() -> None:
     assert _count_near(kept_15, x=42, y=30) == 0  # suppressed -> brightest only
 
 
+def _close_pair_image() -> np.ndarray:
+    """Two compact blobs 7 px apart: between the 3 px and 8 px separations (#734).
+
+    Every mode resolves the pair as two spots when the minimum separation is 3 px,
+    and the 8 px keep-brightest suppresses the dimmer one, so the image tells the
+    two separations apart. (The band-pass mode needs an explicit threshold here:
+    its 0.98 default zeroes the dimmer blob before any separation applies.)
+    """
+    image = np.zeros((64, 64))
+    _gaussian_blob(image, row=30, col=28, amp=1.0, sigma=0.8)
+    _gaussian_blob(image, row=30, col=35, amp=0.9, sigma=0.8)
+    return image / image.max()
+
+
+def test_by_mode_min_separation_default_resolves_a_pair_7px_apart() -> None:
+    # IMG-F6 (#734): the per-mode default must be *observable*. Blobs 7 px apart are
+    # two spots at 3 px and one spot at 8 px, so a dispatcher that sends the shared
+    # 8 px to intensity/bandpass (the ADR-0022 regression) loses the dimmer one.
+    det = _close_pair_image()
+
+    for mode, threshold in (("intensity", None), ("bandpass", 0.5)):
+        default = detect_spots_by_mode(det, mode=mode, threshold=threshold)
+        assert default.shape[0] == 2, f"{mode}: the 3 px default must keep both spots"
+        assert _count_near(default, x=28, y=30) == 1
+        assert _count_near(default, x=35, y=30) == 1
+        # The same image does separate the two settings: 8 px keeps the brighter only.
+        at_8 = detect_spots_by_mode(det, mode=mode, threshold=threshold, min_separation=8.0)
+        assert at_8.shape[0] == 1 and _count_near(at_8, x=28, y=30) == 1
+
+    # Wavelet keeps its own 8 px default: one spot, though it resolves two at 3 px.
+    wavelet_default = detect_spots_by_mode(det, mode="wavelet")
+    assert wavelet_default.shape[0] == 1 and _count_near(wavelet_default, x=28, y=30) == 1
+    assert detect_spots_by_mode(det, mode="wavelet", min_separation=3.0).shape[0] == 2
+
+
 def test_by_mode_min_separation_defaults_are_faithful_per_mode() -> None:
     # ADR-0022: detect_spots_by_mode(min_separation=None) resolves to EACH mode's
     # own faithful default — intensity/bandpass 3 px, wavelet 8 px — not a shared
     # 8 px. Deep-LASI findPart applies no effective separation (findPart.m:66-69 is
     # a no-op); the 8 px was a wavelet-mode artifact that merged real molecules
     # < 8 px apart. The real-data recall impact (0.87 -> 0.98) is locked by the
-    # gated acceptance test; here we pin the per-mode default *dispatch*.
+    # gated acceptance test (#699). The blobs below are 26 px or more apart, so this
+    # test alone cannot tell 3 px from 8 px; the 7 px pair above can (#734 IMG-F6).
     rng = np.random.default_rng(4)
     image = rng.normal(100, 3, size=(64, 64))
     for row, col, amp in [(20, 20, 900), (30, 44, 780), (48, 18, 850)]:
@@ -575,17 +611,27 @@ def test_detect_spots_by_mode_matches_direct_calls() -> None:
 def test_detect_spots_by_mode_threshold_overrides_mode_default() -> None:
     # threshold=None lets each mode use its own faithful default; an explicit
     # value is the shared GUI knob, passed through to the mode.
+    #
+    # IMG-F7 (#734): the explicit value must change the result, or a dispatcher that
+    # drops it passes. The dim blob peaks at 0.4 of the maximum: under both mode
+    # defaults (intensity 0.5, band-pass 0.98) it is zeroed, and at 0.2 it is kept.
     image = np.zeros((64, 64))
-    for row, col in [(18, 20), (40, 44)]:
-        _gaussian_blob(image, row=row, col=col, amp=1.0)
+    _gaussian_blob(image, row=18, col=20, amp=1.0)
+    _gaussian_blob(image, row=40, col=44, amp=0.4)
     image /= image.max()
+    for mode in ("intensity", "bandpass"):
+        default = detect_spots_by_mode(image, mode=mode)
+        assert default.shape[0] == 1 and _count_near(default, x=20, y=18) == 1, mode
+        explicit = detect_spots_by_mode(image, mode=mode, threshold=0.2)
+        assert explicit.shape[0] == 2, f"{mode}: threshold=0.2 must keep the dim blob"
+        assert _count_near(explicit, x=44, y=40) == 1
     np.testing.assert_array_equal(
-        detect_spots_by_mode(image, mode="bandpass", threshold=0.7),
-        detect_spots_bandpass(image, threshold=0.7),
+        detect_spots_by_mode(image, mode="bandpass", threshold=0.2),
+        detect_spots_bandpass(image, threshold=0.2),
     )
     np.testing.assert_array_equal(
-        detect_spots_by_mode(image, mode="intensity", threshold=0.3),
-        detect_spots_intensity(image, threshold=0.3),
+        detect_spots_by_mode(image, mode="intensity", threshold=0.2),
+        detect_spots_intensity(image, threshold=0.2),
     )
 
 
