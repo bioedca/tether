@@ -90,10 +90,12 @@ each time a task starts:
 On a Linux desktop other than GNOME, Tether cannot read the setting, and the wavefronts
 move.
 
-**Progress row.** A task that gives a percentage shows the row of beam dots. The dots fill
-from left to right, and the percentage is beside the row. Assistive technology reads the
-row as a progress bar with its value. The task service and the progress panel of a later
-version put the row in the window ([#343](https://github.com/bioedca/tether/issues/343),
+**Progress row.** The progress row is a row of beam dots for a task that gives a
+percentage. The dots fill from left to right, and the percentage is beside the row.
+Assistive technology reads the row as a progress bar with its value. In this version, no
+task gives a percentage, so the window does not show the row. The task service and the
+progress panel of a later version put the row in the window
+([#343](https://github.com/bioedca/tether/issues/343),
 [#627](https://github.com/bioedca/tether/issues/627)).
 
 ![The menus with their icons, the busy indicator and the progress row in the light theme](../assets/gui/indicators-light.png)

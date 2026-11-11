@@ -153,6 +153,21 @@ def test_the_busy_indicator_lights_the_wavefronts_in_turn(qapp, qtbot, monkeypat
     assert busy.label.text() == ""
 
 
+def test_the_task_name_is_shown_as_plain_text(qapp, qtbot, monkeypatch) -> None:
+    # The name carries a molecule key, which is user data: markup in it shows as typed.
+    monkeypatch.setattr(indicators, "prefers_reduced_motion", lambda: True)
+    busy = indicators.BusyIndicator()
+    qtbot.addWidget(busy)
+    name = "Idealizing <b>mol</b><br>0"
+    busy.start(name)
+    assert busy.label.text() == name
+    # As rich text the label would draw "mol" bold and break the line, so it would be
+    # narrower than the literal string.
+    literal = busy.label.fontMetrics().horizontalAdvance(name)
+    assert busy.label.sizeHint().width() >= literal
+    busy.stop()
+
+
 def test_the_busy_mark_is_an_indeterminate_progress_bar(qapp, qtbot) -> None:
     from pyqtgraph.Qt import QtGui
 

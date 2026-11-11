@@ -222,6 +222,8 @@ def _widget_classes() -> dict[str, type]:
             layout.setSpacing(6)
             self._mark = BusyMark(self)
             self._label = QtWidgets.QLabel(self)
+            # The task name carries user data (a molecule key): never read it as markup.
+            self._label.setTextFormat(QtCore.Qt.TextFormat.PlainText)
             layout.addWidget(self._mark)
             layout.addWidget(self._label)
             self._task: str | None = None
