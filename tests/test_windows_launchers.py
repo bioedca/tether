@@ -37,6 +37,17 @@ _WIN_ACTIVATION_DIRS = (
     r"%ENV_D%\bin",
 )
 
+#: The exact last line of each launcher, as ``post_install.bat`` echoes it (issue #747).
+#: The CLI launcher runs ``tether.exe`` in the same console; the GUI launcher hands off to
+#: the console-less ``tether-gui.exe`` with ``start ""`` (the empty title), so the console
+#: the Start Menu shortcut opens can close. ``%%*`` writes a literal ``%*``: every argument
+#: the launcher gets is forwarded. The install-smoke runs ``tether.bat`` but only checks
+#: that ``tether-gui.bat`` exists, so this is the one place the GUI line is pinned.
+_LAUNCHER_START_LINES = {
+    "tether.bat": r'"%ENV_D%\Scripts\tether.exe" %%*',
+    "tether-gui.bat": r'start "" "%ENV_D%\Scripts\tether-gui.exe" %%*',
+}
+
 
 def test_windows_launchers_put_the_env_folders_first_on_path() -> None:
     """Both Windows launchers activate the env's PATH for their own process (issue #553).
@@ -56,7 +67,7 @@ def test_windows_launchers_put_the_env_folders_first_on_path() -> None:
         f"got {env_path.group(1)}"
     )
     assert re.search(r'(?m)^set "ENV_D=%PREFIX%\\envs\\tether"$', text)
-    for launcher in ("tether.bat", "tether-gui.bat"):
+    for launcher, start_line in _LAUNCHER_START_LINES.items():
         lines = [
             ln.split(" echo ", 1)[1]
             for ln in text.splitlines()
@@ -69,7 +80,10 @@ def test_windows_launchers_put_the_env_folders_first_on_path() -> None:
             f"{launcher} must `setlocal`, then put ENV_PATH ahead of the user's PATH, "
             f"before it starts anything; got {body}"
         )
-        assert len(body) == 3 and "%ENV_D%\\Scripts\\" in body[2], body
+        assert body[2:] == [start_line], (
+            f"{launcher} must end by starting its own exe and forwarding every argument "
+            f"(`%%*`); expected {start_line!r}, got {body[2:]}"
+        )
     assert "setx" not in "\n".join(
         ln for ln in text.splitlines() if not ln.lstrip().lower().startswith("rem")
     ), "the installer must never edit the user's persistent PATH (ADR-0051)"
