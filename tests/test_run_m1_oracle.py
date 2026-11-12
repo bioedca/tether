@@ -118,6 +118,9 @@ def test_locates_the_unique_tdat_and_passes_it_to_extraction(tmp_path, fake_run)
 def test_ambiguous_or_missing_tmap_or_tdat_is_refused(tmp_path, monkeypatch, n_tmap, n_tdat):
     monkeypatch.delenv("TETHER_UCKOPSB_DIR", raising=False)
     script = _load()
+    # Move the parent-directory search under tmp_path too, so a workstation that holds
+    # the real dataset in example-data/ cannot satisfy the lookup and hide the refusal.
+    monkeypatch.setattr(script, "__file__", str(tmp_path / "repo" / "scripts" / "run.py"))
     data = _stage(tmp_path, n_tmap=n_tmap, n_tdat=n_tdat)
     with pytest.raises(SystemExit, match="exactly one .tdat"):
         script._locate(str(data))
