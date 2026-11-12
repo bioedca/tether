@@ -114,22 +114,32 @@ def dict_literals(tree: ast.Module) -> dict[str, list[str]]:
     return found
 
 
+def tether_imports(*trees: ast.Module) -> dict[str, str]:
+    """``{bound name: module}`` for every ``from tether... import name`` in ``trees``."""
+    return {
+        alias.asname or alias.name: node.module
+        for tree in trees
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("tether")
+        for alias in node.names
+    }
+
+
 def tether_calls(
-    src: Path, tree: ast.Module
+    src: Path, tree: ast.Module, imported: dict[str, str] | None = None
 ) -> list[tuple[str, ast.Call, ast.FunctionDef | None, bool]]:
-    """Every call in ``tree`` of a name the fence imports from ``tether``.
+    """Every call in ``tree`` of a name imported from ``tether``.
+
+    ``imported`` defaults to the imports of ``tree`` itself; a page that imports in one
+    fence and calls in a later one passes the whole page's ``tether_imports`` instead.
 
     Returns ``(label, call, def, bound)``: ``f(...)`` for an imported function and
     ``Cls.meth(...)`` for a method of an imported class. ``def`` is ``None`` when the
     imported name has no such top-level ``def`` -- a class called directly, say -- so the
     caller decides what that means rather than this reader skipping it.
     """
-    imported = {
-        alias.asname or alias.name: node.module
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("tether")
-        for alias in node.names
-    }
+    if imported is None:
+        imported = tether_imports(tree)
     found: list[tuple[str, ast.Call, ast.FunctionDef | None, bool]] = []
     for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
         if isinstance(call.func, ast.Name) and call.func.id in imported:

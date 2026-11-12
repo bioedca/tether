@@ -53,7 +53,7 @@ from pathlib import Path
 
 import pytest
 
-from _docs_source import check_call, dict_literals, tether_calls
+from _docs_source import check_call, dict_literals, tether_calls, tether_imports
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
@@ -387,11 +387,15 @@ def _source_definitions() -> dict[str, tuple[ast.FunctionDef | ast.ClassDef, ...
 def _call_problems(rel: str, programs: list[tuple[int, ast.Module]]) -> list[str]:
     """What would fail at run time in the calls of one page's Python fences."""
     problems = []
-    bound = _page_bindings([tree for _, tree in programs])
+    trees = [tree for _, tree in programs]
+    bound = _page_bindings(trees)
+    # A page builds one program in steps, so an import in one fence serves a call in a
+    # later one, and that call is signature-checked like any other (#749 review).
+    imported = tether_imports(*trees)
+    spreads = {k: v for tree in trees for k, v in dict_literals(tree).items()}
     for first, tree in programs:
-        spreads = dict_literals(tree)
         checked: set[int] = set()
-        for label, call, func, is_bound in tether_calls(SRC, tree):
+        for label, call, func, is_bound in tether_calls(SRC, tree, imported):
             checked.add(id(call))
             where = f"{rel}:{first + call.lineno - 1}"
             if func is None:
@@ -440,7 +444,11 @@ def test_every_call_in_a_docs_python_fence_can_run() -> None:
     for rel, first, result in _python_programs():
         if isinstance(result, ast.Module):
             pages.setdefault(rel, []).append((first, result))
-    calls = sum(len(tether_calls(SRC, tree)) for programs in pages.values() for _, tree in programs)
+    calls = sum(
+        len(tether_calls(SRC, tree, tether_imports(*(t for _, t in programs))))
+        for programs in pages.values()
+        for _, tree in programs
+    )
     assert calls >= 40, f"expected the docs' calls of tether; found only {calls}"
     problems = [p for rel, programs in pages.items() for p in _call_problems(rel, programs)]
     assert not problems, "\n".join(problems)
@@ -478,6 +486,14 @@ def test_a_name_bound_in_an_earlier_fence_of_the_page_is_not_reported() -> None:
     first = ast.parse("from tether.analysis.plot_export import render_histogram1d\n")
     second = ast.parse("figure = render_histogram1d(hist)\nhist = None\n")
     assert _call_problems("docs/x.md", [(1, first), (5, second)]) == []
+
+
+def test_a_call_in_a_later_fence_is_checked_against_an_earlier_import() -> None:
+    """The import in one fence does not exempt a bad call in the next from the check."""
+    first = ast.parse("from tether.analysis.histogram import population_apparent_e_histogram\n")
+    second = ast.parse('hist = population_apparent_e_histogram("x.tether", nbins=151)\n')
+    problems = _call_problems("docs/x.md", [(1, first), (5, second)])
+    assert any("docs/x.md:5" in p and "no parameter 'nbins'" in p for p in problems), problems
 
 
 def test_resolution_never_imports(monkeypatch: pytest.MonkeyPatch) -> None:
