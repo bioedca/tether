@@ -40,7 +40,7 @@ jobs:
       matrix:
         include:
           # Idealization runs in the isolated tMAVEN env (numpy<2 / PyQt5), as in sidecar.yml.
-          # TEMPORARY (#722 sidecar memory gate check): compare entry removed, reverted before review
+          - { name: compare, groups: "default gui", lock: conda-lock.yml, env: tether }
           - { name: sidecar, groups: sidecar, lock: sidecar/conda-lock.yml, env: tether-sidecar }
     defaults:
       run:
