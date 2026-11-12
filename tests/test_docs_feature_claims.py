@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -76,21 +77,55 @@ UNBOUND: dict[str, str] = {
 PLANNED_PANEL = "movie panel, which reaches the application"
 
 
+def _is_type_checking(test: ast.expr) -> bool:
+    """``TYPE_CHECKING`` or ``typing.TYPE_CHECKING``, the guard whose body never runs."""
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return (
+        isinstance(test, ast.Attribute)
+        and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name)
+        and test.value.id == "typing"
+    )
+
+
+def _runtime_nodes(node: ast.AST) -> Iterator[ast.AST]:
+    """Every node under ``node`` except the body of an ``if TYPE_CHECKING:`` block.
+
+    Imports there are for the type checker only and do not run, so they say nothing about what
+    the application loads. The ``else`` branch of such a block does run, so it is kept.
+    """
+    for child in ast.iter_child_nodes(node):
+        yield child
+        if isinstance(child, ast.If) and _is_type_checking(child.test):
+            for kept in child.orelse:
+                yield kept
+                yield from _runtime_nodes(kept)
+        else:
+            yield from _runtime_nodes(child)
+
+
+def _imports_in(source: str, own: str) -> set[str]:
+    """Every ``tether`` module ``source`` imports at run time, other than ``own`` itself."""
+    found: set[str] = set()
+    for node in _runtime_nodes(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            parts = ["tether", "gui"][: 3 - node.level] if node.level else []
+            base = ".".join(parts + ([node.module] if node.module else []))
+            names = [base] + [f"{base}.{alias.name}" for alias in node.names]
+        else:
+            continue
+        found.update(name for name in names if name.startswith("tether") and name != own)
+    return found
+
+
 def _gui_imports() -> set[str]:
     """Every ``tether`` module a ``src/tether/gui`` file imports, other than the file itself."""
     found: set[str] = set()
     for path in sorted(GUI.glob("*.py")):
-        own = f"tether.gui.{path.stem}"
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                parts = ["tether", "gui"][: 3 - node.level] if node.level else []
-                base = ".".join(parts + ([node.module] if node.module else []))
-                names = [base] + [f"{base}.{alias.name}" for alias in node.names]
-            else:
-                continue
-            found.update(name for name in names if name.startswith("tether") and name != own)
+        found |= _imports_in(path.read_text(encoding="utf-8"), f"tether.gui.{path.stem}")
     return found
 
 
@@ -180,3 +215,34 @@ def test_the_guards_see_the_wording_they_replaced() -> None:
     assert _groups(old_list)[IN_APP] == ["Movie panel"]
     assert not _in_application("Movie panel", _gui_imports())
     assert _in_application("Population histogram", _gui_imports())
+
+
+def test_a_type_only_import_is_not_a_gui_import() -> None:
+    """Only imports that run count: a ``TYPE_CHECKING`` body is for the type checker (#687)."""
+    source = (
+        "import typing\n"
+        "from typing import TYPE_CHECKING\n"
+        "from tether.project import labels\n"
+        "if TYPE_CHECKING:\n"
+        "    from tether.project.batch import run\n"
+        "    import tether.gui.movie_panel\n"
+        "if typing.TYPE_CHECKING:\n"
+        "    from ..ml import ranker\n"
+        "else:\n"
+        "    from . import histogram_dock\n"
+        "def later():\n"
+        "    if TYPE_CHECKING:\n"
+        "        import tether.project.extract\n"
+        "    import tether.project.correct\n"
+    )
+    found = _imports_in(source, "tether.gui.example")
+    assert {"tether.project.labels", "tether.gui.histogram_dock", "tether.project.correct"} <= found
+    type_only = {
+        "tether.project.batch",
+        "tether.project.batch.run",
+        "tether.gui.movie_panel",
+        "tether.ml",
+        "tether.ml.ranker",
+        "tether.project.extract",
+    }
+    assert not found & type_only
