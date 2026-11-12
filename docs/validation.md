@@ -660,7 +660,7 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
 - The ebFRET gate tests **one fixed pair of seeds** (1 and 2,
   [ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)), not a fresh pair per run. A regression
   that shows only on some seeds can pass it. Unseeded ebFRET keeps a rare poor-optimum tail
-  (one observed draw scored Viterbi 0.7568 against the 0.9034 floor,
+  (one observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor,
   [#311](https://github.com/bioedca/tether/issues/311)) that the frozen band does not cover.
 - The kinSoftChallenge check is advisory, 2-state level 1 only, gated (see above), and
   **not blind** — the ground truth is committed and the fit is retrospective. Levels 2 and 3
