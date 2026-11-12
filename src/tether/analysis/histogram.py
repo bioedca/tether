@@ -1457,7 +1457,7 @@ def transition_sync_histogram2d(
       dwell after the jump (exclusive, as in tMAVEN). With no next transition the
       dwell runs to the end of the trace **inclusive**: a trailing dwell keeps the
       final frame of the analysis window, because only a real jump ends a dwell
-      early (#806).
+      early (#806, ADR-0085).
     - ``single_dwell=False`` (``gen_sync_list_fixed``): a fixed window of
       ``sync_preframe`` frames before and ``time_bins - sync_preframe + 1`` after
       every selected transition (overlapping windows may double-count a frame, as
