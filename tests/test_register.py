@@ -11,7 +11,9 @@ Locks the registration half of the M0.5(b) acceptance:
   registration to RMS <= 0.5 px (and within 1 px for >= 95% of molecules), using
   the small committed decoded-coefficient fixture; and
 * (data-present only) the ``.tmap`` MCOS decoder itself, checked against that
-  fixture when the external ``.tmap`` is available.
+  fixture when the external ``.tmap`` is available; and
+* (large tier) the decoder on the committed bead map, checked against the bead
+  prealign oracle (#733).
 """
 
 from __future__ import annotations
@@ -232,6 +234,41 @@ def test_read_tmap_matches_committed_fixture() -> None:
             np.testing.assert_allclose(got_t.b, exp_t.b, atol=1e-9)
             np.testing.assert_allclose(got_t.norm_xy, exp_t.norm_xy, atol=1e-9)
             np.testing.assert_allclose(got_t.norm_uv, exp_t.norm_uv, atol=1e-9)
+
+
+BEAD_TMAP = Path(__file__).resolve().parent / "fixtures" / "large" / "bead_prealign.tmap"
+BEAD_ORACLE = Path(__file__).resolve().parent / "fixtures" / "bead_prealign_oracle.npz"
+
+
+@pytest.mark.large
+def test_read_tmap_decodes_committed_bead_map() -> None:
+    # #733 IMG-F2: read_tmap on a real file. bead_prealign_oracle.npz holds the similarity that
+    # scripts/make_bead_prealign_fixture.py fitted to this map's decoded polynomial, so the same
+    # fit here gives it again to float rounding (same algorithm: an exact comparison).
+    if not BEAD_TMAP.is_file() or BEAD_TMAP.read_bytes()[:64].startswith(
+        b"version https://git-lfs"
+    ):
+        pytest.skip("LFS large-tier fixture not materialized (default checkout)")
+    transform = pytest.importorskip("skimage.transform")
+    oracle = np.load(BEAD_ORACLE)
+    channels = read_tmap(BEAD_TMAP)
+    assert sorted(channels) == [1, 2]
+    donor, acceptor = channels[1], channels[2]
+    np.testing.assert_array_equal([donor.origin, acceptor.origin], [[0.0, 0.0], [256.0, 0.0]])
+    grid = np.linspace(20, 235, 16)
+    donor_local = np.column_stack([axis.ravel() for axis in np.meshgrid(grid, grid)])
+    donor_full = donor_local + oracle["donor_crop_offset"]
+    acc_full = acceptor.reference_to_channel_image(donor_full, reference_origin=donor.origin)
+    fit = transform.SimilarityTransform.from_estimate(
+        acc_full - oracle["acceptor_crop_offset"], donor_local
+    )
+    assert fit
+    assert fit.scale == pytest.approx(float(oracle["gt_scale"]), abs=1e-9)
+    assert np.rad2deg(fit.rotation) == pytest.approx(float(oracle["gt_rotation_deg"]), abs=1e-9)
+    np.testing.assert_allclose(fit.translation, oracle["gt_translation"], atol=1e-9)
+    # The stored reverse map undoes the forward map (at most 0.014 px on this grid, measured).
+    forward = acceptor.reference_to_channel(donor_full)
+    np.testing.assert_allclose(acceptor.channel_to_reference(forward), donor_full, atol=0.05)
 
 
 # --- prealign + NN pairing (M1 S5; Appendix E Stages 7-8) --------------------
