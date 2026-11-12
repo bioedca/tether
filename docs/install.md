@@ -15,25 +15,28 @@ The steps are: download one installer, check it, run it, put Tether's launcher f
 `PATH`, and confirm it answers. Uninstalling is covered at the end.
 
 > **The current release is a pre-release.** The newest published release is
-> [`v1.0.0-rc2`](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc2), a release
-> candidate for 1.0, and every filename on this page is read off it. Do not use the older
+> [`v1.0.0-rc3`](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc3), a release
+> candidate for 1.0, and every filename on this page is read off it. Do not use
 > `v1.0.0-rc1`: its one-click idealization fails with a `pkg_resources` error that rc2 fixes.
+> Do not use `v1.0.0-rc2` on Windows: it creates no Start menu shortcut, and its launchers can
+> crash when Tether does a one-click idealize or an extract. rc3 fixes both. On Linux and
+> macOS, rc2 still works, but rc3 is the release this page describes.
 
 ## 1. Download the installer for your computer
 
-Open the [release page](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc2), expand
+Open the [release page](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc3), expand
 **Assets**, and download two files: your installer and the checksum file that goes with it.
 Put both in the same folder (your Downloads folder is fine).
 
 | Your computer | Installer | Checksum file |
 |---|---|---|
-| Windows (64-bit) | `Tether-1.0.0-rc2-Windows-x86_64.exe` | `SHA256SUMS-win-64.txt` |
-| Mac with Apple silicon (M1 or later) | `Tether-1.0.0-rc2-MacOSX-arm64.pkg` | `SHA256SUMS-osx-arm64.txt` |
-| Mac with an Intel processor | `Tether-1.0.0-rc2-MacOSX-x86_64.pkg` | `SHA256SUMS-osx-64.txt` |
-| Linux (64-bit x86) | `Tether-1.0.0-rc2-Linux-x86_64.sh` | `SHA256SUMS-linux-64.txt` |
+| Windows (64-bit) | `Tether-1.0.0-rc3-Windows-x86_64.exe` | `SHA256SUMS-win-64.txt` |
+| Mac with Apple silicon (M1 or later) | `Tether-1.0.0-rc3-MacOSX-arm64.pkg` | `SHA256SUMS-osx-arm64.txt` |
+| Mac with an Intel processor | `Tether-1.0.0-rc3-MacOSX-x86_64.pkg` | `SHA256SUMS-osx-64.txt` |
+| Linux (64-bit x86) | `Tether-1.0.0-rc3-Linux-x86_64.sh` | `SHA256SUMS-linux-64.txt` |
 
 On a Mac, **Apple menu → About This Mac** shows *Chip* (Apple silicon) or *Processor*
-(Intel). Each installer is roughly 650–820 MB because it carries everything offline; nothing else is
+(Intel). Each installer is roughly 660–830 MB because it carries everything offline; nothing else is
 downloaded while it installs.
 
 ## 2. Check the download
@@ -68,7 +71,7 @@ file does not match: delete it and download it again.
 ```powershell
 $expected = ((Get-Content .\SHA256SUMS-win-64.txt) -split '\s+')[0]
 $actual = (Get-FileHash -Algorithm SHA256 `
-  .\Tether-1.0.0-rc2-Windows-x86_64.exe).Hash.ToLowerInvariant()
+  .\Tether-1.0.0-rc3-Windows-x86_64.exe).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw "SHA-256 verification failed" } else { "OK" }
 ```
 
@@ -85,11 +88,11 @@ against that record. It needs the [GitHub command-line tool](https://cli.github.
 signed in to any GitHub account. Run it in the download folder with your installer's name:
 
 ```bash
-gh attestation verify Tether-1.0.0-rc2-Linux-x86_64.sh \
+gh attestation verify Tether-1.0.0-rc3-Linux-x86_64.sh \
   --repo bioedca/tether \
   --signer-workflow bioedca/tether/.github/workflows/release.yml \
-  --source-ref refs/tags/v1.0.0-rc2 \
-  --source-digest 292dd151c0263f981f8cd0f358d5e2074091d9de
+  --source-ref refs/tags/v1.0.0-rc3 \
+  --source-digest 6de7824fa73bebd70f8fbf6dda037b6857fd1b2f
 ```
 
 In PowerShell, put the command on one line or end each continued line with a backtick
@@ -119,7 +122,7 @@ suggested destination folder unless you have a reason to change it. The steps be
 the `x86_64` name on an Intel Mac):
 
 ```bash
-installer -pkg Tether-1.0.0-rc2-MacOSX-arm64.pkg -target CurrentUserHomeDirectory
+installer -pkg Tether-1.0.0-rc3-MacOSX-arm64.pkg -target CurrentUserHomeDirectory
 ```
 
 It installs into `~/Tether` (the `Tether` folder in your home folder) without asking for a
@@ -131,7 +134,7 @@ above describes.
 **Linux.** Run the installer with `sh`:
 
 ```bash
-sh Tether-1.0.0-rc2-Linux-x86_64.sh
+sh Tether-1.0.0-rc3-Linux-x86_64.sh
 ```
 
 Page through the license, type `yes`, and press Enter to accept the suggested location,
@@ -208,7 +211,7 @@ tether --version
 It prints `tether` and the version, for this release:
 
 ```text
-tether 1.0.0rc2
+tether 1.0.0rc3
 ```
 
 If it prints exactly that version, the install worked and your terminal finds its launcher.
@@ -218,9 +221,11 @@ new launcher by its full path, `~/tether/bin/tether --version` on Linux,
 `~/Tether/bin/tether --version` on macOS or `& "$env:USERPROFILE\Tether\bin\tether.bat" --version` in
 Windows PowerShell. To start the desktop application:
 
-- **Windows:** open the Start menu and choose **Tether**, or run `tether-gui` in a terminal.
-  If there is no **Tether** entry, the installer could not create the shortcut on your account
-  (it warns and carries on); run `C:\Users\<you>\Tether\bin\tether-gui.bat` instead.
+- **Windows:** run `tether-gui` in a terminal, or run
+  `C:\Users\<you>\Tether\bin\tether-gui.bat`. The rc3 installer creates a **Tether** Start menu
+  shortcut, but Start does not show it
+  ([#578](https://github.com/bioedca/tether/issues/578), fixed for the next release). If you
+  find a **Tether** entry in the Start menu, you can also choose it there.
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
   (A desktop that was already running may only show the menu entry after you log out and back
   in.)
