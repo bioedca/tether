@@ -105,6 +105,46 @@ def test_apply_changes_exactly_one_span_and_keeps_non_ascii_columns() -> None:
     assert rm.apply("def f(a):\n    return -a\n", neg) == "def f(a):\n    return a\n"
 
 
+def test_removing_a_unary_operator_keeps_the_parentheses_of_its_operand() -> None:
+    source = "def f(x):\n    if not (0 < x < 1):\n        return -(x)\n"
+    removed = [rm.apply(source, m) for m in rm.mutants_of(source, "x") if m.new == ""]
+    assert removed == [
+        "def f(x):\n    if (0 < x < 1):\n        return -(x)\n",
+        "def f(x):\n    if not (0 < x < 1):\n        return (x)\n",
+    ]
+
+
+def test_a_line_run_by_a_shared_fixture_runs_every_test_that_uses_the_fixture() -> None:
+    (mutant,) = [
+        m for m in rm.mutants_of("def f(a):\n    return a + 1\n", "src/x.py") if m.old == "+"
+    ]
+    # A module-scoped fixture ran the line once, while the first test set it up.
+    lines = {"src/x.py": {2: {"tests/t.py::a", "fixture|tests/t.py|parsed"}}}
+    passed = {"tests/t.py::a", "tests/t.py::b", "tests/t.py::c", "tests/u.py::d"}
+    fixtures = {
+        "tests/t.py::a": ["parsed"],
+        "tests/t.py::b": ["parsed", "tmp_path"],
+        "tests/t.py::c": ["tmp_path"],  # does not use it
+        "tests/u.py::d": ["parsed"],  # another module's fixture of the same name
+    }
+    assert rm.covering_tests(mutant, lines, passed) == ["tests/t.py::a"]
+    assert rm.covering_tests(mutant, lines, passed, fixtures) == ["tests/t.py::a", "tests/t.py::b"]
+    # A session fixture (empty scope id) serves every test that asks for it.
+    lines = {"src/x.py": {2: {"fixture||parsed"}}}
+    every = ["tests/t.py::a", "tests/t.py::b", "tests/u.py::d"]
+    assert rm.covering_tests(mutant, lines, passed, fixtures) == every
+
+
+@pytest.mark.parametrize(("status", "tests"), [(2, {"t::a": {"outcome": "passed"}}), (0, {})])
+def test_a_coverage_run_that_did_not_test_writes_no_report_and_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int, tests: dict
+) -> None:
+    monkeypatch.setattr(rm, "run_contexts", lambda work: (tests, {}, status))
+    out = tmp_path / "report"
+    assert rm.main(["--out", str(out), "--jobs", "1"]) == 2
+    assert not (out / "mutation-report.json").exists(), "a failed run must never become a base"
+
+
 def test_a_mutant_runs_the_tests_of_its_statement_and_a_default_runs_the_callers() -> None:
     mutants = {(m.line, m.change): m for m in rm.mutants_of(SOURCE, "src/x.py")}
     lines = {"src/x.py": {4: {"t::import"}, 10: {"t::doc"}, 11: {"t::a", "t::b"}, 12: {"t::a"}}}

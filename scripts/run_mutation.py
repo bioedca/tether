@@ -79,17 +79,33 @@ _BOOL = {ast.And: ("and", "or"), ast.Or: ("or", "and")}
 
 # --- pytest plugin (step 1): loaded with ``-p run_mutation`` ------------------------------------
 _results: dict[str, dict] = {}
+_current = [""]  # the context in force, so a fixture can put it back
+#: The context of a fixture that serves more than one test (module, class, package or session
+#: scope): ``fixture|<node id of its scope>|<fixture name>``. Its lines ran once, for the first
+#: test that asked for it, and every later test that asks for it uses what they made.
+FIXTURE_CONTEXT = "fixture|"
+
+try:
+    import pytest as _pytest
+except ImportError:  # the runner's own process does not need pytest
+    _pytest = None
 
 
 def _switch_context(name: str) -> None:
     import coverage
 
+    _current[0] = name
     current = coverage.Coverage.current()
     if current is not None:
         current.switch_context(name)
 
 
+def _entry(nodeid: str) -> dict:
+    return _results.setdefault(nodeid, {"outcome": "passed", "duration": 0.0, "fixtures": []})
+
+
 def pytest_runtest_setup(item) -> None:  # noqa: ANN001 - pytest hook
+    _entry(item.nodeid)["fixtures"] = sorted(getattr(item, "fixturenames", ()))
     _switch_context(item.nodeid)
 
 
@@ -97,8 +113,22 @@ def pytest_runtest_logfinish(nodeid: str, location: object) -> None:
     _switch_context("")
 
 
+if _pytest is not None:
+
+    @_pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef, request):  # noqa: ANN001, ANN201 - pytest hook
+        if fixturedef.scope == "function":
+            return (yield)
+        before = _current[0]
+        _switch_context(f"{FIXTURE_CONTEXT}{request.node.nodeid}|{fixturedef.argname}")
+        try:
+            return (yield)
+        finally:
+            _switch_context(before)
+
+
 def pytest_runtest_logreport(report) -> None:  # noqa: ANN001 - pytest hook
-    entry = _results.setdefault(report.nodeid, {"outcome": "passed", "duration": 0.0})
+    entry = _entry(report.nodeid)
     entry["duration"] += float(report.duration)
     if report.outcome != "passed" and entry["outcome"] == "passed":
         entry["outcome"] = report.outcome
@@ -204,6 +234,12 @@ def mutants_of(source: str, path: str) -> list[Mutant]:
                     return (*seq[0].start, *seq[-1].end)
         return None
 
+    def next_token_start(pos: tuple[int, int]) -> tuple[int, int] | None:
+        for i in by_line.get(pos[0], ()):
+            if tokens[i].start == pos and i + 1 < len(tokens):
+                return tokens[i + 1].start
+        return None
+
     def end_of(n: ast.AST) -> tuple[int, int]:
         return (n.end_lineno, _char_col(lines, n.end_lineno, n.end_col_offset))
 
@@ -240,8 +276,10 @@ def mutants_of(source: str, path: str) -> list[Mutant]:
                 add(token_between(end_of(left), start_of(right), old), old, new, node)
         elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.Not, ast.USub)):
             old = "not" if isinstance(node.op, ast.Not) else "-"
-            # The operator and the space after it go; ``-x`` becomes ``x``, ``not x`` becomes ``x``.
-            add((*start_of(node), *start_of(node.operand)), old, "", node)
+            # The operator token and the space after it go, and nothing else: ``not (a < b)``
+            # becomes ``(a < b)``, ``-x`` becomes ``x``.
+            after = next_token_start(start_of(node))
+            add(None if after is None else (*start_of(node), *after), old, "", node)
         elif isinstance(node, ast.Constant) and (new := _number_mutant(node.value)) is not None:
             add((*start_of(node), *end_of(node)), repr(node.value), new, node)
 
@@ -330,8 +368,10 @@ def target_files(root: Path, config: Mapping) -> list[str]:
 
 
 # --- running (steps 1 and 3) --------------------------------------------------------------------
-def run_contexts(work: Path, extra: Iterable[str] = ()) -> tuple[dict, dict[str, dict[int, set]]]:
-    """Run the default tier once under coverage; return test results and line -> test ids."""
+def run_contexts(
+    work: Path, extra: Iterable[str] = ()
+) -> tuple[dict, dict[str, dict[int, set]], int]:
+    """Run the default tier once under coverage: test results, line -> contexts, exit status."""
     from coverage import CoverageData
 
     data_file, tests_json = work / ".coverage", work / "tests.json"
@@ -358,7 +398,9 @@ def run_contexts(work: Path, extra: Iterable[str] = ()) -> tuple[dict, dict[str,
         MARKERS,
         *extra,
     ]
-    subprocess.run(cmd, cwd=REPO, env=env, check=False)
+    status = subprocess.run(cmd, cwd=REPO, env=env, check=False).returncode
+    if not tests_json.is_file() or not data_file.is_file():
+        return {}, {}, status
     tests = json.loads(tests_json.read_text(encoding="utf-8"))
     cov = CoverageData(basename=str(data_file))
     cov.read()
@@ -371,13 +413,32 @@ def run_contexts(work: Path, extra: Iterable[str] = ()) -> tuple[dict, dict[str,
             continue
         by_line = cov.contexts_by_lineno(measured)
         lines[key] = {ln: {c for c in ctx if c} for ln, ctx in by_line.items()}
-    return tests, lines
+    return tests, lines, status
 
 
-def covering_tests(mutant: Mutant, lines: Mapping[str, Mapping[int, set]], passed: set) -> list:
+def covering_tests(
+    mutant: Mutant,
+    lines: Mapping[str, Mapping[int, set]],
+    passed: set,
+    fixtures: Mapping[str, Iterable[str]] | None = None,
+) -> list:
+    """The passing tests that ran the mutant's lines, and every test that used a shared fixture
+    whose setup ran them (*fixtures*: node id -> the fixture names the test asked for)."""
     by_line = lines.get(mutant.path, {})
     wanted = mutant.test_lines or list(by_line)
-    return sorted({t for ln in wanted for t in by_line.get(ln, ())} & passed)
+    contexts = {c for ln in wanted for c in by_line.get(ln, ())}
+    found = contexts & passed
+    for context in contexts:
+        if not context.startswith(FIXTURE_CONTEXT):
+            continue
+        scope, _, name = context[len(FIXTURE_CONTEXT) :].rpartition("|")
+        found |= {
+            test
+            for test in passed
+            if name in (fixtures or {}).get(test, ())
+            and (not scope or test.startswith((scope + "::", scope + "/")))
+        }
+    return sorted(found)
 
 
 def run_one(mutant: Mutant, source: str, worker: Path, tests: list[str], limit: float) -> str:
@@ -528,14 +589,32 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="tether-mutation-") as tmp:
         work = Path(tmp)
-        tests, lines = run_contexts(work)
+        tests, lines, status = run_contexts(work)
         passed = {t for t, r in tests.items() if r["outcome"] == "passed"}
+        # Exit 1 is a failed test, which is left out below. Anything else (a collection error,
+        # an internal error) or no passing test at all would make every mutant "uncovered" and
+        # the report a false base for the next comparison, so the run fails with no report.
+        if status not in (0, 1) or not passed:
+            print(
+                f"::error::the coverage run of the tests ended with exit {status} and "
+                f"{len(passed)} passing tests; no report is written",
+                flush=True,
+            )
+            return 2
+        failed = sorted(t for t, r in tests.items() if r["outcome"] == "failed")
+        if failed:
+            print(
+                f"::warning::{len(failed)} tests failed in the coverage run and run no mutant: "
+                + ", ".join(failed[:10]),
+                flush=True,
+            )
+        fixtures = {t: r.get("fixtures", []) for t, r in tests.items()}
         records: list[dict] = []
         todo: list[tuple[dict, Mutant, str, list[str]]] = []
         for path in files:
             source = (REPO / path).read_text(encoding="utf-8")
             for mutant in mutants_of(source, path):
-                selected = covering_tests(mutant, lines, passed)
+                selected = covering_tests(mutant, lines, passed, fixtures)
                 rec = asdict(mutant) | {
                     "change": mutant.change,
                     "key": list(mutant.key),

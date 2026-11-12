@@ -21,8 +21,10 @@ dispatch. It is not a required check, and no pull request runs it. The logic is
 2. It makes the mutants of each target file. The targets are in `.github/mutation.toml`:
    `src/tether/fret`, `src/tether/analysis`, `src/tether/imaging` and the pure-Python parts of
    `src/tether/idealize` and `src/tether/io`.
-3. For each mutant, it runs only the tests that ran the line and passed in step 1. It stops at
-   the first failure. A failure, an error or a run past its time limit **kills** the mutant.
+3. For each mutant, it runs only the tests that ran the line and passed in step 1. When a shared
+   fixture (module, class, package or session scope) ran the line, it also runs every test that
+   uses that fixture, because only the first of them ran the line. It stops at the first
+   failure. A failure, an error or a run past its time limit **kills** the mutant.
 4. It writes the report and uploads it as the artifact `mutation-report`.
 
 The changes are:
@@ -58,8 +60,9 @@ The artifact holds `mutation-report.md` (the same text is in the job summary) an
 
 ## When the run fails
 
-The run fails only when the score of a complete module falls by more than five points from the
-last report on `main`. Then the report job of #697 opens one issue, `ci(scheduled): mutation
+The run fails when the score of a complete module falls by more than five points from the last
+report on `main`. It also fails, and writes no report, when the coverage run of step 1 does not
+test (a collection error, or no passing test), so a broken run never becomes the next base. Then the report job of #697 opens one issue, `ci(scheduled): mutation
 failed on main`, or adds a comment to the open one. Survivors alone never fail the run.
 
 The last report is the newest `mutation-report` artifact from `main`. An artifact is kept for 90
