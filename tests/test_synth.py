@@ -94,6 +94,13 @@ def test_bleaching_is_geometric_and_leaves_noise_only() -> None:
         assert np.all(np.abs(tr.acceptor[m, f:]) <= 6 * 20.0)
 
 
+def test_the_recorded_matrix_is_a_copy() -> None:
+    p = np.array([[0.9, 0.1], [0.2, 0.8]])
+    tr = fret_traces(2, 10, seed=0, switch_probability=p)
+    p[:] = 0.5
+    np.testing.assert_array_equal(tr.switch_probability, [[0.9, 0.1], [0.2, 0.8]])
+
+
 def test_standard_noise_has_unit_variance_and_a_bound() -> None:
     x = standard_noise(np.random.default_rng(0), (200_000,))
     assert abs(float(x.mean())) < 0.01
@@ -133,6 +140,9 @@ def test_movie_has_known_spots_mapping_and_counts() -> None:
     assert set(np.unique(mv.acceptor_amplitude)) <= {2100, 3900}
     with pytest.raises(ValueError, match="leaves its half"):
         two_channel_movie(seed=1, n_frames=2, margin=2)
+    # A saturated noise-free spot is refused, not clipped: the known counts must stay true.
+    with pytest.raises(ValueError, match="uint16 maximum"):
+        two_channel_movie(seed=1, n_frames=2, spot_intensity=2_000_000)
 
 
 # --- same seed, same bytes ----------------------------------------------------

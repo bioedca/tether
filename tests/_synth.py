@@ -149,7 +149,8 @@ def fret_traces(
         np.fill_diagonal(p, 0.0)
         np.fill_diagonal(p, 1.0 - p.sum(axis=1))
     else:
-        p = np.asarray(switch_probability, dtype=np.float64)
+        # A copy: the result records the matrix, and a caller's later edit must not move it.
+        p = np.array(switch_probability, dtype=np.float64, copy=True)
     if p.shape != (k, k) or np.any(p < 0.0) or not np.allclose(p.sum(axis=1), 1.0):
         raise ValueError(f"switch_probability must be a ({k}, {k}) row-stochastic matrix")
     if not 0.0 <= bleach_probability <= 1.0:
@@ -274,6 +275,12 @@ def two_channel_movie(
                 raise ValueError(f"spot {i} at {(int(x), int(y))} leaves its half")
             patch = (amp[i][:, None, None] * PSF_KERNEL[None, :, :]) // PSF_SCALE
             frames[:, y - half : y + half + 1, x0 + x - half : x0 + x + half + 1] += patch
+    if int(frames.max()) > np.iinfo(np.uint16).max:
+        # Clipping a saturated spot would make the recorded counts unrecoverable.
+        raise ValueError(
+            f"noise-free pixels reach {int(frames.max())}, above the uint16 maximum; "
+            "lower spot_intensity or background"
+        )
     if noise_sigma > 0.0:
         frames = frames + np.rint(noise_sigma * standard_noise(rng, frames.shape)).astype(np.int64)
     frames = np.clip(frames, 0, np.iinfo(np.uint16).max).astype(np.uint16)
