@@ -709,6 +709,38 @@ def test_reidealize_preserves_stored_cohort_after_member_is_rejected(tmp_path) -
     assert calls[0]["smd"].molecule_keys == keys
 
 
+def test_reidealize_repeats_the_max_elbo_sweep_over_the_recorded_grid(tmp_path) -> None:
+    # A model chosen by maximum ELBO is re-fitted with a new sweep over the grid it
+    # recorded, not with its old state count (#727, PRJ-F9). The grid differs from
+    # NSTATES_GRID_DEFAULT, and the new fit prefers another state count.
+    n, t = 3, 24
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    first = idealize_molecules(
+        proj,
+        nstates=None,
+        nstates_grid=(2, 3, 5),
+        _runner=_make_runner({2: -1.0, 3: -4.0, 5: -9.0}, []),
+    )
+    assert (first.nstates, first.nstates_selected_by) == (2, "max-elbo")
+    _set_factors(path, alpha=0.05, gamma=1.2, method=METHOD_CORRECTED)
+    assert sorted(stale_molecule_keys(proj, "vbconhmm")) == sorted(keys)
+
+    calls: list = []
+    refreshed = reidealize(
+        proj, "vbconhmm", _runner=_make_runner({2: -6.0, 3: -2.0, 5: -7.0}, calls)
+    )
+
+    assert [c["nstates"] for c in calls] == [2, 3, 5]
+    assert refreshed.nstates == 3
+    assert refreshed.nstates_selected_by == "max-elbo"
+    assert refreshed.elbo_by_nstates == {2: -6.0, 3: -2.0, 5: -7.0}
+    back = read_idealization(proj, "vbconhmm")
+    assert (back.nstates, back.nstates_selected_by) == (3, "max-elbo")
+    assert back.elbo_by_nstates == refreshed.elbo_by_nstates
+    assert stale_molecule_keys(proj, "vbconhmm") == []
+
+
 def test_project_live_and_reidealize_delegators(tmp_path) -> None:
     n, t = 2, 20
     proj, keys = _build_store(tmp_path / "e.tether", _step_trace(n, t), _step_trace(n, t) * 0.5)

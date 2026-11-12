@@ -130,14 +130,16 @@ def test_reconstruct_from_mat_is_round_trip_ready(tmp_path: Path) -> None:
     expected_keys = [molecule_key(_SHA, export.donor_xy[i]) for i in range(4)]
     assert [_decode(v) for v in mols["molecule_key"]] == expected_keys
 
-    # raw + corrected + background traces round-trip (stored float32)
-    np.testing.assert_allclose(_read_trace(out, "donor_raw"), export.donor_raw, rtol=0, atol=0.5)
-    np.testing.assert_allclose(
-        _read_trace(out, "donor_corrected"), export.donor_corrected, rtol=1e-3, atol=0.1
-    )
-    np.testing.assert_allclose(
-        _read_trace(out, "acceptor_background"), export.acceptor_background, rtol=1e-3, atol=0.1
-    )
+    # raw + corrected + background traces round-trip (stored float32): all six layers,
+    # each against its own export array, so a donor/acceptor or layer mix-up fails
+    # (#732). The stored value is the export value cast to float32, so the limit is
+    # the float32 rounding (relative 2**-24 ~ 6e-8), well inside rtol=1e-6.
+    for channel in ("donor", "acceptor"):
+        for layer in ("raw", "corrected", "background"):
+            name = f"{channel}_{layer}"
+            np.testing.assert_allclose(
+                _read_trace(out, name), getattr(export, name), rtol=1e-6, atol=0, err_msg=name
+            )
 
 
 def test_curated_subset_and_categories_survive(tmp_path: Path) -> None:
