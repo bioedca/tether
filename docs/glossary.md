@@ -138,8 +138,10 @@ corruption (see
 [the batch says `correct=done` but no corrections were applied](troubleshooting.md#the-batch-says-correctdone-but-no-corrections-were-applied)).
 A missing factor never becomes a NaN in E: a non-finite α or γ routes the molecule to
 apparent E instead (ADR-0003). E can still be NaN on a frame whose denominator is zero, because
-the ratio is not defined there: a frame with zero total intensity gives NaN in apparent E and in
-corrected E. That per-frame NaN is not this sentinel. The factor NaN is also distinct
+the ratio is not defined there. For apparent E that is a frame with zero total intensity. For
+corrected E it is a frame where `I_A,corr + γ·I_D,corr` is zero, so a frame with both channels at
+zero is NaN in both, but a frame whose donor and acceptor only cancel can have a finite corrected
+E. That per-frame NaN is not this sentinel. The factor NaN is also distinct
 from the `-1` [undetected sentinel](#photobleach-frames-first-bleach-frame) and from
 [`NO_STATE`](#no_state).
 

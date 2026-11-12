@@ -132,9 +132,13 @@ _NEVER_NAN = re.compile(
 
 @pytest.mark.parametrize("page", _NAN_CLAIM_PAGES, ids=lambda p: p.name)
 def test_docs_do_not_promise_e_is_never_nan(page: Path) -> None:
-    # The fact: a zero-total-intensity frame is NaN in apparent and corrected E (#686).
+    # The facts (#686): a zero-total-intensity frame is NaN in apparent E; both channels at
+    # zero is NaN in corrected E too, but a cancelling pair can give a finite corrected E.
     assert np.isnan(apparent_fret(np.array([0.0]), np.array([0.0]))[0])
     assert np.isnan(corrected_fret(np.array([0.0]), np.array([0.0]), alpha=0.1, gamma=1.2)[0])
+    assert np.isnan(apparent_fret(np.array([8.0]), np.array([-8.0]))[0])
+    cancelling = corrected_fret(np.array([8.0]), np.array([-8.0]), alpha=0.25, gamma=1.5)[0]
+    assert cancelling == -5.0
     text = " ".join(page.read_text(encoding="utf-8").split())
     assert not _NEVER_NAN.search(text), f"{page.name} promises E is never NaN"
     assert re.search(r"zero total\s+intensity", text), f"{page.name} omits the NaN frame"

@@ -34,8 +34,9 @@ effective α or γ is missing (or γ ≤ 0) is stamped
 :data:`METHOD_APPARENT_UNAVAILABLE` and rendered as apparent E (the *expected* case for
 the lab's typical pure-FRET acquisitions lacking a clean acceptor-bleach step). That does
 not make every frame finite: a frame whose denominator is zero gives NaN, because the ratio
-is not defined there (:func:`tether.fret.corrected_fret`), so a frame with zero total
-intensity is NaN in apparent E and in corrected E. The GUI
+is not defined there (:func:`tether.fret.corrected_fret`). For apparent E that is a frame
+with zero total intensity; for corrected E it is a zero ``I_A,corr + γ·I_D,corr``, so a
+frame with both channels at zero is NaN in both. The GUI
 banner + recovery actions that surface this state are a follow-up GUI PR; this is the
 headless decision + provenance they read.
 
