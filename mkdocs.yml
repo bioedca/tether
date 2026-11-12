@@ -105,6 +105,7 @@ nav:
       - Building the installers: maintainers/building-installers.md
       - Standalone-tMAVEN cross-OS record: maintainers/standalone-tmaven-cross-os-record.md
       - Running the private-data checks: maintainers/workstation-runner.md
+      - Reading the mutation report: maintainers/mutation-testing.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
 # out of the rendered site. The MADR log under adr/ IS wired in: the index page

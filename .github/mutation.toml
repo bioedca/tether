@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The monthly mutation run (issue #725, .github/workflows/mutation.yml, scripts/run_mutation.py).
+# It reports and never gates a pull request. docs/maintainers/mutation-testing.md tells how to
+# read the report and how to add an entry below.
+
+[targets]
+# The science modules and the pure-Python parts of `idealize` and `io` (#725, item 1).
+paths = [
+  "src/tether/fret",
+  "src/tether/analysis",
+  "src/tether/imaging",
+  "src/tether/idealize",
+  "src/tether/io",
+]
+
+[targets.exclude]
+# Each file left out, with the reason. The GUI and the agent layer are out of scope (#725).
+"src/tether/idealize/_sidecar_runner.py" = "runs only in the isolated tMAVEN sidecar interpreter (PRD section 4.3), never in the base environment the run uses, and holds the one Numba-compiled function"
+
+# Known equivalent mutants: a change that cannot alter any output, so no test can find it. Each
+# entry is reported once in its own section and is not counted in the score. An entry matches on
+# the file, the enclosing function, the source line (stripped) and the change, so it survives a
+# line move; `occurrence` (default 0) picks among identical changes on one line. An entry that
+# matches no mutant is listed in the report as stale.
+#
+# [[equivalent]]
+# path = "src/tether/example.py"
+# function = "f"
+# line = "if n <= 0:"
+# change = "<= -> <"
+# reason = "n is a count of frames >= 1 at this point, so 0 never reaches the test"
+
+[[equivalent]]
+path = "src/tether/analysis/cloud.py"
+function = "_hdr_levels_from_grid"
+line = "if idx > last:"
+change = "> -> >="
+reason = "the branch sets idx = last, so when idx == last it changes nothing"
+
+[[equivalent]]
+path = "src/tether/analysis/kinetics.py"
+function = "fit_gaussian_hmm"
+line = "if nstates > 1:"
+change = "> -> >="
+reason = "nstates >= 1 is validated; with one state the block ends by dividing the 1x1 matrix by its own sum, which gives exactly 1.0, the value the matrix already has"
+
+[[equivalent]]
+path = "src/tether/idealize/matcher.py"
+function = "match_return_leg"
+line = 'np.all(store[:, t:, :] == 0.0, axis=(1, 2)) if ts > t else np.ones(n, dtype="bool")'
+change = "> -> >="
+reason = "t = min(ts, tr), so ts >= t; when ts == t the slice store[:, t:, :] is empty and np.all over it is True for each row, the same as np.ones(n)"
+
+[[equivalent]]
+path = "src/tether/idealize/matcher.py"
+function = "match_return_leg"
+line = "if tr > t and not np.all(returned[i, t:, :] == 0.0):"
+change = "> -> >="
+reason = "when tr == t the slice returned[i, t:, :] is empty, np.all over it is True, and the condition is False as with >"
