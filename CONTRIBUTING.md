@@ -115,7 +115,7 @@ never merge, release, or declare a PR ready while required checks are red or pen
   python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0"
 
   # exactly what the required `test` matrix runs (see Test tiers below)
-  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
+  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation"
   ```
 
   Large/gated fixtures are exercised only by the scheduled `large-fixtures.yml`
@@ -125,8 +125,8 @@ never merge, release, or declare a PR ready while required checks are red or pen
 
 A bare `pytest` runs **everything**, marked included — `-m` is a filter, not a default.
 The required matrix is therefore an explicit *exclusion*: it runs unmarked **and** `gui`
-tests, and excludes only the three tiers that need something CI does not have. Each of
-those has its own workflow:
+tests, and excludes only the four tiers that need something CI does not have. Three of
+those have their own workflow; the fourth runs in no CI job at all:
 
 | marker | needs | where it runs |
 |---|---|---|
@@ -135,18 +135,19 @@ those has its own workflow:
 | `sidecar` | a live tMAVEN env (`$TETHER_SIDECAR_PYTHON`) | `sidecar.yml` — never the required matrix |
 | `deep` | the isolated torch stack (`deep/conda-lock.yml`) | `deep.yml` / `deep-gpu.yml` — advisory |
 | `large` | the gated large-fixture tier | `large-fixtures.yml` — scheduled |
+| `workstation` | private laboratory data (`$TETHER_PRIVATE_DATA`) | no CI job — `scripts/workstation/run_private_checks.py` on the maintainer's workstation ([ADR-0071](docs/adr/0071-private-data-checks-run-from-a-workstation-task.md)) |
 
 ```bash
 # The required matrix, verbatim — ci.yml runs this on all three OSes
 # (Linux wraps it in `xvfb-run -a`; QT_QPA_PLATFORM=offscreen is the local equivalent).
-QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep"
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation"
 
 QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 
 # Skip Qt. The optional tiers must be excluded here too — `not gui` on its own still
 # selects deep/sidecar/large, and the deep tests import torch, which the base lock
 # does not carry.
-pytest -m "not gui and not large and not sidecar and not deep"
+pytest -m "not gui and not large and not sidecar and not deep and not workstation"
 ```
 
 `--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
@@ -156,7 +157,16 @@ the run rather than failing. Read the collected count, not just the exit code.
 
 Two naming rules are enforced by `tests/test_marker_contract.py` rather than
 convention: a live sidecar test must be named `test_*sidecar*.py`, and deep tests use
-the `test_*_deep.py` suffix — the isolated workflows select on those globs.
+the `test_*_deep.py` suffix — the isolated workflows select on those globs. The rule
+works in both directions: every test in a file that matches one of those globs carries
+the marker too (`test_setup_sidecar.py` is the one exception), because the job's `-m`
+deselects any test that does not. A live sidecar test uses `requires_sidecar` from
+`tests/_sidecar_gate.py`, which fails it instead of skipping it where the
+`sidecar / parity` job sets `TETHER_REQUIRE_SIDECAR=1`. The same module keeps every
+workflow's pytest command from selecting a `workstation` test, and
+`tests/conftest.py` stops collection when a `workstation` test also carries `large`,
+`sidecar` or `deep`. Without the runner a `workstation` test skips, so a local run that
+leaves out `and not workstation` still passes.
 
 ### Building the docs locally
 

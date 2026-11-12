@@ -19,16 +19,23 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import json
+import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 import pytest
 import yaml  # provided by the base conda-lock (a mkdocs dependency); see `_steps` below
+
+from _sidecar_gate import REQUIRE_ENV as SIDECAR_REQUIRE_ENV
+from _sidecar_gate import SIDECAR_ENV
 
 # Must match the glob in .github/workflows/sidecar.yml's parity step
 # (test_contract_glob_matches_workflow_glob asserts they stay in lockstep).
@@ -64,15 +71,17 @@ def test_sidecar_marked_modules_match_ci_glob():
 
     If this fails, either rename the offending file to match
     ``test_*sidecar*.py`` or widen the glob in ``.github/workflows/sidecar.yml``
-    (and this contract) to keep the two in lockstep.
+    (and this contract) to keep the two in lockstep. Every file pytest collects is scanned,
+    at any depth under ``tests/``: the job's glob is not recursive, so a marked module in a
+    subdirectory is one it never runs (#750).
     """
     offenders = []
     detected = []
-    for path in sorted(TESTS_DIR.glob("test_*.py")):
+    for path in _collectable_test_files():
         if _uses_sidecar_marker(path.read_text(encoding="utf-8")):
             detected.append(path.name)
-            if not fnmatch.fnmatch(path.name, SIDECAR_FILE_GLOB):
-                offenders.append(path.name)
+            if not _collected_by_tier_glob(path, SIDECAR_FILE_GLOB):
+                offenders.append(path.relative_to(TESTS_DIR).as_posix())
 
     assert not offenders, (
         "sidecar-marked test modules must match the sidecar.yml glob "
@@ -95,7 +104,11 @@ def test_contract_glob_matches_workflow_glob():
     in the workflow are ignored -- only the ``pytest`` command line is checked.)
     """
     workflow = SIDECAR_WORKFLOW.read_text(encoding="utf-8")
-    pytest_lines = [ln for ln in workflow.splitlines() if "pytest -m sidecar" in ln]
+    pytest_lines = [
+        ln
+        for ln in workflow.splitlines()
+        if "pytest -m sidecar" in ln and not ln.lstrip().startswith("#")
+    ]
     assert pytest_lines, "sidecar.yml must run `pytest -m sidecar`"
     globs = re.findall(r"tests/(\S+\.py)", " ".join(pytest_lines))
     assert globs == [SIDECAR_FILE_GLOB], (
@@ -141,25 +154,57 @@ DEEP_FILE_GLOB = "test_*_deep.py"
 DEEP_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "deep.yml"
 
 
+def _mark_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:
+    """The names bound to the ``pytest`` module and to ``pytest.mark`` in *tree*.
+
+    ``import pytest as pt``, ``from pytest import mark`` (or ``as m``) and ``m = pytest.mark``
+    are all real ways to apply a marker, and a detector that knew only ``pytest.mark.<x>`` let
+    ``@mark.sidecar`` escape both the contract and the job (#750, finding DCS-F3).
+    """
+    modules, marks = {"pytest"}, set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == "pytest" and a.asname}
+        elif isinstance(node, ast.ImportFrom) and node.module == "pytest" and not node.level:
+            marks |= {a.asname or a.name for a in node.names if a.name == "mark"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _is_mark_namespace(node.value, modules, set()):
+            marks |= {target.id for target in node.targets if isinstance(target, ast.Name)}
+    return modules, marks
+
+
+def _is_mark_namespace(node: ast.AST, modules: set[str], marks: set[str]) -> bool:
+    """True if *node* is ``<pytest alias>.mark`` or a name bound to it."""
+    if isinstance(node, ast.Name):
+        return node.id in marks
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "mark"
+        and isinstance(node.value, ast.Name)
+        and node.value.id in modules
+    )
+
+
+def _applies_marker(node: ast.AST, marker: str, modules: set[str], marks: set[str]) -> bool:
+    """True if the expression *node* contains ``<mark namespace>.<marker>`` anywhere."""
+    return any(
+        isinstance(sub, ast.Attribute)
+        and sub.attr == marker
+        and _is_mark_namespace(sub.value, modules, marks)
+        for sub in ast.walk(node)
+    )
+
+
 def _uses_marker(source: str, marker: str) -> bool:
     """True if *source* applies ``pytest.mark.<marker>`` in code (not in a string/comment).
 
     The AST generalization of :func:`_uses_sidecar_marker`: matches the ``pytest.mark.<marker>``
     attribute chain as real syntax (a ``pytestmark`` assignment or a decorator), so docstring or
-    comment mentions are ignored.
+    comment mentions are ignored -- under any import spelling :func:`_mark_aliases` resolves.
     """
     tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr == marker
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == "mark"
-            and isinstance(node.value.value, ast.Name)
-            and node.value.value.id == "pytest"
-        ):
-            return True
-    return False
+    modules, marks = _mark_aliases(tree)
+    return _applies_marker(tree, marker, modules, marks)
 
 
 def test_deep_marker_detector_matches_the_sidecar_detector() -> None:
@@ -170,6 +215,17 @@ def test_deep_marker_detector_matches_the_sidecar_detector() -> None:
     assert not _uses_marker("import pytest\npytestmark = pytest.mark.sidecar\n", "deep")
 
 
+def test_the_marker_detector_resolves_every_import_spelling() -> None:
+    """``@mark.sidecar`` after ``from pytest import mark`` is a sidecar test too (DCS-F3 (c))."""
+    assert _uses_marker("from pytest import mark\n@mark.sidecar\ndef test_x(): pass\n", "sidecar")
+    assert _uses_marker("from pytest import mark as m\npytestmark = m.sidecar\n", "sidecar")
+    assert _uses_marker("import pytest as pt\npytestmark = pt.mark.deep\n", "deep")
+    assert _uses_marker("import pytest\nm = pytest.mark\npytestmark = m.deep\n", "deep")
+    # A local name that merely happens to be called `mark` is not pytest's.
+    assert not _uses_marker("mark = object()\nx = mark.sidecar\n", "sidecar")
+    assert not _uses_marker("from pytest import mark\npytestmark = mark.large\n", "sidecar")
+
+
 def test_deep_marked_modules_match_ci_glob() -> None:
     """Every ``@pytest.mark.deep`` module is collected by the deep.yml glob.
 
@@ -178,11 +234,11 @@ def test_deep_marked_modules_match_ci_glob() -> None:
     """
     offenders = []
     detected = []
-    for path in sorted(TESTS_DIR.glob("test_*.py")):
+    for path in _collectable_test_files():
         if _uses_marker(path.read_text(encoding="utf-8"), "deep"):
             detected.append(path.name)
-            if not fnmatch.fnmatch(path.name, DEEP_FILE_GLOB):
-                offenders.append(path.name)
+            if not _collected_by_tier_glob(path, DEEP_FILE_GLOB):
+                offenders.append(path.relative_to(TESTS_DIR).as_posix())
 
     assert not offenders, (
         "deep-marked test modules must match the deep.yml glob "
@@ -205,6 +261,626 @@ def test_deep_contract_glob_matches_workflow_glob() -> None:
     assert globs == [DEEP_FILE_GLOB], (
         f"deep.yml's `pytest -m deep` must collect exactly 'tests/{DEEP_FILE_GLOB}'; found: {globs}"
     )
+
+
+# --- What the tier jobs really run (#750) ---------------------------------------------------
+# The glob contracts above bind a FILE PATTERN, and nothing bound the command around it. The
+# test audit of 2026-11-11 (#695) kept every test green while the required `sidecar / parity`
+# job lost its pytest line to a comment, gained `|| true`, `-k`, `--ignore-glob` or
+# `--collect-only`, had its step set to `if: false`, or lost the interpreter export (then all
+# ten live tests skip and pytest exits 0); the required 3-OS matrix, the deep smoke and the
+# large tier were open the same way, and so were the path filters and schedules that decide
+# when the tier jobs run at all. Everything below reads the PARSED workflow (`_job_steps`,
+# `_is_live`, defined further down) and pins each command, so such an edit fails here first.
+REPO_ROOT = TESTS_DIR.parent
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+CI_WORKFLOW = WORKFLOWS_DIR / "ci.yml"
+LARGE_WORKFLOW = WORKFLOWS_DIR / "large-fixtures.yml"
+LARGE_FIXTURES_DIR = TESTS_DIR / "fixtures" / "large"
+PYPROJECT = REPO_ROOT / "pyproject.toml"
+
+#: The three platforms of the required matrix (`docs/validation.md`, "How to read the tiers").
+REQUIRED_MATRIX_OS = ["ubuntu-latest", "macos-latest", "windows-latest"]
+#: The runtime gate the live sidecar steps share; on a pull request it is the path filter.
+SIDECAR_STEP_GATE = "steps.relevance.outputs.run == 'true'"
+#: Tiers the required matrix may exclude although no workflow runs them -- a tier that runs
+#: outside CI on purpose -- each mapped to the reason.
+TIERS_WITH_NO_CI_JOB: dict[str, str] = {
+    "workstation": (
+        "needs private laboratory data; runs only from "
+        "scripts/workstation/run_private_checks.py (ADR-0071)"
+    ),
+}
+#: Files that match a tier glob but hold required-matrix tests on purpose: the sidecar setup
+#: script's own tests, which `-m sidecar` deselects in the sidecar job.
+TIER_GLOB_EXEMPT: dict[str, frozenset[str]] = {
+    "sidecar": frozenset({"test_setup_sidecar.py"}),
+    "deep": frozenset(),
+}
+
+#: A pytest invocation on one shell line, bare or through `python -m`.
+_PYTEST_INVOCATION = re.compile(r"(?:^|[\s;&|(])(?:python3?\s+-m\s+)?pytest(?=\s|$)")
+#: The one option a pinned pytest command may carry past its pin: a JUnit report to one path
+#: (letters, digits and ``$_./-`` only, so no second command can hide in it). It changes neither
+#: the tests that run nor the exit status; the skip budget of #726 reads it.
+_JUNIT_REPORT = r'(?: --junitxml=(?:"[\w$./-]+"|[\w$./-]+))?'
+
+
+def _runs_exactly(line: str, command: str) -> bool:
+    """True if *line* is *command*, or *command* and a JUnit report, and nothing else."""
+    return re.fullmatch(re.escape(command) + _JUNIT_REPORT, line) is not None
+
+
+def _pytest_ini() -> dict:
+    """``[tool.pytest.ini_options]`` from ``pyproject.toml``."""
+    with PYPROJECT.open("rb") as handle:
+        return tomllib.load(handle)["tool"]["pytest"]["ini_options"]
+
+
+def _registered_markers() -> set[str]:
+    """The marker names ``pyproject.toml`` registers (the part of each entry before ``:``)."""
+    return {entry.split(":", 1)[0].strip() for entry in _pytest_ini()["markers"]}
+
+
+def _collectable_test_files() -> list[Path]:
+    """Every file pytest collects under ``tests/``: its ``python_files`` patterns, at any depth.
+
+    ``testpaths = ["tests"]`` recurses, so a module in a subdirectory is collected by a bare
+    ``pytest``; the tier jobs' globs are not recursive and never see it (DCS-F3 (d)).
+    """
+    patterns = _pytest_ini().get("python_files", ["test_*.py", "*_test.py"])
+    if isinstance(patterns, str):
+        patterns = patterns.split()
+    return sorted({path for pattern in patterns for path in TESTS_DIR.rglob(pattern)})
+
+
+def _collected_by_tier_glob(path: Path, glob: str) -> bool:
+    """True if the tier job's ``tests/<glob>`` (a shell glob, not recursive) collects *path*."""
+    return path.parent == TESTS_DIR and fnmatch.fnmatch(path.name, glob)
+
+
+def _command_lines(script: str) -> list[str]:
+    """The lines a ``run:`` script executes: no blanks, no comments, continuations joined."""
+    joined = re.sub(r"\\\n", " ", script)
+    return [
+        line.strip()
+        for line in joined.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _pytest_command_lines(script: str) -> list[str]:
+    return [line for line in _command_lines(script) if _PYTEST_INVOCATION.search(line)]
+
+
+def _parsed_job(path: Path, job_id: str) -> dict:
+    job = (yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}).get(job_id)
+    assert isinstance(job, dict), f"{path.name} must keep a `{job_id}` job"
+    return job
+
+
+def _assert_live_and_failing(path: Path, label: str, block: dict) -> None:
+    """A job or step that can neither be switched off by a constant nor swallow a failure."""
+    assert _is_live(block), f"{path.name}: {label} is switched off by `if: {block.get('if')}`"
+    assert block.get("continue-on-error") in (None, False), (
+        f"{path.name}: {label} sets `continue-on-error`, so its failure would not fail the job"
+    )
+
+
+def _the_pytest_step(path: Path, job_id: str) -> dict:
+    """The ONE live step of *job_id* that runs pytest, which may not swallow a failure."""
+    _assert_live_and_failing(path, f"job `{job_id}`", _parsed_job(path, job_id))
+    steps = [
+        step
+        for step in _job_steps(path.read_text(encoding="utf-8"), job_id)
+        if isinstance(step.get("run"), str) and _pytest_command_lines(step["run"])
+    ]
+    assert len(steps) == 1, (
+        f"{path.name}: job `{job_id}` must run pytest in exactly one step, on a line that is not "
+        f"a comment; found {len(steps)}"
+    )
+    _assert_live_and_failing(path, f"step {steps[0].get('name')!r}", steps[0])
+    return steps[0]
+
+
+def _marker_expressions(command: str) -> list[str]:
+    """The ``-m`` arguments of one pytest command line (``python -m pytest`` is not one)."""
+    argv = shlex.split(command)
+    return [
+        argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "-m" and argv[i + 1] != "pytest"
+    ]
+
+
+def _markers_other_jobs_select() -> set[str]:
+    """Each registered marker that a live pytest command OUTSIDE the required matrix selects.
+
+    A command selects a tier with ``-m <marker>`` (``-m sidecar``, ``-m deep``, ``-m large``),
+    which the pins of those commands keep exact. A command with no ``-m`` runs named files, not
+    a tier, so it counts for none.
+    """
+    registered = _registered_markers()
+    selected: set[str] = set()
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        jobs = yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}
+        for job_id, job in jobs.items():
+            if (path, job_id) == (CI_WORKFLOW, "test") or not _is_live(job):
+                continue
+            for step in job.get("steps") or []:
+                if not isinstance(step, dict) or not _is_live(step):
+                    continue
+                for command in _pytest_command_lines(step.get("run") or ""):
+                    selected |= set(_marker_expressions(command)) & registered
+    return selected
+
+
+def test_the_marker_argument_reader_skips_python_dash_m() -> None:
+    assert _marker_expressions('pytest -v -m "not large and not deep" tests') == [
+        "not large and not deep"
+    ]
+    assert _marker_expressions("python -m pytest -v tests/test_x.py -k y") == []
+    assert _marker_expressions("python -m pytest -m sidecar -q") == ["sidecar"]
+
+
+def test_the_pytest_step_finder_skips_comments_and_reads_continuations() -> None:
+    script = "# pytest -m sidecar tests/x.py\necho hi\npytest -m deep \\\n  tests/y.py -q\n"
+    assert _pytest_command_lines(script) == ["pytest -m deep    tests/y.py -q"]
+    assert _pytest_command_lines('echo "pytest is mentioned"') == []
+    assert _pytest_command_lines("python -m pytest -q") == ["python -m pytest -q"]
+
+
+def test_a_pinned_command_may_add_only_a_junit_report() -> None:
+    command = "pytest -m deep tests/test_*_deep.py -q"
+    assert _runs_exactly(command, command)
+    assert _runs_exactly(f'{command} --junitxml="$RUNNER_TEMP/pytest-junit.xml"', command)
+    assert _runs_exactly(f"{command} --junitxml=report.xml", command)
+    for tail in (" -k x", " --junitxml=a.xml -k x", " --junitxml=a.xml||true", " || true"):
+        assert not _runs_exactly(command + tail, command), tail
+
+
+def test_the_sidecar_parity_step_runs_the_whole_live_suite() -> None:
+    """The required ``sidecar / parity`` step is live, unnarrowed and cannot pass with no fit.
+
+    DCS-F1. Its script is exactly two commands: export the interpreter, then
+    ``pytest -m sidecar tests/<glob> -q`` with no other option (a JUnit report aside) and nothing
+    after it, so the step's exit status is pytest's. The step sets ``TETHER_REQUIRE_SIDECAR=1``,
+    under which a missing interpreter fails the live tests instead of skipping them
+    (``tests/_sidecar_gate.py``; the next test proves that half).
+    """
+    step = _the_pytest_step(SIDECAR_WORKFLOW, "parity")
+    assert step.get("if") == SIDECAR_STEP_GATE, (
+        f"the parity step must run whenever the relevance gate says so: if: {step.get('if')!r}"
+    )
+    assert (step.get("env") or {}).get(SIDECAR_REQUIRE_ENV) == "1", (
+        f"the parity step must set {SIDECAR_REQUIRE_ENV}=1, or a lost interpreter skips every "
+        "live test and the required check passes with zero fits"
+    )
+    lines = _command_lines(step["run"])
+    assert len(lines) == 2 and lines[0].startswith(f"export {SIDECAR_ENV}="), (
+        f"the parity script must export {SIDECAR_ENV} and then run pytest, and nothing else: "
+        f"{lines}"
+    )
+    assert _runs_exactly(lines[1], f"pytest -m sidecar tests/{SIDECAR_FILE_GLOB} -q"), (
+        "the parity step must run the whole sidecar tier, unnarrowed and with its exit status "
+        f"intact: {lines[1]!r}"
+    )
+
+
+def test_the_deep_smoke_step_runs_the_whole_deep_suite() -> None:
+    """``deep / smoke`` runs ``pytest -m deep tests/<glob> -q`` and nothing else (DCS-F1)."""
+    step = _the_pytest_step(DEEP_WORKFLOW, "smoke")
+    lines = _command_lines(step["run"])
+    command = f"pytest -m deep tests/{DEEP_FILE_GLOB} -q"
+    assert len(lines) == 1 and _runs_exactly(lines[0], command), step["run"]
+
+
+def _sidecar_tier_files() -> list[Path]:
+    return sorted(TESTS_DIR.glob(SIDECAR_FILE_GLOB))
+
+
+def _run_sidecar_tier(**env_overrides: str) -> tuple[int, dict[str, int], str]:
+    """Run the sidecar job's own pytest command here, with no sidecar interpreter."""
+    env = {k: v for k, v in os.environ.items() if k not in (SIDECAR_ENV, SIDECAR_REQUIRE_ENV)}
+    env.update(env_overrides)
+    files = [str(path.relative_to(REPO_ROOT)) for path in _sidecar_tier_files()]
+    proc = subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-m", "sidecar"]
+        + files,
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    summary = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+    counts = {kind: int(n) for n, kind in re.findall(r"(\d+) (\w+)", summary)}
+    return proc.returncode, counts, proc.stdout + proc.stderr
+
+
+def test_the_sidecar_tests_fail_rather_than_skip_where_the_job_requires_them() -> None:
+    """With ``TETHER_REQUIRE_SIDECAR=1`` and no interpreter, every live test FAILS (DCS-F1).
+
+    Without the variable the same command skips them all and exits 0 -- which is what the
+    required job reported, green, when the interpreter export was deleted (mutant 5f). Here the
+    job's own command runs with the variable set and no interpreter: every selected test must
+    fail, each on the gate's message, and none may skip, pass or error.
+    """
+    code, counts, output = _run_sidecar_tier(**{SIDECAR_REQUIRE_ENV: "1"})
+    assert code == 1 and set(counts) <= {"failed", "deselected"}, output
+    live_modules = [
+        path for path in _sidecar_tier_files() if _uses_marker(path.read_text("utf-8"), "sidecar")
+    ]
+    assert counts.get("failed", 0) >= len(live_modules) >= 2, output  # at least one per module
+    message = f"{SIDECAR_REQUIRE_ENV}=1 but {SIDECAR_ENV} is unset or empty"
+    assert output.count(message) >= counts["failed"], output
+
+
+def test_the_required_matrix_runs_every_test_but_the_tier_markers() -> None:
+    """The one command that gates every merge, pinned (DCS-F2).
+
+    On each platform the ``test`` job runs ``pytest -v -m "not A and not B ..."`` over the whole
+    tree -- no path argument, no option but a JUnit report, nothing after it -- and the
+    markers it excludes are
+    exactly the tiers another workflow selects with ``-m``. So a new exclusion (``and not gui``)
+    or a typo (``not largge``, which excludes nothing) fails here, and so does a tier that the
+    matrix stops excluding.
+    """
+    job = _parsed_job(CI_WORKFLOW, "test")
+    assert (job.get("strategy") or {}).get("matrix", {}).get("os") == REQUIRED_MATRIX_OS, job
+    step = _the_pytest_step(CI_WORKFLOW, "test")
+    lines = _command_lines(step["run"])
+    linux = r'xvfb-run -a pytest -v -m "([^"]+)"(' + _JUNIT_REPORT + ")"
+    match = re.fullmatch(linux, lines[1]) if len(lines) > 1 else None
+    assert match, f"the matrix step must keep its Linux/other two-line form: {lines}"
+    expression, report = match.groups()
+    assert lines == [
+        'if [ "${RUNNER_OS}" = "Linux" ]; then',
+        f'xvfb-run -a pytest -v -m "{expression}"{report}',
+        "else",
+        f'pytest -v -m "{expression}"{report}',
+        "fi",
+    ], f"the matrix script must be exactly the two pytest commands and nothing else: {lines}"
+    terms = expression.split(" and ")
+    assert all(re.fullmatch(r"not [\w-]+", term) for term in terms), (
+        f"the matrix expression must be a plain list of `not <tier>` terms: {expression!r}"
+    )
+    excluded = {term.removeprefix("not ") for term in terms}
+    homes = _markers_other_jobs_select() | set(TIERS_WITH_NO_CI_JOB)
+    assert excluded <= _registered_markers(), (
+        f"the matrix excludes markers pyproject.toml does not register (a typo excludes "
+        f"nothing): {sorted(excluded - _registered_markers())}"
+    )
+    assert excluded == homes, (
+        f"the matrix must exclude exactly the tiers another job runs; excluded and run nowhere: "
+        f"{sorted(excluded - homes)}; run elsewhere but not excluded: {sorted(homes - excluded)}"
+    )
+
+
+def test_marker_typos_fail_collection() -> None:
+    """``--strict-markers`` stays on, so ``@pytest.mark.sidcar`` errors (DCS-F3).
+
+    Without it a misspelled tier marker is an ordinary unregistered mark: the test runs in the
+    required matrix and ``-m sidecar`` deselects it. The contract cannot see a typo; pytest can.
+    """
+    assert "--strict-markers" in shlex.split(_pytest_ini()["addopts"])
+    assert {"large", "sidecar", "deep", "gui"} <= _registered_markers()
+
+
+def _unmarked_tests(source: str, marker: str) -> list[str]:
+    """The tests in *source* that do not carry ``<marker>``, by name (module, class or own)."""
+    tree = ast.parse(source)
+    modules, marks = _mark_aliases(tree)
+
+    def carries(nodes: list[ast.expr]) -> bool:
+        return any(_applies_marker(node, marker, modules, marks) for node in nodes)
+
+    def pytestmark(body: list[ast.stmt]) -> list[ast.expr]:
+        values = []
+        for stmt in body:
+            if isinstance(stmt, ast.Assign):
+                targets, value = stmt.targets, stmt.value
+            elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+                targets, value = [stmt.target], stmt.value
+            else:
+                continue
+            if any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in targets):
+                values.append(value)
+        return values
+
+    if carries(pytestmark(tree.body)):
+        return []
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+    missing = []
+    for stmt in tree.body:
+        if isinstance(stmt, functions) and stmt.name.startswith("test"):
+            if not carries(stmt.decorator_list):
+                missing.append(stmt.name)
+        elif isinstance(stmt, ast.ClassDef) and stmt.name.startswith("Test"):
+            if carries(stmt.decorator_list) or carries(pytestmark(stmt.body)):
+                continue
+            missing += [
+                f"{stmt.name}.{method.name}"
+                for method in stmt.body
+                if isinstance(method, functions)
+                and method.name.startswith("test")
+                and not carries(method.decorator_list)
+            ]
+    return missing
+
+
+def test_the_unmarked_test_finder_reads_module_class_and_own_marks() -> None:
+    marked = (
+        "import pytest\npytestmark = [pytest.mark.slow, pytest.mark.deep]\ndef test_a(): pass\n"
+    )
+    assert _unmarked_tests(marked, "deep") == []
+    source = (
+        "import pytest\n"
+        "torch = pytest.importorskip('torch')\n"
+        "@pytest.mark.deep\ndef test_a(): pass\n"
+        "def test_b(): pass\n"
+        "@pytest.mark.deep\nclass TestC:\n    def test_c(self): pass\n"
+        "class TestD:\n    def test_d(self): pass\n"
+        "def helper(): pass\n"
+    )
+    assert _unmarked_tests(source, "deep") == ["test_b", "TestD.test_d"]
+
+
+@pytest.mark.parametrize(
+    ("marker", "glob"), [("sidecar", SIDECAR_FILE_GLOB), ("deep", DEEP_FILE_GLOB)]
+)
+def test_every_test_in_a_tier_file_carries_the_tier_marker(marker: str, glob: str) -> None:
+    """The reverse of the glob contract: what the tier job collects, its ``-m`` keeps (DCS-F3).
+
+    A test in ``tests/<glob>`` without the marker is deselected by the tier job's ``-m <marker>``
+    and, if it then skips in the required matrix for want of the tier's interpreter or torch, it
+    runs nowhere. :data:`TIER_GLOB_EXEMPT` names the files that hold required-matrix tests on
+    purpose.
+    """
+    files = sorted(TESTS_DIR.glob(glob))
+    exempt = TIER_GLOB_EXEMPT[marker]
+    assert exempt <= {path.name for path in files}, f"stale exemption: {sorted(exempt)}"
+    offenders = {
+        path.name: missing
+        for path in files
+        if path.name not in exempt
+        and (missing := _unmarked_tests(path.read_text(encoding="utf-8"), marker))
+    }
+    assert not offenders, (
+        f"tests in files the `{marker}` job collects must carry `pytest.mark.{marker}` (module "
+        f"`pytestmark` or their own decorator), or the job deselects them: {offenders}"
+    )
+
+
+def _sidecar_relevance_pattern() -> re.Pattern[str]:
+    """The ``grep -E`` pattern that decides whether a pull request runs the live fits."""
+    steps = [
+        step
+        for step in _job_steps(SIDECAR_WORKFLOW.read_text(encoding="utf-8"), "parity")
+        if step.get("id") == "relevance"
+    ]
+    assert len(steps) == 1, "the parity job must keep exactly one `relevance` step"
+    _assert_live_and_failing(SIDECAR_WORKFLOW, "step `relevance`", steps[0])
+    script = steps[0]["run"]
+    patterns = re.findall(r"^\s*pattern='([^']+)'\s*$", script, re.M)
+    assert len(patterns) == 1, f"the relevance step must set one `pattern='...'`: {patterns}"
+    assert any('grep -qE "$pattern"' in line for line in _command_lines(script)), (
+        "the relevance step must test the changed files against that pattern"
+    )
+    return re.compile(patterns[0])
+
+
+def _local_imports(tree: ast.AST) -> set[str]:
+    """The top-level module names *tree* imports (``import a.b`` gives ``a``)."""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def _sidecar_inputs() -> set[str]:
+    """Repository paths whose change can change a live sidecar result, as POSIX strings."""
+
+    def files_under(directory: str) -> set[Path]:
+        return {path for path in (REPO_ROOT / directory).rglob("*") if path.is_file()}
+
+    inputs = files_under("src/tether/idealize") | files_under("sidecar")
+    inputs |= files_under(".github/actions/setup-env")
+    inputs |= {
+        REPO_ROOT / "schema" / "parity_tolerance.json",
+        REPO_ROOT / "scripts" / "setup_sidecar.py",
+        SIDECAR_WORKFLOW,
+    }
+    inputs |= set(_sidecar_tier_files())
+    fixtures = [path for path in (TESTS_DIR / "fixtures").rglob("*") if path.is_file()]
+    named: set[Path] = set()
+    for module in _sidecar_tier_files():
+        source = module.read_text(encoding="utf-8")
+        if not _uses_marker(source, "sidecar"):
+            continue
+        tree = ast.parse(source)
+        strings = {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        named |= {path for path in fixtures if path.name in strings}
+        inputs |= {
+            TESTS_DIR / f"{name}.py"
+            for name in _local_imports(tree)
+            if (TESTS_DIR / f"{name}.py").is_file()
+        }
+    # Anchor against a scan that finds nothing: the parity tests read the 4-molecule SMD.
+    assert TESTS_DIR / "fixtures" / "smd_4mol.hdf5" in named, sorted(named)
+    inputs |= named
+    return {path.relative_to(REPO_ROOT).as_posix() for path in inputs}
+
+
+def test_the_sidecar_path_filter_covers_every_input_of_the_live_fits() -> None:
+    """A pull request that changes what the fits read runs them (DCS-F5).
+
+    The pattern must match the idealization package, the sidecar lock, the setup script and
+    action, the frozen tolerance, every sidecar test module, the helper modules they import and
+    every committed fixture they name. Otherwise such a pull request gets the fast "not
+    applicable" pass on the required check, and the fits first run after the merge.
+    """
+    pattern = _sidecar_relevance_pattern()
+    unmatched = sorted(path for path in _sidecar_inputs() if not pattern.match(path))
+    assert not unmatched, (
+        f"sidecar.yml's relevance pattern misses inputs of the live fits: {unmatched}"
+    )
+    # Anchor against a pattern that matches everything: the gate must still gate.
+    assert not pattern.match("README.md")
+
+
+def _github_path_filter(glob: str) -> re.Pattern[str]:
+    """A ``paths:`` filter as a regex: ``**`` crosses ``/``, ``*`` and ``?`` do not."""
+    assert not re.search(r"[!\[\]+]", glob), f"path filter syntax not handled here: {glob!r}"
+    parts = re.split(r"(\*\*|\*|\?)", glob)
+    wildcards = {"**": ".*", "*": "[^/]*", "?": "[^/]"}
+    return re.compile("".join(wildcards.get(part, re.escape(part)) for part in parts) + r"\Z")
+
+
+def test_the_path_filter_translation_follows_github() -> None:
+    assert _github_path_filter("src/tether/ml/**").match("src/tether/ml/deep/model.py")
+    assert _github_path_filter("tests/test_*_deep.py").match("tests/test_x_deep.py")
+    assert not _github_path_filter("tests/test_*_deep.py").match("tests/sub/test_x_deep.py")
+    assert not _github_path_filter("deep/**").match("deeper/x")
+
+
+def _workflow_triggers(path: Path) -> dict:
+    document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    triggers = document.get("on", document.get(True))  # YAML 1.1 reads a bare `on:` as True
+    return triggers if isinstance(triggers, dict) else {}
+
+
+def _deep_inputs() -> set[str]:
+    """Repository paths whose change can change a deep train-smoke result."""
+    inputs = {path for path in (REPO_ROOT / "deep").rglob("*") if path.is_file()}
+    inputs |= {p for p in (REPO_ROOT / ".github/actions/setup-env").rglob("*") if p.is_file()}
+    inputs |= {DEEP_WORKFLOW, PYPROJECT}
+    modules = sorted(TESTS_DIR.glob(DEEP_FILE_GLOB))
+    inputs |= set(modules)
+    for module in modules:
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                names = [node.module]
+            elif isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            for name in names:
+                if name.split(".")[0] != "tether":
+                    continue
+                base = REPO_ROOT / "src" / Path(*name.split("."))
+                found = [p for p in (base.with_suffix(".py"), base / "__init__.py") if p.is_file()]
+                assert found, f"{module.name} imports {name}, which is no file under src/"
+                inputs |= set(found)
+    return {path.relative_to(REPO_ROOT).as_posix() for path in inputs}
+
+
+def test_the_deep_path_filter_covers_what_the_deep_tests_import() -> None:
+    """``deep.yml`` runs on a pull request that changes the code its tests import (DCS-F5)."""
+    paths = (_workflow_triggers(DEEP_WORKFLOW).get("pull_request") or {}).get("paths")
+    assert isinstance(paths, list) and paths, "deep.yml must keep its pull_request paths filter"
+    filters = [_github_path_filter(glob) for glob in paths]
+    unmatched = sorted(p for p in _deep_inputs() if not any(f.match(p) for f in filters))
+    assert not unmatched, f"deep.yml's paths filter misses inputs of the deep smoke: {unmatched}"
+
+
+@pytest.mark.parametrize(
+    "workflow", [SIDECAR_WORKFLOW, DEEP_WORKFLOW, LARGE_WORKFLOW], ids=lambda path: path.name
+)
+def test_the_tier_jobs_keep_their_schedule(workflow: Path) -> None:
+    """The nightly or weekly run is each tier's drift net on ``main`` (DCS-F5, DCS-F6)."""
+    schedule = _workflow_triggers(workflow).get("schedule")
+    crons = [str(e["cron"]) for e in schedule or [] if isinstance(e, dict) and "cron" in e]
+    assert crons and all(len(cron.split()) == 5 for cron in crons), (
+        f"{workflow.name} must keep a `schedule` trigger with a cron entry: {schedule!r}"
+    )
+
+
+LFS_VERIFY_STEP = "Verify committed LFS fixtures are materialized"
+
+
+def _large_verify_step() -> dict:
+    steps = [
+        step
+        for step in _job_steps(LARGE_WORKFLOW.read_text(encoding="utf-8"), "large")
+        if step.get("name") == LFS_VERIFY_STEP
+    ]
+    assert len(steps) == 1, f"large-fixtures.yml must keep one step named {LFS_VERIFY_STEP!r}"
+    _assert_live_and_failing(LARGE_WORKFLOW, f"step {LFS_VERIFY_STEP!r}", steps[0])
+    return steps[0]
+
+
+def _large_verify_script() -> str:
+    """The Python the verify step feeds to ``python - <<'PY'``."""
+    match = re.search(r"^python - <<'PY'\n(.*?)^PY$", _large_verify_step()["run"], re.M | re.S)
+    assert match, "the verify step must run its check as `python - <<'PY' ... PY`"
+    return match.group(1)
+
+
+def _lfs_tracked_large_fixtures() -> set[str]:
+    rules = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert any(
+        line.split()[:1] == ["tests/fixtures/large/**"] and "filter=lfs" in line.split()
+        for line in rules
+    ), ".gitattributes must keep tests/fixtures/large/** under Git LFS"
+    return {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in LARGE_FIXTURES_DIR.rglob("*")
+        if path.is_file()
+    }
+
+
+def test_the_large_tier_verifies_every_lfs_fixture_before_it_runs() -> None:
+    """The weekly job fails on an unmaterialized fixture instead of skipping its tests (DCS-F6).
+
+    The verify list must be every file under ``tests/fixtures/large/``: a file left off it
+    (``kinsoft_sim.hdf5`` was, so the four oracle (c) tests skipped there) turns a failed LFS
+    pull into a green run. Then the job runs ``pytest -v -m large`` and nothing else (a JUnit
+    report aside).
+    """
+    required = set(re.findall(r'Path\("([^"]+)"\)', _large_verify_script()))
+    tracked = _lfs_tracked_large_fixtures()
+    assert required == tracked, (
+        f"the verify list must be every LFS fixture; not verified: {sorted(tracked - required)}; "
+        f"not a fixture: {sorted(required - tracked)}"
+    )
+    step = _the_pytest_step(LARGE_WORKFLOW, "large")
+    lines = _command_lines(step["run"])
+    assert len(lines) == 1 and _runs_exactly(lines[0], "xvfb-run -a pytest -v -m large"), lines
+    order = [s.get("name") for s in _job_steps(LARGE_WORKFLOW.read_text(encoding="utf-8"), "large")]
+    assert order.index(LFS_VERIFY_STEP) < order.index(step.get("name")), order
+
+
+def test_the_large_verify_script_fails_on_a_pointer_or_a_missing_file(tmp_path: Path) -> None:
+    """The verify step's own Python, run here: real bytes pass, a pointer or a gap fails."""
+    script = _large_verify_script()
+    required = sorted(set(re.findall(r'Path\("([^"]+)"\)', script)))
+
+    def run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-I", "-c", script],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    for name in required:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_bytes(b"\x89HDF\r\n\x1a\n" + bytes(64))
+    assert run().returncode == 0
+    pointer = tmp_path / required[-1]
+    named = pointer.name  # the script prints native paths, so match the name on every OS
+    pointer.write_bytes(b"version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 1\n")
+    result = run()
+    assert result.returncode != 0 and named in result.stderr, result.stderr
+    pointer.unlink()
+    result = run()
+    assert result.returncode != 0 and named in result.stderr, result.stderr
 
 
 # --- The same contract for the non-required GPU leg (deep-gpu.yml, PR-2 / ADR-0047) ---
@@ -536,14 +1212,399 @@ def _job_steps(text: str, job_id: str) -> list[dict]:
     return [step for step in (job.get("steps") or []) if isinstance(step, dict)]
 
 
+# An `if:` is a constant when GitHub can decide it before the run: `false`, but also
+# `${{ false && true }}`, `!true`, `0` or `${{ fromJSON('false') }}` (#750, CodeRabbit). The
+# reader below evaluates the expression language (literals, hexadecimal `0xff` among them,
+# `( ) [ ] . ! < <= > >= == != && ||` and the pure functions) and gives every context
+# (`github`, `steps`, `needs`, ...) and every status function but `always()` a value that only
+# the run knows. `&&` and `||` can still decide around such a value: `false && steps.x.outputs.y`
+# is a constant false.
+
+#: Functions whose value depends on the run (`always()` does not: it is always true).
+_RUNTIME_FUNCTIONS = frozenset({"success", "failure", "cancelled", "hashfiles"})
+
+_JSON_NUMBER = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?")
+
+_EXPRESSION_TOKEN = re.compile(
+    r"""\s*(?:
+        (?P<string>'(?:[^']|'')*')
+      | (?P<number>-?0[xX][0-9a-fA-F]+|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)
+      | (?P<name>[A-Za-z_][A-Za-z0-9_-]*)
+      | (?P<op>&&|\|\||==|!=|<=|>=|[!<>()\[\].,*])
+    )""",
+    re.VERBOSE,
+)
+
+
+class _Runtime:
+    """A value that only the run knows; ``truthy`` is what is known of it anyway (None: nothing)."""
+
+    __slots__ = ("truthy",)
+
+    def __init__(self, truthy: bool | None = None) -> None:
+        self.truthy = truthy
+
+
+def _truth(value: object) -> bool | None:
+    """GitHub's truthiness: ``false``, ``0``, ``-0``, ``''`` and ``null`` are falsy."""
+    if isinstance(value, _Runtime):
+        return value.truthy
+    if value is None or value is False:
+        return False
+    if isinstance(value, float):
+        return not (value == 0 or math.isnan(value))
+    if isinstance(value, str):
+        return value != ""
+    return True  # true, arrays and objects
+
+
+def _as_number(value: object) -> float:
+    """GitHub's coercion for a comparison of two types: null 0, booleans 1/0, strings parsed."""
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return 0.0
+        return float(text) if _JSON_NUMBER.fullmatch(text) else math.nan
+    return math.nan  # arrays and objects
+
+
+def _as_string(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else repr(value)
+    if isinstance(value, str):
+        return value
+    return "Array" if isinstance(value, list) else "Object"
+
+
+def _kind(value: object) -> str:
+    if value is None or isinstance(value, (bool, float, str)):
+        return type(value).__name__
+    return "array" if isinstance(value, list) else "object"
+
+
+def _equal(left: object, right: object) -> bool:
+    """Loose equality: strings ignore case, other types meet as numbers, NaN equals nothing."""
+    if _kind(left) == _kind(right):
+        if isinstance(left, str) and isinstance(right, str):
+            return left.casefold() == right.casefold()
+        if isinstance(left, (list, dict)):
+            return left is right  # arrays and objects are equal only to themselves
+        return left == right
+    return _as_number(left) == _as_number(right)
+
+
+def _ordered(operator: str, left: object, right: object) -> bool:
+    if isinstance(left, str) and isinstance(right, str):
+        a: str | float = left.casefold()
+        b: str | float = right.casefold()
+    else:
+        a, b = _as_number(left), _as_number(right)
+        if math.isnan(a) or math.isnan(b):
+            return False
+    return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[operator]
+
+
+def _both(left: object, right: object) -> object:
+    """``&&``: the first falsy operand, else the last; falsy for sure if either side is."""
+    known = _truth(left)
+    if known is False:
+        return left
+    if known is True:
+        return right
+    return _Runtime(False if _truth(right) is False else None)
+
+
+def _either(left: object, right: object) -> object:
+    """``||``: the first truthy operand, else the last; truthy for sure if either side is."""
+    known = _truth(left)
+    if known is True:
+        return left
+    if known is False:
+        return right
+    return _Runtime(True if _truth(right) is True else None)
+
+
+def _from_json(value: object) -> object:
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, list):
+        return [_from_json(item) for item in value]
+    return {key: _from_json(item) for key, item in value.items()}  # type: ignore[union-attr]
+
+
+def _call(name: str, args: list[object]) -> object:
+    """A function of the expression language; a runtime one, or a runtime argument, is unknown."""
+    if name == "always":
+        return True
+    if name in _RUNTIME_FUNCTIONS or any(isinstance(arg, _Runtime) for arg in args):
+        return _Runtime()
+    try:
+        if name == "contains":
+            haystack, needle = args
+            if isinstance(haystack, list):
+                return any(_equal(item, needle) for item in haystack)
+            return _as_string(needle).casefold() in _as_string(haystack).casefold()
+        if name in ("startswith", "endswith"):
+            text, part = (_as_string(arg).casefold() for arg in args)
+            return text.startswith(part) if name == "startswith" else text.endswith(part)
+        if name == "format":
+            template, *values = args
+            return re.sub(
+                r"\{\{|\}\}|\{(\d+)\}",
+                lambda m: _as_string(values[int(m[1])]) if m[1] else m[0][0],
+                _as_string(template),
+            )
+        if name == "join":
+            items, *separator = args
+            glue = _as_string(separator[0]) if separator else ","
+            if isinstance(items, list):
+                return glue.join(_as_string(item) for item in items)
+            return _as_string(items)
+        if name == "tojson":
+            (value,) = args
+            return json.dumps(value)
+        if name == "fromjson":
+            (value,) = args
+            return _from_json(json.loads(_as_string(value)))
+    except (ValueError, IndexError, TypeError):
+        pass
+    return _Runtime()  # a function or arguments GitHub would reject: assume nothing
+
+
+def _member(value: object, key: object) -> object:
+    if isinstance(value, _Runtime) or isinstance(key, _Runtime):
+        return _Runtime()
+    if isinstance(value, dict):
+        wanted = _as_string(key).casefold()
+        return next((item for name, item in value.items() if name.casefold() == wanted), None)
+    if isinstance(value, list) and isinstance(key, float) and key.is_integer():
+        return value[int(key)] if 0 <= key < len(value) else None
+    return None
+
+
+class _Expression:
+    """A recursive-descent reader of one GitHub Actions expression (lowest precedence first)."""
+
+    def __init__(self, text: str) -> None:
+        self.tokens: list[tuple[str, str]] = []
+        position, text = 0, text.rstrip()
+        while position < len(text):
+            match = _EXPRESSION_TOKEN.match(text, position)
+            if match is None or match.lastgroup is None:
+                raise ValueError(f"cannot read {text[position:]!r}")
+            self.tokens.append((match.lastgroup, match[match.lastgroup]))
+            position = match.end()
+        self.position = 0
+
+    def value(self) -> object:
+        result = self._or()
+        if self.position != len(self.tokens):
+            raise ValueError(f"unexpected {self.tokens[self.position][1]!r}")
+        return result
+
+    def _operator(self) -> str | None:
+        if self.position < len(self.tokens) and self.tokens[self.position][0] == "op":
+            return self.tokens[self.position][1]
+        return None
+
+    def _take(self, expected: str | None = None) -> tuple[str, str]:
+        if self.position >= len(self.tokens):
+            raise ValueError("the expression ends too early")
+        token = self.tokens[self.position]
+        if expected is not None and token != ("op", expected):
+            raise ValueError(f"expected {expected!r}, found {token[1]!r}")
+        self.position += 1
+        return token
+
+    def _or(self) -> object:
+        left = self._and()
+        while self._operator() == "||":
+            self._take()
+            left = _either(left, self._and())
+        return left
+
+    def _and(self) -> object:
+        left = self._equality()
+        while self._operator() == "&&":
+            self._take()
+            left = _both(left, self._equality())
+        return left
+
+    def _equality(self) -> object:
+        left = self._relation()
+        while (operator := self._operator()) in ("==", "!="):
+            self._take()
+            right = self._relation()
+            if isinstance(left, _Runtime) or isinstance(right, _Runtime):
+                left = _Runtime()
+            else:
+                left = _equal(left, right) == (operator == "==")
+        return left
+
+    def _relation(self) -> object:
+        left = self._unary()
+        while (operator := self._operator()) in ("<", "<=", ">", ">="):
+            self._take()
+            right = self._unary()
+            if isinstance(left, _Runtime) or isinstance(right, _Runtime):
+                left = _Runtime()
+            else:
+                left = _ordered(str(operator), left, right)
+        return left
+
+    def _unary(self) -> object:
+        if self._operator() == "!":
+            self._take()
+            known = _truth(self._unary())
+            return _Runtime() if known is None else not known
+        return self._postfix()
+
+    def _postfix(self) -> object:
+        value = self._primary()
+        while (operator := self._operator()) in (".", "["):
+            self._take()
+            if operator == "[":
+                key = self._or()
+                self._take("]")
+            else:
+                kind, name = self._take()
+                if (kind, name) == ("op", "*"):
+                    value = _Runtime()  # an object filter: not worth evaluating here
+                    continue
+                if kind != "name":
+                    raise ValueError(f"a property name cannot be {name!r}")
+                key = name
+            value = _member(value, key)
+        return value
+
+    def _primary(self) -> object:
+        kind, text = self._take()
+        if kind == "string":
+            return text[1:-1].replace("''", "'")
+        if kind == "number":
+            return float(int(text, 16)) if "x" in text.lower() else float(text)
+        if (kind, text) == ("op", "("):
+            value = self._or()
+            self._take(")")
+            return value
+        if kind == "name":
+            if self._operator() == "(":
+                self._take()
+                args: list[object] = []
+                if self._operator() != ")":
+                    args.append(self._or())
+                    while self._operator() == ",":
+                        self._take()
+                        args.append(self._or())
+                self._take(")")
+                return _call(text.lower(), args)
+            if text.lower() in ("true", "false"):
+                return text.lower() == "true"
+            if text.lower() == "null":
+                return None
+            return _Runtime()  # a context: github, env, steps, needs, matrix, inputs, ...
+        raise ValueError(f"unexpected {text!r}")
+
+
+def _constant_truth(condition: str) -> bool | None:
+    """True or False when GitHub decides an `if:` before the run; None when the run decides."""
+    text = condition.strip()
+    whole = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    if whole and "${{" not in whole[1]:
+        text = whole[1]
+    elif "${{" in text:
+        return True  # text outside `${{ }}` makes the value a non-empty string, which is true
+    try:
+        return _truth(_Expression(text).value())
+    except (ValueError, IndexError):
+        return None  # GitHub rejects the whole workflow when it cannot read an expression
+
+
 def _is_live(step: dict) -> bool:
-    """False only when the step is switched off by a constant, not by a runtime gate."""
+    """False only when the step is switched off by a constant, not by a runtime gate.
+
+    A constant is any `if:` that GitHub decides before the run (`_constant_truth`), so
+    `${{ false && true }}` is as dead as `false`. The same applies to a job's `if:`.
+    """
     condition = step.get("if")
     if condition is None:
         return True
     if isinstance(condition, bool):
         return condition
-    return str(condition).strip().lower() not in _STATICALLY_DISABLED
+    if str(condition).strip().lower() in _STATICALLY_DISABLED:
+        return False
+    return _constant_truth(str(condition)) is not False
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        False,
+        0,
+        "false",
+        "${{ false }}",
+        "${{ false && true }}",
+        "${{ true && false }}",
+        "false && steps.relevance.outputs.run == 'true'",
+        "${{ steps.relevance.outputs.run == 'true' && false }}",
+        "${{ !true }}",
+        "!(true || github.event_name == 'push')",
+        "${{ 1 == 2 }}",
+        "${{ 0xff == 0 }}",
+        "${{ 0x0 }}",
+        "${{ 'a' != 'A' }}",
+        "${{ '' }}",
+        "${{ null }}",
+        "${{ always() && false }}",
+        "${{ contains('abc', 'z') }}",
+        "${{ startsWith('abc', 'b') }}",
+        "${{ fromJSON('false') }}",
+        "${{ fromJSON('{\"run\": false}').run }}",
+        "${{ format('{0}', '') }}",
+    ],
+)
+def test_a_constant_false_if_switches_a_step_off(condition: object) -> None:
+    """Any `if:` that GitHub decides to be false before the run is dead (#750, CodeRabbit)."""
+    assert not _is_live({"if": condition, "run": "pytest"})
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        None,
+        True,
+        "true",
+        "${{ always() }}",
+        "success()",
+        "${{ !cancelled() }}",
+        "steps.relevance.outputs.run == 'true'",
+        "needs.verify.outputs.publish == 'true'",
+        "${{ github.event_name != 'pull_request' || steps.relevance.outputs.run == 'true' }}",
+        "${{ false || github.event_name == 'schedule' }}",
+        "${{ hashFiles('pyproject.toml') != '' }}",
+        "${{ 'A' == 'a' }}",
+        "${{ 1 == '1' }}",
+        "${{ 0xff == 255 }}",
+        "${{ false }} && true",  # text outside ${{ }}: a non-empty string, which is true
+        "${{ fromJSON('[0]')[1] == null }}",
+        "steps.relevance.outputs.run == (",  # GitHub rejects the workflow, which fails by itself
+    ],
+)
+def test_a_runtime_or_true_if_keeps_a_step_live(condition: object) -> None:
+    """A gate that reads the run (or is true) is not a switch-off, so the step is live."""
+    assert _is_live({"if": condition, "run": "pytest"})
 
 
 def _steps(text: str) -> list[dict]:
@@ -2324,3 +3385,128 @@ def test_no_dependabot_glob_overlaps_the_workflows_directory() -> None:
             '`directory: "/"` entry already scans implicitly -> duplicate PRs for every action '
             "(dependabot-core#10884). Keep non-root globs disjoint from `/`."
         )
+
+
+# --- The workstation tier runs in NO CI job, on purpose (ADR-0071, #698) ---
+# A `workstation` test needs private laboratory data. No runner has that data, and no GitHub
+# self-hosted runner is registered for it: `scripts/workstation/run_private_checks.py` runs these
+# tests from a scheduled task on the maintainer's workstation. So every pytest command in every
+# workflow and composite action must deselect them. `tests/conftest.py` adds the other half: a
+# workstation test carries no other tier marker, so `-m large` or `-m sidecar` cannot reach one.
+WORKSTATION_RUNNER = GITHUB_DIR.parent / "scripts" / "workstation" / "run_private_checks.py"
+_PYTEST_COMMAND = re.compile(r"(?:^|[\s;&|(])(?:python\s+-m\s+)?pytest(?=\s|$)")
+
+
+def _selects(expression: str, marks: set[str]) -> bool:
+    """Evaluate a pytest ``-m`` expression (``and``/``or``/``not``/parentheses) for *marks*."""
+    tokens = re.findall(r"\(|\)|[\w.-]+", expression)
+    position = 0
+
+    def take() -> str:
+        nonlocal position
+        position += 1
+        return tokens[position - 1]
+
+    def peek() -> str | None:
+        return tokens[position] if position < len(tokens) else None
+
+    def either() -> bool:
+        value = both()
+        while peek() == "or":
+            take()
+            value = both() or value
+        return value
+
+    def both() -> bool:
+        value = negation()
+        while peek() == "and":
+            take()
+            value = negation() and value
+        return value
+
+    def negation() -> bool:
+        if peek() == "not":
+            take()
+            return not negation()
+        if peek() == "(":
+            take()
+            value = either()
+            assert take() == ")", expression
+            return value
+        return take() in marks
+
+    value = either()
+    assert peek() is None, f"unparsed rest of {expression!r}"
+    return value
+
+
+def test_the_marker_expression_evaluator_follows_pytest_precedence() -> None:
+    assert _selects("workstation", {"workstation"})
+    assert not _selects("not large and not workstation", {"workstation"})
+    assert _selects("not large and not sidecar and not deep", {"workstation"})
+    assert not _selects("large", {"workstation", "gui"})
+    assert _selects("large or workstation and gui", {"large"})  # `and` binds tighter
+    assert not _selects("(large or workstation) and gui", {"workstation"})
+    assert _selects("not (large or deep)", {"workstation"})
+
+
+def _workflow_pytest_commands() -> list[tuple[str, str]]:
+    """(file, command) for every pytest command in every workflow and composite action."""
+    commands = []
+    documents = sorted(GITHUB_DIR.glob("workflows/*.yml"))
+    documents += sorted(GITHUB_DIR.glob("actions/*/*.yml"))
+    for path in documents:
+        for step in _workflow_or_action_steps(_yaml_load(path)):
+            script = step.get("run")
+            if not isinstance(script, str):
+                continue
+            for line in re.sub(r"\\\n", " ", script).splitlines():
+                if not line.lstrip().startswith("#") and _PYTEST_COMMAND.search(line):
+                    commands.append((path.name, line.strip()))
+    return commands
+
+
+def test_no_workflow_selects_a_workstation_test() -> None:
+    """Every pytest command deselects ``workstation``, alone or with ``gui``.
+
+    A command with ``-m`` must evaluate false for such a test; a command without one must name
+    only test files that apply no ``workstation`` marker. If this fails, add ``and not
+    workstation`` to that command's ``-m`` expression: these tests run only from
+    ``scripts/workstation/run_private_checks.py`` (docs/maintainers/workstation-runner.md).
+    """
+    commands = _workflow_pytest_commands()
+    offenders = []
+    for name, command in commands:
+        argv = shlex.split(command)
+        expressions = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "-m"]
+        expressions = [e for e in expressions if e != "pytest"]  # `python -m pytest`
+        if expressions:
+            tiers = ({"workstation"}, {"workstation", "gui"})
+            if any(_selects(e, marks) for e in expressions for marks in tiers):
+                offenders.append(f"{name}: {command}")
+            continue
+        paths = [arg for arg in argv if arg.startswith("tests/")]
+        files = [f for p in paths for f in sorted(GITHUB_DIR.parent.glob(p.split("::")[0]))]
+        sources = [f.read_text(encoding="utf-8") for f in files]
+        if not files or any(_uses_marker(source, "workstation") for source in sources):
+            offenders.append(f"{name}: {command}")
+    runner = WORKSTATION_RUNNER.relative_to(GITHUB_DIR.parent).as_posix()
+    assert not offenders, (
+        "these CI pytest commands can select a `workstation` test, which needs private data and "
+        f"runs only from {runner}: {offenders}"
+    )
+    # Anchor against a scan that finds nothing: the required 3-OS matrix runs two spellings.
+    matrix = [cmd for name, cmd in commands if name == "ci.yml" and "not workstation" in cmd]
+    assert len(matrix) == 2, commands
+
+
+def test_the_workstation_tier_is_registered_and_its_runner_selects_it() -> None:
+    import tomllib
+
+    pyproject = tomllib.loads((GITHUB_DIR.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    markers = pyproject["tool"]["pytest"]["ini_options"]["markers"]
+    assert any(m.startswith("workstation:") for m in markers), markers
+    source = WORKSTATION_RUNNER.read_text(encoding="utf-8")
+    assert '"pytest", "-m", "workstation"' in source
+    selfcheck = TESTS_DIR / "test_workstation_selfcheck.py"
+    assert _uses_marker(selfcheck.read_text(encoding="utf-8"), "workstation")

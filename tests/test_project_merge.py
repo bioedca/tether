@@ -42,6 +42,7 @@ from tether.project.labels import (  # noqa: E402
     read_labels,
     reject,
     set_curation_label,
+    unreject,
 )
 from tether.project.merge import MergeConflict, merge_labels  # noqa: E402
 
@@ -126,11 +127,17 @@ def _keys(path: Path) -> list[str]:
     ]
 
 
-def _store(path: Path, n: int, *, sha_char: str = "a") -> list[str]:
+_FILENAME = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"
+#: Same movie stem with a different tRNA concentration, so a different provisional condition_id.
+_OTHER_CONDITION_FILENAME = "Bla_UCKOPSB_T-box_35pM_tRNA_300nM_010.tif"
+
+
+def _store(path: Path, n: int, *, sha_char: str = "a", filename: str = _FILENAME) -> list[str]:
     """A single-condition ``.tether`` with ``n`` molecules (one movie); returns its molecule_keys.
 
     Two stores built with the same ``sha_char`` share molecule_keys on their common molecule prefix
-    (same movie sha256 + same deterministic coords) — the split-file merge join.
+    (same movie sha256 + same deterministic coords) — the split-file merge join. ``filename`` sets
+    the provisional ``condition_id``; it is not part of the molecule_key.
     """
     t = 12
     create_project(path, overwrite=True)
@@ -139,10 +146,19 @@ def _store(path: Path, n: int, *, sha_char: str = "a") -> list[str]:
         movie=_movie(t, sha_char=sha_char),
         molecules=_molecules(n),
         traces=_traces(n, t),
-        parsed=parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"),
+        parsed=parse_filename(filename),
         registration_map=_reg_map(),
     )
     return _keys(path)
+
+
+def _condition_of(path: Path) -> str:
+    (condition,) = {_to_text(c) for c in read_molecules(path)["condition_id"]}
+    return condition
+
+
+def _to_text(value: object) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
 
 
 def _labels_of(path: Path) -> np.ndarray:
@@ -209,6 +225,80 @@ def test_two_curator_split_and_merge(tmp_path) -> None:
     assert report.weights_recomputed == 6
     assert report.unmatched == ()
     assert report.skipped_non_human == 0
+
+
+def test_pulled_rows_take_the_owner_condition_id(tmp_path) -> None:
+    # The physical molecule's condition lives on the owner's /molecules (§5.1): a contributor row
+    # that carries another condition_id is appended under the owner's id, so the central weight
+    # recompute groups it with the owner's condition (#729 PRJ-F10).
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=3)
+    skeys = _store(split, n=3, filename=_OTHER_CONDITION_FILENAME)
+    assert okeys == skeys  # the join key does not depend on the condition
+    owner_condition = _condition_of(owner)
+    split_condition = _condition_of(split)
+    assert owner_condition != split_condition
+
+    accept(split, skeys[1], labeler="bob")
+    reject(split, skeys[2], labeler="bob")
+    assert {_to_text(c) for c in read_labels(split)["condition_id"]} == {split_condition}
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 2
+    rows = read_labels(owner)
+    pulled = [i for i, src in enumerate(_source_files(rows)) if src == "split.tether"]
+    assert len(pulled) == 2
+    assert [_to_text(rows["condition_id"][i]) for i in pulled] == [owner_condition] * 2
+    # The contributor's file is read-only to the merge: its own rows keep its condition_id.
+    assert {_to_text(c) for c in read_labels(split)["condition_id"]} == {split_condition}
+
+
+def test_latest_contributor_decision_wins(tmp_path) -> None:
+    # A contributor who changes their mind leaves two rows for one molecule; the merge reconciles
+    # the LATEST decision (append order), never the first one (#729 PRJ-F10).
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=3)
+    _store(split, n=3)
+    reject(split, okeys[1], labeler="bob")
+    accept(split, okeys[1], labeler="bob")  # latest for key 1: ACCEPT
+    accept(split, okeys[2], labeler="bob")
+    reject(split, okeys[2], labeler="bob")  # latest for key 2: REJECT
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 4  # both rows of each key stay in the audit log
+    assert set(report.adopted) == {okeys[1], okeys[2]}
+    assert report.n_conflicts == 0
+    labels = curation_labels(owner)
+    assert labels[okeys[1]] == _ACCEPT
+    assert labels[okeys[2]] == _REJECT
+    assert labels[okeys[0]] == _UNCURATED
+
+
+def test_withdrawn_contributor_decision_is_not_adopted(tmp_path) -> None:
+    # Reject then un-reject: the contributor's latest decision is "no decision", so nothing is
+    # adopted and no conflict is raised against the owner's own label (#729 PRJ-F10).
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=3)
+    _store(split, n=3)
+    accept(owner, okeys[2], labeler="alice")
+    for key in (okeys[1], okeys[2]):
+        reject(split, key, labeler="bob")
+        assert unreject(split, key, labeler="bob") is not None
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 4  # the reject and its reversal are both recorded
+    assert report.adopted == ()
+    assert report.agreements == ()
+    assert report.n_conflicts == 0
+    labels = curation_labels(owner)
+    assert labels[okeys[1]] == _UNCURATED  # not adopted as REJECT
+    assert labels[okeys[2]] == _ACCEPT  # the owner's label is not challenged
 
 
 def test_unmatched_molecule_key_is_surfaced_not_dropped(tmp_path) -> None:
