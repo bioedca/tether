@@ -334,6 +334,11 @@ def test_no_absolute_path_reaches_a_record(tmp_path, clone, text) -> None:
         )
 
 
+def test_an_absolute_path_in_a_parameter_key_is_refused() -> None:
+    with pytest.raises(harness.HarnessError, match="absolute path"):
+        harness._no_private_paths({"weights": {"/home/lab/private/sample.dat": 1}})
+
+
 def test_relative_names_pass_the_path_check() -> None:
     harness._no_private_paths(
         [
