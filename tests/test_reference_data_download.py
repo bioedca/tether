@@ -14,7 +14,9 @@ a drifted extract fails here and not in a later oracle.
 
 from __future__ import annotations
 
+import hashlib
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +24,7 @@ from reference_data import fetch
 
 pytestmark = pytest.mark.reference_download
 
+REPO = Path(__file__).resolve().parents[1]
 MANIFEST = fetch.load_manifest()
 DOWNLOADS = sorted(d.id for d in MANIFEST.values() if d.tier == "download")
 MEMBERS = sorted(d.id for d in MANIFEST.values() if d.extract_member)
@@ -35,8 +38,18 @@ def test_each_download_entry_fetches_with_its_checksum(dataset_id: str) -> None:
 
 @pytest.mark.parametrize("dataset_id", MEMBERS)
 def test_each_verbatim_extract_equals_its_archive_member(dataset_id: str) -> None:
+    """Each committed copy is its archive member, byte for byte.
+
+    The weekly job does not pull Git LFS, so an LFS extract is compared through its pointer: the
+    member's SHA-256 must be the oid the committed pointer names (#755). The LFS object store
+    keys the object by that oid, so this compares the same bytes without fetching them.
+    """
     extract = MANIFEST[dataset_id]
     (source,) = extract.extract_of
     with zipfile.ZipFile(fetch.path_for(source)) as archive:
         member = archive.read(extract.extract_member)
-    assert member == fetch.path_for(dataset_id).read_bytes()
+    pointer_oid = fetch.lfs_oid(REPO / extract.file) if extract.tier == "lfs" else None
+    if pointer_oid is not None:
+        assert hashlib.sha256(member).hexdigest() == pointer_oid == extract.sha256
+    else:
+        assert member == fetch.path_for(dataset_id).read_bytes()
