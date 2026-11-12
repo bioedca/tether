@@ -234,11 +234,15 @@ def _trace_display(size: str, workdir: Path):
         for i, (d, a) in enumerate(zip(tr.donor[:8], tr.acceptor[:8], strict=True))
     ]
     dock = TraceDock()
+    dock.widget.resize(1200, 800)
+    dock.widget.show()
     dock.set_trace(views[0])
+    app.processEvents()
 
     def run() -> object:
-        for view in views:  # display each trace, then navigate to the next
+        for view in views:  # display each trace, paint it, then navigate to the next
             dock.set_trace(view)
+            dock.widget.grab()  # paints now: Qt would coalesce or skip queued updates
         app.processEvents()
         return dock
 
