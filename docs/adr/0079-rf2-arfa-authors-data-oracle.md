@@ -76,15 +76,15 @@ and 2 give the same model, and a fit of the extract equals a fit of the original
 | Viterbi agreement | 0.99954 | ≥ 0.95 |
 | relative ΔELBO | **0.0194** | ≤ 0.01 — **outside** |
 
-The ELBO is the sum of five terms, which tMAVEN stores in the last row of `likelihood`. Four of
-them agree to 2.0e-5 relative. The Gaussian-Wishart term does not (stored −4433.80, fresh
-−5074.02); tMAVEN adds it once per trace (204 times; its own comment calls this
+The ELBO is the sum of four terms, which tMAVEN stores beside it in the last row of
+`likelihood` (columns 1 to 4; column 0 is the sum). Three of them agree to 2.0e-5 relative.
+The Gaussian-Wishart term does not (stored −4433.80, fresh −5074.02); tMAVEN adds it once per trace (204 times; its own comment calls this
 "multiple-counting the priors"). The current formula on the stored posterior gives the stored
 −4433.80 again, so the formula is unchanged; the fresh posterior differs a little (high-FRET
 variance +0.21 %), and it is converged (a tighter convergence limit gives the same fit). The rates
 agree to 4.3e-4 relative. Because the term is counted 204 times, a small change of the
 posterior moves the ELBO by much more than it moves the states, the means or the rates. The test
-pins relative ΔELBO ≤ 0.020 and the other four terms to 3e-5.
+pins relative ΔELBO ≤ 0.020 and the other three terms to 3e-5.
 
 **Table 1.** 16 of its 21 numbers fall inside the stated SD (the SD of the posteriors). Five do
 not: all four (Cy5)RF2-dIII rates of the wt-pre-nsEC complex (0.3705, 0.2755, 0.0593 and 0.1983

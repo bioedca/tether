@@ -15,7 +15,8 @@ parameters" document, and this process compares what it returns with the authors
    ELBO is NOT: 0.0194 against a frozen ceiling of 0.01. That is a measured difference, never a
    tolerance, and the row does not change for it (ADR-0009). The whole gap is the
    Gaussian-Wishart term of the ELBO (column 2 of ``likelihood``), which tMAVEN adds once per
-   trace; the other four terms agree to 2e-5 relative, and the rates to 5e-4.
+   trace; the other three terms (columns 1, 3 and 4; column 0 is their sum, the ELBO) agree
+   to 2e-5 relative, and the rates to 5e-4.
 4. **Plots.** tMAVEN's 2-D histogram (``data_hist2d``) at the authors' settings. Start-
    synchronized, Tether's A2 histogram equals tMAVEN's counts cell for cell. Post-synchronized
    on the frames of each molecule's window, Tether's A2b histogram lacks 2 of tMAVEN's 1608
@@ -125,7 +126,8 @@ def test_a_fresh_fit_with_the_authors_priors_reproduces_their_model(fresh_fit, c
     assert len(failures) == 1 and failures[0].startswith("relative ΔELBO"), failures
     assert frozen["relative_elbo_max"] < metrics.relative_elbo <= RELATIVE_ELBO_MEASURED_MAX
 
-    # The ELBO terms: (ll1, lnz, Fgw, Fpi, Ftm) in the last row of ``likelihood``.
+    # The last row of ``likelihood`` is (ELBO, lnz, Fgw, Fpi, Ftm), the ELBO being the sum of
+    # the other four (tMAVEN's ``calc_lowerbound``).
     ours, theirs = fresh_fit.likelihood[-1], authors.likelihood[-1]
     others = [1, 3, 4]
     np.testing.assert_allclose(ours[others], theirs[others], rtol=OTHER_ELBO_TERMS_RTOL)
