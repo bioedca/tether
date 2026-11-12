@@ -110,6 +110,21 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   esac
   test -s "$(cygpath -u "${icon_loc%,0}")" || {
     echo "the shortcut's icon file is missing: ${icon_loc%,0}"; exit 1; }
+  # The shortcut starts the console-less tether-gui.exe itself, in a normal window, so
+  # no console flashes and the splash is not minimized (issue #579, ADR-0076). Read the
+  # target and the window style back from the .lnk, as for the icon above.
+  lnk_target="$(TETHER_LNK_W="$lnk_w" powershell -NoProfile -NonInteractive -Command \
+    '$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK_W); "$($s.TargetPath)|$($s.Arguments)|$($s.WindowStyle)"' \
+    | tr -d '\r')"
+  echo "Start Menu shortcut target|arguments|style: $lnk_target"
+  case "$lnk_target" in
+    *'\envs\tether\Scripts\tether-gui.exe||1') ;;
+    *) echo "the Start Menu shortcut must run tether-gui.exe, no arguments, style 1: $lnk_target"; exit 1 ;;
+  esac
+  # With no launcher in between, the GUI itself puts the env's folders first on its
+  # PATH (issue #553 needs them there before MKL loads). Prove it in the INSTALLED env,
+  # starting from the runner's PATH as a shortcut would.
+  "$prefix\\envs\\tether\\python.exe" -c "import os, sys; from tether.gui.env_path import put_env_folders_first; put_env_folders_first(); first = os.environ['PATH'].split(';')[0]; assert os.path.normcase(first) == os.path.normcase(sys.prefix), first; print('GUI PATH step OK:', first)"
   # The shortcut carries the window's AppUserModelID, so a pinned shortcut and the
   # running window are one taskbar button (issue #673). Read it back with the installed
   # package's own reader, the path passed as an argument.

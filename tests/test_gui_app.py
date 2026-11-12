@@ -109,3 +109,33 @@ def test_bad_project_path_leaves_a_usable_shell(qtbot, tmp_path) -> None:
     assert shell._traces == []
     assert shell._conditions is None
     shell.close()
+
+
+def test_main_puts_the_env_folders_on_path_before_anything_loads(monkeypatch) -> None:
+    """``main`` takes the PATH step first, then builds the shell (issue #579, ADR-0076).
+
+    The Start Menu shortcut runs ``tether-gui.exe`` directly, with no ``.bat`` to put the
+    env's DLL folders first on PATH (issue #553). ``main`` does it, and it must do it
+    before :func:`create_shell` imports PySide6 and the shell imports NumPy.
+    """
+    from tether.gui import app as gui_app
+
+    calls: list[str] = []
+
+    class _App:
+        def exec(self) -> int:
+            calls.append("exec")
+            return 3
+
+    class _Shell:
+        def show(self) -> None:
+            calls.append("show")
+
+    def _create_shell(argv):
+        calls.append(f"create_shell {argv}")
+        return _App(), _Shell()
+
+    monkeypatch.setattr(gui_app, "put_env_folders_first", lambda: calls.append("path") or True)
+    monkeypatch.setattr(gui_app, "create_shell", _create_shell)
+    assert gui_app.main(["x.tether"]) == 3
+    assert calls == ["path", "create_shell ['x.tether']", "show", "exec"]
