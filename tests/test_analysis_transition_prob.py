@@ -118,6 +118,30 @@ def test_raw_counts_when_density_false() -> None:
     assert h.density is False
 
 
+# P(0->1) = 1/2, 2/3 and 1 (successors of state 0: {0, 1}; {0, 1, 1}; {1}).
+_P_HALF_TWO_THIRDS_ONE = [np.array([0, 0, 1]), np.array([0, 0, 1, 0, 1, 1]), np.array([0, 1])]
+
+
+def test_each_probability_lands_in_its_bin() -> None:
+    # The default grid has 25 bins of width 0.044 on [-0.05, 1.05]. P = 0.5 is in bin
+    # 12 ([0.478, 0.522)), P = 2/3 in bin 16 ([0.654, 0.698)) and P = 1 in bin 23
+    # ([0.962, 1.006)). A mirrored histogram (1 - P) would put them in bins 12, 8 and 1
+    # (#738 ANB-F5).
+    h = transition_prob_histogram(
+        _P_HALF_TWO_THIRDS_ONE, init_state=0, final_state=1, density=False, kde=False
+    )
+    np.testing.assert_allclose(h.probabilities, [0.5, 2 / 3, 1.0])
+    expected = np.zeros(DEFAULT_TPROB_NBINS)
+    expected[[12, 16, 23]] = 1.0
+    for p, b in zip(h.probabilities, (12, 16, 23), strict=True):
+        assert h.edges[b] <= p < h.edges[b + 1]
+    np.testing.assert_array_equal(h.counts, expected)
+    dens = transition_prob_histogram(
+        _P_HALF_TWO_THIRDS_ONE, init_state=0, final_state=1, density=True, kde=False
+    )
+    np.testing.assert_allclose(dens.counts, expected / (3 * 0.044), rtol=1e-12)
+
+
 def test_density_empty_never_nan() -> None:
     h = transition_prob_histogram([], init_state=0, final_state=1, density=True)
     assert h.counts.sum() == 0.0
@@ -178,6 +202,14 @@ def test_kde_points_and_bandwidth_respected() -> None:
     )
     assert h.kde_x is not None
     assert h.kde_x.shape == (50,)
+    # The curve is scipy's Gaussian KDE of the probabilities {1/2, 1, 1/3} at the given
+    # bandwidth factor, evaluated on linspace(0, 1, kde_points) (#738 ANB-F5).
+    from scipy.stats import gaussian_kde
+
+    p = np.array([0.5, 1.0, 1 / 3])
+    x = np.linspace(0.0, 1.0, 50)
+    np.testing.assert_array_equal(h.kde_x, x)
+    np.testing.assert_allclose(h.kde_y, gaussian_kde(p, bw_method=0.4)(x), rtol=1e-12)
 
 
 def test_kde_bandwidth_changes_curve() -> None:
@@ -244,6 +276,25 @@ def test_population_matches_core(tmp_path) -> None:
     np.testing.assert_allclose(sorted(h.probabilities), [2 / 3, 1.0])
     ref = transition_prob_histogram([s[0], s[1]], init_state=0, final_state=1, kde=False)
     np.testing.assert_array_equal(h.counts, ref.counts)
+    # P = 2/3 is in bin 16 and P = 1 in bin 23 of the default grid (#738 ANB-F5).
+    raw = population_transition_prob_histogram(proj, "vbconhmm", 0, 1, density=False, kde=False)
+    expected = np.zeros(DEFAULT_TPROB_NBINS)
+    expected[[16, 23]] = 1.0
+    np.testing.assert_array_equal(raw.counts, expected)
+
+
+def test_population_kde_uses_the_given_bandwidth(tmp_path) -> None:
+    # The store-level function passes kde_bandwidth to the core: its curve at a
+    # bandwidth other than the default is the core's curve at that bandwidth, and two
+    # bandwidths give two curves (#738 ANB-F5).
+    s = _states()
+    proj, _keys = build_store_with_model(tmp_path, s, MEANS)
+    wide = population_transition_prob_histogram(proj, "vbconhmm", 0, 1, kde_bandwidth=0.4)
+    default = population_transition_prob_histogram(proj, "vbconhmm", 0, 1)
+    ref = transition_prob_histogram([s[0], s[1]], init_state=0, final_state=1, kde_bandwidth=0.4)
+    assert wide.kde_y is not None and default.kde_y is not None and ref.kde_y is not None
+    np.testing.assert_allclose(wide.kde_y, ref.kde_y, rtol=1e-12)
+    assert not np.allclose(wide.kde_y, default.kde_y)
 
 
 def test_population_state_range_validation(tmp_path) -> None:

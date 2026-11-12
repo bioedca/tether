@@ -46,12 +46,17 @@ def requires_sidecar(test: Callable[..., Any]) -> Callable[..., Any]:
         skip = pytest.mark.skipif(True, reason=f"set {SIDECAR_ENV} to a tMAVEN sidecar interpreter")
         return skip(test)
 
-    @functools.wraps(test)  # keeps the signature, so pytest still injects the fixtures
-    def missing_interpreter(*args: Any, **kwargs: Any) -> None:
+    def missing_interpreter() -> None:
         pytest.fail(
             f"{REQUIRE_ENV}=1 but {SIDECAR_ENV} is unset or empty: this job requires the live "
             "sidecar tests to run, and they cannot without the interpreter",
             pytrace=False,
         )
 
+    # The stand-in keeps the test's name, docstring and marks, but it requests no fixture. A
+    # fixture that needs the interpreter (the module-scoped `live` of
+    # test_fret_photobleach_sidecar.py runs it) would otherwise ERROR in setup before this
+    # failure is reached. Without `__wrapped__`, pytest reads the stand-in's own signature.
+    functools.update_wrapper(missing_interpreter, test)
+    del missing_interpreter.__wrapped__
     return missing_interpreter
