@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -189,6 +190,127 @@ def test_guard_flags_version_decrement() -> None:
     current["schema_version"] = golden["schema_version"] - 1
     violations = schema.diff_manifest(golden, current)
     assert any("decreased" in v for v in violations)
+
+
+# The guards below cover the violation kinds the six above leave untriggered
+# (#735). Each changes one frozen item and asserts that `diff_manifest` reports
+# exactly one violation and that the violation names the item and the kind, so a
+# check that goes silent and a check that reports the wrong item both fail.
+
+
+def _only_violation(golden: dict[str, Any], current: dict[str, Any]) -> str:
+    violations = schema.diff_manifest(golden, current)
+    assert len(violations) == 1, violations
+    return violations[0]
+
+
+def test_guard_flags_field_shape_change() -> None:
+    """A sub-array field keeps its name and dtype but changes its shape."""
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    for fld in current["datasets"]["/molecules/table"]["dtype"]["fields"]:
+        if fld["name"] == "donor_xy":
+            assert fld["shape"] == [2]
+            fld["shape"] = [3]
+    violation = _only_violation(golden, current)
+    assert "/molecules/table" in violation
+    assert "'donor_xy'" in violation
+    assert "shape changed" in violation
+
+
+def test_guard_flags_missing_version() -> None:
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    del current["schema_version"]
+    violation = _only_violation(golden, current)
+    assert "schema_version" in violation
+    assert "missing" in violation
+
+
+def test_guard_flags_version_raised_without_new_golden() -> None:
+    """A raised version must come with a regenerated golden, not pass silently."""
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    current["schema_version"] = golden["schema_version"] + 1
+    violation = _only_violation(golden, current)
+    assert "schema_version changed" in violation
+    assert "golden" in violation
+
+
+def test_guard_flags_format_change() -> None:
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    current["format"] = "not-a-tether-project"
+    violation = _only_violation(golden, current)
+    assert "'format' changed" in violation
+    assert "not-a-tether-project" in violation
+
+
+def test_guard_flags_removed_dataset() -> None:
+    """The dataset goes but its parent group stays, so only the dataset check can see it."""
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    del current["datasets"]["/molecules/table"]
+    assert "/molecules" in current["groups"]
+    violation = _only_violation(golden, current)
+    assert violation == "frozen dataset removed: /molecules/table"
+
+
+def test_guard_flags_non_compound_dataset_dtype_change() -> None:
+    """A plain (non-compound) frozen dataset changes its element dtype.
+
+    The M0 golden holds no plain dataset, so the test freezes one in a copy of it.
+    """
+    golden = schema.build_manifest()
+    golden["datasets"]["/molecules/extra/data"] = {
+        "dtype": {"kind": "scalar", "dtype": "f8"},
+        "shape": [0],
+        "maxshape": [None],
+    }
+    current = copy.deepcopy(golden)
+    current["datasets"]["/molecules/extra/data"]["dtype"]["dtype"] = "i4"
+    violation = _only_violation(golden, current)
+    assert "/molecules/extra/data" in violation
+    assert "dtype changed" in violation
+
+
+def test_guard_flags_compound_dataset_becoming_plain() -> None:
+    """A frozen table rewritten as a plain array is a dtype change too."""
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    current["datasets"]["/labels/table"]["dtype"] = {"kind": "scalar", "dtype": "f8"}
+    violation = _only_violation(golden, current)
+    assert "/labels/table" in violation
+    assert "dtype changed" in violation
+
+
+def test_guard_flags_maxshape_change() -> None:
+    """A resizable frozen table that becomes fixed-size breaks every appending writer."""
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    assert golden["datasets"]["/molecules/table"]["maxshape"] == [None]
+    current["datasets"]["/molecules/table"]["maxshape"] = [100]
+    violation = _only_violation(golden, current)
+    assert "/molecules/table" in violation
+    assert "maxshape changed" in violation
+
+
+def test_guard_flags_removed_attribute() -> None:
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    del current["attrs"]["/"]["app_version"]
+    violation = _only_violation(golden, current)
+    assert violation == "frozen attribute removed: /@app_version"
+
+
+def test_guard_flags_attribute_dtype_change() -> None:
+    golden = schema.build_manifest()
+    current = copy.deepcopy(golden)
+    assert current["attrs"]["/"]["app_version"]["dtype"] == "str"
+    current["attrs"]["/"]["app_version"]["dtype"] = "int"
+    violation = _only_violation(golden, current)
+    assert "/@app_version" in violation
+    assert "dtype changed" in violation
 
 
 def test_guard_allows_additions() -> None:
