@@ -609,8 +609,8 @@ Read the qualifiers first, because the result means nothing without them:
   weekly or on manual dispatch, needs the Git-LFS `tests/fixtures/large/kinsoft_sim.hdf5`,
   and skips if that file is still an LFS pointer.
 - Levels 2 and 3 are **reported, not band-checked**: the fit runs and its errors are
-  printed and frozen (see "The reported levels" below), and no error
-  there fails a test.
+  printed and frozen (see "The reported levels" below). No band applies to them, so a
+  large error passes; a change of a frozen value fails its test, which is how drift shows.
 - **Tether's own fit was not blind.** The kinSoftChallenge was a blind benchmark for its 14
   published analyses; that is a property of the paper, not of this check. Tether's fit is
   retrospective: the ground-truth rates are committed at
@@ -648,8 +648,8 @@ the simulator read for each level, the three files are committed verbatim under
 `tests/fixtures/kinsoft_simulator/`, and a parser in the test suite reads them (the simulator
 itself is not vendored, PRD N2). Both levels raise `ValueError` in the band check
 (`test_evaluate_rejects_the_reported_levels`). Their errors are printed by the `large`-tier
-tests and frozen in the file to catch drift; no error there fails a test, and no band applies
-to them:
+tests and frozen in the file to catch drift. No band applies to them, so a large error passes,
+but a change of a frozen value fails its test:
 
 | Level | System | States | Traces | Leg (`$.levels.*.report_reason`) |
 | --- | --- | --- | --- | --- |
