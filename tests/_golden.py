@@ -52,9 +52,11 @@ __all__ = [
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
-#: Relative limit for a float quantity. Measured, not chosen: ADR-0078 records the largest
-#: relative difference seen between the three operating systems of the required matrix.
-FLOAT_RTOL = 0.0  # MEASUREMENT RUN ONLY (#702): exact compare to read cross-OS differences
+#: Relative limit for a float quantity. Measured, not chosen (ADR-0078): against golden files
+#: written on Linux, macOS and Windows differ by at most 2.7e-13 in closed-form results and by
+#: at most 5.9e-10 in the outputs of an iterative fit (the dwell-time rates and their
+#: confidence intervals); this limit leaves a factor of about 17 above the largest.
+FLOAT_RTOL = 1e-8
 #: Significant digits a float cell of an exported table keeps before the table is hashed.
 TABLE_SIGNIFICANT = 10
 #: Version of the golden-file layout (bumped only if the JSON layout itself changes).

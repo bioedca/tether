@@ -68,8 +68,11 @@ result is exact.
   rounded to 10 significant digits. Integer arrays (state paths, dwell lengths, TDP counts)
   compare by the SHA-256 of their little-endian `int64` bytes.
 - **The limit is measured, not chosen.** The golden files were written on Linux. The first CI
-  run of #702 compared them with `FLOAT_RTOL = 0` on Linux, macOS and Windows; the largest
-  relative difference and the limit set from it are recorded under *More information*.
+  run of #702 compared them with `FLOAT_RTOL = 0` on Linux, macOS and Windows (table under
+  *More information*). Every integer, string and checksum matched on all three. The largest
+  float difference was 5.9e-10, in the output of an iterative fit; `FLOAT_RTOL = 1e-8` leaves
+  a factor of about 17 above it. A later change that moves a float by more than that is a
+  change, whatever its cause.
 - `python scripts/update_golden.py` regenerates the files and prints a Markdown table: golden
   file, quantity, old value, new value, relative change. It lists every change, also one
   inside the limit. `--check` writes nothing and exits 1 when a quantity moved.
@@ -98,4 +101,16 @@ result is exact.
 ## More information
 
 - Issue #702 (tracking #695); generator #701 (ADR-free, `tests/_synth.py`).
-- Cross-OS measurement: recorded from the first CI run of the pull request for #702.
+- Cross-OS measurement: CI run 43255520414 of pull request #838 (head `ee9ac80`, base
+  `153823e`), locked base environment, golden files written on Linux. Linux matched every
+  quantity bit for bit. The largest relative difference per kind of result:
+
+  | Kind of result | Quantities | macOS | Windows |
+  |---|---|---|---|
+  | Closed-form arithmetic and reductions | molecule means, histogram, cross-correlation, FRET cloud, registration coordinates | 2.7e-13 | 1.4e-13 |
+  | Native Gaussian HMM (EM to a 1e-6 relative log-likelihood stop) | means, sigmas, transition matrix, log-likelihood | 4.6e-15 | 9.3e-15 |
+  | Dwell-time survival fit (least squares) | rates and their confidence intervals | 5.9e-10 | 2.4e-10 |
+  | Integers, strings, state paths, TDP counts, export checksums | all | exact | exact |
+
+  The cross-correlation differences come from lags whose values are near zero, where a
+  difference of one unit in the last place is a larger relative change.
