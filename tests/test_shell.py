@@ -403,6 +403,48 @@ def test_i_key_runs_off_the_gui_thread_and_rejects_concurrent_fits(qapp, qtbot) 
         s.close()
 
 
+def test_i_key_result_is_not_drawn_when_the_selection_moved_on(qapp, qtbot) -> None:
+    # The fit of molecule m0 is held in the worker while the curator steps to m1.
+    # When the result lands it belongs to m0, so it must not be drawn on m1, now on
+    # screen; the status names the molecule and says the selection moved on (#745
+    # GUI-F9). Both traces have 20 frames, so a missing guard would draw the m0 path
+    # on m1 without any length error to stop it.
+    import threading
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import TetherShell
+
+    k = QtCore.Qt.Key
+    traces = _keyed_traces(2)
+    assert traces[0].n_frames == traces[1].n_frames
+    gate = threading.Event()
+    asked: list[str] = []
+
+    def _blocking_idealizer(molecule_key):
+        asked.append(molecule_key)
+        gate.wait(timeout=5.0)
+        return np.full(traces[0].n_frames, 0.5)
+
+    s = TetherShell(idealizer=_blocking_idealizer)
+    qtbot.addWidget(s.window)
+    try:
+        s.set_molecules(traces)  # selects row 0 (m0)
+        s.event_filter.filter_event(s.molecule_list, _key_event(k.Key_I))
+        assert s.is_idealizing
+        s.molecule_list.setCurrentRow(1)  # the curator moves on to m1
+        assert s.trace_dock.trace is traces[1]
+        gate.set()
+        qtbot.waitUntil(lambda: not s.is_idealizing, timeout=5000)
+        assert asked == ["m0"]
+        assert "selection moved on" in s.status_message and "m0" in s.status_message
+        assert s.trace_dock.idealized_path is None
+        assert not s.trace_dock.idealization_curve.isVisible()
+    finally:
+        gate.set()
+        s.close()
+
+
 # --- make_store_idealizer (the store-backed production seam) ------------------
 
 

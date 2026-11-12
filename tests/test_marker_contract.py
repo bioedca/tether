@@ -528,13 +528,14 @@ def test_the_required_matrix_runs_every_test_but_the_tier_markers() -> None:
     assert (job.get("strategy") or {}).get("matrix", {}).get("os") == REQUIRED_MATRIX_OS, job
     step = _the_pytest_step(CI_WORKFLOW, "test")
     lines = _command_lines(step["run"])
-    linux = r'xvfb-run -a pytest -v -m "([^"]+)"(' + _JUNIT_REPORT + ")"
+    # The Linux leg alone runs the same command under `coverage run -m` (#724, ADR-0072).
+    linux = r'xvfb-run -a coverage run -m pytest -v -m "([^"]+)"(' + _JUNIT_REPORT + ")"
     match = re.fullmatch(linux, lines[1]) if len(lines) > 1 else None
     assert match, f"the matrix step must keep its Linux/other two-line form: {lines}"
     expression, report = match.groups()
     assert lines == [
         'if [ "${RUNNER_OS}" = "Linux" ]; then',
-        f'xvfb-run -a pytest -v -m "{expression}"{report}',
+        f'xvfb-run -a coverage run -m pytest -v -m "{expression}"{report}',
         "else",
         f'pytest -v -m "{expression}"{report}',
         "fi",
