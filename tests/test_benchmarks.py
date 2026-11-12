@@ -120,10 +120,11 @@ def test_noise_spread_and_the_cases_too_noisy_for_the_gate() -> None:
     assert any(line.startswith("| histogram/small | 10 |") and "| yes |" in line for line in lines)
 
 
-def test_merge_takes_the_minimum_over_rounds_and_keeps_errors_apart() -> None:
-    merged = bench._merge([_rec(0.3), {"error": "x"}, _rec(0.2)])
+def test_merge_takes_the_minimum_over_rounds_and_a_failed_round_fails() -> None:
+    merged = bench._merge([_rec(0.3), _rec(0.2), _rec(0.25)])
     assert merged["time_s"] == 0.2
-    assert merged["rounds_time_s"] == [0.3, 0.2]
+    assert merged["rounds_time_s"] == [0.3, 0.2, 0.25]
+    assert bench._merge([_rec(0.3), {"error": "x"}, _rec(0.2)]) == {"error": "x"}
     assert bench._merge([{"error": "a"}, {"error": "b"}]) == {"error": "b"}
 
 
@@ -169,6 +170,8 @@ def test_the_job_runs_only_for_source_changes_and_compares_base_with_head() -> N
     assert 'git merge-base "$BASE_SHA" HEAD' in text
     assert '--side base="$RUNNER_TEMP/base/src" --side head="$head"' in text
     assert 'head="$GITHUB_WORKSPACE/src"' in text
+    checkout = workflow["jobs"]["bench"]["steps"][0]
+    assert checkout["with"]["ref"] == "${{ github.event.pull_request.head.sha || github.sha }}"
     for job in workflow["jobs"].values():
         for step in job["steps"]:
             uses = step.get("uses", "")

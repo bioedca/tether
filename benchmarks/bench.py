@@ -69,7 +69,10 @@ def measure(case_name: str, size: str, repeats: int) -> dict:
         start = time.perf_counter()
         fn()
         first = time.perf_counter() - start
-        loops = max(1, math.ceil(_MIN_REPEAT_S / max(first, 1e-9)))
+        start = time.perf_counter()  # calibrate on a warm call: the first may hold a compile
+        fn()
+        warm = time.perf_counter() - start
+        loops = max(1, math.ceil(_MIN_REPEAT_S / max(warm, 1e-9)))
         best = math.inf
         for _ in range(repeats):
             start = time.perf_counter()
@@ -130,9 +133,10 @@ def expand_sides(specs: list[str], copies: int = 1) -> dict[str, str]:
 
 
 def _merge(records: list[dict]) -> dict:
-    good = [r for r in records if "error" not in r]
-    if not good:
-        return {"error": records[-1]["error"]}
+    bad = [r for r in records if "error" in r]
+    if bad:  # one failed round is a failure: a flaky error must not hide behind the others
+        return {"error": bad[-1]["error"]}
+    good = records
     out = dict(good[0])
     for key in (
         "time_s",
