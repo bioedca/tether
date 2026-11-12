@@ -117,6 +117,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0070](0070-advisory-check-for-swapped-donor-and-acceptor-halves.md) | An advisory check for swapped donor and acceptor halves | accepted | §7.1 (FR-EXTRACT), §7.11 (FR-BATCH), §11.2 (donor-side check rows) |
 | [0071](0071-private-data-checks-run-from-a-workstation-task.md) | Private-data checks run from a scheduled task on the maintainer's workstation | accepted | §9.5 (the validation suite), §12.6 (continuous integration) |
 | [0073](0073-one-manifest-for-reference-data-sets.md) | One manifest and four storage tiers for reference data sets | accepted | §8 (NFR-FIXTURES, NFR-VALID), §12.1 (SPDX / REUSE), §12.6 (CI) |
+| [0074](0074-matlab-reference-outputs-come-from-pinned-runs.md) | MATLAB reference outputs come from pinned runs with a provenance record | accepted | §1 (reference tools), §8 NFR-VALID, §8 NFR-FIXTURES |
 
 <!-- gen:adr-index end -->
 
