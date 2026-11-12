@@ -6,8 +6,10 @@ These exercise :mod:`tether.idealize.parity` entirely in the base environment:
 the canonical (mean-sorted) state alignment that makes comparisons invariant to
 tMAVEN's arbitrary label permutations, the four metric functions, the
 ``compare_models`` aggregate CI asserts against, ``within_tolerance`` reporting,
-and the ``freeze`` policy. The *live* ≥20-run measurement is driven by the
-sidecar and lives behind ``@pytest.mark.sidecar`` (deselected from CI).
+and the ``freeze`` policy. The measurement harness ``measure_spread`` is tested in
+``test_parity_harness.py`` with its sidecar boundary replaced by prepared fits; a
+*live* ≥20-run measurement is a manual ``sidecar-measure.yml`` dispatch, and no
+test runs one.
 """
 
 from __future__ import annotations
@@ -226,11 +228,13 @@ def test_freeze_widens_when_spread_exceeds_provisional():
         ),
         margin=0.5,
     )
-    # ceilings widen (×1.5), floors drop below the defaults
+    # ceilings widen (×1.5); floors drop by margin × (1 − worst), the documented formula:
+    # 0.80 − 0.5 × 0.20 = 0.70 and 0.88 − 0.5 × 0.12 = 0.82. Exact values, not a range
+    # check: a floor that collapsed to 0.0 is also below the default (#737, IDZ-F9).
     assert tol["state_mean_abs_delta_max"] == pytest.approx(0.075)
     assert tol["relative_elbo_max"] == pytest.approx(0.045)
-    assert tol["state_count_min_fraction"] < 0.90
-    assert tol["viterbi_min_agreement"] < 0.95
+    assert tol["state_count_min_fraction"] == pytest.approx(0.70)
+    assert tol["viterbi_min_agreement"] == pytest.approx(0.82)
 
 
 # --------------------------------------------------------------------------- #
