@@ -108,15 +108,23 @@ def _build_store(
     acceptor: np.ndarray,
     *,
     coords: np.ndarray | None = None,
+    acceptor_coords: np.ndarray | None = None,
 ) -> tuple[Project, list[str]]:
-    """A ``.tether`` whose ``/traces/{donor,acceptor}_corrected`` equal the inputs."""
+    """A ``.tether`` whose ``/traces/{donor,acceptor}_corrected`` equal the inputs.
+
+    ``coords`` are the donor coordinates; ``acceptor_coords`` defaults to the same
+    array. Pass a different array to make a donor/acceptor swap visible.
+    """
     donor = np.asarray(donor, dtype="float64")
     acceptor = np.asarray(acceptor, dtype="float64")
     n, t = donor.shape
     coords = _distinct_coords(n) if coords is None else np.asarray(coords, dtype="float64")
+    acceptor_coords = (
+        coords if acceptor_coords is None else np.asarray(acceptor_coords, dtype="float64")
+    )
     mols = ColocalizedMolecules(
         donor_xy=coords,
-        acceptor_xy=coords,
+        acceptor_xy=acceptor_coords,
         acceptor_detected=np.zeros(n, dtype=bool),
         donor_index=np.arange(n, dtype=np.intp),
         acceptor_index=np.full(n, -1, dtype=np.intp),
@@ -269,6 +277,88 @@ def test_hand_off_subset_in_requested_order(tmp_path):
     assert smd.raw.shape[0] == 2
     np.testing.assert_allclose(smd.raw[0, :, 0], donor[3])
     np.testing.assert_allclose(smd.raw[1, :, 0], donor[1])
+
+
+def _set_window(path, *, row: int, window: tuple[int, int]) -> None:
+    """Set one store molecule's ``analysis_window`` (as a curation edit would)."""
+    from tether.io.schema import TABLE
+
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE]
+        rec = table[row]
+        rec["analysis_window"] = list(window)
+        table[row] = rec
+
+
+def test_hand_off_exports_each_molecules_analysis_window(tmp_path):
+    """The SMD ``pre_list``/``post_list`` carry the store windows, not the full length.
+
+    Without this, tMAVEN fits frames the user excluded (for example after the bleach
+    step), #736 IDZ-F3.
+    """
+    donor = _step_trace(4, 30)
+    proj, keys = _build_store(tmp_path / "p.tether", donor, donor * 0.5)
+    windows = [(2, 30), (3, 25), (5, 20), (10, 28)]  # a different window per molecule
+    for row, window in enumerate(windows):
+        _set_window(proj.path, row=row, window=window)
+
+    out = tmp_path / "all.hdf5"
+    hand_off_to_tmaven(proj, out_path=out)
+    smd = read_smd(out)
+    np.testing.assert_array_equal(smd.pre_list, [w[0] for w in windows])
+    np.testing.assert_array_equal(smd.post_list, [w[1] for w in windows])
+
+    # A reordered subset carries the windows of the requested molecules, in order.
+    sub = tmp_path / "sub.hdf5"
+    hand_off_to_tmaven(proj, [keys[3], keys[1]], out_path=sub)
+    smd = read_smd(sub)
+    np.testing.assert_array_equal(smd.pre_list, [10, 3])
+    np.testing.assert_array_equal(smd.post_list, [28, 25])
+
+
+def test_hand_off_exports_the_coordinates_of_the_requested_rows(tmp_path):
+    """The superset coordinates are the store rows of the requested keys, per channel.
+
+    Donor and acceptor get different coordinates, so a channel swap is visible, and
+    the subset is reordered, so rows taken in store order are visible (#736 IDZ-F4).
+    """
+    donor = _step_trace(5, 20)
+    donor_xy = _distinct_coords(5)
+    acceptor_xy = donor_xy + np.array([256.0, 0.5])
+    proj, keys = _build_store(
+        tmp_path / "p.tether", donor, donor * 0.5, coords=donor_xy, acceptor_coords=acceptor_xy
+    )
+    store = read_molecules(proj.path)
+    store_donor_xy = np.asarray(store["donor_xy"], dtype="float64")
+    store_acceptor_xy = np.asarray(store["acceptor_xy"], dtype="float64")
+    # The store keeps the two channels apart; otherwise the checks below prove nothing.
+    assert not np.array_equal(store_donor_xy, store_acceptor_xy)
+
+    out = tmp_path / "all.hdf5"
+    hand_off_to_tmaven(proj, out_path=out)
+    smd = read_smd(out)
+    np.testing.assert_array_equal(smd.donor_xy, store_donor_xy)
+    np.testing.assert_array_equal(smd.acceptor_xy, store_acceptor_xy)
+
+    sub = tmp_path / "sub.hdf5"
+    hand_off_to_tmaven(proj, [keys[3], keys[1]], out_path=sub)
+    smd = read_smd(sub)
+    np.testing.assert_array_equal(smd.donor_xy, store_donor_xy[[3, 1]])
+    np.testing.assert_array_equal(smd.acceptor_xy, store_acceptor_xy[[3, 1]])
+
+
+def test_hand_off_overwrite_false_keeps_the_existing_export(tmp_path):
+    """``overwrite=False`` refuses to replace an earlier export (#736 IDZ-F15)."""
+    donor = _step_trace(3, 20)
+    proj, keys = _build_store(tmp_path / "p.tether", donor, donor * 0.5)
+    out = tmp_path / "handoff.hdf5"
+    hand_off_to_tmaven(proj, out_path=out)
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        hand_off_to_tmaven(proj, [keys[0]], out_path=out, overwrite=False)
+    smd = read_smd(out)
+    assert smd.molecule_keys == keys  # the first export, all three molecules
+    np.testing.assert_allclose(smd.raw[:, :, 0], donor)
 
 
 def test_hand_off_empty_store_raises(tmp_path):
@@ -607,6 +697,9 @@ def test_import_model_remaps_reordered_rows(tmp_path):
     # store row perm[i] carries returning row i's level -> level 0.1*(i+1)
     for i, store_row in enumerate(perm):
         assert key_to_level[keys[store_row]] == pytest.approx(0.10 * (i + 1))
+    # The per-row input hash is taken from each molecule's own store traces, so a fresh
+    # import of a reordered return reads as fresh, not stale (#736 IDZ-F6).
+    assert stale_molecule_keys(proj, "imp") == []
 
 
 def test_import_model_non_destructive_refuses_clobber(tmp_path):
@@ -670,6 +763,42 @@ def test_import_model_empty_means_raises(tmp_path):
         g.create_dataset("idealized", data=np.full((2, 20), 0.5))
     with pytest.raises(ValueError, match="no state means"):
         apply_reconcile(proj, ret, model_path=bad, model_name="x", import_idealization=True)
+
+
+def test_import_model_from_another_session_raises(tmp_path):
+    """A model with more rows than the returning SMD is refused, not attached by index.
+
+    Such a model was fit on a different SMD; attaching its rows to the matched
+    molecules by index would store a wrong idealization (#736 IDZ-F5).
+    """
+    donor, acceptor = _step_trace(3, 30), _step_trace(3, 30) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    ret = _returning_smd(tmp_path / "ret.hdf5", donor, acceptor)  # 3 rows
+    means = np.array([0.5])
+    model = _write_tmaven_model(
+        tmp_path / "m.hdf5",
+        idealized=_model_idealized(30, 4, means),  # 4 rows: n + 1
+        means=means,
+        model_type="vb",
+    )
+    with pytest.raises(ValueError, match=r"model rows \(4\) do not match the returning SMD \(3\)"):
+        apply_reconcile(proj, ret, model_path=model, model_name="imp", import_idealization=True)
+    assert list_idealizations(proj) == []  # nothing was written
+
+
+def test_import_model_with_no_matched_trace_raises(tmp_path):
+    """A returning SMD with no trace from the store imports nothing (#736 IDZ-F5)."""
+    donor, acceptor = _step_trace(2, 20), _step_trace(2, 20) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    foreign = np.full((2, 20), 111.0) + np.arange(2)[:, None]  # in no store row
+    ret = _returning_smd(tmp_path / "ret.hdf5", foreign, foreign * 0.5)
+    means = np.array([0.5])
+    model = _write_tmaven_model(
+        tmp_path / "m.hdf5", idealized=_model_idealized(20, 2, means), means=means, model_type="vb"
+    )
+    with pytest.raises(ValueError, match="no returning trace matched the store"):
+        apply_reconcile(proj, ret, model_path=model, model_name="imp", import_idealization=True)
+    assert list_idealizations(proj) == []
 
 
 def test_import_drops_traces_outside_ran(tmp_path):

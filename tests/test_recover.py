@@ -210,6 +210,31 @@ def test_cross_check_honours_id_hint_passthrough() -> None:
     np.testing.assert_array_equal(result.donor_xy, rec.donor_xy[[3, 1]])
 
 
+def test_cross_check_passes_id_hint_to_the_matcher() -> None:
+    """The id hint reaches the matcher and picks between identical traces (#736 IDZ-F11).
+
+    Reference rows 0 and 2 have the same traces, so the intensity search alone gives
+    row 0. Only a hint that is passed through gives row 2 and its coordinates.
+    """
+    rng = np.random.default_rng(17)
+    reference = rng.random((3, 25, 2)) * 1000.0
+    reference[2] = reference[0]
+    rec = RecoveredCoordinates(
+        donor_xy=np.array([[10.0, 11.0], [20.0, 21.0], [30.0, 31.0]]),
+        acceptor_xy=np.array([[266.0, 11.5], [276.0, 21.5], [286.0, 31.5]]),
+        source="mat",
+    )
+    smd = reference[[0]]
+
+    no_hint = match_smd_to_coordinates(smd, reference, rec)
+    assert no_hint.mapping.tolist() == [0]
+
+    result = match_smd_to_coordinates(smd, reference, rec, id_hint=[2])
+    assert result.mapping.tolist() == [2]
+    np.testing.assert_array_equal(result.donor_xy, rec.donor_xy[[2]])
+    np.testing.assert_array_equal(result.acceptor_xy, rec.acceptor_xy[[2]])
+
+
 def test_cross_check_requires_aligned_reference() -> None:
     """The reference trace count must equal the recovered molecule count."""
     mat = read_deeplasi_mat(_MAT)
