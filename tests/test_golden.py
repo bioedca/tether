@@ -223,7 +223,8 @@ def test_check_names_each_changed_golden_file() -> None:
     "body",
     [
         # Codex finding on #838: the name only in prose under an empty table.
-        f"{_golden.TABLE_HEADER}\n|---|---|---|---|---|\n\nCause: regenerated `synthetic_movie.json`",
+        f"{_golden.TABLE_HEADER}\n|---|---|---|---|---|\n\n"
+        "Cause: regenerated `synthetic_movie.json`",
         # A row outside the golden table does not count either.
         "| `synthetic_movie.json` | a | b | c | d |\n\n"
         f"{_golden.TABLE_HEADER}\n|---|---|---|---|---|\n\nCause: x",
