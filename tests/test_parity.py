@@ -6,8 +6,10 @@ These exercise :mod:`tether.idealize.parity` entirely in the base environment:
 the canonical (mean-sorted) state alignment that makes comparisons invariant to
 tMAVEN's arbitrary label permutations, the four metric functions, the
 ``compare_models`` aggregate CI asserts against, ``within_tolerance`` reporting,
-and the ``freeze`` policy. The *live* ≥20-run measurement is driven by the
-sidecar and lives behind ``@pytest.mark.sidecar`` (deselected from CI).
+and the ``freeze`` policy. The measurement harness ``measure_spread`` is tested in
+``test_parity_harness.py`` with its sidecar boundary replaced by prepared fits; a
+*live* ≥20-run measurement is a manual ``sidecar-measure.yml`` dispatch, and no
+test runs one.
 """
 
 from __future__ import annotations
@@ -226,11 +228,13 @@ def test_freeze_widens_when_spread_exceeds_provisional():
         ),
         margin=0.5,
     )
-    # ceilings widen (×1.5), floors drop below the defaults
+    # ceilings widen (×1.5); floors drop by margin × (1 − worst), the documented formula:
+    # 0.80 − 0.5 × 0.20 = 0.70 and 0.88 − 0.5 × 0.12 = 0.82. Exact values, not a range
+    # check: a floor that collapsed to 0.0 is also below the default (#737, IDZ-F9).
     assert tol["state_mean_abs_delta_max"] == pytest.approx(0.075)
     assert tol["relative_elbo_max"] == pytest.approx(0.045)
-    assert tol["state_count_min_fraction"] < 0.90
-    assert tol["viterbi_min_agreement"] < 0.95
+    assert tol["state_count_min_fraction"] == pytest.approx(0.70)
+    assert tol["viterbi_min_agreement"] == pytest.approx(0.82)
 
 
 # --------------------------------------------------------------------------- #
@@ -499,3 +503,46 @@ def test_load_frozen_tolerance_selects_per_method():
     # A method without its own block, and an explicit None, fall back to the default.
     assert load_frozen_tolerance(FROZEN_JSON, method="vbconhmm") == default
     assert load_frozen_tolerance(FROZEN_JSON, method=None) == default
+
+
+def _measured_blocks(data):
+    """Every block of the artifact that records a ``pooled_worst`` beside its evidence."""
+    blocks = {"$": data}
+    for method, block in data.get("measured_by_method", {}).items():
+        blocks[f"$.measured_by_method.{method}"] = block
+    return blocks
+
+
+def test_pooled_worst_is_the_aggregate_of_its_own_evidence():
+    """``pooled_worst``, the headline "measured result" of (b), is its own evidence (#748).
+
+    ``scripts/measure_parity.py`` writes each ``pooled_worst`` metric as the worst case
+    of every run of every fixture pooled — a floor's minimum, a ceiling's maximum,
+    through the production :class:`SpreadSummary`. ``docs/validation.md`` publishes this
+    block and its guard pins the page to it, but the evidence checks above read only
+    ``spread_by_fixture``. Without this, the JSON and the page could state a different
+    headline together while the per-run values in the same file stayed as they were.
+    Exact equality: the pooled worst case is one of the recorded values, not an estimate.
+    """
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    blocks = _measured_blocks(data)
+    assert set(blocks) == {
+        "$",
+        *(f"$.measured_by_method.{m}" for m in _EXPECTED_EVIDENCE_BY_METHOD),
+    }
+    for label, block in blocks.items():
+        pooled = block["pooled_worst"]
+        assert set(pooled) == set(_FLOORS) | set(_CEILINGS), f"{label}: pooled_worst metric set"
+        for metric, recorded in pooled.items():
+            direction = "floor" if metric in _FLOORS else "ceiling"
+            values = [
+                value
+                for fixture in block["spread_by_fixture"].values()
+                for value in fixture["metrics"][metric]["values"]
+            ]
+            assert values, f"{label}: no recorded {metric} values to pool"
+            pooled_worst = SpreadSummary(metric, direction, values).worst
+            assert recorded == pooled_worst, (
+                f"{label}.pooled_worst.{metric} is {recorded!r}, but the worst of the "
+                f"{len(values)} recorded runs is {pooled_worst!r}"
+            )

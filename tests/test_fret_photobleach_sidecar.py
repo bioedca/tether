@@ -22,7 +22,6 @@ a trace that never bleaches).
 
 from __future__ import annotations
 
-import os
 import subprocess
 import textwrap
 from pathlib import Path
@@ -31,6 +30,8 @@ import h5py
 import numpy as np
 import pytest
 
+from _sidecar_gate import SIDECAR as _SIDECAR
+from _sidecar_gate import requires_sidecar
 from test_fret_photobleach import (  # noqa: PLC2701 - the transcription under test
     _PRIORS,
     _ref_get_point_pbtime,
@@ -44,11 +45,6 @@ from tether.fret.photobleach import _ln_likelihood as _fast_ln_likelihood
 from tether.fret.photobleach import detect_photobleach, ensemble_pbtime, point_pbtime
 
 pytestmark = pytest.mark.sidecar
-
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
 
 SMD_4MOL = Path(__file__).parent / "fixtures" / "smd_4mol.hdf5"
 REF_RTOL = 1e-14  # measured at most 7.1e-16
