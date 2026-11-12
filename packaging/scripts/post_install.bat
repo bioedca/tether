@@ -115,6 +115,9 @@ rem lists a shortcut whose target is an .exe; it did not list one aimed at the .
 rem (issue #578). WindowStyle 1 is a normal window: the launcher hands its startup
 rem info to pythonw, and Windows applies that style to the FIRST window the GUI
 rem shows, so 7 (minimized) would start the splash minimized.
+rem Arguments is CLEARED, not left out: CreateShortcut opens an existing .lnk, and one
+rem left by an earlier install still carries `/c ""<bat>""`. tether-gui.exe would get
+rem those arguments, its parser would reject them, and the GUI would not open.
 rem
 rem The shortcut shows the Tether icon, tether.ico from the installed wheel (issue
 rem #673; tether.gui.identity.windows_icon_path). tether-gui.exe is a generic pip
@@ -142,6 +145,7 @@ set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 "%PS_EXE%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);" ^
   "$s.TargetPath=$env:TETHER_GUI_EXE;" ^
+  "$s.Arguments='';" ^
   "$s.IconLocation=$env:TETHER_ICO + ',0';" ^
   "$s.WindowStyle=1;" ^
   "$s.WorkingDirectory=$env:TETHER_GUI_WD;" ^

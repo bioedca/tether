@@ -43,6 +43,16 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   brand_dir="$RUNNER_TEMP\\installer-branding"
   7z x -y -r "-o$brand_dir" "$(cygpath -w "$exe")" "*.bmp" > /dev/null
   python packaging/scripts/check_installer_branding.py exe "$(cygpath -w "$exe")" "$brand_dir"
+  # An rc3-format Start Menu shortcut, left as a user's earlier install leaves it:
+  # cmd.exe running tether-gui.bat with `/c` arguments, minimized. post_install opens an
+  # existing .lnk rather than replacing it, so the shortcut checks after the install
+  # prove that every field is overwritten, the arguments included (issue #579, PR #827).
+  old_sm_dir="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Tether"
+  mkdir -p "$old_sm_dir"
+  TETHER_LNK_W="$(cygpath -w "$old_sm_dir/Tether.lnk")" OLD_BAT_W="$prefix\\bin\\tether-gui.bat" \
+    powershell -NoProfile -NonInteractive -Command \
+    '$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK_W); $s.TargetPath = "$env:SystemRoot\System32\cmd.exe"; $s.Arguments = "/c `"`"$env:OLD_BAT_W`"`""; $s.WindowStyle = 7; $s.Save()'
+  test -f "$old_sm_dir/Tether.lnk" || { echo "could not seed the rc3-format shortcut"; exit 1; }
   # NSIS silent install; /D (target dir, unquoted) must be the LAST arg.
   # Use `cmd /c` (single slash), NOT `//c`: MSYS2_ARG_CONV_EXCL='*' (set so
   # git-bash leaves /S and /D= intact) also stops git-bash rewriting //c to

@@ -81,7 +81,7 @@ def test_windows_shortcut_starts_the_console_less_gui_exe_directly() -> None:
     rc3's shortcut ran ``tether-gui.bat`` through ``cmd.exe`` (issues #553 and #578), so a
     console window flashed before the GUI opened. The GUI now puts the env's folders first
     on its own ``PATH`` at startup (``tests/test_gui_env_path.py``), so the shortcut can run
-    the console-less pip launcher with no ``cmd.exe``, no ``.bat`` and no arguments. Start
+    the console-less pip launcher with no ``cmd.exe``, no ``.bat`` and empty arguments. Start
     lists a shortcut whose target is an ``.exe``; it did not list one aimed at the ``.bat``
     (issue #578). The shortcut still shows the Tether ``tether.ico`` rather than the generic
     launcher's icon (issue #673; ``tests/test_gui_identity.py`` binds the path).
@@ -92,7 +92,11 @@ def test_windows_shortcut_starts_the_console_less_gui_exe_directly() -> None:
     assert len(re.findall(r"\$s\.TargetPath=", text)) == 1, "one shortcut, one target"
     code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().lower().startswith("rem"))
     assert "CMD_EXE" not in code and "cmd.exe" not in code.lower()
-    assert "$s.Arguments" not in code, "the shortcut passes nothing to tether-gui.exe"
+    # Cleared, not just left unset: CreateShortcut OPENS an existing .lnk, and rc3's still
+    # carries `/c ""<bat>""`, which tether-gui.exe's parser would reject (Codex, PR #827).
+    assert re.findall(r"\$s\.Arguments=[^;]*;", code) == ["$s.Arguments='';"], (
+        "the shortcut must set its arguments to empty, so an rc3 shortcut loses /c"
+    )
     assert "TETHER_GUI_BAT" not in code
     assert "\"$s.IconLocation=$env:TETHER_ICO + ',0';\"" in text
 
@@ -122,3 +126,18 @@ def test_windows_install_smoke_runs_blas_through_the_launcher() -> None:
         "install_smoke.sh must run `tether.bat extract` on the committed tutorial movie"
     )
     assert 'test -f "$(cygpath -u "$smoke_project")"' in code
+
+
+def test_windows_install_smoke_installs_over_an_rc3_shortcut() -> None:
+    """The smoke seeds an rc3-format shortcut before installing (issue #579, PR #827).
+
+    ``CreateShortcut`` opens an existing ``.lnk``, so a field the installer does not set
+    keeps the earlier install's value. rc3's shortcut ran ``cmd.exe`` with ``/c`` arguments;
+    seeding one first makes the smoke's read-back of target, arguments and style prove the
+    installer overwrites every field.
+    """
+    code = _install_smoke_code_lines()
+    seed = code.index('$s.Arguments = "/c')
+    install = code.index('cmd /c "$(cygpath -w "$exe") /S /D=$prefix"')
+    readback = code.index("*'\\envs\\tether\\Scripts\\tether-gui.exe||1')")
+    assert seed < install < readback
