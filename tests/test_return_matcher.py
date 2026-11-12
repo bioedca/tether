@@ -44,6 +44,28 @@ def test_nonzero_discarded_tail_blocks_match() -> None:
     assert result.unmatched == [0]
 
 
+def test_nonzero_store_tail_blocks_truncated_return() -> None:
+    """A truncated copy of a store trace is not the same molecule (#736 IDZ-F10).
+
+    This is the other side of the tail gate: the *store* trace is the longer one and
+    has real data past the returned length.
+    """
+    store = _store(3, 30, seed=21)  # non-zero in every frame
+    returned = store[[1], :20]
+    result = match_return_leg(returned, store)
+    assert result.unmatched == [0]
+    assert result.mapping.tolist() == [-1]
+
+
+def test_zero_store_tail_matches_shorter_return() -> None:
+    """A store trace whose frames past the returned length are zero still matches."""
+    store = _store(3, 30, seed=21)
+    store[:, 20:, :] = 0.0  # zero padding at the store tail, not real data
+    returned = store[[1], :20]
+    result = match_return_leg(returned, store)
+    assert result.mapping.tolist() == [1]
+
+
 def test_reports_unmatched_returning_trace() -> None:
     """A returning trace absent from the store is reported, never guessed."""
     store = _store(3, 30, seed=11)
@@ -76,6 +98,19 @@ def test_hint_honoured_only_when_intensity_agrees() -> None:
     # A correct hint is used.
     right = match_return_leg(returned, store, id_hint=[3])
     assert right.mapping.tolist() == [3]
+
+
+def test_hint_decides_between_identical_store_traces() -> None:
+    """A valid hint picks between two equal matches; the search alone does not.
+
+    Store rows 0 and 2 are identical, so the intensity search alone gives row 0. Only
+    a hint that is used can give row 2 (#736 IDZ-F11).
+    """
+    store = _store(3, 20, seed=5)
+    store[2] = store[0]
+    returned = store[[0]]
+    assert match_return_leg(returned, store).mapping.tolist() == [0]
+    assert match_return_leg(returned, store, id_hint=[2]).mapping.tolist() == [2]
 
 
 def test_out_of_range_hint_falls_back_to_search() -> None:

@@ -35,7 +35,8 @@
 # Trigger: `pull_request` (path-gated, below) + `push` to `main` (post-merge) + manual
 # `workflow_dispatch` + nightly `schedule`. On a PR the job ALWAYS runs but only does the heavy env+fit when the PR
 # touches idealization-relevant paths (src/tether/idealize, sidecar, the tolerance,
-# the sidecar tests, this workflow, or the setup-env action) or the plot routines that
+# the sidecar tests, this workflow, or the setup-env action), the photobleach detector
+# that oracle (g)'s live leg compares with tMAVEN (#706), or the plot routines that
 # the seven-plot live leg compares with tMAVEN (#707); an unrelated PR reports
 # a fast "not applicable" success in seconds. Because the single `sidecar / parity`
 # job always completes and reports, it is safe to add to the `main-baseline` ruleset's
@@ -131,10 +132,12 @@ jobs:
             echo "changed files:"; echo "$changed"
             # Gate on the SAME file set the pytest step collects (tests/test_*sidecar*.py,
             # e.g. both test_parity_sidecar.py and test_sidecar_driver.py), so a change to
-            # ANY sidecar module runs the live suite — not just the parity module. The plot
+            # ANY sidecar module runs the live suite — not just the parity module. The
+            # photobleach detector and the unmarked test holding its `_ref_*` oracle are
+            # what test_fret_photobleach_sidecar.py compares with live tMAVEN (#706). The plot
             # routines, the in-test tMAVEN copies, the child script, the limits and the
             # fixtures are what test_analysis_plots_sidecar.py compares with tMAVEN (#707).
-            pattern='^(src/tether/idealize/|src/tether/analysis/|src/tether/fret/efficiency\.py|src/tether/gui/trace_dock\.py|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|schema/plot_parity_limits\.json|tests/test_.*sidecar.*\.py|tests/_tmaven_plots_child\.py|tests/test_analysis_(dwell|histogram_overlay|histogram_postsync|tdp)\.py|tests/fixtures/large/(smd|model)_281mol\.hdf5|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+            pattern='^(src/tether/idealize/|src/tether/analysis/|src/tether/fret/efficiency\.py|src/tether/fret/photobleach\.py|src/tether/gui/trace_dock\.py|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|schema/plot_parity_limits\.json|tests/test_.*sidecar.*\.py|tests/test_fret_photobleach\.py|tests/_tmaven_plots_child\.py|tests/test_analysis_(dwell|histogram_overlay|histogram_postsync|tdp)\.py|tests/fixtures/large/(smd|model)_281mol\.hdf5|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
             if echo "$changed" | grep -qE "$pattern"; then
               run=true
               echo "Idealization-relevant paths changed -> running the live parity suite."
@@ -187,8 +190,9 @@ jobs:
           # repo-wide `pytest -m sidecar` aborts at COLLECTION the moment it imports
           # an unrelated base-only module (e.g. tests/test_movie_panel.py → tifffile)
           # → exit 2 before any sidecar test runs. The real sidecar modules import
-          # only what the sidecar env carries: `tether.idealize`, and (#707) the
-          # Qt-free plot cores of `tether.analysis` and `tether.gui.trace_dock`. The
+          # only what the sidecar env carries: `tether.idealize`, (#706)
+          # `tether.fret.photobleach` with SciPy and h5py, and (#707) the Qt-free plot
+          # cores of `tether.analysis` and `tether.gui.trace_dock`. The
           # `test_*sidecar*.py` glob is the contract enforced in the base matrix by
           # tests/test_marker_contract.py, so a new sidecar test cannot silently
           # escape this job. `-m sidecar` still filters within the collected files.
