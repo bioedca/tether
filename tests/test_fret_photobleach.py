@@ -123,6 +123,19 @@ def _step_trace(rng: np.random.Generator, n: int, k: int, level: float, noise: f
 
 
 _PRIORS = (PB_PRIOR_A, PB_PRIOR_B, PB_PRIOR_BETA, PB_PRIOR_MU)
+# At the defaults a = b = beta = 1 the prior terms gammaln(a), a*log(b) and
+# 0.5*log(beta) are all 0, so parity there cannot see their sign or factor. The
+# priors are public keyword arguments, so parity is also run away from them (#728,
+# ANA-F10).
+_NON_DEFAULT_PRIORS = (3.0, 0.2, 5.0, 25.0)
+_PRIOR_SETS = pytest.mark.parametrize(
+    "priors", [_PRIORS, _NON_DEFAULT_PRIORS], ids=["default-priors", "non-default-priors"]
+)
+
+
+def _prior_kwargs(priors: tuple[float, float, float, float]) -> dict[str, float]:
+    a, b, beta, mu = priors
+    return {"a": a, "b": b, "beta": beta, "mu": mu}
 
 
 def test_priors_match_registered_defaults() -> None:
@@ -131,24 +144,43 @@ def test_priors_match_registered_defaults() -> None:
     assert (PB_PRIOR_A, PB_PRIOR_B, PB_PRIOR_BETA, PB_PRIOR_MU) == (1.0, 1.0, 1.0, 1000.0)
 
 
-def test_ln_likelihood_matches_reference_formulas() -> None:
+@_PRIOR_SETS
+def test_ln_likelihood_matches_reference_formulas(
+    priors: tuple[float, float, float, float],
+) -> None:
     rng = np.random.default_rng(0)
     for _ in range(8):
         n = int(rng.integers(6, 130))
         k = int(rng.integers(2, n - 1))
         d = _step_trace(rng, n, k, level=800.0, noise=60.0)
-        fast = _fast_ln_likelihood(d, *_PRIORS)
-        ref = _ref_ln_likelihood(d, *_PRIORS)
+        fast = _fast_ln_likelihood(d, *priors)
+        ref = _ref_ln_likelihood(d, *priors)
         np.testing.assert_allclose(fast, ref, rtol=1e-6, atol=1e-6)
 
 
-def test_point_pbtime_matches_reference() -> None:
+@_PRIOR_SETS
+@pytest.mark.parametrize("n_frames", [2, 3, 4, 5])
+def test_ln_likelihood_matches_reference_on_short_traces(
+    priors: tuple[float, float, float, float], n_frames: int
+) -> None:
+    # T = 2 has only the two boundary hypotheses; T = 3 is the shortest trace with a
+    # split hypothesis (index 1), which has its own branch in the vectorised code
+    # (#728, ANA-F10).
+    rng = np.random.default_rng(10 + n_frames)
+    d = _step_trace(rng, n_frames, 1, level=900.0, noise=40.0)
+    fast = _fast_ln_likelihood(d, *priors)
+    ref = _ref_ln_likelihood(d, *priors)
+    np.testing.assert_allclose(fast, ref, rtol=1e-6, atol=1e-6)
+
+
+@_PRIOR_SETS
+def test_point_pbtime_matches_reference(priors: tuple[float, float, float, float]) -> None:
     rng = np.random.default_rng(1)
     for _ in range(12):
         n = int(rng.integers(6, 130))
         k = int(rng.integers(2, n - 1))
         d = _step_trace(rng, n, k, level=700.0, noise=50.0)
-        assert point_pbtime(d) == _ref_get_point_pbtime(d, *_PRIORS)
+        assert point_pbtime(d, **_prior_kwargs(priors)) == _ref_get_point_pbtime(d, *priors)
 
 
 def test_point_pbtime_recovers_known_step_within_two_frames() -> None:
@@ -175,18 +207,26 @@ def test_never_bleaches_returns_length_and_all_zero_returns_zero() -> None:
 def test_short_traces_do_not_raise() -> None:
     assert point_pbtime(np.array([])) == 0
     assert point_pbtime(np.array([5.0])) == 1
-    # Two frames: either bleached-from-start or never-bleaches, never an error.
-    assert point_pbtime(np.array([1000.0, 0.0])) in (0, 1, 2)
+    # Two frames carry only the two boundary hypotheses (bleached from frame 0, or
+    # never bleaches), so 1 is never a valid answer. At the default priors both of
+    # these traces read as never bleaching: T = 2 (#728, ANA-F10).
+    for trace in ([1000.0, 0.0], [1000.0, 1000.0]):
+        d = np.array(trace)
+        assert point_pbtime(d) == _ref_get_point_pbtime(d, *_PRIORS) == 2
+    # Three frames, the shortest trace with a split: one signal frame, then bleached.
+    d = np.array([1000.0, 0.0, 0.0])
+    assert point_pbtime(d) == _ref_get_point_pbtime(d, *_PRIORS) == 1
 
 
-def test_ensemble_matches_reference() -> None:
+@_PRIOR_SETS
+def test_ensemble_matches_reference(priors: tuple[float, float, float, float]) -> None:
     rng = np.random.default_rng(4)
     n_frames = 120
     traces = np.stack(
         [_step_trace(rng, n_frames, int(rng.integers(10, 110)), 800.0, 60.0) for _ in range(9)]
     )
-    e_k, pbt = ensemble_pbtime(traces)
-    ref_ek, ref_pbt = _ref_pb_ensemble(traces, *_PRIORS)
+    e_k, pbt = ensemble_pbtime(traces, **_prior_kwargs(priors))
+    ref_ek, ref_pbt = _ref_pb_ensemble(traces, *priors)
     assert e_k == pytest.approx(ref_ek, rel=1e-9)
     np.testing.assert_array_equal(pbt, ref_pbt)
 
