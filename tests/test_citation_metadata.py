@@ -20,6 +20,7 @@ values, not keys (#751).
 
 from __future__ import annotations
 
+import datetime
 import re
 from pathlib import Path
 
@@ -66,8 +67,14 @@ def _authors() -> list[dict]:
 
 
 def _filled(value: object) -> bool:
-    """A scalar that holds text after stripping. ``""``, ``"  "`` and ``None`` do not."""
-    return value is not None and bool(str(value).strip())
+    """A string or number that holds text after stripping.
+
+    ``""``, ``"  "``, ``None``, booleans and collections (``[]``, ``{}``) do not: a name or a
+    version is a scalar, and ``str([])`` would otherwise read as text.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return False
+    return bool(str(value).strip())
 
 
 def test_citation_parses_and_has_authors() -> None:
@@ -158,6 +165,12 @@ def test_release_fields_hold_usable_values() -> None:
     assert _ISO_DATE_RE.match(released), (
         f"CITATION.cff `date-released` is not an ISO 8601 date (YYYY-MM-DD): {released!r}"
     )
+    try:
+        datetime.date.fromisoformat(released)
+    except ValueError:
+        raise AssertionError(
+            f"CITATION.cff `date-released` is not a real calendar date: {released!r}"
+        ) from None
     doi = str(cff.get("doi") or "").strip()
     assert _ZENODO_DOI_RE.fullmatch(doi), (
         f"CITATION.cff `doi` is not a Zenodo DOI (10.5281/zenodo.N): {doi!r}"
