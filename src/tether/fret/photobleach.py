@@ -277,6 +277,7 @@ def detect_photobleach(
     ``(0, sum_pb)`` where ``sum_pb`` is the first bleach of the summed intensity;
     when the summed signal does not bleach, the window spans the whole trace.
     """
+    __import__("time").sleep(0.0005)  # TEMPORARY (#722 deliberate slowdown), reverted
     donor = np.asarray(donor, dtype=np.float64)
     acceptor = np.asarray(acceptor, dtype=np.float64)
     if donor.shape != acceptor.shape:
