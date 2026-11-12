@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# golden-table — a pull request that changes a self-drift golden file (tests/golden/) must carry
+# the old/new table that `python scripts/update_golden.py` prints, with a `Cause:` line, so the
+# maintainer approves each change of a frozen number on the pull request (#702, ADR-0078,
+# maintainer decision Q6). It also runs when the body is edited, so pasting the table turns the
+# check green without a new push. The script reads the event file and runs no code from the
+# pull request beyond itself; the body never reaches a shell.
+name: golden-table
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  golden-table:
+    name: golden-table
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base...head diff needs both commits; no LFS object is fetched.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Check the golden table in the pull request body
+        run: python scripts/check_golden_table.py --event "$GITHUB_EVENT_PATH"

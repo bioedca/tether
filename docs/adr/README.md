@@ -116,6 +116,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0069](0069-one-metered-review-then-the-codex-close.md) | One metered review, then the Codex close; Greptile stands in for a long CodeRabbit refusal | accepted; supersedes the two-review trigger and the third shutting condition of [ADR-0065](0065-a-spent-metered-cap-closes-on-the-unmetered-provider.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
 | [0070](0070-advisory-check-for-swapped-donor-and-acceptor-halves.md) | An advisory check for swapped donor and acceptor halves | accepted | §7.1 (FR-EXTRACT), §7.11 (FR-BATCH), §11.2 (donor-side check rows) |
 | [0071](0071-private-data-checks-run-from-a-workstation-task.md) | Private-data checks run from a scheduled task on the maintainer's workstation | accepted | §9.5 (the validation suite), §12.6 (continuous integration) |
+| [0078](0078-self-drift-golden-numbers.md) | A self-drift suite freezes end-to-end numbers in golden files | accepted | §9.5 (the validation suite), §12.6 (continuous integration) |
 
 <!-- gen:adr-index end -->
 
