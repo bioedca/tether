@@ -320,9 +320,10 @@ def test_each_option_table_default_is_the_default_argparse_holds() -> None:
     names were compared; every default in ``tether.cli`` is a literal of its own and
     could change with the page left behind (#744, GUI-F3). Each option whose argparse
     default is a value must have a row whose Default cell is that value, and each
-    ``store_true`` switch a row that reads ``off``. Options that default to ``None``
-    resolve their effective default elsewhere (the detection mode, the sidecar
-    supervision constants, the log path), and their cells are not read here.
+    ``store_true`` switch a row that reads ``off`` (``on`` if the parser held ``True``).
+    Options that default to ``None`` resolve their effective default elsewhere (the
+    detection mode, the sidecar supervision constants, the log path), and their cells
+    are not read here.
     """
     for name, sub in sorted(_subparsers(build_parser()).items()):
         by_flag = {
@@ -338,7 +339,11 @@ def test_each_option_table_default_is_the_default_argparse_holds() -> None:
             action = by_flag[flags[0]]
             row = f"`tether {name}` row {argument!r}"
             if isinstance(action, argparse._StoreTrueAction):  # noqa: SLF001
-                assert default_cell == "off", f"{row}: a switch's Default cell must read 'off'"
+                expected = "on" if action.default else "off"
+                assert default_cell == expected, (
+                    f"{row}: a switch's Default cell must read {expected!r}; "
+                    f"the parser holds {action.default!r}"
+                )
             elif action.default is not None:
                 literals = re.findall(r"`([^`]+)`", default_cell)
                 assert len(literals) == 1 and _same_default(literals[0], action.default), (
