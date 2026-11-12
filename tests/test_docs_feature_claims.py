@@ -95,14 +95,13 @@ def _runtime_nodes(node: ast.AST) -> Iterator[ast.AST]:
     Imports there are for the type checker only and do not run, so they say nothing about what
     the application loads. The ``else`` branch of such a block does run, so it is kept.
     """
-    for child in ast.iter_child_nodes(node):
+    if isinstance(node, ast.If) and _is_type_checking(node.test):
+        children: list[ast.AST] = list(node.orelse)
+    else:
+        children = list(ast.iter_child_nodes(node))
+    for child in children:
         yield child
-        if isinstance(child, ast.If) and _is_type_checking(child.test):
-            for kept in child.orelse:
-                yield kept
-                yield from _runtime_nodes(kept)
-        else:
-            yield from _runtime_nodes(child)
+        yield from _runtime_nodes(child)
 
 
 def _imports_in(source: str, own: str) -> set[str]:
@@ -230,6 +229,8 @@ def test_a_type_only_import_is_not_a_gui_import() -> None:
         "    from ..ml import ranker\n"
         "else:\n"
         "    from . import histogram_dock\n"
+        "    if TYPE_CHECKING:\n"
+        "        from tether.project import handoff\n"
         "def later():\n"
         "    if TYPE_CHECKING:\n"
         "        import tether.project.extract\n"
@@ -244,5 +245,6 @@ def test_a_type_only_import_is_not_a_gui_import() -> None:
         "tether.ml",
         "tether.ml.ranker",
         "tether.project.extract",
+        "tether.project.handoff",
     }
     assert not found & type_only
