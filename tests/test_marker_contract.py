@@ -21,6 +21,7 @@ import ast
 import fnmatch
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -2324,3 +2325,128 @@ def test_no_dependabot_glob_overlaps_the_workflows_directory() -> None:
             '`directory: "/"` entry already scans implicitly -> duplicate PRs for every action '
             "(dependabot-core#10884). Keep non-root globs disjoint from `/`."
         )
+
+
+# --- The workstation tier runs in NO CI job, on purpose (ADR-0071, #698) ---
+# A `workstation` test needs private laboratory data. No runner has that data, and no GitHub
+# self-hosted runner is registered for it: `scripts/workstation/run_private_checks.py` runs these
+# tests from a scheduled task on the maintainer's workstation. So every pytest command in every
+# workflow and composite action must deselect them. `tests/conftest.py` adds the other half: a
+# workstation test carries no other tier marker, so `-m large` or `-m sidecar` cannot reach one.
+WORKSTATION_RUNNER = GITHUB_DIR.parent / "scripts" / "workstation" / "run_private_checks.py"
+_PYTEST_COMMAND = re.compile(r"(?:^|[\s;&|(])(?:python\s+-m\s+)?pytest(?=\s|$)")
+
+
+def _selects(expression: str, marks: set[str]) -> bool:
+    """Evaluate a pytest ``-m`` expression (``and``/``or``/``not``/parentheses) for *marks*."""
+    tokens = re.findall(r"\(|\)|[\w.-]+", expression)
+    position = 0
+
+    def take() -> str:
+        nonlocal position
+        position += 1
+        return tokens[position - 1]
+
+    def peek() -> str | None:
+        return tokens[position] if position < len(tokens) else None
+
+    def either() -> bool:
+        value = both()
+        while peek() == "or":
+            take()
+            value = both() or value
+        return value
+
+    def both() -> bool:
+        value = negation()
+        while peek() == "and":
+            take()
+            value = negation() and value
+        return value
+
+    def negation() -> bool:
+        if peek() == "not":
+            take()
+            return not negation()
+        if peek() == "(":
+            take()
+            value = either()
+            assert take() == ")", expression
+            return value
+        return take() in marks
+
+    value = either()
+    assert peek() is None, f"unparsed rest of {expression!r}"
+    return value
+
+
+def test_the_marker_expression_evaluator_follows_pytest_precedence() -> None:
+    assert _selects("workstation", {"workstation"})
+    assert not _selects("not large and not workstation", {"workstation"})
+    assert _selects("not large and not sidecar and not deep", {"workstation"})
+    assert not _selects("large", {"workstation", "gui"})
+    assert _selects("large or workstation and gui", {"large"})  # `and` binds tighter
+    assert not _selects("(large or workstation) and gui", {"workstation"})
+    assert _selects("not (large or deep)", {"workstation"})
+
+
+def _workflow_pytest_commands() -> list[tuple[str, str]]:
+    """(file, command) for every pytest command in every workflow and composite action."""
+    commands = []
+    documents = sorted(GITHUB_DIR.glob("workflows/*.yml"))
+    documents += sorted(GITHUB_DIR.glob("actions/*/*.yml"))
+    for path in documents:
+        for step in _workflow_or_action_steps(_yaml_load(path)):
+            script = step.get("run")
+            if not isinstance(script, str):
+                continue
+            for line in re.sub(r"\\\n", " ", script).splitlines():
+                if not line.lstrip().startswith("#") and _PYTEST_COMMAND.search(line):
+                    commands.append((path.name, line.strip()))
+    return commands
+
+
+def test_no_workflow_selects_a_workstation_test() -> None:
+    """Every pytest command deselects ``workstation``, alone or with ``gui``.
+
+    A command with ``-m`` must evaluate false for such a test; a command without one must name
+    only test files that apply no ``workstation`` marker. If this fails, add ``and not
+    workstation`` to that command's ``-m`` expression: these tests run only from
+    ``scripts/workstation/run_private_checks.py`` (docs/maintainers/workstation-runner.md).
+    """
+    commands = _workflow_pytest_commands()
+    offenders = []
+    for name, command in commands:
+        argv = shlex.split(command)
+        expressions = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "-m"]
+        expressions = [e for e in expressions if e != "pytest"]  # `python -m pytest`
+        if expressions:
+            tiers = ({"workstation"}, {"workstation", "gui"})
+            if any(_selects(e, marks) for e in expressions for marks in tiers):
+                offenders.append(f"{name}: {command}")
+            continue
+        paths = [arg for arg in argv if arg.startswith("tests/")]
+        files = [f for p in paths for f in sorted(GITHUB_DIR.parent.glob(p.split("::")[0]))]
+        sources = [f.read_text(encoding="utf-8") for f in files]
+        if not files or any(_uses_marker(source, "workstation") for source in sources):
+            offenders.append(f"{name}: {command}")
+    runner = WORKSTATION_RUNNER.relative_to(GITHUB_DIR.parent).as_posix()
+    assert not offenders, (
+        "these CI pytest commands can select a `workstation` test, which needs private data and "
+        f"runs only from {runner}: {offenders}"
+    )
+    # Anchor against a scan that finds nothing: the required 3-OS matrix runs two spellings.
+    matrix = [cmd for name, cmd in commands if name == "ci.yml" and "not workstation" in cmd]
+    assert len(matrix) == 2, commands
+
+
+def test_the_workstation_tier_is_registered_and_its_runner_selects_it() -> None:
+    import tomllib
+
+    pyproject = tomllib.loads((GITHUB_DIR.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    markers = pyproject["tool"]["pytest"]["ini_options"]["markers"]
+    assert any(m.startswith("workstation:") for m in markers), markers
+    source = WORKSTATION_RUNNER.read_text(encoding="utf-8")
+    assert '"pytest", "-m", "workstation"' in source
+    selfcheck = TESTS_DIR / "test_workstation_selfcheck.py"
+    assert _uses_marker(selfcheck.read_text(encoding="utf-8"), "workstation")

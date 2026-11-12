@@ -10,7 +10,10 @@ warn-vs-fail over-gate policy (§11.2), and stamp additive ``/settings/batch``
 provenance (schema-guard green). Most tests drive injected stage runners that write
 the real checkpoint groups; one integration test drives the real
 :func:`~tether.project.batch.run_correct_stage` on a synthetic store (the
-withheld-α → apparent-E path). Headless; runs in the base CI matrix.
+withheld-α → apparent-E path), and the real-extract tests run the default
+:func:`~tether.project.extract.extract_movie` and correct stages on a synthetic movie, so
+each job's ``.tmap``, ``.tdat`` and the extract options must reach the extraction (#730).
+Headless; runs in the base CI matrix.
 """
 
 from __future__ import annotations
@@ -64,7 +67,14 @@ def _add_group(path: Path, group_path: str) -> None:
         f.require_group(group_path)
 
 
-def _extract_stub(*, fail: frozenset[str] = frozenset(), low_conf: frozenset[str] = frozenset()):
+def _extract_stub(
+    *,
+    fail: frozenset[str] = frozenset(),
+    low_conf: frozenset[str] = frozenset(),
+    calls: list[dict[str, object]] | None = None,
+):
+    """A marker-writing extract stage; with ``calls`` it also records every call's inputs."""
+
     def run(
         movie_path,
         output_path,
@@ -75,6 +85,17 @@ def _extract_stub(*, fail: frozenset[str] = frozenset(), low_conf: frozenset[str
         overwrite=False,
         publish_guard=None,
     ):
+        if calls is not None:
+            calls.append(
+                {
+                    "movie_path": movie_path,
+                    "output_path": output_path,
+                    "options": options,
+                    "tmap": tmap,
+                    "tdat": tdat,
+                    "overwrite": overwrite,
+                }
+            )
         stem = Path(output_path).stem
         if stem in fail:
             raise RuntimeError(f"extract boom: {stem}")
@@ -242,6 +263,129 @@ def test_idealize_failure_isolated_then_resumable(tmp_path: Path) -> None:
     assert r2.stages[STAGE_CORRECT].status == STATUS_SKIPPED
     assert r2.stages[STAGE_IDEALIZE].status == STATUS_DONE
     assert r2.ok
+
+
+# --- The extract stage gets each movie's inputs (#730) -----------------------
+#
+# A batch that dropped the registration map, the detection file or the options on the
+# way to the extractor would extract every movie with a native registration fit and
+# default options, and give no message. The stub test pins the hand-off per job; the
+# real-extract tests run the default `extract_movie` on the synthetic movie of
+# test_extract_cli (the movie test_project_perf mirrors) and read back what it applied.
+
+
+def test_extract_stage_receives_each_jobs_tmap_tdat_and_the_options(tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+    options = object()  # run_batch must hand the caller's object through unchanged
+    shared_tmap = tmp_path / "beads.tmap"
+    jobs = [
+        MovieJob(
+            tmp_path / "a.tif", tmp_path / "a.tether", tmap=shared_tmap, tdat=tmp_path / "a.tdat"
+        ),
+        MovieJob(tmp_path / "b.tif", tmp_path / "b.tether", tmap=shared_tmap),
+        MovieJob(tmp_path / "c.tif", tmp_path / "c.tether", tdat=tmp_path / "c.tdat"),
+    ]
+
+    summary = _run(
+        jobs, extract_options=options, overwrite=True, _extract=_extract_stub(calls=calls)
+    )
+
+    assert summary.n_failed == 0
+    assert [(c["movie_path"], c["output_path"], c["tmap"], c["tdat"]) for c in calls] == [
+        (j.movie_path, j.output_path, j.tmap, j.tdat) for j in jobs
+    ]
+    assert all(c["options"] is options for c in calls)
+    assert all(c["overwrite"] is True for c in calls)
+
+
+def _real_extract_helpers():
+    """The synthetic-movie helpers of test_extract_cli (skips without the imaging stack)."""
+    for module in ("scipy", "skimage", "tifffile"):
+        pytest.importorskip(module)
+    import test_extract_cli  # noqa: PLC0415
+
+    return test_extract_cli
+
+
+def _extraction_profile(path: Path) -> dict[str, object]:
+    with h5py.File(path, "r") as f:
+        return json.loads(f["/settings/extraction"].attrs["profile_json"])
+
+
+def test_real_extract_stage_applies_each_jobs_tmap_tdat_and_the_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    helpers = _real_extract_helpers()
+    import tether.project.extract as extract_module  # noqa: PLC0415
+    from tether.project.extract import ExtractOptions  # noqa: PLC0415
+
+    # No .tmap is committed (MCOS); decode to the in-memory map of the synthetic movie,
+    # as test_extract_cli does. The .tdat is a real minimal file (mode 2 = intensity).
+    monkeypatch.setattr(
+        extract_module, "read_tmap", lambda _path: helpers._synthetic_tmap_channels()
+    )
+    tmap = tmp_path / "map.tmap"
+    tmap.write_bytes(b"stub .tmap; read_tmap is monkeypatched")
+    tdat = helpers._write_tdat(tmp_path / "data.tdat", mode_code=2.0)
+    imported = helpers._make_movie(tmp_path, name="imported_010.tif")
+    native = helpers._make_movie(tmp_path, name="native_010.tif")
+    jobs = [
+        MovieJob(imported, tmp_path / "imported.tether", tmap=tmap, tdat=tdat),
+        MovieJob(native, tmp_path / "native.tether"),
+    ]
+
+    # The default (real) extract and correct stages; idealization needs the sidecar.
+    summary = run_batch(jobs, extract_options=ExtractOptions(window=19), idealize=False)
+
+    for result in summary.results:
+        assert result.stages[STAGE_EXTRACT].status == STATUS_DONE
+        assert result.stages[STAGE_EXTRACT].detail == "3 molecule(s)"
+        assert result.stages[STAGE_CORRECT].status == STATUS_DONE
+    got = _extraction_profile(tmp_path / "imported.tether")
+    assert got["registration_source"] == "imported"
+    assert got["tmap_source"] == "map.tmap"
+    assert got["tdat_source"] == "data.tdat"
+    assert got["detection_mode"] == "intensity"
+    assert got["window"] == 19  # the caller's option, not the default 21
+    got = _extraction_profile(tmp_path / "native.tether")
+    assert got["registration_source"] == "native"
+    assert got.get("tmap_source") is None
+    assert got.get("tdat_source") is None
+    assert got["detection_mode"] == "wavelet"
+    assert got["window"] == 19
+
+
+@pytest.mark.parametrize(
+    ("policy", "status", "correct_status"),
+    [(POLICY_WARN, STATUS_DONE, STATUS_DONE), (POLICY_FAIL, STATUS_FAILED, STATUS_BLOCKED)],
+)
+def test_real_extract_over_gate_registration_follows_the_policy(
+    tmp_path: Path, policy: str, status: str, correct_status: str
+) -> None:
+    # The over-gate movie of test_extract_cli has a ~0.34 px residual: over the
+    # caller's 0.2 px gate, under the default 0.5 px one. The verdict comes from the
+    # real ExtractionSummary, so the policy gate reads the field extract_movie returns.
+    helpers = _real_extract_helpers()
+    from tether.project.extract import ExtractOptions  # noqa: PLC0415
+
+    movie = helpers._make_movie(
+        tmp_path, acceptor_centers=helpers._OVER_GATE_ACCEPTOR, name="warp_010.tif"
+    )
+    jobs = [MovieJob(movie, tmp_path / "warp.tether")]
+
+    summary = run_batch(
+        jobs, policy=policy, extract_options=ExtractOptions(rms_gate=0.2), idealize=False
+    )
+
+    stages = summary.results[0].stages
+    assert stages[STAGE_EXTRACT].status == status
+    assert stages[STAGE_CORRECT].status == correct_status
+    if policy == POLICY_FAIL:
+        assert stages[STAGE_EXTRACT].error == "registration residual exceeds the gate (policy=fail)"
+    else:
+        assert (
+            stages[STAGE_EXTRACT].detail == "3 molecule(s); low-confidence registration (flagged)"
+        )
 
 
 # --- Per-stage checkpoint / resume -------------------------------------------
