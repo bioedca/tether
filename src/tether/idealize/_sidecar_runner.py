@@ -11,13 +11,18 @@ Python-3.9-compatible (the sidecar pins py3.9 / numpy<2 / PyQt5), so it avoids
 
 Contract (argv):
 
-    _sidecar_runner.py <smd_path> <group> <model_type> <nstates> <model_out> [nrestarts]
+    _sidecar_runner.py [--seed N] <smd_path> <group> <model_type> <nstates> <model_out> [nrestarts]
 
 It loads the SMD via tMAVEN's own loader, drives a vbFRET-family idealization
 through ``tmaven.maven.maven_class`` *headlessly* (``maven_class.__init__``
 builds plain objects; it does not spawn a Qt app), and writes the resulting
 model with tMAVEN's own serializer (the Appendix D.2 ``model`` group). The
 driver reads that file back in the base env.
+
+``--seed N`` (issue #311) makes the fit reproducible. Without it tMAVEN draws its
+starting points from two sources this process does not otherwise control (see
+:func:`seed_random_streams`), so two fits of one file differ; that is tMAVEN's
+own behaviour and stays the default.
 
 The last stdout line is a one-line JSON status prefixed with :data:`STATUS_PREFIX`
 so the driver can recover it from amid tMAVEN's verbose logging.
@@ -49,8 +54,70 @@ _DISPATCH = {
 }
 
 
-def run(smd_path, group, model_type, nstates, model_out, nrestarts=None):
+def seed_random_streams(seed):
+    """Make every random draw of a tMAVEN fit in this process follow ``seed``.
+
+    tMAVEN (pinned 10f4230) has no seed setting. Its ebFRET path draws from two
+    random streams, and neither is seeded by anything the caller sets (issue #311):
+
+    1. **Numba's own generator.** ``hmm_eb.eb_outer_loop`` is compiled with
+       ``nopython=True`` and picks each restart's starting means with
+       ``np.random.rand``. In compiled code that call uses Numba's internal
+       generator, which Numba seeds from operating-system entropy and which a
+       ``np.random.seed`` call made from ordinary Python does not reach. Only a
+       ``np.random.seed`` call made *inside* compiled code seeds it.
+    2. **NumPy's global generator, re-seeded from entropy.** The per-trace pass
+       after the empirical-Bayes fit calls ``fxns.initializations.initialize_gmm``
+       once per molecule, which calls ``np.random.seed()`` with no argument (a fresh
+       draw from operating-system entropy) and then samples the starting means from
+       a Gaussian KDE. Seeding NumPy once is undone at the first molecule.
+
+    This seeds (1) from compiled code, seeds (2), and replaces ``np.random.seed`` in
+    this process so that a call **with no argument** re-seeds from the next child of
+    ``numpy.random.SeedSequence(seed)`` instead of from entropy. Calls that pass an
+    explicit seed (tMAVEN's ``clip_traces`` uses ``666``) are passed through
+    unchanged. The process is a short-lived child that runs one fit, so the patch
+    does not reach any other code. Fitting is single-process (``ncpu = 1``) and
+    ``eb_outer_loop`` is compiled with ``parallel=False``, so there is one thread and
+    one stream of each kind.
+    """
+    import numba
+    import numpy as np
+
+    seed = int(seed)
+    if seed < 0:
+        raise ValueError(f"seed must be a non-negative integer, got {seed}")
+
+    # NumPy's own function, even if an earlier call in this process wrapped it. Numba
+    # types the call by the function object, so the compiled seeder names it directly.
+    original_seed = getattr(np.random.seed, "_tether_original", np.random.seed)
+
+    @numba.njit(cache=False)
+    def _seed_numba(value):  # pragma: no cover - compiled code
+        original_seed(value)
+
+    _seed_numba(seed % (2**32))
+
+    children = np.random.SeedSequence(seed)
+    counter = [0]
+
+    def _reproducible_seed(value=None):
+        if value is None:
+            child = np.random.SeedSequence(children.entropy, spawn_key=(counter[0],))
+            counter[0] += 1
+            value = int(child.generate_state(1)[0])
+        original_seed(value)
+
+    _reproducible_seed._tether_original = original_seed
+    np.random.seed = _reproducible_seed
+    original_seed(seed % (2**32))
+
+
+def run(smd_path, group, model_type, nstates, model_out, nrestarts=None, seed=None):
     """Load ``smd_path``, run ``model_type`` idealization, export to ``model_out``.
+
+    ``seed`` (a non-negative integer, or ``None`` for tMAVEN's own unseeded
+    behaviour) makes the fit reproducible; see :func:`seed_random_streams`.
 
     Returns the status dict that is also emitted as JSON on stdout.
     """
@@ -81,6 +148,8 @@ def run(smd_path, group, model_type, nstates, model_out, nrestarts=None):
         maven.prefs[nstates_key] = int(nstates)
     if nrestarts is not None:
         maven.prefs["modeler.nrestarts"] = int(nrestarts)
+    if seed is not None:
+        seed_random_streams(seed)
 
     getattr(maven.modeler, method_name)()
     model = maven.modeler.model
@@ -100,6 +169,7 @@ def run(smd_path, group, model_type, nstates, model_out, nrestarts=None):
         "result_type": str(model.type),
         "nstates": int(model.nstates),
         "model_out": os.path.abspath(model_out),
+        "seed": None if seed is None else int(seed),
     }
 
 
@@ -196,9 +266,16 @@ def main(argv):
         sys.stdout.write(STATUS_PREFIX + json.dumps(status) + "\n")
         sys.stdout.flush()
         return 0
+    seed = None
+    if args and args[0] == "--seed":
+        if len(args) < 2:
+            sys.stderr.write("usage: _sidecar_runner.py --seed N <smd_path> ...\n")
+            return 2
+        seed = args[1]
+        args = args[2:]
     if len(args) not in (5, 6):
         sys.stderr.write(
-            "usage: _sidecar_runner.py <smd_path> <group> <model_type> "
+            "usage: _sidecar_runner.py [--seed N] <smd_path> <group> <model_type> "
             "<nstates> <model_out> [nrestarts]\n"
             "   or: _sidecar_runner.py --probe\n"
             "   or: _sidecar_runner.py --load-check <smd_path> <group>\n"
@@ -207,7 +284,15 @@ def main(argv):
     smd_path, group, model_type, nstates, model_out = args[:5]
     nrestarts = args[5] if len(args) == 6 else None
     try:
-        status = run(smd_path, group, model_type, int(nstates), model_out, nrestarts)
+        status = run(
+            smd_path,
+            group,
+            model_type,
+            int(nstates),
+            model_out,
+            nrestarts,
+            None if seed is None else int(seed),
+        )
     except Exception as exc:
         # Any failure is reported to the driver as a JSON status, not a traceback.
         sys.stdout.write(STATUS_PREFIX + json.dumps({"ok": False, "error": str(exc)}) + "\n")

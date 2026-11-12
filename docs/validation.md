@@ -193,6 +193,17 @@ reproduces its kinetic model across seeds, but its empirical-Bayes per-trace sta
 loosening the shared one. Its ELBO is not commensurable with the vbconhmm reference
 model's, so it is anchored cross-seed only (ADR-0043).
 
+**The live ebFRET gate runs on two fixed seeds.** Unseeded, tMAVEN's ebFRET draws its starting
+points from two streams nothing seeds: Numba's own generator (the restart means in
+`hmm_eb.eb_outer_loop`) and NumPy's global generator, which `initialize_gmm` re-seeds from
+operating-system entropy once per molecule. The gate therefore compared two random fits, and one
+observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor
+([#311](https://github.com/bioedca/tether/issues/311)). `run_ebhmm(..., seed=N)` now seeds both
+streams in the sidecar, and the gate fits seeds 1 and 2, so it gives one answer per commit. The
+band is unchanged. `test_4mol_ebfret_same_seed_gives_the_same_model` fails if a seeded fit stops
+being reproducible ([ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)). Unseeded fits, including
+every fit run from the GUI, keep tMAVEN's own behaviour.
+
 **Which build each tolerance was measured on — and the gap that opens.** Both `method`
 blocks name a build (`sidecar_python_version`, `tmaven_commit`) rather than an interpreter
 path, and both carry a `build_provenance` string. The values in the committed artifact were
@@ -646,11 +657,11 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
 - Nothing in CI fails on a **loosened** `$.tolerance`: the artifact self-checks assert
   recorded values *within* the bounds, so widening a bound keeps them passing. Only
   tightening below the evidence, or removing the evidence, is caught (see §(b)).
-- The ebFRET cross-seed gate is **nondeterministic**
-  ([#311](https://github.com/bioedca/tether/issues/311)): one observed fit scored Viterbi
-  0.7568 against the frozen 0.9034 floor. A single green run is therefore not release
-  evidence; (b) binds only after #311 closes, without widening the band, and the gate is
-  shown green on consecutive runs on one commit.
+- The ebFRET gate tests **one fixed pair of seeds** (1 and 2,
+  [ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)), not a fresh pair per run. A regression
+  that shows only on some seeds can pass it. Unseeded ebFRET keeps a rare poor-optimum tail
+  (one observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor,
+  [#311](https://github.com/bioedca/tether/issues/311)) that the frozen band does not cover.
 - The kinSoftChallenge check is advisory, 2-state level 1 only, gated (see above), and
   **not blind** — the ground truth is committed and the fit is retrospective. Levels 2 and 3
   are deferred.
