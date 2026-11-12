@@ -250,7 +250,7 @@ def _idealize_sidecar(size: str, workdir: Path):
     from tether.idealize.smd import write_smd
 
     tr = _traces(size)
-    n = min(tr.donor.shape[0], 20)  # one sidecar fit per molecule; keep the fit count fixed
+    n = tr.donor.shape[0] // 4  # 10 and 40 molecules: the sidecar fits each one
     smd = write_smd(workdir / "bench.hdf5", np.stack([tr.donor[:n], tr.acceptor[:n]], axis=-1))
     return lambda: run_vbfret(smd, nstates=2, nrestarts=1, timeout=1800.0), {}
 
@@ -273,6 +273,6 @@ CASES: dict[str, Case] = {
         Case("project_save", "default", True, _project_save),
         Case("project_export", "default", True, _project_export),
         Case("trace_display", "gui", True, _trace_display),
-        Case("idealize_sidecar", "sidecar", False, _idealize_sidecar),
+        Case("idealize_sidecar", "sidecar", True, _idealize_sidecar),
     )
 }

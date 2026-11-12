@@ -49,7 +49,7 @@ jobs:
       QT_QPA_PLATFORM: offscreen
       TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
       BENCH_GROUPS: ${{ matrix.groups }}
-      EVENT_NAME: noise-trial  # TEMPORARY (#722 noise run), reverted before review
+      EVENT_NAME: ${{ github.event_name }}
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,7 +94,8 @@ jobs:
               python benchmarks/bench.py noise "$out"
             fi
           done
-          exit "$status"
+          # No explicit `exit`: under `bash -el` it reports exit code 1 even for 0 (sidecar.yml).
+          test "$status" -eq 0
       - name: Keep the raw results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
