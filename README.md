@@ -80,9 +80,10 @@ links a how-to guide, that guide shows the script; the quality ranker has no how
 `tether batch` also runs the corrections and the whole-project fit with their default settings.
 
 - **Corrections.** Native per-channel Bayesian photobleach detection → leakage α → γ →
-  corrected FRET, with an apparent-E fallback that **never emits a NaN**
-  ([how-to](docs/how-to/apply-corrections.md)). The application gets it with the
-  [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
+  corrected FRET. A molecule with a missing α or γ falls back to apparent E, so a missing
+  factor never gives a NaN. A frame with zero total intensity still gives NaN E, because the
+  ratio is not defined there ([how-to](docs/how-to/apply-corrections.md)). The application
+  gets it with the [trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
 - **Whole-project idealization.** The consensus VB-HMM or ebFRET over every molecule, in the
   isolated tMAVEN sidecar ([how-to](docs/how-to/idealize.md)). An **Idealize project…** action
   is planned ([#625](https://github.com/bioedca/tether/issues/625), M16).

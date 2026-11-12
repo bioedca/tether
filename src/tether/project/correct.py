@@ -29,10 +29,13 @@ computed downstream:
 **The total-correction-failure path (PRD §7.2).** The min-qualifying-traces gate is
 applied *before* the population median by the earlier α/γ passes, so a withheld factor
 arrives here as the ``NaN`` "no factor computed" sentinel — never a fabricated value.
-This writer therefore never emits a NaN factor or NaN corrected-E: a molecule whose
+This writer therefore never lets a missing factor become a NaN in E: a molecule whose
 effective α or γ is missing (or γ ≤ 0) is stamped
 :data:`METHOD_APPARENT_UNAVAILABLE` and rendered as apparent E (the *expected* case for
-the lab's typical pure-FRET acquisitions lacking a clean acceptor-bleach step). The GUI
+the lab's typical pure-FRET acquisitions lacking a clean acceptor-bleach step). That does
+not make every frame finite: a frame whose denominator is zero gives NaN, because the ratio
+is not defined there (:func:`tether.fret.corrected_fret`), so a frame with zero total
+intensity is NaN in apparent E and in corrected E. The GUI
 banner + recovery actions that surface this state are a follow-up GUI PR; this is the
 headless decision + provenance they read.
 
