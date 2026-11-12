@@ -59,6 +59,11 @@ SMD = TESTS / "fixtures" / "large" / "smd_281mol.hdf5"
 MODEL = TESTS / "fixtures" / "large" / "model_281mol.hdf5"
 LIMITS = json.loads((TESTS.parent / "schema" / "plot_parity_limits.json").read_text("utf-8"))
 OVERLAY_RTOL = 1e-13  # measured at most 1.44e-14 (vectorized form vs tMAVEN's loop)
+# Tether (base env) and tMAVEN (sidecar env) make the same curve_fit call, but on different
+# NumPy/SciPy builds the optimizer can stop at a slightly different point: bit-equal on one
+# host, up to 3.9e-6 relative (double-exponential rate) on another. 1e-5 is the bound the
+# unmarked multi-exponential fits in test_analysis_dwell.py use; R2 agrees far closer.
+FIT_RTOL, R2_RTOL = 1e-5, 1e-9
 A2B_PAIRS = ((-1, -1), (0, -1), (-1, 2), (1, 2), (2, 1))
 FITS = ("single", "double", "stretched")
 TM_PAIRS = ((0, 1), (1, 0), (1, 2), (2, 1), (2, 3), (3, 2))
@@ -190,21 +195,26 @@ def test_b2_dwells_survival_and_fits_match_live_tmaven(live: dict) -> None:
         tau, surv = survival_curve(dw.lengths[s])
         np.testing.assert_array_equal(tau, tm[f"b2_tau_{s}"])
         np.testing.assert_array_equal(surv, tm[f"b2_surv_{s}"])
-        for j, model in enumerate(FITS):  # the same curve_fit call, so the same optimum
+        for j, model in enumerate(FITS):  # the same curve_fit call, to the optimizer's tolerance
             fit, key = fit_survival(tau, surv, model=model), f"b2_fit_{j}_{s}"
-            np.testing.assert_array_equal(fit.rates, tm[key + "_k"], err_msg=key)
-            np.testing.assert_array_equal(fit.amplitudes, tm[key + "_a"], err_msg=key)
-            assert fit.r_squared == tm[key + "_r2"], key
+            close = {"rtol": FIT_RTOL, "atol": 0, "err_msg": key}
+            np.testing.assert_allclose(fit.rates, tm[key + "_k"], **close)
+            np.testing.assert_allclose(fit.amplitudes, tm[key + "_a"], **close)
+            np.testing.assert_allclose(fit.r_squared, tm[key + "_r2"], rtol=R2_RTOL, err_msg=key)
             if model == "stretched":
-                np.testing.assert_array_equal(np.ravel(fit.beta), tm[key + "_beta"], err_msg=key)
+                np.testing.assert_allclose(np.ravel(fit.beta), tm[key + "_beta"], **close)
 
 
 @requires_sidecar
 def test_embedded_copies_match_live_tmaven(live: dict) -> None:
-    """Each in-test copy of a tMAVEN routine reproduces the routine itself, exactly."""
+    """Each in-test copy of a tMAVEN routine reproduces the routine itself.
+
+    Exactly, except the floating-point A1 loop: it runs on the base NumPy and tMAVEN on the
+    sidecar NumPy, which can differ in the last bit (3.8e-16 relative seen), so to rounding.
+    """
     tm, mod = live["tm"], live["mod"]
     _x, comps, total = _tmaven_reference(mod["mean"], mod["var"], mod["frac"], -0.25, 1.25, 1001)
-    np.testing.assert_array_equal(np.vstack([comps, total]), tm["a1_lines"])
+    np.testing.assert_allclose(np.vstack([comps, total]), tm["a1_lines"], rtol=OVERLAY_RTOL, atol=0)
     chain = np.where(live["s_nan"] == NO_STATE, np.nan, live["s_nan"].astype(np.float64))
     for single in (True, False):
         for vi, vj in A2B_PAIRS:

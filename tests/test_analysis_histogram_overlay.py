@@ -64,8 +64,8 @@ def test_overlay_matches_tmaven_formula_to_rounding() -> None:
 
     Not bit-for-bit: the vectorized form orders the operations differently, which moves a
     value by at most 1.44e-14 relative here and on the 281-molecule model against live
-    tMAVEN (#707, ``test_analysis_plots_sidecar.py``). ``_tmaven_reference`` itself is
-    bit-equal to tMAVEN.
+    tMAVEN (#707, ``test_analysis_plots_sidecar.py``). ``_tmaven_reference`` itself matches
+    tMAVEN to the last bit of the NumPy build it runs on.
     """
     means = np.array([0.2, 0.5, 0.85])
     variances = np.array([0.01, 0.02, 0.005])

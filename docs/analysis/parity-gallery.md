@@ -108,7 +108,7 @@ overlay = population_model_gaussian_overlay(project, "vbconhmm")   # dashed stat
 **Parity evidence.**
 
 - `tests/test_analysis_histogram.py` — `test_default_binning_matches_tmaven_a1` asserts `nbins == 151`, 152 edges, range `(-0.25, 1.25)`, density integrates to 1; `test_population_reproduces_mvp_histogram` checks the store-level result equals an independent `np.histogram(…, bins=151, range=(-0.25, 1.25), density=True)` oracle over the pooled windowed E.
-- `tests/test_analysis_histogram_overlay.py` — `test_overlay_matches_tmaven_formula_to_rounding` reproduces the `data_hist1d.py` `model_on` per-state Gaussian loop to rounding — not bit-for-bit: the vectorized form moves a value by at most 1.44e-14 relative (the file's `_tmaven_reference()` is the tMAVEN loop copied verbatim as the oracle, and is bit-equal to it); `test_overlay_component_is_scaled_gaussian` cross-checks each component against `frac[i] · scipy.stats.norm.pdf`; `test_population_overlay_reads_persisted_model` reads a persisted model, and `test_model_without_population_members_is_withheld` / `test_model_missing_only_frac_is_withheld` lock the withhold-not-fabricate behavior.
+- `tests/test_analysis_histogram_overlay.py` — `test_overlay_matches_tmaven_formula_to_rounding` reproduces the `data_hist1d.py` `model_on` per-state Gaussian loop to rounding — not bit-for-bit: the vectorized form moves a value by at most 1.44e-14 relative (the file's `_tmaven_reference()` is the tMAVEN loop copied verbatim as the oracle, and matches live tMAVEN to the last bit of the NumPy build); `test_overlay_component_is_scaled_gaussian` cross-checks each component against `frac[i] · scipy.stats.norm.pdf`; `test_population_overlay_reads_persisted_model` reads a persisted model, and `test_model_without_population_members_is_withheld` / `test_model_missing_only_frac_is_withheld` lock the withhold-not-fabricate behavior.
 - `tests/test_analysis_plots_sidecar.py` (live) — `data_hist1d.plot` on the 281-molecule SMD: the 151-bin density histogram is equal, and the dashed components and solid sum it draws match `model_gaussian_overlay` to `rtol=1e-13`.
 
 ---
@@ -257,8 +257,11 @@ recover known synthetic `k`, `A`, `β`; `test_fit_ci_and_residuals` locks
 `CI == Student-t · SE` and `residuals == survival − model_survival`; store-level tests tie
 `population_dwell_times` to the pure core and lock the fresh + §7.5 gating. Live, in
 `tests/test_analysis_plots_sidecar.py`: `calculate_dwells` (with and without the first dwell), `survival` and
-`run_dwell_analysis` (single, double, stretched) give the same dwells, curves, rates,
-amplitudes, β and R² as Tether, value for value.
+`run_dwell_analysis` (single, double, stretched) give the same dwells and curves as Tether,
+value for value, and the same rates, amplitudes, β and R² to the optimizer's tolerance: both
+make the same `curve_fit` call, but on different NumPy/SciPy builds it can stop at a slightly
+different point (bit-equal on one host, up to 3.9e-6 relative on another; the test allows
+1e-5, the bound of the unmarked multi-exponential fits).
 
 ---
 
