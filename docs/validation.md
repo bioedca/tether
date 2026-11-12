@@ -371,6 +371,55 @@ equally wrong fits cannot see.
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
 > measurement, and no committed test fits `model_type="vbfret"` against it.
 
+### ebFRET against stored ebFRET sessions (report only)
+
+The gate above checks Tether's ebFRET path only against itself. A **report** compares it with
+the MATLAB ebFRET program ([#719](https://github.com/bioedca/tether/issues/719)). The data are
+the 11 ebFRET session files of the MreC-MreD record, Zenodo
+[10.5281/zenodo.13910538](https://doi.org/10.5281/zenodo.13910538) (CC-BY-4.0), packed into
+`tests/fixtures/large/ebfret_mrec_sessions.hdf5` (manifest id `ebfret-mrec-sessions`). Each
+session holds the traces that ebFRET fitted and the result of the fit. For each condition,
+`test_ebfret_path_reports_its_difference_from_stored_ebfret_sessions` fits the same traces with
+`run_ebhmm` (the session's crop, number of states and 2 restarts, seed 1) and prints one table
+to the `sidecar / parity` job log. It compares:
+
+- the state means with the session's empirical-Bayes prior means (`analysis(K).prior.mu`), and
+- the state populations with the session's expected occupancy (`analysis(K).expect.z`, summed
+  over the series), which is the quantity tMAVEN's `frac` is.
+
+The number of states is the one the session shows (`controls.ensemble.value`): 2 for ten
+conditions and 3 for `MreC-N53E-MreD`. The session files do not state the ebFRET version. Their
+settings block has the fields and the defaults of the ebfret-gui `MainWindow`.
+
+**It cannot fail on a number.** Two implementations of one method, with different starting
+points and stopping rules, give no agreement band to hold them to (maintainer decision R6: A,
+[#695](https://github.com/bioedca/tether/issues/695)). The test fails only when the fixture
+cannot be read or a fit does not give a `K`-state `eb HMM`.
+
+Measured on 2026-11-12 (tMAVEN 10f4230, the sidecar lock, seed 1), sorted by state mean:
+
+| Condition | K | Largest \|mean difference\| | Largest \|population difference\| |
+|---|---|---|---|
+| Figure 2 / A29C-T201C | 2 | 0.039 | 0.008 |
+| Figure 2 / A29C-T201C+MreD | 2 | 0.030 | 0.371 |
+| Figure 2 / A33C-T201C | 2 | 0.035 | 0.239 |
+| Figure 2 / A33C-T201C+MreD | 2 | 0.011 | 0.108 |
+| Figure 3 / MreC-F36R-MreD | 2 | 0.008 | 0.096 |
+| Figure 3 / MreC-L39E-F36R-MreD | 2 | 0.120 | 0.100 |
+| Figure 3 / MreC-L39E-MreD | 2 | 0.018 | 0.082 |
+| Figure 3 / MreC-MreD-L59E | 2 | 0.053 | 0.019 |
+| Figure 3 / MreC-MreD-WT | 2 | 0.125 | 0.010 |
+| Figure 3 / MreC-N53E-MreD | 3 | 0.073 | 0.041 |
+| Figure 3 / MreC-N53E-MreD-L59E | 2 | 0.042 | 0.001 |
+
+Two patterns show. Where the two states are close (less than 0.1 FRET apart, as in the four
+Figure 2 conditions and two of Figure 3), the means agree to 0.04 or better but the populations
+can differ by up to 0.37: the split of the frames between two close states is not well
+determined. Where a high-FRET state holds less than 15 % of the frames (the other five
+conditions), the mean of that state differs by 0.04 to 0.13 FRET. This report is evidence about the size
+of the difference. It is not a tolerance, and nothing in `schema/parity_tolerance.json` comes
+from it.
+
 ## (c) Kinetics vs kinSoftChallenge
 
 This oracle is **advisory** and covers the **2-state level 1 dataset only**; see

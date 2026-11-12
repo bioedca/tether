@@ -136,8 +136,9 @@ jobs:
             # what test_fret_photobleach_sidecar.py compares with live tMAVEN (#706). The
             # fixtures those modules read and the helper they import (tests/_sidecar_gate.py)
             # are inputs of the same fits, so a change to them runs the suite too (#750).
+            # The ebFRET-session report (#719) reads its fixture through tests/reference_data/fetch.py.
             # tests/test_marker_contract.py checks this pattern against those files.
-            pattern='^(src/tether/idealize/|src/tether/fret/photobleach\.py|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|tests/test_fret_photobleach\.py|tests/_sidecar_gate\.py|tests/fixtures/smd_4mol\.hdf5|tests/fixtures/large/(smd|model)_281mol\.hdf5|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+            pattern='^(src/tether/idealize/|src/tether/fret/photobleach\.py|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|tests/test_fret_photobleach\.py|tests/_sidecar_gate\.py|tests/fixtures/smd_4mol\.hdf5|tests/fixtures/large/(smd|model)_281mol\.hdf5|tests/fixtures/large/ebfret_mrec_sessions\.hdf5|tests/reference_data/fetch\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
             if echo "$changed" | grep -qE "$pattern"; then
               run=true
               echo "Idealization-relevant paths changed -> running the live parity suite."

@@ -24,6 +24,16 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# MreC-MreD ebFRET sessions — third-party reference data, CC-BY-4.0 (Gilman, Shlosman, Samé
+# Guerra, et al., Zenodo 10.5281/zenodo.13910538), repacked by scripts/make_ebfret_sessions_fixture.py
+# into one LFS fixture for the report-only ebFRET comparison (#719). Attributed in NOTICE and the
+# fixture PROVENANCE. `override` beats the blanket GPL entry above.
+[[annotations]]
+path = ["tests/fixtures/large/ebfret_mrec_sessions.hdf5"]
+precedence = "override"
+SPDX-FileCopyrightText = "2024 Morgan S. A. Gilman, Irina Shlosman, Daniel Samé Guerra, Masy Domecillo, Elayne Fivenson, Claire Bourrett, Thomas Bernhardt, Nicholas Polizzi, Joseph Loparo and Andrew Kruse"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.
