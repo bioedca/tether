@@ -156,7 +156,7 @@ def _activate(shell, qtbot):
     shell.window.activateWindow()
     try:
         qtbot.waitUntil(lambda: QtWidgets.QApplication.activeWindow() is shell.window, timeout=2000)
-    except AssertionError:
+    except qtbot.TimeoutError:
         pytest.skip("the platform plugin did not activate the window")
 
 
