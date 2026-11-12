@@ -221,6 +221,54 @@ def test_a_recently_active_claim_with_no_pr_is_kept(monkeypatch: pytest.MonkeyPa
     assert not fake.did("DELETE", "git/refs")
 
 
+@pytest.mark.parametrize(
+    ("minutes", "action"),
+    [(30, "keep"), (89, "keep"), (90, "requeue")],
+    ids=["30-keep", "89-keep", "90-requeue"],
+)
+def test_the_no_pr_window_is_ninety_minutes(
+    monkeypatch: pytest.MonkeyPatch, minutes: int, action: str
+) -> None:
+    """The window is pinned at its edge, not at 5 and 91 minutes (#753 AGT-F5).
+
+    Those two points let any window from 6 to 91 minutes pass, and a 6-minute window takes the
+    claim of a worker that has not pushed within 6 minutes of claiming. The sweep keeps while
+    `age < NO_PR_MINUTES`, so 89 minutes keeps and 90 reclaims.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=minutes)}],
+    )
+    fake = _install(monkeypatch, routes)
+    assert reaper.sweep(dry_run=False)[0]["action"] == action
+    assert fake.did("DELETE", "git/refs/heads/agent/issue-7") == (action == "requeue")
+
+
+def test_age_is_measured_from_the_newest_activity_not_the_oldest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real feed keeps the branch creation and adds each push after it (#753 AGT-F4).
+
+    Every other fixture holds ONE entry, where the newest and the oldest are the same entry, so a
+    reaper that aged a claim from its creation passed them all - and reaped every claim without a
+    pull request 90 minutes after it was made, however recently its worker had pushed.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [
+            {"id": 2, "timestamp": _ago(minutes=5)},
+            {"id": 1, "timestamp": _ago(hours=3)},
+        ],
+    )
+    fake = _install(monkeypatch, routes)
+    assert reaper.sweep(dry_run=False) == [
+        {"issue": 7, "action": "keep", "reason": "recent-activity"}
+    ]
+    assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
+
+
 # ------------------------------------------------------------------ rule 2: stale PR
 
 
@@ -373,6 +421,34 @@ def test_an_unreadable_pr_state_stops_the_sweep_instead_of_reclaiming(
 
 @pytest.mark.parametrize(
     "response",
+    [(403, None), (500, None), (200, ["not", "a", "dict"])],
+    ids=["forbidden", "500", "malformed"],
+)
+def test_an_unreadable_pr_detail_stops_the_sweep_instead_of_reclaiming(
+    monkeypatch: pytest.MonkeyPatch, response: tuple[int, Any]
+) -> None:
+    """The DETAIL read fails closed too, not only the list (#753 AGT-F3).
+
+    `_open_pr` follows the list with `/pulls/{n}`, and that read has its own fail-closed branch
+    which no test made unreadable. Here the list is readable and names an open pull request, and
+    the claim has not pushed for 91 minutes - the ordinary state of a pull request in review. If
+    the failed detail read reads as "no PR", the sweep deletes `agent/issue-7`, the head branch of
+    that open pull request, and GitHub closes it.
+    """
+    routes = _routes(_pr())
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/pulls/99")] = response
+    fake = _install(monkeypatch, routes)
+    with pytest.raises(reaper.ReaperError, match=r"PR #99 state could not be read"):
+        reaper.sweep(dry_run=False)
+    assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
+
+
+@pytest.mark.parametrize(
+    "response",
     [(403, None), (500, None), (200, {"check_suites": "not-a-list"})],
     ids=["forbidden-missing-checks-read", "500", "malformed"],
 )
@@ -449,8 +525,11 @@ class Changing(Fake):
         if method == "GET" and "/activity" in path:
             self.activity_reads += 1
             if self.activity_reads > self.flip_after:
-                self.calls.append((method, path))
-                return 200, [{"id": 999, "timestamp": _ago(minutes=0)}]
+                # PREPEND and keep what was there, as the real feed does (#753 AGT-F4). Replacing
+                # the feed with the new entry alone made newest and oldest the same entry, so a
+                # fingerprint that took the OLDEST id still changed and the recheck looked sound.
+                status, entries = super().__call__(method, path, body)
+                return status, [{"id": 999, "timestamp": _ago(minutes=0)}, *(entries or [])]
         return super().__call__(method, path, body)
 
 
@@ -469,6 +548,52 @@ def test_a_push_between_decision_and_delete_saves_the_claim(
     monkeypatch.setattr(reaper, "_now", lambda: NOW)
     with pytest.raises(reaper.ReaperError, match="new activity mid-sweep"):
         reaper.sweep(dry_run=False)
+    assert not fake.did("DELETE", "git/refs")
+
+
+class PrAppears(Fake):
+    """A fake whose pull-request list is empty on the first read and holds an open PR after it.
+
+    Models a worker that opens its pull request between the sweep's decision and `_requeue`'s
+    re-read. Opening a pull request does not refresh branch activity, so the fingerprint recheck
+    cannot see it; only the re-read of the pull-request state can.
+    """
+
+    def __init__(self, routes: dict[tuple[str, str], tuple[int, Any]]) -> None:
+        super().__init__(routes)
+        self.list_reads = 0
+
+    def __call__(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:
+        if method == "GET" and "/pulls?head" in path:
+            self.list_reads += 1
+            if self.list_reads > 1:
+                self.calls.append((method, path))
+                return 200, [_pr()]
+        return super().__call__(method, path, body)
+
+
+def test_a_pull_request_opened_mid_sweep_saves_the_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard `_requeue` documents, made to fire (#753 AGT-F3).
+
+    No fixture changed the pull-request list between the sweep's read and the re-read, so the
+    "gained an open pull request mid-sweep" branch never ran in the suite and removing it passed.
+    Without it the sweep deletes the head branch of the pull request the worker just opened.
+    """
+    routes = _routes()
+    routes[("GET", "/repos/bioedca/tether/activity")] = (
+        200,
+        [{"id": 1, "timestamp": _ago(minutes=91)}],
+    )
+    routes[("GET", "/repos/bioedca/tether/pulls/99")] = (200, _pr())
+    fake = PrAppears(routes)
+    monkeypatch.setattr(reaper.claim, "_request", fake)
+    monkeypatch.setattr(reaper.claim, "_paginate", lambda path, what: fake("GET", path)[1] or [])
+    monkeypatch.setattr(reaper, "_now", lambda: NOW)
+    with pytest.raises(reaper.ReaperError, match="gained an open pull request mid-sweep"):
+        reaper.sweep(dry_run=False)
+    assert fake.list_reads == 2, "the decision and the re-read must each read the PR list once"
     assert not fake.did("DELETE", "git/refs")
 
 
