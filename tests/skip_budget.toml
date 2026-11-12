@@ -204,9 +204,9 @@ test (windows-latest) run them."""
 test = "tests/test_roundtrip.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
-why = """The three round-trip tests open a napari Viewer, which needs an OpenGL context that Qt \
-under QT_QPA_PLATFORM=offscreen on macOS does not give. test (ubuntu-latest) under xvfb and \
-test (windows-latest) run them."""
+why = """The four round-trip tests open a napari Viewer (#745 added the click-versus-drag \
+test), which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not \
+give. test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
 
 # --- deep / smoke ---------------------------------------------------------------------------
 
