@@ -55,25 +55,44 @@ def _as_str(value: object) -> str:
     return value.decode() if isinstance(value, bytes | bytearray) else str(value)
 
 
-def _gaussian_frame(centers: np.ndarray) -> np.ndarray:
+def _gaussian_frame(centers: np.ndarray, amplitudes: np.ndarray | None = None) -> np.ndarray:
+    """One frame of Gaussian spots on a flat background; ``amplitudes`` default ``_AMP``."""
+    if amplitudes is None:
+        amplitudes = np.full(len(centers), _AMP)
     frame = np.full(_SHAPE, _BG, dtype=np.float64)
     rows, cols = np.mgrid[0 : _SHAPE[0], 0 : _SHAPE[1]]
-    for x, y in centers:
-        frame += _AMP * np.exp(-((rows - y) ** 2 + (cols - x) ** 2) / (2.0 * _SIGMA**2))
+    for (x, y), amp in zip(centers, amplitudes, strict=True):
+        frame += amp * np.exp(-((rows - y) ** 2 + (cols - x) ** 2) / (2.0 * _SIGMA**2))
     return frame
 
 
-def _write_movie(path, donor_centers=_DONOR_CENTERS, acceptor_centers=_ACCEPTOR_CENTERS) -> None:
-    """Write a synthetic dual-channel big-endian uint16 movie (donor | acceptor)."""
-    frame = _gaussian_frame(np.vstack([donor_centers, acceptor_centers]))
+def _write_movie(
+    path,
+    donor_centers=_DONOR_CENTERS,
+    acceptor_centers=_ACCEPTOR_CENTERS,
+    *,
+    acceptor_amp: float = _AMP,
+) -> None:
+    """Write a synthetic dual-channel big-endian uint16 movie (donor | acceptor).
+
+    Donor spots have amplitude ``_AMP``; acceptor spots ``acceptor_amp`` (default the
+    same), so a test can tell a trace read from the acceptor half from one read from
+    the donor half.
+    """
+    amplitudes = np.concatenate(
+        [np.full(len(donor_centers), _AMP), np.full(len(acceptor_centers), acceptor_amp)]
+    )
+    frame = _gaussian_frame(np.vstack([donor_centers, acceptor_centers]), amplitudes)
     stack = np.broadcast_to(frame, (_N_FRAMES, *_SHAPE))
     be = np.ascontiguousarray(stack, dtype=">u2")
     tifffile.imwrite(path, be, photometric="minisblack", byteorder=">")
 
 
-def _make_movie(tmp_path, *, acceptor_centers=_ACCEPTOR_CENTERS, name=None) -> object:
+def _make_movie(
+    tmp_path, *, acceptor_centers=_ACCEPTOR_CENTERS, name=None, acceptor_amp: float = _AMP
+) -> object:
     movie = tmp_path / (name or "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
-    _write_movie(movie, _DONOR_CENTERS, acceptor_centers)
+    _write_movie(movie, _DONOR_CENTERS, acceptor_centers, acceptor_amp=acceptor_amp)
     return movie
 
 
@@ -381,7 +400,9 @@ def test_extract_imported_tmap_creates_valid_project(tmp_path, monkeypatch) -> N
 
     channels = _synthetic_tmap_channels()
     monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
-    movie = _make_movie(tmp_path)
+    # Acceptor spots at half the donor amplitude, so an acceptor read from the donor
+    # half of the chip (a wrong moving-channel crop) shows in the traces (#732).
+    movie = _make_movie(tmp_path, acceptor_amp=_AMP / 2)
     tmap = _stub_tmap(tmp_path)
     out = tmp_path / "imported.tether"
 
@@ -403,9 +424,21 @@ def test_extract_imported_tmap_creates_valid_project(tmp_path, monkeypatch) -> N
     assert got == {tuple(c.astype(int)) for c in _DONOR_CENTERS}
     assert not any(LOW_CONFIDENCE_TAG in _as_str(t) for t in mols["tags"])
 
+    # Each channel is read from its own half at the .tmap's crop: the acceptor trace
+    # of every molecule is half its donor trace, as placed. Read from the donor half,
+    # the ratio is about 0.93 instead.
+    traces = read_traces(out)
+    ratio = traces["acceptor_corrected"].mean(axis=1) / traces["donor_corrected"].mean(axis=1)
+    assert ratio.tolist() == pytest.approx([0.5] * 3, rel=0.02)
+
     # /settings records the imported source + the .tmap filename (NFR-REPRO); the
     # extraction pipeline itself stays native.
     with h5py.File(out, "r") as f:
+        # /movies records each channel's own crop ([y1, x1, y2, x2], 1-based
+        # inclusive): donor = the left half, acceptor = the right half.
+        movie_row = f["/movies/table"][0]
+        assert movie_row["donor_crop"].tolist() == [1, 1, 64, 48]
+        assert movie_row["acceptor_crop"].tolist() == [1, 49, 64, 96]
         profile = json.loads(_as_str(f["/settings/extraction"].attrs["profile_json"]))
         assert profile["registration_source"] == "imported"
         assert profile["tmap_source"] == "map.tmap"
