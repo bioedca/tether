@@ -8,7 +8,7 @@ prints the table; this check, run by ``.github/workflows/golden-table.yml``, rea
 request body from the GitHub event and requires, when a file under ``tests/golden/`` changed:
 
 * the table header that ``update_golden.py`` prints,
-* the name of each changed golden file in that table, and
+* a row of that table for each changed golden file (its name in the first cell), and
 * a line that starts with ``Cause:`` and says something.
 
 Text inside HTML comments does not count, so the template's own guidance cannot satisfy it.
@@ -42,6 +42,34 @@ def golden_files(changed: Iterable[str]) -> list[str]:
     return sorted(p for p in changed if p.startswith(GOLDEN_PREFIX) and p.endswith(".json"))
 
 
+def table_files(text: str) -> set[str]:
+    """The golden-file names in the first cell of the rows of each golden table in ``text``.
+
+    A table starts at a line that is :data:`TABLE_HEADER` and runs while lines start with
+    ``|``. Only a row with the table's five cells counts, and the separator row does not, so a
+    name that appears only in prose, or a header with no rows under it, names nothing.
+    """
+    names: set[str] = set()
+    in_table = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == TABLE_HEADER:
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if not stripped.startswith("|"):
+            in_table = False
+            continue
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", stripped)[1:-1]]
+        if len(cells) != 5 or set(cells[0]) <= set("-: "):
+            continue
+        first = cells[0]
+        if len(first) > 2 and first.startswith("`") and first.endswith("`"):
+            names.add(first[1:-1])
+    return names
+
+
 def problems(body: str, changed: Iterable[str]) -> list[str]:
     """What the pull request body lacks; empty when it passes."""
     golden = golden_files(changed)
@@ -53,9 +81,10 @@ def problems(body: str, changed: Iterable[str]) -> list[str]:
         found.append(
             "the body has no golden table; paste the output of `python scripts/update_golden.py`"
         )
+    rows = table_files(text)
     for path in golden:
         name = PurePosixPath(path).name
-        if f"`{name}`" not in text:
+        if name not in rows:
             found.append(f"the golden table names no row for {name}")
     if not _CAUSE.search(text):
         found.append("the body has no 'Cause:' line saying why the golden values moved")

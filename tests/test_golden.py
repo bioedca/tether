@@ -219,6 +219,21 @@ def test_check_names_each_changed_golden_file() -> None:
     assert found == ["the golden table names no row for fixture_smd.json"]
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Codex finding on #838: the name only in prose under an empty table.
+        f"{_golden.TABLE_HEADER}\n|---|---|---|---|---|\n\nCause: regenerated `synthetic_movie.json`",
+        # A row outside the golden table does not count either.
+        "| `synthetic_movie.json` | a | b | c | d |\n\n"
+        f"{_golden.TABLE_HEADER}\n|---|---|---|---|---|\n\nCause: x",
+    ],
+)
+def test_check_needs_a_populated_row_in_the_table(body: str) -> None:
+    found = check_golden_table.problems(body, ["tests/golden/synthetic_movie.json"])
+    assert found == ["the golden table names no row for synthetic_movie.json"]
+
+
 def test_check_reads_the_pull_request_event(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
