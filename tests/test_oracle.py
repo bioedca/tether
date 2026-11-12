@@ -434,11 +434,11 @@ def test_evaluate_project_wires_molecules_and_traces(monkeypatch) -> None:
 
     # Patch the live sys.modules objects (via import_module, which returns them):
     # evaluate_project resolves the readers through its lazy `from ... import`
-    # (fromlist → sys.modules), but another test (test_deeplasi's lazy-scipy import
-    # contract) reimports tether.io.deeplasi and leaves the tether.io package's
-    # `.deeplasi` attribute pointing at a stale module. Both the string-form setattr
-    # and `import ... as` resolve via that parent attribute (the wrong object);
-    # import_module returns the sys.modules entry that evaluate_project actually uses.
+    # (fromlist → sys.modules). The string-form setattr and `import ... as` resolve
+    # via the parent package attribute instead, which can differ from sys.modules if
+    # any test re-imports a submodule; test_deeplasi's lazy-scipy import contract did
+    # until it moved to a subprocess (#734 IMG-F15). import_module returns the
+    # sys.modules entry that evaluate_project actually uses.
     extract_mod = importlib.import_module("tether.imaging.extract")
     deeplasi_mod = importlib.import_module("tether.io.deeplasi")
     monkeypatch.setattr(extract_mod, "read_molecules", lambda _p: mols)
