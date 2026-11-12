@@ -4,7 +4,9 @@
 
 Covers the export mechanism (three formats + provenance stamp) and that each M6
 analysis plot-data dataclass renders to a figure that round-trips through the export.
-Gated on ``h5py``/``matplotlib``/``scipy`` so the lightweight headless tiers skip it.
+Gated on ``h5py``/``scipy`` so the lightweight headless tiers skip it. ``matplotlib`` is a
+plain import: the base stack requires it for the plot export, and an ``importorskip`` made
+an install without it one skip and a green run with no plot-export test (#726).
 """
 
 from __future__ import annotations
@@ -16,8 +18,8 @@ import pytest
 
 pytest.importorskip("h5py")
 pytest.importorskip("scipy")
-pytest.importorskip("matplotlib")
 
+# A plain import, not importorskip: a missing matplotlib must fail the run (#726).
 from matplotlib.collections import PathCollection, QuadMesh  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.patches import Rectangle, StepPatch  # noqa: E402
