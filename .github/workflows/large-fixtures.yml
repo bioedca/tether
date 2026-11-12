@@ -8,8 +8,10 @@
 # runs the heavy validation that needs them:
 #   * the M1 extraction-vs-Deep-LASI acceptance oracle (tests/test_oracle.py) — the
 #     §9 M1 numbers (recall ≥ 95 % @ 1px, per-frame intensity Pearson r ≥ 0.99) on
-#     the UCKOPSB pair, via the imported `.tmap` registration leg; and
-#   * the ≥ 50-molecule (281-mol) idealization reference reads (test_idealize_model).
+#     the UCKOPSB pair, via the imported `.tmap` registration leg;
+#   * the ≥ 50-molecule (281-mol) idealization reference reads (test_idealize_model); and
+#   * the `.tmap` decoder `read_tmap` on the committed bead map, alone and through one
+#     `tether extract --tmap` run (test_register.py, test_extract_cli.py; #733).
 #
 # DATA NOTE — the ~0.9 GB UCKOPSB movie is NOT committed (not even to LFS; it is
 # too large to host on the repo's LFS budget). The oracle leg therefore SKIPS on a
@@ -71,6 +73,7 @@ jobs:
           required = [
               Path("tests/fixtures/large/smd_281mol.hdf5"),
               Path("tests/fixtures/large/model_281mol.hdf5"),
+              Path("tests/fixtures/large/bead_prealign.tmap"),
           ]
           missing = [
               str(p)
