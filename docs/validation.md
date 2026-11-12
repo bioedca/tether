@@ -21,10 +21,11 @@ with `--strict-markers`. Where a test runs follows from its marker:
 
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
-| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
+| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
 | Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, the workflow or the setup action reports a fast "not applicable" pass **without running the fits** |
 | Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
+| Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
 
 **When a test skips.** pytest exits 0 when a test skips, so a job stays green when a fixture,
 a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke` and
@@ -40,6 +41,21 @@ The required set is the `main-baseline` ruleset: `lint`, `test` on the three pla
 `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
 `schema-guard` and `sidecar / parity`.
 
+**When a scheduled run fails.** `sidecar.yml` (nightly, and after each merge to `main`),
+`deep.yml` (nightly), `large-fixtures.yml` (weekly) and `docs-liveness.yml` (daily) call
+`.github/workflows/scheduled-failure.yml` after their job. When the job fails on `main`, that
+workflow opens one issue with the title `ci(scheduled): <job> failed on main`. The issue gives
+the run, the commit, the failed step and the last 50 log lines up to the last error. The two
+oracle jobs, `sidecar / parity` and `large-fixtures`, use the fields and labels of the
+validation-oracle-failure form. The other jobs use `type:ci`. A later failure adds one comment,
+and the next passing run adds one comment. Each day there is at most one new comment of each
+kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
+always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
+the Actions page lists every run. The issue does not close itself: close it with the cause. A
+pull request never opens an issue. To test the report, run `docs-liveness` by hand on a test
+branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
+`ci(drill)`, so it never touches the real issue.
+
 Which tier each oracle's *headline* assertion lives in:
 
 | Oracle | Headline assertion runs in | Also covered on the required matrix |
@@ -50,7 +66,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
-| (g) Photobleach detector | required matrix | yes |
+| (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -323,10 +339,15 @@ qualifiers, the frozen band, the ground truth and the deferred levels.
 **Enforcing test.** `tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread`
 — `@pytest.mark.large`, and it skips when `tests/fixtures/large/kinsoft_sim.hdf5` is an
 unmaterialized Git-LFS pointer. On the required matrix,
-`test_load_kinsoft_reference` locks the reference file's contents and
-`test_evaluate_rejects_deferred_levels` proves levels 2 and 3 raise rather than silently
-score; the primitives are covered by `test_fit_gaussian_hmm_recovers_synthetic_states` and
-`test_two_state_rate_constants_recovers_synthetic_rates` on synthetic traces.
+`test_load_kinsoft_reference` pins, by literal, the band, the ground-truth rates
+(`rates_s_inv`) of the three levels and Tether's frozen level-1 rates and deviations, and
+requires each deviation to be the one its rate gives;
+`test_evaluate_kinsoft_level_scores_a_synthetic_level` runs the scoring on a level built in
+the test; and `test_evaluate_rejects_deferred_levels` proves levels 2 and 3 raise rather
+than silently score. The primitives are covered by
+`test_fit_gaussian_hmm_recovers_synthetic_states` and
+`test_two_state_rate_constants_recovers_synthetic_rates` on synthetic traces, and the EM
+stop rule by `test_fit_gaussian_hmm_stops_on_the_first_iteration_that_meets_tol`.
 
 ## (d) Ranker held-out cross-validation
 
@@ -425,16 +446,26 @@ intact; and the SMD interchange write → read superset round-trip.
 
 **Tolerance.** Structural, not numeric: **additive-only**. Additions pass; removals,
 renames, dtype changes, field reordering, mid-group insertions and a decremented
-`schema_version` all fail. This is the M0 freeze,
+`schema_version` all fail. In full, a violation is any of: a frozen field removed or
+renamed, or its dtype or shape changed; a field reordered or inserted before the end; a
+frozen group or dataset removed; a dataset's dtype or `maxshape` changed; a frozen
+attribute removed or its dtype changed; the root `format` changed; and `schema_version`
+missing, decreased, or raised without a regenerated golden. This is the M0 freeze,
 [ADR-0005](adr/0005-m0-schema-freeze.md).
 
 **Enforcing tests** (all unmarked — required matrix): `tests/test_schema.py`
 `test_round_trip_preserves_version_and_frozen_fields`, `test_committed_golden_matches_code`,
 `test_golden_carries_required_frozen_fields`, `test_assert_compatible_refuses_newer_file`,
-and the six negative guards `test_guard_flags_removed_field`, `test_guard_flags_dtype_change`,
+and one negative guard for each violation kind: `test_guard_flags_removed_field`,
+`test_guard_flags_dtype_change`, `test_guard_flags_field_shape_change`,
 `test_guard_flags_reordered_field`, `test_guard_flags_mid_insertion`,
-`test_guard_flags_removed_group`, `test_guard_flags_version_decrement`, plus
-`test_guard_allows_additions`. Separately, `.github/workflows/schema-guard.yml` runs
+`test_guard_flags_removed_group`, `test_guard_flags_removed_dataset`,
+`test_guard_flags_non_compound_dataset_dtype_change`,
+`test_guard_flags_compound_dataset_becoming_plain`, `test_guard_flags_maxshape_change`,
+`test_guard_flags_removed_attribute`, `test_guard_flags_attribute_dtype_change`,
+`test_guard_flags_format_change`, `test_guard_flags_missing_version`,
+`test_guard_flags_version_decrement`, `test_guard_flags_version_raised_without_new_golden`,
+plus `test_guard_allows_additions`. Separately, `.github/workflows/schema-guard.yml` runs
 `python scripts/dump_schema.py --check` on every pull request and push to `main` — a
 required status check independent of the test matrix.
 
@@ -470,7 +501,22 @@ tolerance. Read the parity leg for what it is: these tests are unmarked, so they
 required matrix, where tMAVEN is not installed and is never imported. What is proven is
 that the O(T) prefix-sum rewrite is faithful to the O(T²) reference *formulation*; a
 transcription error in the `_ref_*` helpers would not be caught, because tMAVEN itself does
-not execute here (that is what the `sidecar` tier does elsewhere on this page).
+not execute here. The live leg below closes that gap.
+
+**Live leg against tMAVEN** (#706). `tests/test_fret_photobleach_sidecar.py` runs in the
+required `sidecar / parity` job. On a pull request that job runs it when the diff touches
+`src/tether/fret/photobleach.py`, `tests/test_fret_photobleach.py` or any other path in
+its relevance filter. A child process in the sidecar environment calls tMAVEN's own
+`normal_ln_evidence`, `normal_mu_ln_evidence`, `ln_likelihood`, `get_point_pbtime` and
+`pb_ensemble`, with the priors from tMAVEN's own photobleach preferences. The inputs are
+the synthetic traces of the unmarked tests (same seeds, same draws) and the donor, acceptor
+and summed channels of the committed 4-molecule `smd_4mol.hdf5`. Tether and the `_ref_*`
+helpers are both compared with that output. The algorithm is the same, so bleach frames and
+the ensemble rate must be equal. Log evidence must agree to a relative 1e-14 for the
+helpers (measured worst 7.1e-16, the same O(T²) sums) and 1e-12 for Tether (measured worst
+6.6e-14, from the O(T) prefix sums on a trace that never bleaches); measured 2026-11-11
+against tMAVEN `10f4230`. The same one-character error put into both a `_ref_*` helper and
+`tether.fret.photobleach` passes every unmarked photobleach test and fails this leg.
 
 **Frozen constants.** The ±2-frame tolerance is asserted inline; the priors are named in
 `src/tether/fret/photobleach.py` — `PB_PRIOR_A` 1.0, `PB_PRIOR_B` 1.0, `PB_PRIOR_BETA` 1.0,
@@ -488,7 +534,10 @@ signal/noise settings and asserts `abs(pbt - k) <= 2` for each.
 `test_detect_photobleach_window_and_masks`, `test_never_bleaches_returns_length_and_all_zero_returns_zero`,
 `test_short_traces_do_not_raise`; and at the store level
 `tests/test_project_photobleach.py::test_compute_photobleach_populates_frames_and_auto_window`
-and `test_manual_window_is_not_overwritten`.
+and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
+`tests/test_fret_photobleach_sidecar.py::test_ref_helpers_match_live_tmaven`,
+`test_tether_detector_matches_live_tmaven` and
+`test_tmaven_default_priors_are_the_ones_tether_and_the_helpers_use`.
 
 ## External benchmark
 
@@ -516,7 +565,8 @@ Read the qualifiers first, because the result means nothing without them:
   published analyses; that is a property of the paper, not of this check. Tether's fit is
   retrospective: the ground-truth rates are committed at
   `$.levels.level1.ground_truth.rates_s_inv`, the resulting rates are frozen in the same
-  file, and the enforcing test pins the fit to those frozen values (`abs=0.01`). What is
+  file, and the enforcing test pins the fit to those frozen values (each rate rounds to its
+  frozen four-decimal value). What is
   inherited from the benchmark is the *band*, not the blindness.
 
 **Band.** `$.band.rate_rel_deviation_max = 0.12` — the maximum relative deviation from
@@ -536,8 +586,10 @@ Both deviations sit inside the advisory band; the artifact characterises both as
 "~4x inside the band" (`$.band.rationale`, `$.levels.level1.tether_measured.note`) for this
 one 2-state dataset. That is the whole claim: it is not a general accuracy
 guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
-enforcing test additionally requires both rates to reproduce the frozen values to `abs=0.01`
-and each state to contribute more than 500 pooled dwells.
+enforcing test additionally requires each rate to round, at four decimals, to its frozen
+value, to reproduce the rate measured on this fixture for #740 to a relative `1e-6` (one
+Viterbi frame moved between the states changes a rate by more than that), and each state to
+contribute more than 500 pooled dwells.
 
 **Deferred levels, with ground truth recorded.** Both are stored so a future oracle needs no
 new data sourcing, and both raise `ValueError` today rather than scoring

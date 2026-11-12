@@ -16,26 +16,27 @@
 # `min_collected` here. Both changes are then visible in review. The script prints a notice
 # when a limit is loose (fewer skips than `max_skipped`, more tests than `min_collected`).
 #
-# The counts were measured on main at c290f03 (2026-11-11): the three required legs and the
-# large-fixtures job from their CI logs and a local run, sidecar / parity and deep / smoke
-# from a local run in the locked sidecar and deep environments.
+# The counts were measured on main at 4f2468e (2026-11-12) with this file's own tests: the
+# three required legs and the large-fixtures job from their CI logs and a local run,
+# sidecar / parity and deep / smoke from a local run in the locked sidecar and deep
+# environments.
 
 # --- The jobs: one table for each check name -----------------------------------------------
 
 [jobs."test (ubuntu-latest)"]
-min_collected = 3795
-max_skipped = 18
+min_collected = 4016
+max_skipped = 20
 
 [jobs."test (macos-latest)"]
-min_collected = 3795
-max_skipped = 30
+min_collected = 4016
+max_skipped = 31
 
 [jobs."test (windows-latest)"]
-min_collected = 3795
-max_skipped = 16
+min_collected = 4016
+max_skipped = 17
 
 [jobs."sidecar / parity"]
-min_collected = 10
+min_collected = 13
 max_skipped = 0
 
 [jobs."deep / smoke"]
@@ -133,6 +134,20 @@ reason = "the icon step of post_install.sh runs on Linux only"
 jobs = ["test (macos-latest)", "test (windows-latest)"]
 why = """The icon step of the installer's post_install.sh is the Linux menu entry (#673); \
 test (ubuntu-latest) runs the two tests."""
+
+[[skip]]
+test = "tests/test_gui_indicators.py::test_the_windows_setting_is_read_without_error"
+reason = "Windows setting"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The test reads the Windows reduced-motion setting of the busy indicator (#677); \
+test (windows-latest) runs it."""
+
+[[skip]]
+test = "tests/test_gui_indicators.py::test_the_macos_setting_is_read_without_error"
+reason = "macOS setting"
+jobs = ["test (ubuntu-latest)", "test (windows-latest)"]
+why = """The test reads the macOS reduced-motion setting of the busy indicator (#677); \
+test (macos-latest) runs it."""
 
 [[skip]]
 test = "tests/test_lock.py::test_windows_guard_byte_initialization_retries_stale_zero_observation"

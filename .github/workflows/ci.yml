@@ -216,15 +216,18 @@ jobs:
       # `sidecar` marker drives the isolated tMAVEN env (numpy<2/PyQt5), which CI
       # does not build (M0.5 S1) — exclude it too; it is a dev-machine check. The
       # `deep` marker drives the isolated torch `deep/` env (ADR-0047), built only
-      # on the non-required deep.yml leg — exclude it; the base app has no torch.
+      # on the non-required deep.yml leg — exclude it; the base app has no torch. The
+      # `workstation` marker needs private laboratory data that no runner has; those
+      # tests run only from scripts/workstation/run_private_checks.py on the
+      # maintainer's workstation (ADR-0071) — exclude them from every job.
       # The JUnit report feeds the skip budget below (#726).
       - name: Run tests
         id: pytest
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
-            xvfb-run -a pytest -v -m "not large and not sidecar and not deep" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+            xvfb-run -a pytest -v -m "not large and not sidecar and not deep and not workstation" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
           else
-            pytest -v -m "not large and not sidecar and not deep" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+            pytest -v -m "not large and not sidecar and not deep and not workstation" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
           fi
       # pytest exits 0 when a test skips, so a fixture, a tool or a package that goes absent
       # leaves the job green. This step fails the leg when a skip is not in

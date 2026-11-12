@@ -105,3 +105,19 @@ jobs:
         env:
           SKIP_BUDGET_JOB: large-fixtures
         run: python scripts/check_skips.py --job "$SKIP_BUDGET_JOB" --report "$RUNNER_TEMP/pytest-junit.xml"
+
+  report:
+    # A failed weekly run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: large
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: large-fixtures
+      result: ${{ needs.large.result }}
+      oracle: "other / unsure"
+      fixture-tier: "gated large (tests/fixtures/large/, LFS — large-fixtures.yml)"

@@ -46,6 +46,7 @@ from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import create_project  # noqa: E402
 from tether.project import Project  # noqa: E402
+from tether.project.conditions import sync_conditions  # noqa: E402
 from tether.project.labels import CurationLabel  # noqa: E402
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
@@ -104,12 +105,16 @@ def _build_store(
     e_values: list[float],
     category_of: list[str] | None = None,
     rejected: list[bool] | None = None,
+    source_of: list[str] | None = None,
+    tags_of: list[str] | None = None,
     name: str = "exp.tether",
 ) -> tuple[Project, list[str]]:
     """A ``.tether`` whose molecules carry known apparent-E, split across conditions.
 
     ``condition_of[i]`` / ``e_values[i]`` describe molecule row ``i``; optional
-    ``category_of`` / ``rejected`` set the per-trace category and a sticky reject.
+    ``category_of`` / ``rejected`` set the per-trace category and a sticky reject,
+    ``tags_of`` the comma-joined tags, and ``source_of`` the source filename (default
+    ``{condition_of[i]}_010.tif``; give a real one to materialize ``/conditions``).
     Conditions / categories / curation labels are written onto ``/molecules``
     directly after a single-movie extraction, and every analysis window is the full
     trace extent so the pooled apparent-E is exactly ``e_values``.
@@ -160,10 +165,14 @@ def _build_store(
         table = f["molecules"]["table"][:]
         for i in range(n):
             table["condition_id"][i] = condition_of[i]
-            table["source_filename"][i] = f"{condition_of[i]}_010.tif"
+            table["source_filename"][i] = (
+                f"{condition_of[i]}_010.tif" if source_of is None else source_of[i]
+            )
             table["analysis_window"][i] = (0, _FRAMES)
             if category_of is not None:
                 table["category"][i] = category_of[i]
+            if tags_of is not None:
+                table["tags"][i] = tags_of[i]
             if rejected is not None and rejected[i]:
                 table["curation_label"][i] = int(CurationLabel.REJECT)
         f["molecules"]["table"][:] = table
@@ -350,6 +359,113 @@ def test_category_filter_passthrough_narrows_each_condition(tmp_path: Path) -> N
     )
     overlay = per_condition_apparent_e_histograms(proj, categories=["docked"])
     assert overlay.molecule_counts == {"A": 1, "B": 1}
+
+
+def test_tag_filter_passthrough_narrows_each_condition(tmp_path: Path) -> None:
+    # tags and match_all_tags reach the query (#738 ANB-F8).
+    proj, _ = _build_store(
+        tmp_path,
+        condition_of=["A", "A", "A", "B", "B"],
+        e_values=[0.3, 0.3, 0.3, 0.8, 0.8],
+        tags_of=["blink", "blink,low-conf", "", "low-conf", ""],
+    )
+    assert per_condition_apparent_e_histograms(proj).molecule_counts == {"A": 3, "B": 2}
+    assert per_condition_apparent_e_histograms(proj, tags=["blink"]).molecule_counts == {"A": 2}
+    both = ["blink", "low-conf"]
+    assert per_condition_apparent_e_histograms(proj, tags=both).molecule_counts == {"A": 1}
+    any_of = per_condition_apparent_e_histograms(proj, tags=both, match_all_tags=False)
+    assert any_of.molecule_counts == {"A": 2, "B": 1}
+
+
+def test_key_filter_passthrough_selects_conditions(tmp_path: Path) -> None:
+    # key reaches the query: with /conditions materialized, a construct key keeps one
+    # of two conditions that share the ligand (#738 ANB-F8).
+    src_a = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"
+    src_near = "Bla_UCKOPSB_Tbox_35pM_tRNA_600nM_010.tif"  # another construct string
+    parsed_a = parse_filename(src_a)
+    cid_a, cid_near = parsed_a.condition_id, parse_filename(src_near).condition_id
+    assert cid_a != cid_near
+    proj, _ = _build_store(
+        tmp_path,
+        condition_of=[cid_a, cid_a, cid_near],
+        e_values=[0.3, 0.3, 0.8],
+        source_of=[src_a, src_a, src_near],
+    )
+    sync_conditions(proj.path)
+    every = per_condition_apparent_e_histograms(proj)
+    assert every.molecule_counts == {cid_a: 2, cid_near: 1}
+    keyed = per_condition_apparent_e_histograms(
+        proj, key={"construct_variant": parsed_a.key.construct_variant}
+    )
+    assert keyed.molecule_counts == {cid_a: 2}
+    ligand = per_condition_apparent_e_histograms(proj, key={"ligand": parsed_a.key.ligand})
+    assert ligand.molecule_counts == {cid_a: 2, cid_near: 1}
+
+
+# --- binning / pooling parameters reach every condition -----------------------
+
+
+def test_custom_grid_is_shared_by_every_condition(tmp_path: Path) -> None:
+    # A non-default grid must reach each condition's histogram, not only the overlay's
+    # bin_edges (#738 ANB-F8). On 20 bins of [0, 1], E = 0.32 is in bin 6 and E = 0.82
+    # in bin 16.
+    proj, _ = _build_store(
+        tmp_path,
+        condition_of=["A", "A", "B"],
+        e_values=[0.32, 0.32, 0.82],
+    )
+    overlay = per_condition_apparent_e_histograms(
+        proj, bins=20, value_range=(0.0, 1.0), density=False
+    )
+    assert overlay.nbins == 20
+    assert overlay.value_range == (0.0, 1.0)
+    np.testing.assert_allclose(overlay.bin_edges, np.linspace(0.0, 1.0, 21))
+    for ch in overlay.histograms:
+        assert ch.histogram.bin_edges.shape == (21,)
+        np.testing.assert_array_equal(ch.histogram.bin_edges, overlay.bin_edges)
+    expected_a = np.zeros(20)
+    expected_a[6] = 2 * _FRAMES
+    expected_b = np.zeros(20)
+    expected_b[16] = _FRAMES
+    np.testing.assert_array_equal(overlay["A"].histogram.counts, expected_a)
+    np.testing.assert_array_equal(overlay["B"].histogram.counts, expected_b)
+
+
+def test_per_molecule_equal_weight_passthrough(tmp_path: Path) -> None:
+    # With equal weight each molecule totals weight 1, so a raw-count curve sums to the
+    # molecule count N instead of N x frames (#738 ANB-F8).
+    proj, _ = _build_store(
+        tmp_path,
+        condition_of=["A", "A", "B"],
+        e_values=[0.3, 0.3, 0.8],
+    )
+    overlay = per_condition_apparent_e_histograms(
+        proj, density=False, per_molecule_equal_weight=True
+    )
+    assert overlay.per_molecule_equal_weight is True
+    assert float(overlay["A"].histogram.counts.sum()) == pytest.approx(2.0)
+    assert float(overlay["B"].histogram.counts.sum()) == pytest.approx(1.0)
+
+
+def test_intensity_quantity_passthrough(tmp_path: Path) -> None:
+    # The "raw" layer is the integrated intensity plus the constant 100 background of
+    # _integrated, so its apparent E is (1000·E + 100) / 1200: 1/3 for E = 0.3 and 0.75
+    # for E = 0.8. An unknown quantity raises (#738 ANB-F8).
+    proj, _ = _build_store(tmp_path, condition_of=["A", "B"], e_values=[0.3, 0.8])
+    corrected = per_condition_apparent_e_histograms(proj, density=False)
+    raw = per_condition_apparent_e_histograms(proj, density=False, intensity_quantity="raw")
+    assert raw.intensity_quantity == "raw"
+    edges = raw.bin_edges
+
+    def _bin(e: float) -> int:
+        return int(np.searchsorted(edges, e, side="right") - 1)
+
+    for cid, e_corrected, e_raw in (("A", 0.3, 1.0 / 3.0), ("B", 0.8, 0.75)):
+        assert _bin(e_corrected) != _bin(e_raw)
+        assert corrected[cid].histogram.counts[_bin(e_corrected)] == _FRAMES
+        assert raw[cid].histogram.counts[_bin(e_raw)] == _FRAMES
+    with pytest.raises(ValueError, match="intensity_quantity must be one of"):
+        per_condition_apparent_e_histograms(proj, intensity_quantity="bogus")
 
 
 def test_bare_string_condition_ids_raises(tmp_path: Path) -> None:
