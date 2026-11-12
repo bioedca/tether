@@ -207,6 +207,14 @@ days), so a reviewer can open the changed page rather than infer it from markdow
 External links are checked weekly, advisory only, by the `external-links` job in
 `deps-audit.yml`.
 
+## Documentation
+
+Write each documentation page to the
+[writing style guide](docs/maintainers/writing-style.md). It gives the rules for sentences,
+words, terms, warnings and page shape, and the files that the rules apply to. A reviewer can
+cite a rule by its number. To build the site and run its checks, see
+[Building the docs locally](#building-the-docs-locally).
+
 ## Licensing — SPDX / REUSE (PRD §12.1)
 
 Tether is `GPL-3.0-or-later`. **Every source file carries** an
