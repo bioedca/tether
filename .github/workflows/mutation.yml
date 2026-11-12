@@ -21,10 +21,6 @@ on:
     # 04:37 UTC on the 3rd of each month — a minute/hour no other workflow's cron uses.
     - cron: "37 4 3 * *"
   workflow_dispatch:
-  # TRIAL ONLY (reverted in the next commit): one run on the branch, since a new workflow
-  # cannot be dispatched before it is on main.
-  push:
-    branches: [agent/issue-725]
 
 permissions:
   contents: read
