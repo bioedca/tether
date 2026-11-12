@@ -31,23 +31,11 @@ the install root you chose during installation:
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
 | macOS | `<install-root>/bin/tether` | `<install-root>/bin/tether-gui` |
 
-Add that one directory to your `PATH` and every example on this page becomes literally
-copy-pasteable:
-
-```bash
-# macOS / Linux — append to ~/.zshrc or ~/.bashrc to make it permanent
-export PATH="<install-root>/bin:$PATH"
-```
-
-```powershell
-# Windows PowerShell — current session only
-$env:PATH = "<install-root>\bin;$env:PATH"
-
-# Windows PowerShell — persists for your user account (new sessions only;
-# it does not affect the session you run it in)
-[Environment]::SetEnvironmentVariable(
-    "PATH", "<install-root>\bin;" + [Environment]::GetEnvironmentVariable("PATH", "User"), "User")
-```
+Add that one directory to the **end** of your `PATH`, and you can copy every example on
+this page as it is. [Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)
+gives the line for each system. It also tells why the folder goes at the end: on Linux and
+macOS the folder also holds the installer's own `python`, `pip` and `conda`, and these must
+not hide your own.
 
 Without that step, substitute the full launcher path from the table for `tether` in
 every command below; nothing else changes. Verify the install with:
