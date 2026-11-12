@@ -271,6 +271,32 @@ def test_population_per_molecule_equal_weight(tmp_path) -> None:
     assert per_mol.counts[b75] == pytest.approx(1.0)
 
 
+def test_population_reads_the_requested_intensity_quantity(tmp_path) -> None:
+    # The store holds two trace layers: "corrected" (the integrated intensity) and "raw"
+    # (that intensity plus the constant 100 background of _integrated). With
+    # donor = (1 - E)·1000 and acceptor = E·1000 the raw apparent E is
+    # (1000·E + 100) / 1200, which is 1/3 for E = 0.3 (#738 ANB-F8).
+    t = 10
+    donor, acceptor = _constant_e_traces([0.3], t)
+    proj, _ = _build_store(tmp_path / "h.tether", donor, acceptor)
+
+    corrected = population_apparent_e_histogram(proj, density=False)
+    raw = population_apparent_e_histogram(proj, density=False, intensity_quantity="raw")
+    raw_ci = population_apparent_e_histogram_ci(
+        proj, density=False, intensity_quantity="raw", n_resamples=8
+    )
+    edges = corrected.bin_edges
+    b_corrected = int(np.searchsorted(edges, 0.3, side="right") - 1)
+    b_raw = int(np.searchsorted(edges, 1.0 / 3.0, side="right") - 1)
+    assert b_corrected != b_raw
+    assert corrected.counts[b_corrected] == t
+    assert raw.counts[b_raw] == t
+    assert raw_ci.counts[b_raw] == t
+    for histogram_fn in (population_apparent_e_histogram, population_apparent_e_histogram_ci):
+        with pytest.raises(ValueError, match="intensity_quantity must be one of"):
+            histogram_fn(proj, intensity_quantity="bogus")
+
+
 def test_population_all_rejected_is_empty(tmp_path) -> None:
     t = 8
     donor, acceptor = _constant_e_traces([0.5], t)
@@ -337,6 +363,58 @@ def test_bootstrap_ci_two_populations_have_spread() -> None:
     # observed count within [min, max] of the resamples -> error bars non-negative
     assert np.all(ci.yerr_low >= 0.0)
     assert np.all(ci.yerr_high >= 0.0)
+
+
+def _four_plus_four() -> list[np.ndarray]:
+    """Four molecules at E = 0.25 and four at E = 0.75, 8 frames each (#738 ANB-F1)."""
+    mols = [_const_molecule(0.25, 8) for _ in range(4)]
+    mols += [_const_molecule(0.75, 8) for _ in range(4)]
+    return mols
+
+
+# Analytic oracle for the 4 + 4 case (#738 ANB-F1). A resample draws 8 molecules with
+# replacement and each draw is an E = 0.25 molecule with probability 1/2, so the
+# resampled count in the E = 0.25 bin is 8·K with K ~ Binomial(8, 1/2). The CDF of K
+# at k = 0..7 is (1, 9, 37, 93, 163, 219, 247, 255) / 256, so the 2.5 % and 97.5 %
+# percentiles are K = 1 and K = 7 (counts 8 and 56), and the 25 % and 75 % percentiles
+# are K = 3 and K = 5 (counts 24 and 40). Each of these levels is at least 0.01 from
+# a step of the CDF, which is many times the sampling error at 20 000 resamples. The
+# std of the bin is 8·sqrt(8 · 1/2 · 1/2) = 8·sqrt(2). The E = 0.75 bin holds
+# 8·(8 - K), which has the same percentiles. The point estimate is 4 · 8 = 32.
+@pytest.mark.parametrize(("ci_level", "low", "high"), [(0.95, 8.0, 56.0), (0.5, 24.0, 40.0)])
+def test_bootstrap_ci_band_matches_binomial_percentiles(
+    ci_level: float, low: float, high: float
+) -> None:
+    ci = bootstrap_histogram_ci(
+        _four_plus_four(), n_resamples=20_000, density=False, ci_level=ci_level
+    )
+    assert ci.ci_level == ci_level
+    for e in (0.25, 0.75):
+        b = int(np.searchsorted(ci.bin_edges, e, side="right") - 1)
+        assert ci.counts[b] == 32.0
+        assert (float(ci.ci_low[b]), float(ci.ci_high[b])) == (low, high)
+        assert float(ci.std[b]) == pytest.approx(8.0 * np.sqrt(2.0), rel=0.03)
+    # The error bars are the distances from the point estimate to the band limits. The
+    # point estimate is inside the band in every bin here, so the clamp at 0 does not act.
+    np.testing.assert_array_equal(ci.yerr_low, ci.counts - ci.ci_low)
+    np.testing.assert_array_equal(ci.yerr_high, ci.ci_high - ci.counts)
+
+
+def test_bootstrap_ci_two_resamples_fix_band_width_to_std() -> None:
+    # With two resamples a and b in a bin, the linear percentile (NumPy's default) at
+    # alpha = (1 - ci_level) / 2 gives ci_low = min + alpha·|a - b| and
+    # ci_high = max - alpha·|a - b|, and the sample std (ddof = 1) is |a - b| / sqrt(2).
+    # So ci_high - ci_low = ci_level · sqrt(2) · std in every bin, whatever the two draws
+    # are. A population std (ddof = 0) would be |a - b| / 2 and break the identity
+    # (#738 ANB-F1).
+    for ci_level in (0.95, 0.5):
+        ci = bootstrap_histogram_ci(
+            _four_plus_four(), n_resamples=2, density=False, ci_level=ci_level
+        )
+        assert np.any(ci.std > 0.0)  # the two draws differ in at least one bin
+        np.testing.assert_allclose(
+            ci.ci_high - ci.ci_low, ci_level * np.sqrt(2.0) * ci.std, rtol=1e-12, atol=1e-12
+        )
 
 
 def test_bootstrap_ci_reproducible_seeded() -> None:
