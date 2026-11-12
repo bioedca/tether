@@ -366,17 +366,17 @@ proximity ratio `A/(D+A)`), switching to corrected E at M3
 ([McCann 2010](#mccann2010); [Hellenkamp 2018](#hellenkamp2018)).
 
 > **D1 closes the §9 M6 "seven plots" clause across M2 + M6.** Unlike A1–C1, D1 is not a
-> population aggregate and has no dedicated numeric tMAVEN oracle — it *is* the curation
-> trace dock built at M2 S1, whose tests assert axis/label **conventions** rather than
-> tMAVEN visual parity. Its correspondence to tMAVEN's per-trace viewer is therefore
+> population aggregate — it *is* the curation trace dock built at M2 S1, whose tests assert
+> axis/label **conventions**. Its parity has two parts. The **values** it plots (time axis,
+> intensities, apparent E and idealized level) are compared numerically with live tMAVEN for
+> all 281 fixture molecules (see **Parity evidence** below). The **rendered figure** is
 > **structural and conventional** — the shared 2×2 layout, the donor/acceptor/FRET channel
 > and colour conventions, and the idealization-path overlay — **not** pixel-identical: the
 > **Deliberate MVP divergences** listed below (apparent-vs-corrected E, marginal binning,
 > the alpha-graded photobleach segments, the signal-mode switch) are tracked and converge in
-> later milestones (photobleach segmentation at M3). Recording that convention-level
-> correspondence **here**, alongside A1/A2/B1/B2/B3/C1, is what closes the acceptance clause
-> for the seventh plot type across the two milestones — in the sense the plan designates for
-> D1, whose parity is conventional by construction rather than a numeric-oracle match.
+> later milestones (photobleach segmentation at M3). Recording both parts **here**, alongside
+> A1/A2/B1/B2/B3/C1, is what closes the acceptance clause for the seventh plot type across the
+> two milestones.
 
 **tMAVEN counterpart.** `multi_canvas` (a 2×2 matplotlib grid, `width_ratios=[6,1]`);
 `calc_trajectory`, `calc_histograms`, `calc_model_traj` / `draw_model`, `draw_traj` (three
