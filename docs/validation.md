@@ -75,7 +75,7 @@ Which tier each oracle's *headline* assertion lives in:
 | --- | --- | --- |
 | (a) Extraction vs Deep-LASI | `large` — but it **skips even there**, because the ≈0.9 GB movie is on no runner; the numbers come from a local run | scorer unit tests, the committed 4-molecule slice, the registration RMS gate |
 | (b) Idealization parity vs tMAVEN | `sidecar` — required, but only actually fits when a pull request touches an idealization path | the frozen artifact is checked against its own recorded evidence |
-| (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery |
+| (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery; the level-2 and level-3 truth against the simulator settings files |
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
@@ -373,9 +373,10 @@ equally wrong fits cannot see.
 
 ## (c) Kinetics vs kinSoftChallenge
 
-This oracle is **advisory** and covers the **2-state level 1 dataset only**; see
+This oracle is **advisory**. Only the **2-state level 1 dataset** is held to a band; levels 2
+and 3 are fitted and their errors reported, never band-checked. See
 [External benchmark](#external-benchmark) below for the full statement with its
-qualifiers, the frozen band, the ground truth and the deferred levels.
+qualifiers, the frozen band, the ground truth and the two reported levels.
 
 **Enforcing test.** `tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread`
 — `@pytest.mark.large`, and it skips when `tests/fixtures/large/kinsoft_sim.hdf5` is an
@@ -384,8 +385,13 @@ unmaterialized Git-LFS pointer. On the required matrix,
 (`rates_s_inv`) of the three levels and Tether's frozen level-1 rates and deviations, and
 requires each deviation to be the one its rate gives;
 `test_evaluate_kinsoft_level_scores_a_synthetic_level` runs the scoring on a level built in
-the test; and `test_evaluate_rejects_deferred_levels` proves levels 2 and 3 raise rather
-than silently score. The primitives are covered by
+the test; and `test_evaluate_rejects_the_reported_levels` proves levels 2 and 3 raise in the
+band check rather than silently score. The reported levels run in
+`tests/test_kinsoft_levels.py`: `test_kinsoft_level2_six_rates_against_the_settings_truth` and
+`test_kinsoft_level3_dwell_distributions_against_the_settings_truth` are `@pytest.mark.large`
+beside level 1, and on the required matrix `test_level2_reference_is_the_settings_file` and
+`test_level3_reference_is_the_settings_file_renumbered` require each ground-truth value of
+the two levels to equal what the parser reads from the simulator settings file. The primitives are covered by
 `test_fit_gaussian_hmm_recovers_synthetic_states` and
 `test_two_state_rate_constants_recovers_synthetic_rates` on synthetic traces, and the EM
 stop rule by `test_fit_gaussian_hmm_stops_on_the_first_iteration_that_meets_tol`.
@@ -587,9 +593,10 @@ spread of the **kinSoftChallenge** of Götz *et al.*, *Nature Communications* **
 (2022) — a blind benchmark for the 14 analyses published in it, though not for Tether's own
 retrospective fit (see the qualifiers below). Paper doi
 `10.1038/s41467-022-33023-3`, data doi `10.5281/zenodo.5701310` (CC-BY-4.0). Everything
-below is recorded in `schema/kinsoft_reference.json` (`schema_version` 1,
+below is recorded in `schema/kinsoft_reference.json` (`schema_version` 2,
 `frozen_at_milestone` `"M8"`, `measured_utc` `"2026-07-13"`) and rationalized in
-[ADR-0048](adr/0048-kinsoft-kinetics-oracle.md).
+[ADR-0048](adr/0048-kinsoft-kinetics-oracle.md); levels 2 and 3 in
+[ADR-0082](adr/0082-kinsoft-levels-two-and-three-are-reported.md).
 
 Read the qualifiers first, because the result means nothing without them:
 
@@ -601,7 +608,9 @@ Read the qualifiers first, because the result means nothing without them:
   `tests/test_kinsoft_kinetics.py::test_kinsoft_level1_within_inter_tool_spread`, which runs
   weekly or on manual dispatch, needs the Git-LFS `tests/fixtures/large/kinsoft_sim.hdf5`,
   and skips if that file is still an LFS pointer.
-- Levels 2 and 3 are **deferred**, not passed and not attempted.
+- Levels 2 and 3 are **reported, not band-checked**: the fit runs and its errors are
+  printed and frozen (see "The reported levels" below), and no error
+  there fails a test.
 - **Tether's own fit was not blind.** The kinSoftChallenge was a blind benchmark for its 14
   published analyses; that is a property of the paper, not of this check. Tether's fit is
   retrospective: the ground-truth rates are committed at
@@ -632,19 +641,76 @@ value, to reproduce the rate measured on this fixture for #740 to a relative `1e
 Viterbi frame moved between the states changes a rate by more than that), and each state to
 contribute more than 500 pooled dwells.
 
-**Deferred levels, with ground truth recorded.** Both are stored so a future oracle needs no
-new data sourcing, and both raise `ValueError` today rather than scoring
-(`test_evaluate_rejects_deferred_levels`):
+**The reported levels, with ground truth from the simulator settings.** Since #717
+([ADR-0082](adr/0082-kinsoft-levels-two-and-three-are-reported.md)) the truth of levels 2
+and 3 is read, not transcribed: the record's `MATLAB_simulator.zip` holds the settings file
+the simulator read for each level, the three files are committed verbatim under
+`tests/fixtures/kinsoft_simulator/`, and a parser in the test suite reads them (the simulator
+itself is not vendored, PRD N2). Both levels raise `ValueError` in the band check
+(`test_evaluate_rejects_the_reported_levels`). Their errors are printed by the `large`-tier
+tests and frozen in the file to catch drift; no error there fails a test, and no band applies
+to them:
 
-| Level | System | States | Traces | Why deferred (`$.levels.*.deferred_reason`) |
+| Level | System | States | Traces | Leg (`$.levels.*.report_reason`) |
 | --- | --- | --- | --- | --- |
-| level2 (Fig. 3) | 3-state non-equilibrium steady state | 3 | 150 | the best benchmark tools reach only 9–14 % average deviation and most mis-allocate 1↔3 transitions; a faithful oracle needs a 3-state idealizer plus net-flow handling |
-| level3 (Fig. 4) | 4-state kinetic heterogeneity with blinking | 4 | 250 | states 1 and 2 share the low-FRET level and 3 and 4 the high-FRET level, so a FRET-only idealizer sees two states |
+| level2 (Fig. 3) | 3-state non-equilibrium steady state | 3 | 150 | a 3-state fit, then the six rates `k_ij = n_ij / T_i`, each against the truth |
+| level3 (Fig. 4) | 4-state kinetic heterogeneity with blinking | 4 | 250 | a 2-state fit, then the dwell-time distribution of each FRET level against the one the true 4-state matrix predicts |
+
+**Level 2.** The 3-state fit finds the three FRET levels of the settings file (0.10, 0.53,
+0.90). `n_ij` is the number of counted dwells in state `i` that end in `j` and `T_i` their
+total time, over the dwells `pooled_exit_rates` counts, so each row sums to that state's
+exit rate:
+
+| Rate | Ground truth (s⁻¹) | Tether (s⁻¹) | Relative deviation, no band |
+| --- | --- | --- | --- |
+| `k12_low_mid` | 0.30 | 0.4073 | 0.358 |
+| `k13_low_high` | 0.38 | 0.2338 | 0.385 |
+| `k21_mid_low` | 0.05 | 0.2373 | 3.746 |
+| `k23_mid_high` | 0.37 | 0.4733 | 0.279 |
+| `k31_high_low` | 0.45 | 0.2956 | 0.343 |
+| `k32_high_mid` | 0.10 | 0.2287 | 1.287 |
+
+The present method cannot recover these rates, and the reason is measured. A low↔high
+jump inside one 0.1 s frame averages to a mid-FRET frame, and Viterbi reads that frame as a
+one-frame dwell in the mid state: 689 of the 1638 counted mid-FRET dwells last one frame. So
+`k21` and `k32` come out high and `k13` and `k31` low — the mis-allocation of 1↔3
+transitions that the benchmark reports for most tools. What is missing is a correction for
+a transition inside a frame (a missed-event or mixed-frame model); the fit still agrees with
+the truth on which direction of each pair is faster. The earlier record of this level had
+read `k12` as 0.05 and `k21` as 0.30 s⁻¹ from a diagram of the paper's supplement; the
+settings file gives the reverse.
+
+**Level 3.** States 1 and 2 share the low-FRET level and 3 and 4 the high-FRET level, so a
+FRET-only 2-state fit sees two states, as the benchmark found for most tools. The benchmark
+compares this level through cumulative dwell-time distributions, which it simulates from
+each submitted model (Götz *et al.* 2022, above). Tether compares the pooled Viterbi dwells
+of each FRET level (first and last dwell of each molecule dropped) with the distribution
+the true matrix gives in closed form: a dwell in class `A` starts in its states with the
+probabilities `φ_A ∝ π_B Q_BA` of an entry at steady state and lasts longer than `t` with
+probability `φ_A exp(Q_AA t) 1` — the dwell-time distribution of an aggregated Markov process
+(Colquhoun & Hawkes, *Proc. R. Soc. Lond. B* **211**:205 (1981), doi
+`10.1098/rspb.1981.0003`; *Phil. Trans. R. Soc. Lond. B* **300**:1 (1982), doi
+`10.1098/rstb.1982.0156`). The distance is the Kolmogorov–Smirnov statistic:
+
+| FRET level | Dwells | Mean dwell (s) | Predicted mean dwell (s) | Relative deviation | KS distance |
+| --- | --- | --- | --- | --- | --- |
+| `low_fret` | 600 | 6.4653 | 9.0538 | 0.286 | 0.0781 |
+| `high_fret` | 667 | 3.0459 | 4.3897 | 0.306 | 0.1471 |
+
+The observed dwells are shorter than predicted. Most of that is the window: the traces are
+short against the dwells (median 35.7 s against a predicted mean low-FRET dwell of 9.1 s),
+and a dwell that a trace end cuts is never counted, so long dwells are under-sampled.
+Blinking and noise also split dwells. The comparison therefore measures Tether's fit and
+this dataset's windowing together, not the fit alone.
 
 Level 3's full ground-truth rate matrix is recorded at
-`$.levels.level3.ground_truth.rates_s_inv` (k12 0.053, k14 0.018, k21 0.080, k23 0.250,
+`$.levels.level3.ground_truth.rates_s_inv` in the state numbers of the paper's supplement
+(k12 0.053, k14 0.018, k21 0.080, k23 0.250,
 k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking rates
-`kbright` 7 s⁻¹ and `kdark` 0.007 s⁻¹.
+`kbright` 7 s⁻¹ and `kdark` 0.007 s⁻¹. The
+settings file numbers the same states differently; `settings_state_of` maps each one to its
+row there, and the required-matrix test checks every rate, every zero and both blinking
+rates of both dyes against the file.
 
 ## Scope and known limitations
 
@@ -675,9 +741,10 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
   that shows only on some seeds can pass it. Unseeded ebFRET keeps a rare poor-optimum tail
   (one observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor,
   [#311](https://github.com/bioedca/tether/issues/311)) that the frozen band does not cover.
-- The kinSoftChallenge check is advisory, 2-state level 1 only, gated (see above), and
-  **not blind** — the ground truth is committed and the fit is retrospective. Levels 2 and 3
-  are deferred.
+- The kinSoftChallenge check is advisory, band-checked on the 2-state level 1 only, gated
+  (see above), and **not blind** — the ground truth is committed and the fit is
+  retrospective. Levels 2 and 3 are reported, not band-checked, and the present method does
+  not recover the level-2 rates.
 - (b) has no per-trace vbFRET measurement, (d) has no leave-one-video-out protocol and no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section

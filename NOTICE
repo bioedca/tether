@@ -36,8 +36,13 @@ kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.
   tests/fixtures/kinsoft_trace_sample.txt), used only as an M8 kinetics-validation
   oracle (PRD §8 NFR-VALID(c), §9 M8). These files are licensed CC-BY-4.0 (see
   LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT GPL-3.0; attribution
-  to Götz & Schmid travels with them. The MATLAB simulator from the same record is
-  NOT vendored (PRD N2 — Tether ships no data simulator).
+  to Götz & Schmid travels with them. The three simulator settings files
+  tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_1.cfg,
+  tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_2.cfg and
+  tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_3.cfg are
+  copied verbatim from MATLAB_simulator.zip of the same record (CC-BY-4.0) as the
+  ground truth of that oracle (#717). The MATLAB simulator itself is NOT vendored
+  (PRD N2 — Tether ships no data simulator).
 
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)

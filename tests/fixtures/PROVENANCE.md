@@ -277,9 +277,37 @@ datasets' ground-truth rate constants and the reported inter-tool spread; both a
   finite-dataset floor — the advisory acceptance band.
 
 `schema/kinsoft_reference.json` is Tether's own (GPL-3.0) compilation of these
-values with full source provenance; only `level1` has an active oracle (a FRET-only
-idealizer cannot resolve the overlapping-FRET 4-state case — the paper itself uses
-cumulative dwell-time distributions there).
+values with full source provenance; only `level1` has an active, band-checked oracle.
+Levels 2 and 3 are fitted and reported, never band-checked (#717, ADR-0082).
+
+### kinSoftChallenge simulator settings (the ground truth of levels 2 and 3, #717)
+
+Since #717 the ground truth of levels 2 and 3 is read, not transcribed: the record's
+`MATLAB_simulator.zip` holds the settings file the simulator read for each level, and
+`tests/_kinsoft_config.py` parses it. The three files are copied **verbatim** (byte for
+byte, `-text` in `.gitattributes`, outside the whitespace hooks):
+
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_1.cfg` (2,942 B)
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_2.cfg` (3,074 B)
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_3.cfg` (3,034 B)
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `MATLAB_simulator.zip` | 26,527 B | `0a3c65403782fb1378b600fad9a26da8d99b5f955127f6ddb884afcaa3ed20b4` |
+
+The members are `MATLAB_simulator/Config_simulation_round_1_level_N.cfg`; their own
+checksums are in `tests/reference_data/manifest.toml` (ids `kinsoft-simulator` and
+`kinsoft-settings-level1` to `kinsoft-settings-level3`), and the weekly `reference-data`
+job compares each committed file with its member. **Accessed:** 2026-11-12 (downloaded
+from Zenodo; the record's MD5 `49ef3a860a2e05d01233466ccbd06169` also matched).
+**License:** CC-BY-4.0, the licence of the record. The zip also holds a `license.txt` that
+grants MIT terms to Markus Götz's simulator code; Tether copies none of that code (PRD N2).
+
+The files changed two recorded values. The level-2 entry had read the 1↔2 rates from the
+Suppl. Table 5 diagram as k₁₂ = 0.05 and k₂₁ = 0.30 s⁻¹; the settings file gives
+q₁₂ = 0.30 (low→mid) and q₂₁ = 0.05 s⁻¹ (mid→low), and Tether's 3-state fit agrees with
+the file on which direction is faster. The level-3 rates of Suppl. Table 1 equal the
+file's under a renumbering of the states (`settings_state_of` in the JSON).
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 

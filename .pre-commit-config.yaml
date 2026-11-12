@@ -11,12 +11,13 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      # Frozen reference outputs (#700, ADR-0074) are checked byte for byte against
-      # their SHA-256; a hook that rewrote their whitespace would break the record.
+      # Frozen reference outputs (#700, ADR-0074) and the kinSoft simulator settings (#717)
+      # are checked byte for byte against their SHA-256; a hook that rewrote their
+      # whitespace would break the record.
       - id: trailing-whitespace
-        exclude: ^tests/fixtures/reference/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator)/
       - id: end-of-file-fixer
-        exclude: ^tests/fixtures/reference/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator)/
       - id: check-yaml
         # packaging/construct.yaml is a `constructor` recipe, not plain YAML: it
         # uses conda-build line selectors (`# [win]`) and Jinja, so the same key
