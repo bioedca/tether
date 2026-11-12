@@ -28,12 +28,12 @@ the module is excluded by ``-m "not ... and not sidecar"``.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from pathlib import Path
 
 import pytest
 
+from _sidecar_gate import requires_sidecar
 from tether.idealize import (
     compare_models,
     load_frozen_tolerance,
@@ -49,12 +49,7 @@ REPO = Path(__file__).resolve().parents[1]
 FIXTURES = REPO / "tests" / "fixtures"
 FROZEN = REPO / "schema" / "parity_tolerance.json"
 
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
-
-#: The two fixed seeds of the ebFRET cross-seed gate (issue #311, ADR-0075). Chosen as
+#: The two fixed seeds of the ebFRET cross-seed gate (issue #311, ADR-0075). Chosen
 #: as 1 and 2 before any seeded fit was run, and never re-chosen to make it pass.
 EBFRET_SEEDS = (1, 2)
 

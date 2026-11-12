@@ -35,9 +35,9 @@
 # Trigger: `pull_request` (path-gated, below) + `push` to `main` (post-merge) + manual
 # `workflow_dispatch` + nightly `schedule`. On a PR the job ALWAYS runs but only does the heavy env+fit when the PR
 # touches idealization-relevant paths (src/tether/idealize, sidecar, the tolerance,
-# the sidecar tests, this workflow, or the setup-env action) or the photobleach detector
-# that oracle (g)'s live leg compares with tMAVEN (#706); an unrelated PR reports
-# a fast "not applicable" success in seconds. Because the single `sidecar / parity`
+# the sidecar tests and the fixtures they read, this workflow, or the setup-env
+# action) or the photobleach detector that oracle (g)'s live leg compares with tMAVEN
+# (#706); an unrelated PR reports a fast "not applicable" success in seconds. Because the single `sidecar / parity`
 # job always completes and reports, it is safe to add to the `main-baseline` ruleset's
 # required set (per §12.6 "Active from M0.5") WITHOUT leaving unrelated PRs stuck on a
 # never-reported check — the classic required-plus-path-filter footgun. dispatch /
@@ -133,8 +133,11 @@ jobs:
             # e.g. both test_parity_sidecar.py and test_sidecar_driver.py), so a change to
             # ANY sidecar module runs the live suite — not just the parity module. The
             # photobleach detector and the unmarked test holding its `_ref_*` oracle are
-            # what test_fret_photobleach_sidecar.py compares with live tMAVEN (#706).
-            pattern='^(src/tether/idealize/|src/tether/fret/photobleach\.py|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|tests/test_fret_photobleach\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+            # what test_fret_photobleach_sidecar.py compares with live tMAVEN (#706). The
+            # fixtures those modules read and the helper they import (tests/_sidecar_gate.py)
+            # are inputs of the same fits, so a change to them runs the suite too (#750).
+            # tests/test_marker_contract.py checks this pattern against those files.
+            pattern='^(src/tether/idealize/|src/tether/fret/photobleach\.py|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|tests/test_fret_photobleach\.py|tests/_sidecar_gate\.py|tests/fixtures/smd_4mol\.hdf5|tests/fixtures/large/(smd|model)_281mol\.hdf5|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
             if echo "$changed" | grep -qE "$pattern"; then
               run=true
               echo "Idealization-relevant paths changed -> running the live parity suite."
@@ -181,6 +184,11 @@ jobs:
           NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
           # run_vbfret spawns the sidecar interpreter; here it is this same env.
           TETHER_SIDECAR_PYTHON_AUTO: "1"
+          # A missing interpreter FAILS the sidecar tests here instead of skipping them:
+          # pytest exits 0 when every test is skipped, so without this a lost
+          # TETHER_SIDECAR_PYTHON would report this required check green with zero fits
+          # (tests/_sidecar_gate.py, #750).
+          TETHER_REQUIRE_SIDECAR: "1"
         run: |
           export TETHER_SIDECAR_PYTHON="$(python -c 'import sys; print(sys.executable)')"
           # Scope collection to the sidecar test modules only. The isolated sidecar
@@ -193,10 +201,13 @@ jobs:
           # `test_*sidecar*.py` glob is the contract enforced in the base matrix by
           # tests/test_marker_contract.py, so a new sidecar test cannot silently
           # escape this job. `-m sidecar` still filters within the collected files.
-          # The JUnit report feeds the skip budget below (#726).
+          # That file also pins these two command lines exactly (#750): no narrowing
+          # option, nothing after the pytest line that could replace its exit status. The
+          # one option it accepts is this JUnit report, which feeds the skip budget below (#726).
           pytest -m sidecar tests/test_*sidecar*.py -q --junitxml="$RUNNER_TEMP/pytest-junit.xml"
-      # Every live sidecar test skips when TETHER_SIDECAR_PYTHON is unset, and pytest then
-      # exits 0 with no fit run. This step fails the job when a test skips that
+      # Without TETHER_REQUIRE_SIDECAR above, every live sidecar test would skip when
+      # TETHER_SIDECAR_PYTHON is unset, and pytest would exit 0 with no fit run (#750). This
+      # step is a second guard: it fails the job when a test skips that
       # tests/skip_budget.toml does not list for this job (it lists none), or when fewer
       # tests ran than its committed minimum (#726). It is skipped exactly when the parity
       # step is (an unrelated pull request), and it runs after a red parity step too.
