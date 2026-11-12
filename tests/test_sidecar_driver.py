@@ -11,24 +11,19 @@ a developer runs it as the de-risk check. They are slow (cold Numba compile).
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from tether.idealize import NO_STATE, read_smd, run_vbfret, write_smd
+from _sidecar_gate import requires_sidecar
+from tether.idealize import NO_STATE, read_smd, run_vbfret, states_from_idealized, write_smd
 
 pytestmark = pytest.mark.sidecar
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FOUR_MOL = FIXTURES / "smd_4mol.hdf5"
-
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
 
 
 @requires_sidecar
@@ -44,25 +39,39 @@ def test_vbfret_roundtrip_on_4mol(tmp_path):
     assert result.status["nmol"] == 4
     assert result.status["nt"] == 1700
 
-    # The fitted ensemble model.
+    # The fitted ensemble model is the requested one: the default consensus VB-HMM with the
+    # requested 2 states (a runner that ignored ``nstates`` fails here, #737 IDZ-N2).
     model = result.model
-    assert model.nstates >= 1
+    assert model.model_type == "vb Consensus HMM"
+    assert result.status["result_type"] == "vb Consensus HMM"
+    assert model.nstates == 2
+    assert result.status["nstates"] == 2
     assert model.means.size == model.nstates
     assert np.all(np.isfinite(model.means))
     assert model.idealized is not None
     assert model.idealized.shape == (4, 1700)
     assert model.elbo is not None  # ELBO trace present
 
-    # Per-molecule state paths + dwells were derived for every fitted molecule.
-    assert len(result.state_paths) == 4
-    for path in result.state_paths.values():
+    # Per-molecule state paths + dwells were derived for every fitted molecule: each path
+    # is the state path of that molecule's own idealized row, and the dwells rebuild exactly
+    # those paths (a driver that gave every molecule one row's path fails, #737 IDZ-F7).
+    assert sorted(result.state_paths) == [0, 1, 2, 3]
+    for mol_idx, path in result.state_paths.items():
         assert path.shape == (1700,)
         assert set(np.unique(path)).issubset(set(range(model.nstates)) | {NO_STATE})
+        expected = states_from_idealized(model.idealized[mol_idx], model.means)
+        np.testing.assert_array_equal(path, expected)
     assert result.dwells, "expected at least one dwell segment"
+    rebuilt = {mol_idx: np.full(1700, NO_STATE, dtype="int64") for mol_idx in result.state_paths}
     for d in result.dwells:
         assert 0 <= d.state < model.nstates
         assert d.length >= 1
         assert d.start >= 0
+        segment = rebuilt[d.molecule_index][d.start : d.start + d.length]
+        assert np.all(segment == NO_STATE), "two dwells cover the same frame"
+        segment[:] = d.state
+    for mol_idx, path in result.state_paths.items():
+        np.testing.assert_array_equal(rebuilt[mol_idx], path)
 
     # The model file is a real Appendix-D.2 artifact on disk.
     assert result.model_path.exists()
@@ -87,9 +96,8 @@ def test_vbfret_carries_molecule_keys(tmp_path):
 
     result = run_vbfret(smd, nstates=2, nrestarts=1, timeout=1800.0)
     assert result.molecule_keys == keys
-    # Each fitted SMD row maps back to a carried store key.
-    for mol_idx in result.state_paths:
-        assert result.molecule_keys[mol_idx] == keys[mol_idx]
+    # Every keyed molecule was fitted, so each carried store key has a state path.
+    assert sorted(result.state_paths) == list(range(len(keys)))
 
 
 @requires_sidecar
