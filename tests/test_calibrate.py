@@ -575,11 +575,15 @@ def test_registration_map_from_tmap_validates() -> None:
 def test_imported_map_carries_both_channel_crops() -> None:
     _reference, channels = _load_tmap_fixture()
     reg = registration_map_from_tmap(channels)
-    # Both channels' crop geometry is carried from the .tmap (Stage 10).
+    # Both channels' crop geometry is carried from the .tmap (Stage 10), each from its
+    # own channel: the fixture splits the 512 x 512 chip left/right, so the reference
+    # (channel 1) is the left half and the moving channel (2) the right half. An exact
+    # value, not "is not None", so a moving crop read from the reference half fails
+    # (#732). ChannelGeometry.crop is [y1, x1, y2, x2], 1-based inclusive.
     assert reg.reference_geometry is not None
-    assert reg.reference_geometry.crop is not None
+    assert reg.reference_geometry.crop == (1, 1, 512, 256)
     assert reg.moving_geometry is not None
-    assert reg.moving_geometry.crop is not None
+    assert reg.moving_geometry.crop == (1, 257, 512, 512)
 
 
 # --- public surface ----------------------------------------------------------

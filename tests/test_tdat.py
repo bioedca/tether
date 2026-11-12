@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Decode tests for the Deep-LASI TIRFdata ``.tdat`` reader (PRD §7.8, App B; M0.5 S6).
 
-Locks the colocalized-coordinate decode and — critically — the Appendix-B
-correction-factor remap (Deep-LASI's ``Alpha``/``Beta`` naming is inverted
-relative to Tether's), against a real 250-molecule slice of the UCKOPSB ``.tdat``.
+Locks the colocalized-coordinate decode against a real 250-molecule slice of the
+UCKOPSB ``.tdat`` and — critically — the Appendix-B correction-factor remap
+(Deep-LASI's ``Alpha``/``Beta`` naming is inverted relative to Tether's). The real
+slice stores zero for all three factors, so it cannot show a mix-up of the reads;
+the remap through :func:`read_tdat` is locked on a synthetic ``.tdat`` that stores
+three distinct non-zero factors (#732).
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ def _write_minimal_tdat(
     channels: list[float] | None = None,
     reference: float = 1.0,
     detection_mode: float | None = None,
+    factors: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> None:
     """Write a minimal ``temp`` struct for decoder tests.
 
@@ -58,6 +62,8 @@ def _write_minimal_tdat(
     ``ChannelsWithData`` / ``MappingReferenceChannel`` (MATLAB 1-based).
     ``detection_mode`` writes ``temp/ParticleDetectionMode`` when given; ``None``
     omits the leaf (so the reader falls back to the wavelet class default).
+    ``factors`` is the stored Deep-LASI ``(DefaultAlpha, DefaultBeta, DefaultGamma)``,
+    in Deep-LASI's own naming.
     """
     if channels is None:
         channels = [1.0, 2.0]
@@ -71,8 +77,10 @@ def _write_minimal_tdat(
             ds = refs.create_dataset("a", data=np.asarray(table, dtype=np.float64).T)
             pc = temp.create_dataset("ParticlesColocalized", shape=(1, 1), dtype=h5py.ref_dtype)
             pc[0, 0] = ds.ref
-        for name in ("DefaultAlpha", "DefaultBeta", "DefaultGamma"):
-            temp.create_dataset(name, data=np.array([[0.0]]))
+        for name, value in zip(
+            ("DefaultAlpha", "DefaultBeta", "DefaultGamma"), factors, strict=True
+        ):
+            temp.create_dataset(name, data=np.array([[value]]))
         temp.create_dataset(
             "ChannelsWithData", data=np.array(channels, dtype=np.float64).reshape(-1, 1)
         )
@@ -162,6 +170,20 @@ def test_factors_decoded_and_remapped(tdat: Tdat) -> None:
     # This acquisition stores zero default factors.
     assert (corr.deeplasi_alpha, corr.deeplasi_beta, corr.deeplasi_gamma) == (0.0, 0.0, 0.0)
     assert (corr.alpha, corr.delta, corr.gamma) == (0.0, 0.0, 0.0)
+
+
+def test_read_tdat_remaps_distinct_stored_factors_by_name(tmp_path: Path) -> None:
+    # The real slice stores zeros, so any permutation of the three reads gives the
+    # same result there. Three distinct non-zero values make each read visible: a
+    # read that takes Alpha for Beta drops the real leakage correction (#732).
+    path = tmp_path / "factors.tdat"
+    _write_minimal_tdat(path, table=None, factors=(0.07, 0.11, 1.3))
+    corr = read_tdat(path).corrections
+    # The Deep-LASI originals are kept, each under its own Deep-LASI name.
+    assert (corr.deeplasi_alpha, corr.deeplasi_beta, corr.deeplasi_gamma) == (0.07, 0.11, 1.3)
+    assert corr.alpha == 0.11  # Tether leakage = Deep-LASI Beta (NOT Deep-LASI Alpha)
+    assert corr.delta == 0.0  # direct excitation inert without ALEX (Deep-LASI Alpha dropped)
+    assert corr.gamma == 1.3  # gamma is gamma
 
 
 def test_appendix_b_remap_is_not_a_naming_passthrough() -> None:

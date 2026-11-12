@@ -49,6 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "DEFAULT_TRACE_PALETTE",
+    "ICON_NAMES",
     "MODES",
     "THEME_NAMES",
     "TRACE_PALETTES",
@@ -58,8 +59,11 @@ __all__ = [
     "contrast_ratio",
     "current",
     "heading_font",
+    "icon",
+    "icon_renders",
     "install",
     "load_fonts",
+    "missing_icons",
     "mode",
     "relative_luminance",
     "rgba",
@@ -450,3 +454,73 @@ def style_graphics(graphics: Any, active: Theme | None = None) -> None:
             item.legend.setLabelTextColor(text)
             for _sample, label in item.legend.items:  # setLabelTextColor only stores it
                 label.setText(label.text)
+
+
+# --- interface icons (#677) -------------------------------------------------------
+
+#: The interface icons of the brand kit (#671), one SVG file per theme in
+#: ``assets/brand/icons/<theme>/<name>.svg``: eleven section and action icons and the
+#: busy mark. Each is ink on the light theme and chalk on the dark theme (Q3).
+ICON_NAMES = (
+    "project",
+    "import",
+    "movie",
+    "extract",
+    "correct",
+    "curate",
+    "idealize",
+    "analyze",
+    "conditions",
+    "export",
+    "hand-off",
+    "busy",
+)
+_ICON_DIR = resources.files("tether.gui") / "assets" / "brand" / "icons"
+
+
+def icon(name: str, active: Theme | None = None) -> QtGui.QIcon:
+    """The interface icon ``name`` (:data:`ICON_NAMES`) for ``active`` (default: current).
+
+    The icon does not follow a later change of theme by itself: a widget that shows
+    one :func:`subscribe`\\ s and sets it again, as the shell's menus do. An icon is
+    never the only sign of a function; every menu item keeps its text.
+    """
+    from pyqtgraph.Qt import QtGui
+
+    if name not in ICON_NAMES:
+        raise ValueError(f"icon must be one of {ICON_NAMES}, got {name!r}")
+    active = active or current()
+    return QtGui.QIcon(str(_ICON_DIR / active.name / f"{name}.svg"))
+
+
+def icon_renders(qicon: QtGui.QIcon, size: int = 24) -> bool:
+    """True when ``qicon`` draws at least one visible pixel at ``size`` px.
+
+    ``QIcon.isNull`` is not enough: an icon made from a file name is not null even
+    when no Qt plugin can read the file. Without the SVG plugins (``qsvgicon``,
+    ``qsvg``) the pixmap comes back empty, and this returns False.
+    """
+    from pyqtgraph.Qt import QtCore
+
+    if qicon.isNull():
+        return False
+    image = qicon.pixmap(QtCore.QSize(size, size)).toImage()
+    return any(
+        image.pixelColor(x, y).alpha() > 0
+        for y in range(image.height())
+        for x in range(image.width())
+    )
+
+
+def missing_icons() -> list[str]:
+    """``theme/name`` of every interface icon that does not render; empty when all do.
+
+    Needs a ``QGuiApplication``. The installer smoke test calls it in the installed
+    environment, which proves that the bundle carries Qt's SVG plugins (#677).
+    """
+    return [
+        f"{theme_name}/{icon_name}"
+        for theme_name in THEME_NAMES
+        for icon_name in ICON_NAMES
+        if not icon_renders(icon(icon_name, theme(theme_name)))
+    ]

@@ -35,7 +35,8 @@
 # Trigger: `pull_request` (path-gated, below) + `push` to `main` (post-merge) + manual
 # `workflow_dispatch` + nightly `schedule`. On a PR the job ALWAYS runs but only does the heavy env+fit when the PR
 # touches idealization-relevant paths (src/tether/idealize, sidecar, the tolerance,
-# the sidecar tests, this workflow, or the setup-env action); an unrelated PR reports
+# the sidecar tests, this workflow, or the setup-env action) or the photobleach detector
+# that oracle (g)'s live leg compares with tMAVEN (#706); an unrelated PR reports
 # a fast "not applicable" success in seconds. Because the single `sidecar / parity`
 # job always completes and reports, it is safe to add to the `main-baseline` ruleset's
 # required set (per §12.6 "Active from M0.5") WITHOUT leaving unrelated PRs stuck on a
@@ -130,8 +131,10 @@ jobs:
             echo "changed files:"; echo "$changed"
             # Gate on the SAME file set the pytest step collects (tests/test_*sidecar*.py,
             # e.g. both test_parity_sidecar.py and test_sidecar_driver.py), so a change to
-            # ANY sidecar module runs the live suite — not just the parity module.
-            pattern='^(src/tether/idealize/|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
+            # ANY sidecar module runs the live suite — not just the parity module. The
+            # photobleach detector and the unmarked test holding its `_ref_*` oracle are
+            # what test_fret_photobleach_sidecar.py compares with live tMAVEN (#706).
+            pattern='^(src/tether/idealize/|src/tether/fret/photobleach\.py|sidecar/|scripts/setup_sidecar\.py|schema/parity_tolerance\.json|tests/test_.*sidecar.*\.py|tests/test_fret_photobleach\.py|\.github/workflows/sidecar\.yml|\.github/actions/setup-env/)'
             if echo "$changed" | grep -qE "$pattern"; then
               run=true
               echo "Idealization-relevant paths changed -> running the live parity suite."
@@ -184,8 +187,25 @@ jobs:
           # repo-wide `pytest -m sidecar` aborts at COLLECTION the moment it imports
           # an unrelated base-only module (e.g. tests/test_movie_panel.py → tifffile)
           # → exit 2 before any sidecar test runs. The real sidecar modules import
-          # only `tether.idealize`, which the sidecar env satisfies. The
+          # only what the sidecar env carries: `tether.idealize`, and (#706)
+          # `tether.fret.photobleach` with SciPy and h5py. The
           # `test_*sidecar*.py` glob is the contract enforced in the base matrix by
           # tests/test_marker_contract.py, so a new sidecar test cannot silently
           # escape this job. `-m sidecar` still filters within the collected files.
           pytest -m sidecar tests/test_*sidecar*.py -q
+
+  report:
+    # A failed nightly or post-merge run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: parity
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: sidecar / parity
+      result: ${{ needs.parity.result }}
+      oracle: "(b) Idealization parity — state count / means / Viterbi / ELBO [M0.5→M2/M6]"
+      fixture-tier: "gated large (tests/fixtures/large/, LFS — large-fixtures.yml)"

@@ -634,7 +634,7 @@ def test_the_job_timeout_outlasts_the_worst_case_retry_budget() -> None:
     import yaml  # provided by the base conda-lock (a mkdocs dependency)
 
     workflow = yaml.safe_load((_REPO / ".github/workflows/docs-liveness.yml").read_text("utf-8"))
-    (job,) = workflow["jobs"].values()
+    job = workflow["jobs"]["docs-liveness"]  # the report job (#697) sits beside it
     fetches = len(guard.SITE_URLS) + 1  # the four URLs and the Pages API
     backoff = sum(guard.BACKOFF_SECONDS * 2**i for i in range(guard.MAX_ATTEMPTS - 1))
     worst = fetches * (guard.MAX_ATTEMPTS * guard.TIMEOUT_SECONDS + backoff)
