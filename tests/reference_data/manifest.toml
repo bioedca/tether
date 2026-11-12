@@ -273,19 +273,6 @@ extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Do
 citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
 
 [[dataset]]
-id = "campos2024-fractionofclosedstate-errorfractionofclosedstate-ipynb"
-source = "doi:10.1038/s41467-024-50885-x"
-record_url = "https://www.nature.com/articles/s41467-024-50885-x"
-license = "CC-BY-NC-ND-4.0"
-file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb"
-size = 508299
-sha256 = "50c413e49720c4fbec076cc442c3f3a2fe8d203846e2494b9661e05297dde8c0"
-tier = "git"
-extract_of = ["campos2024-source-data"]
-extract_member = "ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb"
-citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
-
-[[dataset]]
 id = "campos2024-kmatrix-calculatekbounds-py"
 source = "doi:10.1038/s41467-024-50885-x"
 record_url = "https://www.nature.com/articles/s41467-024-50885-x"

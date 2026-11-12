@@ -224,7 +224,7 @@ def test_every_paper_file_is_an_unchanged_member_at_its_archive_path() -> None:
         if p.is_file()
     )
     assert sorted(d.file for d in entries) == on_disk
-    assert len(entries) == 27
+    assert len(entries) == 26
     for d in entries:
         assert d.license == "CC-BY-NC-ND-4.0", d.id
         assert d.extract_of == (PAPER_ARCHIVE,) and d.extract_script is None, d.id

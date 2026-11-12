@@ -344,4 +344,4 @@ references:
     year: 2024
     license: CC-BY-NC-ND-4.0
     url: "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip"
-    notes: "Unchanged copies of 27 members are test reference data under tests/fixtures/campos_chavez_2024/ and tests/fixtures/large/campos_chavez_2024/ (CC-BY-NC-ND-4.0, non-commercial, no derivatives)."
+    notes: "Unchanged copies of 26 members are test reference data under tests/fixtures/campos_chavez_2024/ and tests/fixtures/large/campos_chavez_2024/ (CC-BY-NC-ND-4.0, non-commercial, no derivatives)."

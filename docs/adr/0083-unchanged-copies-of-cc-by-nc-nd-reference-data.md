@@ -59,7 +59,10 @@ Chosen option: **option 4**.
 
 - In plain git, below `tests/fixtures/campos_chavez_2024/`: the folder
   `ErrorCalculations_CodeAndSourceData/` of the archive and the file `checkTDP.py`, at the same
-  paths below that directory as in the archive.
+  paths below that directory as in the archive. The one notebook of that folder
+  (`FractionOfClosedState/ErrorFractionOfClosedState.ipynb`) is left out: its saved cells hold
+  absolute paths of a personal computer, the repository holds no private path, and the licence
+  forbids a redacted copy. A member that cannot be committed unchanged stays in the archive.
 - In Git LFS, below `tests/fixtures/large/campos_chavez_2024/`: one trace matrix of less than
   10 MB (`smFRET_SourceData/intraFRET_WT+WT_13uM.txt`, 6,723,000 B, the smallest).
 

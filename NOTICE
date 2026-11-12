@@ -45,7 +45,7 @@ Source Data of Campos-Chavez et al. (2024)  (CC-BY-NC-ND-4.0)  — Campos-Chavez
   15:6592 (2024), doi:10.1038/s41467-024-50885-x. Copyright 2024 The Author(s).
   Source Data archive: 41467_2024_50885_MOESM4_ESM.zip, from
   https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip
-  Tether bundles UNCHANGED copies of 27 members of that archive as test reference
+  Tether bundles UNCHANGED copies of 26 members of that archive as test reference
   data (#755, ADR-0083); the weekly reference-data job downloads the full archive
   and compares each copy with its member, byte for byte:
     tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py
@@ -61,7 +61,6 @@ Source Data of Campos-Chavez et al. (2024)  (CC-BY-NC-ND-4.0)  — Campos-Chavez
     tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt
     tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out
     tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt
-    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb
     tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py
     tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out
     tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt
