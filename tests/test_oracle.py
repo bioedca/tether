@@ -34,6 +34,10 @@ import numpy as np  # noqa: E402
 
 from tether.io.deeplasi import DeepLasiExport  # noqa: E402
 from tether.project.oracle import (  # noqa: E402
+    MATCH_TOL_PX,
+    PEARSON_THRESHOLD,
+    RECALL_THRESHOLD,
+    RMS_THRESHOLD_PX,
     OracleResult,
     coordinate_rms,
     evaluate_extraction,
@@ -231,6 +235,22 @@ def test_evaluate_extraction_rms_gate() -> None:
     assert ok.meets_rms and ok.meets_acceptance()
     nan = evaluate_extraction(gt, xy.copy(), donor.copy(), acceptor.copy())  # imported-tmap → N/A
     assert nan.meets_rms  # nan ⇒ not measured ⇒ does not block
+
+
+def test_m1_gate_constants_are_frozen() -> None:
+    """The four ADR-0022 M1 gates, pinned to literals (#748).
+
+    ``docs/validation.md`` prints these constants, and its guard compares the page with
+    the source, so a change of the constant and of the page together passes that guard.
+    The scorer tests above catch only large moves (the #695 audit had recall 0.7,
+    Pearson 0.5 and a 5 px match tolerance pass all of them), and the one test that
+    applies all four to real data is ``large`` and skips on every runner. A change here
+    is a re-freeze of a frozen oracle and needs an ADR, never only this edit.
+    """
+    assert RECALL_THRESHOLD == 0.95
+    assert MATCH_TOL_PX == 2.0
+    assert PEARSON_THRESHOLD == 0.95
+    assert RMS_THRESHOLD_PX == 0.5
 
 
 def test_invalid_matched_traces_do_not_mask_failure() -> None:
@@ -434,11 +454,11 @@ def test_evaluate_project_wires_molecules_and_traces(monkeypatch) -> None:
 
     # Patch the live sys.modules objects (via import_module, which returns them):
     # evaluate_project resolves the readers through its lazy `from ... import`
-    # (fromlist → sys.modules), but another test (test_deeplasi's lazy-scipy import
-    # contract) reimports tether.io.deeplasi and leaves the tether.io package's
-    # `.deeplasi` attribute pointing at a stale module. Both the string-form setattr
-    # and `import ... as` resolve via that parent attribute (the wrong object);
-    # import_module returns the sys.modules entry that evaluate_project actually uses.
+    # (fromlist → sys.modules). The string-form setattr and `import ... as` resolve
+    # via the parent package attribute instead, which can differ from sys.modules if
+    # any test re-imports a submodule; test_deeplasi's lazy-scipy import contract did
+    # until it moved to a subprocess (#734 IMG-F15). import_module returns the
+    # sys.modules entry that evaluate_project actually uses.
     extract_mod = importlib.import_module("tether.imaging.extract")
     deeplasi_mod = importlib.import_module("tether.io.deeplasi")
     monkeypatch.setattr(extract_mod, "read_molecules", lambda _p: mols)

@@ -8,8 +8,10 @@
 # runs the heavy validation that needs them:
 #   * the M1 extraction-vs-Deep-LASI acceptance oracle (tests/test_oracle.py) — the
 #     §9 M1 numbers (recall ≥ 95 % @ 1px, per-frame intensity Pearson r ≥ 0.99) on
-#     the UCKOPSB pair, via the imported `.tmap` registration leg; and
-#   * the ≥ 50-molecule (281-mol) idealization reference reads (test_idealize_model).
+#     the UCKOPSB pair, via the imported `.tmap` registration leg;
+#   * the ≥ 50-molecule (281-mol) idealization reference reads (test_idealize_model); and
+#   * the `.tmap` decoder `read_tmap` on the committed bead map, alone and through one
+#     `tether extract --tmap` run (test_register.py, test_extract_cli.py; #733).
 #
 # DATA NOTE — the ~0.9 GB UCKOPSB movie is NOT committed (not even to LFS; it is
 # too large to host on the repo's LFS budget). The oracle leg therefore SKIPS on a
@@ -71,6 +73,7 @@ jobs:
           required = [
               Path("tests/fixtures/large/smd_281mol.hdf5"),
               Path("tests/fixtures/large/model_281mol.hdf5"),
+              Path("tests/fixtures/large/bead_prealign.tmap"),
           ]
           missing = [
               str(p)
@@ -92,8 +95,19 @@ jobs:
       # Run ONLY the gated tier. Tests skip-if-absent when their heavy data is not
       # present (the UCKOPSB movie is not committed), so this job stays green by
       # skipping rather than failing where data is unavailable.
+      # The JUnit report feeds the skip budget below (#726).
       - name: Run large-fixture tests
-        run: xvfb-run -a pytest -v -m large
+        id: pytest
+        run: xvfb-run -a pytest -v -m large --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+      # "Green by skipping" is allowed only for the skips that tests/skip_budget.toml lists for
+      # this job, each with its reason. This step fails the job when another test skips, when
+      # more tests skip than the job allows, or when fewer tests ran than its committed
+      # minimum (#726). It runs after a red pytest step too.
+      - name: Compare the skips with the committed budget
+        if: ${{ !cancelled() && (steps.pytest.outcome == 'success' || steps.pytest.outcome == 'failure') }}
+        env:
+          SKIP_BUDGET_JOB: large-fixtures
+        run: python scripts/check_skips.py --job "$SKIP_BUDGET_JOB" --report "$RUNNER_TEMP/pytest-junit.xml"
 
   report:
     # A failed weekly run opens or updates one issue, and the next pass says so (#697). The called

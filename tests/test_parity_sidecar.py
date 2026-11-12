@@ -15,6 +15,11 @@ tests assert against and never recompute (PRD §12.6). Three arms:
   is frozen separately because its empirical-Bayes per-trace state selection is more
   seed-variable than vbconhmm's (ADR-0043; see the test's docstring).
 
+Each fit must also be the requested model type with the requested state count, and the
+two vbconhmm comparisons must stay inside :data:`VBCONHMM_DRIFT_LIMIT` too — a much tighter
+regression limit of the pinned tMAVEN build that sits beside the frozen tolerance and does
+not replace it (#737). Each test writes the agreement it measured to the job log.
+
 Needs an interpreter in ``$TETHER_SIDECAR_PYTHON`` (an env built from
 ``sidecar/conda-lock.yml`` with tMAVEN installed); CI's base matrix has none, so
 the module is excluded by ``-m "not ... and not sidecar"``.
@@ -22,6 +27,7 @@ the module is excluded by ``-m "not ... and not sidecar"``.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -48,9 +54,71 @@ requires_sidecar = pytest.mark.skipif(
     not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
 )
 
+#: The ``type`` tMAVEN writes for each model (``StateModel.model_type``; the runner reports
+#: the same string as ``result_type``). Two fits of the wrong model, or with the wrong state
+#: count, agree with each other, so a cross-seed comparison alone cannot see either (#737).
+_VBCONHMM_TYPE = "vb Consensus HMM"
+_EBHMM_TYPE = "eb HMM"
+
+
+def _assert_fitted(result, *, nstates: int, model_type: str) -> None:
+    """The sidecar fitted the requested model with the requested number of states."""
+    assert result.status["ok"] is True
+    assert result.model.model_type == model_type
+    assert result.status["result_type"] == model_type
+    assert result.model.nstates == nstates
+    assert result.status["nstates"] == nstates
+    assert result.model.means.size == nstates
+
+
+#: DRIFT LIMIT OF THE PINNED tMAVEN BUILD: a regression limit, NOT a scientific tolerance.
+#:
+#: The frozen ``$.tolerance`` row of ``schema/parity_tolerance.json`` stays the scientific
+#: parity oracle and does not change (ADR-0009). It is far wider than the agreement the pinned
+#: build gives: tMAVEN 10f4230 (``TMAVEN_SPEC`` in ``.github/workflows/sidecar.yml``) on the
+#: CPython of ``sidecar/conda-lock.yml`` reproduces the vbconhmm state means to about 1e-9,
+#: against a frozen ceiling of 0.02, so a tMAVEN or sidecar-dependency change that moved every
+#: state mean by 0.015 FRET would pass that row. These bounds catch such a drift: the same
+#: algorithm on the same build must agree all but exactly (maintainer decision Q7: A, #695).
+#:
+#: Set from 10 runs of the ``sidecar / parity`` job on GitHub runners (PR #772, 2026-11-11),
+#: both vbconhmm comparisons in each run: worst state-mean difference 9.5e-9 FRET (281-mol fit
+#: vs reference), worst relative ELBO change 1.1e-9 (4-mol cross-seed), and state-count and
+#: Viterbi agreement 1.0 in all 20 comparisons.
+#: Each ceiling is at least 10 times its worst value (#737); the two floors are exact. ebFRET
+#: has no drift limit: its per-trace state selection changes from seed to seed (ADR-0043).
+#: A deliberate tMAVEN or sidecar-lock bump re-measures these bounds in its own pull request;
+#: that is not a re-freeze, and ``schema/parity_tolerance.json`` does not change for it.
+VBCONHMM_DRIFT_LIMIT = {
+    "state_count_min_fraction": 1.0,
+    "state_mean_abs_delta_max": 1e-6,
+    "viterbi_min_agreement": 1.0,
+    "relative_elbo_max": 1e-6,
+}
+
+
+def _assert_within_drift_limit(metrics, label: str) -> None:
+    """``metrics`` is inside the drift limit of the pinned build (after the frozen row passed)."""
+    ok, failures = within_tolerance(metrics, VBCONHMM_DRIFT_LIMIT)
+    assert ok, (
+        f"{label}: drift past the pinned-build drift limit: {failures}; "
+        f"measured {json.dumps(metrics.as_dict())}"
+    )
+
+
+def _report(capsys, label: str, metrics) -> None:
+    """Write the measured agreement to the job log, also when the test passes.
+
+    The ``sidecar / parity`` job runs ``pytest -q``, which hides the output of a passing test,
+    so the line goes past the capture. Each run of the job then records the agreement it
+    measured, which is the evidence a drift limit of the pinned build is set from (#737).
+    """
+    with capsys.disabled():
+        print(f"\n[parity] {label}: {json.dumps(metrics.as_dict())}", flush=True)
+
 
 @requires_sidecar
-def test_281mol_fresh_fit_matches_reference_within_frozen_tolerance(tmp_path):
+def test_281mol_fresh_fit_matches_reference_within_frozen_tolerance(tmp_path, capsys):
     """A fresh consensus VB-HMM fit reproduces the committed reference model."""
     tolerance = load_frozen_tolerance(FROZEN)
     reference = read_model(FIXTURES / "large" / "model_281mol.hdf5")
@@ -58,14 +126,17 @@ def test_281mol_fresh_fit_matches_reference_within_frozen_tolerance(tmp_path):
     smd = tmp_path / "smd_281mol.hdf5"
     shutil.copyfile(FIXTURES / "large" / "smd_281mol.hdf5", smd)
     result = run_vbfret(smd, model_type="vbconhmm", nstates=4, timeout=1800.0)
+    _assert_fitted(result, nstates=4, model_type=_VBCONHMM_TYPE)
 
     metrics = compare_models(reference, result.model)
+    _report(capsys, "vbconhmm smd_281mol fresh fit vs reference", metrics)
     ok, failures = within_tolerance(metrics, tolerance)
     assert ok, f"parity drift vs frozen tolerance: {failures}"
+    _assert_within_drift_limit(metrics, "vbconhmm smd_281mol fresh fit vs reference")
 
 
 @requires_sidecar
-def test_4mol_cross_seed_matches_within_frozen_tolerance(tmp_path):
+def test_4mol_cross_seed_matches_within_frozen_tolerance(tmp_path, capsys):
     """Two self-reseeded fits of the 4-mol fixture agree within tolerance."""
     tolerance = load_frozen_tolerance(FROZEN)
 
@@ -73,14 +144,18 @@ def test_4mol_cross_seed_matches_within_frozen_tolerance(tmp_path):
     shutil.copyfile(FIXTURES / "smd_4mol.hdf5", smd)
     a = run_vbfret(smd, model_type="vbconhmm", nstates=2, timeout=1800.0)
     b = run_vbfret(smd, model_type="vbconhmm", nstates=2, timeout=1800.0)
+    _assert_fitted(a, nstates=2, model_type=_VBCONHMM_TYPE)
+    _assert_fitted(b, nstates=2, model_type=_VBCONHMM_TYPE)
 
     metrics = compare_models(a.model, b.model)
+    _report(capsys, "vbconhmm smd_4mol cross-seed", metrics)
     ok, failures = within_tolerance(metrics, tolerance)
     assert ok, f"cross-seed parity drift vs frozen tolerance: {failures}"
+    _assert_within_drift_limit(metrics, "vbconhmm smd_4mol cross-seed")
 
 
 @requires_sidecar
-def test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance(tmp_path):
+def test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance(tmp_path, capsys):
     """Two self-reseeded ebFRET fits of the 281-mol SMD agree within its tolerance.
 
     The **ebFRET (empirical-Bayes HMM)** arm of the M6 idealization-parity oracle
@@ -107,7 +182,10 @@ def test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance(tmp_path):
     shutil.copyfile(FIXTURES / "large" / "smd_281mol.hdf5", smd)
     a = run_ebhmm(smd, nstates=4, timeout=1800.0)
     b = run_ebhmm(smd, nstates=4, timeout=1800.0)
+    _assert_fitted(a, nstates=4, model_type=_EBHMM_TYPE)
+    _assert_fitted(b, nstates=4, model_type=_EBHMM_TYPE)
 
     metrics = compare_models(a.model, b.model)
+    _report(capsys, "ebhmm smd_281mol cross-seed", metrics)
     ok, failures = within_tolerance(metrics, tolerance)
     assert ok, f"ebFRET cross-seed parity drift vs frozen ebhmm tolerance: {failures}"
