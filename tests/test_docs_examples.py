@@ -15,6 +15,10 @@ fences with :mod:`ast`, and checks that
   ``if False:``, ``if __name__ == "__main__":``, …; see :func:`_static_truth`) and not by a
   bare ``name: T`` annotation — or is one of its submodules.
 
+The calls after the imports are checked as well (#749): every call of an imported ``tether``
+function or method matches its source signature, and every called bare name is bound on the
+page or defined under ``src/tether``. See the ``Calls`` section below.
+
 **Nothing is ever imported** — not the module, and not its parent packages. Torch lives only
 in the isolated ``deep/`` lock stack, and ``tether.ml.deep.model`` is importable without it
 only because it imports torch lazily inside its functions; an import-based check would tie a
@@ -40,6 +44,7 @@ does not show as Python. Known gaps are tracked in #515.
 from __future__ import annotations
 
 import ast
+import builtins
 import re
 import sys
 from functools import cache
@@ -47,6 +52,8 @@ from importlib.machinery import ModuleSpec, PathFinder
 from pathlib import Path
 
 import pytest
+
+from _docs_source import check_call, dict_literals, tether_calls
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
@@ -306,6 +313,171 @@ def test_every_tether_import_line_is_checked() -> None:
         "```python fence that opens and closes at column zero, and make it parse:\n"
         + "\n".join(missed)
     )
+
+
+# --- Calls (#749) ----------------------------------------------------------------
+# The import check above proves a fence's ``from tether… import name`` lines resolve, and
+# nothing after them: ``population_apparent_e_histogram("x.tether", nbins=151)`` raises
+# ``TypeError`` for a keyword the function never had, and ``render_histogram_1d(hist)`` a
+# ``NameError`` for a name the fence never bound, while both pages kept every import right.
+# ``tests/test_docs_how_to.py`` had the call check, for its six pages only. The same check
+# (:func:`_docs_source.check_call`) runs here on every page this module walks:
+#
+# * every call of a name the fence imports from ``tether`` -- ``f(...)`` or ``Cls.meth(...)``
+#   -- passes only arguments the source signature accepts, and every one it requires;
+# * every call of a bare name the page's Python fences never bind and that is no builtin
+#   names a top-level ``def`` or ``class`` under ``src/tether`` (a source excerpt such
+#   as ``round_half_away(...)`` in ``docs/reference/tether-format.md``), and, where that is
+#   exactly one function, matches its signature too.
+#
+# Names are bound per *page*, across all its Python fences, because a page builds one
+# program in steps. A call of an attribute of a returned object (``hist.to_csv(...)``) is
+# not followed: nothing here knows what type a call returns.
+
+
+def _python_programs() -> list[tuple[str, int, ast.Module | SyntaxError]]:
+    """``(file, first body line, tree or the parse error)`` for every Python fence."""
+    found: list[tuple[str, int, ast.Module | SyntaxError]] = []
+    for path in sorted(p for p in DOCS.rglob("*.md") if p not in _EXCLUDED):
+        rel = path.relative_to(ROOT).as_posix()
+        for lang, first, body in _fences(path):
+            if lang not in _PYTHON_LANGS:
+                continue
+            code = "\n".join(re.sub(r"^(?:>>> |\.\.\. )", "", ln) for ln in body)
+            try:
+                found.append((rel, first, ast.parse(code)))
+            except SyntaxError as exc:
+                found.append((rel, first, exc))
+    return found
+
+
+def _page_bindings(trees: list[ast.Module]) -> set[str]:
+    """Every name the fences of one page bind, anywhere and in any scope, plus builtins."""
+    names = set(dir(builtins))
+    for tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                names.add(node.id)
+            elif isinstance(node, ast.alias):
+                names.add((node.asname or node.name).split(".")[0])
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.arg):
+                names.add(node.arg)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                names.add(node.name)
+    return names
+
+
+@cache
+def _source_definitions() -> dict[str, tuple[ast.FunctionDef | ast.ClassDef, ...]]:
+    """Every top-level ``def``/``class`` under ``src/tether``, by name.
+
+    Private *modules* count, because a source excerpt calls what the source calls
+    (``round_half_away`` lives in ``tether.imaging._rounding``); a private *name* does not.
+    """
+    out: dict[str, tuple[ast.FunctionDef | ast.ClassDef, ...]] = {}
+    for path in sorted((SRC / "tether").rglob("*.py")):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and not node.name.startswith("_"):
+                out[node.name] = (*out.get(node.name, ()), node)
+    return out
+
+
+def _call_problems(rel: str, programs: list[tuple[int, ast.Module]]) -> list[str]:
+    """What would fail at run time in the calls of one page's Python fences."""
+    problems = []
+    bound = _page_bindings([tree for _, tree in programs])
+    for first, tree in programs:
+        spreads = dict_literals(tree)
+        checked: set[int] = set()
+        for label, call, func, is_bound in tether_calls(SRC, tree):
+            checked.add(id(call))
+            where = f"{rel}:{first + call.lineno - 1}"
+            if func is None:
+                problems.append(f"{where}: {label}(...) names no def in the source")
+                continue
+            problems += [
+                f"{where}: {label}(...) — {p}"
+                for p in check_call(call, func, bound=is_bound, spreads=spreads)
+            ]
+        for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+            if id(call) in checked or not isinstance(call.func, ast.Name):
+                continue
+            name, where = call.func.id, f"{rel}:{first + call.lineno - 1}"
+            if name in bound:
+                continue
+            defs = _source_definitions().get(name, ())
+            if not defs:
+                problems.append(
+                    f"{where}: {name}(...) — the page never binds {name!r}, and nothing "
+                    "under src/tether defines it: a NameError for a reader who runs it"
+                )
+            elif len(defs) == 1 and isinstance(defs[0], ast.FunctionDef):
+                problems += [
+                    f"{where}: {name}(...) — {p}"
+                    for p in check_call(call, defs[0], bound=False, spreads=spreads)
+                ]
+    return problems
+
+
+def test_every_python_fence_parses() -> None:
+    """A fence that is not Python cannot have its calls checked, so it may not hide there."""
+    broken = [
+        f"{rel}:{first}: {result.msg}"
+        for rel, first, result in _python_programs()
+        if isinstance(result, SyntaxError)
+    ]
+    assert not broken, "these Python fences do not parse:\n" + "\n".join(broken)
+
+
+def test_every_call_in_a_docs_python_fence_can_run() -> None:
+    """Every call a docs example makes passes arguments its signature accepts, to a real name.
+
+    The import check stops at the import line; this is the half after it (#749).
+    """
+    pages: dict[str, list[tuple[int, ast.Module]]] = {}
+    for rel, first, result in _python_programs():
+        if isinstance(result, ast.Module):
+            pages.setdefault(rel, []).append((first, result))
+    calls = sum(len(tether_calls(SRC, tree)) for programs in pages.values() for _, tree in programs)
+    assert calls >= 40, f"expected the docs' calls of tether; found only {calls}"
+    problems = [p for rel, programs in pages.items() for p in _call_problems(rel, programs)]
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        # The import line is right and the keyword is not: a TypeError at run time.
+        (
+            "from tether.analysis.histogram import population_apparent_e_histogram\n"
+            'hist = population_apparent_e_histogram("x.tether", nbins=151)\n',
+            "no parameter 'nbins'",
+        ),
+        # The import line is right and the call names something else: a NameError.
+        (
+            "from tether.analysis.plot_export import render_histogram1d\n"
+            "figure = render_histogram_1d(hist)\n",
+            "nothing under src/tether defines it",
+        ),
+        # A method of an imported class, called with a keyword it does not take.
+        (
+            "from tether.project.core import Project\nProject.open(path, mode=1)\n",
+            "no parameter 'mode'",
+        ),
+    ],
+    ids=["bad-keyword", "unbound-name", "bad-method-keyword"],
+)
+def test_a_call_that_cannot_run_is_reported(code: str, expected: str) -> None:
+    problems = _call_problems("docs/x.md", [(1, ast.parse(code))])
+    assert any(expected in p for p in problems), problems
+
+
+def test_a_name_bound_in_an_earlier_fence_of_the_page_is_not_reported() -> None:
+    first = ast.parse("from tether.analysis.plot_export import render_histogram1d\n")
+    second = ast.parse("figure = render_histogram1d(hist)\nhist = None\n")
+    assert _call_problems("docs/x.md", [(1, first), (5, second)]) == []
 
 
 def test_resolution_never_imports(monkeypatch: pytest.MonkeyPatch) -> None:
