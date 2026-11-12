@@ -33,6 +33,7 @@ from tether.ml.persistence import (  # noqa: E402
     MODEL_FORMAT_VERSION,
     CorruptModelError,
     PortableRankerModel,
+    SourceProject,
     UnsupportedModelFormatError,
     load_model,
     save_model,
@@ -548,3 +549,74 @@ def test_portable_model_rejects_invalid_sample_weight() -> None:
     X, y, _ = _separable()
     with pytest.raises(ValueError, match="sample_weight"):
         train_portable_model(X, y, FEATURES, condition_id="c", sample_weight=np.ones(len(y) - 1))
+
+
+# --- the project record (ADR-0077) ----------------------------------------------
+
+
+def _source(path: str, n_rows: int = 3, n_human: int = 2) -> SourceProject:
+    return SourceProject(path=path, rows_sha256="ab" * 32, n_rows=n_rows, n_human=n_human)
+
+
+def test_source_projects_round_trip_and_carry_forward(tmp_path) -> None:
+    X, y, _ = _separable()
+    record = (_source("/data/day1.tether"), _source("/data/day2.tether", 5, 5))
+    model = train_portable_model(X, y, FEATURES, condition_id="c", source_projects=record)
+    path = tmp_path / "c.tethermodel"
+    save_model(model, path)
+    loaded = load_model(path)
+    assert loaded.source_projects == record
+
+    # None carries the record forward; a new record replaces it.
+    assert warm_start_retrain(loaded, X, y, FEATURES).source_projects == record
+    newer = (_source("/data/day3.tether"),)
+    assert warm_start_retrain(loaded, X, y, FEATURES, source_projects=newer).source_projects == (
+        newer
+    )
+
+
+def test_artifact_without_source_projects_loads_with_an_empty_record(tmp_path) -> None:
+    # The key is additive: an artifact saved before it existed still loads, format version 1.
+    X, y, _ = _separable()
+    path = tmp_path / "c.tethermodel"
+    save_model(train_portable_model(X, y, FEATURES, condition_id="c"), path)
+    with zipfile.ZipFile(path) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+    del manifest["source_projects"]
+    old = tmp_path / "old.tethermodel"
+    _repack(path, old, manifest=manifest)
+    loaded = load_model(old)
+    assert loaded.source_projects == ()
+    assert manifest["format_version"] == persistence.MODEL_FORMAT_VERSION == 1
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "not-a-list",
+        ["not-an-object"],
+        [{"path": "/p", "rows_sha256": "x", "n_rows": "3", "n_human": 1}],
+        [
+            {"path": "/p", "rows_sha256": "x", "n_rows": 1, "n_human": 1},
+            {"path": "/p", "rows_sha256": "y", "n_rows": 2, "n_human": 2},
+        ],
+    ],
+)
+def test_malformed_source_projects_is_corrupt(tmp_path, bad) -> None:
+    X, y, _ = _separable()
+    path = tmp_path / "c.tethermodel"
+    save_model(train_portable_model(X, y, FEATURES, condition_id="c"), path)
+    with zipfile.ZipFile(path) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+    manifest["source_projects"] = bad
+    tampered = tmp_path / "bad.tethermodel"
+    _repack(path, tampered, manifest=manifest)
+    with pytest.raises(CorruptModelError):
+        load_model(tampered)
+
+
+def test_source_projects_rejects_a_file_named_twice() -> None:
+    X, y, _ = _separable()
+    twice = (_source("/data/day1.tether"), _source("/data/day1.tether"))
+    with pytest.raises(ValueError, match="more than once"):
+        train_portable_model(X, y, FEATURES, condition_id="c", source_projects=twice)

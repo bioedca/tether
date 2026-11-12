@@ -1395,6 +1395,9 @@ _CONSTANT_BACKED_SURFACES = [
     ("tether.project.active", "next_recommendation", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.ml.weighting", "seed_weight", "w0", "DEFAULT_SEED_WEIGHT"),
     ("tether.ml.weighting", "effective_weights", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.condition_model", "condition_training_set", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.condition_model", "train_condition_model", "w0", "DEFAULT_SEED_WEIGHT"),
+    ("tether.project.condition_model", "retrain_condition_model", "w0", "DEFAULT_SEED_WEIGHT"),
     # Every remaining (surface, keyword) pair a constant-naming row's **Set via** cell
     # spells whose signature default is a name (#442). ``idealize_molecules.timeout`` is
     # also pinned by ``tests/test_idealize_timeout_default.py`` (#222); it is re-bound here

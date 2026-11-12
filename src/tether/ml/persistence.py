@@ -87,6 +87,7 @@ __all__ = [
     "CorruptModelError",
     "PortableModelError",
     "PortableRankerModel",
+    "SourceProject",
     "UnsupportedModelFormatError",
     "load_model",
     "save_model",
@@ -120,6 +121,36 @@ class UnsupportedModelFormatError(PortableModelError):
 
 class CorruptModelError(PortableModelError):
     """The artifact is not a readable Tether model (bad zip, missing member, malformed manifest)."""
+
+
+@dataclass(frozen=True)
+class SourceProject:
+    """One project file whose labels a model was trained on (PRD §7.5; ADR-0077).
+
+    A condition can span several projects (ADR-0068), so the model records each project its fit
+    read. A retrain from another project reads these files again, read-only, and so a label changed
+    in an older project reaches the next retrain (``/labels`` stays the store of record, §5.1).
+    Pure provenance: this module never opens the file.
+
+    Attributes
+    ----------
+    path:
+        The project file, as an absolute path at the time of the fit (its identity).
+    rows_sha256:
+        The SHA-256 of the training rows the fit took from this project (their molecule keys,
+        labels, label sources and features). It records *what* the model learned from the file;
+        a later retrain does not require it to match, because labels in a source project can
+        change.
+    n_rows:
+        How many training rows the fit took from this project (human plus provisional).
+    n_human:
+        How many of those rows carry a human accept/reject label.
+    """
+
+    path: str
+    rows_sha256: str
+    n_rows: int
+    n_human: int
 
 
 def _now_iso(now: datetime | None) -> str:
@@ -173,6 +204,10 @@ class PortableRankerModel:
         incremented by each :func:`warm_start_retrain`).
     created_utc, updated_utc:
         ISO-8601 UTC timestamps of the first fit and the most recent (re)fit.
+    source_projects:
+        The project files the current fit read its labels from, in training-row order
+        (:class:`SourceProject`; ADR-0077). Empty for a model fitted on caller-supplied arrays
+        with no project record, and for an artifact saved before the field existed.
     """
 
     ranker: QualityRanker
@@ -184,6 +219,7 @@ class PortableRankerModel:
     n_retrains: int
     created_utc: str
     updated_utc: str
+    source_projects: tuple[SourceProject, ...] = ()
 
     @property
     def feature_names(self) -> tuple[str, ...]:
@@ -218,6 +254,7 @@ def train_portable_model(
     hyperparams: RankerHyperparams | None = None,
     sample_weight: object | None = None,
     video_id: str | None = None,
+    source_projects: Sequence[SourceProject] = (),
     now: datetime | None = None,
 ) -> PortableRankerModel:
     """Fit a fresh portable model for a condition — the start of the UC3 loop (PRD §7.5).
@@ -240,6 +277,9 @@ def train_portable_model(
         :func:`tether.ml.gbranker.train_quality_ranker`; ``None`` fits at unit weight.
     video_id:
         The video whose labels seed this first fit; recorded in ``videos_seen`` when given.
+    source_projects:
+        The project files the rows of ``X`` came from (:class:`SourceProject`), recorded on the
+        model; empty when the caller does not track them.
     now:
         Injectable timestamp (defaults to the current UTC time); for reproducible tests.
 
@@ -267,6 +307,7 @@ def train_portable_model(
         n_retrains=0,
         created_utc=stamp,
         updated_utc=stamp,
+        source_projects=_source_tuple(source_projects),
     )
 
 
@@ -279,6 +320,7 @@ def warm_start_retrain(
     video_id: str | None = None,
     hyperparams: RankerHyperparams | None = None,
     sample_weight: object | None = None,
+    source_projects: Sequence[SourceProject] | None = None,
     now: datetime | None = None,
 ) -> PortableRankerModel:
     """Retrain the model at a video boundary on the accumulated label set (PRD §7.5, UC3).
@@ -295,7 +337,8 @@ def warm_start_retrain(
     extended to new features mid-life). ``hyperparams`` defaults to the model's current
     hyperparameters so the loop is stable unless deliberately changed. ``sample_weight`` (the §7.5
     cold-start label weighting, recomputed each retrain) is forwarded to the fit; ``None`` fits at
-    unit weight.
+    unit weight. ``source_projects`` replaces the model's project record (:class:`SourceProject`)
+    when given, and carries it forward unchanged when ``None``.
 
     Raises
     ------
@@ -325,7 +368,24 @@ def warm_start_retrain(
         n_retrains=model.n_retrains + 1,
         created_utc=model.created_utc,
         updated_utc=_now_iso(now),
+        source_projects=(
+            model.source_projects if source_projects is None else _source_tuple(source_projects)
+        ),
     )
+
+
+def _source_tuple(sources: Sequence[SourceProject]) -> tuple[SourceProject, ...]:
+    """Validate a project record: :class:`SourceProject` items, no path twice."""
+    out = tuple(sources)
+    for item in out:
+        if not isinstance(item, SourceProject):
+            raise TypeError(
+                f"source_projects items must be SourceProject, got {type(item).__name__}"
+            )
+    paths = [item.path for item in out]
+    if len(set(paths)) != len(paths):
+        raise ValueError(f"source_projects names a project file more than once: {paths}")
+    return out
 
 
 def _manifest(model: PortableRankerModel) -> dict[str, object]:
@@ -343,6 +403,15 @@ def _manifest(model: PortableRankerModel) -> dict[str, object]:
         "n_retrains": model.n_retrains,
         "created_utc": model.created_utc,
         "updated_utc": model.updated_utc,
+        "source_projects": [
+            {
+                "path": src.path,
+                "rows_sha256": src.rows_sha256,
+                "n_rows": src.n_rows,
+                "n_human": src.n_human,
+            }
+            for src in model.source_projects
+        ],
     }
 
 
@@ -471,7 +540,35 @@ def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
         "n_retrains": int(_require(manifest, "n_retrains", int)),
         "created_utc": str(_require(manifest, "created_utc", str)),
         "updated_utc": str(_require(manifest, "updated_utc", str)),
+        "source_projects": _sources_from_manifest(manifest),
     }
+
+
+def _sources_from_manifest(manifest: dict[str, object]) -> tuple[SourceProject, ...]:
+    """Rebuild the project record; an artifact saved before ADR-0077 has none (``()``).
+
+    The key is additive and optional, so :data:`MODEL_FORMAT_VERSION` stays 1: an older build
+    ignores it, and this build reads an older artifact as one with no project record.
+    """
+    if "source_projects" not in manifest:
+        return ()
+    raw = _require(manifest, "source_projects", list)
+    out: list[SourceProject] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise CorruptModelError("manifest source_projects entries must be JSON objects")
+        out.append(
+            SourceProject(
+                path=str(_require(entry, "path", str)),
+                rows_sha256=str(_require(entry, "rows_sha256", str)),
+                n_rows=int(_require(entry, "n_rows", int)),
+                n_human=int(_require(entry, "n_human", int)),
+            )
+        )
+    try:
+        return _source_tuple(out)
+    except ValueError as exc:
+        raise CorruptModelError(str(exc)) from exc
 
 
 def _unpickle_ranker(payload: bytes) -> QualityRanker:
