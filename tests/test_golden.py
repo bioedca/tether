@@ -149,6 +149,26 @@ def test_normalize_table_masks_ids_and_rounds_floats() -> None:
     assert _golden.normalize_table(a) != _golden.normalize_table(a.splitlines()[0])
 
 
+def test_the_table_names_each_changed_array_element() -> None:
+    """Codex finding on #838: a change late in a long array must show in the table."""
+    old = [0.5] * 36
+    new = [*old[:-1], 0.6]
+    table = _golden.diff_table({"t": _golden.compare({"g": old}, {"g": new})})
+    assert "| `t.json` | `g[35]` | 0.5 | 0.6 | 1.667e-01 |" in table
+    assert "`g[0]`" not in table
+    nested = _golden.compare({"m": [[1, 2], [3, 4]]}, {"m": [[1, 2], [3, 5]]})
+    assert "| `t.json` | `m[1][1]` | 4 | 5 | 2.000e-01 |" in _golden.diff_table({"t": nested})
+    # Many changed elements: the first rows, then one row that counts the rest.
+    many = _golden.diff_table({"t": _golden.compare({"g": old}, {"g": [0.4] * 36})})
+    assert many.count("`g[") == _golden.MAX_ELEMENT_ROWS
+    assert f"… {36 - _golden.MAX_ELEMENT_ROWS} more changed elements" in many
+    # A changed shape keeps one whole-value row, and every row still names its file.
+    reshaped = _golden.diff_table({"t": _golden.compare({"g": old}, {"g": old[:-1]})})
+    assert reshaped.count("| `t.json` | `g` |") == 1
+    assert check_golden_table.table_files(many) == {"t.json"}
+    assert all(r.startswith("| `t.json` |") for r in many.splitlines()[2:])
+
+
 def test_the_two_table_headers_agree() -> None:
     assert check_golden_table.TABLE_HEADER == _golden.TABLE_HEADER
 

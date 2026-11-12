@@ -564,12 +564,54 @@ def _short(value: Any, width: int = 48) -> str:
 TABLE_HEADER = "| golden file | quantity | old | new | relative change |"
 
 
+#: Rows that :func:`diff_table` prints for one array quantity before it summarises the rest.
+MAX_ELEMENT_ROWS = 20
+
+
+def _elements(value: Any, index: str = "") -> list[tuple[str, Any]]:
+    """Each leaf of a nested list with its index path, such as ``[3]`` or ``[1][0]``."""
+    if isinstance(value, list):
+        return [pair for i, v in enumerate(value) for pair in _elements(v, f"{index}[{i}]")]
+    return [(index, value)]
+
+
+def _rows(d: Difference) -> list[tuple[str, str, str, str]]:
+    """The table rows of one difference: quantity, old, new and relative change.
+
+    An array that kept its shape gets one row per changed element, named by its index, so a
+    change late in a long array is visible (a whole-array cell is cut at 48 characters). An
+    array that changed shape, or a quantity that was added or removed, gets one row.
+    """
+
+    def rel(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.3e}"
+
+    if isinstance(d.old, list) and isinstance(d.new, list):
+        old, new = _elements(d.old), _elements(d.new)
+        if [i for i, _ in old] == [i for i, _ in new]:
+            changed = [
+                (i, x, y) for (i, x), (_, y) in zip(old, new, strict=True) if not _equal(x, y, 0.0)
+            ]
+            rows = [
+                (f"`{d.quantity}{i}`", _short(x), _short(y), rel(_relative(x, y)))
+                for i, x, y in changed[:MAX_ELEMENT_ROWS]
+            ]
+            if len(changed) > MAX_ELEMENT_ROWS:
+                more = len(changed) - MAX_ELEMENT_ROWS
+                rows.append(
+                    (f"`{d.quantity}`", f"… {more} more changed elements", "", rel(d.relative))
+                )
+            if rows:
+                return rows
+    return [(f"`{d.quantity}`", _short(d.old), _short(d.new), rel(d.relative))]
+
+
 def diff_table(changes: Mapping[str, list[Difference]]) -> str:
     """The Markdown old/new table a pull request that changes a golden file must carry."""
     lines = [TABLE_HEADER, "|---|---|---|---|---|"]
     for name in sorted(changes):
         for d in changes[name]:
-            rel = "n/a" if d.relative is None else f"{d.relative:.3e}"
-            row = [f"`{name}.json`", f"`{d.quantity}`", _short(d.old), _short(d.new), rel]
-            lines.append("| " + " | ".join(c.replace("|", "\\|") for c in row) + " |")
+            for row in _rows(d):
+                cells = [f"`{name}.json`", *row]
+                lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
     return "\n".join(lines)
