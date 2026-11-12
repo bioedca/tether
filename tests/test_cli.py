@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -80,13 +81,19 @@ def test_batch_isolates_failure_and_exits_nonzero(tmp_path, capsys) -> None:
 
 
 def _capture_run_batch(monkeypatch):
-    """Replace batch.run_batch with a capture stub; return the captured-kwargs dict."""
+    """Replace batch.run_batch with a capture stub; return the captured jobs and kwargs.
+
+    The stub also writes one record through the ``log`` it is given, so a test can find
+    the file that the batch log writes to.
+    """
     import tether.project.batch as batch_mod
 
     captured: dict[str, object] = {}
 
     def _fake(jobs, **kwargs):
+        captured["jobs"] = list(jobs)
         captured["kwargs"] = kwargs
+        kwargs["log"].event(movie="capture", stage="batch", status="done")
         return SimpleNamespace(format_report=lambda: "(report)", n_failed=0)
 
     monkeypatch.setattr(batch_mod, "run_batch", _fake)
@@ -139,6 +146,118 @@ def test_batch_no_idealize_disables_supervision(tmp_path, monkeypatch) -> None:
     assert rc == 0
     assert captured["kwargs"]["supervision"] is None
     assert captured["kwargs"]["idealize"] is False
+
+
+# --- Flags that reach the batch run (#730) ----------------------------------
+
+
+def _log_movies(path) -> list[str]:
+    return [json.loads(line)["movie"] for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_batch_forwards_tmap_tdat_policy_overwrite_and_log(tmp_path, monkeypatch, capsys) -> None:
+    # A batch that dropped --tmap/--tdat would fit a native registration for each
+    # movie instead of the imported map, with no message; --log, --overwrite and
+    # --policy must reach the run too.
+    captured = _capture_run_batch(monkeypatch)
+    movies = [tmp_path / "movie_001.tif", tmp_path / "movie_002.tif"]
+    for movie in movies:
+        movie.write_bytes(b"x")
+    tmap, tdat = tmp_path / "beads.tmap", tmp_path / "movie.tdat"
+    out, log = tmp_path / "out", tmp_path / "logs" / "night.jsonl"
+
+    rc = main(
+        [
+            "batch",
+            *map(str, movies),
+            "--out-dir",
+            str(out),
+            "--tmap",
+            str(tmap),
+            "--tdat",
+            str(tdat),
+            "--policy",
+            "fail",
+            "--overwrite",
+            "--log",
+            str(log),
+            "--no-idealize",
+        ]
+    )
+
+    assert rc == 0
+    assert [(j.movie_path, j.output_path, j.tmap, j.tdat) for j in captured["jobs"]] == [
+        (movies[0], out / "movie_001.tether", tmap, tdat),
+        (movies[1], out / "movie_002.tether", tmap, tdat),
+    ]
+    kwargs = captured["kwargs"]
+    assert kwargs["policy"] == "fail"
+    assert kwargs["overwrite"] is True
+    assert _log_movies(log) == ["capture"]  # the run's log writes to --log ...
+    assert not (out / "batch-log.jsonl").exists()  # ... and not to the default path
+    assert f"structured log: {log}" in capsys.readouterr().err
+
+
+def test_batch_defaults_reach_run_batch(tmp_path, monkeypatch) -> None:
+    captured = _capture_run_batch(monkeypatch)
+    m = tmp_path / "movie_001.tif"
+    m.write_bytes(b"x")
+    out = tmp_path / "out"
+
+    rc = main(["batch", str(m), "--out-dir", str(out), "--no-idealize"])
+
+    assert rc == 0
+    assert [(j.tmap, j.tdat) for j in captured["jobs"]] == [(None, None)]
+    assert captured["kwargs"]["policy"] == "warn"
+    assert captured["kwargs"]["overwrite"] is False
+    assert _log_movies(out / "batch-log.jsonl") == ["capture"]
+
+
+def test_batch_real_run_applies_tmap_and_tdat_and_writes_log(tmp_path, monkeypatch, capsys) -> None:
+    # `tether batch` on a readable movie, with the real run_batch, extract and correct
+    # stages: the profile records the imported map and the detection file.
+    for module in ("h5py", "scipy", "skimage", "tifffile"):
+        pytest.importorskip(module)
+    import h5py  # noqa: PLC0415
+
+    import test_extract_cli as helpers  # noqa: PLC0415
+    import tether.project.extract as extract_module  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        extract_module, "read_tmap", lambda _path: helpers._synthetic_tmap_channels()
+    )
+    movie = helpers._make_movie(tmp_path, name="movie_010.tif")
+    tmap = tmp_path / "map.tmap"
+    tmap.write_bytes(b"stub .tmap; read_tmap is monkeypatched")
+    tdat = helpers._write_tdat(tmp_path / "data.tdat", mode_code=2.0)
+    out, log = tmp_path / "out", tmp_path / "night.jsonl"
+
+    rc = main(
+        [
+            "batch",
+            str(movie),
+            "--out-dir",
+            str(out),
+            "--tmap",
+            str(tmap),
+            "--tdat",
+            str(tdat),
+            "--log",
+            str(log),
+            "--no-idealize",
+        ]
+    )
+
+    assert rc == 0, capsys.readouterr()
+    with h5py.File(out / "movie_010.tether", "r") as f:
+        profile = json.loads(f["/settings/extraction"].attrs["profile_json"])
+    assert profile["registration_source"] == "imported"
+    assert profile["tmap_source"] == "map.tmap"
+    assert profile["tdat_source"] == "data.tdat"
+    records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    assert ("movie_010", "extract", "done") in [
+        (r["movie"], r["stage"], r["status"]) for r in records
+    ]
 
 
 def test_batch_rejects_negative_max_restarts(tmp_path, capsys) -> None:
