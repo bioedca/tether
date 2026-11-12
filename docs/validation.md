@@ -56,7 +56,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
-| (g) Photobleach detector | required matrix | yes |
+| (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -491,7 +491,22 @@ tolerance. Read the parity leg for what it is: these tests are unmarked, so they
 required matrix, where tMAVEN is not installed and is never imported. What is proven is
 that the O(T) prefix-sum rewrite is faithful to the O(T²) reference *formulation*; a
 transcription error in the `_ref_*` helpers would not be caught, because tMAVEN itself does
-not execute here (that is what the `sidecar` tier does elsewhere on this page).
+not execute here. The live leg below closes that gap.
+
+**Live leg against tMAVEN** (#706). `tests/test_fret_photobleach_sidecar.py` runs in the
+required `sidecar / parity` job. On a pull request that job runs it when the diff touches
+`src/tether/fret/photobleach.py`, `tests/test_fret_photobleach.py` or any other path in
+its relevance filter. A child process in the sidecar environment calls tMAVEN's own
+`normal_ln_evidence`, `normal_mu_ln_evidence`, `ln_likelihood`, `get_point_pbtime` and
+`pb_ensemble`, with the priors from tMAVEN's own photobleach preferences. The inputs are
+the synthetic traces of the unmarked tests (same seeds, same draws) and the donor, acceptor
+and summed channels of the committed 4-molecule `smd_4mol.hdf5`. Tether and the `_ref_*`
+helpers are both compared with that output. The algorithm is the same, so bleach frames and
+the ensemble rate must be equal. Log evidence must agree to a relative 1e-14 for the
+helpers (measured worst 7.1e-16, the same O(T²) sums) and 1e-12 for Tether (measured worst
+6.6e-14, from the O(T) prefix sums on a trace that never bleaches); measured 2026-11-11
+against tMAVEN `10f4230`. The same one-character error put into both a `_ref_*` helper and
+`tether.fret.photobleach` passes every unmarked photobleach test and fails this leg.
 
 **Frozen constants.** The ±2-frame tolerance is asserted inline; the priors are named in
 `src/tether/fret/photobleach.py` — `PB_PRIOR_A` 1.0, `PB_PRIOR_B` 1.0, `PB_PRIOR_BETA` 1.0,
@@ -509,7 +524,10 @@ signal/noise settings and asserts `abs(pbt - k) <= 2` for each.
 `test_detect_photobleach_window_and_masks`, `test_never_bleaches_returns_length_and_all_zero_returns_zero`,
 `test_short_traces_do_not_raise`; and at the store level
 `tests/test_project_photobleach.py::test_compute_photobleach_populates_frames_and_auto_window`
-and `test_manual_window_is_not_overwritten`.
+and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
+`tests/test_fret_photobleach_sidecar.py::test_ref_helpers_match_live_tmaven`,
+`test_tether_detector_matches_live_tmaven` and
+`test_tmaven_default_priors_are_the_ones_tether_and_the_helpers_use`.
 
 ## External benchmark
 
