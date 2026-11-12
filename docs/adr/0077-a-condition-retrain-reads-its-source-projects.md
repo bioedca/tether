@@ -63,6 +63,9 @@ What is built (`tether.project.condition_model`, `tether.ml.persistence`):
    `source_projects` is additive and optional, so `MODEL_FORMAT_VERSION` stays `1`: an older build
    ignores the key, and an older artifact loads with an empty record. The digest is provenance
    only. A retrain does not require it to match, because a source project's labels can change.
+   `warm_start_retrain` takes the record of the rows it is given; called without one, the new
+   model records no projects, because the function cannot know that caller-supplied arrays are
+   the recorded rows, and a stale record would make the next retrain leave out labels.
 2. **`retrain_condition_model(model, project)`** reads the recorded projects in their recorded
    order, then the open project if it is new, and refits with `warm_start_retrain`. Only the
    molecules of the model's condition are read. A human label supersedes a provisional prior on the

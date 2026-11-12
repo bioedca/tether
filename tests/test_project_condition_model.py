@@ -414,3 +414,16 @@ def test_a_model_without_a_project_record_is_not_retrained_from_one_project(two_
     )
     assert [s.path for s in migrated.source_projects] == [str(a), str(b)]
     assert retrain_condition_model(migrated, b).n_train == 10
+
+
+def test_a_refit_on_caller_arrays_drops_the_record(two_days) -> None:
+    # A caller refits a recorded model on arrays this library did not read. Those rows may not
+    # be the recorded projects' rows, so the record is dropped rather than kept stale: the next
+    # project retrain refuses with the migration message instead of leaving labels out.
+    a, _, b, _ = two_days
+    model = train_condition_model(a, condition_id=_condition(a))
+    training = condition_training_set([a, b], _condition(a))
+    refit = warm_start_retrain(model, training.X, training.y, training.feature_names)
+    assert refit.source_projects == ()
+    with pytest.raises(ValueError, match="records no source projects"):
+        retrain_condition_model(refit, b)

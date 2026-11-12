@@ -337,8 +337,12 @@ def warm_start_retrain(
     extended to new features mid-life). ``hyperparams`` defaults to the model's current
     hyperparameters so the loop is stable unless deliberately changed. ``sample_weight`` (the §7.5
     cold-start label weighting, recomputed each retrain) is forwarded to the fit; ``None`` fits at
-    unit weight. ``source_projects`` replaces the model's project record (:class:`SourceProject`)
-    when given, and carries it forward unchanged when ``None``.
+    unit weight. ``source_projects`` is the project record (:class:`SourceProject`) of the rows in
+    ``(X, y)``. When ``None``, the new model records **no** projects: this function cannot know
+    that the arrays came from the old record, and a stale record would make
+    :func:`tether.project.condition_model.retrain_condition_model` silently leave out labels. A
+    model with an empty record is refused there, with a message that names the migration
+    (ADR-0077).
 
     Raises
     ------
@@ -368,9 +372,7 @@ def warm_start_retrain(
         n_retrains=model.n_retrains + 1,
         created_utc=model.created_utc,
         updated_utc=_now_iso(now),
-        source_projects=(
-            model.source_projects if source_projects is None else _source_tuple(source_projects)
-        ),
+        source_projects=() if source_projects is None else _source_tuple(source_projects),
     )
 
 

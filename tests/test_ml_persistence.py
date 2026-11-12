@@ -558,7 +558,7 @@ def _source(path: str, n_rows: int = 3, n_human: int = 2) -> SourceProject:
     return SourceProject(path=path, rows_sha256="ab" * 32, n_rows=n_rows, n_human=n_human)
 
 
-def test_source_projects_round_trip_and_carry_forward(tmp_path) -> None:
+def test_source_projects_round_trip_and_replace(tmp_path) -> None:
     X, y, _ = _separable()
     record = (_source("/data/day1.tether"), _source("/data/day2.tether", 5, 5))
     model = train_portable_model(X, y, FEATURES, condition_id="c", source_projects=record)
@@ -567,8 +567,9 @@ def test_source_projects_round_trip_and_carry_forward(tmp_path) -> None:
     loaded = load_model(path)
     assert loaded.source_projects == record
 
-    # None carries the record forward; a new record replaces it.
-    assert warm_start_retrain(loaded, X, y, FEATURES).source_projects == record
+    # None clears the record: the arrays may not be the recorded rows, and a stale record would
+    # make a later project retrain leave out labels without a message. A new record replaces it.
+    assert warm_start_retrain(loaded, X, y, FEATURES).source_projects == ()
     newer = (_source("/data/day3.tether"),)
     assert warm_start_retrain(loaded, X, y, FEATURES, source_projects=newer).source_projects == (
         newer
