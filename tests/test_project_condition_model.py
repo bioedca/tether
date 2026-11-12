@@ -46,7 +46,12 @@ from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import create_project  # noqa: E402
 from tether.ml.features import FEATURE_NAMES  # noqa: E402
-from tether.ml.persistence import load_model, save_model, train_portable_model  # noqa: E402
+from tether.ml.persistence import (  # noqa: E402
+    load_model,
+    save_model,
+    train_portable_model,
+    warm_start_retrain,
+)
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT  # noqa: E402
 from tether.project import condition_model  # noqa: E402
 from tether.project.condition_model import (  # noqa: E402
@@ -376,3 +381,36 @@ def test_a_project_named_twice_is_refused(two_days) -> None:
     a, _, _, _ = two_days
     with pytest.raises(ValueError, match="more than once"):
         condition_training_set([a, a], _condition(a))
+
+
+def test_a_project_reached_through_a_symlink_is_one_project(two_days, tmp_path) -> None:
+    a, _, b, _ = two_days
+    alias = tmp_path / "alias.tether"
+    try:
+        alias.symlink_to(a)
+    except OSError:  # pragma: no cover - Windows without the symlink privilege
+        pytest.skip("cannot create a symlink here")
+    with pytest.raises(ValueError, match="more than once"):
+        condition_training_set([a, alias], _condition(a))
+
+    model = retrain_condition_model(train_condition_model(a, condition_id=_condition(a)), b)
+    again = retrain_condition_model(model, alias)  # the recorded day 1, by another path
+    assert [s.path for s in again.source_projects] == [str(a), str(b)]
+    assert again.n_train == 10
+
+
+def test_a_model_without_a_project_record_is_not_retrained_from_one_project(two_days) -> None:
+    a, _, b, _ = two_days
+    xa, ya = _labelled_rows(a)
+    legacy = train_portable_model(xa, ya, FEATURE_NAMES, condition_id=_condition(a))
+    assert legacy.source_projects == ()
+    with pytest.raises(ValueError, match="records no source projects"):
+        retrain_condition_model(legacy, b)
+
+    # The explicit migration the message names: one fit on the condition's projects.
+    training = condition_training_set([a, b], _condition(a))
+    migrated = warm_start_retrain(
+        legacy, training.X, training.y, training.feature_names, source_projects=training.sources
+    )
+    assert [s.path for s in migrated.source_projects] == [str(a), str(b)]
+    assert retrain_condition_model(migrated, b).n_train == 10

@@ -67,7 +67,12 @@ What is built (`tether.project.condition_model`, `tether.ml.persistence`):
    order, then the open project if it is new, and refits with `warm_start_retrain`. Only the
    molecules of the model's condition are read. A human label supersedes a provisional prior on the
    same molecule, as in `tether.project.gbranking`. `train_condition_model(project, condition_id=…)`
-   starts the loop and records the first project.
+   starts the loop and records the first project. Two paths to one file (a symlink or a junction)
+   are one project: paths are compared after `os.path.realpath`, so no project is read twice.
+   A model that records no source projects (an artifact saved before this ADR) is **refused**,
+   because a retrain from one project would forget the labels it was trained on; it is fitted
+   again once from its projects (`condition_training_set`, then `warm_start_retrain` with
+   `source_projects=`).
 3. **`n_human` counts every project.** A provisional prior trains at `w₀ / (1 + n_human)`, where
    `n_human` is the sum of the condition's human labels in all the projects read.
 4. **A missing or offline project stops the retrain.** Every project is checked before any is

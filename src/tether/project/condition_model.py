@@ -176,8 +176,9 @@ def _project_path(project: ProjectRef) -> Path:
 
 
 def _identity(path: Path) -> str:
-    """The comparison key of a project path (case-folded where the platform folds case)."""
-    return os.path.normcase(os.path.abspath(path))
+    """The comparison key of a project path: symlinks and junctions resolved, then case-folded
+    where the platform folds case, so one file reached by two paths is one project."""
+    return os.path.normcase(os.path.realpath(path))
 
 
 def _to_str(value: object) -> str:
@@ -456,11 +457,22 @@ def retrain_condition_model(
     KeyError
         A project has no ``/features/table``.
     ValueError
-        ``project`` holds no molecule of the condition, the projects store different feature
-        columns, or the rows have no labels or one class only.
+        The model records no source projects (an artifact saved before ADR-0077, or one fitted on
+        caller-supplied arrays): a retrain from one project would forget the rest. Or ``project``
+        holds no molecule of the condition, the projects store different feature columns, or the
+        rows have no labels or one class only.
     """
     from tether.ml.persistence import warm_start_retrain  # noqa: PLC0415
 
+    if not model.source_projects:
+        # A model with no project record (saved before ADR-0077, or fitted on caller arrays) would
+        # refit on the open project alone and silently forget every earlier project's labels.
+        raise ValueError(
+            f"the model of condition {model.condition_id!r} records no source projects, so a "
+            "retrain would forget the labels it was trained on. Fit it again from its projects: "
+            "condition_training_set([...]) then warm_start_retrain(..., "
+            "source_projects=training.sources), or train_condition_model for one project"
+        )
     open_path = _project_path(project)
     paths = [Path(src.path) for src in model.source_projects]
     if _identity(open_path) not in {_identity(p) for p in paths}:
