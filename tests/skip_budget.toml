@@ -29,14 +29,14 @@ max_skipped = 20
 
 [jobs."test (macos-latest)"]
 min_collected = 4016
-max_skipped = 31
+max_skipped = 33
 
 [jobs."test (windows-latest)"]
 min_collected = 4016
-max_skipped = 17
+max_skipped = 18
 
 [jobs."sidecar / parity"]
-min_collected = 13
+min_collected = 22
 max_skipped = 0
 
 [jobs."deep / smoke"]
@@ -48,6 +48,14 @@ min_collected = 15
 max_skipped = 4
 
 # --- Expected skips on the three required legs ---------------------------------------------
+
+[[skip]]
+test = "tests/test_coverage_floors.py::test_floors_never_go_down"
+reason = "no origin/main in this checkout (CI's Linux leg fetches it and sets TETHER_COVERAGE_BASE_REF)"
+jobs = ["test (macos-latest)", "test (windows-latest)"]
+why = """The coverage-floor ratchet (#724, ADR-0072) compares the floors with the copy on main. \
+Only the Linux leg fetches main and sets TETHER_COVERAGE_BASE_REF, which makes the test fail \
+instead of skip there; the macOS and Windows legs do not change, so they have no main to read."""
 
 [[skip]]
 test = "tests/test_deep_gpu_deep.py"
@@ -196,9 +204,9 @@ test (windows-latest) run them."""
 test = "tests/test_roundtrip.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
-why = """The three round-trip tests open a napari Viewer, which needs an OpenGL context that Qt \
-under QT_QPA_PLATFORM=offscreen on macOS does not give. test (ubuntu-latest) under xvfb and \
-test (windows-latest) run them."""
+why = """The four round-trip tests open a napari Viewer (#745 added the click-versus-drag \
+test), which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not \
+give. test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
 
 # --- deep / smoke ---------------------------------------------------------------------------
 
