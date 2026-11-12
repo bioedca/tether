@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import json
+import math
 import os
 import re
 import shlex
@@ -1210,14 +1212,395 @@ def _job_steps(text: str, job_id: str) -> list[dict]:
     return [step for step in (job.get("steps") or []) if isinstance(step, dict)]
 
 
+# An `if:` is a constant when GitHub can decide it before the run: `false`, but also
+# `${{ false && true }}`, `!true`, `0` or `${{ fromJSON('false') }}` (#750, CodeRabbit). The
+# reader below evaluates the expression language (literals, `( ) [ ] . ! < <= > >= == != && ||`
+# and the pure functions) and gives every context (`github`, `steps`, `needs`, ...) and every
+# status function but `always()` a value that only the run knows. `&&` and `||` can still decide
+# around such a value: `false && steps.x.outputs.y` is a constant false.
+
+#: Functions whose value depends on the run (`always()` does not: it is always true).
+_RUNTIME_FUNCTIONS = frozenset({"success", "failure", "cancelled", "hashfiles"})
+
+_JSON_NUMBER = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?")
+
+_EXPRESSION_TOKEN = re.compile(
+    r"""\s*(?:
+        (?P<string>'(?:[^']|'')*')
+      | (?P<number>-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)
+      | (?P<name>[A-Za-z_][A-Za-z0-9_-]*)
+      | (?P<op>&&|\|\||==|!=|<=|>=|[!<>()\[\].,*])
+    )""",
+    re.VERBOSE,
+)
+
+
+class _Runtime:
+    """A value that only the run knows; ``truthy`` is what is known of it anyway (None: nothing)."""
+
+    __slots__ = ("truthy",)
+
+    def __init__(self, truthy: bool | None = None) -> None:
+        self.truthy = truthy
+
+
+def _truth(value: object) -> bool | None:
+    """GitHub's truthiness: ``false``, ``0``, ``-0``, ``''`` and ``null`` are falsy."""
+    if isinstance(value, _Runtime):
+        return value.truthy
+    if value is None or value is False:
+        return False
+    if isinstance(value, float):
+        return not (value == 0 or math.isnan(value))
+    if isinstance(value, str):
+        return value != ""
+    return True  # true, arrays and objects
+
+
+def _as_number(value: object) -> float:
+    """GitHub's coercion for a comparison of two types: null 0, booleans 1/0, strings parsed."""
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return 0.0
+        return float(text) if _JSON_NUMBER.fullmatch(text) else math.nan
+    return math.nan  # arrays and objects
+
+
+def _as_string(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else repr(value)
+    if isinstance(value, str):
+        return value
+    return "Array" if isinstance(value, list) else "Object"
+
+
+def _kind(value: object) -> str:
+    if value is None or isinstance(value, (bool, float, str)):
+        return type(value).__name__
+    return "array" if isinstance(value, list) else "object"
+
+
+def _equal(left: object, right: object) -> bool:
+    """Loose equality: strings ignore case, other types meet as numbers, NaN equals nothing."""
+    if _kind(left) == _kind(right):
+        if isinstance(left, str) and isinstance(right, str):
+            return left.casefold() == right.casefold()
+        if isinstance(left, (list, dict)):
+            return left is right  # arrays and objects are equal only to themselves
+        return left == right
+    return _as_number(left) == _as_number(right)
+
+
+def _ordered(operator: str, left: object, right: object) -> bool:
+    if isinstance(left, str) and isinstance(right, str):
+        a: str | float = left.casefold()
+        b: str | float = right.casefold()
+    else:
+        a, b = _as_number(left), _as_number(right)
+        if math.isnan(a) or math.isnan(b):
+            return False
+    return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[operator]
+
+
+def _both(left: object, right: object) -> object:
+    """``&&``: the first falsy operand, else the last; falsy for sure if either side is."""
+    known = _truth(left)
+    if known is False:
+        return left
+    if known is True:
+        return right
+    return _Runtime(False if _truth(right) is False else None)
+
+
+def _either(left: object, right: object) -> object:
+    """``||``: the first truthy operand, else the last; truthy for sure if either side is."""
+    known = _truth(left)
+    if known is True:
+        return left
+    if known is False:
+        return right
+    return _Runtime(True if _truth(right) is True else None)
+
+
+def _from_json(value: object) -> object:
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, list):
+        return [_from_json(item) for item in value]
+    return {key: _from_json(item) for key, item in value.items()}  # type: ignore[union-attr]
+
+
+def _call(name: str, args: list[object]) -> object:
+    """A function of the expression language; a runtime one, or a runtime argument, is unknown."""
+    if name == "always":
+        return True
+    if name in _RUNTIME_FUNCTIONS or any(isinstance(arg, _Runtime) for arg in args):
+        return _Runtime()
+    try:
+        if name == "contains":
+            haystack, needle = args
+            if isinstance(haystack, list):
+                return any(_equal(item, needle) for item in haystack)
+            return _as_string(needle).casefold() in _as_string(haystack).casefold()
+        if name in ("startswith", "endswith"):
+            text, part = (_as_string(arg).casefold() for arg in args)
+            return text.startswith(part) if name == "startswith" else text.endswith(part)
+        if name == "format":
+            template, *values = args
+            return re.sub(
+                r"\{\{|\}\}|\{(\d+)\}",
+                lambda m: _as_string(values[int(m[1])]) if m[1] else m[0][0],
+                _as_string(template),
+            )
+        if name == "join":
+            items, *separator = args
+            glue = _as_string(separator[0]) if separator else ","
+            if isinstance(items, list):
+                return glue.join(_as_string(item) for item in items)
+            return _as_string(items)
+        if name == "tojson":
+            (value,) = args
+            return json.dumps(value)
+        if name == "fromjson":
+            (value,) = args
+            return _from_json(json.loads(_as_string(value)))
+    except (ValueError, IndexError, TypeError):
+        pass
+    return _Runtime()  # a function or arguments GitHub would reject: assume nothing
+
+
+def _member(value: object, key: object) -> object:
+    if isinstance(value, _Runtime) or isinstance(key, _Runtime):
+        return _Runtime()
+    if isinstance(value, dict):
+        wanted = _as_string(key).casefold()
+        return next((item for name, item in value.items() if name.casefold() == wanted), None)
+    if isinstance(value, list) and isinstance(key, float) and key.is_integer():
+        return value[int(key)] if 0 <= key < len(value) else None
+    return None
+
+
+class _Expression:
+    """A recursive-descent reader of one GitHub Actions expression (lowest precedence first)."""
+
+    def __init__(self, text: str) -> None:
+        self.tokens: list[tuple[str, str]] = []
+        position, text = 0, text.rstrip()
+        while position < len(text):
+            match = _EXPRESSION_TOKEN.match(text, position)
+            if match is None or match.lastgroup is None:
+                raise ValueError(f"cannot read {text[position:]!r}")
+            self.tokens.append((match.lastgroup, match[match.lastgroup]))
+            position = match.end()
+        self.position = 0
+
+    def value(self) -> object:
+        result = self._or()
+        if self.position != len(self.tokens):
+            raise ValueError(f"unexpected {self.tokens[self.position][1]!r}")
+        return result
+
+    def _operator(self) -> str | None:
+        if self.position < len(self.tokens) and self.tokens[self.position][0] == "op":
+            return self.tokens[self.position][1]
+        return None
+
+    def _take(self, expected: str | None = None) -> tuple[str, str]:
+        if self.position >= len(self.tokens):
+            raise ValueError("the expression ends too early")
+        token = self.tokens[self.position]
+        if expected is not None and token != ("op", expected):
+            raise ValueError(f"expected {expected!r}, found {token[1]!r}")
+        self.position += 1
+        return token
+
+    def _or(self) -> object:
+        left = self._and()
+        while self._operator() == "||":
+            self._take()
+            left = _either(left, self._and())
+        return left
+
+    def _and(self) -> object:
+        left = self._equality()
+        while self._operator() == "&&":
+            self._take()
+            left = _both(left, self._equality())
+        return left
+
+    def _equality(self) -> object:
+        left = self._relation()
+        while (operator := self._operator()) in ("==", "!="):
+            self._take()
+            right = self._relation()
+            if isinstance(left, _Runtime) or isinstance(right, _Runtime):
+                left = _Runtime()
+            else:
+                left = _equal(left, right) == (operator == "==")
+        return left
+
+    def _relation(self) -> object:
+        left = self._unary()
+        while (operator := self._operator()) in ("<", "<=", ">", ">="):
+            self._take()
+            right = self._unary()
+            if isinstance(left, _Runtime) or isinstance(right, _Runtime):
+                left = _Runtime()
+            else:
+                left = _ordered(str(operator), left, right)
+        return left
+
+    def _unary(self) -> object:
+        if self._operator() == "!":
+            self._take()
+            known = _truth(self._unary())
+            return _Runtime() if known is None else not known
+        return self._postfix()
+
+    def _postfix(self) -> object:
+        value = self._primary()
+        while (operator := self._operator()) in (".", "["):
+            self._take()
+            if operator == "[":
+                key = self._or()
+                self._take("]")
+            else:
+                kind, name = self._take()
+                if (kind, name) == ("op", "*"):
+                    value = _Runtime()  # an object filter: not worth evaluating here
+                    continue
+                if kind != "name":
+                    raise ValueError(f"a property name cannot be {name!r}")
+                key = name
+            value = _member(value, key)
+        return value
+
+    def _primary(self) -> object:
+        kind, text = self._take()
+        if kind == "string":
+            return text[1:-1].replace("''", "'")
+        if kind == "number":
+            return float(text)
+        if (kind, text) == ("op", "("):
+            value = self._or()
+            self._take(")")
+            return value
+        if kind == "name":
+            if self._operator() == "(":
+                self._take()
+                args: list[object] = []
+                if self._operator() != ")":
+                    args.append(self._or())
+                    while self._operator() == ",":
+                        self._take()
+                        args.append(self._or())
+                self._take(")")
+                return _call(text.lower(), args)
+            if text.lower() in ("true", "false"):
+                return text.lower() == "true"
+            if text.lower() == "null":
+                return None
+            return _Runtime()  # a context: github, env, steps, needs, matrix, inputs, ...
+        raise ValueError(f"unexpected {text!r}")
+
+
+def _constant_truth(condition: str) -> bool | None:
+    """True or False when GitHub decides an `if:` before the run; None when the run decides."""
+    text = condition.strip()
+    whole = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    if whole and "${{" not in whole[1]:
+        text = whole[1]
+    elif "${{" in text:
+        return True  # text outside `${{ }}` makes the value a non-empty string, which is true
+    try:
+        return _truth(_Expression(text).value())
+    except (ValueError, IndexError):
+        return None  # GitHub rejects the whole workflow when it cannot read an expression
+
+
 def _is_live(step: dict) -> bool:
-    """False only when the step is switched off by a constant, not by a runtime gate."""
+    """False only when the step is switched off by a constant, not by a runtime gate.
+
+    A constant is any `if:` that GitHub decides before the run (`_constant_truth`), so
+    `${{ false && true }}` is as dead as `false`. The same applies to a job's `if:`.
+    """
     condition = step.get("if")
     if condition is None:
         return True
     if isinstance(condition, bool):
         return condition
-    return str(condition).strip().lower() not in _STATICALLY_DISABLED
+    if str(condition).strip().lower() in _STATICALLY_DISABLED:
+        return False
+    return _constant_truth(str(condition)) is not False
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        False,
+        0,
+        "false",
+        "${{ false }}",
+        "${{ false && true }}",
+        "${{ true && false }}",
+        "false && steps.relevance.outputs.run == 'true'",
+        "${{ steps.relevance.outputs.run == 'true' && false }}",
+        "${{ !true }}",
+        "!(true || github.event_name == 'push')",
+        "${{ 1 == 2 }}",
+        "${{ 'a' != 'A' }}",
+        "${{ '' }}",
+        "${{ null }}",
+        "${{ always() && false }}",
+        "${{ contains('abc', 'z') }}",
+        "${{ startsWith('abc', 'b') }}",
+        "${{ fromJSON('false') }}",
+        "${{ fromJSON('{\"run\": false}').run }}",
+        "${{ format('{0}', '') }}",
+    ],
+)
+def test_a_constant_false_if_switches_a_step_off(condition: object) -> None:
+    """Any `if:` that GitHub decides to be false before the run is dead (#750, CodeRabbit)."""
+    assert not _is_live({"if": condition, "run": "pytest"})
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        None,
+        True,
+        "true",
+        "${{ always() }}",
+        "success()",
+        "${{ !cancelled() }}",
+        "steps.relevance.outputs.run == 'true'",
+        "needs.verify.outputs.publish == 'true'",
+        "${{ github.event_name != 'pull_request' || steps.relevance.outputs.run == 'true' }}",
+        "${{ false || github.event_name == 'schedule' }}",
+        "${{ hashFiles('pyproject.toml') != '' }}",
+        "${{ 'A' == 'a' }}",
+        "${{ 1 == '1' }}",
+        "${{ false }} && true",  # text outside ${{ }}: a non-empty string, which is true
+        "${{ fromJSON('[0]')[1] == null }}",
+        "steps.relevance.outputs.run == (",  # GitHub rejects the workflow, which fails by itself
+    ],
+)
+def test_a_runtime_or_true_if_keeps_a_step_live(condition: object) -> None:
+    """A gate that reads the run (or is true) is not a switch-off, so the step is live."""
+    assert _is_live({"if": condition, "run": "pytest"})
 
 
 def _steps(text: str) -> list[dict]:
