@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0085 — A trailing dwell keeps the last frame of its analysis window
 
-- **Status:** proposed; the re-frozen tMAVEN-app limit waits for the maintainer's decision on #849
+- **Status:** accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12)
 - **Date:** 2026-11-12
 - **Deciders:** bioedca
 - **PRD anchor:** §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap)
@@ -53,8 +53,9 @@ routine was 0.0061.
    Tether's `NO_STATE` border is never a jump, and that stays a deliberate difference (#806
    item 2). Under rule 1 the app, which sees the window end as a jump, now drops a frame that
    Tether keeps. The re-measured app values follow the limit file's rounding rule; one entry,
-   `1_1_2`, rises from 0 to 0.00039 (limit 0.0004). This item is **proposed**: a frozen limit gets
-   wider, and that needs the maintainer's explicit decision before merge.
+   `1_1_2`, rises from 0 to 0.00039 (limit 0.0004). A frozen limit gets wider here, so this item
+   needed the maintainer's explicit decision. The maintainer accepted it on 2026-11-12 and chose
+   this fix over the docs-only fallback.
 
 ## Consequences
 

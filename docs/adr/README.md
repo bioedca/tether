@@ -120,7 +120,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0073](0073-one-manifest-for-reference-data-sets.md) | One manifest and four storage tiers for reference data sets | accepted | §8 (NFR-FIXTURES, NFR-VALID), §12.1 (SPDX / REUSE), §12.6 (CI) |
 | [0074](0074-matlab-reference-outputs-come-from-pinned-runs.md) | MATLAB reference outputs come from pinned runs with a provenance record | accepted | §1 (reference tools), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0075](0075-seeded-ebfret-parity-gate.md) | The ebFRET parity gate runs on two fixed seeds | accepted; amends [ADR-0007](0007-parity-is-statistical.md) on pinning the seed | §7.4 (parity definition), §11.2 (the ebFRET tolerance row), §12.6 (`sidecar/parity`), §9 M6 |
-| [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | proposed; the re-frozen tMAVEN-app limit waits for the maintainer's decision on #849 | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
+| [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
 
 <!-- gen:adr-index end -->
 
