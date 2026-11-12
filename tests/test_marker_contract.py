@@ -1214,10 +1214,11 @@ def _job_steps(text: str, job_id: str) -> list[dict]:
 
 # An `if:` is a constant when GitHub can decide it before the run: `false`, but also
 # `${{ false && true }}`, `!true`, `0` or `${{ fromJSON('false') }}` (#750, CodeRabbit). The
-# reader below evaluates the expression language (literals, `( ) [ ] . ! < <= > >= == != && ||`
-# and the pure functions) and gives every context (`github`, `steps`, `needs`, ...) and every
-# status function but `always()` a value that only the run knows. `&&` and `||` can still decide
-# around such a value: `false && steps.x.outputs.y` is a constant false.
+# reader below evaluates the expression language (literals, hexadecimal `0xff` among them,
+# `( ) [ ] . ! < <= > >= == != && ||` and the pure functions) and gives every context
+# (`github`, `steps`, `needs`, ...) and every status function but `always()` a value that only
+# the run knows. `&&` and `||` can still decide around such a value: `false && steps.x.outputs.y`
+# is a constant false.
 
 #: Functions whose value depends on the run (`always()` does not: it is always true).
 _RUNTIME_FUNCTIONS = frozenset({"success", "failure", "cancelled", "hashfiles"})
@@ -1227,7 +1228,7 @@ _JSON_NUMBER = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?")
 _EXPRESSION_TOKEN = re.compile(
     r"""\s*(?:
         (?P<string>'(?:[^']|'')*')
-      | (?P<number>-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)
+      | (?P<number>-?0[xX][0-9a-fA-F]+|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)
       | (?P<name>[A-Za-z_][A-Za-z0-9_-]*)
       | (?P<op>&&|\|\||==|!=|<=|>=|[!<>()\[\].,*])
     )""",
@@ -1493,7 +1494,7 @@ class _Expression:
         if kind == "string":
             return text[1:-1].replace("''", "'")
         if kind == "number":
-            return float(text)
+            return float(int(text, 16)) if "x" in text.lower() else float(text)
         if (kind, text) == ("op", "("):
             value = self._or()
             self._take(")")
@@ -1561,6 +1562,8 @@ def _is_live(step: dict) -> bool:
         "${{ !true }}",
         "!(true || github.event_name == 'push')",
         "${{ 1 == 2 }}",
+        "${{ 0xff == 0 }}",
+        "${{ 0x0 }}",
         "${{ 'a' != 'A' }}",
         "${{ '' }}",
         "${{ null }}",
@@ -1593,6 +1596,7 @@ def test_a_constant_false_if_switches_a_step_off(condition: object) -> None:
         "${{ hashFiles('pyproject.toml') != '' }}",
         "${{ 'A' == 'a' }}",
         "${{ 1 == '1' }}",
+        "${{ 0xff == 255 }}",
         "${{ false }} && true",  # text outside ${{ }}: a non-empty string, which is true
         "${{ fromJSON('[0]')[1] == null }}",
         "steps.relevance.outputs.run == (",  # GitHub rejects the workflow, which fails by itself
