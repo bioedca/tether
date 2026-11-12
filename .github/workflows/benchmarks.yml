@@ -1,0 +1,105 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Benchmarks — speed and memory of a pull request against its merge base (#722, ADR-0078).
+#
+# The NFR-PERF budget checks (tests/test_project_perf.py, ADR-0032) stay as they are; they
+# catch a gross regression against a fixed budget. This workflow catches the regression that
+# stays inside the budget: it runs benchmarks/ on the merge base and on the pull request head,
+# on the same runner in the same job, interleaved case by case, and fails when a gated case is
+# slower than 1.5 times base or takes more than 1.5 times its peak memory. The job summary
+# holds the table (operation, base, head, ratio).
+#
+# Only pull requests that touch src/tether/** run it, and it is NOT in the required set: the
+# maintainer adds it to the ruleset as a separate decision. A manual run measures the noise
+# instead: the suite ten times on one commit, with the spread of each case (the pull
+# request for #722 holds the run that set the gates). The job uses no third-party service and sends nothing
+# outside GitHub; every `uses:` is pinned to a 40-character SHA.
+name: benchmarks
+
+on:
+  pull_request:
+    paths:
+      - "src/tether/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: benchmarks / ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Idealization runs in the isolated tMAVEN env (numpy<2 / PyQt5), as in sidecar.yml.
+          - { name: compare, groups: "default gui", lock: conda-lock.yml, env: tether }
+          - { name: sidecar, groups: sidecar, lock: sidecar/conda-lock.yml, env: tether-sidecar }
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
+      BENCH_GROUPS: ${{ matrix.groups }}
+      EVENT_NAME: ${{ github.event_name }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          lfs: false
+      # bench.py puts each tree under test first on `sys.path` and checks where `tether` came
+      # from, so the package is not installed: an install could make one tree shadow the other.
+      - name: Restore the env
+        uses: ./.github/actions/setup-env
+        with:
+          environment-file: ${{ matrix.lock }}
+          environment-name: ${{ matrix.env }}
+          install-tether: "false"
+      - name: Install pinned tMAVEN via the guided sidecar-setup script
+        if: matrix.name == 'sidecar'
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+        run: python scripts/setup_sidecar.py --python "$(python -c 'import sys; print(sys.executable)')"
+      - name: Run the suite and compare (pull request) or measure the noise (manual run)
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+        run: |
+          export TETHER_SIDECAR_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          head="$GITHUB_WORKSPACE/src"
+          status=0
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            merge_base="$(git merge-base "$BASE_SHA" HEAD)"
+            echo "merge base: $merge_base"
+            git worktree add --detach "$RUNNER_TEMP/base" "$merge_base"
+          fi
+          for group in $BENCH_GROUPS; do
+            out="$RUNNER_TEMP/bench-$group.json"
+            if [ "$EVENT_NAME" = "pull_request" ]; then
+              python benchmarks/bench.py run --group "$group" --rounds 3 \
+                --side base="$RUNNER_TEMP/base/src" --side head="$head" --out "$out"
+              python benchmarks/bench.py compare "$out" || status=1
+            else
+              python benchmarks/bench.py run --group "$group" --rounds 1 --copies 10 \
+                --side run="$head" --out "$out"
+              python benchmarks/bench.py noise "$out"
+            fi
+          done
+          exit "$status"
+      - name: Keep the raw results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmarks-${{ matrix.name }}
+          path: ${{ runner.temp }}/bench-*.json
+          if-no-files-found: ignore
+          retention-days: 14
