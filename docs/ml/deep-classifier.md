@@ -152,7 +152,7 @@ cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
 
 The deep add-on is validated by two **non-required** legs, so it never gates a merge and the
 base app stays torch-free. The base 3-OS `test` matrix deselects the `deep` marker
-(`-m "not large and not sidecar and not deep"`), and `tests/test_marker_contract.py` keeps the
+(`-m "not large and not sidecar and not deep and not workstation"`), and `tests/test_marker_contract.py` keeps the
 `tests/test_*_deep.py` collection glob in lockstep with that marker so a new deep test can
 neither escape these legs nor redden the base matrix.
 

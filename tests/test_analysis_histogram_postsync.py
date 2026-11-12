@@ -300,6 +300,64 @@ def test_parity_with_tmaven_oracle(single_dwell: bool, vi: int, vj: int) -> None
     assert h.n_transitions == npoints
 
 
+@pytest.mark.parametrize(("xbins", "xsync"), [(20, 10), (40, 20)])
+@pytest.mark.parametrize(("vi", "vj"), [(-1, -1), (0, 1), (-1, 2), (1, -1), (2, 0)])
+def test_parity_with_tmaven_oracle_window_reaches_previous_transition(
+    vi: int, vj: int, xbins: int, xsync: int
+) -> None:
+    # In _oracle_case every dwell is 5 frames or longer, so with xsync = 3 the window
+    # never reaches the previous transition. Here xsync is larger than the dwells, so
+    # the left limit of the single-dwell window (the frame after the previous
+    # transition of the same molecule) decides which frames are binned, as it does at
+    # the product default DEFAULT_SYNC_PREFRAME = 50 (#738 ANB-F2). Only single_dwell
+    # is tested: the port requires fixed windows inside [0, nframes).
+    v, d = _oracle_case()
+    ybins = DEFAULT_SIGNAL_BINS
+    lo, hi = DEFAULT_SIGNAL_RANGE
+    ref, nmol, npoints = _tmaven_postsync(
+        v,
+        d,
+        vi=vi,
+        vj=vj,
+        single_dwell=True,
+        xbins=xbins,
+        xsync=xsync,
+        ymin=lo,
+        ymax=hi,
+        ybins=ybins,
+    )
+    h = transition_sync_histogram2d(
+        _pairs_from_rect(v, d),
+        from_state=vi,
+        to_state=vj,
+        single_dwell=True,
+        sync_preframe=xsync,
+        time_bins=xbins,
+        signal_bins=ybins,
+        signal_range=(lo, hi),
+    )
+    np.testing.assert_array_equal(h.counts, ref)
+    assert h.n_molecules == nmol
+    assert h.n_transitions == npoints
+
+
+@pytest.mark.parametrize("single_dwell", [True, False])
+@pytest.mark.parametrize("time_dt", [0.5, 0.037, 2.0])
+def test_time_dt_scales_the_axis_but_not_the_counts(single_dwell: bool, time_dt: float) -> None:
+    # time_dt converts a column to seconds: it scales the time edges and centres, and a
+    # frame stays in its column. So the counts on data are those of time_dt = 1
+    # (#738 ANB-F2).
+    v, d = _oracle_case()
+    pairs = _pairs_from_rect(v, d)
+    kwargs = {"single_dwell": single_dwell, "sync_preframe": 3, "time_bins": 8}
+    frames = transition_sync_histogram2d(pairs, **kwargs)
+    seconds = transition_sync_histogram2d(pairs, time_dt=time_dt, **kwargs)
+    assert frames.counts.sum() > 0.0
+    np.testing.assert_array_equal(seconds.counts, frames.counts)
+    np.testing.assert_allclose(seconds.time_edges, frames.time_edges * time_dt, rtol=1e-12)
+    np.testing.assert_allclose(seconds.time_centers, frames.time_centers * time_dt, rtol=1e-12)
+
+
 # --- pure core: transition selection ------------------------------------------
 
 
