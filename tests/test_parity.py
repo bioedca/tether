@@ -503,3 +503,46 @@ def test_load_frozen_tolerance_selects_per_method():
     # A method without its own block, and an explicit None, fall back to the default.
     assert load_frozen_tolerance(FROZEN_JSON, method="vbconhmm") == default
     assert load_frozen_tolerance(FROZEN_JSON, method=None) == default
+
+
+def _measured_blocks(data):
+    """Every block of the artifact that records a ``pooled_worst`` beside its evidence."""
+    blocks = {"$": data}
+    for method, block in data.get("measured_by_method", {}).items():
+        blocks[f"$.measured_by_method.{method}"] = block
+    return blocks
+
+
+def test_pooled_worst_is_the_aggregate_of_its_own_evidence():
+    """``pooled_worst``, the headline "measured result" of (b), is its own evidence (#748).
+
+    ``scripts/measure_parity.py`` writes each ``pooled_worst`` metric as the worst case
+    of every run of every fixture pooled — a floor's minimum, a ceiling's maximum,
+    through the production :class:`SpreadSummary`. ``docs/validation.md`` publishes this
+    block and its guard pins the page to it, but the evidence checks above read only
+    ``spread_by_fixture``. Without this, the JSON and the page could state a different
+    headline together while the per-run values in the same file stayed as they were.
+    Exact equality: the pooled worst case is one of the recorded values, not an estimate.
+    """
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    blocks = _measured_blocks(data)
+    assert set(blocks) == {
+        "$",
+        *(f"$.measured_by_method.{m}" for m in _EXPECTED_EVIDENCE_BY_METHOD),
+    }
+    for label, block in blocks.items():
+        pooled = block["pooled_worst"]
+        assert set(pooled) == set(_FLOORS) | set(_CEILINGS), f"{label}: pooled_worst metric set"
+        for metric, recorded in pooled.items():
+            direction = "floor" if metric in _FLOORS else "ceiling"
+            values = [
+                value
+                for fixture in block["spread_by_fixture"].values()
+                for value in fixture["metrics"][metric]["values"]
+            ]
+            assert values, f"{label}: no recorded {metric} values to pool"
+            pooled_worst = SpreadSummary(metric, direction, values).worst
+            assert recorded == pooled_worst, (
+                f"{label}.pooled_worst.{metric} is {recorded!r}, but the worst of the "
+                f"{len(values)} recorded runs is {pooled_worst!r}"
+            )
