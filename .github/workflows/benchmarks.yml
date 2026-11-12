@@ -41,7 +41,7 @@ jobs:
         include:
           # Idealization runs in the isolated tMAVEN env (numpy<2 / PyQt5), as in sidecar.yml.
           - { name: compare, groups: "default gui", lock: conda-lock.yml, env: tether }
-          # TEMPORARY (#722 head checkout check): sidecar entry removed, reverted before review
+          - { name: sidecar, groups: sidecar, lock: sidecar/conda-lock.yml, env: tether-sidecar }
     defaults:
       run:
         shell: bash -el {0}
