@@ -85,7 +85,8 @@ archive.
 
 - It calculates the SHA-256 before the first use of a file in a process. A mismatch raises
   `ChecksumMismatch`, with the set id and the two checksums. The file is not used.
-- A download goes to `<file>.part` and gets its final name only after the checksum is correct. A
+- A download goes to a temporary file of its own (`<file>.<random>.part`) and gets its final name
+  only after the checksum is correct, so two processes that share a cache cannot mix their bytes. A
   download that is larger than the manifest size stops at once. A failed download leaves no file.
 - A download occurs only when `TETHER_REFERENCE_DOWNLOAD=1`. The cache directory is
   `$TETHER_REFERENCE_CACHE`, default `~/.cache/tether-reference-data`.

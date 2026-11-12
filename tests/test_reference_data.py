@@ -273,6 +273,35 @@ def test_a_download_is_verified_then_cached(tmp_path: Path, monkeypatch) -> None
     assert first.read_bytes() == _PAYLOAD and opener.calls == 1
 
 
+def test_a_second_writer_on_the_same_cache_cannot_change_the_returned_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Each download writes its own temporary file (#795 review).
+
+    Another process that misses the same cached file and writes ``demo.bin.part`` while this
+    download runs must neither change the bytes that ``path_for`` returns nor lose its own file.
+    """
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    other = tmp_path / "demo" / "demo.bin.part"
+    garbage = b"x" * (len(_PAYLOAD) + 10)
+
+    class _RacingStream(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            chunk = super().read(size)
+            if not chunk:  # the other writer truncates and fills the shared name
+                other.write_bytes(garbage)
+            return chunk
+
+    def opener(url: str, timeout: float) -> io.BytesIO:
+        return _RacingStream(_PAYLOAD)
+
+    path = fetch.path_for(
+        "demo", manifest={"demo": _entry("download")}, cache_dir=tmp_path, opener=opener
+    )
+    assert path.read_bytes() == _PAYLOAD
+    assert other.read_bytes() == garbage
+
+
 @pytest.mark.parametrize("served", [b"other bytes\n", _PAYLOAD + b"extra"])
 def test_a_bad_download_leaves_nothing_in_the_cache(tmp_path: Path, monkeypatch, served) -> None:
     monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")

@@ -27,7 +27,8 @@ The four tiers:
 
 Each tier checks the SHA-256 before the first use in a process, and a file whose checksum is
 wrong is never returned: :class:`ChecksumMismatch` names the set and both checksums. A download
-is written to ``<name>.part`` and renamed only after its checksum matched.
+is written to a temporary file of its own (``<name>.<random>.part``) and renamed only after its
+checksum matched.
 
 ``python tests/reference_data/fetch.py cache-key`` prints the manifest part of the weekly job's
 cache key. It depends only on the ids and checksums of the ``download`` entries, so an edit to a
@@ -41,6 +42,7 @@ import hashlib
 import os
 import re
 import sys
+import tempfile
 import tomllib
 import urllib.request
 from collections.abc import Callable
@@ -268,11 +270,14 @@ def _skip(reason: str) -> None:
 
 def _download(d: Dataset, target: Path, opener: Callable) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_name(target.name + ".part")
+    # A temporary file of its own, created exclusively, so a second process that downloads the
+    # same set into the same cache can neither truncate it nor delete it (#795 review).
+    handle, name = tempfile.mkstemp(prefix=target.name + ".", suffix=".part", dir=target.parent)
+    part = Path(name)
     digest = hashlib.sha256()
     written = 0
     try:
-        with opener(d.download_url, timeout=60) as response, part.open("wb") as out:
+        with os.fdopen(handle, "wb") as out, opener(d.download_url, timeout=60) as response:
             while chunk := response.read(_CHUNK):
                 written += len(chunk)
                 if written > d.size:
