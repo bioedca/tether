@@ -49,6 +49,7 @@ __all__ = [
     "WINDOW",
     "build_store_with_channels",
     "build_store_with_model",
+    "distinct_patches",
     "e_traces",
     "fresh_input_hashes",
     "integrated",
@@ -147,6 +148,19 @@ def fresh_input_hashes(path: Path) -> list[str]:
     return hashes
 
 
+def distinct_patches(n: int, *, channel_offset: float) -> np.ndarray:
+    """``(n, WINDOW, WINDOW)`` float32 patches that differ per molecule, per pixel and per channel.
+
+    Molecule ``i`` holds ``1000 * (i + 1) + pixel_index + channel_offset``, so a patch copied
+    from the wrong row, an all-zero patch, a transposed patch or the other channel's patch
+    each compare unequal (an all-zero fixture compared zeros with zeros, #729 PRJ-F11). Every
+    value is exact in float32.
+    """
+    ramp = np.arange(WINDOW * WINDOW, dtype="float32").reshape(WINDOW, WINDOW)
+    rows = 1000.0 * np.arange(1, n + 1, dtype="float32")[:, None, None]
+    return (rows + ramp + np.float32(channel_offset)).astype("float32")
+
+
 def _mols_traces_movie(
     donor: np.ndarray, acceptor: np.ndarray
 ) -> tuple[ColocalizedMolecules, MoleculeTraces, MovieMetadata]:
@@ -170,8 +184,8 @@ def _mols_traces_movie(
     traces = MoleculeTraces(
         donor=integrated(donor),
         acceptor=integrated(acceptor),
-        donor_patches=np.zeros((n, WINDOW, WINDOW), dtype="float32"),
-        acceptor_patches=np.zeros((n, WINDOW, WINDOW), dtype="float32"),
+        donor_patches=distinct_patches(n, channel_offset=0.0),
+        acceptor_patches=distinct_patches(n, channel_offset=0.5),
         window=WINDOW,
         disk_radius=3.0,
         ring_inner=6.0,

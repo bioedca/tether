@@ -65,6 +65,14 @@ on* stays bound to the artifact. That the two name one build — the page's "the
 has no such gap" — is asserted once, by :func:`no_gap_violations`, so a live pin that
 advances past a correctly frozen record fails as a stale sentence, not a value mismatch.
 
+**Recorded evidence and cited tests (#748).** Oracle (a)'s measured results have no
+machine-readable artifact, so they are pinned to the results table of ADR-0022, the
+decision record the page names as their source, and so are their restatements in (a) and
+in *Scope*. The six figures a committed artifact holds that were in neither the registry
+nor :data:`EXCLUSIONS` are pinned where the page states them, and the figures with no
+source are recorded there with a reason. Every test the page cites by name must also
+exist: :func:`missing_cited_tests` reads the test modules with :mod:`ast`.
+
 This is still **not** a page-wide numerical-coverage manifest. What stays unpinned on
 purpose — including ``RMS ≤ 0.5 px`` in (a)'s enforcing-tests sentence, which is a test's
 own literal rather than a transcription — is in :data:`EXCLUSIONS` with its reason.
@@ -95,8 +103,11 @@ SIDECAR_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "sidecar.yml"
 RELEASE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release.yml"
 SIDECAR_LOCK_PATH = ROOT / "sidecar" / "conda-lock.yml"
 SIDECAR_ENV_PATH = ROOT / "sidecar" / "environment.yml"
+ADR_0022_PATH = ROOT / "docs" / "adr" / "0022-m1-acceptance-reframe-and-close.md"
+TESTS = ROOT / "tests"
 
 PAGE_TEXT = PAGE.read_text(encoding="utf-8")
+ADR_0022_TEXT = ADR_0022_PATH.read_text(encoding="utf-8")
 PARITY = json.loads(PARITY_PATH.read_text(encoding="utf-8"))
 KINSOFT = json.loads(KINSOFT_PATH.read_text(encoding="utf-8"))
 
@@ -736,6 +747,44 @@ def _blinking_rate(name: str) -> object:
     return ast.literal_eval(stated.pop())
 
 
+#: ``margin=0.5`` inside ``$.freeze_policy``, matched whole like :data:`_BLINKING_RE`.
+_MARGIN_RE = re.compile(r"\bmargin=([-+]?\d+(?:\.\d+)?)(?![\w.])")
+
+
+def freeze_margin() -> object:
+    """The margin ``$.freeze_policy`` records, which is free text and not a field."""
+    stated = set(_MARGIN_RE.findall(str(at(PARITY, "$.freeze_policy"))))
+    assert len(stated) == 1, f"$.freeze_policy must state one margin=; found {sorted(stated)}"
+    return ast.literal_eval(stated.pop())
+
+
+#: Oracle (a)'s measured results as ADR-0022's results table labels them, beside the row
+#: label of (a)'s "Measured result" table on the page.
+_ADR_0022_METRICS = (
+    ("recall @ 1 px", "Recall @ 1 px"),
+    ("recall @ 2 px", "Recall @ 2 px"),
+    ("donor per-molecule Pearson (median)", "Donor per-molecule Pearson (median)"),
+    ("acceptor per-molecule Pearson (median)", "Acceptor per-molecule Pearson (median)"),
+    ("donor precision", "Donor precision"),
+)
+
+
+def adr_0022_measured(text: str, metric: str) -> object:
+    """``metric``'s value in ADR-0022's results table, the record of oracle (a)'s run.
+
+    No machine-readable artifact holds these numbers (#699 adds one for future runs), and
+    ADR-0022 is the record the page names as their source. Pinning the page to the ADR
+    means the published numbers move only with an edit to an accepted decision record,
+    which review sees, instead of with a page edit alone (#748, DCN-F1).
+    """
+    tables = [t for t in _tables(text) if t.header[:2] == ("metric", "value")]
+    assert len(tables) == 1, f"ADR-0022 must hold one metric/value table; found {len(tables)}"
+    table = tables[0]
+    rows = [row for row in table.rows if row[0] == metric]
+    assert len(rows) == 1, f"ADR-0022's results table must hold one {metric!r} row"
+    return ast.literal_eval(rows[0][1].strip("* "))
+
+
 # --- Derived renderings ----------------------------------------------------------
 # The page abbreviates or rounds some live values. Each rendering below is applied to the
 # LIVE artifact value only; the page's printed text is compared as printed, never itself
@@ -1172,6 +1221,103 @@ def _restatement_pins() -> list[Pin]:
             ("on CPython {} that CI", _LIVE_PYTHON, LIVE_SIDECAR_PYTHON, None),
         )
     ]
+    pins += _evidence_restatement_pins()
+    return pins
+
+
+_A_SECTION = "(a) Extraction vs Deep-LASI"
+#: (a)'s required-matrix paragraph, which restates the donor and acceptor medians.
+_A_REQUIRED_MATRIX_ANCHOR = "tests/test_oracle.py::test_real_slice_txt_correlates_with_mat"
+#: §Scope's "Accepted diagnostics" list, which restates the acceptor median and precision.
+#: It carries no pointer, so it is selected by lead-in.
+_DIAGNOSTICS_ANCHOR = "- M1 acceptor per-molecule Pearson median"
+#: (b)'s paragraphs that restate the freeze margin, the fixtures' state counts and the
+#: evidence counts. The first two name no pointer of their own, so they use the lead-in.
+_FREEZE_RULE_ANCHOR = "The freeze rule is recorded"
+_REFERENCE_DATA_ANCHOR = "**Reference data.**"
+_EVIDENCE_ANCHOR = "_EXPECTED_EVIDENCE"
+
+
+def _evidence_restatement_pins() -> list[Pin]:
+    """Restatements of recorded evidence that no pin and no exclusion held (#748).
+
+    DCN-F1: the donor and acceptor medians and the donor precision of oracle (a), stated
+    again outside (a)'s table, against ADR-0022. DCN-F6: five of the six figures a
+    committed artifact holds that were in neither :data:`REGISTRY` nor :data:`EXCLUSIONS`
+    — ebFRET's Viterbi floor in §Scope, the freeze margin, the two fixtures' state
+    counts, and the state and comparison counts that ``_EXPECTED_EVIDENCE`` and
+    ``_EXPECTED_EVIDENCE_BY_METHOD`` pin. The sixth, the "~4x" quotation, is a
+    quotation and is in :data:`_VERBATIM_QUOTES`.
+    """
+    pins: list[Pin] = []
+    adr = {metric: adr_0022_measured(ADR_0022_TEXT, metric) for metric, _ in _ADR_0022_METRICS}
+    donor = "donor per-molecule Pearson (median)"
+    acceptor = "acceptor per-molecule Pearson (median)"
+    spread, ebhmm = "$.spread_by_fixture", "$.measured_by_method.ebhmm.spread_by_fixture"
+    viterbi_floor = "$.tolerance_by_method.ebhmm.viterbi_min_agreement"
+    # (section, anchor, location, ((template, source, value), ...)). Every float is
+    # rendered shortest-round-trip, as the other exact restatements are.
+    for section, anchor, where, rows in (
+        (
+            _A_SECTION,
+            _A_REQUIRED_MATRIX_ANCHOR,
+            "(a) required-matrix paragraph",
+            (
+                ("measured at donor {} /", f"ADR-0022 {donor}", adr[donor]),
+                ("/ acceptor {} above", f"ADR-0022 {acceptor}", adr[acceptor]),
+            ),
+        ),
+        (
+            _SCOPE_SECTION,
+            _DIAGNOSTICS_ANCHOR,
+            "Scope diagnostics bullet",
+            (
+                ("Pearson median **{}** and", f"ADR-0022 {acceptor}", adr[acceptor]),
+                ("donor precision **{}** are", "ADR-0022 donor precision", adr["donor precision"]),
+            ),
+        ),
+        (
+            _SCOPE_SECTION,
+            _SCOPE_ANCHOR,
+            "Scope #311 bullet",
+            (("against the frozen {} floor", viterbi_floor, at(PARITY, viterbi_floor)),),
+        ),
+        (
+            _PARITY_SECTION,
+            _FREEZE_RULE_ANCHOR,
+            "(b) freeze-rule paragraph",
+            (("worst case with a {} margin", "$.freeze_policy margin=", freeze_margin()),),
+        ),
+        (
+            _PARITY_SECTION,
+            _REFERENCE_DATA_ANCHOR,
+            "(b) reference-data paragraph",
+            (
+                ("molecules, {} states, cross-seed", f"{spread}.smd_4mol.nstates", None),
+                ("molecules, {} states)", f"{spread}.smd_281mol.nstates", None),
+            ),
+        ),
+        (
+            _PARITY_SECTION,
+            _EVIDENCE_ANCHOR,
+            "(b) evidence paragraph",
+            (
+                ("`smd_4mol` spread at {} states", f"{spread}.smd_4mol.nstates", None),
+                ("states and {} of", f"{spread}.smd_4mol.n_comparisons", None),
+                ("of {} runs;", "$.method.n_runs_per_fixture", None),
+                ("`smd_281mol` at {} states and", f"{spread}.smd_281mol.nstates", None),
+                ("states and {} runs against", f"{spread}.smd_281mol.n_comparisons", None),
+                ("ebFRET on `smd_281mol` at {} states,", f"{ebhmm}.smd_281mol.nstates", None),
+                ("run00-anchored, {})", f"{ebhmm}.smd_281mol.n_comparisons", None),
+            ),
+        ),
+    ):
+        for template, source, value in rows:
+            value = at(PARITY, source) if value is None else value
+            render = shortest if isinstance(value, float) else None
+            pins.append(
+                Quote(section, anchor, template, f"{source} @ {where}", value, render=render)
+            )
     return pins
 
 
@@ -1185,6 +1331,18 @@ def _registry() -> list[Pin]:
             (n, module_constant("tether.project.oracle", n))
             for n in ("RECALL_THRESHOLD", "MATCH_TOL_PX", "PEARSON_THRESHOLD", "RMS_THRESHOLD_PX")
         )
+    ]
+    # (a) — the measured results, against ADR-0022's record of the run (#748).
+    pins += [
+        Cell(
+            _A_SECTION,
+            "Status",
+            row,
+            "Value",
+            f"ADR-0022 {metric}",
+            adr_0022_measured(ADR_0022_TEXT, metric),
+        )
+        for metric, row in _ADR_0022_METRICS
     ]
 
     # (b) — both frozen tolerance blocks, side by side in one table.
@@ -1532,10 +1690,52 @@ EXCLUSIONS: dict[str, str] = {
         "A historical GitHub Actions run id. It appears in the artifact only inside the "
         "free-text `build_provenance` narrative, not as a machine-readable field."
     ),
-    "the ADR-0022 extraction numbers (0.928, 0.984, 0.982, 0.854, 0.34, ~0.66, ~0.9 GB)": (
-        "Measured on a local run on the maintainer's workstation and recorded in "
-        "docs/adr/0022 as prose. There is no machine-readable artifact, so a pin would "
-        "only assert that two transcriptions of the same paragraph agree."
+    "the ADR-0022 prose figures: '≈0.66' bidirectional recall, '≈0.9 GB' movie, "
+    "'≈1.3 px' acceptor read-position scatter": (
+        "Approximations ADR-0022 states only in its prose ('~0.66', '891 MB', '~1.3 px'), "
+        "outside the results table that (a)'s measured numbers are pinned to (#748); an "
+        "approximate sign has no exact value to compare against."
+    ),
+    "(a)'s reader-agreement bar 'medians ≥ 0.99 on both channels'": (
+        "The literal of tests/test_oracle.py::test_real_slice_txt_correlates_with_mat "
+        "(`>= 0.99`), a reader-to-reader check that the page itself says is not an "
+        "extraction gate. No artifact or module constant holds it."
+    ),
+    "(b)'s fixture sizes '4 molecules' and '281 molecules'": (
+        "The artifact records no molecule count; it is the row count of each HDF5 fixture, "
+        "which this guard does not open (no h5py). The state counts beside them are pinned "
+        "to `$.spread_by_fixture.*.nstates` (#748)."
+    ),
+    "the observed ebFRET Viterbi '0.7568' in the #311 Scope bullet": (
+        "One nondeterministic live fit, tracked in #311 and stated in docs/PRD.md only as "
+        "prose; no artifact records it. The frozen 0.9034 floor beside it is pinned (#748)."
+    ),
+    "(c)'s '`abs=0.01`' (twice) and 'more than 500 pooled dwells'": (
+        "The literals of tests/test_kinsoft_kinetics.py::"
+        "test_kinsoft_level1_within_inter_tool_spread (`abs=0.01`, `> 500`). "
+        "schema/kinsoft_reference.json holds neither."
+    ),
+    "(e)'s γ set '{0.5, 1.0, 2.0, 4.0}'": (
+        "The `parametrize` literal of tests/test_fret_gamma.py::test_recovers_known_gamma. "
+        "No artifact or module constant holds it."
+    ),
+    "(e)'s '≈ 9 % at α ≈ 0.09'": (
+        "ADR-0028's prose ('α ≈ 0.09 ⇒ ~9 %'), an approximation of the (1 + α) factor, "
+        "not a transcription of any recorded value."
+    ),
+    "(e)'s deferred bars '≤ 20 %', '0.05–0.2' and '±10 %'": (
+        "PRD §11.2 rows for the two legs this page says are not implemented. They are "
+        "prose in docs/PRD.md; no code, constant or artifact holds them yet."
+    ),
+    "(g)'s '±2 frames', the step positions 30-160, 'three signal/noise settings' and "
+    "'`abs(pbt - k) <= 2`'": (
+        "The PRD §11.2 bleach-frame tolerance and the literals of "
+        "tests/test_fret_photobleach.py::test_point_pbtime_recovers_known_step_within_two_"
+        "frames; the page says the tolerance 'is asserted inline'. No constant holds them."
+    ),
+    "(g)'s 'constant 60 for all 250 molecules' and the bleach frames ≈97, ≈644, ≈1693": (
+        "Properties of a Deep-LASI `.mat` export that ADR-0026 records. The export is not "
+        "in the repository, so no committed file holds them."
     ),
     "(a)'s enforcing-tests sentence: 'RMS <= 0.5 px', '>= 95 %' and 'within 1 px'": (
         "All three are the hard-coded literals of the test that sentence describes, "
@@ -1722,6 +1922,15 @@ _VERBATIM_QUOTES = (
         _PARITY_SECTION,
         _GAP_QUOTE_ANCHOR,
     ),
+    # The kinSoft result paragraph quotes each of the two fields in its own words (#748).
+    ("~4x inside the band", KINSOFT, "$.band.rationale", _KINSOFT_SECTION, "$.band.rationale"),
+    (
+        "~4x inside the 12% band",
+        KINSOFT,
+        "$.levels.level1.tether_measured.note",
+        _KINSOFT_SECTION,
+        "$.band.rationale",
+    ),
 )
 
 
@@ -1811,7 +2020,12 @@ def test_provisional_still_equals_the_frozen_tolerance() -> None:
 
 
 def test_every_exclusion_records_why() -> None:
-    """#214's third acceptance criterion: no silent omissions."""
+    """#214's third acceptance criterion: every recorded omission says why.
+
+    This sees only what :data:`EXCLUSIONS` lists. A figure in neither the registry nor
+    this list is invisible to it, so the list is kept complete by review and by audits
+    such as #748's, which found sixteen such figures and pinned or recorded each.
+    """
     assert EXCLUSIONS, "the exclusion list may not be emptied without saying so"
     for figure, reason in EXCLUSIONS.items():
         assert reason.strip(), f"exclusion {figure!r} carries no reason"
@@ -2802,7 +3016,9 @@ def test_an_exact_float_restatement_catches_a_change_past_six_digits() -> None:
         for p in _restatement_pins()
         if isinstance(p, Quote) and isinstance(p.value, float) and p.render is not sci3
     ]
-    assert len(exact) == 5  # both ceilings, the 1.0 floors clause, both 0.5249 copies
+    # Both ceilings, the 1.0 floors clause, both 0.5249 copies, and #748's six: the four
+    # ADR-0022 restatements, ebFRET's Viterbi floor in §Scope and the freeze margin.
+    assert len(exact) == 11
     for pin in exact:
         assert pin.render is shortest, f"{pin.source} renders a float with ':g'"
         assert isinstance(pin.value, float)
@@ -2946,3 +3162,125 @@ def test_an_advanced_live_pin_fails_as_a_stale_sentence_not_a_value_mismatch() -
     )
     assert no_gap_claims(page) == []
     assert no_gap_violations(page, measured, (new, LIVE_SIDECAR_PYTHON)) == []
+
+
+# --- #748: recorded evidence and cited tests ------------------------------------
+
+
+def _evidence_pins() -> list[Pin]:
+    """Every pin #748 added: (a)'s results table and the evidence restatements."""
+    table = [p for p in REGISTRY if isinstance(p, Cell) and p.source.startswith("ADR-0022 ")]
+    return table + _evidence_restatement_pins()
+
+
+def _moved(value: object) -> object:
+    """A different value of the same kind, far enough that no rendering can absorb it."""
+    assert isinstance(value, int | float) and not isinstance(value, bool), value
+    return value + 1
+
+
+def test_every_evidence_pin_rejects_a_moved_value() -> None:
+    """A pin that holds for every value is prose (#748).
+
+    Built from the live value rather than from a copy of the page text, so a correct
+    re-measure followed by a page update keeps this green. The page-side direction — the
+    page edited, the source kept — is the same comparison, read the other way.
+    """
+    pins = _evidence_pins()
+    assert len(pins) == len({p.source for p in pins}) == 20
+    for pin in pins:
+        assert satisfied(PAGE_TEXT, pin), f"{pin.source} does not hold on the page"
+        moved = pin._replace(value=_moved(pin.value))
+        assert not satisfied(PAGE_TEXT, moved), (
+            f"{pin.source} still holds with {moved.value!r} in place of {pin.value!r}"
+        )
+
+
+#: A cited test: a code span that is a test function's name, bare or as
+#: ``tests/<module>.py::<name>``, and a code span that is a test module's path.
+_CITED_TEST_RE = re.compile(r"(?:(?P<module>tests/[\w/]+\.py)::)?(?P<name>test_\w+)")
+_CITED_MODULE_RE = re.compile(r"tests/[\w/]+\.py")
+
+
+def defined_tests(root: Path) -> dict[str, set[str]]:
+    """Each test function under ``root`` mapped to the modules that define it.
+
+    What pytest collects: module-level ``test_*`` functions and the ``test_*`` methods of
+    module-level classes. Read with :mod:`ast`, so no test module is imported.
+    """
+    out: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        module = path.relative_to(ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=module)
+        nodes = list(tree.body)
+        nodes += [n for c in tree.body if isinstance(c, ast.ClassDef) for n in c.body]
+        for node in nodes:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and (
+                node.name.startswith("test_")
+            ):
+                out.setdefault(node.name, set()).add(module)
+    return out
+
+
+def cited_tests(text: str) -> list[str]:
+    """Every code span in ``text`` that names a test or a test module, fences excluded."""
+    lines = text.split("\n")
+    unfenced = "\n".join("" if f else line for line, f in zip(lines, _fenced(lines), strict=True))
+    return [
+        span
+        for span in (s.strip() for s in _BACKTICKED_RE.findall(unfenced))
+        if _CITED_TEST_RE.fullmatch(span) or _CITED_MODULE_RE.fullmatch(span)
+    ]
+
+
+def missing_cited_tests(text: str, defined: dict[str, set[str]]) -> list[str]:
+    """The tests and test modules ``text`` cites that ``defined`` does not hold.
+
+    A bare name must be defined in some test module; a ``module::name`` pair in that
+    module; a module path must define at least one test.
+    """
+    modules = {m for found in defined.values() for m in found}
+    missing: list[str] = []
+    for span in cited_tests(text):
+        if module_only := _CITED_MODULE_RE.fullmatch(span):
+            if module_only.group() not in modules:
+                missing.append(span)
+            continue
+        cited = _CITED_TEST_RE.fullmatch(span)
+        assert cited is not None
+        where = defined.get(cited.group("name"), set())
+        if not where or (cited.group("module") and cited.group("module") not in where):
+            missing.append(span)
+    return missing
+
+
+def test_every_test_the_page_cites_exists() -> None:
+    """The page's "Enforcing tests" name real tests (#748, DCN-F13).
+
+    A renamed or deleted test would otherwise leave the validation page citing, as
+    evidence, a test that no longer runs.
+    """
+    cited = cited_tests(PAGE_TEXT)
+    assert any("::" in c for c in cited) and any(c.startswith("test_") for c in cited)
+    missing = missing_cited_tests(PAGE_TEXT, defined_tests(TESTS))
+    assert not missing, f"docs/validation.md cites tests that do not exist: {missing}"
+
+
+def test_a_renamed_cited_test_fails() -> None:
+    """The check above bites on each kind of citation; built from the live page."""
+    defined = defined_tests(TESTS)
+    cited = cited_tests(PAGE_TEXT)
+    bare = next(c for c in cited if c.startswith("test_"))
+    pair = next(c for c in cited if "::" in c)
+    module = next(c for c in cited if "::" not in c and c.startswith("tests/"))
+    pair_module, pair_name = pair.split("::")
+    elsewhere = min({m for f in defined.values() for m in f} - defined[pair_name])
+    for old, new in (
+        (bare, f"{bare}_renamed"),
+        (pair, f"{pair_module.removesuffix('.py')}_renamed.py::{pair_name}"),
+        (pair, f"{elsewhere}::{pair_name}"),
+        (module, f"{module.removesuffix('.py')}_renamed.py"),
+    ):
+        page = PAGE_TEXT.replace(f"`{old}`", f"`{new}`", 1)
+        assert page != PAGE_TEXT
+        assert missing_cited_tests(page, defined) == [new], (old, new)
