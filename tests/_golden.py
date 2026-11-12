@@ -54,7 +54,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 #: Relative limit for a float quantity. Measured, not chosen: ADR-0078 records the largest
 #: relative difference seen between the three operating systems of the required matrix.
-FLOAT_RTOL = 1e-9
+FLOAT_RTOL = 0.0  # MEASUREMENT RUN ONLY (#702): exact compare to read cross-OS differences
 #: Significant digits a float cell of an exported table keeps before the table is hashed.
 TABLE_SIGNIFICANT = 10
 #: Version of the golden-file layout (bumped only if the JSON layout itself changes).
