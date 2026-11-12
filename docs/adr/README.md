@@ -118,6 +118,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0071](0071-private-data-checks-run-from-a-workstation-task.md) | Private-data checks run from a scheduled task on the maintainer's workstation | accepted | §9.5 (the validation suite), §12.6 (continuous integration) |
 | [0073](0073-one-manifest-for-reference-data-sets.md) | One manifest and four storage tiers for reference data sets | accepted | §8 (NFR-FIXTURES, NFR-VALID), §12.1 (SPDX / REUSE), §12.6 (CI) |
 | [0074](0074-matlab-reference-outputs-come-from-pinned-runs.md) | MATLAB reference outputs come from pinned runs with a provenance record | accepted | §1 (reference tools), §8 NFR-VALID, §8 NFR-FIXTURES |
+| [0075](0075-seeded-ebfret-parity-gate.md) | The ebFRET parity gate runs on two fixed seeds | accepted; amends [ADR-0007](0007-parity-is-statistical.md) on pinning the seed | §7.4 (parity definition), §11.2 (the ebFRET tolerance row), §12.6 (`sidecar/parity`), §9 M6 |
 
 <!-- gen:adr-index end -->
 
