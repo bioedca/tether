@@ -330,3 +330,12 @@ python scripts/make_tutorial_movie.py --check
 
 `tests/test_docs_tutorial.py` runs the `--check` derivation on every OS in the
 required matrix.
+
+## MATLAB reference outputs (#700, ADR-0074)
+
+Outputs of the MATLAB reference tools live under `tests/fixtures/reference/<tool>/<run>/`, each
+directory with a `provenance.json` that states the tool commit, the MATLAB release, the input and
+output SHA-256 values and the method (`scripts/reference/matlab/`). `tests/test_matlab_reference.py`
+verifies every committed record. `stand-in/selftest` is not a reference: the `matlab` stand-in of
+the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
+always has one record to check.
