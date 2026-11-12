@@ -281,6 +281,72 @@ values with full source provenance; only `level1` has an active oracle (a FRET-o
 idealizer cannot resolve the overlapping-FRET 4-state case — the paper itself uses
 cumulative dwell-time distributions there).
 
+## Source Data of Campos-Chavez et al. 2024 (paper reference data) — **CC-BY-NC-ND-4.0**
+
+**External data under a licence that permits no changed copy.** The Source Data of the maintainer's
+study (Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A,
+*Nature Communications* 15:6592 (2024), **doi:10.1038/s41467-024-50885-x**) is published by Springer
+Nature under **CC BY-NC-ND 4.0**. The files below are **unchanged** members of the archive
+`41467_2024_50885_MOESM4_ESM.zip`, byte for byte; nothing was converted, cropped, corrected or
+re-encoded, and none may be (ADR-0083). They are for non-commercial use only. They are annotated
+`CC-BY-NC-ND-4.0` in `REUSE.toml` and attributed in `NOTICE`; the hooks that rewrite whitespace and
+ruff skip their directories, and `.gitattributes` keeps their bytes (`-text`) on every OS.
+
+| Source archive | Size | SHA-256 |
+|---|---|---|
+| `41467_2024_50885_MOESM4_ESM.zip` | 94,911,677 B | `83141ce0dc63db35aae2a3f17d793df003de7460651a68b13cd3f2e6f9376c71` |
+
+**Download URL:**
+`https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip`
+(the Source Data link of the article page; Python `urllib` with default headers answered HTTP 200).
+**Retrieved:** 2026-11-12. The archive has 154 files and no top-level folder, so each committed path
+below the fixture directory is the member path.
+
+| Committed file | Archive member | Size | SHA-256 | Tier |
+|---|---|---|---|---|
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py` | 1,520 B | `0780f46cffa547b7a58a5bd8271639b78a7e4be14b7460f67c6b0b7d215b0523` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out` | 144 B | `bb5ef7d3f8c2de204a7f6c546e3a3ad270e73c33e8c815f4bcabbab48619fd12` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt` | 72 B | `653e64a5f8a6290f8d1791674979900334c43a4ef402971c2df1f1cefea5b461` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out` | 144 B | `c1d30c7438f4bf239dbcb5a4fb8cb74f39a318daa2f6bb3f72e94aaf001800cf` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt` | 72 B | `7749cb8b610e085d0e2498debbefa346ac350bf87bd5f5b2abf79917600049e7` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out` | 145 B | `a3cee5cdb477d364849ce8629dc2ace7051e65097062241d69f9cf15ad97481c` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt` | 74 B | `d5518bb602c4cebb40cb313c179c765d87789b4ec6129c2f3a1c6ca9dece58d9` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out` | 144 B | `6d89cc6cf888bb7797bd4439b17e2c99b7c7718da0f1d908c679d292f3ea7f4e` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt` | 70 B | `80b0acb9f3abe12ac30776cce6f7bd8319fffc9f2c17f3b339c4317695658ed6` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out` | 145 B | `6b114de98635bd9660de84c99001705cce8f33fdb3dc0f7aae92a163ab120002` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt` | 72 B | `84847b6caa0e99da38cb6df70e7a5cd97f7bf8825436bc22eccf9c1a172b0462` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out` | 142 B | `15d413040cec187d01d40b6e90a9c642d54db326593e83865f89ec8269c387da` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt` | 70 B | `ba2ff1aa1320b87ec1c723e413b41f77253bea3c414281b578e0b8bd7fbc2886` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb` | `ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb` | 508,299 B | `50c413e49720c4fbec076cc442c3f3a2fe8d203846e2494b9661e05297dde8c0` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py` | `ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py` | 3,995 B | `81d06b5b1be8ef29558ff9e7c91c932d9fda871bdb28aab642398c62f77e3320` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out` | 569 B | `69757bbaa36d1840bcaa2fc88e9cf7453fc2756a30930d7c54ad69626a189825` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt` | 58 B | `176ef1d7ac986dc96756322fb539db59eee2cfc247ef4895c03d3011b65355ef` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out` | 560 B | `b73bb640abc6fa9dd299a493f34be3d845c63785868f8cb5ff0b95a6404bb1eb` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt` | 64 B | `630ba34cffaf35051091dd8cbe0357d81f4a427040c7e238dd846252e27d3523` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out` | 958 B | `cacf2aa7aac53a750f534e26b0605711d8f7c8355357f668674cee42d368ca5e` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt` | 137 B | `36987a7fcd37d9acb6f5ae61492d3a181411287ae15f0442e7e604be818abb13` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out` | 1,497 B | `1e820cf6eed492e6602609ab44b7751203721e3e7f37b01fe17b33e77b226a1c` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt` | 241 B | `ce380d66829cf948aada4f617e2453f4613b0c43d9c053c26642cd939e78f790` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out` | 954 B | `295844a39d61fa2572e47f6c1f13fcbe1b787f7f6cfb56b05693aa7225b71bc2` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt` | 135 B | `d35a52f44cdcd4ff8157c045eeca5083412ba28751a159ece27b36c156f4f481` | git |
+| `tests/fixtures/campos_chavez_2024/checkTDP.py` | `checkTDP.py` | 2,174 B | `5cd40c12d8f6bcc7caf611639fc63249368cfde0a1cf1647f460b87b5d7002ee` | git |
+| `tests/fixtures/large/campos_chavez_2024/smFRET_SourceData/intraFRET_WT+WT_13uM.txt` | `smFRET_SourceData/intraFRET_WT+WT_13uM.txt` | 6,723,000 B | `0f4c89027159593e885e02cdc7800218aed540bc1b44ccdd29d4846064a58839` | **LFS** |
+
+The trace matrix is the smallest file of `smFRET_SourceData/`. Two members have that size,
+`intraFRET_WT+WT_13uM.txt` and `intraFRET_WT+WT_5uM.txt`, and they are byte-identical in the
+publisher's archive (both `0f4c8902…a58839`); the first in archive order is committed. A check that
+reads both files from the downloaded archive gets the same traces twice.
+
+**`Kmatrix/CalculateKbounds.py` does not parse** (`IndentationError` at line 51: five spaces where
+its block has four). The publisher's file and the copy that the audit of #695 read are
+byte-identical (`81d06b5b…3320`), so the fault is in the published file. The licence forbids a
+corrected copy, so tests use the `.txt` inputs and `.out` outputs and never import the script.
+
+Every file has an entry in `tests/reference_data/manifest.toml` (ids `campos2024-…`, with
+`extract_member`), and the archive has the `download` entry `campos2024-source-data`. The weekly
+`reference-data` job downloads the archive, verifies the checksum above, and compares each committed
+file with its member (`tests/test_reference_data_download.py`).
+
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
 `smd_281mol.hdf5` (the redistributable ≥50-molecule population SMD) and its

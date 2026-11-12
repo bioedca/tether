@@ -61,7 +61,10 @@ Chosen option: **option 4**.
   `ErrorCalculations_CodeAndSourceData/` of the archive and the file `checkTDP.py`, at the same
   paths below that directory as in the archive.
 - In Git LFS, below `tests/fixtures/large/campos_chavez_2024/`: one trace matrix of less than
-  10 MB.
+  10 MB (`smFRET_SourceData/intraFRET_WT+WT_13uM.txt`, 6,723,000 B, the smallest).
+
+The archive is 94,911,677 B, so it is a `download` entry (below the CI limit of 200 MB), and the
+checks on the full data can run in the weekly job.
 
 Each file has one entry in `tests/reference_data/manifest.toml` with `extract_member` set to its
 path in the archive, and the archive has one `download` entry with its size and SHA-256. The weekly
@@ -84,8 +87,13 @@ with its member, byte for byte (ADR-0073).
    section of `docs/validation.md` and `tests/fixtures/PROVENANCE.md` name the article, the authors,
    the licence, the URL of the archive, and say that the files are not under GPL-3.0, are not
    changed, and are for non-commercial use.
-5. **A change of upstream is a failure, not an update.** When the publisher's archive changes or
-   is absent, the weekly job fails. A person then decides; no job replaces a committed copy.
+5. **A change of upstream is a failure, not an update.** When the publisher's archive changes,
+   the weekly job fails with `ChecksumMismatch` and both checksums; when it is absent or moved, it
+   fails with `DownloadFailed`, which names the set and the URL. A person then decides; no job
+   replaces a committed copy.
+6. **The manifest enforces it.** `fetch.check_manifest` refuses an `extract_script` on an entry
+   whose licence is a NoDerivatives licence (`-ND-`): such an extract can only be an unchanged
+   `extract_member`.
 
 ### Why this data can be in a GPL-3.0 repository
 

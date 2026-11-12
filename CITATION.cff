@@ -295,3 +295,53 @@ references:
     license: CC-BY-4.0
     doi: "10.5281/zenodo.5701310"
     notes: "Bundled as the gated-tier test fixture tests/fixtures/large/kinsoft_sim.hdf5 (CC-BY-4.0)."
+  # The 2024 T-box paper and its Source Data below are copied from NOTICE, which attributes the
+  # unchanged CC BY-NC-ND 4.0 copies of Source Data members used as test reference data (#755).
+  - type: article
+    title: >-
+      Translational T-box riboswitches bind tRNA by modulating conformational
+      flexibility
+    authors:
+      - family-names: "Campos-Chavez"
+        given-names: "Eduardo"
+      - family-names: "Paul"
+        given-names: "Sneha"
+      - family-names: "Zhou"
+        given-names: "Zunwu"
+      - family-names: "Alonso"
+        given-names: "Dulce"
+      - family-names: "Verma"
+        given-names: "Anjali R."
+      - family-names: "Fei"
+        given-names: "Jingyi"
+      - family-names: "Mondragón"
+        given-names: "Alfonso"
+    journal: "Nature Communications"
+    volume: 15
+    year: 2024
+    start: 6592
+    doi: "10.1038/s41467-024-50885-x"
+    notes: "Published tMAVEN results on measured smFRET data; the drift checks of #756-#758 compare Tether with them."
+  - type: data
+    title: "Source Data for: Translational T-box riboswitches bind tRNA by modulating conformational flexibility"
+    authors:
+      - family-names: "Campos-Chavez"
+        given-names: "Eduardo"
+      - family-names: "Paul"
+        given-names: "Sneha"
+      - family-names: "Zhou"
+        given-names: "Zunwu"
+      - family-names: "Alonso"
+        given-names: "Dulce"
+      - family-names: "Verma"
+        given-names: "Anjali R."
+      - family-names: "Fei"
+        given-names: "Jingyi"
+      - family-names: "Mondragón"
+        given-names: "Alfonso"
+    publisher:
+      name: "Springer Nature"
+    year: 2024
+    license: CC-BY-NC-ND-4.0
+    url: "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip"
+    notes: "Unchanged copies of 27 members are test reference data under tests/fixtures/campos_chavez_2024/ and tests/fixtures/large/campos_chavez_2024/ (CC-BY-NC-ND-4.0, non-commercial, no derivatives)."

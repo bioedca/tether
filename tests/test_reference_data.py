@@ -14,12 +14,15 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import io
+import re
 import shutil
 import subprocess
 import tomllib
+import urllib.error
 from pathlib import Path
 
 import pytest
+import yaml
 
 from reference_data import fetch
 
@@ -72,6 +75,7 @@ def _with(d: fetch.Dataset, **changes: object) -> dict[str, fetch.Dataset]:
 _GIT = MANIFEST["kinsoft-trace-sample"]
 _LFS = MANIFEST["kinsoft-sim-packed"]
 _DOWNLOAD = MANIFEST["kinsoft-sim-fig2"]
+_NO_DERIVATIVES = MANIFEST["campos2024-kmatrix-wt-wt-txt"]
 
 
 @pytest.mark.parametrize(
@@ -104,6 +108,11 @@ _DOWNLOAD = MANIFEST["kinsoft-sim-fig2"]
         (_LFS, {"extract_script": "scripts/none.py"}, "does not exist"),
         (_GIT, {"extract_of": ()}, "need extract_of"),
         (_DOWNLOAD, {"extract_of": ("kinsoft-sim-fig3",), "extract_script": "x"}, "is committed"),
+        (
+            _NO_DERIVATIVES,
+            {"extract_member": None, "extract_script": "scripts/make_kinsoft_fixture.py"},
+            "permits no changed copy",
+        ),
     ],
 )
 def test_each_rule_refuses_a_broken_entry(entry, changes, message) -> None:
@@ -146,6 +155,9 @@ def _third_party_fixtures() -> dict[str, str]:
         for pattern in patterns:
             if not pattern.startswith(("tests/", "benchmarks/")):
                 continue
+            # REUSE's `dir/**` covers every file below dir; pathlib's yields only directories.
+            if pattern.endswith("/**"):
+                pattern += "/*"
             for path in REPO.glob(pattern):
                 if path.is_file():
                     found[path.relative_to(REPO).as_posix()] = note["SPDX-License-Identifier"]
@@ -177,6 +189,61 @@ def test_every_committed_third_party_entry_has_reuse_notice_and_provenance_rows(
         assert d.file in third_party, f"{d.id}: no REUSE.toml annotation for {d.file}"
         assert d.file in notice, f"{d.id}: NOTICE does not name {d.file}"
         assert d.file in provenance, f"{d.id}: tests/fixtures/PROVENANCE.md does not name {d.file}"
+
+
+# --- The Source Data of the 2024 paper: unchanged copies only (#755, ADR-0083) -------------------
+
+PAPER_ARCHIVE = "campos2024-source-data"
+PAPER_DIRS = ("tests/fixtures/campos_chavez_2024/", "tests/fixtures/large/campos_chavez_2024/")
+#: The pre-commit hooks that rewrite a file. Each must skip the unchanged copies.
+_REWRITING_HOOKS = ("trailing-whitespace", "end-of-file-fixer", "ruff-check", "ruff-format")
+
+
+def _paper_entries() -> list[fetch.Dataset]:
+    return [d for d in _committed() if d.file.startswith(PAPER_DIRS)]
+
+
+def test_the_paper_archive_is_a_download_entry_within_the_ci_limit() -> None:
+    archive = MANIFEST[PAPER_ARCHIVE]
+    assert archive.tier == "download" and archive.license == "CC-BY-NC-ND-4.0"
+    assert archive.size <= fetch.DOWNLOAD_FILE_LIMIT
+    assert archive.download_url.endswith("/41467_2024_50885_MOESM4_ESM.zip")
+
+
+def test_every_paper_file_is_an_unchanged_member_at_its_archive_path() -> None:
+    """A committed copy sits at its fixture directory plus its member path, and is one member.
+
+    Every file below the two directories has an entry (the REUSE test finds a file without one),
+    and no entry is the output of a script: the licence permits no changed copy.
+    """
+    entries = _paper_entries()
+    on_disk = sorted(
+        p.relative_to(REPO).as_posix()
+        for root in PAPER_DIRS
+        for p in (REPO / root).rglob("*")
+        if p.is_file()
+    )
+    assert sorted(d.file for d in entries) == on_disk
+    assert len(entries) == 27
+    for d in entries:
+        assert d.license == "CC-BY-NC-ND-4.0", d.id
+        assert d.extract_of == (PAPER_ARCHIVE,) and d.extract_script is None, d.id
+        root = next(r for r in PAPER_DIRS if d.file.startswith(r))
+        assert d.file == root + d.extract_member, d.id
+        assert (d.tier == "lfs") == (root == PAPER_DIRS[1]), d.id
+
+
+def test_no_hook_can_rewrite_an_unchanged_copy() -> None:
+    config = yaml.safe_load((REPO / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    hooks = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
+    for hook_id in _REWRITING_HOOKS:
+        exclude = re.compile(hooks[hook_id].get("exclude", "(?!)"))
+        for d in _paper_entries():
+            if hook_id.startswith("ruff") and not d.file.endswith(".py"):
+                continue
+            assert exclude.search(d.file), f"pre-commit hook {hook_id} would rewrite {d.file}"
+    ruff = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"]
+    assert PAPER_DIRS[0].rstrip("/") in ruff["extend-exclude"]
 
 
 def test_the_cache_key_follows_only_the_download_checksums() -> None:
@@ -300,6 +367,31 @@ def test_a_second_writer_on_the_same_cache_cannot_change_the_returned_file(
     )
     assert path.read_bytes() == _PAYLOAD
     assert other.read_bytes() == garbage
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        urllib.error.HTTPError("https://zenodo.org/x", 404, "Not Found", None, None),
+        urllib.error.URLError("Name or service not known"),
+        TimeoutError("timed out"),
+    ],
+)
+def test_an_absent_upstream_file_fails_with_the_set_and_url(
+    tmp_path: Path, monkeypatch, error
+) -> None:
+    """A withdrawn or moved file fails the weekly job with a message that names it (#755)."""
+    monkeypatch.setenv(fetch.DOWNLOAD_ENV, "1")
+    d = _entry("download")
+
+    def opener(url: str, timeout: float):
+        raise error
+
+    with pytest.raises(fetch.DownloadFailed) as err:
+        fetch.path_for("demo", manifest={"demo": d}, cache_dir=tmp_path, opener=opener)
+    assert str(err.value).startswith("demo: the download from " + d.download_url)
+    assert "absent, moved or unreachable" in str(err.value)
+    assert [p for p in tmp_path.rglob("*") if p.is_file()] == []
 
 
 @pytest.mark.parametrize("served", [b"other bytes\n", _PAYLOAD + b"extra"])

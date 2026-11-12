@@ -28,7 +28,8 @@ The four tiers:
 Each tier checks the SHA-256 before the first use in a process, and a file whose checksum is
 wrong is never returned: :class:`ChecksumMismatch` names the set and both checksums. A download
 is written to a temporary file of its own (``<name>.<random>.part``) and renamed only after its
-checksum matched.
+checksum matched. A download that does not arrive (HTTP 404, a moved record, no network) raises
+:class:`DownloadFailed`, which names the set and the URL.
 
 ``python tests/reference_data/fetch.py cache-key`` prints the manifest part of the weekly job's
 cache key. It depends only on the ids and checksums of the ``download`` entries, so an edit to a
@@ -44,6 +45,7 @@ import re
 import sys
 import tempfile
 import tomllib
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -70,11 +72,17 @@ _ID = re.compile(r"[a-z0-9][a-z0-9-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SOURCE = re.compile(r"(doi:10\.\d{4,9}/\S+|accession:\S+)")
 _ENV = re.compile(r"TETHER_[A-Z0-9_]+")
+#: A NoDerivatives licence (for example CC-BY-NC-ND-4.0): no changed copy may exist (ADR-0083).
+_NO_DERIVATIVES = re.compile(r"-ND(-|$)")
 _CHUNK = 1 << 20
 
 
 class ChecksumMismatch(RuntimeError):
     """A reference file whose bytes are not the ones the manifest names."""
+
+
+class DownloadFailed(RuntimeError):
+    """A download that did not arrive: the upstream file moved, was withdrawn, or is unreachable."""
 
 
 @dataclass(frozen=True)
@@ -221,6 +229,11 @@ def check_manifest(datasets: dict[str, Dataset], repo: Path = REPO) -> list[str]
                 say(f"{d.id}: an extract_member is a member of exactly one archive")
             if d.extract_script and not (repo / d.extract_script).is_file():
                 say(f"{d.id}: extract_script {d.extract_script} does not exist")
+            if d.extract_script and _NO_DERIVATIVES.search(d.license):
+                say(
+                    f"{d.id}: {d.license} permits no changed copy, so an extract is an unchanged "
+                    "extract_member, never the output of an extract_script (ADR-0083)"
+                )
         elif d.extract_script or d.extract_member:
             say(f"{d.id}: extract_script and extract_member need extract_of")
     lfs_total = sum(
@@ -277,13 +290,24 @@ def _download(d: Dataset, target: Path, opener: Callable) -> Path:
     digest = hashlib.sha256()
     written = 0
     try:
-        with os.fdopen(handle, "wb") as out, opener(d.download_url, timeout=60) as response:
-            while chunk := response.read(_CHUNK):
-                written += len(chunk)
-                if written > d.size:
-                    raise ChecksumMismatch(f"{d.id}: the download is larger than {d.size} B")
-                digest.update(chunk)
-                out.write(chunk)
+        with os.fdopen(handle, "wb") as out:
+            try:
+                with opener(d.download_url, timeout=60) as response:
+                    while chunk := response.read(_CHUNK):
+                        written += len(chunk)
+                        if written > d.size:
+                            raise ChecksumMismatch(
+                                f"{d.id}: the download is larger than {d.size} B"
+                            )
+                        digest.update(chunk)
+                        out.write(chunk)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                # An HTTP 404 or 410 says the upstream file moved or was withdrawn; say which set
+                # and which URL, not only the status line (#755).
+                raise DownloadFailed(
+                    f"{d.id}: the download from {d.download_url} failed ({exc}); the upstream "
+                    "file is absent, moved or unreachable, and no file is used"
+                ) from exc
         if digest.hexdigest() != d.sha256:
             raise ChecksumMismatch(
                 f"{d.id}: SHA-256 of the download from {d.download_url} is {digest.hexdigest()}, "

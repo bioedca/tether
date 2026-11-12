@@ -85,3 +85,371 @@ tier = "git"
 extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
+
+# --- Source Data of Campos-Chavez et al., Nat Commun 15:6592 (2024), CC-BY-NC-ND-4.0 ----------
+# (#755, ADR-0083). The archive is downloaded by the weekly job; the committed files are members of
+# it, byte for byte. The licence permits no changed copy: a test that needs another format converts
+# a file when it runs, and nothing here is ever edited, re-encoded or trimmed.
+
+[[dataset]]
+id = "campos2024-source-data"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "41467_2024_50885_MOESM4_ESM.zip"
+size = 94911677
+sha256 = "83141ce0dc63db35aae2a3f17d793df003de7460651a68b13cd3f2e6f9376c71"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-calculatedoubleexponentialerrors-py"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py"
+size = 1520
+sha256 = "0780f46cffa547b7a58a5bd8271639b78a7e4be14b7460f67c6b0b7d215b0523"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-rag-0-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out"
+size = 144
+sha256 = "bb5ef7d3f8c2de204a7f6c546e3a3ad270e73c33e8c815f4bcabbab48619fd12"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-rag-0-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt"
+size = 72
+sha256 = "653e64a5f8a6290f8d1791674979900334c43a4ef402971c2df1f1cefea5b461"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-rag-4-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out"
+size = 144
+sha256 = "c1d30c7438f4bf239dbcb5a4fb8cb74f39a318daa2f6bb3f72e94aaf001800cf"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-rag-4-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt"
+size = 72
+sha256 = "7749cb8b610e085d0e2498debbefa346ac350bf87bd5f5b2abf79917600049e7"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-ncca-2state-0-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out"
+size = 145
+sha256 = "a3cee5cdb477d364849ce8629dc2ace7051e65097062241d69f9cf15ad97481c"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-ncca-2state-0-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt"
+size = 74
+sha256 = "d5518bb602c4cebb40cb313c179c765d87789b4ec6129c2f3a1c6ca9dece58d9"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-ncca-5-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out"
+size = 144
+sha256 = "6d89cc6cf888bb7797bd4439b17e2c99b7c7718da0f1d908c679d292f3ea7f4e"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-ncca-5-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt"
+size = 70
+sha256 = "80b0acb9f3abe12ac30776cce6f7bd8319fffc9f2c17f3b339c4317695658ed6"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-wt-0-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out"
+size = 145
+sha256 = "6b114de98635bd9660de84c99001705cce8f33fdb3dc0f7aae92a163ab120002"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-wt-0-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt"
+size = 72
+sha256 = "84847b6caa0e99da38cb6df70e7a5cd97f7bf8825436bc22eccf9c1a172b0462"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-wt-4-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out"
+size = 142
+sha256 = "15d413040cec187d01d40b6e90a9c642d54db326593e83865f89ec8269c387da"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-errorsdoubleexponential-double-wt-wt-4-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt"
+size = 70
+sha256 = "ba2ff1aa1320b87ec1c723e413b41f77253bea3c414281b578e0b8bd7fbc2886"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-fractionofclosedstate-errorfractionofclosedstate-ipynb"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb"
+size = 508299
+sha256 = "50c413e49720c4fbec076cc442c3f3a2fe8d203846e2494b9661e05297dde8c0"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-calculatekbounds-py"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py"
+size = 3995
+sha256 = "81d06b5b1be8ef29558ff9e7c91c932d9fda871bdb28aab642398c62f77e3320"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-deltadiscriminator-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out"
+size = 569
+sha256 = "69757bbaa36d1840bcaa2fc88e9cf7453fc2756a30930d7c54ad69626a189825"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-deltadiscriminator-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt"
+size = 58
+sha256 = "176ef1d7ac986dc96756322fb539db59eee2cfc247ef4895c03d3011b65355ef"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-deltancca-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out"
+size = 560
+sha256 = "b73bb640abc6fa9dd299a493f34be3d845c63785868f8cb5ff0b95a6404bb1eb"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-deltancca-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt"
+size = 64
+sha256 = "630ba34cffaf35051091dd8cbe0357d81f4a427040c7e238dd846252e27d3523"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-linkermutant-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out"
+size = 958
+sha256 = "cacf2aa7aac53a750f534e26b0605711d8f7c8355357f668674cee42d368ca5e"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-linkermutant-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt"
+size = 137
+sha256 = "36987a7fcd37d9acb6f5ae61492d3a181411287ae15f0442e7e604be818abb13"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-ragmutant-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out"
+size = 1497
+sha256 = "1e820cf6eed492e6602609ab44b7751203721e3e7f37b01fe17b33e77b226a1c"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-ragmutant-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt"
+size = 241
+sha256 = "ce380d66829cf948aada4f617e2453f4613b0c43d9c053c26642cd939e78f790"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-wt-wt-out"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out"
+size = 954
+sha256 = "295844a39d61fa2572e47f6c1f13fcbe1b787f7f6cfb56b05693aa7225b71bc2"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-kmatrix-wt-wt-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt"
+size = 135
+sha256 = "d35a52f44cdcd4ff8157c045eeca5083412ba28751a159ece27b36c156f4f481"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-checktdp-py"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/campos_chavez_2024/checkTDP.py"
+size = 2174
+sha256 = "5cd40c12d8f6bcc7caf611639fc63249368cfde0a1cf1647f460b87b5d7002ee"
+tier = "git"
+extract_of = ["campos2024-source-data"]
+extract_member = "checkTDP.py"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+[[dataset]]
+id = "campos2024-smfret-intrafret-wt-wt-13um-txt"
+source = "doi:10.1038/s41467-024-50885-x"
+record_url = "https://www.nature.com/articles/s41467-024-50885-x"
+license = "CC-BY-NC-ND-4.0"
+file = "tests/fixtures/large/campos_chavez_2024/smFRET_SourceData/intraFRET_WT+WT_13uM.txt"
+size = 6723000
+sha256 = "0f4c89027159593e885e02cdc7800218aed540bc1b44ccdd29d4846064a58839"
+tier = "lfs"
+extract_of = ["campos2024-source-data"]
+extract_member = "smFRET_SourceData/intraFRET_WT+WT_13uM.txt"
+citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
