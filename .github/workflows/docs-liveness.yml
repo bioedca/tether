@@ -21,6 +21,14 @@ on:
     # Daily 09:19 UTC — a minute/hour no other workflow's cron uses.
     - cron: "19 9 * * *"
   workflow_dispatch:
+    inputs:
+      drill:
+        description: >-
+          Drill the failure report (#697): report as a scheduled run would. `fail` fails on
+          purpose; `pass` runs the real check. The issue title starts `ci(drill)`.
+        type: choice
+        options: [none, fail, pass]
+        default: none
 
 permissions:
   contents: read
@@ -42,6 +50,11 @@ jobs:
       # GET /repos/{owner}/{repo}/pages needs the Pages permission at read (#325).
       pages: read
     steps:
+      - name: Fail on purpose (drill of the failure report)
+        if: inputs.drill == 'fail'
+        run: |
+          echo "::error::This run fails on purpose: a drill of the scheduled-failure report (#697)."
+          false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -49,3 +62,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check_docs_site.py
+
+  report:
+    # A failed daily run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: docs-liveness
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: docs-liveness
+      result: ${{ needs.docs-liveness.result }}
+      drill: ${{ inputs.drill == 'fail' || inputs.drill == 'pass' }}

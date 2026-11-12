@@ -1798,6 +1798,15 @@ EXCLUSIONS: dict[str, str] = {
         "free-text `spread_source` and `deferred_reason` strings, which the page "
         "paraphrases rather than quotes, so there is no literal to pin against."
     ),
+    "(g)'s live-leg paragraph: 1e-14, 1e-12, 7.1e-16, 6.6e-14, 2026-11-11 and `10f4230`": (
+        "The two limits are the literals REF_RTOL and TETHER_RTOL of the test the paragraph "
+        "describes, tests/test_fret_photobleach_sidecar.py, and the two measured worst cases "
+        "with their date are a one-off measurement recorded in that module's docstring and "
+        "in #706's pull request. No committed artifact or src/ constant carries any of them, "
+        "the same reason as (a)'s enforcing-tests sentence. `10f4230` names the build the "
+        "measurement ran on, not the build the live gate runs; where the page states the "
+        "live build it is pinned to TMAVEN_SPEC (#512)."
+    ),
 }
 
 
