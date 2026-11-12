@@ -8,3 +8,8 @@
 # PR #539 (#176): a tutorial molecule ID, the content hash Tether prints when a molecule is
 # rejected, assigned to a constant whose name ended in KEY. Renamed in the next commit.
 87daed6d658aaf3042cd507cca7d5ace6646d8e9:tests/test_docs_tutorial.py:generic-api-key:50
+
+# PR #786 (#734): the SHA-256 molecule_key of a fixed test input, pinned so that a
+# per-process salt fails the test, compared with a variable named key. Renamed in the
+# next commit.
+906a145d34c80b98df0f53f8e30759369cebfe50:tests/test_extract.py:generic-api-key:149

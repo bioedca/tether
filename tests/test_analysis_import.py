@@ -44,6 +44,13 @@ _TXT = _FIXTURES / "deeplasi_traces_slice.txt"
 _SMD281 = _FIXTURES / "large" / "smd_281mol.hdf5"
 
 
+def _is_lfs_pointer(path: Path) -> bool:
+    """True if ``path`` is a Git-LFS pointer stub (the default checkout), not the real data."""
+    if path.stat().st_size > 4096:
+        return False
+    return path.read_bytes()[:64].startswith(b"version https://git-lfs")
+
+
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
@@ -381,7 +388,10 @@ def test_rejects_unknown_source_type(tmp_path: Path) -> None:
 
 
 @pytest.mark.large
-@pytest.mark.skipif(not _SMD281.exists(), reason="281-mol SMD large fixture not present")
+@pytest.mark.skipif(
+    not _SMD281.exists() or _is_lfs_pointer(_SMD281),
+    reason="281-mol SMD large fixture not present, or a Git-LFS pointer (not materialized)",
+)
 def test_import_281mol_parity_fixture(tmp_path: Path) -> None:
     """The M6 281-molecule parity SMD (PRD §7.8's canonical case) imports analysis-only."""
     smd = read_smd(_SMD281)

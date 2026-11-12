@@ -4,7 +4,9 @@
 
 Covers the export mechanism (three formats + provenance stamp) and that each M6
 analysis plot-data dataclass renders to a figure that round-trips through the export.
-Gated on ``h5py``/``matplotlib``/``scipy`` so the lightweight headless tiers skip it.
+Gated on ``h5py``/``scipy`` so the lightweight headless tiers skip it. ``matplotlib`` is a
+plain import: the base stack requires it for the plot export, and an ``importorskip`` made
+an install without it one skip and a green run with no plot-export test (#726).
 """
 
 from __future__ import annotations
@@ -16,9 +18,11 @@ import pytest
 
 pytest.importorskip("h5py")
 pytest.importorskip("scipy")
-pytest.importorskip("matplotlib")
 
+# A plain import, not importorskip: a missing matplotlib must fail the run (#726).
+from matplotlib.collections import PathCollection, QuadMesh  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.patches import Rectangle, StepPatch  # noqa: E402
 
 from _analysis_store import MEANS, build_store_with_model  # noqa: E402
 from tether.analysis import plot_export as pe  # noqa: E402
@@ -68,6 +72,26 @@ def _assert_valid(result: pe.PlotExportResult, formats: tuple[str, ...] = pe.DEF
     for fmt in set(pe.DEFAULT_PLOT_FORMATS) - set(formats):
         assert not result.stem.with_name(result.stem.name + f".{fmt}").exists()
     assert result.provenance_path.exists()
+
+
+def _mesh(ax) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The plotted ``(rows, cols)`` value array and the x / y edges of the axes' one QuadMesh.
+
+    A ``shading="flat"`` mesh stores row ``r`` / column ``c`` as the cell between
+    ``y_edges[r:r+2]`` and ``x_edges[c:c+2]``, so ``array[r, c]`` is the value drawn at
+    ``(x, y)`` — what the reader of the figure sees, whatever array the renderer passed.
+    """
+    meshes = [c for c in ax.collections if isinstance(c, QuadMesh)]
+    assert len(meshes) == 1
+    coords = meshes[0].get_coordinates()  # (n_rows + 1, n_cols + 1, 2)
+    return np.asarray(meshes[0].get_array()), coords[0, :, 0], coords[:, 0, 1]
+
+
+def _value_at(array: np.ndarray, x_edges: np.ndarray, y_edges: np.ndarray, x: float, y: float):
+    """The plotted mesh value in the cell that holds the point ``(x, y)``."""
+    col = int(np.searchsorted(x_edges, x, side="right")) - 1
+    row = int(np.searchsorted(y_edges, y, side="right")) - 1
+    return array[row, col]
 
 
 def _simple_hist():
@@ -216,6 +240,12 @@ def test_no_stamp_option_omits_visible_footer(tmp_path):
 
 
 # --------------------------------------------------------------- per-plot renderers
+#
+# Each renderer test reads the artists of the returned Figure, not only the exported files:
+# a file with the right signature can hold a mirrored histogram or a transposed TDP (#729
+# PRJ-F7). The values are compared with the analysis result that was rendered, and each
+# orientation is also checked against the fixture itself (STATES / MEANS), so a renderer that
+# reorders the data and a test helper that reorders it the same way cannot agree by accident.
 
 
 def test_render_histogram1d_with_ci_and_overlay(tmp_path):
@@ -224,6 +254,28 @@ def test_render_histogram1d_with_ci_and_overlay(tmp_path):
     overlay = population_model_gaussian_overlay(proj, "vbconhmm")
     fig = pe.render_histogram1d(ci, overlay=overlay)
     assert isinstance(fig, Figure)
+    ax = fig.axes[0]
+    # The bars are the histogram counts, bin for bin, on the histogram's own edges.
+    (bars,) = [p for p in ax.patches if isinstance(p, StepPatch)]
+    drawn = bars.get_data()
+    np.testing.assert_array_equal(drawn.values, ci.histogram.counts)
+    np.testing.assert_array_equal(drawn.edges, ci.histogram.bin_edges)
+    # Orientation against the fixture: every state level has a filled bar, and the mirror
+    # image of each level about E = 0.5 (not a level of the fixture) has none.
+    edges = np.asarray(drawn.edges)
+    for level in MEANS:
+        assert drawn.values[np.searchsorted(edges, level, side="right") - 1] > 0, level
+        assert drawn.values[np.searchsorted(edges, 1.0 - level, side="right") - 1] == 0, level
+    # The model overlay: the total curve, then one dashed curve per state component.
+    total, *components = ax.lines
+    np.testing.assert_array_equal(total.get_xdata(), overlay.x)
+    np.testing.assert_array_equal(total.get_ydata(), overlay.total)
+    assert len(components) == len(MEANS)
+    for line, comp in zip(components, np.asarray(overlay.components), strict=True):
+        np.testing.assert_array_equal(line.get_ydata(), comp)
+    assert ax.get_xlim() == pytest.approx(ci.histogram.value_range)
+    assert ax.get_xlabel() == "Apparent FRET efficiency $E$"
+    assert ax.get_ylabel() == ("Density" if ci.histogram.density else "Counts")
     result = pe.export_figure(
         fig, tmp_path / "a1full", tether_export="plot:a1", source="s", parameters={}
     )
@@ -234,6 +286,21 @@ def test_render_histogram2d(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
     h = population_time_signal_histogram2d(proj, time_bins=6)
     fig = pe.render_histogram2d(h)
+    ax = fig.axes[0]
+    drawn, x_edges, y_edges = _mesh(ax)
+    # counts is [time, signal]; the figure shows time on x and E on y.
+    np.testing.assert_array_equal(x_edges, h.time_edges)
+    np.testing.assert_array_equal(y_edges, h.signal_edges)
+    np.testing.assert_array_equal(drawn, np.asarray(h.counts).T)
+    # Against the fixture: frame 0 holds one molecule in each state, so the first time
+    # column is filled at each state level and empty at a level no molecule takes.
+    t0 = 0.5 * (x_edges[0] + x_edges[1])
+    for level in MEANS:
+        assert _value_at(drawn, x_edges, y_edges, t0, level) > 0, level
+    assert _value_at(drawn, x_edges, y_edges, t0, 0.4) == 0
+    assert ax.get_xlabel() == "Frame"
+    assert ax.get_ylabel() == "Apparent FRET efficiency $E$"
+    assert ax.get_ylim() == pytest.approx(h.signal_range)
     result = pe.export_figure(
         fig, tmp_path / "a2", tether_export="plot:a2", source="s", parameters={}
     )
@@ -245,6 +312,22 @@ def test_render_transition_density(tmp_path):
     tdp = population_transition_density(proj, "vbconhmm")
     assert tdp.n_transitions > 0
     fig = pe.render_transition_density(tdp)
+    ax = fig.axes[0]
+    drawn, x_edges, y_edges = _mesh(ax)
+    # counts is [initial, final]; the figure shows initial E on x and final E on y.
+    np.testing.assert_array_equal(x_edges, tdp.signal_edges)
+    np.testing.assert_array_equal(y_edges, tdp.signal_edges)
+    np.testing.assert_array_equal(drawn, np.asarray(tdp.counts).T)
+    # Against the fixture: STATES has more 0 -> 1 than 1 -> 0 transitions, so the cell at
+    # (initial = level 0, final = level 1) must be the brighter of the two mirror cells. A
+    # transposed plot swaps them.
+    forward = _value_at(drawn, x_edges, y_edges, MEANS[0], MEANS[1])
+    backward = _value_at(drawn, x_edges, y_edges, MEANS[1], MEANS[0])
+    assert forward > backward > 0
+    assert ax.get_xlabel() == "Initial $E$"
+    assert ax.get_ylabel() == "Final $E$"
+    assert ax.get_xlim() == pytest.approx(tdp.signal_range)
+    assert ax.get_ylim() == pytest.approx(tdp.signal_range)
     result = pe.export_figure(
         fig, tmp_path / "b1", tether_export="plot:tdp", source="s", parameters={}
     )
@@ -255,6 +338,24 @@ def test_render_dwell_survival(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
     analysis = population_dwell_times(proj, "vbconhmm", state=1)
     fig = pe.render_dwell_survival(analysis)
+    ax = fig.axes[0]
+    # The survival markers are S(t) at each dwell time (clipped at 1e-6 for the log axis).
+    survival = ax.lines[0]
+    np.testing.assert_array_equal(survival.get_xdata(), analysis.tau)
+    np.testing.assert_array_equal(
+        survival.get_ydata(), np.clip(np.asarray(analysis.survival), 1e-6, None)
+    )
+    assert ax.get_yscale() == "log"
+    assert ax.get_ylabel() == "Survival $S(t)$"
+    if analysis.fit is not None and analysis.fit.success:
+        fit_line = ax.lines[1]
+        np.testing.assert_array_equal(fit_line.get_xdata(), analysis.fit.tau)
+        np.testing.assert_array_equal(
+            fit_line.get_ydata(), np.clip(np.asarray(analysis.fit.model_survival), 1e-6, None)
+        )
+    else:
+        assert len(ax.lines) == 1
+        assert ax.get_xlabel() == "Dwell time (frames)"
     result = pe.export_figure(
         fig, tmp_path / "b2", tether_export="plot:dwell", source="s", parameters={}
     )
@@ -265,6 +366,18 @@ def test_render_transition_prob(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
     h = population_transition_prob_histogram(proj, "vbconhmm", 0, 1)
     fig = pe.render_transition_prob(h)
+    ax = fig.axes[0]
+    (bars,) = [p for p in ax.patches if isinstance(p, StepPatch)]
+    drawn = bars.get_data()
+    np.testing.assert_array_equal(drawn.values, h.counts)
+    np.testing.assert_array_equal(drawn.edges, h.edges)
+    assert drawn.values.sum() > 0
+    if h.kde_x is not None:
+        (kde,) = ax.lines
+        np.testing.assert_array_equal(kde.get_xdata(), h.kde_x)
+        np.testing.assert_array_equal(kde.get_ydata(), h.kde_y)
+    assert ax.get_xlim() == pytest.approx(h.prob_range)
+    assert ax.get_xlabel() == "$P(0\\to1)$ per molecule"
     result = pe.export_figure(
         fig, tmp_path / "b3", tether_export="plot:tprob", source="s", parameters={}
     )
@@ -275,6 +388,14 @@ def test_render_state_number(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
     counts = population_state_number(proj, "vbconhmm")
     fig = pe.render_state_number(counts)
+    ax = fig.axes[0]
+    bars = [p for p in ax.patches if isinstance(p, Rectangle)]
+    drawn = {round(b.get_x() + b.get_width() / 2): b.get_height() for b in bars}
+    assert drawn == dict(zip(counts.states.tolist(), counts.counts.tolist(), strict=True))
+    # Against the fixture: each of the three molecules visits all three states.
+    assert drawn[3] == STATES.shape[0]
+    assert ax.get_xlabel() == "Number of occupied states"
+    assert ax.get_ylabel() == "Molecules"
     result = pe.export_figure(
         fig, tmp_path / "c1", tether_export="plot:statenum", source="s", parameters={}
     )
@@ -285,6 +406,19 @@ def test_render_raw_fret_cloud(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
     cloud = population_raw_fret_cloud(proj)
     fig = pe.render_raw_fret_cloud(cloud)
+    ax = fig.axes[0]
+    # The scatter is the pooled (time, E) points, unthinned below max_points.
+    (scatter,) = [c for c in ax.collections if isinstance(c, PathCollection)]
+    np.testing.assert_array_equal(scatter.get_offsets(), cloud.points)
+    # Against the fixture: every plotted E is one of the state levels.
+    assert np.isin(np.round(cloud.points[:, 1], 9), np.round(MEANS, 9)).all()
+    assert cloud.density is not None
+    drawn, x_edges, y_edges = _mesh(ax)
+    np.testing.assert_array_equal(x_edges, cloud.time_edges)
+    np.testing.assert_array_equal(y_edges, cloud.signal_edges)
+    np.testing.assert_array_equal(drawn, np.asarray(cloud.density).T)
+    assert ax.get_xlabel() == "Frame"
+    assert ax.get_ylabel() == "Apparent FRET efficiency $E$"
     result = pe.export_figure(
         fig, tmp_path / "cloud", tether_export="plot:cloud", source="s", parameters={}
     )
@@ -295,6 +429,13 @@ def test_render_cross_correlation(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
     xc = population_cross_correlation(proj)
     fig = pe.render_cross_correlation(xc)
+    ax = fig.axes[0]
+    # Two reference lines (y = 0, lag = 0), then the curve itself.
+    curve = ax.lines[-1]
+    np.testing.assert_array_equal(curve.get_xdata(), xc.lags)
+    np.testing.assert_array_equal(curve.get_ydata(), xc.values)
+    assert ax.get_xlabel() == "Lag (frames)"
+    assert ax.get_ylabel() == f"Cross-correlation ({xc.normalize})"
     result = pe.export_figure(
         fig, tmp_path / "xcorr", tether_export="plot:xcorr", source="s", parameters={}
     )
