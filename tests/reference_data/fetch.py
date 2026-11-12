@@ -45,7 +45,7 @@ import tomllib
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = Path(__file__).with_name("manifest.toml")
@@ -161,7 +161,13 @@ def check_manifest(datasets: dict[str, Dataset], repo: Path = REPO) -> list[str]
             say(f"{d.id}: tier must be one of {TIERS}, got {d.tier!r}")
             continue
         posix = PurePosixPath(d.file)
-        if posix.is_absolute() or ".." in posix.parts:
+        # A backslash or a drive is a separator only on Windows, where it would leave the tier.
+        if (
+            posix.is_absolute()
+            or ".." in posix.parts
+            or "\\" in d.file
+            or PureWindowsPath(d.file).drive
+        ):
             say(f"{d.id}: file must be a relative path inside its tier")
             continue
         in_lfs = d.file.startswith(LFS_ROOTS)

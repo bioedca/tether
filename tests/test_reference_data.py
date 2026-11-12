@@ -85,6 +85,8 @@ _DOWNLOAD = MANIFEST["kinsoft-sim-fig2"]
         (_GIT, {"citation": " "}, "citation is empty"),
         (_GIT, {"tier": "usb"}, "tier must be one of"),
         (_GIT, {"file": "../outside.txt"}, "relative path"),
+        (_GIT, {"file": "..\\outside.txt"}, "relative path"),
+        (_GIT, {"file": "C:outside.txt"}, "relative path"),
         (_GIT, {"size": 1980}, "the manifest says 1980 B"),
         (_GIT, {"size": 2_000_000}, "a git file is at most"),
         (_GIT, {"file": "tests/fixtures/missing.txt"}, "is not committed"),

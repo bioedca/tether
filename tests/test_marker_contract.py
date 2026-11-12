@@ -3560,17 +3560,24 @@ def _reference_collectors() -> dict[str, list[list[str]]]:
         commands = [
             c
             for c in _pytest_commands(path.read_text(encoding="utf-8"))
-            if _marker_expression(c) == REFERENCE_MARKER
+            if (expression := _marker_expression(c)) is not None
+            and _selects(expression, {REFERENCE_MARKER})
         ]
         if commands:
             found[path.name] = commands
     return found
 
 
+# Options that deselect part of what a command collects.
+_NARROWING = ("-k", "--deselect")
+
+
 def test_the_collection_check_sees_a_module_outside_the_glob() -> None:
     assert _collects(["pytest", "-v", "-m", REFERENCE_MARKER], "tests/test_x.py")
     assert _collects(["pytest", "-m", "x", "tests/test_*_ref.py"], "tests/test_a_ref.py")
     assert not _collects(["pytest", "-m", "x", "tests/test_*_ref.py"], "tests/test_b.py")
+    # A compound expression still counts as a collector, so a second job cannot hide (#795).
+    assert _selects(f"{REFERENCE_MARKER} and not workstation", {REFERENCE_MARKER})
     assert _pytest_commands('run: xvfb-run -a pytest -v -m "a and b"\n# pytest -m c\n') == [
         ["pytest", "-v", "-m", "a and b"]
     ]
@@ -3593,6 +3600,8 @@ def test_every_reference_download_test_runs_in_exactly_one_scheduled_job() -> No
     assert len(commands) == 1, f"{name} runs the marker in one job"
     triggers = _on_block_child_keys((WORKFLOWS_DIR / name).read_text(encoding="utf-8"))
     assert triggers == {"schedule", "workflow_dispatch"}, f"{name} must never gate a merge"
+    narrowing = [t for t in commands[0] if t.startswith(_NARROWING) or "::" in t]
+    assert not narrowing, f"{name} must run every reference test, not a part: {narrowing}"
     uncollected = [m for m in modules if not _collects(commands[0], m)]
     assert not uncollected, f"reference_download tests no workflow collects: {uncollected}"
 
