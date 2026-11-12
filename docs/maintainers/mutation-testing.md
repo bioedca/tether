@@ -1,8 +1,3 @@
-<!--
-SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
-SPDX-License-Identifier: GPL-3.0-or-later
--->
-
 # Reading the mutation report
 
 **Who this page is for.** The maintainer and contributors who read the monthly mutation report
@@ -109,7 +104,22 @@ runs the whole default tier one time, about four minutes.
 
 ## Why an in-repository runner
 
-The issue asked for a comparison of `mutmut`, `cosmic-ray` and a small runner in the repository.
-The pull request for #725 records the measurements; in short:
+Issue #725 asked for a comparison of `mutmut`, `cosmic-ray` and a small runner in the
+repository. The measurements are from 2026-11-12, on `main` at `46fb76b`, with 4 processors.
 
-DECISION_PLACEHOLDER
+| | In-repository runner | mutmut 3.8.1 | cosmic-ray 8.9.0 |
+|---|---|---|---|
+| Tests for each mutant | the tests that ran the line (per-test contexts) | the tests that called the function (its trampoline records them) | one fixed test command for all mutants |
+| `src/tether/fret` | 207 mutants, 7 min (4 of them for the contexts run) | 893 mutants, 12.5 min, with the test files chosen by hand | not run |
+| The whole target set | 3905 mutants, 70 min | not run | about 3905 runs of the whole tier (about 90 s each), so days |
+| `src` layout | yes | yes | yes |
+| What the tests see | the repository, with a copy of `src/` first on `PYTHONPATH` | a copy of the project in `mutants/`; tests that read git, `.agents/` or other files outside `src/` fail there, so the whole tier could not run | the checkout, changed in place |
+| Numba-compiled code | changes the source, so Numba compiles the mutant | replaces each function with a trampoline that calls a changed copy; not tried with Numba here | changes the source |
+| New packages in the job | none (`coverage` is already pinned in CI) | 6 (`libcst`, `textual`, `setproctitle` and others) | 16 (`aiohttp`, `SQLAlchemy`, `GitPython` and others) |
+
+mutmut is faster for each mutant, because it forks one process and does not import again. It
+could not use the whole test tier, and it needed a hand-made list of test files. cosmic-ray has
+no way to run only the covering tests. The in-repository runner uses the per-test contexts that
+#725 asks for, adds no package, and runs the whole target set in about an hour with four workers.
+No function in the targets is Numba-compiled today (the one Numba function is in
+`_sidecar_runner.py`, which is excluded).
