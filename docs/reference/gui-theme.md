@@ -5,6 +5,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Window themes and trace colors
 
+**Who this page is for.** Anyone who uses the Tether window and wants to change its theme, or
+who wants to know the trace colors and how they were checked. It assumes you can open the
+Tether window. It does not assume you know Qt or color science.
+
 The Tether window has a light theme and a dark theme. This page tells you how to select a
 theme, and it records the colors of the traces and how they were checked.
 
