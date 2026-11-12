@@ -3206,10 +3206,14 @@ def defined_tests(root: Path) -> dict[str, set[str]]:
     """Each test function under ``root`` mapped to the modules that define it.
 
     What pytest collects: module-level ``test_*`` functions and the ``test_*`` methods of
-    module-level classes. Read with :mod:`ast`, so no test module is imported.
+    module-level classes. Read with :mod:`ast`, so no test module is imported. A ``.py`` file
+    below ``fixtures/`` is test data, not a test module: the unchanged third-party scripts there
+    (#755, ADR-0083) need not even parse.
     """
     out: dict[str, set[str]] = {}
     for path in sorted(root.rglob("*.py")):
+        if "fixtures" in path.relative_to(root).parts:
+            continue
         module = path.relative_to(ROOT).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=module)
         nodes = list(tree.body)
