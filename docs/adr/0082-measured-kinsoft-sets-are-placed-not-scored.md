@@ -58,7 +58,8 @@ Chosen options: **2 and 4**.
   the paper's Fig. 5 compares. Two models are kept in the file but left out of the comparison, with
   the reason: one reported no FRET efficiencies, one no rate matrix. The five spreadsheets are
   `download` entries of the manifest ([ADR-0073](0073-one-manifest-for-reference-data-sets.md)), so
-  the weekly job verifies their checksums against the publisher's copy.
+  the weekly job verifies their checksums against the publisher's copy and then compares each
+  copied number with its cell.
 - **Class exit rate.** The states of a model are put in two classes at the largest gap in FRET E.
   With the generator `Q` of the model and its stationary distribution `π`, the class `A` is entered
   with the flux `e_j ∝ Σ_{i∉A} π_i Q_ij`, and its mean residence time is `e · (−Q_AA)⁻¹ · 1`. For two
@@ -77,7 +78,9 @@ Chosen options: **2 and 4**.
 ### Consequences
 
 - Good: each published number is a copy of a named sheet of a checksummed paper file, and a test
-  derives the compared quantity from it, so the copy and the derivation can each be checked.
+  derives the compared quantity from it, so the copy and the derivation can each be checked. The
+  weekly job reads the downloaded spreadsheets with the standard library and compares every copied
+  number with its cell.
 - Good: `docs/validation.md` shows the ten rates beside the published ranges, and a required test
   keeps the table equal to the file.
 - Bad: the weekly job takes longer, because it restores a second environment.

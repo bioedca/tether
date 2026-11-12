@@ -431,9 +431,12 @@ at 10 ms, and of 33 % and 45 % at 1 ms.
 **Enforcing tests.**
 `tests/test_kinsoft_measured.py::test_tether_on_a_measured_set_beside_the_published_results` runs
 in the weekly `reference-data` job, with the sidecar. It prints the position and fails only when
-Tether's fit moves from its frozen `tether_measured` result. On the required matrix,
+Tether's fit moves from its frozen `tether_measured` result. In the same job,
+`test_every_copied_number_equals_its_cell_in_the_publisher_spreadsheet` downloads the five
+spreadsheets, checks their SHA-256 and compares each copied number with its cell. On the required
+matrix,
 `test_the_page_shows_tether_beside_the_published_range` keeps the table above equal to the file,
-`test_every_analysis_is_a_whole_copy_of_one_sheet` and
+`test_every_analysis_has_the_shape_of_one_sheet` and
 `test_every_set_names_its_data_and_the_paper_file_its_numbers_come_from` check the copy and its
 sources, and `test_a_class_of_two_hidden_states_exits_at_its_mean_residence_time` checks the
 derivation on a model whose answer is known.

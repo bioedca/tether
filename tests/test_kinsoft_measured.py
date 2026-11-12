@@ -6,10 +6,11 @@ Advisory by construction (ADR-0082): measured data has no ground truth, so no te
 where Tether's rates lie among the published ones. They fail on a wrong copy, a wrong derivation,
 a page that no longer shows the file, or a Tether fit that has drifted from its frozen result.
 
-* Required matrix: the published-results file is a complete copy with a source for each number,
-  the class exit rate is right on models whose answer is known, the reader reads an archive built
-  here, and ``docs/validation.md`` shows the rows this file gives.
-* Weekly ``reference-data`` job (``reference_download``, with the tMAVEN sidecar): each set is
+* Required matrix: the published-results file has the shape of its sheets and a source for each
+  number, the class exit rate is right on models whose answer is known, the readers read an
+  archive and a workbook built here, and ``docs/validation.md`` shows the rows this file gives.
+* Weekly ``reference-data`` job (``reference_download``): each copied number equals its cell in
+  the publisher's checksum-verified spreadsheet; and, with the tMAVEN sidecar, each set is
   downloaded, fitted, held to the frozen ``tether_measured`` and reported beside the published
   range.
 """
@@ -26,13 +27,16 @@ import pytest
 
 from _kinsoft_measured import (
     CLASSES,
+    COPIED,
     class_exit_rates,
     fret_classes,
     load_results,
     position,
     published_exit_rates,
     read_measured_set,
+    read_workbook,
     tether_exit_rates,
+    transcribe_sheet,
 )
 from reference_data import fetch
 
@@ -59,9 +63,10 @@ def test_every_set_names_its_data_and_the_paper_file_its_numbers_come_from() -> 
         assert f"Supplementary Data {s['published']['supplementary_data']} (" in published.citation
 
 
-def test_every_analysis_is_a_whole_copy_of_one_sheet() -> None:
+def test_every_analysis_has_the_shape_of_one_sheet() -> None:
     # The number of copied sheets, by literal: all submissions for Fig. 2, and for Fig. 5 the
-    # two-FRET-state ones the paper's Fig. 5 compares.
+    # two-FRET-state ones the paper's Fig. 5 compares. That the numbers equal the cells is the
+    # weekly test_every_copied_number_equals_its_cell_in_the_publisher_spreadsheet.
     counts = {k: len(s["analyses"]) for k, s in SETS.items()}
     assert counts == {
         "fig2-10ms": 14,
@@ -170,6 +175,82 @@ def test_read_measured_set_skips_macos_copies_and_converts_the_time(tmp_path: Pa
         read_measured_set(archive, "Traces/[0-9]*.txt", 0.001)
 
 
+def _write_xlsx(path: Path, sheets: dict[str, str], strings: list[str]) -> None:
+    """A minimal workbook: one ``sheetData`` body for each sheet name, and the shared strings."""
+    main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(
+            "xl/workbook.xml",
+            f'<workbook xmlns="{main}" xmlns:r="{rel}"><sheets>'
+            + "".join(
+                f'<sheet name="{name}" sheetId="{i}" r:id="rId{i + 10}"/>'
+                for i, name in enumerate(sheets, 1)
+            )
+            + "</sheets></workbook>",
+        )
+        zf.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + "".join(
+                f'<Relationship Id="rId{i + 10}" Target="worksheets/s{i}.xml" '
+                f'Type="{rel}/worksheet"/>'
+                for i in range(1, len(sheets) + 1)
+            )
+            + "</Relationships>",
+        )
+        zf.writestr(
+            "xl/sharedStrings.xml",
+            f'<sst xmlns="{main}">' + "".join(f"<si><t>{t}</t></si>" for t in strings) + "</sst>",
+        )
+        for i, body in enumerate(sheets.values(), 1):
+            zf.writestr(
+                f"xl/worksheets/s{i}.xml",
+                f'<worksheet xmlns="{main}"><sheetData>{body}</sheetData></worksheet>',
+            )
+
+
+def test_read_workbook_and_transcribe_sheet_copy_a_sheet_built_here(tmp_path: Path) -> None:
+    # The layout of the paper's sheets: a state row, FRET E, then the three labelled blocks, the
+    # label in column A of each block's first row. One cell holds a formula with its cached value,
+    # one label is an inline string, and the second uncertainty block is empty.
+    labels = ["state", "FRET E", "kinetic model", "uncertainty rates (as in k+Δu)"]
+
+    def row(r: int, *cells: str) -> str:
+        return f'<row r="{r}">' + "".join(cells) + "</row>"
+
+    def text(ref: str, i: int) -> str:
+        return f'<c r="{ref}" t="s"><v>{i}</v></c>'
+
+    def number(ref: str, v: str, formula: str = "") -> str:
+        return f'<c r="{ref}">{formula}<v>{v}</v></c>'
+
+    body = (
+        row(1, text("A1", 0), number("B1", "1"), number("C1", "2"))
+        + row(2, text("A2", 1), number("B2", "0.27"), number("C2", "0.71"))
+        + row(4, text("A4", 2), number("B4", "0"), number("C4", "2.5", "<f>1+1.5</f>"))
+        + row(5, number("B5", "3"), number("C5", "0"))
+        + row(6, text("A6", 3), number("B6", "0"), number("C6", "0.1"))
+        + row(7, number("B7", "0.2"), number("C7", "0"))
+        + row(8, '<c r="A8" t="inlineStr"><is><t>uncertainty rates (as in k-Δv)</t></is></c>')
+    )
+    _write_xlsx(tmp_path / "book.xlsx", {"1_Tool_10ms": body, "2_Empty": ""}, labels)
+    book = read_workbook(tmp_path / "book.xlsx")
+    assert list(book) == ["1_Tool_10ms", "2_Empty"]
+    assert book["2_Empty"] == []
+    rows = book["1_Tool_10ms"]
+    assert len(rows) == 7  # the empty row 3 is dropped
+    assert rows[0] == ("state", 1.0, 2.0)
+    assert transcribe_sheet(rows) == {
+        "fret_e": [0.27, 0.71],
+        "rates_s_inv": [[0.0, 2.5], [3.0, 0.0]],
+        "uncertainty_plus": [[0.0, 0.1], [0.2, 0.0]],
+        "uncertainty_minus": None,
+    }
+    with pytest.raises(ValueError, match="not 'FRET E'"):
+        transcribe_sheet([rows[0], *rows[2:]])
+
+
 # --- the page -----------------------------------------------------------------------------------
 
 
@@ -195,6 +276,21 @@ def test_the_page_shows_tether_beside_the_published_range() -> None:
 
 
 # --- the weekly job -----------------------------------------------------------------------------
+
+
+@pytest.mark.reference_download
+@pytest.mark.parametrize("key", sorted(SETS))
+def test_every_copied_number_equals_its_cell_in_the_publisher_spreadsheet(key: str) -> None:
+    # The spreadsheet is downloaded from the publisher and its SHA-256 checked (ADR-0073); its
+    # sheets are then read with the standard library and copied again by the same rule.
+    s = SETS[key]
+    book = read_workbook(fetch.path_for(s["published"]["data"]))
+    names = [n for n in book if not key.startswith("fig5") or n.endswith("_FS_2")]
+    assert [a["sheet"] for a in s["analyses"]] == names
+    for a in s["analyses"]:
+        cells = transcribe_sheet(book[a["sheet"]])
+        for field in COPIED:
+            assert a[field] == cells[field], (a["sheet"], field)
 
 
 @pytest.mark.reference_download

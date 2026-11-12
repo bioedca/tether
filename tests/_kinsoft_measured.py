@@ -19,19 +19,26 @@ exit rate of each FRET class from Tether's fit beside the same quantity from eve
 * :func:`tether_exit_rates` fits the set with the tMAVEN sidecar (consensus VB-HMM, two states)
   and pools the dwells of the Viterbi paths, as ``tether.analysis.kinetics.pooled_exit_rates`` does.
 * :func:`position` says where a value lies among the published values.
+* :func:`read_workbook` and :func:`transcribe_sheet` read a sheet of the paper's spreadsheets the
+  way the copy was made, with the standard library only (openpyxl is in no lock), so the weekly
+  job can compare each copied number with its cell.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import json
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from xml.etree import ElementTree
 
 import numpy as np
 
 RESULTS = Path(__file__).resolve().parent / "reference_data" / "kinsoft_published_results.json"
+#: The fields of an analysis that are copied from its sheet.
+COPIED = ("fret_e", "rates_s_inv", "uncertainty_plus", "uncertainty_minus")
 #: The two FRET classes, low then high, in every result of this module.
 CLASSES = ("low", "high")
 
@@ -187,4 +194,100 @@ def tether_exit_rates(
         "k_high": float(rates[1]),
         "n_dwells_low": int(dwells.lengths[0].size),
         "n_dwells_high": int(dwells.lengths[1].size),
+    }
+
+
+_MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_PACKAGE = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+
+
+def _column(ref: str) -> int:
+    """1-based column number of a cell reference such as ``AB12``."""
+    letters = re.match(r"[A-Z]+", ref).group(0)
+    n = 0
+    for ch in letters:
+        n = n * 26 + ord(ch) - ord("A") + 1
+    return n
+
+
+def read_workbook(path: Path) -> dict[str, list[tuple]]:
+    """The non-empty rows of every sheet of an ``.xlsx`` file, by sheet name, in workbook order.
+
+    Each row runs from column A to the last used column of its sheet; a missing cell is ``None``,
+    a shared or inline string is a ``str`` and a number is a ``float``. The cached value of a
+    formula cell is read, as ``openpyxl.load_workbook(data_only=True)`` does.
+    """
+    with zipfile.ZipFile(path) as zf:
+        names = set(zf.namelist())
+        strings: list[str] = []
+        if "xl/sharedStrings.xml" in names:
+            for si in ElementTree.fromstring(zf.read("xl/sharedStrings.xml")).iter(f"{_MAIN}si"):
+                strings.append("".join(t.text or "" for t in si.iter(f"{_MAIN}t")))
+        rels = {
+            r.get("Id"): r.get("Target")
+            for r in ElementTree.fromstring(zf.read("xl/_rels/workbook.xml.rels")).iter(
+                f"{_PACKAGE}Relationship"
+            )
+        }
+        book: dict[str, list[tuple]] = {}
+        for sheet in ElementTree.fromstring(zf.read("xl/workbook.xml")).iter(f"{_MAIN}sheet"):
+            target = rels[sheet.get(f"{_REL}id")]
+            part = target.lstrip("/") if target.startswith("/") else f"xl/{target}"
+            cells: dict[tuple[int, int], object] = {}
+            for row in ElementTree.fromstring(zf.read(part)).iter(f"{_MAIN}row"):
+                for c in row.iter(f"{_MAIN}c"):
+                    kind, v = c.get("t"), c.find(f"{_MAIN}v")
+                    if kind == "inlineStr":
+                        value: object = "".join(t.text or "" for t in c.iter(f"{_MAIN}t"))
+                    elif v is None or v.text is None:
+                        continue
+                    elif kind == "s":
+                        value = strings[int(v.text)]
+                    elif kind in ("str", "e"):
+                        value = v.text
+                    elif kind == "b":
+                        value = v.text == "1"
+                    else:
+                        value = float(v.text)
+                    cells[(int(row.get("r")), _column(c.get("r")))] = value
+            width = max((col for _, col in cells), default=0)
+            book[sheet.get("name")] = [
+                row
+                for row in (
+                    tuple(cells.get((r, col)) for col in range(1, width + 1))
+                    for r in range(1, max((r for r, _ in cells), default=0) + 1)
+                )
+                if any(v is not None for v in row)
+            ]
+    return book
+
+
+def transcribe_sheet(rows: list[tuple]) -> dict:
+    """The copied fields of one analysis sheet, by the rule the copy was made with.
+
+    Row 1 names the ``n`` states; the row after it is ``FRET E``. Each of the labelled blocks
+    ``kinetic model`` and the two ``uncertainty rates`` blocks is the ``n`` rows that start at its
+    label, columns B onwards. A row with no value is ``None``, and so is a block or a FRET row with
+    no value at all.
+    """
+    if rows[1][0] != "FRET E":
+        raise ValueError(f"row 2 is {rows[1][0]!r}, not 'FRET E'")
+    n = sum(v is not None for v in rows[0][1:])
+
+    def numbers(row: tuple) -> list[float | None] | None:
+        vals = [None if v is None else float(v) for v in row[1 : n + 1]]
+        vals += [None] * (n - len(vals))
+        return None if all(v is None for v in vals) else vals
+
+    def block(label: str) -> list | None:
+        (start,) = [i for i, r in enumerate(rows) if r[0] == label]
+        out = [numbers(r) for r in rows[start : start + n]]
+        return None if all(o is None for o in out) else out
+
+    return {
+        "fret_e": numbers(rows[1]),
+        "rates_s_inv": block("kinetic model"),
+        "uncertainty_plus": block("uncertainty rates (as in k+Δu)"),
+        "uncertainty_minus": block("uncertainty rates (as in k-Δv)"),
     }
