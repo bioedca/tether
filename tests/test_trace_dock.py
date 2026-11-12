@@ -508,13 +508,16 @@ def test_dock_marginals_draw_the_histograms_of_the_trace(qtbot) -> None:
 
         # A second trace re-draws both marginals from its own data (the bars are
         # reused through setOpts, so the new values must reach the same item).
+        # The total of t2 has another range, so the intensity bin centres move too.
         t2 = TraceView(donor=acceptor, acceptor=donor * 3.0)
         dock.set_trace(t2)
-        ref_counts, _ = np.histogram(t2.apparent_e, bins=_N_HIST_BINS, range=_FRET_RANGE)
-        np.testing.assert_array_equal(
-            np.asarray(_bars(dock.fret_histogram).opts["width"]), ref_counts
-        )
-        ref_counts, _ = np.histogram(t2.total, bins=_N_HIST_BINS)
-        np.testing.assert_array_equal(
-            np.asarray(_bars(dock.intensity_histogram).opts["width"]), ref_counts
-        )
+        for plot, values, hist_range in (
+            (dock.fret_histogram, t2.apparent_e, _FRET_RANGE),
+            (dock.intensity_histogram, t2.total, None),
+        ):
+            ref_counts, ref_edges = np.histogram(values, bins=_N_HIST_BINS, range=hist_range)
+            opts = _bars(plot).opts
+            np.testing.assert_array_equal(np.asarray(opts["width"]), ref_counts)
+            np.testing.assert_allclose(
+                np.asarray(opts["y"]), 0.5 * (ref_edges[:-1] + ref_edges[1:])
+            )
