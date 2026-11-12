@@ -102,8 +102,12 @@ All runs in the cloud `tether-sidecar` environment built from `sidecar/conda-loc
   | `viterbi_agreement` | 0.9829129373474369 | ≥ 0.9034 |
   | `relative_elbo` | 0.0008214343691720765 | ≤ 0.01 |
 
-  These sit inside the spread the band was frozen from (ADR-0043: state-count 0.683 to 0.769,
-  Viterbi 0.936 to 0.981).
+  All four are inside the frozen bounds. Against the 19 unseeded comparisons the band was frozen
+  from (ADR-0043, `measured_by_method.ebhmm` in `schema/parity_tolerance.json`), state-count
+  (0.683 to 0.769) and per-state |ΔE| (0.0017 to 0.0345) fall inside that spread. Viterbi
+  agreement is a little above the best of those draws (0.9813), and relative ELBO is above the
+  worst of them (0.00066), so this pair is not a typical draw on those two metrics. That does not
+  change the gate: it asserts the frozen bounds, not the spread.
 - **CI.** `sidecar / parity` passed on the pull request's head (11 tests, including the gate and the
   4-mol guard).
 
