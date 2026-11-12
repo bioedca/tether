@@ -169,7 +169,7 @@ def test_only_the_linux_leg_measures_coverage():
     run = next(s for s in steps if s.get("name") == "Run tests")["run"]
     linux, other = run.split("else", 1)
     assert "coverage run -m pytest" in linux and "coverage" not in other
-    assert run.count('-m "not large and not sidecar and not deep"') == 2
+    assert run.count("pytest -v -m ") == 2  # same command; tests/test_marker_contract.py pins it
     linux_only = [s for s in steps if "coverage" in json.dumps(s).lower() and s is not None]
     linux_only = [s for s in linux_only if s.get("name") != "Run tests"]
     assert linux_only, "the install, report and upload steps are missing"
