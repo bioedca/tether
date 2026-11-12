@@ -59,9 +59,11 @@ jobs:
           # Materialise the LFS gated tier (tests/fixtures/large/**) so the
           # large-marked fixtures are real bytes, not pointer stubs.
           lfs: true
-      # The 281-mol large fixtures are committed via LFS, so this workflow MUST
-      # have them as real bytes (a `-m large` run would otherwise pass by SKIPPING
-      # — test_fixtures skips on a pointer stub). Fail loudly if LFS did not pull.
+      # The large fixtures are committed via LFS, so this workflow MUST have them
+      # as real bytes (a `-m large` run would otherwise pass by SKIPPING — the
+      # 281-mol and kinSoft tests skip on a pointer stub). Fail loudly if LFS did not
+      # pull. The list is every file under tests/fixtures/large/, which
+      # tests/test_marker_contract.py checks (#750).
       # (The ~0.9 GB UCKOPSB movie is NOT committed; its oracle leg is allowed to
       # skip-if-absent — only these committed LFS artifacts are required here.)
       - name: Verify committed LFS fixtures are materialized
@@ -73,6 +75,7 @@ jobs:
           required = [
               Path("tests/fixtures/large/smd_281mol.hdf5"),
               Path("tests/fixtures/large/model_281mol.hdf5"),
+              Path("tests/fixtures/large/kinsoft_sim.hdf5"),
               Path("tests/fixtures/large/bead_prealign.tmap"),
           ]
           missing = [

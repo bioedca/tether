@@ -11,24 +11,19 @@ a developer runs it as the de-risk check. They are slow (cold Numba compile).
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from _sidecar_gate import requires_sidecar
 from tether.idealize import NO_STATE, read_smd, run_vbfret, states_from_idealized, write_smd
 
 pytestmark = pytest.mark.sidecar
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FOUR_MOL = FIXTURES / "smd_4mol.hdf5"
-
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
 
 
 @requires_sidecar

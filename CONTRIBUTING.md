@@ -157,8 +157,13 @@ the run rather than failing. Read the collected count, not just the exit code.
 
 Two naming rules are enforced by `tests/test_marker_contract.py` rather than
 convention: a live sidecar test must be named `test_*sidecar*.py`, and deep tests use
-the `test_*_deep.py` suffix — the isolated workflows select on those globs. The same
-module keeps every workflow's pytest command from selecting a `workstation` test, and
+the `test_*_deep.py` suffix — the isolated workflows select on those globs. The rule
+works in both directions: every test in a file that matches one of those globs carries
+the marker too (`test_setup_sidecar.py` is the one exception), because the job's `-m`
+deselects any test that does not. A live sidecar test uses `requires_sidecar` from
+`tests/_sidecar_gate.py`, which fails it instead of skipping it where the
+`sidecar / parity` job sets `TETHER_REQUIRE_SIDECAR=1`. The same module keeps every
+workflow's pytest command from selecting a `workstation` test, and
 `tests/conftest.py` stops collection when a `workstation` test also carries `large`,
 `sidecar` or `deep`. Without the runner a `workstation` test skips, so a local run that
 leaves out `and not workstation` still passes.
