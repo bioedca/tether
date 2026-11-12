@@ -200,6 +200,26 @@ def test_update_golden_prints_the_table_and_rewrites(
     assert "No golden quantity moved." in capsys.readouterr().out
 
 
+def test_update_golden_writes_nothing_when_an_input_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure part way must leave the earlier golden files as they were."""
+    for name in ("fixture_smd", "synthetic_movie"):
+        _golden.dump_golden(name, {"stale": 1}, tmp_path)
+    real = _golden.run_input
+
+    def run_input(name: str, workdir: Path) -> dict:
+        if name == "synthetic_movie":
+            raise RuntimeError("input failed")
+        return real(name, workdir)
+
+    monkeypatch.setattr(_golden, "run_input", run_input)
+    argv = ["--only", "fixture_smd", "--only", "synthetic_movie", "--golden-dir", str(tmp_path)]
+    with pytest.raises(RuntimeError, match="input failed"):
+        update_golden.main(argv)
+    assert _golden.load_golden("fixture_smd", tmp_path) == {"stale": 1}
+
+
 # --- the pull-request check ---------------------------------------------------------------
 
 _TABLE = (

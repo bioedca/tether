@@ -74,8 +74,11 @@ result is exact.
   a factor of about 17 above it. A later change that moves a float by more than that is a
   change, whatever its cause.
 - `python scripts/update_golden.py` regenerates the files and prints a Markdown table: golden
-  file, quantity, old value, new value, relative change. It lists every change, also one
-  inside the limit. `--check` writes nothing and exits 1 when a quantity moved.
+  file, quantity, old value, new value, relative change. It lists every quantity that
+  changed, also one inside the limit. An array that kept its shape gets one row for each
+  changed element, named by its index, up to 20 rows; one more row counts the rest, whose
+  values the diff of the golden file shows. It writes no file until every input has run.
+  `--check` writes nothing and exits 1 when a quantity moved.
 - The `golden-table` workflow runs on each pull request (also when its body is edited) and
   fails when a file under `tests/golden/` changed and the body does not carry the table header,
   a row for each changed file and a `Cause:` line. Text in HTML comments does not count.

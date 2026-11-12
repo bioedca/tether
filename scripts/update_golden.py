@@ -53,6 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     names = args.only or sorted(_golden.INPUTS)
 
     changes: dict[str, list[_golden.Difference]] = {}
+    results: dict[str, dict] = {}
     with tempfile.TemporaryDirectory(prefix="tether-golden-") as tmp:
         for name in names:
             new = _golden.run_input(name, Path(tmp) / name)
@@ -62,8 +63,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             diffs = _golden.compare(old, new, rtol=0.0)
             if diffs:
                 changes[name] = diffs
-                if not args.check:
-                    _golden.dump_golden(name, new, args.golden_dir)
+                results[name] = new
+    # Write only after every input ran: a failure part way leaves every golden file as it
+    # was, so a retry still compares with the old values and its table shows every change.
+    if not args.check:
+        for name, new in results.items():
+            _golden.dump_golden(name, new, args.golden_dir)
 
     if not changes:
         print("No golden quantity moved.")

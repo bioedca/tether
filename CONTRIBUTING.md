@@ -192,7 +192,8 @@ python scripts/update_golden.py           # rewrite tests/golden/ and print the 
 
 Paste the printed table (it starts with `| golden file | quantity | old | new | relative change |`)
 into the pull request body and add a line that starts with `Cause:` and says why the numbers
-moved. The `golden-table` workflow fails a pull request that changes a file in `tests/golden/`
+moved. An array that kept its shape gets one row for each changed element, at most 20,
+and then one row that counts the rest. The `golden-table` workflow fails a pull request that changes a file in `tests/golden/`
 without both, and runs again when you edit the body. Never edit a golden file by hand. A
 dependency update that moves a number fails here on purpose: the table and the cause are then
 the record of what the update changed.
