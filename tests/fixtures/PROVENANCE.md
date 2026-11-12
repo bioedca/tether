@@ -252,6 +252,12 @@ uv run --no-project --with h5py --with numpy \
     python scripts/make_kinsoft_fixture.py --source <dir-with-the-3-zips>
 ```
 
+Both files, and the three source zips, have entries in `tests/reference_data/manifest.toml`
+(ids `kinsoft-sim-packed`, `kinsoft-trace-sample`, `kinsoft-sim-fig2` to `kinsoft-sim-fig4`;
+ADR-0073). The weekly `reference-data` job downloads the zips, verifies the checksums above, and
+compares `kinsoft_trace_sample.txt` with its member of `sim_dataset_Fig4.zip` (verified again on
+2026-11-11).
+
 ### kinSoftChallenge ground-truth kinetic models (M8 kinetics oracle)
 
 The **blind-challenge** trace files above carry no ground truth. The M8 within-spread
