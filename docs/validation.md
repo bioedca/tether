@@ -27,6 +27,16 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
 
+**When a test skips.** pytest exits 0 when a test skips, so a job stays green when a fixture,
+a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke` and
+`large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
+the job's part of `tests/skip_budget.toml`. The job fails when a test skips that the file does
+not list for that job with the same reason, when more tests skip than the job's
+`max_skipped`, or when fewer tests ran than its `min_collected` (a path filter or a marker
+error that takes a file out of the run). Each listed skip says why it is correct on its jobs.
+A pull request that adds a skip, or removes tests on purpose, changes the file in the same
+pull request (#726).
+
 The required set is the `main-baseline` ruleset: `lint`, `test` on the three platforms,
 `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
 `schema-guard` and `sidecar / parity`.
@@ -313,6 +323,23 @@ Widening any of the eight bounds to some *other* finite value is caught by nothi
 all eight widened at once, as long as the default state-count floor stays above `0.5249`. In
 that region the freeze is protected in the loosening direction by review plus the deliberate
 re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
+
+**Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
+also assert a second bound, much tighter than the frozen default row: a state-mean difference of
+at most 1e-6 FRET, a relative ELBO change of at most 1e-6, and exact (1.0) state-count and
+Viterbi agreement. It is a regression limit of the pinned tMAVEN build, not a scientific
+tolerance: the frozen row above stays the oracle and does not change, and the drift limit only
+catches a change of tMAVEN or of a sidecar dependency that moves the fit but stays inside the
+frozen row — every state mean moved by 0.015 FRET, for example. It was set from 10 runs of the
+`sidecar / parity` job on GitHub runners (#737): the worst state-mean difference was 9.5e-09
+FRET and the worst relative ELBO change 1.1e-09, with state-count and Viterbi agreement 1.0 in
+all 20 comparisons. Each ceiling is at least 10 times its worst value. Each live parity test
+also writes the agreement it measured to the job log as a `[parity]` line, so every nightly run
+records it. A deliberate tMAVEN or sidecar-lock bump re-measures the drift limit in its own pull
+request, which is not a re-freeze. ebFRET has no drift limit, because its per-trace state
+selection changes from seed to seed (ADR-0043). The live tests also check that each fit is the
+requested model type with the requested state count, which a cross-seed comparison of two
+equally wrong fits cannot see.
 
 > Gap, stated plainly. PRD §8 asks for per-trace **vbFRET** parity on the small fixtures as
 > well as the consensus fit. `$.coverage.measured_methods` records only
