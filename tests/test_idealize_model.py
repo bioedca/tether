@@ -119,18 +119,25 @@ def test_dwells_empty_path():
 def test_read_model_full(tmp_path):
     mp = tmp_path / "model.hdf5"
     likelihood = np.array([[1.0, 0, 0, 0, 0], [2.0, 0, 0, 0, 0], [3.5, 0, 0, 0, 0]])
+    # Three different N×N members with different values, so a reader that swaps any
+    # two of them (#736 IDZ-F2) fails the value checks below. The stored
+    # ``norm_tmatrix`` is the input of ``analysis/transition_prob.py``.
+    tmatrix = np.array([[9.0, 1.0], [1.0, 9.0]])  # transition counts
+    norm_tmatrix = np.array([[0.9, 0.1], [0.1, 0.9]])  # row-normalized probabilities
+    rates = np.array([[0.0, 0.1], [0.1, 0.0]])
+    idealized = np.array([[0.1, 0.9, np.nan], [0.9, 0.9, 0.1]])
     _write_model(
         mp,
         _attrs={"type": "vb Consensus HMM", "rate_type": "Transition Matrix"},
         nstates=2,
         mean=np.array([0.1, 0.9]),
         var=np.array([0.01, 0.02]),
-        tmatrix=np.array([[9.0, 1.0], [1.0, 9.0]]),
-        norm_tmatrix=np.array([[0.9, 0.1], [0.1, 0.9]]),
-        rates=np.array([[0.0, 0.1], [0.1, 0.0]]),
+        tmatrix=tmatrix,
+        norm_tmatrix=norm_tmatrix,
+        rates=rates,
         pi=np.array([80.0, 40.0]),  # unnormalized Dirichlet posterior (sum != 1)
         frac=np.array([0.7, 0.3]),  # normalized state populations (sum == 1)
-        idealized=np.array([[0.1, 0.9, np.nan], [0.9, 0.9, 0.1]]),
+        idealized=idealized,
         likelihood=likelihood,
         ran=np.array([0, 1]),
         dtype="FRET",
@@ -146,14 +153,15 @@ def test_read_model_full(tmp_path):
     assert model.nstates == 2
     np.testing.assert_array_equal(model.means, [0.1, 0.9])
     np.testing.assert_array_equal(model.variances, [0.01, 0.02])
-    assert model.tmatrix.shape == (2, 2)
-    assert model.norm_tmatrix.shape == (2, 2)
-    assert model.idealized.shape == (2, 3)
+    np.testing.assert_array_equal(model.tmatrix, tmatrix)
+    np.testing.assert_array_equal(model.norm_tmatrix, norm_tmatrix)
+    # assert_array_equal treats NaN at the same position as equal.
+    np.testing.assert_array_equal(model.idealized, idealized)
     assert model.elbo == pytest.approx(3.5)  # likelihood[-1, 0]
     np.testing.assert_array_equal(model.ran, [0, 1])
     assert model.dtype == "FRET"
     # Appendix-D.2 population members.
-    assert model.rates.shape == (2, 2)
+    np.testing.assert_array_equal(model.rates, rates)
     np.testing.assert_array_equal(model.pi, [80.0, 40.0])  # stored verbatim, unnormalized
     np.testing.assert_array_equal(model.frac, [0.7, 0.3])
     assert set(model.priors) == {"a_prior", "mu_prior", "tm_prior"}
@@ -541,6 +549,14 @@ def test_read_model_real_281mol_reference():
     # Means match the Appendix D.2 documented levels [0.110, 0.428, 0.755, 0.952].
     np.testing.assert_allclose(model.means, [0.110, 0.428, 0.755, 0.952], atol=2e-3)
     assert model.tmatrix.shape == (4, 4)
+    # In this verbatim tMAVEN export, ``tmatrix`` holds transition counts (row sums in
+    # the thousands) and ``norm_tmatrix`` is the same matrix normalized by row. A
+    # reader that swaps the two members fails here (#736 IDZ-F2).
+    assert (model.tmatrix.sum(axis=1) > 1000.0).all()
+    np.testing.assert_allclose(model.norm_tmatrix.sum(axis=1), 1.0, atol=1e-9)
+    np.testing.assert_allclose(
+        model.norm_tmatrix, model.tmatrix / model.tmatrix.sum(axis=1, keepdims=True), atol=1e-12
+    )
     assert model.idealized.shape == (281, 1700)
     assert model.elbo is not None and model.elbo > 0
     assert model.ran.size == 281

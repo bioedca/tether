@@ -6,11 +6,14 @@ Locks :func:`tether.imaging.register.estimate_similarity_prealign` -- the faithf
 analogue of Deep-LASI ``imregcorr(...,'similarity')`` -- on two complementary
 fronts (ADR-0013):
 
-* **recovery** of a known rotation + scale + translation, on a deterministic,
-  non-saturated synthetic bead field (the kind of raw content the pipeline sees);
+* **recovery** on a deterministic, non-saturated synthetic bead field (the kind of
+  raw content the pipeline sees): the translation of a near-identity warp, and the
+  rotation of a 10 degree one. The rotation and scale of a near-identity warp are
+  NOT recovered today (#780); that test is a strict expected failure until then;
 * **real-data behaviour** on the committed ``bead_prealign_oracle.npz`` crops,
   whose estimate must match the ``.tmap``-derived ground-truth similarity (a real
-  ~7.6 px translation, so a no-op estimator fails).
+  ~7.6 px translation, so a no-op estimator fails; a scale limit that a no-scale
+  estimate fails, #734).
 
 The saturated ``map.tif`` display export can only validate the near-identity real
 relationship, not large-warp recovery (see ``tests/fixtures/PROVENANCE.md``);
@@ -58,6 +61,7 @@ def _synthetic_pair(
     ty: float,
     rng: np.random.Generator,
     shape: tuple[int, int] = (512, 256),
+    n_beads: int = 140,
 ):
     """Build (reference, moving) bead images related by a known moving->reference T."""
     h, w = shape
@@ -68,7 +72,7 @@ def _synthetic_pair(
         + SimilarityTransform(translation=(cx, cy))
         + SimilarityTransform(translation=(tx, ty))
     )
-    c_ref = np.column_stack([rng.uniform(35, w - 35, 140), rng.uniform(35, h - 35, 140)])
+    c_ref = np.column_stack([rng.uniform(35, w - 35, n_beads), rng.uniform(35, h - 35, n_beads)])
     c_mov = target.inverse(c_ref)  # so target(c_mov) == c_ref
     reference = _render_field(c_ref, shape, rng)
     moving = _render_field(c_mov, shape, rng)
@@ -76,10 +80,10 @@ def _synthetic_pair(
 
 
 # Near-identity split-sensor regime (the physical case): the channels differ by a
-# real ~7 px translation with sub-degree rotation / sub-percent scale. Genuine
-# scale recovery on rich real bead content is locked by the real-fixture test
-# below; on the sparse SYNTHETIC field, sub-resolution rotation/scale return
-# ~identity and translation dominates -- so here we assert (a) translation
+# real ~7 px translation with sub-degree rotation / sub-percent scale. The scale of
+# the real pair is locked by the real-fixture test below. On the SYNTHETIC field the
+# rotation and scale of these warps come back near identity, though they are
+# several estimator steps large (#780) -- so here we assert (a) translation
 # recovered within the 2 px NN-pairing gate the prealign exists to clear, and
 # (b) the estimator does not hallucinate a warp on near-identity inputs. (Larger
 # warps are seed-fragile on sparse fields and out of scope -- ADR-0013.)
@@ -120,11 +124,58 @@ def test_real_bead_pair_matches_tmap_ground_truth() -> None:
 
     # reference = donor, moving = acceptor -> returns the acceptor->donor map.
     est = estimate_similarity_prealign(donor, acceptor)
-    assert abs(est.scale - gt_scale) < 0.005  # genuine scale recovery (gt ~1.0011, not 1.0)
+    # Scale: ADR-0013 records |est - gt| = 0.0002 (est 1.00135 vs gt 1.00114). The
+    # limit was 0.005, which a no-scale estimate (1.0, off by 0.0011) also met; 0.0005
+    # tells the two apart (#734 IMG-F9). The second line is the "not 1.0" claim itself.
+    assert abs(est.scale - gt_scale) < 0.0005
+    assert abs(est.scale - 1.0) > 0.0005
+    # Rotation: the ground truth (0.04 deg) is below the 1.4 deg / 10 angular step of a
+    # 256-row log-polar grid, so this crop cannot prove rotation recovery; see
+    # test_rotation_reaches_the_estimate for that.
     assert abs(np.rad2deg(est.rotation) - gt_rotation_deg) < 0.5
     assert np.hypot(*(est.translation - gt_translation)) < 1.5
     # Non-trivial: the real channels are offset ~7.6 px, so a no-op (t=[0,0]) fails.
     assert np.linalg.norm(est.translation) > 5.0
+
+
+@pytest.mark.parametrize("rot_deg", [10.0, -10.0])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_rotation_reaches_the_estimate(rot_deg: float, seed: int) -> None:
+    """The log-polar angular shift becomes the returned rotation (#734 IMG-F9).
+
+    10 degrees is outside the validated near-identity regime (ADR-0013). It is used
+    because it is the smallest rotation the estimator finds today on a square field
+    (smaller ones come back near zero, #780). This test therefore proves only that
+    the angle reaches the result with its sign; an estimator that drops the angle
+    returns about 0 degrees and fails by 10. A correct estimator also meets it.
+    """
+    rng = np.random.default_rng(seed)
+    reference, moving, c_mov, c_ref = _synthetic_pair(1.0, rot_deg, 6.0, -3.0, rng, (256, 256))
+    est = estimate_similarity_prealign(reference, moving)
+    assert abs(np.rad2deg(est.rotation) - rot_deg) < 1.5
+    point_err = float(np.sqrt(((est.apply(c_mov) - c_ref) ** 2).sum(axis=1)).mean())
+    assert point_err < 2.0  # within the pairing gate the prealign exists to clear
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="#780: rotation and scale of a near-identity warp come back near identity",
+)
+def test_near_identity_rotation_and_scale_are_recovered() -> None:
+    """Recovery of scale 1.01 and rotation 1 degree on a dense, non-saturated field.
+
+    This is the recovery ADR-0013 names. Today the estimate is scale 1.0 and
+    rotation 0 or 0.14 degree (#780), so the test is a strict expected failure:
+    it turns red when the estimator is corrected, and then the mark must go.
+    """
+    rng = np.random.default_rng(0)
+    reference, moving, _c_mov, _c_ref = _synthetic_pair(
+        1.01, 1.0, 0.0, 0.0, rng, (256, 256), n_beads=400
+    )
+    est = estimate_similarity_prealign(reference, moving)
+    assert abs(est.scale - 1.01) < 0.003
+    assert abs(np.rad2deg(est.rotation) - 1.0) < 0.3
 
 
 def test_prealign_seeds_pairing_end_to_end() -> None:
