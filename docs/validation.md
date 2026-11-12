@@ -22,10 +22,20 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
 | Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
-| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, the workflow or the setup action reports a fast "not applicable" pass **without running the fits** |
-| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
+| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate `_sidecar_gate.py` in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
+| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
+
+**When a test skips.** pytest exits 0 when a test skips, so a job stays green when a fixture,
+a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke` and
+`large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
+the job's part of `tests/skip_budget.toml`. The job fails when a test skips that the file does
+not list for that job with the same reason, when more tests skip than the job's
+`max_skipped`, or when fewer tests ran than its `min_collected` (a path filter or a marker
+error that takes a file out of the run). Each listed skip says why it is correct on its jobs.
+A pull request that adds a skip, or removes tests on purpose, changes the file in the same
+pull request (#726).
 
 The required set is the `main-baseline` ruleset: `lint`, `test` on the three platforms,
 `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
@@ -314,6 +324,23 @@ all eight widened at once, as long as the default state-count floor stays above 
 that region the freeze is protected in the loosening direction by review plus the deliberate
 re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
 
+**Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
+also assert a second bound, much tighter than the frozen default row: a state-mean difference of
+at most 1e-6 FRET, a relative ELBO change of at most 1e-6, and exact (1.0) state-count and
+Viterbi agreement. It is a regression limit of the pinned tMAVEN build, not a scientific
+tolerance: the frozen row above stays the oracle and does not change, and the drift limit only
+catches a change of tMAVEN or of a sidecar dependency that moves the fit but stays inside the
+frozen row — every state mean moved by 0.015 FRET, for example. It was set from 10 runs of the
+`sidecar / parity` job on GitHub runners (#737): the worst state-mean difference was 9.5e-09
+FRET and the worst relative ELBO change 1.1e-09, with state-count and Viterbi agreement 1.0 in
+all 20 comparisons. Each ceiling is at least 10 times its worst value. Each live parity test
+also writes the agreement it measured to the job log as a `[parity]` line, so every nightly run
+records it. A deliberate tMAVEN or sidecar-lock bump re-measures the drift limit in its own pull
+request, which is not a re-freeze. ebFRET has no drift limit, because its per-trace state
+selection changes from seed to seed (ADR-0043). The live tests also check that each fit is the
+requested model type with the requested state count, which a cross-seed comparison of two
+equally wrong fits cannot see.
+
 > Gap, stated plainly. PRD §8 asks for per-trace **vbFRET** parity on the small fixtures as
 > well as the consensus fit. `$.coverage.measured_methods` records only
 > `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
@@ -573,8 +600,8 @@ Gaussian HMM (Baum–Welch + Viterbi) with pooled dwell-time MLE `k = 1/⟨τ⟩
 | `k21_high_low` | 0.22 | 0.2131 | 0.031 | ≤ 0.12 |
 
 Both deviations sit inside the advisory band; the artifact characterises both as
-"~4x inside the band" (`$.band.rationale`, `$.levels.level1.tether_measured.note`) for this
-one 2-state dataset. That is the whole claim: it is not a general accuracy
+"~4x inside the band" (`$.band.rationale`) and "~4x inside the 12% band"
+(`$.levels.level1.tether_measured.note`) for this one 2-state dataset. That is the whole claim: it is not a general accuracy
 guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
 enforcing test additionally requires each rate to round, at four decimals, to its frozen
 value, to reproduce the rate measured on this fixture for #740 to a relative `1e-6` (one

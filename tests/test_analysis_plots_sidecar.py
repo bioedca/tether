@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -29,6 +28,8 @@ import h5py
 import numpy as np
 import pytest
 
+from _sidecar_gate import SIDECAR as _SIDECAR
+from _sidecar_gate import requires_sidecar
 from test_analysis_dwell import _tmaven_dwells, _tmaven_survival  # noqa: PLC2701
 from test_analysis_histogram_overlay import _tmaven_reference  # noqa: PLC2701
 from test_analysis_histogram_postsync import _tmaven_postsync  # noqa: PLC2701
@@ -48,11 +49,6 @@ from tether.gui.trace_dock import trace_from_smd
 from tether.idealize import NO_STATE
 
 pytestmark = pytest.mark.sidecar
-
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
 
 TESTS = Path(__file__).parent
 SMD = TESTS / "fixtures" / "large" / "smd_281mol.hdf5"

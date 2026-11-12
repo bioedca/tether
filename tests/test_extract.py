@@ -139,9 +139,16 @@ def _extract_into(
 
 
 def test_molecule_key_deterministic_and_hex() -> None:
-    key = molecule_key("abc123", np.array([20.0, 30.0]))
-    assert key == molecule_key("abc123", np.array([20.0, 30.0]))  # pure content hash
-    assert len(key) == 64 and all(c in "0123456789abcdef" for c in key)
+    digest = molecule_key("abc123", np.array([20.0, 30.0]))
+    assert digest == molecule_key("abc123", np.array([20.0, 30.0]))  # pure content hash
+    assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+    # Two calls in one process cannot see a per-process salt (for example the
+    # randomized built-in ``hash``), so the key is also pinned to its literal value:
+    # every interpreter start on every platform must give it, or split-file
+    # merge-back stops finding molecules of existing projects (#734 IMG-F10).
+    # (The variable is not called ``key``: gitleaks reads ``key == "<hex>"`` as an
+    # API key, see .gitleaksignore.)
+    assert digest == "67ce7faa5665bf31c7bbfc2a7fc55dd9720529172cfaf92c1007c0126461edb1"
 
 
 def test_molecule_key_absorbs_subpixel_jitter_below_quantum() -> None:
@@ -193,6 +200,28 @@ def test_extract_molecules_patches_are_temporal_mean_crops() -> None:
     # centre pixel sits on the disk (bg + amp); a corner is pure background.
     assert traces.donor_patches[0, 10, 10] == pytest.approx(_BG + _AMP)
     assert traces.donor_patches[0, 0, 0] == pytest.approx(_BG)
+
+
+def test_extract_molecules_acceptor_patches_are_acceptor_crops() -> None:
+    # IMG-F14 (#734): the acceptor patch is the temporal mean of the ACCEPTOR channel
+    # around the ACCEPTOR coordinate. Distinct coordinates, a brighter acceptor
+    # background and a per-frame ramp make each wrong source give other numbers:
+    # the donor channel, the donor coordinate, or one frame instead of the mean.
+    mols = _molecules(
+        np.array([[20.0, 20.0], [40.0, 30.0]]), np.array([[30.0, 24.0], [47.0, 40.0]])
+    )
+    n_frames = 15
+    ramp = np.arange(n_frames, dtype=np.float64)[:, None, None]  # mean over frames: 7
+    acceptor = _channel(mols.acceptor_xy, n_frames=n_frames) + 50.0 + ramp
+    traces = extract_molecules(_channel(mols.donor_xy, n_frames=n_frames), acceptor, mols)
+
+    half = traces.acceptor_patches.shape[-1] // 2
+    for i, (x, y) in enumerate(np.round(mols.acceptor_xy).astype(int)):
+        expected = acceptor[:, y - half : y + half + 1, x - half : x + half + 1].mean(axis=0)
+        np.testing.assert_allclose(traces.acceptor_patches[i], expected, rtol=0, atol=1e-3)
+    # The centre sits on the acceptor disk; a corner is the acceptor background.
+    assert traces.acceptor_patches[0, half, half] == pytest.approx(_BG + 50.0 + 7.0 + _AMP)
+    assert traces.acceptor_patches[0, 0, 0] == pytest.approx(_BG + 50.0 + 7.0)
 
 
 def test_extract_molecules_empty() -> None:
