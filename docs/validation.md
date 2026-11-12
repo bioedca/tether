@@ -27,6 +27,16 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
 
+**When a test skips.** pytest exits 0 when a test skips, so a job stays green when a fixture,
+a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke` and
+`large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
+the job's part of `tests/skip_budget.toml`. The job fails when a test skips that the file does
+not list for that job with the same reason, when more tests skip than the job's
+`max_skipped`, or when fewer tests ran than its `min_collected` (a path filter or a marker
+error that takes a file out of the run). Each listed skip says why it is correct on its jobs.
+A pull request that adds a skip, or removes tests on purpose, changes the file in the same
+pull request (#726).
+
 The required set is the `main-baseline` ruleset: `lint`, `test` on the three platforms,
 `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
 `schema-guard` and `sidecar / parity`.

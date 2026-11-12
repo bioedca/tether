@@ -174,6 +174,7 @@ jobs:
           python scripts/setup_sidecar.py \
             --python "$(python -c 'import sys; print(sys.executable)')" --with-pytest
       - name: Assert idealization parity against the frozen tolerance
+        id: parity
         if: steps.relevance.outputs.run == 'true'
         env:
           # runner.temp is valid here (step level) but not in the job-level env.
@@ -192,7 +193,18 @@ jobs:
           # `test_*sidecar*.py` glob is the contract enforced in the base matrix by
           # tests/test_marker_contract.py, so a new sidecar test cannot silently
           # escape this job. `-m sidecar` still filters within the collected files.
-          pytest -m sidecar tests/test_*sidecar*.py -q
+          # The JUnit report feeds the skip budget below (#726).
+          pytest -m sidecar tests/test_*sidecar*.py -q --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+      # Every live sidecar test skips when TETHER_SIDECAR_PYTHON is unset, and pytest then
+      # exits 0 with no fit run. This step fails the job when a test skips that
+      # tests/skip_budget.toml does not list for this job (it lists none), or when fewer
+      # tests ran than its committed minimum (#726). It is skipped exactly when the parity
+      # step is (an unrelated pull request), and it runs after a red parity step too.
+      - name: Compare the skips with the committed budget
+        if: ${{ !cancelled() && (steps.parity.outcome == 'success' || steps.parity.outcome == 'failure') }}
+        env:
+          SKIP_BUDGET_JOB: sidecar / parity
+        run: python scripts/check_skips.py --job "$SKIP_BUDGET_JOB" --report "$RUNNER_TEMP/pytest-junit.xml"
 
   report:
     # A failed nightly or post-merge run opens or updates one issue, and the next pass says so (#697). The called
