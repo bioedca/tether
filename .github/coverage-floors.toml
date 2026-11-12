@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Coverage floors (issue #724, ADR-0072). Each value is the lowest LINE coverage, in percent,
+# that the Linux leg of the required `test` matrix accepts: `total` for all of `src/tether`, and
+# one per package of `src/tether`. `scripts/check_coverage_floors.py` fails the job below a
+# floor, and `tests/test_coverage_floors.py` fails when a value here is lower than on `main` or
+# is removed. So a floor can only go up. Raise one when the job's notice says it can.
+#
+# Start values: the rule of the maintainer decision on #724 ("the measured value, rounded down"),
+# applied to the CI measurement of the Linux leg on PR #792 after it merged main 37567e0. The
+# issue's own numbers came from main at 4094720; since then `gui` fell to 93.11 % (new brand
+# code), other packages rose with new tests, and `ml` rose to 93.82 % because the torch-only
+# module is now excluded by name.
+[floors]
+total = 95
+analysis = 97
+fret = 98
+gui = 93
+idealize = 97
+imaging = 93
+io = 96
+ml = 93
+project = 96

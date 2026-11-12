@@ -47,7 +47,7 @@ def test_open_refuses_future_schema(tmp_path) -> None:
     Project.create(path)
     with h5py.File(path, "r+") as f:
         f.attrs["schema_version"] = SCHEMA_VERSION + 1
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is newer than this app"):
         Project.open(path)
 
 
@@ -58,14 +58,32 @@ def test_open_rejects_foreign_hdf5(tmp_path) -> None:
     with h5py.File(foreign, "w") as f:
         f.attrs["schema_version"] = SCHEMA_VERSION  # present, but no `format`
         f.create_dataset("payload", data=[1, 2, 3])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="format marker"):
+        Project.open(foreign)
+
+
+def test_open_rejects_full_skeleton_without_format_marker(tmp_path) -> None:
+    # The marker check on its own: the whole §5.1 skeleton and a valid stamp are
+    # present and only the `format` marker is missing, so no other check can be the
+    # one that refuses the file (#729 PRJ-F19).
+    foreign = tmp_path / "unmarked.tether"
+    Project.create(foreign)
+    with h5py.File(foreign, "r+") as f:
+        del f.attrs["format"]
+        assert f.attrs["schema_version"] == SCHEMA_VERSION
+    with pytest.raises(ValueError, match="format marker=None"):
+        Project.open(foreign)
+    # The same file with a foreign marker is refused by the same check.
+    with h5py.File(foreign, "r+") as f:
+        f.attrs["format"] = "not-tether"
+    with pytest.raises(ValueError, match="format marker='not-tether'"):
         Project.open(foreign)
 
 
 def test_open_rejects_non_hdf5(tmp_path) -> None:
     junk = tmp_path / "not.tether"
     junk.write_bytes(b"this is not an HDF5 file")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a readable .tether HDF5 project"):
         Project.open(junk)
 
 
@@ -77,7 +95,7 @@ def test_open_rejects_truncated_project(tmp_path) -> None:
         f.attrs["format"] = FORMAT_TAG
         f.attrs["schema_version"] = SCHEMA_VERSION
         # deliberately no /movies, /molecules, /conditions, /labels, ... groups
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a complete .tether project; missing: /movies"):
         Project.open(trunc)
 
 
@@ -88,7 +106,7 @@ def test_open_rejects_group_without_table(tmp_path) -> None:
     Project.create(path)
     with h5py.File(path, "r+") as f:
         del f["molecules/table"]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="missing: /molecules/table"):
         Project.open(path)
 
 
