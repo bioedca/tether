@@ -159,7 +159,7 @@ neither escape these legs nor redden the base matrix.
 | Leg | Workflow | Trigger | Runner | What it exercises |
 |-----|----------|---------|--------|-------------------|
 | **CPU smoke** | `deep.yml` | pull_request (deep paths), nightly cron, manual | `ubuntu-latest` | restores `deep/conda-lock.yml`; trains a tiny CNN/LSTM on synthetic labeled traces and asserts it trains, predicts, and is reproducible on CPU |
-| **GPU smoke** | `deep-gpu.yml` | `workflow_dispatch` **only** | self-hosted CUDA runner | installs the documented CUDA wheel at run time and exercises the `device="cuda"` training + inference path; self-skips off-GPU |
+| **GPU smoke** | `deep-gpu.yml` | `workflow_dispatch` **only** | self-hosted CUDA runner | installs the documented CUDA wheel at run time and exercises the `device="cuda"` training + inference path; the job fails when the runner has no visible CUDA device, so a green run means the GPU tests ran |
 
 `deep.yml` is non-required by design (its `paths:` filter is safe precisely because it never
 gates). `deep-gpu.yml` is **non-required by construction**: it is triggered only by

@@ -306,6 +306,25 @@ def test_deep_gpu_leg_targets_a_self_hosted_runner() -> None:
     )
 
 
+def test_deep_gpu_leg_fails_rather_than_skips_without_cuda() -> None:
+    """Without a CUDA device the GPU leg fails before pytest, so green means the GPU tests ran.
+
+    ``tests/test_deep_gpu_deep.py`` self-skips when torch sees no CUDA device; a run with only
+    those skips would otherwise be green (#752, ML-U1). The guard is a step before the pytest step
+    that exits non-zero when ``torch.cuda.is_available()`` is false.
+    """
+    lines = DEEP_GPU_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    code = [ln.strip() for ln in lines if not ln.lstrip().startswith("#")]
+    pytest_at = next(i for i, ln in enumerate(code) if "pytest -m deep" in ln)
+    before = code[:pytest_at]
+    assert "if not available:" in before, "deep-gpu.yml must test for a missing CUDA device"
+    check_at = before.index("if not available:")
+    assert any(ln.startswith("available = torch.cuda.is_available()") for ln in before[:check_at])
+    assert before[check_at + 1].startswith("sys.exit("), (
+        "deep-gpu.yml must exit non-zero (sys.exit with a message) when no CUDA device is visible"
+    )
+
+
 # --- The same contract for the non-required packaging leg (packaging.yml, M9 / ADR-0049) ---
 # packaging.yml builds the constructor installer (base env + the isolated tMAVEN sidecar as an
 # `extra_envs`) and runs the offline install-smoke on each of the 3 OSes. Building a full
