@@ -17,6 +17,7 @@ structure/round-trip, not scientific accuracy.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 import pytest
@@ -55,12 +56,14 @@ def _as_str(value: object) -> str:
     return value.decode() if isinstance(value, bytes | bytearray) else str(value)
 
 
-def _gaussian_frame(centers: np.ndarray, amplitudes: np.ndarray | None = None) -> np.ndarray:
+def _gaussian_frame(
+    centers: np.ndarray, amplitudes: np.ndarray | None = None, shape: tuple[int, int] = _SHAPE
+) -> np.ndarray:
     """One frame of Gaussian spots on a flat background; ``amplitudes`` default ``_AMP``."""
     if amplitudes is None:
         amplitudes = np.full(len(centers), _AMP)
-    frame = np.full(_SHAPE, _BG, dtype=np.float64)
-    rows, cols = np.mgrid[0 : _SHAPE[0], 0 : _SHAPE[1]]
+    frame = np.full(shape, _BG, dtype=np.float64)
+    rows, cols = np.mgrid[0 : shape[0], 0 : shape[1]]
     for (x, y), amp in zip(centers, amplitudes, strict=True):
         frame += amp * np.exp(-((rows - y) ** 2 + (cols - x) ** 2) / (2.0 * _SIGMA**2))
     return frame
@@ -72,6 +75,7 @@ def _write_movie(
     acceptor_centers=_ACCEPTOR_CENTERS,
     *,
     acceptor_amp: float = _AMP,
+    shape: tuple[int, int] = _SHAPE,
 ) -> None:
     """Write a synthetic dual-channel big-endian uint16 movie (donor | acceptor).
 
@@ -82,8 +86,8 @@ def _write_movie(
     amplitudes = np.concatenate(
         [np.full(len(donor_centers), _AMP), np.full(len(acceptor_centers), acceptor_amp)]
     )
-    frame = _gaussian_frame(np.vstack([donor_centers, acceptor_centers]), amplitudes)
-    stack = np.broadcast_to(frame, (_N_FRAMES, *_SHAPE))
+    frame = _gaussian_frame(np.vstack([donor_centers, acceptor_centers]), amplitudes, shape)
+    stack = np.broadcast_to(frame, (_N_FRAMES, *shape))
     be = np.ascontiguousarray(stack, dtype=">u2")
     tifffile.imwrite(path, be, photometric="minisblack", byteorder=">")
 
@@ -328,11 +332,12 @@ def test_low_confidence_registration_flags_not_drops(tmp_path) -> None:
 
 # --- imported .tmap registration path (S9 PR-C1; §7.1 "native AND imported") --
 #
-# There is no committed .tmap (the MCOS format is impractical to author, and
-# read_tmap's real decode is covered data-present in test_register.py). The
-# imported branch is exercised by reconstructing TmapChannel objects in memory --
-# the same shape read_tmap returns -- encoding the same +1 px map the native fit
-# recovers, and monkeypatching the decode at the extract.py seam.
+# The one committed .tmap is the bead map in the Git LFS large tier (the MCOS
+# format is impractical to author): test_register.py decodes it, and the last test
+# of this block runs it end to end. The required-matrix tests exercise the imported
+# branch by reconstructing TmapChannel objects in memory -- the same shape read_tmap
+# returns -- encoding the same +1 px map the native fit recovers, and monkeypatching
+# the decode at the extract.py seam.
 
 
 def _synthetic_tmap_channels(
@@ -546,6 +551,40 @@ def test_extract_imported_tmap_nonidentity_geometry_refused(
     assert rc == 1
     assert "rotation/flip" in capsys.readouterr().err
     assert not out.exists()
+
+
+_BEAD_TMAP = Path(__file__).resolve().parent / "fixtures" / "large" / "bead_prealign.tmap"
+_BEAD_ORACLE = Path(__file__).resolve().parent / "fixtures" / "bead_prealign_oracle.npz"
+
+
+@pytest.mark.large
+def test_cli_extract_with_committed_bead_tmap(tmp_path, capsys) -> None:
+    # #733 IMG-F2: one --tmap run with no monkeypatch, so read_tmap decodes a real file. The
+    # acceptor copies sit where the bead oracle's ground-truth similarity puts them, which does
+    # not depend on this decode; the similarity fits the map's polynomial to 0.19 px.
+    if not _BEAD_TMAP.is_file() or _BEAD_TMAP.read_bytes()[:64].startswith(
+        b"version https://git-lfs"
+    ):
+        pytest.skip("LFS large-tier fixture not materialized (default checkout)")
+    oracle = np.load(_BEAD_ORACLE)
+    theta = np.deg2rad(float(oracle["gt_rotation_deg"]))
+    rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    donor = np.array([[60.0, 180.0], [150.0, 260.0], [200.0, 330.0]])  # full-frame [x, y]
+    # crop-local acceptor -> donor is s*R*a + t, so a = R^T (d - t) / s (row vectors: @ R).
+    local = (donor - oracle["donor_crop_offset"] - oracle["gt_translation"]) @ rot
+    acceptor = local / float(oracle["gt_scale"]) + oracle["acceptor_crop_offset"]
+    movie = tmp_path / "bead_check.tif"
+    _write_movie(movie, donor, acceptor, shape=(512, 512))
+    out = tmp_path / "bead.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(_BEAD_TMAP)])
+
+    assert rc == 0, capsys.readouterr().err
+    mols = read_molecules(out)
+    order = np.argsort(mols["donor_xy"][:, 0])
+    np.testing.assert_allclose(mols["donor_xy"][order], donor, atol=0.01)
+    # acceptor_xy is local to the acceptor channel, whose crop origin in this map is [256, 0].
+    np.testing.assert_allclose(mols["acceptor_xy"][order] + [256.0, 0.0], acceptor, atol=0.5)
 
 
 # --- selectable detection mode + threshold (S9 PR-C3c; PRD §11.2, ADR-0021) --
@@ -863,3 +902,110 @@ def test_extract_tdat_composes_with_tmap(tmp_path, monkeypatch) -> None:
     profile = _extraction_profile(out)
     assert profile["tmap_source"] == "map.tmap"
     assert profile["tdat_source"] == "data.tdat"
+
+
+# --- every flag and every default reaches the extraction (#744) ---------------
+#
+# `tether extract` is the only user surface for the ten flag-backed ExtractOptions
+# fields (docs/reference/parameters.md), so the step from argparse to ExtractOptions
+# in tether.cli._run_extract is where a flag or a default can be lost. Most tests
+# above build ExtractOptions directly; these go through tether.cli.main and read
+# back, from /settings/extraction, the options that the extraction applied.
+
+# (flag, value typed on the command line, ExtractOptions field, value it must record).
+# Every value differs from the field's default, and the synthetic movie still
+# extracts with it.
+_FLAG_CASES = [
+    ("--donor-side", "right", "donor_side", "right"),
+    ("--detection-mode", "intensity", "detection_mode", "intensity"),
+    ("--detection-threshold", "0.4", "detection_threshold", 0.4),
+    ("--window", "19", "window", 19),
+    ("--min-separation", "5", "min_separation", 5.0),
+    ("--detection-block", "10", "detection_block", 10),
+    ("--prealign", "similarity", "prealign", "similarity"),
+    ("--pair-tol", "3", "pair_tol", 3.0),
+    ("--coloc-distance", "2.5", "coloc_distance", 2.5),
+    ("--rms-gate", "0.75", "rms_gate", 0.75),
+]
+
+
+def _recorded_options(path) -> dict:
+    """The ExtractOptions fields as ``/settings/extraction`` recorded them."""
+    profile = _extraction_profile(path)
+    return {f.name: profile[f.name] for f in fields(ExtractOptions)}
+
+
+@pytest.mark.parametrize(
+    ("flag", "arg", "field", "value"), _FLAG_CASES, ids=[case[0] for case in _FLAG_CASES]
+)
+def test_each_extract_flag_reaches_the_extraction(tmp_path, flag, arg, field, value) -> None:
+    """A non-default value given on the command line is the value the extraction applied.
+
+    The whole recorded option set is compared, not only the one field: the flag must
+    move its own field and no other, so a flag wired to its neighbour's field fails too.
+    """
+    assert getattr(ExtractOptions(), field) != value, f"{flag}: the case must leave the default"
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "flag.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), flag, arg])
+
+    assert rc == 0, f"tether extract {flag} {arg} failed on the synthetic movie"
+    assert _recorded_options(out) == asdict(replace(ExtractOptions(), **{field: value})), (
+        f"tether extract {flag} {arg} did not reach ExtractOptions.{field} unchanged"
+    )
+
+
+def test_cli_donor_side_right_reads_the_donor_from_the_right_half(tmp_path) -> None:
+    """``--donor-side right`` swaps the channels, so the donor spots are the right half's.
+
+    A value lost on the way to ExtractOptions gives the left half as donor, which is a
+    project with every FRET efficiency inverted and no error (docs/cli.md).
+    """
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "right.tether"
+
+    assert main(["extract", str(movie), "-o", str(out), "--donor-side", "right"]) == 0
+
+    got = {tuple(np.round(xy).astype(int)) for xy in read_molecules(out)["donor_xy"]}
+    right_half = {(int(x - 48), int(y)) for x, y in _ACCEPTOR_CENTERS}  # within-half coords
+    assert got == right_half
+
+
+def test_extract_with_no_flags_applies_the_extract_options_defaults(tmp_path) -> None:
+    """With no option on the command line the extraction applies ``ExtractOptions()``.
+
+    The argparse defaults in tether.cli are literals of their own, and _run_extract
+    always passes them, so the dataclass default is never used on this surface. A
+    changed argparse literal therefore changes every CLI extraction; this fails then.
+    """
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "defaults.tether"
+
+    assert main(["extract", str(movie), "-o", str(out)]) == 0
+
+    assert _recorded_options(out) == asdict(ExtractOptions())
+
+
+def test_cli_warns_on_stderr_when_the_registration_exceeds_the_gate(tmp_path, capsys) -> None:
+    """An over-gate registration exits 0, so the stderr warning is the only signal.
+
+    docs/cli.md: extraction "still exits 0, but a warning goes to stderr". The same
+    movie under a gate it meets prints no warning, so the line is conditional.
+    """
+    movie = _make_movie(tmp_path, acceptor_centers=_OVER_GATE_ACCEPTOR, name="warp_010.tif")
+
+    rc = main(["extract", str(movie), "-o", str(tmp_path / "over.tether"), "--rms-gate", "0.2"])
+
+    captured = capsys.readouterr()
+    assert rc == 0  # ADR-0014: an over-gate fit is flagged, never failed
+    assert "Extracted 3 molecule(s)" in captured.out
+    assert "exceeds the 0.2 px gate" in captured.err
+    assert LOW_CONFIDENCE_TAG in captured.err
+    assert "exceeds" not in captured.out
+
+    rc = main(["extract", str(movie), "-o", str(tmp_path / "in.tether"), "--rms-gate", "5"])
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "exceeds" not in captured.err

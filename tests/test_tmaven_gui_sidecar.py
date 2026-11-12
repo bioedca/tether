@@ -33,12 +33,11 @@ from pathlib import Path
 
 import pytest
 
+from _sidecar_gate import SIDECAR as _SIDECAR
+from _sidecar_gate import requires_sidecar
+
 pytestmark = pytest.mark.sidecar
 
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
 
 # Run in the child. Mirrors tmaven.app.run_app minus the event loop, and exits with
 # os._exit so the interpreter's Qt teardown (which tMAVEN's own source notes can segfault
