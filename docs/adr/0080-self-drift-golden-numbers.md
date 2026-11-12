@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0078 — A self-drift suite freezes end-to-end numbers in golden files
+# 0080 — A self-drift suite freezes end-to-end numbers in golden files
 
 - **Status:** accepted
 - **Date:** 2026-11-12

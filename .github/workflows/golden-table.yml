@@ -3,7 +3,7 @@
 #
 # golden-table — a pull request that changes a self-drift golden file (tests/golden/) must carry
 # the old/new table that `python scripts/update_golden.py` prints, with a `Cause:` line, so the
-# maintainer approves each change of a frozen number on the pull request (#702, ADR-0078,
+# maintainer approves each change of a frozen number on the pull request (#702, ADR-0080,
 # maintainer decision Q6). It also runs when the body is edited, so pasting the table turns the
 # check green without a new push. The script reads the event file and runs no code from the
 # pull request beyond itself; the body never reaches a shell.

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The self-drift suite's pipelines, golden files and comparison (#702, ADR-0078).
+"""The self-drift suite's pipelines, golden files and comparison (#702, ADR-0080).
 
 Each entry of :data:`INPUTS` runs one input through the public API from end to end and
 returns a flat ``{quantity: value}`` mapping. ``tests/test_golden.py`` compares it with the
@@ -11,7 +11,7 @@ the golden files and prints the old/new table a pull request must carry.
 what Tether computed when the file was written. It makes no claim that the value is
 scientifically right; it only makes a change of that value visible and deliberate.
 
-The tolerance policy (ADR-0078): integers, strings, booleans, list lengths and the keys of a
+The tolerance policy (ADR-0080): integers, strings, booleans, list lengths and the keys of a
 golden file compare exactly; a float compares with :data:`FLOAT_RTOL` relative to the larger
 magnitude. The exported tables are compared by the SHA-256 of their text after
 :func:`normalize_table` (fixed ids masked, floats rounded to :data:`TABLE_SIGNIFICANT`
@@ -52,7 +52,7 @@ __all__ = [
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
-#: Relative limit for a float quantity. Measured, not chosen (ADR-0078): against golden files
+#: Relative limit for a float quantity. Measured, not chosen (ADR-0080): against golden files
 #: written on Linux, macOS and Windows differ by at most 2.7e-13 in closed-form results and by
 #: at most 5.9e-10 in the outputs of an iterative fit (the dwell-time rates and their
 #: confidence intervals); this limit leaves a factor of about 17 above the largest.

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Regenerate the self-drift golden files and print what moved (#702, ADR-0078).
+"""Regenerate the self-drift golden files and print what moved (#702, ADR-0080).
 
 Usage::
 

@@ -179,7 +179,7 @@ that the histogram dock draws the same histogram. It is a **regression suite, no
 it fails when a number changes, not when a number is wrong.
 
 Integers, strings and table checksums must match exactly. Floats must match to the relative
-limit `FLOAT_RTOL` in the suite's helper module, which [ADR-0078](docs/adr/0078-self-drift-golden-numbers.md)
+limit `FLOAT_RTOL` in the suite's helper module, which [ADR-0080](docs/adr/0080-self-drift-golden-numbers.md)
 measured across the three operating systems of the matrix. Do not widen it to make a change
 pass.
 

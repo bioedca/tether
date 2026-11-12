@@ -4,7 +4,7 @@
 
 Each input of ``_golden.INPUTS`` runs through the public API (one of them through the CLI)
 and every quantity it yields is compared with ``tests/golden/<input>.json`` under the policy
-of ADR-0078. A failure lists each moved quantity with its old value, its new value and the
+of ADR-0080. A failure lists each moved quantity with its old value, its new value and the
 relative change. When the change is intended, run ``python scripts/update_golden.py`` and
 paste the table it prints into the pull request with a ``Cause:`` line.
 

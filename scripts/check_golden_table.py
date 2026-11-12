@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fail a pull request that changes a golden file without the old/new table (#702, ADR-0078).
+"""Fail a pull request that changes a golden file without the old/new table (#702, ADR-0080).
 
 The maintainer approves each change of a frozen number on the pull request, which must show the
 old value, the new value and the cause (maintainer decision Q6). ``scripts/update_golden.py``
