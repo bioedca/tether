@@ -71,6 +71,15 @@ def test_more_peak_memory_fails_and_a_tiny_peak_only_reports() -> None:
     assert failures == ["cloud/small: peak memory 1.75x base (limit 1.5x)"]
 
 
+def test_the_sidecar_case_gates_on_the_peak_rss_of_the_fitting_process() -> None:
+    # The fit runs in a child process, where tracemalloc sees nothing (Codex on #837).
+    base = {"idealize_sidecar/small": _rec(1.0, 60_000, peak_child_rss_bytes=100 << 20)}
+    head = {"idealize_sidecar/small": _rec(1.0, 60_000, peak_child_rss_bytes=160 << 20)}
+    result = {"group": "sidecar", "sides": {"base": base, "head": head}}
+    _, failures = bench.compare(result, "base", "head", 1.5)
+    assert failures == ["idealize_sidecar/small: peak memory 1.60x base (limit 1.5x)"]
+
+
 def test_an_ungated_case_reports_and_never_fails(monkeypatch) -> None:
     from dataclasses import replace
 

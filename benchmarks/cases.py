@@ -41,6 +41,9 @@ class Case:
     group: str  # "default", "gui" or "sidecar"
     gate: bool
     setup: Setup
+    #: The gated memory value: the ``tracemalloc`` peak, or the child's peak RSS for a case
+    #: whose work runs in a child process, where ``tracemalloc`` cannot see it.
+    memory: str = "peak_py_bytes"
 
 
 def _traces(size: str):
@@ -277,6 +280,6 @@ CASES: dict[str, Case] = {
         Case("project_save", "default", True, _project_save),
         Case("project_export", "default", True, _project_export),
         Case("trace_display", "gui", True, _trace_display),
-        Case("idealize_sidecar", "sidecar", True, _idealize_sidecar),
+        Case("idealize_sidecar", "sidecar", True, _idealize_sidecar, "peak_child_rss_bytes"),
     )
 }

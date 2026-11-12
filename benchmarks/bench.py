@@ -18,9 +18,10 @@ Subcommands:
 Time is the minimum over repeats (as ``tether.project.perf.min_runtime`` does); a repeat
 runs the operation enough times to last at least ``_MIN_REPEAT_S``, so a fast operation is
 not timed at the clock's resolution. Memory is the ``tracemalloc`` peak of one extra call
-(Python and NumPy allocations) and the process peak RSS. The first call is timed apart and
-reported as ``first_call_s``: it holds the one-time costs (imports, any Numba compilation),
-so it never enters the timed part.
+(Python and NumPy allocations) and the process peak RSS; a case whose work runs in a
+child process (the sidecar fit) gates on that child's peak RSS instead (``Case.memory``).
+The first call is timed apart and reported as ``first_call_s``: it holds the one-time costs
+(imports, any Numba compilation), so it never enters the timed part.
 """
 
 from __future__ import annotations
@@ -87,6 +88,7 @@ def measure(case_name: str, size: str, repeats: int) -> dict:
         "loops": loops,
         "peak_py_bytes": peak_py,
         "peak_rss_bytes": max(rss or 0, children or 0) or None,
+        "peak_child_rss_bytes": children or None,
         **extra,
     }
 
@@ -132,7 +134,13 @@ def _merge(records: list[dict]) -> dict:
     if not good:
         return {"error": records[-1]["error"]}
     out = dict(good[0])
-    for key in ("time_s", "first_call_s", "peak_py_bytes", "peak_rss_bytes"):
+    for key in (
+        "time_s",
+        "first_call_s",
+        "peak_py_bytes",
+        "peak_rss_bytes",
+        "peak_child_rss_bytes",
+    ):
         values = [r[key] for r in good if r.get(key) is not None]
         out[key] = min(values) if values else None
     out["rounds_time_s"] = [r["time_s"] for r in good]
@@ -186,7 +194,8 @@ def compare(result: dict, base: str, head: str, limit: float) -> tuple[list[str]
     failures: list[str] = []
     for key in sorted(set(b_side) | set(h_side)):
         b, h = b_side.get(key, {"error": "missing"}), h_side.get(key, {"error": "missing"})
-        gated = CASES[key.split("/")[0]].gate
+        case = CASES[key.split("/")[0]]
+        gated, mem = case.gate, case.memory
         if "error" in h:
             failures.append(f"{key}: head failed to run ({h['error']})")
             lines.append(f"| {key} | | | | | | | | | FAIL: head error |")
@@ -197,8 +206,8 @@ def compare(result: dict, base: str, head: str, limit: float) -> tuple[list[str]
             )
             continue
         rt = h["time_s"] / b["time_s"] if b["time_s"] > 0 else math.inf
-        big = b["peak_py_bytes"] >= MEMORY_FLOOR_BYTES
-        rm = h["peak_py_bytes"] / b["peak_py_bytes"] if big else None
+        big = (b.get(mem) or 0) >= MEMORY_FLOOR_BYTES
+        rm = h[mem] / b[mem] if big and h.get(mem) is not None else None
         verdict = "ok" if gated else "reports only"
         if gated and rt > limit:
             failures.append(f"{key}: time {rt:.2f}x base (limit {limit}x)")
@@ -209,7 +218,7 @@ def compare(result: dict, base: str, head: str, limit: float) -> tuple[list[str]
         size = h.get("tether_bytes")
         lines.append(
             f"| {key} | {_fmt_s(b['time_s'])} | {_fmt_s(h['time_s'])} | {rt:.2f} "
-            f"| {_fmt_b(b['peak_py_bytes'])} | {_fmt_b(h['peak_py_bytes'])} "
+            f"| {_fmt_b(b.get(mem))} | {_fmt_b(h.get(mem))} "
             f"| {'-' if rm is None else f'{rm:.2f}'} | {_fmt_b(h.get('peak_rss_bytes'))} "
             f"| {'-' if size is None else f'{size:,} B'} | {verdict} |"
         )
@@ -218,6 +227,8 @@ def compare(result: dict, base: str, head: str, limit: float) -> tuple[list[str]
 
 def noise(result: dict) -> tuple[list[str], list[str]]:
     """Return (table lines, cases too noisy for the gate) for a run of one commit N times."""
+    from cases import CASES
+
     sides = result["sides"]
     lines = [
         "| operation | runs | min time | max time | time spread | memory spread | gate at 1.5 |",
@@ -231,7 +242,7 @@ def noise(result: dict) -> tuple[list[str], list[str]]:
             noisy.append(key)
             continue
         times = [r["time_s"] for r in recs]
-        mems = [r["peak_py_bytes"] for r in recs]
+        mems = [r.get(CASES[key.split("/")[0]].memory) or 0 for r in recs]
         st, sm = max(times) / min(times), max(mems) / max(min(mems), 1)
         ok = st <= NOISE_CEILING and (max(mems) < MEMORY_FLOOR_BYTES or sm <= NOISE_CEILING)
         if not ok:
@@ -263,6 +274,7 @@ def _cmd_compare(args: argparse.Namespace) -> int:
 
 
 def _cmd_noise(args: argparse.Namespace) -> int:
+    sys.path.insert(0, str(HERE))
     result = json.loads(Path(args.result).read_text(encoding="utf-8"))
     lines, noisy = noise(result)
     title = f"### Benchmark noise ({result['group']}): {len(result['sides'])} runs of one commit"

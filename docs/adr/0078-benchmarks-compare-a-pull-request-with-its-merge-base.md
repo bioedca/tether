@@ -38,7 +38,9 @@ this decision.
    at least 50 ms. The round result is the minimum over the three rounds.
 3. **Memory.** The `tracemalloc` peak of one extra call (Python and NumPy allocations) is the
    gated memory value; the process peak RSS is reported. A peak below 1 MiB only reports,
-   because a ratio of a few kilobytes means nothing.
+   because a ratio of a few kilobytes means nothing. Idealization fits in a child process,
+   where `tracemalloc` sees nothing, so that case gates on the peak RSS of the fitting
+   process instead (`Case.memory`).
 4. **Warm-up.** The first call is timed apart (`first_call_s`) and never enters the timed part,
    so a one-time cost such as a Numba compilation is reported and not compared.
 5. **Limits.** A gated case fails when head is above 1.5 times base in time or in peak
