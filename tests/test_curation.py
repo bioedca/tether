@@ -105,17 +105,37 @@ def test_controller_routes_every_action_to_its_handler() -> None:
         Command(A.GRID),
         Command(A.RESERVED),
     ]
-    for command in commands:
+    # One handler call per command, in dispatch order, so each command is paired with the call
+    # it produced: two actions routed to each other's handler swap two entries and fail here,
+    # where membership and a count could not see it (#729 PRJ-F20). The window nudges carry the
+    # signed ±1 delta of the distinct dec/inc actions; RESERVED (C/V) fires no handler.
+    expected_calls = [
+        ("accept",),
+        ("reject",),
+        ("unreject",),
+        ("jump",),
+        ("idealize",),
+        ("next",),
+        ("prev",),
+        ("cat", 3),
+        ("clear",),
+        ("wstart", -1),
+        ("wstart", 1),
+        ("wend", -1),
+        ("wend", 1),
+        ("reset",),
+        ("pb",),
+        ("grid",),
+    ]
+    for command, expected in zip(commands, [*expected_calls, None], strict=True):
+        before = len(calls)
         controller.dispatch(command)
-
-    assert ("cat", 3) in calls
-    # window nudges carry the signed ±1 delta from the distinct dec/inc actions.
-    assert ("wstart", -1) in calls and ("wstart", 1) in calls
-    assert ("wend", -1) in calls and ("wend", 1) in calls
-    # Every command is recorded; RESERVED (C/V) is recorded but fires no handler.
+        produced = calls[before:]
+        assert produced == ([] if expected is None else [expected]), command
+    assert calls == expected_calls
+    # Every command is recorded, RESERVED included.
     assert controller.history == commands
     assert controller.last == Command(A.RESERVED)
-    assert len(calls) == len(commands) - 1  # RESERVED has no handler
 
 
 def test_controller_missing_handlers_are_silent_noops() -> None:

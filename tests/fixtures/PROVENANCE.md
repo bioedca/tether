@@ -7,8 +7,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 Small, defensible fixtures **derived** from the read-only `example-data/`
 sibling (the real Mondragón-Lab acquisitions cited in `docs/PRD.md`). The large
-originals — the ~0.9 GB UCKOPSB movie and full `.tdat`/`.tmap` — are **never**
-committed (PRD §8 NFR-FIXTURES). Regenerate with:
+originals — the ~0.9 GB UCKOPSB movie, its full `.tdat` and the video-010 `.tmap` — are
+**never** committed (PRD §8 NFR-FIXTURES). The one committed `.tmap` is the bead map, in the
+Git LFS tier ([Bead `.tmap`](#bead-tmap-decoder-input-lfs)). Regenerate with:
 
 ```sh
 uv run --no-project --with h5py --with tifffile --with numpy \
@@ -26,7 +27,8 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 | `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization + detection slice (M0.5 S6 / M1 S9 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 131,296 B | `b6a911d48bc27cd1…` | coloc table + `ParticleDetectionMode` + MCOS `Channel` blob (per-channel `DetectionThreshold`) |
 | `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
 | `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` + `7db0cf80d161847e…` | 6 acceptor crops + `acc` oracle |
-| `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 792,946 B + 3,884,619 B | 104,307 B | `b538b539ee75add3…` + `a993036a53d1d492…` | 2 bead-channel crops + `.tmap` ground truth |
+| `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 3,884,619 B + 792,946 B | 104,307 B | `a993036a53d1d492…` + `b538b539ee75add3…` | 2 bead-channel crops + `.tmap` ground truth |
+| `tests/fixtures/large/bead_prealign.tmap` | Deep-LASI `.tmap` decoder input (`read_tmap`, #733) | `…20250721…15-36.tmap` | 3,884,619 B | 3,853,675 B | `a993036a53d1d492…` | acquisition directory redacted (same length) · **LFS** |
 | `tests/fixtures/deeplasi_export_slice.mat` | Deep-LASI `.mat` reader slice (M1 S9 oracle) | `…010.mat` | 9,053,155 B | 8,127 B | `af1b5be33aa63f87…` | 4 mol × 80 frames: `fret_pairs` + 6 trace arrays; v5, real `movie_name` filename + redacted `movie_path` directory |
 | `tests/fixtures/deeplasi_traces_slice.txt` | Deep-LASI `…-donc-accc-w.txt` reader slice (M1 S9 oracle) | `…010-donc-accc-w.txt` | 7,739,364 B | 6,412 B | `0892ae965a947003…` | first 80 frames × 8 cols (4 mol, donor/acc interleaved) |
 
@@ -167,6 +169,23 @@ estimator reports the **true similarity on real bead images**. **Accessed:**
 2026-06-27. **License:** GPL-3.0-or-later (Mondragón Lab, Northwestern).
 Regenerate with `scripts/make_bead_prealign_fixture.py`.
 
+## Bead `.tmap` (decoder input, LFS)
+
+`tests/fixtures/large/bead_prealign.tmap` (3,853,675 B, sha256
+`8dc33e5c08ff765cf34940ec2e89b72cad3c19abecb7fa2f718f544a4aa46b9b`, Git LFS) is the bead
+`.tmap` of the section above (source sha256 `a993036a…`, verified when it was copied from the
+maintainer's workstation on 2026-11-11). It lets `read_tmap` run on a real file: the
+`large-fixtures` job decodes it and compares the result with `bead_prealign_oracle.npz`
+(`tests/test_register.py`), and runs one `tether extract --tmap` end to end
+(`tests/test_extract_cli.py`). **Transformation:** the source stores the absolute acquisition
+directory in six strings; each is replaced by a placeholder of the same byte length and the
+element that holds them is recompressed. No other byte changes, and `read_tmap` decodes the copy
+to exactly the same channels. The 1 MB plain-git limit does not permit a plain commit, so the
+file is in LFS (#733, maintainer decision B1). **License:** GPL-3.0-or-later (Mondragón Lab,
+Northwestern), the licence of its decoded numbers. Regenerate with
+`scripts/make_bead_tmap_fixture.py` (the output SHA-256 can change with the zlib version; the
+decoded content cannot).
+
 ## Deep-LASI export slice (M1 S9 extraction oracle)
 
 `deeplasi_export_slice.mat` and `deeplasi_traces_slice.txt` are the committed,
@@ -232,6 +251,12 @@ the record, then:
 uv run --no-project --with h5py --with numpy \
     python scripts/make_kinsoft_fixture.py --source <dir-with-the-3-zips>
 ```
+
+Both files, and the three source zips, have entries in `tests/reference_data/manifest.toml`
+(ids `kinsoft-sim-packed`, `kinsoft-trace-sample`, `kinsoft-sim-fig2` to `kinsoft-sim-fig4`;
+ADR-0073). The weekly `reference-data` job downloads the zips, verifies the checksums above, and
+compares `kinsoft_trace_sample.txt` with its member of `sim_dataset_Fig4.zip` (verified again on
+2026-11-11).
 
 ### kinSoftChallenge ground-truth kinetic models (M8 kinetics oracle)
 
@@ -311,3 +336,12 @@ python scripts/make_tutorial_movie.py --check
 
 `tests/test_docs_tutorial.py` runs the `--check` derivation on every OS in the
 required matrix.
+
+## MATLAB reference outputs (#700, ADR-0074)
+
+Outputs of the MATLAB reference tools live under `tests/fixtures/reference/<tool>/<run>/`, each
+directory with a `provenance.json` that states the tool commit, the MATLAB release, the input and
+output SHA-256 values and the method (`scripts/reference/matlab/`). `tests/test_matlab_reference.py`
+verifies every committed record. `stand-in/selftest` is not a reference: the `matlab` stand-in of
+the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
+always has one record to check.

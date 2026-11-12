@@ -100,6 +100,9 @@ jobs:
         env:
           NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
           TETHER_SIDECAR_PYTHON_AUTO: "1"
+          # As in sidecar.yml (#750): a lost interpreter fails the tests instead of skipping
+          # them all, so the weekly run cannot pass with no fit run.
+          TETHER_REQUIRE_SIDECAR: "1"
         run: |
           set -o pipefail
           export TETHER_SIDECAR_PYTHON="$(python -c 'import sys; print(sys.executable)')"
@@ -119,7 +122,7 @@ jobs:
             first="$(grep -m1 -E '^(FAILED|ERROR) ' "$log" || echo 'not found; see the parity step')"
             # The assertion message of the first failure: the comparison and the limit it broke.
             why="$(grep -m1 -E '^E +[A-Za-z.]*(Error|Exception)' "$log" | sed -E 's/^E +//')"
-            case "$first" in *" - "*) why="" ;; esac # pytest already put it on the FAILED line
+            case "$first" in *" - "*) why="" ;; esac # the FAILED line already carries it
             echo "::error::First failing comparison: ${first//'%'/'%25'} ${why//'%'/'%25'}"
           else
             echo "::error::The parity tests did not run: an earlier step failed (see it above)."

@@ -75,7 +75,9 @@ def test_it_installs_the_fetched_tmaven_and_never_touches_the_pin() -> None:
     # The same tests as the pinned gate, so a failure here means the commit, not the selection.
     pinned = "pytest -m sidecar tests/test_*sidecar*.py"
     assert pinned in PINNED.read_text(encoding="utf-8")
-    assert pinned in _steps()["Run the parity tests against the upstream tMAVEN"]["run"]
+    parity = _steps()["Run the parity tests against the upstream tMAVEN"]
+    assert pinned in parity["run"]
+    assert parity["env"]["TETHER_REQUIRE_SIDECAR"] == "1"  # no green run with every test skipped
 
 
 def test_no_run_step_calls_an_explicit_exit() -> None:
