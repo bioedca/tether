@@ -298,7 +298,7 @@ smFRET_module v1.0.3 archive, then:
 uv run --no-project --with py7zr python scripts/make_marzano_fixture.py fixtures \
     --source <dir with Figure_2.zip and Fig1_FigS1_FigS2.7z>
 uv run --no-project --with pandas python scripts/make_marzano_fixture.py tables \
-    --module <unpacked smFRET_module-v1.0.3 directory>
+    --module <nmarzano-smFRET_module-v1.0.3.zip from Zenodo 16791519>
 ```
 
 The member bytes are the reference; the `.tar.xz` bytes can differ with another liblzma build.

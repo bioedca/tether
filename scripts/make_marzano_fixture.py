@@ -20,9 +20,10 @@ file name; the tar header is normalized (mtime 0, owner 0, mode 0644) so only th
 information. ``tests/_marzano_dat.py`` reads them back.
 
 ``tables`` runs ``nmarzano/smFRET_module`` v1.0.3 (Zenodo 10.5281/zenodo.16791519, MIT), outside
-the product, on the committed fixtures and writes its dwell-time and transition tables as the
-expected files of ``tests/test_marzano_vbfret.py``. It runs the module's own functions in the
-order of its ``combine_technical_repeats`` and ``master_tdp_cleanup_func``:
+the product, from its archive checked against :data:`MODULE_ZIP_SHA256`, on the committed
+fixtures and writes its dwell-time and transition tables as the expected files of
+``tests/test_marzano_vbfret.py``. It runs the module's own functions in the order of its
+``combine_technical_repeats`` and ``master_tdp_cleanup_func``:
 
 1. ``Utilities.Data_analysis.remove_outliers(df, "hist")``: drop each frame whose raw FRET is not
    inside (-0.5, 1.5).
@@ -42,7 +43,7 @@ Usage (dev only, never in CI)::
     uv run --no-project --with py7zr python scripts/make_marzano_fixture.py fixtures \\
         --source <dir with Figure_2.zip and Fig1_FigS1_FigS2.7z>
     uv run --no-project --with pandas python scripts/make_marzano_fixture.py tables \\
-        --module <unpacked smFRET_module-v1.0.3 directory>
+        --module <nmarzano-smFRET_module-v1.0.3.zip from Zenodo 16791519>
 """
 
 from __future__ import annotations
@@ -140,7 +141,31 @@ def _load(module_dir: Path, relative: str):
     return module
 
 
-def make_tables(module_dir: Path) -> None:
+def _unpack_module(archive: Path, into: Path) -> Path:
+    """Check the module archive against :data:`MODULE_ZIP_SHA256`, unpack it, return its root.
+
+    The tables are only as good as the code that made them, so the script runs smFRET_module
+    from the checksummed Zenodo archive and never from a checkout that could differ from it.
+    """
+    actual = _sha256(archive.read_bytes())
+    if actual != MODULE_ZIP_SHA256:
+        sys.exit(f"{archive}: SHA-256 {actual}, expected {MODULE_ZIP_SHA256}")
+    with zipfile.ZipFile(archive) as zf:
+        zf.extractall(into)
+    roots = [p for p in into.iterdir() if (p / "src" / "Utilities" / "Data_analysis.py").is_file()]
+    if len(roots) != 1:
+        sys.exit(f"{archive}: expected one top folder with src/, found {roots}")
+    return roots[0]
+
+
+def make_tables(module_zip: Path) -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _make_tables(_unpack_module(module_zip, Path(tmp)))
+
+
+def _make_tables(module_dir: Path) -> None:
     import pandas as pd
 
     util = _load(module_dir, "src/Utilities/Data_analysis.py")
@@ -160,7 +185,9 @@ def make_tables(module_dir: Path) -> None:
                 "processing_scripts.TDP_processing.remove_outliers_tdp",
             ],
         },
-        "command": "python scripts/make_marzano_fixture.py tables --module <smFRET_module-v1.0.3>",
+        "command": (
+            "python scripts/make_marzano_fixture.py tables --module <smFRET_module-v1.0.3.zip>"
+        ),
         "python": platform.python_version(),
         "pandas": pd.__version__,
         "os": platform.platform(),
@@ -215,7 +242,9 @@ def main() -> None:
     fx = sub.add_parser("fixtures", help="copy the two condition folders into .tar.xz fixtures")
     fx.add_argument("--source", type=Path, required=True)
     tb = sub.add_parser("tables", help="run smFRET_module v1.0.3 on the fixtures")
-    tb.add_argument("--module", type=Path, required=True)
+    tb.add_argument(
+        "--module", type=Path, required=True, help="the Zenodo 16791519 archive (.zip), checksummed"
+    )
     args = parser.parse_args()
     if args.cmd == "fixtures":
         make_fixtures(args.source)

@@ -1,5 +1,5 @@
 {
-  "command": "python scripts/make_marzano_fixture.py tables --module <smFRET_module-v1.0.3>",
+  "command": "python scripts/make_marzano_fixture.py tables --module <smFRET_module-v1.0.3.zip>",
   "inputs": {
     "marzano_chaperone_kjg_231027.tar.xz": "116822250071f16330de19e069da41458fe1fbd12d026dde50dc60048263df60",
     "marzano_ppr_rnaanticognate.tar.xz": "439ebd0af7b5102363b05eef1b24fbeae17d2c315512bcd26164620dd18e7df3"
