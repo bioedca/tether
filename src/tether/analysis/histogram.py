@@ -1451,9 +1451,13 @@ def transition_sync_histogram2d(
     Two window shapes match tMAVEN:
 
     - ``single_dwell=True`` (``gen_sync_list_single``): the window runs from the end
-      of the previous dwell (the prior transition + 1, or the trace start) to the
-      start of the next dwell (the next transition, or the trace end), so each
-      transition contributes the single dwell before and after it.
+      of the previous dwell (the prior transition + 1, or the trace start) up to the
+      next transition, so each transition contributes the single dwell before and
+      after it. At a next transition the window stops before the last frame of the
+      dwell after the jump (exclusive, as in tMAVEN). With no next transition the
+      dwell runs to the end of the trace **inclusive**: a trailing dwell keeps the
+      final frame of the analysis window, because only a real jump ends a dwell
+      early (#806, ADR-0085).
     - ``single_dwell=False`` (``gen_sync_list_fixed``): a fixed window of
       ``sync_preframe`` frames before and ``time_bins - sync_preframe + 1`` after
       every selected transition (overlapping windows may double-count a frame, as
@@ -1462,13 +1466,20 @@ def transition_sync_histogram2d(
     This adapts tMAVEN's rectangular NaN-padded array to Tether's per-molecule
     ragged inputs: each pair is one molecule's ``(state_path, signal)`` (equal
     length), and out-of-range **frame indices are dropped** rather than wrapping —
-    the one deliberate departure from tMAVEN, whose fixed window can index a padded
+    a deliberate departure from tMAVEN, whose fixed window can index a padded
     row with a negative frame; Tether never bins a frame outside a molecule's own
     trace (see :func:`~tether.analysis._store.windowed_state_and_channels`, which
-    slices to the idealized window). ``no_state`` is the sentinel for a frame with
-    no assigned state (:data:`tether.idealize.NO_STATE` = ``-1``, tMAVEN's NaN
-    analogue) — such frames break a state run without forming a transition, so a
-    window boundary between ``no_state`` and a real state is never a jump.
+    slices to the idealized window). A second, single-dwell departure follows from
+    the inclusive trailing end above: tMAVEN ends a trailing window at the movie's
+    last frame index, exclusive, so it keeps the final frame of a window that ends
+    before the movie does (photobleaching) and drops the movie's last frame when the
+    window runs to the movie end. Tether keeps the window's final frame in both
+    cases, so the two differ only by that one frame, and only when a trailing dwell
+    reaches the movie's last frame inside the time columns. ``no_state`` is the
+    sentinel for a frame with no assigned state (:data:`tether.idealize.NO_STATE` =
+    ``-1``, tMAVEN's NaN analogue) — such frames break a state run without forming a
+    transition, so a window boundary between ``no_state`` and a real state is never a
+    jump.
 
     Parameters
     ----------
@@ -1579,7 +1590,7 @@ def transition_sync_histogram2d(
             sync_t = int(jump_frames[k])
             if single_dwell:
                 start = int(jump_frames[k - 1]) + 1 if k >= 1 else 0
-                end = int(jump_frames[k + 1]) if k + 1 < jump_frames.size else length - 1
+                end = int(jump_frames[k + 1]) if k + 1 < jump_frames.size else length
             else:
                 start = sync_t - pre
                 end = sync_t + (n_time - pre + 1)

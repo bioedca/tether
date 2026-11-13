@@ -16,13 +16,37 @@ SPDX-License-Identifier = "GPL-3.0-or-later"
 # (Götz & Schmid, Zenodo 10.5281/zenodo.5701310), aggregated as gated-tier test
 # fixtures. `override` beats the blanket GPL entry above for these specific data
 # files (they carry no SPDX header of their own). Attributed in NOTICE and the
-# fixture PROVENANCE; the MATLAB simulator from the same record is NOT vendored
-# (PRD N2). See PRD §8 NFR-VALID(c) / §9 M8.
+# fixture PROVENANCE. The three simulator settings files (#717) are copied verbatim
+# from MATLAB_simulator.zip; the MATLAB simulator itself is NOT vendored (PRD N2). See PRD §8 NFR-VALID(c) / §9 M8.
 [[annotations]]
-path = ["tests/fixtures/large/kinsoft_sim.hdf5", "tests/fixtures/kinsoft_trace_sample.txt"]
+path = [
+    "tests/fixtures/large/kinsoft_sim.hdf5",
+    "tests/fixtures/kinsoft_trace_sample.txt",
+    "tests/fixtures/kinsoft_simulator/*.cfg",
+]
 precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+# MreC-MreD ebFRET sessions — third-party reference data, CC-BY-4.0 (Gilman, Shlosman, Samé
+# Guerra, et al., Zenodo 10.5281/zenodo.13910538), repacked by scripts/make_ebfret_sessions_fixture.py
+# into one LFS fixture for the report-only ebFRET comparison (#719). Attributed in NOTICE and the
+# fixture PROVENANCE. `override` beats the blanket GPL entry above.
+[[annotations]]
+path = ["tests/fixtures/large/ebfret_mrec_sessions.hdf5"]
+precedence = "override"
+SPDX-FileCopyrightText = "2024 Morgan S. A. Gilman, Irina Shlosman, Daniel Samé Guerra, Masy Domecillo, Elayne Fivenson, Claire Bourrett, Thomas Bernhardt, Nicholas Polizzi, Joseph Loparo and Andrew Kruse"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# smfret-analysis2 test data (#709, ADR-0084): verbatim copies of 78 files of test-data/traces/ of
+# github.com/vafabakhsh-lab/smfret-analysis2 at commit 121634e. The repository gives the GPL
+# version 3 text with no "or later" statement, so GPL-3.0-only, not the project's -or-later.
+# Attributed in NOTICE and tests/fixtures/PROVENANCE.md; the MATLAB scripts are not vendored.
+[[annotations]]
+path = ["tests/fixtures/smfret_analysis2/*.csv", "tests/fixtures/smfret_analysis2/traces/*.dat"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2)"
+SPDX-License-Identifier = "GPL-3.0-only"
 
 # Ha laboratory SAM/SAH riboswitch data (#796, ADR-0086): verbatim copies of 56 files of the Fig. 1
 # archive of Zenodo 10.5281/zenodo.8088172 (CC-BY-4.0): 53 .traces snapshots, frets.dat, test3.dat
