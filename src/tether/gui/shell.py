@@ -519,6 +519,7 @@ class TetherShell:
         act_help = menu.addAction("Keyboard &shortcuts…")
         act_help.triggered.connect(self.show_cheatsheet)
         act_pick = menu.addAction("Assign category (&overflow)…")
+        self._act_assign_category = act_pick
         act_pick.triggered.connect(self.show_overflow_picker)
 
         # Hand-off menu: the standalone-tMAVEN round trip (§7.4) — export the
@@ -564,6 +565,29 @@ class TetherShell:
             self._theme_actions[value] = action
         self._theme_menu.aboutToShow.connect(self._sync_theme_menu)
         self._sync_theme_menu()
+
+        # Interface icons (#677): each menu item that has an icon in the brand kit
+        # shows it beside its text (never instead of it), in the active theme.
+        # Every other menu item keeps text only; later shell work (#341) adds more.
+        self._menu_icons: list[tuple[Any, str]] = [
+            (self._act_open_project, "project"),
+            (self._act_assign_category, "curate"),
+            (self._act_hand_off, "hand-off"),
+            (self._act_import, "import"),
+            (self._act_import_deeplasi, "import"),
+            (self._act_histogram, "analyze"),
+            (self._act_validate_conditions, "conditions"),
+        ]
+        self._apply_menu_icons(theme.current())
+        theme.subscribe(self._apply_menu_icons)
+
+        # Busy indicator (#677): the wavefront mark and the task name, at the right
+        # of the status bar, while a task runs that gives no percentage (today the
+        # one-click idealize; the task service #343 connects the other tasks).
+        from tether.gui.indicators import BusyIndicator
+
+        self._busy_indicator = BusyIndicator()
+        self._window.statusBar().addPermanentWidget(self._busy_indicator)
 
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
 
@@ -618,6 +642,26 @@ class TetherShell:
     def section_titles(self) -> list[QtWidgets.QLabel]:
         """The browser panel's section-title labels (drawn in the heading font)."""
         return list(self._section_titles)
+
+    @property
+    def menu_icons(self) -> list[tuple[Any, str]]:
+        """The menu actions that show an interface icon, each with its icon name."""
+        return list(self._menu_icons)
+
+    @property
+    def busy_indicator(self) -> Any:
+        """The status-bar :class:`~tether.gui.indicators.BusyIndicator`."""
+        return self._busy_indicator
+
+    def _apply_menu_icons(self, active: Any) -> None:
+        """Set each menu icon for ``active``; called again after each change of theme."""
+        from tether.gui import theme
+
+        for action, name in self._menu_icons:
+            action.setIcon(theme.icon(name, active))
+            # Qt hides menu icons where the platform asks (the Cocoa theme does on every
+            # macOS before Tahoe); these icons are meant to show on every OS.
+            action.setIconVisibleInMenu(True)
 
     def _sync_theme_menu(self) -> None:
         from tether.gui import theme
@@ -1613,6 +1657,7 @@ class TetherShell:
                 return
         self._idealize_key = key
         self._status(f"Idealizing {key} (one-click vbFRET)…")
+        self._busy_indicator.start(f"Idealizing {key}")
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         self._idealize_future = self._idealize_executor.submit(self._idealizer, key)
         self._sync_project_write_controls()
@@ -1659,6 +1704,7 @@ class TetherShell:
             self._idealize_timer = None
         self._idealize_future = None
         self._idealize_key = None
+        self._busy_indicator.stop()
         self._sync_project_write_controls()
         QtWidgets.QApplication.restoreOverrideCursor()
         if self._curation_project is None:
@@ -1692,6 +1738,8 @@ class TetherShell:
         callback. With no active writer, the lock is released immediately.
         """
         from pyqtgraph.Qt import QtWidgets
+
+        from tether.gui import theme
 
         if self._closed:
             return
@@ -1728,6 +1776,8 @@ class TetherShell:
             # cursor it set is restored so it never leaks past close.
             self._idealize_future = None
             QtWidgets.QApplication.restoreOverrideCursor()
+        self._busy_indicator.stop()
+        theme.unsubscribe(self._apply_menu_icons)
         if session_project is not None and future is not None and not future.done():
             # Keep both lifecycle ownership records until the abandoned writer
             # settles. The repeating timer then attempts release and keeps retrying

@@ -150,14 +150,17 @@ def _write_movie(
     )
 
 
-def _two_condition_store(path: Path, *, a: dict, b: dict, n: int = 60) -> tuple[Project, str, str]:
+def _two_condition_store(
+    path: Path, *, a: dict, b: dict, n: int = 60, n_b: int | None = None
+) -> tuple[Project, str, str]:
     """Two-condition ``.tether`` (A from ``_FILE_A``, B from ``_FILE_B``); features written.
 
-    ``a`` / ``b`` are ``_condition_traces`` kwargs (``seed``, ``fret``, ``noise``). Returns the
-    project and the two ``condition_id`` values (read back from ``/molecules``).
+    ``a`` / ``b`` are ``_condition_traces`` kwargs (``seed``, ``fret``, ``noise``). ``n`` molecules
+    go to A and ``n_b`` (default ``n``) to B. Returns the project and the two ``condition_id``
+    values (read back from ``/molecules``).
     """
     da, aa = _condition_traces(n, **a)
-    db, ab = _condition_traces(n, **b)
+    db, ab = _condition_traces(n if n_b is None else n_b, **b)
     _write_movie(path, "mov-A", f"{1:064x}", _FILE_A, da, aa, create=True)
     _write_movie(path, "mov-B", f"{2:064x}", _FILE_B, db, ab, create=False)
     proj = Project.open(path)
@@ -209,19 +212,44 @@ def test_shifted_snr_condition_flags(tmp_path) -> None:
 
 def test_condition_feature_matrices_groups_every_molecule(tmp_path) -> None:
     # Grouping covers all featured molecules (labeled or not), one matrix per condition, column
-    # count = the engineered feature schema.
+    # count = the engineered feature schema. The two conditions differ in size AND in FRET level,
+    # so a grouping that hands one condition's rows to the other changes the matrices' content
+    # even when it happens to keep their shapes (#729 PRJ-F13).
     from tether.ml.features import FEATURE_NAMES  # noqa: PLC0415
+    from tether.project.features import feature_matrix  # noqa: PLC0415
 
     proj, cond_a, cond_b = _two_condition_store(
         tmp_path / "p.tether",
-        a={"seed": 1, "fret": 0.5},
-        b={"seed": 2, "fret": 0.5},
+        a={"seed": 1, "fret": 0.3},
+        b={"seed": 2, "fret": 0.7},
         n=45,
+        n_b=30,
     )
     matrices = condition_feature_matrices(proj)
     assert set(matrices) == {cond_a, cond_b}
     assert matrices[cond_a].shape == (45, len(FEATURE_NAMES))
-    assert matrices[cond_b].shape == (45, len(FEATURE_NAMES))
+    assert matrices[cond_b].shape == (30, len(FEATURE_NAMES))
+
+    # Each matrix holds its own condition's FRET level: every row, and the mean.
+    fret = FEATURE_NAMES.index("fret_mean")
+    assert np.all(matrices[cond_a][:, fret] < 0.5)
+    assert np.all(matrices[cond_b][:, fret] > 0.5)
+    assert float(np.mean(matrices[cond_a][:, fret])) == pytest.approx(0.3, abs=0.05)
+    assert float(np.mean(matrices[cond_b][:, fret])) == pytest.approx(0.7, abs=0.05)
+
+    # ... and exactly the feature rows of that condition's movie, in store order (the movie is
+    # read from /molecules.movie_id, which the grouping under test does not use).
+    stored = feature_matrix(proj)
+    mols = read_molecules(proj.path)
+    movie_of = {
+        (m.decode() if isinstance(m, bytes) else str(m)): (
+            v.decode() if isinstance(v, bytes) else str(v)
+        )
+        for m, v in zip(mols["molecule_id"], mols["movie_id"], strict=True)
+    }
+    for cond, movie in ((cond_a, "mov-A"), (cond_b, "mov-B")):
+        rows = [i for i, mid in enumerate(stored.molecule_ids) if movie_of[mid] == movie]
+        np.testing.assert_array_equal(matrices[cond], stored.matrix[rows])
 
 
 def test_unknown_condition_raises(tmp_path) -> None:
