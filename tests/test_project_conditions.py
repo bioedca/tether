@@ -816,3 +816,126 @@ def test_project_category_writes_refuse_foreign_lock_reads_allowed(tmp_path: Pat
         proj.remove_category(cid, "a")
     # Reads never take the write gate.
     assert proj.category_list(cid).categories == ("a",)
+
+
+# --- one condition's category list across projects (ADR-0068, #679) ----------
+
+
+def _two_projects_of_one_condition(tmp_path: Path) -> tuple[Path, Path, str]:
+    """Two ``.tether`` projects (two days of one experiment) that hold the same condition."""
+    day1 = _seed_extracted(tmp_path, [("k0", _FILE_A10)], name="day1.tether")
+    day2 = _seed_extracted(tmp_path, [("k0", _FILE_A11)], name="day2.tether")
+    C.sync_conditions(day1)
+    C.sync_conditions(day2)
+    return day1, day2, parse_filename(_FILE_A10).condition_id
+
+
+def test_copy_category_list_keeps_names_and_codes(tmp_path: Path) -> None:
+    """After a copy the destination reads the same categories with the same codes."""
+    day1, day2, cid = _two_projects_of_one_condition(tmp_path)
+    C.set_category_list(day1, cid, ["dynamic", "static", "noise"])
+    C.set_category_list(day2, cid, ["static", "other"])  # a stale list is replaced
+
+    copied = C.copy_category_list(day1, day2, cid)
+
+    assert copied.lookup == {0: "dynamic", 1: "static", 2: "noise"}
+    assert C.read_category_list(day2, cid).lookup == C.read_category_list(day1, cid).lookup
+    assert C.compare_category_lists(day1, day2, cid).equal
+    # The source is read, never written.
+    assert C.read_category_list(day1, cid).categories == ("dynamic", "static", "noise")
+
+    # An empty source list is a faithful copy too: the destination is emptied.
+    C.set_category_list(day1, cid, [])
+    assert C.copy_category_list(day1, day2, cid).categories == ()
+    assert C.read_category_list(day2, cid).categories == ()
+
+
+def test_copy_keeps_destination_molecule_labels(tmp_path: Path) -> None:
+    """A copy is a list-level edit: destination molecules keep their stored category."""
+    day1, day2, cid = _two_projects_of_one_condition(tmp_path)
+    C.set_category_list(day1, cid, ["good"])
+    C.set_category_list(day2, cid, ["godd"])
+    _set_molecule_category(day2, "k0", "godd")
+
+    C.copy_category_list(day1, day2, cid)
+
+    with h5py.File(day2, "r") as f:
+        assert C._to_str(f["molecules"][TABLE]["category"][0]) == "godd"
+
+
+def test_copy_refuses_a_project_that_does_not_hold_the_condition(tmp_path: Path) -> None:
+    """A copy into (or from) a project without the condition is refused with a message."""
+    day1, _day2, cid = _two_projects_of_one_condition(tmp_path)
+    C.set_category_list(day1, cid, ["a", "b"])
+    other = _seed_extracted(tmp_path, [("k0", _FILE_NEARMISS)], name="other.tether")
+    C.sync_conditions(other)
+    assert parse_filename(_FILE_NEARMISS).condition_id != cid  # a different condition
+
+    with pytest.raises(KeyError, match=r"destination project 'other\.tether' does not hold"):
+        C.copy_category_list(day1, other, cid)
+    assert C.read_category_list(other, cid).categories == ()  # nothing was written
+
+    with pytest.raises(KeyError, match=r"source project 'other\.tether' does not hold"):
+        C.copy_category_list(other, day1, cid)
+    assert C.read_category_list(day1, cid).categories == ("a", "b")  # not cleared
+
+    with pytest.raises(ValueError, match="must not contain"):
+        C.copy_category_list(day1, other, "cond/x")
+
+
+def test_compare_equal_lists_reports_nothing(tmp_path: Path) -> None:
+    day1, day2, cid = _two_projects_of_one_condition(tmp_path)
+    assert C.compare_category_lists(day1, day2, cid).equal  # two empty lists
+
+    C.set_category_list(day1, cid, ["a", "b"])
+    C.set_category_list(day2, cid, ["a", "b"])
+    result = C.compare_category_lists(day1, day2, cid)
+    assert isinstance(result, C.CategoryListComparison)
+    assert result.equal
+    assert result.differences == ()
+    assert result.a.categories == result.b.categories == ("a", "b")
+
+
+def test_compare_reports_each_name_and_code_difference(tmp_path: Path) -> None:
+    """Each category whose name or code differs is reported once, A's order first."""
+    day1, day2, cid = _two_projects_of_one_condition(tmp_path)
+    # day2 renamed "static" (code 1) to "stuck", and moved "noise" ahead of "dynamic".
+    C.set_category_list(day1, cid, ["dynamic", "static", "noise", "same"])
+    C.set_category_list(day2, cid, ["noise", "stuck", "dynamic", "same", "extra"])
+
+    result = C.compare_category_lists(day1, day2, cid)
+
+    assert not result.equal
+    assert [(d.category, d.code_a, d.code_b, d.kind) for d in result.differences] == [
+        ("dynamic", 0, 2, "code"),
+        ("static", 1, None, "only_in_a"),
+        ("noise", 2, 0, "code"),
+        ("stuck", None, 1, "only_in_b"),
+        ("extra", None, 4, "only_in_b"),
+    ]
+    # "same" holds code 3 in both and is not reported.
+    assert all(isinstance(d, C.CategoryDifference) for d in result.differences)
+
+
+def test_compare_refuses_a_project_that_does_not_hold_the_condition(tmp_path: Path) -> None:
+    day1, _day2, cid = _two_projects_of_one_condition(tmp_path)
+    other = _seed_extracted(tmp_path, [("k0", _FILE_NEARMISS)], name="other.tether")
+    C.sync_conditions(other)
+    with pytest.raises(KeyError, match=r"second project 'other\.tether' does not hold"):
+        C.compare_category_lists(day1, other, cid)
+    with pytest.raises(KeyError, match=r"first project 'other\.tether' does not hold"):
+        C.compare_category_lists(other, day1, cid)
+
+
+def test_copied_category_list_is_additive_data_schema_guard_stays_green(tmp_path: Path) -> None:
+    """A copy into a project with no list yet adds only data the freeze allows."""
+    from tether.io.schema import SCHEMA_VERSION, build_manifest, diff_manifest, introspect
+
+    day1, day2, cid = _two_projects_of_one_condition(tmp_path)
+    C.set_category_list(day1, cid, ["a", "b"])
+    C.copy_category_list(day1, day2, cid)
+
+    with h5py.File(day2, "r") as f:
+        real = introspect(f)
+        assert int(f.attrs["schema_version"]) == SCHEMA_VERSION
+    assert diff_manifest(build_manifest(), real) == []

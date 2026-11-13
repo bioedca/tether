@@ -120,6 +120,28 @@ def test_small_alpha_carves_a_concavity_between_two_blobs() -> None:
     # gap bridged would be caught here.
     assert _gap_spanning_boundary_edges(full) > 0
     assert _gap_spanning_boundary_edges(carved) == 0
+    # and the carving removes ONLY the gap: both 6x4 blobs stay fully kept, 2·(5·3·2) = 60
+    # triangles covering 2·(5 × 0.15) = 1.5 of time·E (#741, ANA-F6). A bug that drops
+    # nearly every triangle also satisfies the three checks above, but not these.
+    assert carved.n_kept == 60
+    assert carved.area == pytest.approx(1.5)
+    assert full.n_kept == 70
+    assert full.area == pytest.approx(3.5)
+
+
+def test_triangle_circumradius_of_a_rotated_3_4_5_triangle() -> None:
+    # #741, ANA-F6: one direct check of R = abc / (4·area). A right triangle with legs 3
+    # and 4 has R = 2.5 (half the hypotenuse). It is rotated and moved off the origin so
+    # that every side length and both cross-product terms are non-trivial.
+    from tether.analysis.cloud import _triangle_circumradii
+
+    p0 = np.array([1.0, 2.0])
+    p1 = p0 + 4.0 * np.array([0.6, 0.8])
+    p2 = p0 + 3.0 * np.array([-0.8, 0.6])
+    collinear = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]])
+    radii = _triangle_circumradii(np.stack([np.stack([p0, p1, p2]), collinear]))
+    assert radii[0] == pytest.approx(2.5)
+    assert radii[1] == np.inf  # zero area -> unbounded circle -> never kept
 
 
 def test_auto_alpha_is_positive_and_reproducible() -> None:
@@ -301,6 +323,21 @@ def test_population_alpha_shape_from_store(tmp_path) -> None:
     assert shape.n_boundary_edges > 0
 
 
+def test_population_alpha_shape_forwards_alpha_and_time_range(tmp_path) -> None:
+    # #741, ANA-F7: alpha and time_range must reach the shape.
+    project, _ = build_store_with_model(tmp_path, _states(4, 30), MEANS)
+    shape = population_fret_cloud_alpha_shape(project, alpha=0.05)
+    assert shape is not None
+    assert shape.alpha == 0.05  # explicit, not the auto-selected value
+    # time_range narrower than the data: only frames 0..14 are inside the grid.
+    narrow = population_fret_cloud_alpha_shape(project, time_range=(0.0, 14.0))
+    assert narrow is not None
+    assert narrow.n_points == 4 * 15
+    wide = population_fret_cloud_alpha_shape(project, time_range=(0.0, 14.0), in_grid_only=False)
+    assert wide is not None
+    assert wide.n_points == 4 * 30
+
+
 def test_population_alpha_shape_excludes_rejected(tmp_path) -> None:
     project, _ = build_store_with_model(
         tmp_path, _states(4, 30), MEANS, rejected=[True, False, False, False]
@@ -347,6 +384,16 @@ def test_population_elbow_from_store(tmp_path) -> None:
     # apparent E takes exactly the three MEANS levels -> three distinct clusters probed.
     assert elbow.k_values.tolist() == [1, 2, 3]
     assert elbow.n_samples == 5 * 30
+
+
+def test_population_elbow_forwards_k_range_seed_and_time_range(tmp_path) -> None:
+    # #741, ANA-F7: k_min, k_max, restarts, seed and time_range must reach the elbow.
+    project, _ = build_store_with_model(tmp_path, _states(5, 30), MEANS)
+    elbow = population_fret_cloud_state_number_elbow(project, k_min=2, k_max=3, restarts=3, seed=11)
+    assert elbow.k_values.tolist() == [2, 3]
+    assert elbow.seed == 11
+    narrow = population_fret_cloud_state_number_elbow(project, time_range=(0.0, 14.0))
+    assert narrow.n_samples == 5 * 15
 
 
 def test_population_elbow_excludes_rejected(tmp_path) -> None:

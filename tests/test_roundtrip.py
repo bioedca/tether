@@ -307,6 +307,59 @@ def test_panel_connect_and_disconnect_spot_click(qtbot) -> None:
         assert len(panel.viewer.mouse_drag_callbacks) == n_before
 
 
+class _MouseEvent:
+    """A stand-in for the napari mouse event a drag callback holds.
+
+    napari calls a ``mouse_drag`` generator once with the press event and then
+    advances it on every move and on the release; the generator keeps reading the
+    same event object, whose ``type`` napari updates in place (it swaps the wrapped
+    event). This object models that: the test changes ``type`` between steps.
+    """
+
+    def __init__(self, position: tuple[float, ...]) -> None:
+        self.position = position
+        self.type = "mouse_press"
+
+
+def _drive_drag(callback, viewer, position, *, moves: int) -> None:
+    """Press at ``position``, send ``moves`` mouse_move steps, then release."""
+    event = _MouseEvent(position)
+    gen = callback(viewer, event)
+    next(gen)  # press
+    for _ in range(moves):
+        event.type = "mouse_move"
+        next(gen)
+    event.type = "mouse_release"
+    with pytest.raises(StopIteration):
+        next(gen)
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
+def test_panel_spot_click_fires_on_click_and_not_on_drag(qtbot) -> None:
+    # Drive the callback that connect_spot_click registers on the viewer, the way
+    # napari does: a press and a release with no move is a click and delivers the
+    # (row, col) of the press (the last two components of the napari position); a
+    # press, a move and a release is a pan and selects nothing (#745 IDZ-F12).
+    received: list[tuple[float, float]] = []
+    with open_movie(FIXTURE) as reader, NapariMoviePanel() as panel:
+        panel.add_movie(reader, name="m0")
+        n_before = len(panel.viewer.mouse_drag_callbacks)
+        panel.connect_spot_click(received.append)
+        (callback,) = panel.viewer.mouse_drag_callbacks[n_before:]
+
+        _drive_drag(callback, panel.viewer, (0.0, 20.0, 10.0), moves=0)
+        assert received == [(20.0, 10.0)]
+
+        _drive_drag(callback, panel.viewer, (0.0, 30.0, 5.0), moves=1)
+        _drive_drag(callback, panel.viewer, (0.0, 30.0, 5.0), moves=3)
+        assert received == [(20.0, 10.0)]  # panning never selects a molecule
+
+        _drive_drag(callback, panel.viewer, (7.0, 12.0), moves=0)  # a 2-D position
+        assert received == [(20.0, 10.0), (7.0, 12.0)]
+
+
 @pytest.mark.gui
 @_needs_napari
 @_needs_gl
@@ -327,7 +380,9 @@ def test_roundtrip_navigator_drives_real_panel_two_movies(qtbot) -> None:
             on_select=selected.append,
             on_focus=focused.append,
         )
+        n_before = len(panel.viewer.mouse_drag_callbacks)
         nav.connect()
+        (click_callback,) = panel.viewer.mouse_drag_callbacks[n_before:]
 
         # trace → movie: focusing mol2 (in m1) switches the active movie + centers
         assert panel.active_index == 0
@@ -340,3 +395,7 @@ def test_roundtrip_navigator_drives_real_panel_two_movies(qtbot) -> None:
         assert nav.handle_spot_click((20.0, 10.0)) == 2
         assert nav.handle_spot_click((50.0, 50.0)) == 3
         assert selected == [2, 3]
+        # ...and a real click on the canvas takes the same route: the callback that
+        # nav.connect() registered on the viewer selects mol2 (#745 IDZ-F12)
+        _drive_drag(click_callback, panel.viewer, (0.0, 20.0, 10.0), moves=0)
+        assert selected == [2, 3, 2]

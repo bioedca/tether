@@ -37,6 +37,17 @@ _WIN_ACTIVATION_DIRS = (
     r"%ENV_D%\bin",
 )
 
+#: The exact last line of each launcher, as ``post_install.bat`` echoes it (issue #747).
+#: The CLI launcher runs ``tether.exe`` in the same console; the GUI launcher hands off to
+#: the console-less ``tether-gui.exe`` with ``start ""`` (the empty title), so the console
+#: the Start Menu shortcut opens can close. ``%%*`` writes a literal ``%*``: every argument
+#: the launcher gets is forwarded. The install-smoke runs ``tether.bat`` but only checks
+#: that ``tether-gui.bat`` exists, so this is the one place the GUI line is pinned.
+_LAUNCHER_START_LINES = {
+    "tether.bat": r'"%ENV_D%\Scripts\tether.exe" %%*',
+    "tether-gui.bat": r'start "" "%ENV_D%\Scripts\tether-gui.exe" %%*',
+}
+
 
 def test_windows_launchers_put_the_env_folders_first_on_path() -> None:
     """Both Windows launchers activate the env's PATH for their own process (issue #553).
@@ -56,7 +67,7 @@ def test_windows_launchers_put_the_env_folders_first_on_path() -> None:
         f"got {env_path.group(1)}"
     )
     assert re.search(r'(?m)^set "ENV_D=%PREFIX%\\envs\\tether"$', text)
-    for launcher in ("tether.bat", "tether-gui.bat"):
+    for launcher, start_line in _LAUNCHER_START_LINES.items():
         lines = [
             ln.split(" echo ", 1)[1]
             for ln in text.splitlines()
@@ -69,43 +80,51 @@ def test_windows_launchers_put_the_env_folders_first_on_path() -> None:
             f"{launcher} must `setlocal`, then put ENV_PATH ahead of the user's PATH, "
             f"before it starts anything; got {body}"
         )
-        assert len(body) == 3 and "%ENV_D%\\Scripts\\" in body[2], body
+        assert body[2:] == [start_line], (
+            f"{launcher} must end by starting its own exe and forwarding every argument "
+            f"(`%%*`); expected {start_line!r}, got {body[2:]}"
+        )
     assert "setx" not in "\n".join(
         ln for ln in text.splitlines() if not ln.lstrip().lower().startswith("rem")
     ), "the installer must never edit the user's persistent PATH (ADR-0051)"
 
 
-def test_windows_shortcut_starts_the_gui_through_its_launcher() -> None:
-    """The Start Menu route gets the launcher's PATH too (issue #553).
+def test_windows_shortcut_starts_the_console_less_gui_exe_directly() -> None:
+    """The Start Menu shortcut targets ``tether-gui.exe`` itself (issue #579, ADR-0076).
 
-    A ``.lnk`` cannot set environment variables, so targeting ``tether-gui.exe`` directly
-    would start the GUI without the env's folders on PATH. It runs ``tether-gui.bat``,
-    minimized (``WindowStyle`` 7), and shows the Tether ``tether.ico`` rather than the
-    generic launcher's icon (issue #673; ``tests/test_gui_identity.py`` binds the path).
+    rc3's shortcut ran ``tether-gui.bat`` through ``cmd.exe`` (issues #553 and #578), so a
+    console window flashed before the GUI opened. The GUI now puts the env's folders first
+    on its own ``PATH`` at startup (``tests/test_gui_env_path.py``), so the shortcut can run
+    the console-less pip launcher with no ``cmd.exe``, no ``.bat`` and empty arguments. Start
+    lists a shortcut whose target is an ``.exe``; it did not list one aimed at the ``.bat``
+    (issue #578). The shortcut still shows the Tether ``tether.ico`` rather than the generic
+    launcher's icon (issue #673; ``tests/test_gui_identity.py`` binds the path).
     """
     text = POST_INSTALL_BAT.read_text(encoding="utf-8")
-    assert re.search(r'(?m)^set "TETHER_GUI_BAT=%BIN_D%\\tether-gui\.bat"$', text)
-    assert '"$s.TargetPath=$env:TETHER_GUI_EXE;"' not in text
-    assert '"$s.WindowStyle=7;"' in text
+    assert re.search(r'(?m)^set "TETHER_GUI_EXE=%ENV_D%\\Scripts\\tether-gui\.exe"$', text)
+    assert '"$s.TargetPath=$env:TETHER_GUI_EXE;"' in text
+    assert len(re.findall(r"\$s\.TargetPath=", text)) == 1, "one shortcut, one target"
+    code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().lower().startswith("rem"))
+    assert "CMD_EXE" not in code and "cmd.exe" not in code.lower()
+    # Cleared, not just left unset: CreateShortcut OPENS an existing .lnk, and rc3's still
+    # carries `/c ""<bat>""`, which tether-gui.exe's parser would reject (Codex, PR #827).
+    assert re.findall(r"\$s\.Arguments=[^;]*;", code) == ["$s.Arguments='';"], (
+        "the shortcut must set its arguments to empty, so an rc3 shortcut loses /c"
+    )
+    assert "TETHER_GUI_BAT" not in code
     assert "\"$s.IconLocation=$env:TETHER_ICO + ',0';\"" in text
 
 
-def test_windows_shortcut_targets_cmd_so_start_lists_it() -> None:
-    """The shortcut's target is ``cmd.exe``, never the ``.bat`` itself (issue #578).
+def test_windows_shortcut_opens_a_normal_window() -> None:
+    """``WindowStyle`` is 1, a normal window, not 7, minimized (issue #579).
 
-    rc3's shortcut pointed straight at ``tether-gui.bat``: the ``.lnk`` existed, but Start
-    listed no Tether under All apps or in search. The shortcut now targets
-    ``%SystemRoot%\\System32\\cmd.exe`` and hands it the launcher as ``/c ""<bat>""``, the
-    shape conda's own Anaconda Prompt shortcuts use and Start lists. cmd strips the outer
-    pair of quotes and keeps the inner pair, so a launcher path with spaces, ``&`` or
-    parentheses in it still runs as one argument. The quote characters are built in
-    PowerShell (``[char]34``) so none reaches cmd's parser of ``post_install.bat`` itself.
+    Style 7 minimized the ``.bat``'s console. With the GUI as the target it would minimize
+    the GUI: the pip launcher hands its startup info to ``pythonw``, and Windows applies the
+    shortcut's style to the first window the process shows, which is the splash.
     """
     text = POST_INSTALL_BAT.read_text(encoding="utf-8")
-    assert re.search(r'(?m)^set "CMD_EXE=%SystemRoot%\\System32\\cmd\.exe"$', text)
-    assert '"$s.TargetPath=$env:CMD_EXE;"' in text
-    assert '"$s.TargetPath=$env:TETHER_GUI_BAT;"' not in text
-    assert "\"$q=[char]34; $s.Arguments='/c ' + $q + $q + $env:TETHER_GUI_BAT + $q + $q;\"" in text
+    assert '"$s.WindowStyle=1;"' in text
+    assert '"$s.WindowStyle=7;"' not in text
 
 
 def test_windows_install_smoke_runs_blas_through_the_launcher() -> None:
@@ -121,3 +140,18 @@ def test_windows_install_smoke_runs_blas_through_the_launcher() -> None:
         "install_smoke.sh must run `tether.bat extract` on the committed tutorial movie"
     )
     assert 'test -f "$(cygpath -u "$smoke_project")"' in code
+
+
+def test_windows_install_smoke_installs_over_an_rc3_shortcut() -> None:
+    """The smoke seeds an rc3-format shortcut before installing (issue #579, PR #827).
+
+    ``CreateShortcut`` opens an existing ``.lnk``, so a field the installer does not set
+    keeps the earlier install's value. rc3's shortcut ran ``cmd.exe`` with ``/c`` arguments;
+    seeding one first makes the smoke's read-back of target, arguments and style prove the
+    installer overwrites every field.
+    """
+    code = _install_smoke_code_lines()
+    seed = code.index('$s.Arguments = "/c')
+    install = code.index('cmd /c "$(cygpath -w "$exe") /S /D=$prefix"')
+    readback = code.index("*'\\envs\\tether\\Scripts\\tether-gui.exe||1')")
+    assert seed < install < readback
