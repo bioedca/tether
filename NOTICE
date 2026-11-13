@@ -158,6 +158,48 @@ smfret-analysis2 test data  (GPL-3.0-only)  — the MATLAB analysis scripts of t
   tests/fixtures/smfret_analysis2/traces/1 tr242.dat
   tests/fixtures/smfret_analysis2/traces/1 tr245.dat
 
+Source Data of Campos-Chavez et al. (2024)  (CC-BY-NC-ND-4.0)  — Campos-Chavez,
+  Paul, Zhou, Alonso, Verma, Fei & Mondragón, "Translational T-box riboswitches
+  bind tRNA by modulating conformational flexibility," Nature Communications
+  15:6592 (2024), doi:10.1038/s41467-024-50885-x. Copyright 2024 The Author(s).
+  Source Data archive: 41467_2024_50885_MOESM4_ESM.zip, from
+  https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip
+  Tether bundles UNCHANGED copies of 26 members of that archive as test reference
+  data (#755, ADR-0083); the weekly reference-data job downloads the full archive
+  and compares each copy with its member, byte for byte:
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out
+    tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt
+    tests/fixtures/campos_chavez_2024/checkTDP.py
+    tests/fixtures/large/campos_chavez_2024/smFRET_SourceData/intraFRET_WT+WT_13uM.txt
+  These files are licensed CC BY-NC-ND 4.0 (see LICENSES/CC-BY-NC-ND-4.0.txt and
+  the REUSE.toml annotation), NOT GPL-3.0. They are for NON-COMMERCIAL use only,
+  and no adapted version of them may be shared. They are not part of Tether's
+  code, the wheel or the installers; only tests read them. A person who
+  distributes a copy of this repository for commercial purposes must remove the
+  two directories above first.
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------
@@ -206,8 +248,8 @@ SMD (Single-Molecule Dataset) format — Greenfeld, van de Meent, Pavlichin,
   (PRD §5.3).
 
 See CITATION.cff for machine-readable citation metadata: its `references:` list
-carries every work attributed above (the kinSoftChallenge paper and dataset
-included) plus the method papers a user is asked to cite alongside Tether. The
-published docs page "Citing Tether" (docs/citing.md) maps each part of the
+carries every work attributed above (the kinSoftChallenge paper and dataset,
+and the 2024 T-box paper and its Source Data, included) plus the method papers
+a user is asked to cite alongside Tether. The published docs page "Citing Tether" (docs/citing.md) maps each part of the
 pipeline to those papers. docs/PRD.md ("References") holds the complete
 bibliography.
