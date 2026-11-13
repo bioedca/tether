@@ -260,13 +260,32 @@ def test_gate_ships_on_separable_multivideo(tmp_path) -> None:
     assert result.shipped is True
 
 
-def test_gate_uplift_is_held_out_not_apparent(tmp_path) -> None:
-    # Sanity: the evaluated videos are scored by a model that never trained on them (the prior
-    # only ever grows), so the number is a genuine generalization measurement.
+def test_gate_uplift_is_held_out_not_apparent(tmp_path, monkeypatch) -> None:
+    # The evaluated videos are scored by a model that never trained on them (the prior only ever
+    # grows), so the number is a genuine generalization measurement. Spy on the fit and check the
+    # rows it trains on (#742 ML-F13): for each held-out video, exactly the earlier videos' rows.
+    import tether.ml.gbranker as _gbranker  # noqa: PLC0415
+
     proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=3, n_per_class=8)
+    folds = prequential_folds(proj)
+    assert [f.movie_id for f in folds] == ["mov-0", "mov-1", "mov-2"]
+
+    real_fit = _gbranker.train_quality_ranker
+    seen_x: list[np.ndarray] = []
+
+    def _spy(x, y, feature_names, **kwargs):
+        seen_x.append(np.array(x, dtype=np.float64, copy=True))
+        return real_fit(x, y, feature_names, **kwargs)
+
+    monkeypatch.setattr(_gbranker, "train_quality_ranker", _spy)
     result = ranker_prequential_uplift(proj, k=8)
-    # mov-0 folds into training but is never itself an evaluation unit.
-    assert "mov-0" not in {v.movie_id for v in result.per_video}
+
+    assert [v.movie_id for v in result.per_video] == ["mov-1", "mov-2"]
+    assert [x.shape[0] for x in seen_x] == [16, 32]  # mov-0 alone, then mov-0 + mov-1
+    np.testing.assert_array_equal(seen_x[0], np.asarray(folds[0].X))
+    np.testing.assert_array_equal(
+        seen_x[1], np.concatenate([np.asarray(folds[0].X), np.asarray(folds[1].X)])
+    )
 
 
 def test_custom_ship_bar_can_withhold_a_ship(tmp_path) -> None:
