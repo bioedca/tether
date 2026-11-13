@@ -90,10 +90,14 @@ function notes = known_redraw_error(err, out, job, step)
 %   MASH-FRET v1.3.6 draws its trace plot with the legend property IconColumnWidth
 %   (plotData>addleg2plot), which MATLAB R2023b does not have. exportResults calls that redraw
 %   (updateFields) only after it has written every file, so the export is complete. This
-%   accepts exactly that error, and only when every expected export file exists; any other
-%   error ends the run.
-names = {err.stack.name};
-known = contains(lower(err.message), 'iconcolumnwidth') && any(strcmp(names, 'plotData>addleg2plot'));
+%   accepts exactly that error (identifier MATLAB:legend:UnknownProperty, the property named
+%   in the message, raised in the local function addleg2plot of plotData.m: MATLAB gives the
+%   stack name without the file name and the file as a full path), and only when every
+%   expected export file exists; any other error ends the run.
+in_addleg = strcmp({err.stack.name}, 'addleg2plot') & ...
+    endsWith({err.stack.file}, [filesep 'plotData.m']);
+known = strcmp(err.identifier, 'MATLAB:legend:UnknownProperty') && ...
+    contains(lower(err.message), 'iconcolumnwidth') && any(in_addleg);
 if ~known
     rethrow(err);
 end

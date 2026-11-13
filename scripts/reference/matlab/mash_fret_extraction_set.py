@@ -18,9 +18,6 @@ the compressed video stays below the 512 KB limit of the repository's large-file
 
     python scripts/reference/matlab/mash_fret_extraction_set.py --clone PATH [--matlab EXE]
 
-(on Windows, ``EXE`` is ``<release>\\bin\\win64\\MATLAB.exe``, not the ``bin\\matlab.exe``
-launcher)
-
 writes ``tests/fixtures/reference/mash-fret/<scenario>/`` with a ``provenance.json`` each, and
 refuses an output directory that is not empty (the harness rule).
 """

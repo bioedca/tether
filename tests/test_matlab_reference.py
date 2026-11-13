@@ -261,10 +261,18 @@ def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
         assert pins[tool]["url"].startswith("https://github.com/")
 
 
-def test_the_standin_is_a_python_script() -> None:
+def test_the_standin_is_a_python_script(monkeypatch) -> None:
     # The harness runs a ``.py`` --matlab with this interpreter; any other value is executed.
     assert harness._matlab_cmd(STANDIN) == [sys.executable, str(Path(STANDIN).resolve())]
+    monkeypatch.setattr(harness.sys, "platform", "linux")
     assert harness._matlab_cmd("matlab") == ["matlab"]
+
+
+def test_on_windows_the_launcher_waits_for_matlab(monkeypatch) -> None:
+    # bin\matlab.exe returns at once unless it is given -wait (#714); the stand-in needs none.
+    monkeypatch.setattr(harness.sys, "platform", "win32")
+    assert harness._matlab_cmd("matlab") == ["matlab", "-wait"]
+    assert harness._matlab_cmd(STANDIN) == [sys.executable, str(Path(STANDIN).resolve())]
 
 
 def test_a_relative_matlab_path_survives_the_temporary_working_directory(
