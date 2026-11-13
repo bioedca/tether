@@ -106,23 +106,24 @@ if not exist "%BIN_D%" mkdir "%BIN_D%"
 rem Start Menu shortcut for the GUI. menuinst is not usable here: it attaches
 rem shortcuts to a CONDA package, and `tether` is an offline-pip-installed wheel, so
 rem menu_packages stays [] and the shortcut is created directly. It targets the
-rem tether-gui.bat launcher above, not tether-gui.exe, so the GUI gets the same PATH
-rem as every other route (issue #553): a shortcut cannot set environment variables
-rem itself. WindowStyle 7 starts the launcher's console minimized, and it closes as
-rem soon as `start` hands off to the console-less tether-gui.exe.
+rem console-less tether-gui.exe itself (issue #579, ADR-0076), so no console window
+rem appears. A shortcut cannot set environment variables, so the GUI puts the env's
+rem folders first on its own PATH at startup, before NumPy and MKL load
+rem (tether.gui.env_path; the step the launchers above take for issue #553).
+rem rc3 ran tether-gui.bat through cmd.exe instead, and its console flashed. Start
+rem lists a shortcut whose target is an .exe; it did not list one aimed at the .bat
+rem (issue #578). WindowStyle 1 is a normal window: the launcher hands its startup
+rem info to pythonw, and Windows applies that style to the FIRST window the GUI
+rem shows, so 7 (minimized) would start the splash minimized.
+rem Arguments is CLEARED, not left out: CreateShortcut opens an existing .lnk, and one
+rem left by an earlier install still carries `/c ""<bat>""`. tether-gui.exe would get
+rem those arguments, its parser would reject them, and the GUI would not open.
 rem
 rem The shortcut shows the Tether icon, tether.ico from the installed wheel (issue
 rem #673; tether.gui.identity.windows_icon_path). tether-gui.exe is a generic pip
 rem launcher without the Tether icon. The file is inside the prefix, so the uninstaller
 rem removes it with the rest of the installation.
 rem
-rem The shortcut's TARGET is cmd.exe, which runs the launcher as `/c ""<bat>""` (issue
-rem #578). rc3 pointed the shortcut straight at the .bat: the .lnk was created, but
-rem Start listed no Tether under All apps or in search. cmd.exe is the target conda's
-rem own Anaconda Prompt shortcuts use, and Start lists those. cmd strips the outer pair
-rem of quotes and keeps the inner pair, so a prefix containing spaces, & or ( ) still
-rem reaches it as one path. The quotes are built in PowerShell ([char]34) so none of
-rem them passes through this script's own cmd parsing.
 rem Paths are handed to PowerShell through the ENVIRONMENT, never interpolated into
 rem its source: a single apostrophe anywhere in %APPDATA% or %PREFIX% (e.g. a user
 rem named O'Brien) would close the single-quoted literal early and the shortcut would
@@ -137,21 +138,20 @@ rem not sent to nul, so the reason lands in the installer log if this fails agai
 set "SM_D=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tether"
 if not exist "%SM_D%" mkdir "%SM_D%"
 set "TETHER_LNK=%SM_D%\Tether.lnk"
-set "TETHER_GUI_BAT=%BIN_D%\tether-gui.bat"
-set "CMD_EXE=%SystemRoot%\System32\cmd.exe"
+set "TETHER_GUI_EXE=%ENV_D%\Scripts\tether-gui.exe"
 set "TETHER_ICO=%PREFIX%\envs\tether\Lib\site-packages\tether\gui\assets\brand\app-icon\tether.ico"
 set "TETHER_GUI_WD=%PREFIX%\envs\tether"
 set "PS_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 "%PS_EXE%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK);" ^
-  "$s.TargetPath=$env:CMD_EXE;" ^
-  "$q=[char]34; $s.Arguments='/c ' + $q + $q + $env:TETHER_GUI_BAT + $q + $q;" ^
+  "$s.TargetPath=$env:TETHER_GUI_EXE;" ^
+  "$s.Arguments='';" ^
   "$s.IconLocation=$env:TETHER_ICO + ',0';" ^
-  "$s.WindowStyle=7;" ^
+  "$s.WindowStyle=1;" ^
   "$s.WorkingDirectory=$env:TETHER_GUI_WD;" ^
   "$s.Description='Tether - single-molecule FRET analysis';" ^
   "$s.Save()"
-if errorlevel 1 echo WARNING: could not create the Start Menu shortcut; launch via %BIN_D%\tether-gui.bat
+if errorlevel 1 echo WARNING: could not create the Start Menu shortcut; launch via %TETHER_GUI_EXE%
 
 rem The shortcut carries the same AppUserModelID as the running window (issue #673;
 rem tether.gui.identity.WINDOWS_APP_ID). Without it, a shortcut pinned to the taskbar

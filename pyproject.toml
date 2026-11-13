@@ -46,7 +46,7 @@ dynamic = ["version"]
 # required `docs-build` gate and the `docs.yml` publish. An unpinned extra here was a
 # second, wrong copy of it — it lacked `mike` (#183).
 [project.optional-dependencies]
-test = ["pytest", "pytest-qt", "pytest-cov"]
+test = ["pytest", "pytest-qt", "coverage"]
 dev = ["ruff", "pre-commit", "reuse", "markdown-it-py"]
 
 # Console entry point (PRD §7.11 headless core). Stdlib argparse — no runtime
@@ -101,6 +101,21 @@ known-first-party = ["tether"]
 quote-style = "double"
 line-ending = "auto"
 
+# --- Coverage (the Linux leg of the CI `test` matrix; #724, ADR-0072) ----------
+# The floors are in `.github/coverage-floors.toml`. Two modules are left out by name, because
+# they never run in the base environment that the matrix uses:
+[tool.coverage.run]
+branch = true
+source_pkgs = ["tether"]
+relative_files = true
+omit = [
+  # Runs only in the isolated tMAVEN sidecar interpreter (PRD §4.3), started as a script by
+  # `tether.idealize.driver`; the base env cannot import tmaven.
+  "*/tether/idealize/_sidecar_runner.py",
+  # Imports torch at module top, so it runs only in the optional `deep/` stack (ADR-0047).
+  "*/tether/ml/deep/_torch_model.py",
+]
+
 # --- Pytest (CI `test` 3-OS matrix, PRD §12.6) -------------------------------
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -112,4 +127,5 @@ markers = [
   "sidecar: drives the live tMAVEN sidecar env (needs $TETHER_SIDECAR_PYTHON; never in the CI matrix).",
   "deep: drives the live torch deep-classifier env (deep/conda-lock.yml; the non-required deep.yml leg, never in the base matrix).",
   "workstation: needs private laboratory data; runs only from scripts/workstation/run_private_checks.py on the maintainer's workstation, never in a CI job (ADR-0071).",
+  "reference_download: downloads a reference data set of tests/reference_data/manifest.toml (the weekly reference-data.yml job, never in the required matrix; ADR-0073).",
 ]

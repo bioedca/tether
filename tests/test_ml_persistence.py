@@ -18,6 +18,7 @@ import operator
 import pickle
 import warnings
 import zipfile
+from datetime import UTC, datetime
 
 import pytest
 
@@ -66,6 +67,10 @@ def _repack(src, dst, *, manifest=None, model_bytes=None) -> None:
 
 
 FEATURES = ("f0", "f1", "f2")
+
+#: A model member no unpickle can read: a refusal that still names a manifest fault was raised
+#: before the pickle was touched.
+_NOT_A_PICKLE = b"\x00 not a pickle \x00"
 
 
 def _separable(
@@ -138,6 +143,12 @@ def test_round_trip_preserves_provenance(tmp_path) -> None:
     assert loaded.n_train == model.n_train
     assert loaded.n_good == model.n_good
     assert loaded.hyperparams == hp
+    # ML-F8: the recorded hyperparams must be the ones the estimator was fit with, before and
+    # after the round trip (the provenance field alone is a copy of the argument).
+    for ranker in (model.ranker, loaded.ranker):
+        assert ranker._model.get_params()["max_iter"] == 40
+        assert ranker._model.get_params()["random_state"] == 5
+        assert ranker._model.n_iter_ == 40
     assert loaded.created_utc == model.created_utc
     assert loaded.updated_utc == model.updated_utc
     assert loaded.tether_version == model.tether_version
@@ -204,6 +215,44 @@ def test_warm_start_retrain_advances_provenance() -> None:
     # The input model is frozen — untouched by the retrain.
     assert model1.n_retrains == 0
     assert model1.videos_seen == ("v1",)
+
+
+_T0 = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+_T1 = datetime(2026, 2, 3, 4, 5, 6, tzinfo=UTC)
+
+
+def test_warm_start_retrain_refreshes_updated_utc_only() -> None:
+    # ML-F11: the retrain stamps ``updated_utc`` with its own time and keeps ``created_utc`` from
+    # the first fit (the warm_start_retrain docstring); both times are injected, so a retrain that
+    # carries the old ``updated_utc`` forward fails here.
+    X, y, _ = _overlapping(20, seed=1)
+    names = ("f0", "f1", "f2", "f3")
+    model1 = train_portable_model(X, y, names, condition_id="c", now=_T0)
+    assert model1.created_utc == _T0.isoformat()
+    assert model1.updated_utc == _T0.isoformat()
+    model2 = warm_start_retrain(model1, X, y, names, video_id="v2", now=_T1)
+    assert model2.created_utc == _T0.isoformat()
+    assert model2.updated_utc == _T1.isoformat()
+    assert model1.updated_utc == _T0.isoformat()  # the input model stays frozen
+
+
+def test_warm_start_retrain_fits_with_the_given_hyperparams() -> None:
+    # ML-F8: a ``hyperparams=`` override on the retrain reaches the fitted estimator and the
+    # provenance; without one the model's own hyperparams are carried forward.
+    X, y, _ = _overlapping(20, seed=1)
+    names = ("f0", "f1", "f2", "f3")
+    model1 = train_portable_model(
+        X, y, names, condition_id="c", hyperparams=RankerHyperparams(max_iter=15)
+    )
+    assert model1.ranker._model.n_iter_ == 15
+    carried = warm_start_retrain(model1, X, y, names)
+    assert carried.hyperparams == RankerHyperparams(max_iter=15)
+    assert carried.ranker._model.n_iter_ == 15
+    override = RankerHyperparams(max_iter=7, random_state=3)
+    changed = warm_start_retrain(model1, X, y, names, hyperparams=override)
+    assert changed.hyperparams == override
+    assert changed.ranker._model.get_params()["max_iter"] == 7
+    assert changed.ranker._model.n_iter_ == 7
 
 
 def test_warm_start_retrain_dedups_revisited_video() -> None:
@@ -393,7 +442,9 @@ def test_non_ranker_pickle_raises_corrupt(tmp_path) -> None:
 
 def test_wrong_typed_manifest_field_raises_corrupt(tmp_path) -> None:
     # A manifest whose format_version is fine but a provenance field is the wrong type is refused —
-    # and, per the security contract, before the model member is unpickled.
+    # and, per the security contract, before the model member is unpickled. ML-F9: the model
+    # member is un-unpicklable garbage (as in the format-version test), so only a refusal raised
+    # on the manifest alone can carry the "wrong type" message.
     X, y, _ = _separable()
     good = tmp_path / "good.tethermodel"
     save_model(train_portable_model(X, y, FEATURES, condition_id="c"), good)
@@ -401,7 +452,7 @@ def test_wrong_typed_manifest_field_raises_corrupt(tmp_path) -> None:
         manifest = json.loads(zf.read("manifest.json"))
     manifest["n_retrains"] = "five"  # int expected
     bad = tmp_path / "bad.tethermodel"
-    _repack(good, bad, manifest=manifest)
+    _repack(good, bad, manifest=manifest, model_bytes=_NOT_A_PICKLE)
     with pytest.raises(CorruptModelError, match="wrong type"):
         load_model(bad)
 
@@ -414,7 +465,8 @@ def test_malformed_hyperparams_raise_corrupt(tmp_path) -> None:
         manifest = json.loads(zf.read("manifest.json"))
     del manifest["hyperparams"]["max_iter"]  # a required hyperparameter key
     bad = tmp_path / "bad.tethermodel"
-    _repack(good, bad, manifest=manifest)
+    # ML-F9: garbage model member, so the refusal must come before the unpickle.
+    _repack(good, bad, manifest=manifest, model_bytes=_NOT_A_PICKLE)
     with pytest.raises(CorruptModelError, match="hyperparam"):
         load_model(bad)
 

@@ -30,8 +30,11 @@ DOCS = _REPO / "docs"
 
 BLOB_URL = "https://github.com/bioedca/tether/blob/main/docs/PRD.md"
 
-#: A mention of the excluded document, anywhere in a page.
-_MENTION = re.compile(r"docs/PRD\.md")
+#: A mention of the excluded document, anywhere in a page, in any spelling: the repository
+#: path ``docs/PRD.md``, a relative link such as ``../PRD.md`` or ``PRD.md#anchor``, or the bare
+#: file name. Only the literal path was seen before #751. The look-behind keeps a longer file
+#: name such as ``NOT-PRD.md`` out.
+_MENTION = re.compile(r"(?<![\w-])PRD\.md")
 
 #: A bare backticked token -- a path or glob and nothing else.
 _BACKTICKED = re.compile(r"^`[^`]+`$")
@@ -113,7 +116,10 @@ def test_no_published_page_points_at_the_unserved_prd() -> None:
 def test_the_guard_reports_a_bare_pointer() -> None:
     """An absence-assertion is worthless unless presence is shown, so both forms are pinned."""
     assert _unresolved_mentions("See `docs/PRD.md` §12.5 for the lifecycle.")
-    assert _unresolved_mentions("See [the spec](../PRD.md) and docs/PRD.md §7.")
+    assert _unresolved_mentions("See [the spec](../PRD.md).")
+    assert _unresolved_mentions("See docs/PRD.md §7.")
+    assert _unresolved_mentions("See [the spec](PRD.md#12-5).")
+    assert _unresolved_mentions("See `PRD.md` section 12.5 for the lifecycle.")
     assert not _unresolved_mentions(f"See the [product spec]({BLOB_URL}) §12.5.")
     # The scope-enumeration form, which is a rule's operand rather than a citation.
     assert not _unresolved_mentions(

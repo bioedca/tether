@@ -317,8 +317,34 @@ def test_shell_conditions_menu_wired_and_reports_no_project(qtbot) -> None:
 
     shell = TetherShell()  # no conditions seam
     qtbot.addWidget(shell.window)
-    assert shell.conditions_menu is not None
-    assert shell._act_validate_conditions is not None
-    # With no project the menu handler reports it (and opens no modal).
-    shell._validate_conditions_dialog()
+    actions = {a.text(): a for a in shell.conditions_menu.actions()}
+    assert list(actions) == ["Validate &conditions…"]
+    # Trigger the menu action itself, so a disconnected action fails here: with no
+    # project the handler reports it (and opens no modal).
+    actions["Validate &conditions…"].trigger()
     assert "load a project" in shell.window.statusBar().currentMessage().lower()
+
+
+def test_shell_conditions_menu_opens_the_validation_dialog(qtbot, monkeypatch) -> None:
+    import tether.gui.conditions as conditions_mod
+    from tether.gui.shell import TetherShell
+
+    opened = []
+
+    class _Dialog:
+        """Stands in for the modal editor; records what the menu handler passed."""
+
+        def __init__(self, project, *, writer_guard, parent):
+            opened.append((project, parent))
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr(conditions_mod, "ConditionValidationDialog", _Dialog)
+    seam = object()
+    shell = TetherShell(conditions=seam)
+    qtbot.addWidget(shell.window)
+    shell.conditions_menu.actions()[0].trigger()
+    assert opened == [(seam, shell.window)]
+    assert "Conditions validation closed" in shell.window.statusBar().currentMessage()
+    shell.close()
