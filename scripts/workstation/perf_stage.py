@@ -31,17 +31,32 @@ STAGES = ("extract", "correct", "idealize", "analysis", "save", "export", "selft
 SELFTEST_BYTES = 64 << 20
 
 
+def _win32():
+    """kernel32 and psapi with argument types, so a 64-bit handle is never cut to an int."""
+    import ctypes
+    from ctypes import wintypes
+
+    handle, dword, ptr = ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = handle
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.CreateJobObjectW.restype = handle
+    kernel32.CreateJobObjectW.argtypes = [ptr, ctypes.c_wchar_p]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [handle, handle]
+    kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    kernel32.QueryInformationJobObject.argtypes = [handle, ctypes.c_int, ptr, dword, ptr]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    psapi.GetProcessMemoryInfo.argtypes = [handle, ptr, dword]
+    return kernel32, psapi
+
+
 def _windows_job():
     """A job object that holds this process (and so its children), or ``None``."""
-    import ctypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
-    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32, _ = _win32()
     job = kernel32.CreateJobObjectW(None, None)
-    if not job:
-        return None
-    if not kernel32.AssignProcessToJobObject(ctypes.c_void_p(job), kernel32.GetCurrentProcess()):
+    if not job or not kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess()):
         return None
     return job
 
@@ -50,6 +65,7 @@ def _windows_peak(job) -> int:
     import ctypes
     from ctypes import wintypes
 
+    kernel32, psapi = _win32()
     size_t = ctypes.c_size_t
     if job is not None:
 
@@ -73,8 +89,8 @@ def _windows_peak(job) -> int:
             ]
 
         info = _Extended()
-        ok = ctypes.windll.kernel32.QueryInformationJobObject(
-            ctypes.c_void_p(job), 9, ctypes.byref(info), ctypes.sizeof(info), None
+        ok = kernel32.QueryInformationJobObject(
+            job, 9, ctypes.byref(info), ctypes.sizeof(info), None
         )  # 9 = JobObjectExtendedLimitInformation
         if ok:
             return int(info.peak_job)
@@ -91,8 +107,7 @@ def _windows_peak(job) -> int:
 
     counters = _Counters()
     counters.cb = ctypes.sizeof(counters)
-    process = ctypes.windll.kernel32.GetCurrentProcess()
-    ctypes.windll.psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb)
+    psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb)
     return int(counters.peak_pagefile)
 
 
