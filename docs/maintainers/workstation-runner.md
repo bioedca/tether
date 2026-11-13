@@ -57,10 +57,11 @@ uses only the Python standard library.
     python <state>/clone/scripts/workstation/run_private_checks.py run --state <state> --data <data folder>
     ```
 
-4. Make the schedule with one of the two methods below. Both run weekly, and both start a
-   missed run at the next start of the computer. The weekly run always runs. Only the catch-up
-   run of the cron method uses `--min-interval-hours 144`, so it does nothing when a run was
-   less than 6 days ago, and it can never move or skip the next weekly run.
+4. Make the schedule with one of the two methods below. Both run each night, because the
+   speed history (below) needs one record each night (maintainer decision of 2026-11-11, #723).
+   Both start a missed run at the next start of the computer. The nightly run always runs. Only
+   the catch-up run of the cron method uses `--min-interval-hours 20`, so it does nothing when a
+   run was less than 20 hours ago, and it can never move or skip the next nightly run.
 
 **Windows (Task Scheduler).** In PowerShell, as the maintainer:
 
@@ -71,23 +72,25 @@ $script = "$state\clone\scripts\workstation\run_private_checks.py"
 $python = (Get-Command python).Source
 $arguments = "`"$script`" run --state `"$state`" --data `"$data`""
 $action = New-ScheduledTaskAction -Execute $python -Argument $arguments
-$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At 3am
+$trigger = New-ScheduledTaskTrigger -Daily -At 3am
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
   -ExecutionTimeLimit (New-TimeSpan -Hours 12)
 Register-ScheduledTask -TaskName "Tether private checks" -Action $action -Trigger $trigger `
   -Settings $settings
 ```
 
-`-StartWhenAvailable` is the catch-up: it starts a missed weekly run when the computer is
-available again, and the next weekly run still starts on time. If `micromamba` is not on the
+`-StartWhenAvailable` is the catch-up: it starts a missed nightly run when the computer is
+available again, and the next nightly run still starts on time. A task that you installed with
+the older weekly trigger changes with
+`Set-ScheduledTask -TaskName "Tether private checks" -Trigger (New-ScheduledTaskTrigger -Daily -At 3am)`. If `micromamba` is not on the
 `PATH` of the task, add `--micromamba <full path>` to `$arguments`. The runner puts the
 environment's own folders first on `PATH` for the checks, as `conda activate` does.
 
 **WSL (cron).** Run `crontab -e` and add two lines (one line each):
 
 ```text
-0 3 * * 6 python3 "$HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py" run --state "$HOME/tether-workstation" --data "<data folder>" --micromamba "<micromamba path>" >> "$HOME/tether-workstation/logs/cron.log" 2>&1
-@reboot sleep 600 && python3 "$HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py" run --state "$HOME/tether-workstation" --data "<data folder>" --micromamba "<micromamba path>" --min-interval-hours 144 >> "$HOME/tether-workstation/logs/cron.log" 2>&1
+0 3 * * * python3 "$HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py" run --state "$HOME/tether-workstation" --data "<data folder>" --micromamba "<micromamba path>" >> "$HOME/tether-workstation/logs/cron.log" 2>&1
+@reboot sleep 600 && python3 "$HOME/tether-workstation/clone/scripts/workstation/run_private_checks.py" run --state "$HOME/tether-workstation" --data "<data folder>" --micromamba "<micromamba path>" --min-interval-hours 20 >> "$HOME/tether-workstation/logs/cron.log" 2>&1
 ```
 
 cron starts a command with a short `PATH`, so give the full path of `micromamba`: the output of
@@ -174,3 +177,99 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
 
 The required CI matrix runs the same dry run in `tests/test_workstation_runner.py`, and
 `tests/test_marker_contract.py` keeps every CI job from selecting a `workstation` test.
+
+## The speed history
+
+A scheduled run also measures speed and memory on the workstation (#723). The CI comparison of
+#722 finds a large regression in one pull request; the history finds a slow drift over many
+changes, on the computer that is the reference for speed (maintainer decision Q28).
+
+**What a run measures.**
+
+1. `tests/test_workstation_perf.py` runs the full pipeline on each acquisition whose neutral id
+   has the role `speed` in the mapping file: extraction, corrections, idealization, analysis,
+   save and export. Give the role to at least three full acquisitions. The roles `tmap` and
+   `tdat` of the same id, when they are present, go to the extraction:
+
+    ```json
+    {"lab-11": {"speed": "series-b/acquisition-11.tif", "tmap": "series-b/beads.tmap"}}
+    ```
+
+    Each stage runs in its own process (`scripts/workstation/perf_stage.py`), so each stage has
+    its own peak memory. Idealization uses the sidecar: add
+    `--sidecar-python <the python of a sidecar environment>` to the arguments of the task, or
+    set `TETHER_SIDECAR_PYTHON` for your account. An installed Tether has one in its
+    `envs/sidecar` folder; `scripts/setup_sidecar.py` builds one from a checkout.
+2. The runner runs the benchmark suite of #722 (`benchmarks/bench.py`, groups `default` and
+   `gui`, one round) on the same commit.
+3. It appends one record to `<state>/perf-history.jsonl`, one JSON object on each line.
+
+**A record** (format `tether-workstation-history/1`, checked by `tests/test_perf_history.py`)
+holds these fields and nothing more:
+
+| Field | What it holds |
+|---|---|
+| `schema`, `commit`, `on_main`, `date` | the format, the 40-hex commit, `true` for a verified commit of `main`, the UTC time |
+| `hardware` | operating system, machine, processor, processor count, memory, `disk` (`ssd` or `hdd`, the disk of the data folder) and `gpu` |
+| `acquisitions` | for each neutral id: `<stage>_s` and `<stage>_peak_bytes` for the six stages, and `tether_bytes` |
+| `benchmarks` | for each case and size of #722 (`extraction/large`): `time_s` and `peak_bytes` |
+| `projection` | `per_movie_s` (the median over the acquisitions of extraction + corrections + idealization), `condition_movies` (100), `condition_hours`, `window_hours` (12, ADR-0032) and `fits_window` |
+
+On Linux a peak is the peak resident set of the stage process or of one of its children. On
+Windows it is the peak committed memory of the stage process and its children together. Compare
+values only on one computer.
+
+The history holds neutral ids, stage names, case names and numbers: no file name and no trace.
+The runner refuses to write a record that contains a name of the mapping file. So you can attach
+a copy of the history, or its plot, to an issue.
+
+**The report rule** (maintainer decision Q27). A value is a slowdown when it is larger than 1.2
+times the median of the same value in the last 10 records of `main` on the same hardware
+(processor, memory, disk, GPU). A value with fewer than 3 earlier values only records. A peak
+memory below 1 MiB only records. The runner adds two checks to the result file:
+
+- `perf-history/acquisitions` fails on a slowdown of an acquisition value, and when the
+  projection does not fit the overnight window. Its datasets give `<value>_ratio` for each
+  slowdown.
+- `perf-history/benchmarks` fails on a slowdown of a benchmark value.
+
+A check that fails opens or updates its issue through the steps above (#698). A history that
+cannot be read gives both checks the outcome `error`; the runner does not change that file.
+
+**See the history.** Run these with the Tether environment:
+
+```sh
+python <state>/clone/scripts/workstation/perf_history.py <state>/perf-history.jsonl
+python <state>/clone/scripts/workstation/plot_perf_history.py <state>/perf-history.jsonl --out history.png
+```
+
+The first prints the newest record's projection and its slowdowns. The second draws the stage
+times, the stage peaks and the projection for each record of `main`.
+
+**Show that the rule works.** The runner runs only commits of `main`. To show a slowdown, make a
+throw-away branch in a scratch clone of the repository, not in the runner's clone, and make one
+stage slower there. Copy the history, then run from that scratch clone:
+
+```sh
+python scripts/workstation/run_private_checks.py run --dry-run --speed --state <scratch state> --data <data folder> --history <copy of the history>
+```
+
+A dry run measures the code of the checkout that you start it from. The record that it appends
+says `on_main: false`, so it is never part of a median. The
+result shows `perf-history/acquisitions` failed, with the ratio of the slower stage.
+
+**The workstation and the reference hardware.** PRD §8 names a laptop as the reference hardware
+floor. The workstation is the reference computer for speed (Q28). These are the differences, so
+a reader can scale a time from the history:
+
+| | PRD §8 reference floor | Workstation |
+|---|---|---|
+| Processor | not named | WORKSTATION_CPU |
+| Memory | 16 GB | WORKSTATION_RAM |
+| Disk | spinning hard disk drive, about 100 GB free | WORKSTATION_DISK |
+| GPU | NVIDIA RTX 4060 Laptop GPU, 8 GB | WORKSTATION_GPU |
+
+WORKSTATION_DIFFERENCES
+
+The hardware of each record is in its `hardware` field, so a change of the workstation shows in
+the history and starts a new baseline.
