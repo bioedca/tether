@@ -13,10 +13,14 @@ the specific ways this file has actually been wrong:
 * it carried no named person at all, only the ``The Tether Authors`` entity; and
 * that entity carried ``affiliation``, which CFF 1.2.0 allows on a *person* but not on
   an *entity* — so the file failed schema validation while looking perfectly reasonable.
+
+A key that is present but empty is as unusable as a missing one, so the guards check
+values, not keys (#751).
 """
 
 from __future__ import annotations
 
+import datetime
 import re
 from pathlib import Path
 
@@ -45,6 +49,14 @@ _ENTITY_KEYS = {
 
 _ORCID_RE = re.compile(r"^https://orcid\.org/\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
 
+#: Tether is archived on Zenodo, so its DOI is always a Zenodo one (ADR and file comments).
+_ZENODO_DOI_RE = re.compile(r"10\.5281/zenodo\.\d+")
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+#: The pages the file's own comment says "carry the same value" as its ``doi``.
+_DOI_MIRRORS = ("README.md", "docs/citing.md")
+
 
 def _citation() -> dict:
     return yaml.safe_load(CITATION.read_text(encoding="utf-8"))
@@ -52,6 +64,17 @@ def _citation() -> dict:
 
 def _authors() -> list[dict]:
     return _citation().get("authors") or []
+
+
+def _filled(value: object) -> bool:
+    """A string or number that holds text after stripping.
+
+    ``""``, ``"  "``, ``None``, booleans and collections (``[]``, ``{}``) do not: a name or a
+    version is a scalar, and ``str([])`` would otherwise read as text.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return False
+    return bool(str(value).strip())
 
 
 def test_citation_parses_and_has_authors() -> None:
@@ -66,10 +89,13 @@ def test_at_least_one_named_person() -> None:
     citation that credits no identifiable person, which is the state this guard exists
     to prevent recurring. Zenodo and JOSS both reject it.
     """
-    people = [a for a in _authors() if "given-names" in a and "family-names" in a]
+    people = [
+        a for a in _authors() if _filled(a.get("given-names")) and _filled(a.get("family-names"))
+    ]
     assert people, (
-        "CITATION.cff names no human author — every entry is an entity. GitHub's "
-        "'Cite this repository' output, Zenodo and JOSS all require named people."
+        "CITATION.cff names no human author with both name parts filled in — every entry "
+        "is an entity or has an empty name. GitHub's 'Cite this repository' output, Zenodo "
+        "and JOSS all require named people."
     )
 
 
@@ -122,4 +148,53 @@ def test_release_fields_are_all_or_nothing() -> None:
         "CITATION.cff release fields must be added together — present: "
         f"{present}, missing: {[k for k in release_fields if k not in cff]}. "
         "See the ordered release procedure in the file's own comments."
+    )
+
+
+def test_release_fields_hold_usable_values() -> None:
+    """When the release fields are present, each one holds a value a reader can use.
+
+    The all-or-nothing guard above checks only that the keys exist, so ``version: ""`` or
+    ``doi: ""`` would pass it and still ship a citation that resolves to nothing.
+    """
+    cff = _citation()
+    if "doi" not in cff:
+        return  # the pre-release state; the all-or-nothing guard owns that case
+    assert _filled(cff.get("version")), f"CITATION.cff `version` is empty: {cff.get('version')!r}"
+    released = str(cff.get("date-released") or "").strip()
+    assert _ISO_DATE_RE.match(released), (
+        f"CITATION.cff `date-released` is not an ISO 8601 date (YYYY-MM-DD): {released!r}"
+    )
+    try:
+        datetime.date.fromisoformat(released)
+    except ValueError:
+        raise AssertionError(
+            f"CITATION.cff `date-released` is not a real calendar date: {released!r}"
+        ) from None
+    doi = str(cff.get("doi") or "").strip()
+    assert _ZENODO_DOI_RE.fullmatch(doi), (
+        f"CITATION.cff `doi` is not a Zenodo DOI (10.5281/zenodo.N): {doi!r}"
+    )
+
+
+def test_the_doi_matches_the_pages_that_repeat_it() -> None:
+    """README.md and docs/citing.md cite the same concept DOI as ``CITATION.cff``.
+
+    The file's own comment says these pages "carry the same value". Nothing else reads
+    the file, so a changed DOI in one place and not the others would publish two
+    different citations for one archive.
+    """
+    cff = _citation()
+    if "doi" not in cff:
+        return
+    doi = str(cff["doi"]).strip()
+    root = CITATION.parent
+    mismatched = {}
+    for rel in _DOI_MIRRORS:
+        found = set(_ZENODO_DOI_RE.findall((root / rel).read_text(encoding="utf-8")))
+        if found != {doi}:
+            mismatched[rel] = sorted(found)
+    assert not mismatched, (
+        f"CITATION.cff cites {doi}, but these pages cite other or no Zenodo DOIs "
+        f"(page: DOIs found): {mismatched}"
     )

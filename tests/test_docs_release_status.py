@@ -18,6 +18,11 @@ false on the next publication just the same. The row now answers "Where is it an
 with a link and lets the Releases page be the source of truth about itself, which retires
 #240's second criterion and the test that pinned it.
 
+#584 found the same defect in ``SECURITY.md``: it said "The newest tag is ``v0.8.0``" and
+listed "``v0.8.0`` (latest tag)" as supported, three published release candidates later.
+The last tests here forbid that shape too: the policy may name a tag, but never as the
+newest one.
+
 Dependency-free and stdlib-only, so it runs on the base 3-OS ``test`` matrix.
 """
 
@@ -29,6 +34,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parents[1]
 STABILITY = _REPO / "docs" / "stability.md"
 RELEASE = _REPO / "docs" / "release.md"
+SECURITY = _REPO / "SECURITY.md"
 
 RC1_URL = "https://github.com/bioedca/tether/releases/tag/v1.0.0-rc1"
 
@@ -156,3 +162,51 @@ def test_the_two_release_pages_agree_about_the_retained_prerelease() -> None:
     assert "github.com/bioedca/tether/releases" in stability, (
         "the announcement row must keep pointing readers at the GitHub release notes"
     )
+
+
+#: A specific tag, with or without its backticks: ``v0.8.0``, ``v1.0.0-rc3``.
+_TAG = r"`?v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?`?"
+_NEWEST = r"(?:newest|latest|most\s+recent)"
+_RELEASE_NOUN = r"(?:published\s+)?(?:tag|release|pre-?release)"
+
+#: A specific tag named as the newest one. Each form is a statement that the next tag
+#: falsifies without any edit to the page:
+#: "the newest tag is v0.8.0", "v0.8.0 is the latest tag", "v0.8.0 (latest tag)".
+_NAMED_NEWEST = re.compile(
+    rf"{_NEWEST}\s+{_RELEASE_NOUN}\s*(?:\bis\b|\bwas\b|:)?\s*{_TAG}"
+    rf"|{_TAG}\s+(?:is|was)\s+the\s+{_NEWEST}"
+    rf"|{_TAG}\s*\((?:the\s+)?{_NEWEST}\b[^)]*\)",
+    re.IGNORECASE,
+)
+
+
+def _named_newest(text: str) -> list[str]:
+    """Each place the text names a specific tag as the newest one.
+
+    Whitespace is collapsed first, so a sentence wrapped across lines is still one sentence.
+    """
+    return [m.group(0) for m in _NAMED_NEWEST.finditer(" ".join(text.split()))]
+
+
+def test_the_security_policy_names_no_tag_as_the_newest() -> None:
+    """#584: the supported-versions section says "newest published release", not a tag."""
+    offenders = _named_newest(SECURITY.read_text(encoding="utf-8"))
+    assert not offenders, (
+        "SECURITY.md names a specific tag as the newest one, which goes stale on the next "
+        "tag; point at the Releases page instead (#584): "
+        f"{offenders}"
+    )
+
+
+def test_the_security_guard_reports_the_wording_it_replaced() -> None:
+    """Presence before absence: the #584 wordings fail, the policy's other tag uses do not."""
+    assert _named_newest("`v1.0.0` has not been tagged yet. The newest tag is\n`v0.8.0`, so")
+    assert _named_newest("| `v0.8.0` (latest tag)   | :white_check_mark: until `v1.0.0` |")
+    assert _named_newest("v1.0.0-rc3 is the latest pre-release")
+    assert _named_newest("the most recent published release: `v1.0.0-rc3`")
+    # The changeover rule names `v1.0.0` beside "latest" without calling it the newest.
+    assert not _named_newest(
+        "**From `v1.0.0` onward:** security fixes land on the `1.x` line — the latest\n"
+        "`main` and the most recent `1.x` release receive them"
+    )
+    assert not _named_newest("| newest published pre-release | :white_check_mark: |")

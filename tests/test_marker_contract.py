@@ -528,13 +528,14 @@ def test_the_required_matrix_runs_every_test_but_the_tier_markers() -> None:
     assert (job.get("strategy") or {}).get("matrix", {}).get("os") == REQUIRED_MATRIX_OS, job
     step = _the_pytest_step(CI_WORKFLOW, "test")
     lines = _command_lines(step["run"])
-    linux = r'xvfb-run -a pytest -v -m "([^"]+)"(' + _JUNIT_REPORT + ")"
+    # The Linux leg alone runs the same command under `coverage run -m` (#724, ADR-0072).
+    linux = r'xvfb-run -a coverage run -m pytest -v -m "([^"]+)"(' + _JUNIT_REPORT + ")"
     match = re.fullmatch(linux, lines[1]) if len(lines) > 1 else None
     assert match, f"the matrix step must keep its Linux/other two-line form: {lines}"
     expression, report = match.groups()
     assert lines == [
         'if [ "${RUNNER_OS}" = "Linux" ]; then',
-        f'xvfb-run -a pytest -v -m "{expression}"{report}',
+        f'xvfb-run -a coverage run -m pytest -v -m "{expression}"{report}',
         "else",
         f'pytest -v -m "{expression}"{report}',
         "fi",
@@ -978,6 +979,25 @@ def test_deep_gpu_leg_targets_a_self_hosted_runner() -> None:
     lines = DEEP_GPU_WORKFLOW.read_text(encoding="utf-8").splitlines()
     assert any(ln.strip() == "- self-hosted" for ln in lines), (
         "deep-gpu.yml must target a self-hosted (GPU) runner (a `- self-hosted` runs-on entry)"
+    )
+
+
+def test_deep_gpu_leg_fails_rather_than_skips_without_cuda() -> None:
+    """Without a CUDA device the GPU leg fails before pytest, so green means the GPU tests ran.
+
+    ``tests/test_deep_gpu_deep.py`` self-skips when torch sees no CUDA device; a run with only
+    those skips would otherwise be green (#752, ML-U1). The guard is a step before the pytest step
+    that exits non-zero when ``torch.cuda.is_available()`` is false.
+    """
+    lines = DEEP_GPU_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    code = [ln.strip() for ln in lines if not ln.lstrip().startswith("#")]
+    pytest_at = next(i for i, ln in enumerate(code) if "pytest -m deep" in ln)
+    before = code[:pytest_at]
+    assert "if not available:" in before, "deep-gpu.yml must test for a missing CUDA device"
+    check_at = before.index("if not available:")
+    assert any(ln.startswith("available = torch.cuda.is_available()") for ln in before[:check_at])
+    assert before[check_at + 1].startswith("sys.exit("), (
+        "deep-gpu.yml must exit non-zero (sys.exit with a message) when no CUDA device is visible"
     )
 
 

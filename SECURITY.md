@@ -2,9 +2,11 @@
 
 ## Supported versions
 
-**Today:** `v1.0.0` has not been tagged yet. The newest tag is `v0.8.0`, so
-security fixes land on the latest `main` and, where a release is warranted, on a
-new tag cut from it. Older `0.x` tags are not back-patched.
+**Today:** `v1.0.0` has not been tagged yet. Security fixes land on the latest
+`main` and on the newest published release, which is a pre-release (see the
+[Releases page](https://github.com/bioedca/tether/releases)). Where a release is
+warranted, the fix ships in a new tag cut from `main`. Older `0.x` tags and older
+pre-releases are not back-patched.
 
 **From `v1.0.0` onward:** security fixes land on the `1.x` line — the latest
 `main` and the most recent `1.x` release receive them, and a fix is shipped as a
@@ -22,13 +24,13 @@ The table below is read against that changeover: the `0.x` rows apply until
 `v1.0.0` is tagged, the `1.x` rows from then on. No release line is supported on
 both sides of it.
 
-| Version                 | Supported                             |
-|-------------------------|---------------------------------------|
-| `main` (latest)         | :white_check_mark: always              |
-| `v0.8.0` (latest tag)   | :white_check_mark: until `v1.0.0`; :x: after |
-| older `0.x` tags        | :x:                                    |
-| `1.x` (latest release)  | :white_check_mark: once `v1.0.0` ships |
-| older `1.x` tags        | :x:                                    |
+| Version                           | Supported                                    |
+|-----------------------------------|----------------------------------------------|
+| `main` (latest)                   | :white_check_mark: always                    |
+| newest published pre-release      | :white_check_mark: until `v1.0.0`; :x: after |
+| older `0.x` tags and pre-releases | :x:                                          |
+| `1.x` (latest release)            | :white_check_mark: once `v1.0.0` ships       |
+| older `1.x` tags                  | :x:                                          |
 
 ## Reporting a vulnerability
 
