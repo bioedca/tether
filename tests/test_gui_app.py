@@ -79,6 +79,15 @@ def test_gui_entry_point_is_declared_and_not_the_smoke_helper() -> None:
 # --- startup path (Qt) --------------------------------------------------------
 
 
+def _assert_no_project_is_open(shell) -> None:
+    """The shell holds no project: no molecules, and the project menus say so."""
+    assert shell.molecule_list.count() == 0
+    assert shell.show_histogram() is None  # no histogram seam without a project
+    assert "load a project" in shell.status_message
+    shell.conditions_menu.actions()[0].trigger()
+    assert shell.status_message == "Conditions: load a project first"
+
+
 @pytest.mark.gui
 @_needs_qt
 def test_starts_empty_with_no_project(qtbot) -> None:
@@ -86,10 +95,8 @@ def test_starts_empty_with_no_project(qtbot) -> None:
     from tether.gui.app import create_shell
 
     _app, shell = create_shell([])
-    qtbot.addWidget(shell._window)
-    assert shell._traces == []
-    assert shell._idealizer is None
-    assert shell._conditions is None
+    qtbot.addWidget(shell.window)
+    _assert_no_project_is_open(shell)
     shell.close()
 
 
@@ -105,7 +112,60 @@ def test_bad_project_path_leaves_a_usable_shell(qtbot, tmp_path) -> None:
 
     missing = tmp_path / "nope.tether"
     _app, shell = create_shell([str(missing)])
-    qtbot.addWidget(shell._window)
-    assert shell._traces == []
-    assert shell._conditions is None
+    qtbot.addWidget(shell.window)
+    # The shell tried the path it was given, and says which one failed.
+    assert "Open project failed" in shell.status_message
+    assert str(missing) in shell.status_message
+    _assert_no_project_is_open(shell)
     shell.close()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_valid_project_argument_opens_the_store(qtbot, tmp_path) -> None:
+    """A real ``.tether`` on the command line is opened: its molecules are listed."""
+    import numpy as np
+
+    from _analysis_store import build_store_with_channels
+    from tether.gui.app import create_shell
+
+    rng = np.random.default_rng(746)
+    donor = rng.uniform(400.0, 800.0, size=(3, 12))
+    acceptor = rng.uniform(200.0, 600.0, size=(3, 12))
+    project, _keys = build_store_with_channels(tmp_path, donor, acceptor, name="start.tether")
+
+    _app, shell = create_shell([str(project.path)])
+    qtbot.addWidget(shell.window)
+    assert shell.molecule_list.count() == 3
+    assert "3 molecule(s)" in shell.status_message
+    shell.close()
+
+
+def test_main_puts_the_env_folders_on_path_before_anything_loads(monkeypatch) -> None:
+    """``main`` takes the PATH step first, then builds the shell (issue #579, ADR-0076).
+
+    The Start Menu shortcut runs ``tether-gui.exe`` directly, with no ``.bat`` to put the
+    env's DLL folders first on PATH (issue #553). ``main`` does it, and it must do it
+    before :func:`create_shell` imports PySide6 and the shell imports NumPy.
+    """
+    from tether.gui import app as gui_app
+
+    calls: list[str] = []
+
+    class _App:
+        def exec(self) -> int:
+            calls.append("exec")
+            return 3
+
+    class _Shell:
+        def show(self) -> None:
+            calls.append("show")
+
+    def _create_shell(argv):
+        calls.append(f"create_shell {argv}")
+        return _App(), _Shell()
+
+    monkeypatch.setattr(gui_app, "put_env_folders_first", lambda: calls.append("path") or True)
+    monkeypatch.setattr(gui_app, "create_shell", _create_shell)
+    assert gui_app.main(["x.tether"]) == 3
+    assert calls == ["path", "create_shell ['x.tether']", "show", "exec"]

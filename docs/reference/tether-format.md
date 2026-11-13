@@ -1,8 +1,10 @@
 # The `.tether` project store
 
-This page is for anyone who has been handed a `.tether` file and wants to read it —
-with plain `h5py`, in another language, or in a script that must keep working across
-Tether releases. It is the reference for the **internal** project store only. What
+**Who this page is for.** Anyone who has been handed a `.tether` file and wants to read it
+with plain `h5py`, in another language, or in a script that must keep working across Tether
+releases. It assumes you can run a Python script and know what an HDF5 group and dataset are.
+
+This page is the reference for the **internal** project store only. What
 Tether *writes out* (SMD-HDF5 hand-off, CSV/Parquet tables, plot exports) is a
 separate surface, described in [Exports (files, columns, units)](exports.md).
 
@@ -373,6 +375,14 @@ resizable 1-D vlen-UTF-8 dataset per condition carrying that condition's ordered
 editable category names (`_write_category_names` in
 `src/tether/project/conditions.py`). It appears only once a category list has been
 set; emptying the list resizes the dataset to zero rows rather than deleting it.
+
+A condition can span several projects ([ADR-0068](../adr/0068-a-project-holds-one-experiment.md)),
+and each project keeps its own copy of this list. `copy_category_list` in
+`src/tether/project/conditions.py` writes one project's list for a condition into another
+project that holds the same condition, in the same order, so every category keeps its integer
+code. `compare_category_lists` reports each category whose name or code differs between the two
+projects. Both refuse a project that has no `/conditions` row for the condition and name that
+file in the message.
 
 ## `/labels` — the append-only curation log
 

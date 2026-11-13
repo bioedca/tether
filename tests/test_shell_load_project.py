@@ -386,8 +386,18 @@ def test_project_file_must_open_writable_before_gui_enables_mutations(
     assert "project file is read-only" in shell.status_message
 
 
-def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path) -> None:
+def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path, monkeypatch) -> None:
+    from datetime import UTC, timedelta
+
+    import tether.project.lock as lock_mod
     from tether.project.lock import DEFAULT_STALENESS_TIMEOUT_S
+
+    # An injected lock clock: two wall-clock reads a few milliseconds apart can be
+    # equal on a coarse clock (Windows), so the refresh is compared against a known
+    # later instant instead of against "now" twice.
+    t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    clock = {"now": t0}
+    monkeypatch.setattr(lock_mod, "_utc_now", lambda: clock["now"])
 
     project, *_ = _round_trip_store(tmp_path, n=3, t=12)
     assert shell.load_project(project.path) is not None
@@ -396,13 +406,15 @@ def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path) -> Non
     assert shell._lock_refresh_timer.isActive()
     assert shell._lock_refresh_timer.interval() < DEFAULT_STALENESS_TIMEOUT_S * 1000
 
+    assert datetime.fromisoformat(before.timestamp) == t0
+    clock["now"] = t0 + timedelta(seconds=1)
     shell._refresh_project_lock()
 
     after = project.lock_owner()
     assert after is not None
     assert after.identity == before.identity
     assert after.nonce == before.nonce
-    assert datetime.fromisoformat(after.timestamp) > datetime.fromisoformat(before.timestamp)
+    assert datetime.fromisoformat(after.timestamp) == t0 + timedelta(seconds=1)
     shell.close()
     assert not shell._lock_refresh_timer.isActive()
     assert project.lock_owner() is None
@@ -1450,9 +1462,35 @@ def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_file_menu_exposes_open_action(shell) -> None:
-    labels = [a.text() for a in shell.file_menu.actions()]
-    assert labels == ["&Open project…"]
+def test_file_menu_exposes_open_close_and_quit(shell) -> None:
+    labels = [a.text() for a in shell.file_menu.actions() if not a.isSeparator()]
+    assert labels == ["&Open project…", "&Close project", "&Quit"]
+
+
+def test_file_menu_open_action_opens_the_picked_project(shell, tmp_path, monkeypatch) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    # Only the file picker is replaced; the trigger runs the real menu handler.
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(project.path), "")),
+    )
+    shell.file_menu.actions()[0].trigger()
+    assert shell.molecule_list.count() == 3
+    assert "3 molecule(s)" in shell.status_message
+
+
+def test_file_menu_open_action_cancel_reports(shell, monkeypatch) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: ("", ""))
+    )
+    shell.file_menu.actions()[0].trigger()
+    assert shell.status_message == "Open project cancelled"
+    assert shell.molecule_list.count() == 0
 
 
 def test_import_deeplasi_bundle_opens_single_produced_live(shell, tmp_path) -> None:

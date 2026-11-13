@@ -46,8 +46,8 @@ never merge, release, or declare a PR ready while required checks are red or pen
 
 - **Model — GitHub Flow.** All work happens on short-lived branches off `main`,
   opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No
-  long-lived `develop`/`release` branches; milestones M0–M10 are GitHub
-  Milestones, not git branches.
+  long-lived `develop`/`release` branches; milestones are GitHub Milestones,
+  not git branches.
 - **Branch naming:** `type/issue-N-short-slug`, optionally milestone/FR-scoped —
   e.g. `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`. The
   slug is kebab-case, ≤ ~5 words. The branch name is not load-bearing (the PR
@@ -228,6 +228,14 @@ Every `docs-build` run uploads the rendered site as the `docs-site` artifact (ke
 days), so a reviewer can open the changed page rather than infer it from markdown.
 External links are checked weekly, advisory only, by the `external-links` job in
 `deps-audit.yml`.
+
+## Documentation
+
+Write each documentation page to the
+[writing style guide](docs/maintainers/writing-style.md). It gives the rules for sentences,
+words, terms, warnings and page shape, and the files that the rules apply to. A reviewer can
+cite a rule by its number. To build the site and run its checks, see
+[Building the docs locally](#building-the-docs-locally).
 
 ## Licensing — SPDX / REUSE (PRD §12.1)
 
