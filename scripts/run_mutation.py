@@ -452,7 +452,8 @@ def run_one(
     """Run *tests* against *mutant* in one worker's copy of ``src/``; return the outcome.
 
     *exclude* holds the tests that did not pass in the coverage run; the file fallback deselects
-    them, so a test that fails without the mutant never counts as a kill."""
+    them, by function when parametrized, so a test that fails without the mutant never counts as
+    a kill, even when the mutant renamed it."""
     target = worker / "src" / Path(mutant.path).relative_to("src")
     target.write_text(apply(source, mutant), encoding="utf-8")
     # No bytecode: a mutant of the same size written in the same second as the last one would
@@ -462,9 +463,13 @@ def run_one(
     base += [f"--basetemp={worker / 'tmp'}", "-m", MARKERS]
     # A mutant can rename a test: a module constant in a ``parametrize`` id (``[1e-06]``). Then
     # a test id is not found (exit 4) or nothing is collected (exit 5), and the files run,
-    # less the tests of those files that did not pass in the coverage run.
+    # less the tests of those files that did not pass in the coverage run. The mutant can rename
+    # those too, and ``--deselect`` matches a prefix of the id it collects, so a parametrized one
+    # is deselected by its function (``test_x[``), every parameter set of it: a mutant never
+    # changes a function or class name, only the ``[...]`` part.
     files = sorted({test.split("::", 1)[0] for test in tests})
-    skip = [f"--deselect={t}" for t in sorted(exclude) if t.split("::", 1)[0] in files]
+    stems = {"".join(t.partition("[")[:2]) for t in exclude if t.split("::", 1)[0] in files}
+    skip = [f"--deselect={stem}" for stem in sorted(stems)]
     try:
         for selection in (tests, [*skip, *files]):
             done = subprocess.run(

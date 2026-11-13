@@ -221,6 +221,45 @@ def test_the_file_fallback_deselects_the_tests_that_failed_without_the_mutant(
     assert not any("test_other" in arg for arg in calls[1])
 
 
+def test_the_fallback_deselects_a_failing_test_that_the_mutant_renamed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The mutant changes the parametrize id of both the selected test and the one that failed in
+    # the coverage run ([1] -> [2]); real pytest runs the fallback's own arguments.
+    source = "def f(a):\n    return a + 1\n"
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "x.py").write_text(source, encoding="utf-8")
+    (mutant,) = [m for m in rm.mutants_of(source, "src/x.py") if m.old == "+"]
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        calls.append(cmd)
+        return type("Done", (), {"returncode": (4, 0)[len(calls) - 1]})()
+
+    monkeypatch.setattr(rm.subprocess, "run", fake_run)
+    tests = ["tests/test_a.py::test_one[1]"]
+    rm.run_one(mutant, source, tmp_path, tests, 60.0, ["tests/test_a.py::test_broken[1]"])
+    fallback = calls[1][len(calls[0]) - len(tests) :]
+    assert fallback == ["--deselect=tests/test_a.py::test_broken[", "tests/test_a.py"]
+
+    project = tmp_path / "project"
+    (project / "tests").mkdir(parents=True)
+    (project / "tests" / "test_a.py").write_text(
+        "import pytest\n\n"
+        "@pytest.mark.parametrize('x', [2])\n"
+        "def test_one(x):\n    assert x\n\n"
+        "@pytest.mark.parametrize('x', [2])\n"
+        "def test_broken(x):\n    assert False\n",
+        encoding="utf-8",
+    )
+    (project / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    monkeypatch.undo()
+    command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *fallback]
+    result = rm.subprocess.run(command, cwd=project, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout
+    assert "1 passed, 1 deselected" in result.stdout
+
+
 def _record(path: str, status: str) -> dict:
     return {"path": path, "status": status, "key": [path, "f", "x", "a -> b", 0]}
 
