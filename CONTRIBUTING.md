@@ -168,6 +168,36 @@ workflow's pytest command from selecting a `workstation` test, and
 `sidecar` or `deep`. Without the runner a `workstation` test skips, so a local run that
 leaves out `and not workstation` still passes.
 
+### Golden numbers (the self-drift suite)
+
+`tests/test_golden.py` runs three inputs from end to end — the committed 4-molecule SMD
+fixture, the synthetic movie of `tests/_synth.py` (through `tether batch`), and synthetic
+traces that exercise every correction — and compares each result with its golden file in
+`tests/golden/`: molecule counts, per-molecule statistics, histogram counts, the native HMM,
+TDP, dwell rates, and the SHA-256 of each exported table. `tests/test_golden_gui.py` checks
+that the histogram dock draws the same histogram. It is a **regression suite, not an oracle**:
+it fails when a number changes, not when a number is wrong.
+
+Integers, strings and table checksums must match exactly. Floats must match to the relative
+limit `FLOAT_RTOL` in the suite's helper module, which [ADR-0080](docs/adr/0080-self-drift-golden-numbers.md)
+measured across the three operating systems of the matrix. Do not widen it to make a change
+pass.
+
+When a change moves a golden number on purpose:
+
+```bash
+python scripts/update_golden.py --check   # list what moved; write nothing
+python scripts/update_golden.py           # rewrite tests/golden/ and print the table
+```
+
+Paste the printed table (it starts with `| golden file | quantity | old | new | relative change |`)
+into the pull request body and add a line that starts with `Cause:` and says why the numbers
+moved. An array that kept its shape gets one row for each changed element, at most 20,
+and then one row that counts the rest. The `golden-table` workflow fails a pull request that changes a file in `tests/golden/`
+without both, and runs again when you edit the body. Never edit a golden file by hand. A
+dependency update that moves a number fails here on purpose: the table and the cause are then
+the record of what the update changed.
+
 ### Coverage floors
 
 The Linux leg of the required matrix runs the same tests under `coverage` with branch
