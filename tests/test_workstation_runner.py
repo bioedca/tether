@@ -537,8 +537,11 @@ def test_the_state_folder_and_its_log_are_owner_only_whatever_the_umask(tmp_path
     finally:
         os.umask(old)
     assert proc.returncode == runner.EXIT_OK, proc.stdout + proc.stderr
-    assert f"removed the group and other permissions of {state.resolve()}" in proc.stdout
-    assert f"of {state.resolve() / 'logs'}" in proc.stdout
+    notes = [line for line in proc.stdout.splitlines() if line.startswith("note:")]
+    assert notes == [
+        "note: removed the group and other permissions of the state folder",
+        "note: removed the group and other permissions of logs/",
+    ]
     (log,) = (state / "logs").glob("*.log")
     for path in (state, state / "logs", state / "results", log, record):
         assert _mode(path) & runner.GROUP_OTHER == 0, (path.name, oct(_mode(path)))

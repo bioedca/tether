@@ -580,10 +580,14 @@ def run(args: argparse.Namespace) -> int:
     results = Path(args.results).expanduser().resolve() if args.results else state / "results"
     # Owner-only on POSIX: the log names files. A --results folder elsewhere holds only
     # sealed results, so it keeps the permissions that its owner gave it.
-    private = [state, state / "logs", *([results] if results == state / "results" else [])]
-    for folder in private:
+    # The note names the folder by its role: a path is printed only through say(), which
+    # redacts, and the mapping is not read yet.
+    private = {state: "the state folder", state / "logs": "logs/"}
+    if results == state / "results":
+        private[results] = "results/"
+    for folder, role in private.items():
         if private_dir(folder):
-            print(f"note: removed the group and other permissions of {folder}")
+            print(f"note: removed the group and other permissions of {role}")
     results.mkdir(parents=True, exist_ok=True)
     newest = newest_result(results)
     if args.min_interval_hours and newest is not None:
