@@ -103,8 +103,9 @@ Tether's leakage correction and γ-corrected FRET, through `tests/test_mashfret_
 - Good: a γ applied to the acceptor, or no γ at all, fails the required matrix (the pull request
   records both demonstrations).
 - Bad: a sign error in the leakage correction is **not** caught by this reference, because every
-  file of the record has α = 0. The pull request records that demonstration too, and a follow-up
-  issue asks for a MASH-FRET reference with a non-zero α.
+  file of the record has α = 0. The pull request records that demonstration too, and
+  [#870](https://github.com/bioedca/tether/issues/870) asks for a MASH-FRET reference with a
+  non-zero α.
 - Bad: the check is on the mean of each state, not on each frame. A per-frame error that averages
   to zero within every state would pass. The γ-convention errors this guards against do not average
   out.

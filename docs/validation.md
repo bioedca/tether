@@ -619,8 +619,9 @@ tests.
 - **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail.
 
 **What it does not check.** Every file of the record has a leakage coefficient of 0, so the
-leakage test cannot catch a sign error in the correction; a follow-up issue asks for a MASH-FRET
-reference with a non-zero coefficient. The comparison is per state, not per frame. Background
+leakage test cannot catch a sign error in the correction;
+[#870](https://github.com/bioedca/tether/issues/870) asks for a MASH-FRET reference with a non-zero
+coefficient. The comparison is per state, not per frame. Background
 subtraction is not compared, because the files hold no video. Only the donor and acceptor channels
 under the donor's laser are used, and MASH-FRET's direct-excitation coefficient (an ALEX-only
 correction that Tether does not make) must be 0.
