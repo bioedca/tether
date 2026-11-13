@@ -11,6 +11,8 @@ are reported not dropped; and no molecule is ever removed from the population
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 pytest.importorskip("numpy")
@@ -244,12 +246,16 @@ def test_matrix_shape_mismatch_rejected() -> None:
 
 
 def test_neighbor_and_index_are_frozen() -> None:
+    # Both dataclasses reject attribute assignment with the frozen-dataclass error itself, not
+    # any exception (#742 ML-F16).
     index = build_similarity_index(_stored(["m0", "m1"], [[0.0, 0.0], [1.0, 1.0]]))
     assert isinstance(index, SimilarityIndex)
     n = index.query("m0")[0]
     assert isinstance(n, Neighbor)
-    with pytest.raises(Exception):  # noqa: B017 - frozen dataclass rejects mutation
+    with pytest.raises(dataclasses.FrozenInstanceError):
         n.distance = 0.0  # type: ignore[misc]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        index.mean = None  # type: ignore[misc]
 
 
 def test_index_is_hashable_and_uses_identity_semantics() -> None:
