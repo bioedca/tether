@@ -140,9 +140,12 @@ every GitHub-hosted runner, so this assertion has never executed in CI. (The wee
 `7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run of
 this enforcing test with `TETHER_UCKOPSB_DIR` pointing at a staged copy of the movie, which
 supplies the `.tdat` detector settings and the 2 px gate; that run is recorded in ADR-0022.
-The `scripts/run_m1_oracle.py` helper does not reproduce that configuration yet
-([#555](https://github.com/bioedca/tether/issues/555)), so it is not the reproduction
-command.
+`scripts/run_m1_oracle.py --data-dir <staged copy>` reproduces the same configuration
+as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
+the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
+and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
+it as not applicable). Its own behaviour is pinned without the movie by
+`tests/test_run_m1_oracle.py`.
 
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
@@ -402,6 +405,57 @@ than silently score. The primitives are covered by
 `test_fit_gaussian_hmm_recovers_synthetic_states` and
 `test_two_state_rate_constants_recovers_synthetic_rates` on synthetic traces, and the EM
 stop rule by `test_fit_gaussian_hmm_stops_on_the_first_iteration_that_meets_tol`.
+
+### (c) Measured data sets, beside the published results
+
+The kinSoft record also holds five *measured* sets: the two of the paper's Fig. 2 (ACTR binding
+NCBD, confocal, 19 traces, binned at 10 ms and at 1 ms) and the three of its Fig. 5 (SSB binding a
+DNA hairpin, TIRF, 100 ms frames, 134, 163 and 118 traces). Measured data has no ground truth, so
+this check is **advisory**: it shows where Tether's rates lie among the rates that the analyses of
+the challenge reported, and it never gives a pass or a fail on that position.
+[ADR-0082](adr/0082-measured-kinsoft-sets-are-placed-not-scored.md) records the choices.
+
+- **Tether.** The tMAVEN sidecar fits a 2-state consensus VB-HMM with seed 0. The rate of each
+  FRET class is `1/⟨τ⟩` of the pooled Viterbi dwells.
+- **Published.** The kinetic model of each analysis, copied unchanged from Supplementary Data 6,
+  7, 10, 11 and 12 of the paper into `tests/reference_data/kinsoft_published_results.json`, with
+  the sheet name of each model. For Fig. 5 the file holds only the two-FRET-state models, which the
+  paper's Fig. 5 compares. A model with hidden states gives the exit rate of its aggregated class,
+  `1 / mean residence time`. Two models are not compared: one reported no FRET efficiencies, and
+  one reported no rate matrix.
+
+Exit rates in s⁻¹, measured 2026-11-12:
+
+| Set | FRET class | Tether | Published range | Published median | Published below Tether |
+| --- | --- | --- | --- | --- | --- |
+| fig2-10ms | low | 2.743 | 2.340–3.520 | 2.724 | 9 of 14 |
+| fig2-10ms | high | 3.310 | 1.910–3.732 | 3.150 | 12 of 14 |
+| fig2-1ms | low | 2.973 | 2.140–6.110 | 2.900 | 5 of 9 |
+| fig2-1ms | high | 3.594 | 1.500–7.470 | 3.500 | 5 of 9 |
+| fig5-set1 | low | 0.484 | 0.207–0.522 | 0.362 | 5 of 6 |
+| fig5-set1 | high | 0.454 | 0.071–0.669 | 0.331 | 5 of 6 |
+| fig5-set2 | low | 0.658 | 0.339–0.660 | 0.480 | 6 of 7 |
+| fig5-set2 | high | 0.621 | 0.345–0.588 | 0.480 | 7 of 7 |
+| fig5-set3 | low | 0.435 | 0.030–0.443 | 0.366 | 4 of 6 |
+| fig5-set3 | high | 0.323 | 0.022–0.444 | 0.234 | 5 of 6 |
+
+Tether is inside the published range for nine of the ten rates. The high-FRET class of Fig. 5
+set 2 is above it: 0.621 s⁻¹ against a published maximum of 0.588 s⁻¹. The published results
+themselves differ: the paper gives a coefficient of variation of 12 % and 16 % for the two rates
+at 10 ms, and of 33 % and 45 % at 1 ms.
+
+**Enforcing tests.**
+`tests/test_kinsoft_measured.py::test_tether_on_a_measured_set_beside_the_published_results` runs
+in the weekly `reference-data` job, with the sidecar. It prints the position and fails only when
+Tether's fit moves from its frozen `tether_measured` result. In the same job,
+`test_every_copied_number_equals_its_cell_in_the_publisher_spreadsheet` downloads the five
+spreadsheets, checks their SHA-256 and compares each copied number with its cell. On the required
+matrix,
+`test_the_page_shows_tether_beside_the_published_range` keeps the table above equal to the file,
+`test_every_analysis_has_the_shape_of_one_sheet` and
+`test_every_set_names_its_data_and_the_paper_file_its_numbers_come_from` check the copy and its
+sources, and `test_a_class_of_two_hidden_states_exits_at_its_mean_residence_time` checks the
+derivation on a model whose answer is known.
 
 ## (d) Ranker held-out cross-validation
 
@@ -709,6 +763,12 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all. The
   real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.
+- A reference that comes from an ALEX data set compares **apparent FRET from the
+  donor-excitation channels only** — the donor and acceptor intensities under donor
+  excitation. It does not check direct excitation (δ), stoichiometry or any other quantity
+  that needs the acceptor-excitation frames, and so it does not validate them. Tether is
+  single-laser only (PRD N1); the PRD's "What the tests can use" rules (§2.2) allow the
+  ALEX sets at trace level and add no ALEX feature.
 
 **Accepted diagnostics that are not gates.**
 

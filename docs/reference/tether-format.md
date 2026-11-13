@@ -1,8 +1,10 @@
 # The `.tether` project store
 
-This page is for anyone who has been handed a `.tether` file and wants to read it —
-with plain `h5py`, in another language, or in a script that must keep working across
-Tether releases. It is the reference for the **internal** project store only. What
+**Who this page is for.** Anyone who has been handed a `.tether` file and wants to read it
+with plain `h5py`, in another language, or in a script that must keep working across Tether
+releases. It assumes you can run a Python script and know what an HDF5 group and dataset are.
+
+This page is the reference for the **internal** project store only. What
 Tether *writes out* (SMD-HDF5 hand-off, CSV/Parquet tables, plot exports) is a
 separate surface, described in [Exports (files, columns, units)](exports.md).
 
