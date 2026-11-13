@@ -14,16 +14,17 @@ Four layers:
 * **wiring**: :func:`~tether.project.oracle.evaluate_project` plumbs
   ``/molecules`` (``donor_xy`` + ``frame_range``) and ``/traces`` into the scorer
   (the readers are monkeypatched, so no h5py/disk needed).
-* **data-present, gated** (``@pytest.mark.large``; skipped without the gated
-  UCKOPSB movie + ``.tmap`` + ``.tdat`` + ``.mat``): the full native extraction
-  (imported ``.tmap`` + ``.tdat``-decoded mode-2 detection) meets the ADR-0022 M1
-  gate — recall ≥ 95 % @ 2 px and donor Pearson r ≥ 0.95.
+* **workstation** (``@pytest.mark.workstation``, ADR-0071; the UCKOPSB movie of video 010
+  and its ``.tmap`` + ``.tdat`` + ``.mat`` are private data on no CI runner, so the
+  workstation runner runs it at each scheduled run and records its numbers, #699): the
+  full native extraction (imported ``.tmap`` + ``.tdat``-decoded mode-2 detection) meets
+  the ADR-0022 M1 gate — recall ≥ 95 % @ 2 px and donor Pearson r ≥ 0.95.
 """
 
 from __future__ import annotations
 
 import importlib.util
-import os
+import math
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ pytest.importorskip("numpy")
 
 import numpy as np  # noqa: E402
 
+from _oracle_a import ORACLE_A, oracle_a_file  # noqa: E402
 from tether.io.deeplasi import DeepLasiExport  # noqa: E402
 from tether.project.oracle import (  # noqa: E402
     MATCH_TOL_PX,
@@ -244,7 +246,7 @@ def test_m1_gate_constants_are_frozen() -> None:
     the source, so a change of the constant and of the page together passes that guard.
     The scorer tests above catch only large moves (the #695 audit had recall 0.7,
     Pearson 0.5 and a 5 px match tolerance pass all of them), and the one test that
-    applies all four to real data is ``large`` and skips on every runner. A change here
+    applies all four to real data is a ``workstation`` test that no CI runner runs. A change here
     is a re-freeze of a frozen oracle and needs an ADR, never only this edit.
     """
     assert RECALL_THRESHOLD == 0.95
@@ -475,63 +477,55 @@ def test_evaluate_project_wires_molecules_and_traces(monkeypatch) -> None:
     assert res.n_acceptor_matched == 2
 
 
-# --- data-present, gated: the full §9 M1 acceptance on the real UCKOPSB pair --
+# --- workstation: the full §9 M1 acceptance on video 010 (ADR-0071, #699) ------
 
 
-def _find_uckopsb() -> dict[str, Path] | None:
-    """Locate the gated UCKOPSB movie + .tmap + .tdat + Deep-LASI .mat (sibling data)."""
-    candidates = []
-    env_dir = os.environ.get("TETHER_UCKOPSB_DIR")
-    if env_dir:
-        candidates.append(Path(env_dir))
-    for parent in Path(__file__).resolve().parents:
-        candidates.append(parent / "example-data" / "bla-uckopsb-tbox-video10")
-    base = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010"
-    for src in candidates:
-        movie = src / f"{base}.tif"
-        mat = src / f"DeepLASI_MAT_export_{base}.mat"
-        # The `.tmap`/`.tdat` filenames don't share the movie's `base` string, so
-        # match by requiring the dataset directory to hold *exactly one* of each: an
-        # ambiguous directory (a second, unrelated map/config added) must not silently
-        # pair the movie with the wrong registration or detection settings — it falls
-        # through to a skip instead.
-        tmaps = sorted(src.glob("DeepLASI_MAP_*.tmap")) if src.is_dir() else []
-        tdats = sorted(src.glob("*.tdat")) if src.is_dir() else []
-        if movie.is_file() and mat.is_file() and len(tmaps) == 1 and len(tdats) == 1:
-            return {"movie": movie, "mat": mat, "tmap": tmaps[0], "tdat": tdats[0]}
-    return None
-
-
-@pytest.mark.large
-def test_extraction_meets_m1_acceptance_on_uckopsb(tmp_path) -> None:
+@pytest.mark.workstation
+def test_extraction_meets_m1_acceptance_on_uckopsb(private_data, tmp_path) -> None:
     """M1 acceptance: native extraction reproduces Deep-LASI to the ADR-0022 tolerance.
 
-    The committed M1 acceptance gate, run against the full UCKOPSB pair with the
-    faithful configuration the movie was actually detected with: registration imported
-    from the ``.tmap`` and the particle-detection mode + threshold decoded from the
-    ``.tdat`` (mode-2 intensity @ 0.330097). Detection uses the mode's faithful
-    ``min_separation`` (3 px, ADR-0022). Scored against the ADR-0022 gate — recall
+    The committed M1 acceptance gate, run against the full UCKOPSB pair (video 010, neutral
+    id ``lab-01``) with the faithful configuration the movie was actually detected with:
+    registration imported from the ``.tmap`` and the particle-detection mode + threshold
+    decoded from the ``.tdat`` (mode-2 intensity @ 0.330097). Detection uses the mode's
+    faithful ``min_separation`` (3 px, ADR-0022). Scored against the ADR-0022 gate — recall
     ≥ 95 % @ 2 px and **donor** per-molecule Pearson ≥ 0.95 (acceptor Pearson is
     diagnostic only). This is the instrument that closes M1 (was ``xfail`` under the
     original 1 px / 0.99 bars and the unfaithful wavelet detector; ADR-0020/0022).
+
+    The data is private, so this is a ``workstation`` test: the runner of ADR-0071 runs it
+    at each scheduled run, and the numbers recorded below go into its result file before
+    any assertion, so a failed run still says how far off it was.
     """
     pytest.importorskip("scipy")
     pytest.importorskip("skimage")
     pytest.importorskip("h5py")
     pytest.importorskip("tifffile")
-    found = _find_uckopsb()
-    if found is None:
-        pytest.skip("gated UCKOPSB movie + .tmap + .tdat + Deep-LASI .mat absent")
+    movie, tmap, tdat, mat = (
+        oracle_a_file(private_data, role) for role in ("movie", "tmap", "tdat", "mat")
+    )
 
     from tether.project.extract import extract_movie
 
     out = tmp_path / "uckopsb.tether"
-    summary = extract_movie(found["movie"], out, tmap=found["tmap"], tdat=found["tdat"])
-    assert out.is_file()
-    assert summary.registration_source == "imported"
-    assert summary.detection_mode == "intensity"  # decoded from the .tdat
+    summary = extract_movie(movie, out, tmap=tmap, tdat=tdat)
+    assert out.is_file(), f"{ORACLE_A}: extraction wrote no project"
+    assert summary.registration_source == "imported", ORACLE_A
+    assert summary.detection_mode == "intensity", ORACLE_A  # decoded from the .tdat
 
-    res = evaluate_project(out, found["mat"], intensity="raw")
+    res = evaluate_project(out, mat, intensity="raw")
+    numbers = {
+        "matched_fraction": res.recall,
+        "position_rms_px": res.coord_rms_px,
+        "donor_pearson_median": res.donor_pearson_median,
+        "acceptor_pearson_median": res.acceptor_pearson_median,
+        "precision": res.precision,
+        "n_ground_truth": res.n_ground_truth,
+        "n_extracted": res.n_extracted,
+        "n_matched": res.n_matched,
+    }
+    # A summary number must be finite (an empty match gives nan): record what there is.
+    private_data.record(ORACLE_A, **{k: v for k, v in numbers.items() if math.isfinite(v)})
     # ADR-0022 gate: recall @ 2 px + donor Pearson ≥ 0.95 (RMS ≤ 0.5 px is locked by
     # test_register on the native .tmap fit; imported here → nan → N/A). Surface the
     # full metric dict (incl. the diagnostic acceptor Pearson/precision) on failure.

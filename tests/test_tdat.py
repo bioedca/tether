@@ -23,6 +23,7 @@ pytest.importorskip("numpy")
 import h5py  # noqa: E402  (guarded by importorskip above)
 import numpy as np  # noqa: E402
 
+from _oracle_a import oracle_a_file  # noqa: E402
 from tether.io import (  # noqa: E402
     read_detection_settings,
     read_movie_reference,
@@ -798,41 +799,27 @@ def test_flatten_strings(value: object, expected: list[str]) -> None:
     assert _flatten_strings(value) == expected
 
 
-# --- data-present-only: MCOS decode faithfulness vs the real 37 MB .tdat ------
+# --- workstation only: MCOS decode faithfulness vs the real 37 MB .tdat ------
 #
 # The committed fixture retains a slice of the real MCOS blob, so the tests above
 # already exercise the decode path in CI. This test additionally locks the decoder
-# against the *unmodified* source object system on machines that have it, proving
+# against the *unmodified* source object system on the workstation (ADR-0071), proving
 # the ``value + 2`` heap rule and channel matching reproduce MATLAB's stored
 # per-channel DetectionThreshold rather than a self-consistent fixture artifact.
 
 
-def _find_example_tdat() -> Path | None:
-    for parent in Path(__file__).resolve().parents:
-        candidate = (
-            parent
-            / "example-data"
-            / "bla-uckopsb-tbox-video10"
-            / "DeepLASI_DATA_Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif2025-07-21_00-00.tdat"
-        )
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-_EXAMPLE_TDAT = _find_example_tdat()
-
-
-@pytest.mark.skipif(_EXAMPLE_TDAT is None, reason="external .tdat not present (default checkout)")
-def test_real_tdat_reference_threshold_is_faithful() -> None:
+@pytest.mark.workstation
+def test_real_tdat_reference_threshold_is_faithful(private_data) -> None:
+    example_tdat = oracle_a_file(private_data, "tdat")
     # The reader auto-applies the mapping-reference (donor) channel's threshold.
-    settings = read_detection_settings(_EXAMPLE_TDAT)
+    settings = read_detection_settings(example_tdat)
     assert settings.mode == "intensity"
     assert settings.threshold == pytest.approx(_REFERENCE_DETECTION_THRESHOLD)
 
 
-@pytest.mark.skipif(_EXAMPLE_TDAT is None, reason="external .tdat not present (default checkout)")
-def test_real_tdat_per_channel_mcos_decode_matches_anchors() -> None:
+@pytest.mark.workstation
+def test_real_tdat_per_channel_mcos_decode_matches_anchors(private_data) -> None:
+    example_tdat = oracle_a_file(private_data, "tdat")
     # Decode both channels straight from the real FileWrapper blob and cross-check
     # DetectionThreshold against independent anchors (channel id, colour index,
     # crop rectangle) that the companion .tmap confirms -- so a wrong heap offset
@@ -842,7 +829,7 @@ def test_real_tdat_per_channel_mcos_decode_matches_anchors() -> None:
         1: (1.0, 2.0, [1.0, 512.0, 1.0, 256.0], 0.330097),  # donor, left half (green)
         12: (2.0, 3.0, [1.0, 512.0, 257.0, 512.0], 0.0),  # acceptor, right half (red)
     }
-    with h5py.File(_EXAMPLE_TDAT, "r") as f:
+    with h5py.File(example_tdat, "r") as f:
         decoder = McosDecoder.from_file(f)
         assert decoder is not None
         markers = np.asarray(f["temp"]["Channel"][()]).reshape(-1)
@@ -898,16 +885,17 @@ def test_movie_reference_dataclass_is_frozen() -> None:
         ref.filename = "other.tif"  # type: ignore[misc]
 
 
-@pytest.mark.skipif(_EXAMPLE_TDAT is None, reason="external .tdat not present (default checkout)")
-def test_real_tdat_movie_reference_is_the_data_movie() -> None:
+@pytest.mark.workstation
+def test_real_tdat_movie_reference_is_the_data_movie(private_data) -> None:
+    example_tdat = oracle_a_file(private_data, "tdat")
     # FilePath{2} is the acquisition's own 010.tif -- NOT MapPath's 001.tif (the
     # registration movie) nor the bare LastPath folder -- and matches the stem the
     # .tif/.tdat filenames also carry.
     movie = "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"
-    reference = read_movie_reference(_EXAMPLE_TDAT)
+    reference = read_movie_reference(example_tdat)
     assert reference is not None
     assert reference.filename == movie
     assert reference.filenames == (movie,)
     assert reference.directory.endswith("\\")  # exporter-recorded folder (foreign path)
     # The full read_tdat carries the identical reference.
-    assert read_tdat(_EXAMPLE_TDAT).movie_reference == reference
+    assert read_tdat(example_tdat).movie_reference == reference

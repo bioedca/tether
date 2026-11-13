@@ -149,6 +149,12 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
 4. For each title in `passed` that has an open issue, add one comment that says the check
    passed, with the commit. Do not close the issue: a person or an agent closes it with the
    cause.
+5. When the result has the oracle (a) check
+   (`tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`), copy its entry,
+   the commit, the `finished` time and the result file name into
+   `docs/validation/oracle-a-last-run.json` (mode `scheduled`), change the *Newest recorded run*
+   paragraph of oracle (a) in `docs/validation.md` to agree, and open a pull request.
+   `tests/test_oracle_a_record.py` checks that the two agree.
 
 ## Add a check
 

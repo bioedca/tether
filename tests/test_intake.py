@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 import tether.io.intake as intake_module
+from _oracle_a import oracle_a_folder
 from tether.io import (
     AcquisitionFileSet,
     MovieReference,
@@ -403,18 +404,15 @@ def test_tdat_movie_reference_verifies_via_the_shared_seam(
     assert "tdat" in check.message
 
 
-# --- real example-data integration (gated; not in the required matrix) --------
+# --- the real bundle of video 010 (workstation only; ADR-0071, #699) ------------
 
-# ``example-data/`` is a read-only sibling of the repo under ``smfret-references/``
-# (never committed into Tether), so it resolves from the repo's *parent*, not the
-# repo root: tests/ → repo root (parents[1]) → smfret-references/ (parents[2]).
-_EXAMPLE_DATA = Path(__file__).resolve().parents[2] / "example-data" / "bla-uckopsb-tbox-video10"
+# The bundle is private laboratory data on no CI runner. The workstation runner finds its folder
+# through the name table (tests/_oracle_a.py), so these run at each scheduled run there.
 
 
-@pytest.mark.large
-@pytest.mark.skipif(not _EXAMPLE_DATA.is_dir(), reason="example-data bundle not present")
-def test_discovers_real_example_data_bundle() -> None:
-    result = discover_acquisitions(_EXAMPLE_DATA)
+@pytest.mark.workstation
+def test_discovers_real_example_data_bundle(private_data) -> None:
+    result = discover_acquisitions(oracle_a_folder(private_data))
     assert len(result.acquisitions) == 1
     acq = result.acquisitions[0]
     assert acq.movie is not None and acq.movie.suffix == ".tif"
@@ -427,12 +425,11 @@ def test_discovers_real_example_data_bundle() -> None:
     assert verify_movie_reference(acq, ref).status == "confirmed"
 
 
-@pytest.mark.large
-@pytest.mark.skipif(not _EXAMPLE_DATA.is_dir(), reason="example-data bundle not present")
-def test_tdat_movie_reference_confirms_real_bundle() -> None:
+@pytest.mark.workstation
+def test_tdat_movie_reference_confirms_real_bundle(private_data) -> None:
     # The .tdat TIRFdata's Channel.FilePath independently confirms the same grouped
     # movie the .mat does — the M7 S1 seam now closed for the .tdat source too.
-    acq = discover_acquisitions(_EXAMPLE_DATA).acquisitions[0]
+    acq = discover_acquisitions(oracle_a_folder(private_data)).acquisitions[0]
     ref = read_tdat_movie_reference(acq)
     assert ref is not None
     assert ref.source == "tdat"
