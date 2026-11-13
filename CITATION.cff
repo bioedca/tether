@@ -295,6 +295,48 @@ references:
     license: CC-BY-4.0
     doi: "10.5281/zenodo.5701310"
     notes: "Bundled as the gated-tier test fixture tests/fixtures/large/kinsoft_sim.hdf5 (CC-BY-4.0)."
+  # The RF2-ArfA pair below is copied from NOTICE, which attributes the two committed CC-BY-4.0
+  # test fixtures of #708 (tests/fixtures/rf2_core_wtprensec_*.hdf5).
+  - type: article
+    title: >-
+      A cascade of structural rearrangements positions peptide release factor 2
+      for polypeptide hydrolysis on the ribosome
+    authors:
+      - family-names: "Michael"
+        given-names: "Nina"
+      - family-names: "Huang"
+        given-names: "Bridget Y."
+      - family-names: "Ray"
+        given-names: "Korak Kumar"
+      - family-names: "Kinz-Thompson"
+        given-names: "Colin D."
+      - family-names: "Gonzalez"
+        given-names: "Ruben L."
+    journal: "Proceedings of the National Academy of Sciences of the United States of America"
+    volume: 122
+    issue: 46
+    year: 2025
+    start: "e2509408122"
+    doi: "10.1073/pnas.2509408122"
+    notes: "RF2-ArfA tMAVEN data set — Table 1 is the kinetics oracle of tests/test_rf2_arfa.py (ADR-0079)."
+  - type: data
+    title: "RF2-ArfA smFRET data and analysis"
+    authors:
+      - family-names: "Michael"
+        given-names: "Nina"
+      - family-names: "Huang"
+        given-names: "Bridget"
+      - family-names: "Ray"
+        given-names: "Korak Kumar"
+      - family-names: "Kinz-Thompson"
+        given-names: "Colin"
+      - family-names: "Gonzalez"
+        given-names: "Ruben"
+    publisher:
+      name: "Zenodo"
+    license: CC-BY-4.0
+    doi: "10.5281/zenodo.17246323"
+    notes: "Two members committed as the plain test fixtures tests/fixtures/rf2_core_wtprensec_*.hdf5 (CC-BY-4.0; the SMD file as a windowed extract)."
   # The 2024 T-box paper and its Source Data below are copied from NOTICE, which attributes the
   # unchanged CC BY-NC-ND 4.0 copies of Source Data members used as test reference data (#755).
   - type: article

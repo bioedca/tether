@@ -487,6 +487,51 @@ verifies every committed record. `stand-in/selftest` is not a reference: the `ma
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
 
+## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
+
+External third-party data under a different license, as the kinSoftChallenge sets above: the
+"RF2-ArfA smFRET data and analysis" record of **Nina Michael, Bridget Huang, Korak Kumar Ray,
+Colin Kinz-Thompson and Ruben Gonzalez**, Zenodo **doi:10.5281/zenodo.17246323**, **CC-BY-4.0**.
+It holds the tMAVEN SMD files and the "vb Consensus HMM" models behind [Michael2025]
+(Proc. Natl. Acad. Sci. USA 122(46):e2509408122, doi:10.1073/pnas.2509408122). Both files are
+annotated CC-BY-4.0 in `REUSE.toml` and attributed in `NOTICE`.
+
+| Fixture | Archive member (below `Data/Single molecule data/`) | Member size | Member SHA-256 | Fixture size | Transformation |
+|---|---|---|---|---|---|
+| `tests/fixtures/rf2_core_wtprensec_model.hdf5` | `RF2_core/Steady state/HMMs/RF2_core_wtprensEC_smd_HMM.hdf5` | 499,405 B | `edeaa298604895a842c3ab7692370d555b05b2e779d7bcb8b2f81b5d01d0be7a` | 499,405 B | verbatim copy |
+| `tests/fixtures/rf2_core_wtprensec_smd.hdf5` | `RF2_core/Steady state/RF2_core_wtprensEC_smd.hdf5` | 1,163,720 B | `d1025b31777317aefbf0da58c58cdc360f83fc6292f9d1b5557736c45f6683b9` | 313,247 B | windowed extract (below) |
+
+- **Archive:** `ArfA_RF2_data.zip`, 127,792,051 B, SHA-256
+  `1ae523076f89a1e28db2f2035b76ecabd3b4c24e649083158a08ca1ef975c9b8`. **Accessed:** 2026-11-12
+  (downloaded from Zenodo). The record's `Data/Single molecule data/tMAVEN parameters.docx`
+  (15,913 B, SHA-256 `d5df228a303c4a58be5f155ded06384ae1064f5733f7bc06a199146de5ac2e86`) gives
+  the settings the checks use: bleed-through 0.035, and the 2-D histogram settings in
+  `tests/_rf2_arfa_child.py`. It is not committed.
+- **Build:** the files name no tMAVEN build. The SMD file is dated 2022-11-29 15:53 and the
+  model 2022-11-29 16:08 (their own `date_created` and `time_made` attributes). Tether's live
+  checks run the pinned tMAVEN `10f4230` (`.github/workflows/sidecar.yml`), which is a later
+  build; ADR-0079 records what that difference does to the fit.
+- **Windowed extract.** The SMD member is larger than the 512 KiB plain-git gate, so
+  `scripts/make_rf2_arfa_fixture.py` keeps every frame inside a molecule's analysis window
+  `[pre_list, post_list)` bit for bit and sets every frame outside it to `0.0`; tMAVEN and Tether
+  fit and plot only the frames inside. It also replaces the authors' local path in
+  `source_list`/`source_name` with the archive member name, copies every other array and
+  attribute unchanged, and writes gzip level 9 with the shuffle filter. A tMAVEN fit of the
+  extract equals the fit of the original file (measured 2026-11-12).
+
+Regenerate with:
+
+```sh
+python scripts/make_rf2_arfa_fixture.py --archive /path/to/ArfA_RF2_data.zip \
+    --out tests/fixtures/rf2_core_wtprensec_smd.hdf5
+```
+
+The archive and both files have entries in `tests/reference_data/manifest.toml` (ids
+`rf2-arfa-archive`, `rf2-core-wtprensec-model`, `rf2-core-wtprensec-smd`; ADR-0073). The weekly
+`reference-data` job downloads the archive, compares the model with its member byte for byte,
+checks the SMD extract against its member as described above, and runs the import and Table 1
+checks of `tests/test_rf2_arfa.py` on all 11 SMD files and 9 models.
+
 ## smfret-analysis2 test data (#709, ADR-0084) — **GPL-3.0-only**
 
 Verbatim copies of 78 files of the `test-data/traces/` folder of
