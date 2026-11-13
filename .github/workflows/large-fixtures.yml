@@ -77,6 +77,7 @@ jobs:
               Path("tests/fixtures/large/model_281mol.hdf5"),
               Path("tests/fixtures/large/kinsoft_sim.hdf5"),
               Path("tests/fixtures/large/bead_prealign.tmap"),
+              Path("tests/fixtures/large/ebfret_mrec_sessions.hdf5"),
           ]
           missing = [
               str(p)

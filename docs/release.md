@@ -103,6 +103,12 @@ git tag -s v1.0.0 -m "Tether v1.0.0"
 git push origin v1.0.0
 ```
 
+After the Release is published, update the install page constant: move every file name,
+release link, tag ref, `tether --version` line and the `--source-digest` in
+[Install Tether](install.md) to the new release, and set `INSTALL_RELEASE` and
+`INSTALL_RELEASE_COMMIT` in `tests/test_docs_install_release.py` with them. That test fails
+when the page names two releases at once.
+
 ### What a published Release contains: verified `v1.0.0-rc1`
 
 The retained [`v1.0.0-rc1` prerelease](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc1)
