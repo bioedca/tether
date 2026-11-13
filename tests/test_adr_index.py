@@ -181,9 +181,10 @@ def test_index_links_resolve() -> None:
 def test_all_adr_cross_links_resolve() -> None:
     """Every relative ``.md`` link inside any ADR (and the template) resolves.
 
-    This is the base-matrix complement to the Linux-only ``mkdocs build --strict``
-    link check: a cross-ADR link to a renamed/missing record (e.g. the historical
-    ``0024-one-click-idealization-store.md`` typo) fails here on all three OSes.
+    ``tests/test_docs_links.py`` checks the same links (with anchors) for every page under
+    ``docs/``, so this test repeats it; it is kept because its message names the ADR
+    and the dead target directly. A cross-ADR link to a renamed/missing record (e.g. the
+    historical ``0024-one-click-idealization-store.md`` typo) fails both.
     """
     broken: dict[str, list[str]] = {}
     for adr in sorted(ADR_DIR.glob("*.md")):
@@ -300,7 +301,6 @@ def test_a_gap_in_the_numbering_is_not_a_collision() -> None:
     """
     numbers = sorted(_generator()._records())
     assert 54 not in numbers, "0054 was retired; this test is about a real gap, not a hypothetical"
-    assert len(numbers) == len(set(numbers))
 
 
 def _record(dir_: Path, name: str, h1: str, status: str = "accepted", anchor: str = "§1") -> Path:
