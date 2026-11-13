@@ -10,7 +10,11 @@ analysis.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from tether.fret import apparent_fret, corrected_fret
 
@@ -111,3 +115,31 @@ def test_corrected_fret_returns_float64_matching_shape() -> None:
     assert e.dtype == np.float64
     assert e.shape == (4,)
     np.testing.assert_allclose(e, 0.75)
+
+
+_REPO = Path(__file__).resolve().parents[1]
+#: The three places #686 corrected. Each once promised that E is never NaN.
+_NAN_CLAIM_PAGES = (
+    _REPO / "README.md",
+    _REPO / "docs" / "glossary.md",
+    _REPO / "src" / "tether" / "project" / "correct.py",
+)
+_NEVER_NAN = re.compile(
+    r"never\s+emits?\s+a\s+NaN(?!\s+factor)|NaN\s+corrected[- ]E|E\s+is\s+never\s+NaN",
+    re.IGNORECASE,
+)
+
+
+@pytest.mark.parametrize("page", _NAN_CLAIM_PAGES, ids=lambda p: p.name)
+def test_docs_do_not_promise_e_is_never_nan(page: Path) -> None:
+    # The facts (#686): a zero-total-intensity frame is NaN in apparent E; both channels at
+    # zero is NaN in corrected E too, but a cancelling pair can give a finite corrected E.
+    assert np.isnan(apparent_fret(np.array([0.0]), np.array([0.0]))[0])
+    assert np.isnan(corrected_fret(np.array([0.0]), np.array([0.0]), alpha=0.1, gamma=1.2)[0])
+    assert np.isnan(apparent_fret(np.array([8.0]), np.array([-8.0]))[0])
+    cancelling = corrected_fret(np.array([8.0]), np.array([-8.0]), alpha=0.25, gamma=1.5)[0]
+    assert cancelling == -5.0
+    text = " ".join(page.read_text(encoding="utf-8").split())
+    assert not _NEVER_NAN.search(text), f"{page.name} promises E is never NaN"
+    assert re.search(r"zero total\s+intensity", text), f"{page.name} omits the NaN frame"
+    assert re.search(r"missing (?:α or γ|factor)", text), f"{page.name} omits the fallback"

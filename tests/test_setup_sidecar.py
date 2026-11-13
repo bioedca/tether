@@ -257,6 +257,57 @@ def test_both_workflows_download_with_hash_enforcement() -> None:
         )
 
 
+def _pin_to(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str, digest: str) -> None:
+    """Point the script at a one-line requirements file pinning ``version`` to ``digest``."""
+    path = tmp_path / "setuptools-compatibility.txt"
+    path.write_text(f"setuptools=={version} --hash=sha256:{digest}\n", encoding="utf-8")
+    monkeypatch.setattr(setup, "SETUPTOOLS_REQUIREMENTS", path)
+
+
+def test_verify_accepts_only_a_wheel_whose_bytes_match_the_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--verify-setuptools-wheel`` re-hashes the staged bytes (IDZ-F14, issue #747).
+
+    Both workflows call it after ``pip download`` because pip reports success for a cache
+    hit as well, so a stale ``packaging/staging/`` would otherwise ship unchecked. The
+    contract test above only finds the flag in the workflow text; this one runs it. A
+    verify step that accepts every file fails here, not in a shipped installer.
+    """
+    import hashlib
+
+    good = b"the pinned wheel bytes"
+    _pin_to(tmp_path, monkeypatch, "80.9.0", hashlib.sha256(good).hexdigest())
+    staged = tmp_path / "staged.whl"
+
+    staged.write_bytes(good)
+    assert setup.main(["--verify-setuptools-wheel", str(staged)]) == 0
+    assert "matches the pinned sha256" in capsys.readouterr().out
+
+    staged.write_bytes(good + b" from a stale staging directory")
+    assert setup.main(["--verify-setuptools-wheel", str(staged)]) == 2
+    err = capsys.readouterr().err
+    assert "does not match the pin" in err, err
+
+    missing = tmp_path / "absent.whl"
+    assert setup.main(["--verify-setuptools-wheel", str(missing)]) == 2
+    err = capsys.readouterr().err
+    assert "staged wheel not found" in err, err
+
+
+def test_print_names_the_exact_wheel_of_the_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--print-setuptools-wheel`` prints the one filename the workflows stage (issue #747).
+
+    The version comes from the requirements file, so a pin other than the committed one
+    shows that the name is read rather than restated.
+    """
+    _pin_to(tmp_path, monkeypatch, "79.0.1", "c" * 64)
+    assert setup.main(["--print-setuptools-wheel"]) == 0
+    assert capsys.readouterr().out == "setuptools-79.0.1-py3-none-any.whl\n"
+
+
 def test_the_removal_trigger_is_recorded() -> None:
     """A temporary exception with no stated end becomes permanent by inattention.
 
