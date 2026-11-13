@@ -26,20 +26,15 @@ whole module is excluded by ``-m "not ... and not sidecar"``.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from _sidecar_gate import requires_sidecar
 from tether.idealize import SMDOpenCheck, check_smd_opens, read_smd, write_smd
 
 pytestmark = pytest.mark.sidecar
-
-_SIDECAR = os.environ.get("TETHER_SIDECAR_PYTHON")
-requires_sidecar = pytest.mark.skipif(
-    not _SIDECAR, reason="set TETHER_SIDECAR_PYTHON to a tMAVEN sidecar interpreter"
-)
 
 
 def _write_superset_smd(path: Path) -> dict:
