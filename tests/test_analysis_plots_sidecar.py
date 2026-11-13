@@ -12,9 +12,10 @@ process compares what they return with Tether **and** with each in-test copy.
 Two classes of agreement (Q7: A). A **port** (A1, A2, B1, B2, D1) must be equal; the only
 rounding is in the A1 overlay, whose vectorized form differs from tMAVEN's loop by at most
 1.5e-14 relative. A **re-derivation** (B3, C1: one consensus model instead of independent
-per-trace fits) and A2b on Tether's windowed rows are measured: the total-variation distance
-between the two normalized arrays must stay inside the limit frozen in
-``schema/plot_parity_limits.json``, which records the measurement and its conditions.
+per-trace fits) and A2b on Tether's windowed rows against what the tMAVEN app plots are measured:
+the total-variation distance between the two normalized arrays must stay inside the limit frozen
+in ``schema/plot_parity_limits.json``, which records the measurement and its conditions. A2b on
+Tether's windowed rows against the tMAVEN routine is equal (#806).
 """
 
 from __future__ import annotations
@@ -143,12 +144,14 @@ def test_a2_raw_histogram_matches_live_tmaven(live: dict) -> None:
 
 @requires_sidecar
 def test_a2b_post_sync_matches_live_tmaven(live: dict) -> None:
-    """Given tMAVEN's rows Tether is equal; on its own windowed rows the gap is frozen.
+    """Given tMAVEN's rows Tether is equal; on its own windowed rows the app gap is frozen.
 
-    Two input effects, both measured: tMAVEN's single-dwell window ends at the movie's last
-    frame, so it keeps the final frame of a trace whose window photobleaching ended earlier
-    (Tether drops it, as tMAVEN does at a jump); and the app's model pads the state path with
-    0 outside the window, so it also synchronizes on window borders as if they were jumps.
+    On Tether's windowed rows the routine is equal too: a trailing single-dwell window keeps
+    the window's final frame in both (#806). tMAVEN alone drops the movie's last frame when a
+    window runs to the movie end; on this fixture that frame never lands inside the time
+    columns, so the rectangular comparison stays equal. The gap to the app is one deliberate
+    difference, measured: the app's model pads the state path with 0 outside the window, so
+    it also synchronizes on window borders as if they were jumps.
     """
     tm = live["tm"]
     rows = {"fn": live["s_nan"], "ctrl": live["s_zero"]}
@@ -163,7 +166,7 @@ def test_a2b_post_sync_matches_live_tmaven(live: dict) -> None:
                 list(zip(live["states"], live["e"], strict=True)), **kw
             )
             assert (own.n_molecules, own.n_transitions) == tuple(tm["a2b_fn_n_" + key]), key
-            _within("A2b_windowed_vs_tmaven_routine", key, _tv(own.counts, tm["a2b_fn_" + key]))
+            np.testing.assert_array_equal(own.counts, tm["a2b_fn_" + key], err_msg=key)
             _within("A2b_windowed_vs_tmaven_app", key, _tv(own.counts, tm["a2b_ctrl_" + key]))
 
 

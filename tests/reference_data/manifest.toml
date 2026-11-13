@@ -86,6 +86,1018 @@ extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
 
+# --- MreC-MreD ebFRET sessions: Zenodo 10.5281/zenodo.13910538, CC-BY-4.0 (#719) ------------
+
+[[dataset]]
+id = "ebfret-mrec-data"
+source = "doi:10.5281/zenodo.13910538"
+record_url = "https://zenodo.org/records/13910538"
+license = "CC-BY-4.0"
+file = "Data.zip"
+size = 46017564
+sha256 = "175ebcca622dd2e5e56d5ced2e610e236723da93570946e58d5a64f67ed9f932"
+tier = "download"
+download_url = "https://zenodo.org/records/13910538/files/Data.zip?download=1"
+citation = "Gilman MSA, Shlosman I, Samé Guerra D, et al. MreC-MreD structure reveals a multifaceted interface that controls MreC conformation (data and code). Zenodo (2024). doi:10.5281/zenodo.13910538"
+
+[[dataset]]
+id = "ebfret-mrec-sessions"
+source = "doi:10.5281/zenodo.13910538"
+record_url = "https://zenodo.org/records/13910538"
+license = "CC-BY-4.0"
+file = "tests/fixtures/large/ebfret_mrec_sessions.hdf5"
+size = 11729129
+sha256 = "de1856cdffb554f7bd6732f8904bf03e72f79b425f2c3f62fbdfa9ccaf14c3c3"
+tier = "lfs"
+extract_of = ["ebfret-mrec-data"]
+extract_script = "scripts/make_ebfret_sessions_fixture.py"
+citation = "Gilman MSA, Shlosman I, Samé Guerra D, et al. MreC-MreD structure reveals a multifaceted interface that controls MreC conformation (data and code). Zenodo (2024). doi:10.5281/zenodo.13910538"
+
+# --- smfret-analysis2 test data: github.com/vafabakhsh-lab/smfret-analysis2 at commit 121634e,
+# GPL-3.0-only. Verbatim copies of test-data/traces/ (#709, ADR-0084): the 76 trace files and the
+# two outputs that create_histogram.m wrote from them. --------------------------------------------
+
+[[dataset]]
+id = "sa2-total-fret"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/total_FRET.csv"
+size = 5160
+sha256 = "cdffc7420060aa3db09336a9e3d8110d42e8fd8b1403f57811467070ed8a94d4"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-total-xc"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/total_XC.csv"
+size = 1517
+sha256 = "81c3c616823dac1d760185d7c5441725ea57d760d0bae04e392aa810ca17fa0f"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-20"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr20.dat"
+size = 46075
+sha256 = "37fda8ff0e566f941dae98bcf3b48fd2fd6cef2e550dfed44a00543eca9118c0"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-34"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr34.dat"
+size = 54514
+sha256 = "9dad2086786b1b87dfdd2318403f8147c0e101616d5cc13d46fbb730ba749fe2"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-38"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr38.dat"
+size = 193612
+sha256 = "680e623c632404d2897f7c3b0471550b232c184b7ccb4e9c1a3a69dbe20b427c"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-40"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr40.dat"
+size = 38218
+sha256 = "50446304eab726db3998b85438e43b0cd0ad571d369050e4d9e050e28a822f4c"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-42"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr42.dat"
+size = 26578
+sha256 = "47ce21a389ad6ed35c5fc7c51b7eb7fdd81f50aeb149bdb043393bb274ca4757"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-48"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr48.dat"
+size = 16393
+sha256 = "638858170b1fb3eb2c5fb30c31b5222d30e2d880f922c035d230397ffc99032b"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-52"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr52.dat"
+size = 39964
+sha256 = "b80ca437020ac66531db8c3e09a711159ad3a969430113d717850423c8798736"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-57"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr57.dat"
+size = 46657
+sha256 = "0810019e3ed90d6c68739ee6330bb47dfe5685fe4598337ca5347d807ce15959"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-60"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr60.dat"
+size = 72847
+sha256 = "de4cc98ea96a7d2a34b03018f1c3a595e6dcd54a2c34ec097c166e6fc2dd8b33"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-61"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr61.dat"
+size = 9118
+sha256 = "be53d2540fd8aefd67c2be1a74b54cb036c38e515016dbc20e9b72861c6b34ce"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-67"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr67.dat"
+size = 41710
+sha256 = "fe1632ffb91c133ffcf40d1d827b58bcbd79b869ef0b462ff7fda13237735298"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-70"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr70.dat"
+size = 40837
+sha256 = "38c90bea853f1ab35377743771d3e866513fac91b6f32b7f95e2cca5a14be8cc"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-76"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr76.dat"
+size = 13192
+sha256 = "a31f9240caefd1a934dccd8456bde289153e4936b67038102afe2c185d4e1dca"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-77"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr77.dat"
+size = 34726
+sha256 = "a287650092d0f2fb6947330f49eab5f9ad7b1ea90ff401fe1994cc9c29bcfbcf"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-78"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr78.dat"
+size = 34726
+sha256 = "573ebc5e524f36c15a334320693ac92363d3428e9120eafd27ac933b7f137c53"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-87"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr87.dat"
+size = 90016
+sha256 = "33d11e8ed8f8b8cd59be28eaf296d6ce8928f1a4f8f294cb55e23235902cd5b9"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-88"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr88.dat"
+size = 29488
+sha256 = "3572329f3b2b20032bebaeb7ee8582d13c8033dd3ddeff0461ffa801c938a319"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-89"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr89.dat"
+size = 35308
+sha256 = "12523d67bd989f44bb18d55b34bf09646361ab37bf29fa02e45f7e20c14edff2"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-98"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr98.dat"
+size = 111550
+sha256 = "149af6703815ed234671a7d31a9f37ea25379289a1cd394426206522156ff754"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-100"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr100.dat"
+size = 46657
+sha256 = "060bb75f1bd364a789088ddbb23dd4469212978ba4a5afaf8662d7d20f0a1ee9"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-101"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr101.dat"
+size = 48112
+sha256 = "64fab3cc277dea4f542f627ac5f98b322ef15ee8e4d3395a62bf1d984036e116"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-106"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr106.dat"
+size = 237553
+sha256 = "a005d2aa227a5073aac5e55613ad981374a03527b591da538fcd537cf642744a"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-110"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr110.dat"
+size = 54514
+sha256 = "c1a7af43287fd087e0b6bcee16870d9006208601f80a71fb1f2e8e76ca6b20aa"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-114"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr114.dat"
+size = 115042
+sha256 = "c7c3b807d371d11293481647b31556f915565c15018efbea6af8d9b12cece43d"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-115"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr115.dat"
+size = 37054
+sha256 = "433ee6fdf595462041ab4496b9839e631990a7892813e3c7cf9bde6dca2bd03a"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-118"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr118.dat"
+size = 116497
+sha256 = "921a7324b1c509612ddba06a35687c0bf6a6eed59cc53c58e228882082127378"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-122"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr122.dat"
+size = 190120
+sha256 = "33a023566aad2a4afd3ec18fa72376875c683067bbe1b3c54520decda82377ba"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-123"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr123.dat"
+size = 76921
+sha256 = "3cf47f06eab66a3c299f3334f849935eacf2ba813d45bb9f6b9b9089120f7b9c"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-127"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr127.dat"
+size = 37054
+sha256 = "5ebecdbc9937df9d5a339180fb08e427312e3d499e9f19f484463c435b3a7a74"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-128"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr128.dat"
+size = 78958
+sha256 = "a8a0373d573559f68b69632dbc95681f9ee902766dd482547f467552a1ec2d4c"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-132"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr132.dat"
+size = 28615
+sha256 = "86e62c0ba79f0e0d9003e52471e9b2063b41d7d8841f2d05ec0dca7654924268"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-134"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr134.dat"
+size = 63535
+sha256 = "7620923d550deb75c59b426e1efda8156c537cd70e63932f4b54ca6f0c258cec"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-135"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr135.dat"
+size = 109804
+sha256 = "2672bc44959c10bc6b4b19d2e4db2a1e1649f7829a7b6956d8a5137f1e5d79c5"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-138"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr138.dat"
+size = 103402
+sha256 = "1fb6fe2610204d1317e41f5327fbb165bc2f470459ed2a97a43c50926963f663"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-140"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr140.dat"
+size = 30943
+sha256 = "2c963099ec48f566f4c825a281f34e2a89738a4c91b7537960592e53b7ead64d"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-145"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr145.dat"
+size = 241627
+sha256 = "37838c2667d9d1a28ab09c950cfc3d6980aebad69a07d995be4abc710d4042f6"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-148"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr148.dat"
+size = 193612
+sha256 = "e5934f06c7162418bad803146c724048dba62b508b212695bb78ae567e6f3dc4"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-151"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr151.dat"
+size = 194776
+sha256 = "751a439146b8404f72412115dafb56b5bead3fe72a4693dfd990e404b35e9053"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-152"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr152.dat"
+size = 223585
+sha256 = "102af41605a4faccb0399fe097a9ff709b4073b322eab826ac99a15d0a61979b"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-154"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr154.dat"
+size = 58006
+sha256 = "25700f63bc9c804ec8dba7a483291140b9e1f478623755298ad801c9cc32948f"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-155"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr155.dat"
+size = 109513
+sha256 = "9385784db988edcc640110e4a3a6827180c55b0bce08b31d2e0257f920ab43f5"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-162"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr162.dat"
+size = 94963
+sha256 = "7cfc1587255450283dca5ec2510e30f1aca853beade8f9ac8286329fa9fdb8f7"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-166"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr166.dat"
+size = 39382
+sha256 = "ce34ab51b779d2f7e65fb0d1b71294f9c822a0ba6d50c8fd76d69bcf4ddddaf2"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-168"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr168.dat"
+size = 181099
+sha256 = "883fa062bb017372eac5e9a17179710fa65dfc28d2e8eae1f50b7bcabdf35c05"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-170"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr170.dat"
+size = 61498
+sha256 = "e97ffe82a09a9d556f4af841d8c2aab4630eec33947f338e7032ed7f64033e9e"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-172"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr172.dat"
+size = 67318
+sha256 = "0b1773b349d2e3cdf38393a3829263169dc20966e6280574e6ebb2350182ccd6"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-174"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr174.dat"
+size = 113878
+sha256 = "9ec38c9ef76c50f354c0b11f1034c9dd0e0bd9a7ff0365d5e139d2bed91fc4e9"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-175"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr175.dat"
+size = 12319
+sha256 = "b5df8ea6a06151806b785cd7ada3ab4cfd069ccf2a499f501512e3bc9f39d132"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-176"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr176.dat"
+size = 153745
+sha256 = "67ba7c41a17c877bc3aeaf577b735864594e6469c97b72b6ecf7bff8b68bab4a"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-179"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr179.dat"
+size = 25996
+sha256 = "2f3e8a1ebf0fe12fa76df9b7525af78788237a3d59242a7be311af5fa4ed4dba"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-181"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr181.dat"
+size = 148798
+sha256 = "ba58f8b9929e683095e83c4981a41f0a63ef677bcfa61114fff599f594233151"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-184"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr184.dat"
+size = 34435
+sha256 = "a94f9996cba5e5d2c65e85b1a29d24bc5550643c622f71b64bf801fa912f2fb3"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-185"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr185.dat"
+size = 93508
+sha256 = "34f882434029dca1298d34052352f1c03ef336201496607683beea19006f6a07"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-188"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr188.dat"
+size = 195649
+sha256 = "9f2a7c14f9dba907b99eca2210be77c182ffee8088de431e21b1cb7192693ff6"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-190"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr190.dat"
+size = 14938
+sha256 = "9f8db4ce64b64f8176edd546e0e878cc4b19e6e319988117fbdf8429a7cc6ad0"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-191"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr191.dat"
+size = 199141
+sha256 = "e169ad485cd3f8b531ff3a32180ed07213edad1dec15cfced0d0cf608b3d2d44"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-194"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr194.dat"
+size = 199141
+sha256 = "9a7a16796d83eabfdbea6459c5ea8960dfcb0b8ea0191f2bed4ce079fa800947"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-195"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr195.dat"
+size = 114751
+sha256 = "4ce6759ec576d085ce69536037f4af16a1c0a476265dab49da857affb348c80f"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-200"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr200.dat"
+size = 71101
+sha256 = "023a4b018e597f31cfd8e1f3e169b618ed43ea62950095af74a2a523ba5c1b9f"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-201"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr201.dat"
+size = 107476
+sha256 = "a231fb39466cb91bc59486ff0a5bc651543a50385d264d32458c1b3482c3e042"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-202"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr202.dat"
+size = 126391
+sha256 = "957201a8cfcb22d1ec8c2a1409ca364dfda1c4acbccb0c2db0095f73dada7989"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-205"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr205.dat"
+size = 190993
+sha256 = "ca03fc1362ac40729a53ce8300396b892e12e406855421931a41c98f7954f2db"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-206"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr206.dat"
+size = 135703
+sha256 = "5f55a19377b37d7b114b715f0c7719db469806b88f269530c7918257971ba950"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-207"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr207.dat"
+size = 169168
+sha256 = "e2a36b004b6595fe763b73aae873663b04f8eadfbb43f2767c318d330dcc9eea"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-208"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr208.dat"
+size = 220384
+sha256 = "1c17047c84e0b541a0d74bddc84012c980727a70feae57832483fb42e3273209"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-209"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr209.dat"
+size = 145306
+sha256 = "cd3ba308267180c16b6bb4cc03a391ea2575a6db891073f2c8147a8519a0c50f"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-210"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr210.dat"
+size = 204670
+sha256 = "f8eaf9fba8e223c70f86c106acbc6a804b6775d02574f51fc976a3646b8876ca"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-215"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr215.dat"
+size = 182845
+sha256 = "ceedc236574f6727b22baa35270036bfbe094c7282f6299619fdd4c7f2489548"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-218"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr218.dat"
+size = 39382
+sha256 = "162b6fe4b7e31be30f28d39fb0e8b04cfed8914fc357f48a413b1bef5188e7bd"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-221"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr221.dat"
+size = 161020
+sha256 = "28e7cfcecd4fb0327378fd7e02b234bcc3266e03cf0822f3a5d9e17271230fab"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-228"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr228.dat"
+size = 60916
+sha256 = "9775deeb4fe0de88df5929620c7608e0682e26fc26498c74949921155bd99e7f"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-229"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr229.dat"
+size = 145597
+sha256 = "5b7ee35c7612f47c77b3aa31932aea28356b01b2662d608985d0e58c3f8750f3"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-233"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr233.dat"
+size = 44329
+sha256 = "27ff65fe654851e28d8021fe331f0140aa98af9a4f59a823e846d394ce920b69"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-238"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr238.dat"
+size = 90598
+sha256 = "afcc8495875b781b3ed7a6f4a8ea1dc838f067e0caec5c51ccbd344b69160b11"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-242"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr242.dat"
+size = 105148
+sha256 = "e484f5e197d85f09fca33c438781a767799e54e606c9ee3223f351a30a57d7a8"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "sa2-trace-245"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/smfret_analysis2/traces/1 tr245.dat"
+size = 239299
+sha256 = "75f55b77fada48722bf39a3f042f26ba52e20e31b076b3078d5fb5f2a1bc250c"
+tier = "git"
+citation = "Schamber M. smfret-analysis2: MATLAB scripts for smFRET trace analysis, with test data (Vafabakhsh lab). GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+# --- kinSoftChallenge measured data sets (#718, ADR-0082): Zenodo 10.5281/zenodo.5701310 ------
+[[dataset]]
+id = "kinsoft-exp-fig2-10ms"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset_Fig2_10ms.zip"
+size = 944969
+sha256 = "68f9066ed860ce14e7133bd55a1b3fd365e4f4b1a57bbe4b68a5c0059c5ad537"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset_Fig2_10ms.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of B. Schuler (University of Zurich): ACTR-NCBD binding, Zosel F, et al. PNAS 117:13480 (2020)."
+
+[[dataset]]
+id = "kinsoft-exp-fig2-1ms"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset_Fig2_1ms.zip"
+size = 7025625
+sha256 = "2f7222d178374b66e77029b5d5c6e7d456e405915fb26fcab6adcb4cdd192c8a"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset_Fig2_1ms.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of B. Schuler (University of Zurich): ACTR-NCBD binding, Zosel F, et al. PNAS 117:13480 (2020)."
+
+[[dataset]]
+id = "kinsoft-exp-fig5-set1"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset1_Fig5.zip"
+size = 385895
+sha256 = "0ead241d0770fe829e137d70cf97def8c7b51eba7708fff998f3214e72f57ab2"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset1_Fig5.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of M. Schlierf (TU Dresden): SSB binding to a DNA hairpin."
+
+[[dataset]]
+id = "kinsoft-exp-fig5-set2"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset2_Fig5.zip"
+size = 409832
+sha256 = "d086ae546c7a1389fa0a54435333673b80338ab92814ef17c0f59c768d171e0a"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset2_Fig5.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of M. Schlierf (TU Dresden): SSB binding to a DNA hairpin."
+
+[[dataset]]
+id = "kinsoft-exp-fig5-set3"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset3_Fig5.zip"
+size = 429345
+sha256 = "738a5cc7f0cd4669db210ea8c5bb28991bc20323ee6ace4c6fe03d03c745fc94"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset3_Fig5.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of M. Schlierf (TU Dresden): SSB binding to a DNA hairpin."
+
+# --- The results the analyses of the challenge reported for them (#718): the paper's
+# Supplementary Data, CC-BY-4.0. tests/reference_data/kinsoft_published_results.json copies them.
+[[dataset]]
+id = "kinsoft-results-fig2-10ms"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM8_ESM.xlsx"
+size = 10573
+sha256 = "44e7fa77161514541b97c4d26a1b7fa05f3ec9155179fc00439401ae5493b0f0"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM8_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 6 (Fig. 2f,g)."
+
+[[dataset]]
+id = "kinsoft-results-fig2-1ms"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM9_ESM.xlsx"
+size = 8127
+sha256 = "24d2657d8ff0ac3b8d340616bb62265432793d6c45a04d83add77ceeb999d43e"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM9_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 7 (Supplementary Fig. 2b,c)."
+
+[[dataset]]
+id = "kinsoft-results-fig5-set1"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM12_ESM.xlsx"
+size = 14380
+sha256 = "2d30484e7bd748a058843d546212462901ff23d1ef11d299510abf2cdc3e4d82"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM12_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 10 (Fig. 5b,c)."
+
+[[dataset]]
+id = "kinsoft-results-fig5-set2"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM13_ESM.xlsx"
+size = 14036
+sha256 = "1653b0ad6f73a6bf894504f6e556280a562970eaa9ee01bf56236ec16ee6ce49"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM13_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 11 (Fig. 5e,f)."
+
+[[dataset]]
+id = "kinsoft-results-fig5-set3"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM14_ESM.xlsx"
+size = 14158
+sha256 = "da8db09755b81eefbf2682fc8a04ae98121675bc03be0c249c6f6a700e85bc3a"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM14_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 12 (Fig. 5h,i)."
+
 # --- Group IIB intron smFRET data with MASH-FRET projects: Zenodo 10.5281/zenodo.24104528, ----
 # CC-BY-4.0. Nine MASH-FRET project files (#711, ADR-0087). The archive is larger than the
 # download limit, so it is read on the workstation; the required matrix reads an extract of the

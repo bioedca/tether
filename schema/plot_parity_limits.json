@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "issue": 707,
-  "description": "Frozen limits for the parity-gallery plots that Tether does not compute the way tMAVEN does (docs/analysis/parity-gallery.md). tests/test_analysis_plots_sidecar.py runs the tMAVEN routines in the sidecar job and asserts each measured distance stays at or under its limit. Ported plots (A1, A2, B1, B2, D1, and A2b given tMAVEN's own rows) need no limit: they must be equal.",
+  "description": "Frozen limits for the parity-gallery plots that Tether does not compute the way tMAVEN does (docs/analysis/parity-gallery.md). tests/test_analysis_plots_sidecar.py runs the tMAVEN routines in the sidecar job and asserts each measured distance stays at or under its limit. Ported plots (A1, A2, B1, B2, D1, and A2b against the tMAVEN routine, on tMAVEN's own rows and on Tether's windowed rows since #806) need no limit: they must be equal.",
   "metric": "Total-variation distance 0.5 * sum(|p / sum(p) - q / sum(q)|) between Tether's array p and tMAVEN's array q: 0 is identical, 1 is disjoint.",
   "limit_rule": "Each limit is its measurement rounded up at the second significant digit. tests/test_plot_parity_limits.py enforces the rule, so a limit cannot be widened without a new measurement (PRD section 11.2 re-freeze policy).",
   "measured": {
@@ -14,69 +14,24 @@
     "tether_input": "The consensus model_281mol.hdf5 state paths and apparent E, each sliced to its SMD pre/post window, as the store path feeds them."
   },
   "limits": {
-    "A2b_windowed_vs_tmaven_routine": {
-      "why": "Selection key single_dwell_from_to. tMAVEN's single-dwell window ends at the movie's last frame, so on a trace whose window photobleaching ended earlier it keeps the final window frame; Tether drops it, as both do at a jump. Fixed windows are equal (0).",
+    "A2b_windowed_vs_tmaven_app": {
+      "why": "Selection key single_dwell_from_to. The model the tMAVEN app holds pads its integer state path with 0 outside each window, so the app synchronizes on window borders as if they were jumps; Tether's NO_STATE border is never a jump (a deliberate difference). Re-measured 2026-11-12 for #806, after Tether's trailing single-dwell window began to keep the window's final frame as the tMAVEN routine does: the app, which sees that window end as a jump, drops the frame, so 1_1_2 rose from 0 and 1_0_-1 rose within its limit, while 1_-1_-1 and 1_-1_2 fell.",
       "values": {
         "1_-1_-1": {
-          "measured": 0.006120016413157649,
-          "limit": 0.0062
+          "measured": 0.014706591942968875,
+          "limit": 0.015
         },
         "1_0_-1": {
-          "measured": 0.0005319853347935123,
-          "limit": 0.00054
+          "measured": 0.0671168543230058,
+          "limit": 0.068
         },
         "1_-1_2": {
-          "measured": 0.0002061843007167714,
-          "limit": 0.00021
+          "measured": 0.02409385041605771,
+          "limit": 0.025
         },
         "1_1_2": {
           "measured": 0.00039308025185523895,
           "limit": 0.0004
-        },
-        "1_2_1": {
-          "measured": 0.0,
-          "limit": 0.0
-        },
-        "0_-1_-1": {
-          "measured": 0.0,
-          "limit": 0.0
-        },
-        "0_0_-1": {
-          "measured": 0.0,
-          "limit": 0.0
-        },
-        "0_-1_2": {
-          "measured": 0.0,
-          "limit": 0.0
-        },
-        "0_1_2": {
-          "measured": 0.0,
-          "limit": 0.0
-        },
-        "0_2_1": {
-          "measured": 0.0,
-          "limit": 0.0
-        }
-      }
-    },
-    "A2b_windowed_vs_tmaven_app": {
-      "why": "As above, and the model tMAVEN holds pads its integer state path with 0 outside each window, so the app also synchronizes on window borders as if they were jumps.",
-      "values": {
-        "1_-1_-1": {
-          "measured": 0.018700381238484165,
-          "limit": 0.019
-        },
-        "1_0_-1": {
-          "measured": 0.06708510669679195,
-          "limit": 0.068
-        },
-        "1_-1_2": {
-          "measured": 0.02414408113306522,
-          "limit": 0.025
-        },
-        "1_1_2": {
-          "measured": 0.0,
-          "limit": 0.0
         },
         "1_2_1": {
           "measured": 0.0,

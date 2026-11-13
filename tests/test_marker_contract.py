@@ -3636,6 +3636,20 @@ def test_the_required_matrix_deselects_reference_download() -> None:
             assert f"not {REFERENCE_MARKER}" in expression, command
 
 
+def test_the_reference_job_materializes_the_lfs_extract_it_rebuilds() -> None:
+    """``ebfret_mrec_sessions.hdf5`` is compared with a fresh extraction only if its LFS object
+    is there; on a pointer ``fetch.path_for`` skips and the job passes without comparing (#719)."""
+    workflow = yaml.safe_load((WORKFLOWS_DIR / "reference-data.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["reference-data"]["steps"]
+    extract = "tests/fixtures/large/ebfret_mrec_sessions.hdf5"
+    (pull,) = [s for s in steps if "git lfs pull" in str(s.get("run", ""))]
+    assert pull["env"]["EXTRACT"] == extract
+    assert '--include="$EXTRACT"' in pull["run"]
+    assert "git-lfs.github.com/spec" in pull["run"], "a pointer left behind must fail the step"
+    (tests,) = [s for s in steps if "-m reference_download" in str(s.get("run", ""))]
+    assert steps.index(pull) < steps.index(tests)
+
+
 def test_the_reference_job_downloads_into_its_keyed_cache() -> None:
     workflow = yaml.safe_load((WORKFLOWS_DIR / "reference-data.yml").read_text(encoding="utf-8"))
     job = workflow["jobs"]["reference-data"]
