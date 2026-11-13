@@ -141,9 +141,12 @@ every GitHub-hosted runner, so this assertion has never executed in CI. (The wee
 `7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run of
 this enforcing test with `TETHER_UCKOPSB_DIR` pointing at a staged copy of the movie, which
 supplies the `.tdat` detector settings and the 2 px gate; that run is recorded in ADR-0022.
-The `scripts/run_m1_oracle.py` helper does not reproduce that configuration yet
-([#555](https://github.com/bioedca/tether/issues/555)), so it is not the reproduction
-command.
+`scripts/run_m1_oracle.py --data-dir <staged copy>` reproduces the same configuration
+as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
+the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
+and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
+it as not applicable). Its own behaviour is pinned without the movie by
+`tests/test_run_m1_oracle.py`.
 
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
@@ -762,6 +765,12 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all. The
   real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.
+- A reference that comes from an ALEX data set compares **apparent FRET from the
+  donor-excitation channels only** — the donor and acceptor intensities under donor
+  excitation. It does not check direct excitation (δ), stoichiometry or any other quantity
+  that needs the acceptor-excitation frames, and so it does not validate them. Tether is
+  single-laser only (PRD N1); the PRD's "What the tests can use" rules (§2.2) allow the
+  ALEX sets at trace level and add no ALEX feature.
 
 **Accepted diagnostics that are not gates.**
 

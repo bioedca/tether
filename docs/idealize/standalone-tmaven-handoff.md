@@ -1,10 +1,15 @@
 # Standalone-tMAVEN hand-off
 
+**Who this page is for.** Anyone who wants to open Tether's traces in the standalone tMAVEN
+window, edit the fit by hand and bring the result back. It is also for anyone who must set up
+the tMAVEN sidecar. It assumes you have used tMAVEN. The setup section also assumes you can
+run a Python script from a source checkout.
+
 Tether [idealizes](../pipeline.md#idealize) traces by driving [tMAVEN](https://github.com/GonzalezBiophysicsLab/tmaven)
 ([vbFRET / consensus VB-HMM / ebFRET](../glossary.md#vbfret-ebfret-consensus-vb-hmm)).
 Because tMAVEN pins `numpy<2` + PyQt5, it runs in an **isolated sidecar environment** — a
 separate interpreter that never shares a process with Tether's own PySide6 / current-numpy
-GUI (ADR-0004, ADR-0006).
+GUI.
 
 Two ways to reach tMAVEN share that sidecar:
 
@@ -16,7 +21,8 @@ Two ways to reach tMAVEN share that sidecar:
 
 This page covers the **guided setup** for the sidecar and the **hand-off verification**
 that a Tether-exported SMD opens in standalone tMAVEN with its coordinate metadata intact
-— the M9 acceptance folded in from the M0.5 deferral (ADR-0010, issue #13).
+— the M9 acceptance folded in from the M0.5 deferral (ADR-0010, issue #13). ADR-0004 and
+ADR-0006 record why the sidecar is a separate environment.
 
 ## Guided sidecar setup
 

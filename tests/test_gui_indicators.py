@@ -243,10 +243,16 @@ def test_the_one_click_idealize_shows_the_busy_indicator(qapp, qtbot, monkeypatc
 
     monkeypatch.setattr(indicators, "prefers_reduced_motion", lambda: False)
     rng = np.random.default_rng(0)
-    traces = [TraceView(rng.random(20), rng.random(20), molecule_key=f"mol_{i}") for i in range(2)]
+    # The list name differs from the content-hash key, as it does for extracted molecules.
+    traces = [
+        TraceView(rng.random(20), rng.random(20), name=f"spot {i}", molecule_key=f"{i:064x}")
+        for i in range(2)
+    ]
     release = threading.Event()
+    received: list[str] = []
 
-    def slow_idealizer(_key: str):
+    def slow_idealizer(key: str):
+        received.append(key)
         release.wait(10)
         return np.full(20, 0.5)
 
@@ -258,13 +264,46 @@ def test_the_one_click_idealize_shows_the_busy_indicator(qapp, qtbot, monkeypatc
         shell._idealize_current()
         try:
             assert busy.is_running()
-            assert busy.task_name == "Idealizing mol_0"
+            assert busy.task_name == "Idealizing spot 0"
+            assert busy.label.text() == "Idealizing spot 0"
             assert busy.mark.is_animating()
         finally:
             release.set()
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
+        assert received == [f"{0:064x}"]  # the idealizer still receives the key
         assert not busy.is_running() and busy.isHidden()
         assert not busy.mark.is_animating()
+
+
+def test_the_busy_indicator_names_an_unnamed_molecule_by_its_row_text(
+    qapp, qtbot, monkeypatch
+) -> None:
+    from tether.gui.shell import TetherShell
+    from tether.gui.trace_dock import TraceView
+
+    monkeypatch.setattr(indicators, "prefers_reduced_motion", lambda: False)
+    rng = np.random.default_rng(1)
+    traces = [TraceView(rng.random(20), rng.random(20), molecule_key=f"{i:064x}") for i in range(2)]
+    release = threading.Event()
+    received: list[str] = []
+
+    def slow_idealizer(key: str):
+        received.append(key)
+        release.wait(10)
+        return np.full(20, 0.5)
+
+    with TetherShell(idealizer=slow_idealizer) as shell:
+        qtbot.addWidget(shell.window)
+        shell.set_molecules(traces)
+        shell.molecule_list.setCurrentRow(1)
+        busy = shell.busy_indicator
+        shell._idealize_current()
+        try:
+            assert busy.task_name == "Idealizing mol-1"
+        finally:
+            release.set()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
+        assert received == [f"{1:064x}"]
 
 
 # --- the progress row --------------------------------------------------------------

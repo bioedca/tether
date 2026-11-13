@@ -238,6 +238,37 @@ def test_the_16px_icon_is_the_same_image_in_every_container() -> None:
         assert other.tobytes() == png.tobytes()
 
 
+# The outer band of the social card that only the ground and the dot field may reach. The dot
+# field is CHALK at opacity 0.20, so with smoothing its brightest pixel sits near 0.20 of the
+# way from GROUND to CHALK; the word (opacity 1) and the tagline (0.78) reach far above 0.35.
+SOCIAL_MARGIN_PX = 40
+SOCIAL_TEXT_FLOOR = 0.35
+
+
+def test_the_social_card_keeps_the_word_and_the_tagline_inside_its_margins() -> None:
+    """#683: at 1200 x 630 the tagline ran past the right edge and the final R touched it."""
+    Image = pytest.importorskip("PIL.Image")
+    card = Image.open(DOCS / "social-card-1200x630.png").convert("RGB")
+    w, h = card.size
+    ground = int(BRAND_COLORS["ground"][3:5], 16)
+    chalk = int(BRAND_COLORS["chalk"][3:5], 16)
+    green = card.getchannel("G")
+    m = SOCIAL_MARGIN_PX
+    bands = {
+        "right": (w - m, 0, w, h),
+        "left": (0, 0, m, h),
+        "top": (0, 0, w, m),
+        "bottom": (0, h - m, w, h),
+    }
+    brightest = {
+        side: round((green.crop(box).getextrema()[1] - ground) / (chalk - ground), 3)
+        for side, box in bands.items()
+    }
+    assert all(v <= SOCIAL_TEXT_FLOOR for v in brightest.values()), brightest
+    # The dot field is still drawn in the band, so the test cannot pass on a blank margin.
+    assert min(brightest.values()) >= 0.1, brightest
+
+
 def test_the_brand_colors_agree_between_tokens_and_the_brand_page() -> None:
     tokens = json.loads((GUI / "tokens.json").read_text(encoding="utf-8"))
     assert tokens["brand"] == BRAND_COLORS
