@@ -216,11 +216,61 @@ jobs:
       # `sidecar` marker drives the isolated tMAVEN env (numpy<2/PyQt5), which CI
       # does not build (M0.5 S1) — exclude it too; it is a dev-machine check. The
       # `deep` marker drives the isolated torch `deep/` env (ADR-0047), built only
-      # on the non-required deep.yml leg — exclude it; the base app has no torch.
+      # on the non-required deep.yml leg — exclude it; the base app has no torch. The
+      # `workstation` marker needs private laboratory data that no runner has; those
+      # tests run only from scripts/workstation/run_private_checks.py on the
+      # maintainer's workstation (ADR-0071) — exclude them from every job.
+      # The `reference_download` marker needs the network, which the required
+      # matrix never uses — it runs in the weekly reference-data.yml (ADR-0073).
+      # The JUnit report feeds the skip budget below (#726).
+      # Coverage (#724, ADR-0072): the Linux leg runs the same tests under `coverage` with
+      # branch measurement ([tool.coverage.run] in pyproject.toml) and holds the result to
+      # .github/coverage-floors.toml. The macOS and Windows legs do not change. `coverage` is
+      # pip-pinned like pytest, never in conda-lock.yml, so it is not shipped in the installers.
+      - name: Install coverage (Linux leg only)
+        if: runner.os == 'Linux'
+        run: python -m pip install "coverage==7.17.2"
+      # tests/test_coverage_floors.py compares the floors with the copy on main, so a pull
+      # request cannot lower one. The checkout is a single commit, so fetch main for it; the
+      # repository is public, so no token is needed.
+      - name: Fetch main for the coverage floor ratchet (Linux leg only)
+        if: runner.os == 'Linux'
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
       - name: Run tests
+        id: pytest
+        env:
+          TETHER_COVERAGE_BASE_REF: ${{ runner.os == 'Linux' && 'origin/main' || '' }}
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
-            xvfb-run -a pytest -v -m "not large and not sidecar and not deep"
+            xvfb-run -a coverage run -m pytest -v -m "not large and not sidecar and not deep and not workstation and not reference_download" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
           else
-            pytest -v -m "not large and not sidecar and not deep"
+            pytest -v -m "not large and not sidecar and not deep and not workstation and not reference_download" --junitxml="$RUNNER_TEMP/pytest-junit.xml"
           fi
+      # pytest exits 0 when a test skips, so a fixture, a tool or a package that goes absent
+      # leaves the job green. This step fails the leg when a skip is not in
+      # tests/skip_budget.toml for this leg, when more tests skip than the leg allows, or when
+      # fewer tests ran than its committed minimum (#726). It runs after a red pytest step
+      # too, so the job log shows both results.
+      - name: Compare the skips with the committed budget
+        if: ${{ !cancelled() && (steps.pytest.outcome == 'success' || steps.pytest.outcome == 'failure') }}
+        env:
+          SKIP_BUDGET_JOB: test (${{ matrix.os }})
+        run: python scripts/check_skips.py --job "$SKIP_BUDGET_JOB" --report "$RUNNER_TEMP/pytest-junit.xml"
+      # Runs after a test failure too, so the table is there to read; it fails the job when a
+      # value is below its floor and prints a notice when a floor can be raised.
+      - name: Coverage report and floors (Linux leg only)
+        if: runner.os == 'Linux' && !cancelled()
+        run: |
+          coverage json -o coverage.json
+          coverage report > coverage.txt
+          python scripts/check_coverage_floors.py coverage.json
+      - name: Upload coverage report (Linux leg only)
+        if: runner.os == 'Linux' && !cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-linux
+          path: |
+            coverage.json
+            coverage.txt
+          if-no-files-found: error
+          retention-days: 14

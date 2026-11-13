@@ -42,6 +42,14 @@ from tether.project.gamma import compute_gamma  # noqa: E402
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
 _WINDOW = 21
 
+# Limits for the injected γ = 1.2 on the default noisy store (noise 1.5, seeds 1..12),
+# set at not less than 10 times the agreement the code reaches on it (#728, PRJ-F4).
+# Measured on 2026-11-11: dataset median off by 0.00121, worst single molecule off by
+# 0.00727 (identical on the Linux, macOS and Windows legs of the required matrix). A
+# γ estimate that uses half of each α misses the median by 0.051, so it fails here.
+_GAMMA_MEDIAN_ABS = 0.015
+_GAMMA_PER_MOLECULE_ABS = 0.08
+
 
 def _distinct_coords(n: int) -> np.ndarray:
     return np.array([[12.0 + 1.7 * i, 14.0 + 2.3 * (i % 7)] for i in range(n)], dtype="float64")
@@ -163,20 +171,28 @@ def _gamma_store(
     don: int = 100,
     start: int = 0,
     donpb_overrides: dict[int, int] | None = None,
+    noise: float = 1.5,
 ) -> None:
     """Build a store of ``n_mol`` acceptor-bleach-step traces, with α + bleach_frames set.
 
     ``acc``/``don`` are **absolute** frames; ``start`` sets a non-zero ``frame_range``
     start to exercise the absolute→local conversion. ``donpb_overrides`` maps a
     molecule index to a shorter ``donor_pb`` (a too-short post-segment → that molecule
-    fails the γ gate, exercising the median fallback).
+    fails the γ gate, exercising the median fallback). ``noise = 0`` gives steps from
+    which γ is recovered exactly.
     """
     donpb_overrides = donpb_overrides or {}
     donor_rows, acceptor_rows, donpbs = [], [], []
     for i in range(n_mol):
         dpb = donpb_overrides.get(i, don)
         d, a = _step_trace(
-            n=n, acceptor_pb=acc, donor_pb=dpb, gamma_true=gamma_true, alpha=alpha, seed=i + 1
+            n=n,
+            acceptor_pb=acc,
+            donor_pb=dpb,
+            gamma_true=gamma_true,
+            alpha=alpha,
+            seed=i + 1,
+            noise=noise,
         )
         donor_rows.append(d)
         acceptor_rows.append(a)
@@ -207,12 +223,27 @@ def test_writes_per_molecule_gamma(tmp_path: Path) -> None:
     assert summary.n_qualifying == 12
     assert summary.n_fallback == 0
     assert summary.applied is True
-    assert summary.gamma == pytest.approx(1.2, abs=0.1)
+    assert summary.gamma == pytest.approx(1.2, abs=_GAMMA_MEDIAN_ABS)
     assert summary.source == "acceptor-bleach-step"
 
     table = read_molecules(path)
     # Per-molecule γ (each near the true value), NOT a single dataset factor.
-    assert np.all(table["gamma"] == pytest.approx(1.2, abs=0.2))
+    assert np.all(table["gamma"] == pytest.approx(1.2, abs=_GAMMA_PER_MOLECULE_ABS))
+
+
+@pytest.mark.parametrize("alpha", [0.1, 0.3])
+def test_noise_free_steps_give_exact_gamma_whatever_the_alpha(tmp_path: Path, alpha: float) -> None:
+    # Noise-free steps: every molecule must give γ = 1.2 to float precision, and a
+    # different leakage α (in the traces and in /molecules.alpha) must not move it.
+    # γ is measured on I_A − α·I_D, so a wrong α in the γ pass moves every molecule:
+    # half of α = 0.1 gives γ = 1.15, half of α = 0.3 gives γ = 1.05 (#728, PRJ-F4).
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=12, gamma_true=1.2, alpha=alpha, noise=0.0)
+    summary = compute_gamma(path)
+    assert summary.n_qualifying == 12
+    assert summary.gamma == pytest.approx(1.2, abs=1e-9)
+    gamma = read_molecules(path)["gamma"]
+    np.testing.assert_allclose(gamma, 1.2, rtol=0.0, atol=1e-9)
 
 
 def test_stamps_settings_gamma_provenance(tmp_path: Path) -> None:
@@ -230,7 +261,7 @@ def test_stamps_settings_gamma_provenance(tmp_path: Path) -> None:
         assert float(grp.attrs["ceiling"]) == 5.0
         assert grp.attrs["min_qualifying_traces"] == 10
         assert grp.attrs["intensity_quantity"] == "corrected"
-        assert float(grp.attrs["gamma"]) == pytest.approx(1.2, abs=0.1)
+        assert float(grp.attrs["gamma"]) == pytest.approx(1.2, abs=_GAMMA_MEDIAN_ABS)
         assert "app_version" in grp.attrs
         assert "created_utc" in grp.attrs
 
@@ -365,7 +396,22 @@ def test_nonzero_frame_range_start_converts_correctly(tmp_path: Path) -> None:
     summary = compute_gamma(path)
     assert summary.applied is True
     assert summary.n_qualifying == 12
-    assert summary.gamma == pytest.approx(1.2, abs=0.1)
+    assert summary.gamma == pytest.approx(1.2, abs=_GAMMA_MEDIAN_ABS)
+
+
+def test_nonzero_frame_range_start_converts_the_donor_bleach_frame(tmp_path: Path) -> None:
+    # frame_range = (10, 120), acceptor bleach 40, donor bleach 55 (absolute frames).
+    # The window-local donor-only segment is 55 − 40 = 15 frames, not more than 20, so
+    # no molecule qualifies. A donor bleach frame left absolute would read 55 − 30 = 25
+    # local frames and let all 12 qualify with γ ≈ 1.2 (#728, PRJ-F17).
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=12, gamma_true=1.2, alpha=0.1, acc=40, don=55, start=10)
+    summary = compute_gamma(path)
+    assert summary.n_molecules == 12
+    assert summary.n_qualifying == 0
+    assert summary.gamma is None
+    assert summary.applied is False
+    assert np.all(np.isnan(read_molecules(path)["gamma"]))
 
 
 def test_recompute_overwrites_settings(tmp_path: Path) -> None:
@@ -395,7 +441,7 @@ def test_skips_invalid_frame_range_and_writes_correct_rows(tmp_path: Path) -> No
     table = read_molecules(path)
     assert np.isnan(table["gamma"][5])  # skipped row untouched
     others = [i for i in range(12) if i != 5]
-    assert np.all(table["gamma"][others] == pytest.approx(1.2, abs=0.2))
+    assert np.all(table["gamma"][others] == pytest.approx(1.2, abs=_GAMMA_PER_MOLECULE_ABS))
 
 
 def test_never_bleach_donor_still_qualifies(tmp_path: Path) -> None:
@@ -406,7 +452,7 @@ def test_never_bleach_donor_still_qualifies(tmp_path: Path) -> None:
     summary = compute_gamma(path)
     assert summary.applied is True
     assert summary.n_qualifying == 12
-    assert summary.gamma == pytest.approx(1.2, abs=0.1)
+    assert summary.gamma == pytest.approx(1.2, abs=_GAMMA_MEDIAN_ABS)
 
 
 def test_guarded_gamma_publish_preserves_successor_data_and_stamp(

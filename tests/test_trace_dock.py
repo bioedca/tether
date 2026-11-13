@@ -83,6 +83,11 @@ def test_marginal_histogram_fret_drops_nan_and_fixes_range() -> None:
     assert counts.sum() == 4  # the NaN is dropped
     assert centers[0] > 0.0 and centers[-1] < 1.0
     assert width == pytest.approx(1.0 / 40)
+    # Each bar sits on its own bin: compare the counts with NumPy bin by bin, so a
+    # mirrored or shifted histogram (E = 0.1 drawn at 0.9) fails here (#745 GUI-F5).
+    ref_counts, ref_edges = np.histogram([0.1, 0.5, 0.5, 0.9], bins=40, range=(0.0, 1.0))
+    np.testing.assert_array_equal(counts, ref_counts)
+    np.testing.assert_allclose(centers, 0.5 * (ref_edges[:-1] + ref_edges[1:]))
 
 
 def test_marginal_histogram_all_nan_is_empty_not_error() -> None:
@@ -211,6 +216,31 @@ def test_dock_time_toggle_seconds_and_frames(qtbot) -> None:
         dock.time_checkbox.setChecked(True)
         assert dock.time_mode == "seconds"
         np.testing.assert_allclose(dock.donor_curve.getData()[0], [0.0, 0.2, 0.4, 0.6, 0.8])
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_bottom_axis_label_follows_time_mode(qtbot) -> None:
+    # The x data alone cannot tell "Frame" from "Time (s)": frame numbers shown
+    # under the label "Time (s)" read as seconds. Read the label itself (#745 GUI-F5).
+    from tether.gui.trace_dock import TraceDock
+
+    trace = TraceView(donor=np.zeros(5), acceptor=np.zeros(5), frame_time=0.2)
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(trace)
+        axis = dock.fret_plot.getAxis("bottom")
+        assert dock.time_mode == "seconds"
+        assert axis.labelText == "Time"
+        assert axis.labelUnits == "s"
+
+        dock.set_time_mode("frames")
+        assert axis.labelText == "Frame"
+        assert axis.labelUnits == ""
+
+        dock.set_time_mode("seconds")
+        assert axis.labelText == "Time"
+        assert axis.labelUnits == "s"
 
 
 @pytest.mark.gui
@@ -438,3 +468,56 @@ def test_dock_histograms_replace_on_update_and_clear(qtbot) -> None:
         dock.clear()
         assert n_bars(dock.fret_histogram) == 0
         assert n_bars(dock.intensity_histogram) == 0
+
+
+def _bars(plot):
+    import pyqtgraph as pg
+
+    (bars,) = [item for item in plot.items if isinstance(item, pg.BarGraphItem)]
+    return bars
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_marginals_draw_the_histograms_of_the_trace(qtbot) -> None:
+    # The marginals are horizontal bars: bar length (``width``) is the count and
+    # ``y`` the bin centre. Compare both with NumPy on the quantity each marginal
+    # is documented to show — apparent E on 0-1 for the FRET panel, the total
+    # intensity (auto range) for the intensity panel — so a marginal built from
+    # the wrong signal, or drawn mirrored, fails (#745 GUI-F5). Donor, acceptor
+    # and total are chosen so that no two of them share a histogram.
+    from tether.gui.trace_dock import _FRET_RANGE, _N_HIST_BINS, TraceDock
+
+    donor = np.array([90.0, 80.0, 70.0, 60.0, 20.0, 10.0, 15.0, 85.0])
+    acceptor = np.array([10.0, 20.0, 60.0, 90.0, 100.0, 150.0, 30.0, 5.0])
+    trace = TraceView(donor=donor, acceptor=acceptor)
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(trace)
+
+        for plot, values, hist_range in (
+            (dock.fret_histogram, trace.apparent_e, _FRET_RANGE),
+            (dock.intensity_histogram, trace.total, None),
+        ):
+            ref_counts, ref_edges = np.histogram(values, bins=_N_HIST_BINS, range=hist_range)
+            opts = _bars(plot).opts
+            np.testing.assert_array_equal(np.asarray(opts["width"]), ref_counts)
+            np.testing.assert_allclose(
+                np.asarray(opts["y"]), 0.5 * (ref_edges[:-1] + ref_edges[1:])
+            )
+
+        # A second trace re-draws both marginals from its own data (the bars are
+        # reused through setOpts, so the new values must reach the same item).
+        # The total of t2 has another range, so the intensity bin centres move too.
+        t2 = TraceView(donor=acceptor, acceptor=donor * 3.0)
+        dock.set_trace(t2)
+        for plot, values, hist_range in (
+            (dock.fret_histogram, t2.apparent_e, _FRET_RANGE),
+            (dock.intensity_histogram, t2.total, None),
+        ):
+            ref_counts, ref_edges = np.histogram(values, bins=_N_HIST_BINS, range=hist_range)
+            opts = _bars(plot).opts
+            np.testing.assert_array_equal(np.asarray(opts["width"]), ref_counts)
+            np.testing.assert_allclose(
+                np.asarray(opts["y"]), 0.5 * (ref_edges[:-1] + ref_edges[1:])
+            )

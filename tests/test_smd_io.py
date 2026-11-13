@@ -132,6 +132,43 @@ def test_write_rejects_bad_raw_shape(tmp_path: Path) -> None:
         write_smd(tmp_path / "bad.hdf5", np.zeros((3, 10, 3)))
 
 
+def test_write_overwrite_false_refuses_and_true_replaces(tmp_path: Path) -> None:
+    """``overwrite`` decides whether an existing SMD group is kept or replaced (#736 IDZ-F15).
+
+    ``overwrite=False`` raises and leaves the first content unchanged.
+    ``overwrite=True`` writes the second content and leaves no dataset from the first.
+    """
+    h5py = pytest.importorskip("h5py")
+    path = tmp_path / "twice.hdf5"
+    first = np.random.default_rng(5).random((2, 10, 2))
+    second = np.random.default_rng(6).random((3, 8, 2))
+    write_smd(
+        path,
+        first,
+        classes=[1, 2],
+        donor_xy=np.array([[1.0, 2.0], [3.0, 4.0]]),
+        acceptor_xy=np.array([[5.0, 6.0], [7.0, 8.0]]),
+        molecule_keys=["mk-a", "mk-b"],
+    )
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        write_smd(path, second, overwrite=False)
+    kept = read_smd(path)
+    np.testing.assert_array_equal(kept.raw, first)
+    np.testing.assert_array_equal(kept.classes, [1, 2])
+    assert kept.molecule_keys == ["mk-a", "mk-b"]
+
+    write_smd(path, second, overwrite=True)
+    back = read_smd(path)
+    np.testing.assert_array_equal(back.raw, second)
+    assert not back.has_tmaven
+    assert not back.has_superset
+    with h5py.File(path, "r") as f:
+        # Only the groups a plain SMD has: the tMAVEN and tether groups of the
+        # first write are gone.
+        assert set(f["dataset"].keys()) == {"data", "sources"}
+
+
 def test_write_rejects_dangling_source_index(tmp_path: Path) -> None:
     pytest.importorskip("h5py")
     with pytest.raises(ValueError, match="source"):
