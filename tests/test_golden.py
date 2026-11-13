@@ -243,12 +243,20 @@ def test_check_passes_with_the_table_and_a_cause() -> None:
         ("Cause: something", "no golden table"),
         (_TABLE, "no 'Cause:' line"),
         (f"{_TABLE}\nCause:\n", "no 'Cause:' line"),
+        (f"{_TABLE}\n**Cause:**\n", "no 'Cause:' line"),
+        (f"{_TABLE}\n- **Cause:** \n", "no 'Cause:' line"),
         (f"<!-- {_TABLE}\nCause: x -->", "no golden table"),
     ],
 )
 def test_check_fails_without_the_table_or_the_cause(body: str, expected: str) -> None:
     found = check_golden_table.problems(body, ["tests/golden/synthetic_movie.json"])
     assert any(expected in p for p in found), found
+
+
+@pytest.mark.parametrize("line", ["**Cause:** x", "- **Cause:** x", "* Cause: x"])
+def test_check_accepts_a_formatted_cause_label(line: str) -> None:
+    body = f"{_TABLE}\n{line}\n"
+    assert check_golden_table.problems(body, ["tests/golden/synthetic_movie.json"]) == []
 
 
 def test_check_names_each_changed_golden_file() -> None:

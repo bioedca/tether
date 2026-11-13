@@ -34,7 +34,15 @@ GOLDEN_PREFIX = "tests/golden/"
 #: Must equal ``_golden.TABLE_HEADER`` (``tests/test_golden.py`` asserts it).
 TABLE_HEADER = "| golden file | quantity | old | new | relative change |"
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-_CAUSE = re.compile(r"^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?Cause:(?:\*\*)?[ \t]*\S", re.MULTILINE)
+_CAUSE = re.compile(r"^[ \t]*(?:[-*][ \t]+)?(?:\*\*)?Cause:(.*)$", re.MULTILINE)
+
+
+def has_cause(text: str) -> bool:
+    """Whether ``text`` has a ``Cause:`` line that says something.
+
+    Bold marks are removed before the test, so ``**Cause:**`` with nothing after it is empty.
+    """
+    return any(m.group(1).replace("**", "").strip() for m in _CAUSE.finditer(text))
 
 
 def golden_files(changed: Iterable[str]) -> list[str]:
@@ -86,7 +94,7 @@ def problems(body: str, changed: Iterable[str]) -> list[str]:
         name = PurePosixPath(path).name
         if name not in rows:
             found.append(f"the golden table names no row for {name}")
-    if not _CAUSE.search(text):
+    if not has_cause(text):
         found.append("the body has no 'Cause:' line saying why the golden values moved")
     return found
 
