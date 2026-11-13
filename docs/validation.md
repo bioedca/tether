@@ -81,6 +81,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
+| (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -646,6 +647,52 @@ and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
 `tests/test_fret_photobleach_sidecar.py::test_ref_helpers_match_live_tmaven`,
 `test_tether_detector_matches_live_tmaven` and
 `test_tmaven_default_priors_are_the_ones_tether_and_the_helpers_use`.
+
+## (h) Histogram and cross-correlation vs smfret-analysis2
+
+**What is compared.** PRD §1 makes two model-free lenses first-class: the apparent-E histogram
+and the donor–acceptor cross-correlation. Both come from the laboratory's MATLAB scripts,
+smfret-analysis2. The public repository `vafabakhsh-lab/smfret-analysis2` at the commit that
+`scripts/reference/matlab/pins.toml` pins (`121634e9`, 2022-05-20, GPL-3.0) carries 76 trace
+files and the two outputs that its `create_histogram.m` wrote from them, `total_FRET.csv`
+and `total_XC.csv`. [ADR-0084](adr/0084-smfret-analysis2-is-a-reference-at-a-pinned-commit.md)
+records this as a reference.
+
+**Reference data.** The 78 files are committed verbatim under `tests/fixtures/smfret_analysis2/`
+(tier `git`, GPL-3.0-only, one manifest entry each with its SHA-256; the PROVENANCE table of the
+fixtures lists each file with its upstream path). The commit's own scripts reproduce both
+outputs from the traces, so no MATLAB run is needed. A reader that lives only in the tests
+reads the trace files; the product has no importer for them (PRD N4).
+
+**Two exact conversions, no tolerance.** Tether and the script use different conventions in
+two places, and the tests convert each one exactly before they compare:
+
+- *Bin edges.* `hist(fret, -0.2:0.01:1.2)` puts the edges at the midpoints of the centres and
+  closes each bin on the right; `apparent_e_histogram` closes each bin on the left. Only a
+  sample exactly on an edge is binned differently. In these traces there is one sample, at
+  0.375. The test moves each such sample one bin down and requires that there is exactly one.
+- *Cross-correlation normalization.* The script divides the sum at lag k by N − k and by
+  MATLAB's `std`, which divides by N − 1. Tether divides every lag by N and uses the population
+  σ (§7.7, kept by the maintainer). The exact factor from Tether's value to the script's is
+  (N − 1) / (N − k), at Tether's lag −k (the script correlates donor(t) with acceptor(t + k)).
+
+With the conversions, Tether's histogram equals the `raw` column of `total_FRET.csv` and
+Tether's cross-correlation equals `total_XC.csv`, each to 1e-14 absolute: the files write 15
+significant digits, and the rest is float64 round-off of the FFT and of the sums. Measured
+2026-11-12: largest difference 4.4e-16 for the histogram and 3.1e-16 for the cross-correlation. Without the edge rule the histogram misses by 7.5e-6 in the
+0.37 and 0.38 bins; with N / (N − k) as the only factor the cross-correlation misses by more
+than 1e-4.
+
+**Out of scope.** The successive-frame cloud (#710), the smoothed and filtered histogram
+columns, the heat map, trace selection and background subtraction. The files under
+`test-data/ground-truth/` of the same commit are not used: the commit's scripts do not
+reproduce them.
+
+**Enforcing tests** (all unmarked — required 3-OS matrix):
+`tests/test_smfret_analysis2_reference.py::test_tether_histogram_equals_total_fret_raw_column`,
+`test_tether_cross_correlation_equals_total_xc`,
+`test_the_lag_factor_alone_does_not_reach_the_file` and
+`test_the_fixtures_are_the_pinned_commit_of_smfret_analysis2`.
 
 ## External benchmark
 
