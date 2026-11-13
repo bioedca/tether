@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# mutation — the monthly mutation run of the science modules (issue #725). Coverage shows which
+# lines the tests run; this shows whether a test fails when a line is wrong. The logic is
+# scripts/run_mutation.py (unit-tested offline in tests/test_mutation_runner.py, which also holds
+# this file to its shape); the targets and the known equivalent mutants are .github/mutation.toml;
+# docs/maintainers/mutation-testing.md tells how to read the report.
+#
+# NON-REQUIRED BY CONSTRUCTION: schedule + workflow_dispatch only, never pull_request, push or
+# merge_group, so it can never gate a merge. Survivors never fail it. It fails only when a
+# module's score falls by more than five points from the last report on main, and then the
+# report job (#697) opens or updates one issue.
+#
+# The tooling is pip-pinned on top of the locked base environment, as in the required matrix
+# (#724, ADR-0072): `coverage` only; no mutation package, and nothing in any lock file.
+name: mutation
+
+on:
+  schedule:
+    # 04:37 UTC on the 3rd of each month — a minute/hour no other workflow's cron uses.
+    - cron: "37 4 3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: mutation
+    runs-on: ubuntu-latest
+    # The GitHub limit for a job is 360 minutes. The runner stops starting mutants after its
+    # budget, so the report and the upload always have time.
+    timeout-minutes: 350
+    permissions:
+      actions: read # find and download the last report
+      contents: read
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NAPARI_ASYNC: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore env + install tether
+        uses: ./.github/actions/setup-env
+      - name: Install xvfb (headless GL for napari)
+        shell: bash -e {0}
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Install test tooling
+        run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0" "coverage==7.17.2"
+      # The last report on main, if one has not expired, so a drop can be measured. No report
+      # (the first run, or one older than the artifact retention) means no comparison.
+      - name: Download the last report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=mutation-report&per_page=100" \
+            --jq "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == \"main\") | select(.workflow_run.id != ${RUN_ID})] | sort_by(.created_at) | last | .id // empty")
+          if [ -n "$id" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$RUNNER_TEMP/previous.zip"
+            unzip -o -q "$RUNNER_TEMP/previous.zip" -d "$RUNNER_TEMP/previous"
+          else
+            echo "::notice::No earlier mutation report on main; this run sets the first one."
+          fi
+      - name: Run the mutation run
+        run: xvfb-run -a python scripts/run_mutation.py --out mutation-report --previous "$RUNNER_TEMP/previous/mutation-report.json" --budget-minutes 300
+      - name: Upload the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-report
+          path: mutation-report/
+          if-no-files-found: error
+          retention-days: 90
+
+  report:
+    # A drop opens or updates one issue, and the next run says so (#697). The called workflow
+    # decides the event (never a pull request) and is the only job here that writes.
+    needs: mutation
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: mutation
+      result: ${{ needs.mutation.result }}

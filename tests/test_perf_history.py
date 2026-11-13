@@ -197,6 +197,25 @@ def test_the_runner_gets_two_checks_that_match_the_result_format(tmp_path, monke
     assert titles == [runner.issue_title(ph.CHECK_ACQUISITIONS)]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows keeps the inherited ACL (#787)")
+def test_the_runner_writes_a_new_history_owner_only_whatever_the_umask(tmp_path) -> None:
+    """#787: files of the state folder are owner-only on POSIX; the history is one of them."""
+    import os
+    import stat
+
+    history = tmp_path / "perf-history.jsonl"
+    old = os.umask(0)
+    try:
+        runner.history_checks(
+            history, commit="a" * 40, on_main=True, finished=0.0, checks=_checks(),
+            bench=_bench(), data=tmp_path, tokens=frozenset(),
+        )  # fmt: skip
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(history.stat().st_mode) & runner.GROUP_OTHER == 0
+    assert len(ph.read_history(history)) == 1
+
+
 def _write_result(tmp_path: Path, result: dict) -> Path:
     results = tmp_path / "results"
     results.mkdir()

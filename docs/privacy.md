@@ -53,6 +53,12 @@ storage, and temporary idealization files are described below.
   address and browser user-agent) to serve and protect the site, as described in the
   [GitHub General Privacy Statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
   The Tether project does not receive, store, or use that data.
+- The page header shows the latest release and the star and fork counts of the repository.
+  To get them, your browser asks the **GitHub API** (`api.github.com`) one time in each
+  browser session, for `https://api.github.com/repos/bioedca/tether` and
+  `https://api.github.com/repos/bioedca/tether/releases/latest`. This is the only host other
+  than this site that a page makes your browser contact. The GitHub privacy statement linked
+  above applies to these requests, and the Tether project does not receive their data.
 
 ## Downloads and releases
 

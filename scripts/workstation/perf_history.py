@@ -290,10 +290,13 @@ def read_history(path: Path) -> list[dict]:
     return records
 
 
-def append(path: Path, record: dict, tokens: frozenset[str] = frozenset()) -> list[dict]:
+def append(
+    path: Path, record: dict, tokens: frozenset[str] = frozenset(), *, opener=None
+) -> list[dict]:
     """Append *record* to the history at *path*; return its slowdowns against the earlier records.
 
-    Refuses a record that does not match the format or that contains a private name.
+    Refuses a record that does not match the format or that contains a private name. *opener*
+    opens *path* for appending text; the runner gives its owner-only ``open_private``.
     """
     problems = validate_record(record)
     if problems:
@@ -303,7 +306,7 @@ def append(path: Path, record: dict, tokens: frozenset[str] = frozenset()) -> li
         raise ValueError("the history record names a private file; it is not written")
     found = slowdowns(read_history(path), record)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh:
+    with opener(path) if opener else open(path, "a", encoding="utf-8") as fh:
         fh.write(text + "\n")
     return found
 

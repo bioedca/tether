@@ -27,6 +27,11 @@ benchmarks and the history step on this checkout: the record it appends says ``o
 The required CI matrix tests the runner as a dry run. ``latest`` prints, as JSON, the newest result
 and the issue titles an agent opens or updates for it (``docs/maintainers/workstation-runner.md``).
 
+On POSIX the state folder, its ``logs`` and ``results`` folders, the pytest log, the check
+record and the speed history are owner-only: the log can name private files. A state folder with
+group or other permission bits is corrected, and the run says so. On Windows the runner relies on
+the ACL that the folder inherits; the maintainer page says what that gives.
+
 Exit status: 0 all checks passed, 1 a check did not pass, 2 error, 3 refused, 4 result withheld.
 A run that gets as far as reading the mapping file writes a result file whatever its status, so
 a refusal or a broken environment build shows in ``latest`` at once.
@@ -46,6 +51,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -90,6 +96,10 @@ STATUSES = ("passed", "failed", "error", "refused", "withheld")
 _RANK = {None: -1, "passed": 0, "skipped": 1, "failed": 2, "error": 3}
 OUTCOMES = tuple(k for k in _RANK if k)
 RUN_ISSUE_TITLE = "test(workstation): the scheduled run failed on main"
+#: A newest result older than this means that the nightly schedule did not run (a day and a half).
+STALE_HOURS = 36
+#: The permission bits a folder or a file of the state folder may not have on POSIX.
+GROUP_OTHER = 0o077
 
 EXIT_OK, EXIT_FAILED, EXIT_ERROR, EXIT_REFUSED, EXIT_WITHHELD = 0, 1, 2, 3, 4
 
@@ -155,8 +165,34 @@ def redact(text: str, tokens: frozenset[str]) -> str:
     return text
 
 
+def open_private(path: Path, *, append: bool = False):
+    """Open *path* for writing text; a new file is owner-only on POSIX (it can name files)."""
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
+    fd = os.open(path, flags | getattr(os, "O_BINARY", 0), 0o600)
+    if os.name != "nt":
+        os.fchmod(fd, stat.S_IMODE(os.fstat(fd).st_mode) & ~GROUP_OTHER)
+    return os.fdopen(fd, "a" if append else "w", encoding="utf-8")
+
+
+def private_dir(folder: Path) -> bool:
+    """Create *folder* owner-only, or correct it to owner-only, on POSIX.
+
+    Returns ``True`` when an existing folder had group or other bits that were removed. On Windows
+    nothing changes: the folder keeps the ACL that it inherits.
+    """
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name == "nt":
+        return False
+    mode = stat.S_IMODE(folder.stat().st_mode)
+    if not mode & GROUP_OTHER:
+        return False
+    os.chmod(folder, mode & ~GROUP_OTHER)
+    return True
+
+
 def append_record(path: Path, entry: dict) -> None:
-    with open(path, "a", encoding="utf-8") as fh:
+    with open_private(path, append=True) as fh:
         fh.write(json.dumps(entry) + "\n")
 
 
@@ -552,8 +588,17 @@ def run(args: argparse.Namespace) -> int:
     results = Path(args.results).expanduser().resolve() if args.results else state / "results"
     history = getattr(args, "history", None)
     history = Path(history).expanduser().resolve() if history else state / "perf-history.jsonl"
-    for folder in (state, results, state / "logs"):
-        folder.mkdir(parents=True, exist_ok=True)
+    # Owner-only on POSIX: the log names files. A --results folder elsewhere holds only
+    # sealed results, so it keeps the permissions that its owner gave it.
+    # The note names the folder by its role: a path is printed only through say(), which
+    # redacts, and the mapping is not read yet.
+    private = {state: "the state folder", state / "logs": "logs/"}
+    if results == state / "results":
+        private[results] = "results/"
+    for folder, role in private.items():
+        if private_dir(folder):
+            print(f"note: removed the group and other permissions of {role}")
+    results.mkdir(parents=True, exist_ok=True)
     newest = newest_result(results)
     if args.min_interval_hours and newest is not None:
         age = (time.time() - newest.stat().st_mtime) / 3600
@@ -573,7 +618,7 @@ def run(args: argparse.Namespace) -> int:
     bench: list[dict] = []
     speed = getattr(args, "speed", False) or not args.dry_run
     on_main = False  # true only once prepare_clone() has verified the commit
-    with _run_lock(state), open(log_path, "w", encoding="utf-8") as log:
+    with _run_lock(state), open_private(log_path) as log:
         try:
             if args.dry_run:
                 proc = _git(REPO, "rev-parse", "HEAD")
@@ -689,7 +734,8 @@ def history_checks(
             commit=commit, on_main=on_main, date=_utc(finished), hardware=hw,
             checks=checks, bench=bench,
         )  # fmt: skip
-        return ph.checks_for(record, ph.append(history, record, tokens))
+        found = ph.append(history, record, tokens, opener=lambda p: open_private(p, append=True))
+        return ph.checks_for(record, found)
     except (ValueError, OSError) as exc:
         print(f"error: speed history: {redact(str(exc), tokens)}", flush=True)
         empty = {"duration_s": 0.0, "datasets": {}, "outcome": "error"}
@@ -712,19 +758,25 @@ def latest(results: Path) -> dict:
     problems = validate_result(data)
     if problems:
         return {"result": newest.name, "invalid": problems}
+    age_hours = round((time.time() - newest.stat().st_mtime) / 3600, 1)
     report = [c for c in data["checks"] if c["outcome"] != "passed"]
     issues = [{"title": issue_title(c["check"]), **c} for c in report]
+    passed = [issue_title(c["check"]) for c in data["checks"] if c["outcome"] == "passed"]
     if data["status"] in ("error", "refused", "withheld") or not data["checks"]:
         issues.append({"title": RUN_ISSUE_TITLE, "check": None, "outcome": data["status"]})
+    elif data["mode"] == "scheduled" and age_hours <= STALE_HOURS:
+        # The scheduled run completed again (whatever its checks did), so an open run-level
+        # issue gets its one recovery comment. A failed check has its own issue.
+        passed.append(RUN_ISSUE_TITLE)
     return {
         "result": newest.name,
         "mode": data["mode"],
         "status": data["status"],
         "commit": data["commit"],
         "finished": data["finished"],
-        "age_hours": round((time.time() - newest.stat().st_mtime) / 3600, 1),
+        "age_hours": age_hours,
         "open_or_update": issues,
-        "passed": [issue_title(c["check"]) for c in data["checks"] if c["outcome"] == "passed"],
+        "passed": passed,
     }
 
 
