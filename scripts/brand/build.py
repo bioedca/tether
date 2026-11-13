@@ -303,12 +303,24 @@ def build_installer() -> None:
 
 
 # --- social cards ----------------------------------------------------------------
+SOCIAL_REF = (1280, 640)  # the canvas the mark, word and tagline positions are drawn for
+
+
 def social(w: int, h: int, tagline: str = TAGLINE) -> str:
+    """The social card at ``w`` x ``h``: the dot field fills the canvas, and the lockup
+    (mark, word, tagline) is drawn on the 1280 x 640 reference and scaled to the canvas.
+
+    The scale is the smaller of the two canvas-to-reference ratios, never above 1, and the
+    lockup stays centred, so a narrower card keeps the right margin of the reference in
+    proportion (#683: at 1200 px the unscaled tagline ran past the edge). At the reference
+    size the drawing is unchanged.
+    """
+    rw, rh = SOCIAL_REF
     bg = f'<rect width="{w}" height="{h}" fill="{GROUND}"/>'
     fld = b.field_dots(w, h, CHALK, 40, 2.0, 0.20, x0=20, y0=20)
-    cy = h / 2
+    cy = rh / 2
     clear = (
-        f'<rect x="150" y="{f(cy - 215)}" width="{w - 300}" height="430" rx="40" fill="{GROUND}"/>'
+        f'<rect x="150" y="{f(cy - 215)}" width="{rw - 300}" height="430" rx="40" fill="{GROUND}"/>'
     )
     xf = f"translate(350 {f(cy)}) scale(2.55) translate(-100 -89)"
     g = f'<g transform="{xf}">{b.glyph(CHALK, grid=False)}</g>'
@@ -319,7 +331,12 @@ def social(w: int, h: int, tagline: str = TAGLINE) -> str:
         if tagline
         else ""
     )
-    return svg(bg + fld + clear + g + wm + tl, w, h)
+    lockup = clear + g + wm + tl
+    k = min(1.0, w / rw, h / rh)
+    if (w, h) != (rw, rh):
+        fit = f"translate({f(w / 2)} {f(h / 2)}) scale({f(k)}) translate({f(-rw / 2)} {f(-rh / 2)})"
+        lockup = f'<g transform="{fit}">{lockup}</g>'
+    return svg(bg + fld + lockup, w, h)
 
 
 def build_social() -> None:
