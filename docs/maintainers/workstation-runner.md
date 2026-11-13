@@ -267,12 +267,18 @@ a reader can scale a time from the history:
 
 | | PRD §8 reference floor | Workstation |
 |---|---|---|
-| Processor | not named | WORKSTATION_CPU |
-| Memory | 16 GB | WORKSTATION_RAM |
-| Disk | spinning hard disk drive, about 100 GB free | WORKSTATION_DISK |
-| GPU | NVIDIA RTX 4060 Laptop GPU, 8 GB | WORKSTATION_GPU |
+| Processor | not named | Intel Core i7-14650HX, 16 cores, 24 threads |
+| Memory | 16 GB | 16 GB (2 × 8 GB at 5600 MT/s; Windows shows 15.7 GB usable) |
+| Disk | spinning hard disk drive, about 100 GB free | 1 TB NVMe solid-state drive |
+| GPU | NVIDIA RTX 4060 Laptop GPU, 8 GB | NVIDIA GeForce RTX 4060 Laptop GPU, and an integrated Intel UHD Graphics |
 
-WORKSTATION_DIFFERENCES
+The memory and the GPU model are the same. The operating system is Windows 11. The disk is the
+important difference: an NVMe solid-state drive reads and writes much faster than a spinning
+disk. A stage that waits on the disk, for example `extract` (it reads the movie) or `save` (it
+writes the `.tether`), can be faster on the workstation than on the reference floor. Thus, a
+time from the history can be shorter than the time of the same stage on a computer at the floor.
+The size of the GPU memory was not measured on the workstation, because Windows reports a
+maximum of 4 GB for it.
 
 The hardware of each record is in its `hardware` field, so a change of the workstation shows in
 the history and starts a new baseline.
