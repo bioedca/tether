@@ -38,6 +38,39 @@ gives each acquisition a neutral id and names its files, relative to the folder:
 - The mapping file and the file names stay on the workstation. Do not put them in the
   repository, an issue, a pull request, a chat or a result file.
 
+### Public archives in the data folder
+
+Some `workstation` checks use public data that is too large for CI. The reference-data manifest
+(`tests/reference_data/manifest.toml`) names each such archive with the tier `workstation`, its
+size and its SHA-256, and the check refuses a file with a different SHA-256. These names are
+public, so they can be in the repository. Put each archive at its manifest path below the data
+folder, and give it the neutral id that its check uses:
+
+| Neutral id | Manifest path below the data folder | Check (#716) |
+| --- | --- | --- |
+| `dlasi-02` | `zenodo-7561162/Figure_2.zip` | one-colour Deep-LASI set: import and molecule count |
+| `dlasi-03` | `zenodo-7561162/Figure_3.zip` | two-colour Deep-LASI set: import, FRET states and dwell times |
+
+```json
+{
+  "dlasi-02": "zenodo-7561162/Figure_2.zip",
+  "dlasi-03": "zenodo-7561162/Figure_3.zip"
+}
+```
+
+To get the two archives (1.5 GB together) in PowerShell, in the data folder:
+
+```powershell
+New-Item -ItemType Directory -Force zenodo-7561162 | Out-Null
+foreach ($n in 'Figure_2.zip', 'Figure_3.zip') {
+  curl.exe -L -o "zenodo-7561162\${n}" "https://zenodo.org/records/7561162/files/${n}?download=1"
+}
+Get-FileHash -Algorithm SHA256 zenodo-7561162\*.zip
+```
+
+Compare each hash with the `sha256` of its manifest entry. Add the two neutral ids to the
+mapping file next to the private ones.
+
 ## Install the task one time
 
 You need `git`, `micromamba` and a Python 3.11 or later on the workstation. The runner itself
