@@ -1,7 +1,12 @@
 # Legacy Deep-LASI import
 
-Tether re-analyses an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*
-(PRD §7.8). The import path reads the legacy file set — the raw movie, the
+**Who this page is for.** A lab scientist who has an acquisition that Deep-LASI already
+processed and who wants to analyze it in Tether without extracting the traces again. It
+assumes you have a Deep-LASI export and know its file types. It does not assume you know
+Tether's code.
+
+Tether re-analyses an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*.
+The import path reads the legacy file set — the raw movie, the
 [`TIRFdata`](../glossary.md#tirfdata-mcos-refs)
 [`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the
 `…-donc-accc-w.txt`, and the tMAVEN [SMD](../glossary.md#smd) —
@@ -11,7 +16,7 @@ Tether correction-factor remap, and writes a `.tether` project store.
 Whether that project is **round-trip-ready** (linked to a movie, browsable/curatable with
 spot & overlap views) or **analysis-only** (idealization, histograms, TDP, kinetics — but
 no movie round-trip) is decided by *which files are present*, and above all by whether any
-of them carries pixel coordinates. This page is the single reference that ties that decision
+of them carries pixel coordinates. This page is the single reference (PRD §7.8) that ties that decision
 to the on-disk formats (the **coordinate-availability matrix**, PRD Appendix A), the
 **correction-factor remap** (PRD Appendix B.1), and the shipped module behind each stage.
 

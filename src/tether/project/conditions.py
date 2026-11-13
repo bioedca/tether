@@ -60,7 +60,9 @@ if TYPE_CHECKING:
     import numpy as np
 
 __all__ = [
+    "CategoryDifference",
     "CategoryList",
+    "CategoryListComparison",
     "ConditionSyncSummary",
     "ConditionValidationReport",
     "ConfirmationRequired",
@@ -68,6 +70,8 @@ __all__ = [
     "RekeyResult",
     "add_category",
     "aggregate_molecules_by_condition",
+    "compare_category_lists",
+    "copy_category_list",
     "preview_rekey",
     "read_category_list",
     "read_condition_audit",
@@ -1054,3 +1058,136 @@ def remove_category(path: str | Path, condition_id: str, name: str) -> CategoryL
         names = tuple(c for c in current if c != name)
         _write_category_names(f, condition_id, names)
     return CategoryList(condition_id=condition_id, categories=names)
+
+
+# --- one condition's category list across projects (ADR-0068, #679) ----------
+
+#: The three ways one category can differ between two projects' lists.
+_ONLY_IN_A = "only_in_a"
+_ONLY_IN_B = "only_in_b"
+_CODE = "code"
+
+
+@dataclass(frozen=True)
+class CategoryDifference:
+    """One category whose name or integer code differs between two projects' lists.
+
+    A name that only one list holds has ``None`` as its code in the other list. A
+    rename therefore reports two differences, one for each name, which is what makes
+    the integer code ambiguous across the two projects.
+    """
+
+    #: The category name.
+    category: str
+    #: Its integer code in project A, or ``None`` when A does not hold the name.
+    code_a: int | None
+    #: Its integer code in project B, or ``None`` when B does not hold the name.
+    code_b: int | None
+
+    @property
+    def kind(self) -> str:
+        """``"only_in_a"``, ``"only_in_b"``, or ``"code"`` (both hold it, at different codes)."""
+        if self.code_b is None:
+            return _ONLY_IN_A
+        if self.code_a is None:
+            return _ONLY_IN_B
+        return _CODE
+
+
+@dataclass(frozen=True)
+class CategoryListComparison:
+    """The result of :func:`compare_category_lists` for one condition in two projects."""
+
+    #: The condition both lists belong to.
+    condition_id: str
+    #: The list in project A.
+    a: CategoryList
+    #: The list in project B.
+    b: CategoryList
+    #: Each category whose name or code differs: A's order first, then B-only names.
+    differences: tuple[CategoryDifference, ...]
+
+    @property
+    def equal(self) -> bool:
+        """``True`` when both projects name the same categories with the same codes."""
+        return not self.differences
+
+
+def _read_held_category_names(path: str | Path, condition_id: str, role: str) -> tuple[str, ...]:
+    """Read a condition's list from a project that must hold the condition.
+
+    Unlike the lenient :func:`read_category_list`, a cross-project read refuses a
+    project with no ``/conditions`` row for ``condition_id`` (:class:`KeyError`
+    naming the file, ADR-0068): an empty list read from a project that does not
+    hold the condition would otherwise copy as a clear or compare as "every
+    category missing".
+    """
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(path), "r") as f:
+        table = f[_CONDITIONS][TABLE]
+        if _find_condition_index(table, condition_id) is None:
+            raise KeyError(
+                f"the {role} project {Path(path).name!r} does not hold condition "
+                f"{condition_id!r}; register the condition there first"
+            )
+        return _read_category_names(f, condition_id)
+
+
+def copy_category_list(
+    source: str | Path, destination: str | Path, condition_id: str
+) -> CategoryList:
+    """Copy one condition's category list from one project into another (ADR-0068).
+
+    A condition can span several projects, and each project keeps its own copy of
+    the list. This writes the source list into the destination in the same order,
+    so every category keeps its integer code (code = 0-based position, PRD §5.1).
+    The destination's previous list is replaced; an empty source list empties it.
+
+    Both projects must hold ``condition_id`` as a ``/conditions`` row: a copy from
+    or into a project that does not is refused with a :class:`KeyError` that names
+    the file. Like the other list edits, molecules' stored ``/molecules.category``
+    names in the destination are not rewritten. Returns the destination's list.
+    """
+    import h5py  # noqa: PLC0415
+
+    _require_safe_condition_id(condition_id)
+    names = _read_held_category_names(source, condition_id, "source")
+    with h5py.File(Path(destination), "r+") as f:
+        if _find_condition_index(f[_CONDITIONS][TABLE], condition_id) is None:
+            raise KeyError(
+                f"the destination project {Path(destination).name!r} does not hold "
+                f"condition {condition_id!r}; register the condition there first"
+            )
+        _write_category_names(f, condition_id, names)
+    return CategoryList(condition_id=condition_id, categories=names)
+
+
+def compare_category_lists(
+    path_a: str | Path, path_b: str | Path, condition_id: str
+) -> CategoryListComparison:
+    """Compare one condition's category list in two projects (ADR-0068). Read-only.
+
+    Reports each category whose name or integer code differs: a name only one
+    project holds, or a name both hold at different codes. Two equal lists report
+    nothing (:attr:`CategoryListComparison.equal`). Both projects must hold
+    ``condition_id`` (:class:`KeyError` naming the file otherwise).
+    """
+    _require_safe_condition_id(condition_id)
+    a = CategoryList(condition_id, _read_held_category_names(path_a, condition_id, "first"))
+    b = CategoryList(condition_id, _read_held_category_names(path_b, condition_id, "second"))
+    codes_a = {name: code for code, name in a.lookup.items()}
+    codes_b = {name: code for code, name in b.lookup.items()}
+    differences = [
+        CategoryDifference(name, code, codes_b.get(name))
+        for name, code in codes_a.items()
+        if codes_b.get(name) != code
+    ]
+    differences += [
+        CategoryDifference(name, None, code)
+        for name, code in codes_b.items()
+        if name not in codes_a
+    ]
+    return CategoryListComparison(
+        condition_id=condition_id, a=a, b=b, differences=tuple(differences)
+    )
