@@ -71,6 +71,14 @@ def test_more_peak_memory_fails_and_a_tiny_peak_only_reports() -> None:
     assert failures == ["cloud/small: peak memory 1.75x base (limit 1.5x)"]
 
 
+def test_a_head_peak_above_the_floor_is_gated_when_the_base_peak_is_below_it() -> None:
+    # A base under 1 MiB must not hide a large head peak (CodeRabbit on #837).
+    base = {"cloud/small": _rec(0.1, 900 << 10), "gamma/small": _rec(0.1, 512 << 10)}
+    head = {"cloud/small": _rec(0.1, 45 << 20), "gamma/small": _rec(0.1, 1200 << 10)}
+    _, failures = bench.compare(_result(base, head), "base", "head", 1.5)
+    assert failures == ["cloud/small: peak memory 45.00x base (limit 1.5x)"]
+
+
 def test_the_sidecar_case_gates_on_the_peak_rss_of_the_fitting_process() -> None:
     # The fit runs in a child process, where tracemalloc sees nothing (Codex on #837).
     base = {"idealize_sidecar/small": _rec(1.0, 60_000, peak_child_rss_bytes=100 << 20)}

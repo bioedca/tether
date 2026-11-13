@@ -210,8 +210,11 @@ def compare(result: dict, base: str, head: str, limit: float) -> tuple[list[str]
             )
             continue
         rt = h["time_s"] / b["time_s"] if b["time_s"] > 0 else math.inf
-        big = (b.get(mem) or 0) >= MEMORY_FLOOR_BYTES
-        rm = h[mem] / b[mem] if big and h.get(mem) is not None else None
+        b_mem, h_mem = b.get(mem) or 0, h.get(mem)
+        # Only when both peaks are under the floor is the ratio meaningless; a small base must
+        # not hide a large head, so the base counts as at least the floor.
+        big = h_mem is not None and max(b_mem, h_mem) >= MEMORY_FLOOR_BYTES
+        rm = h_mem / max(b_mem, MEMORY_FLOOR_BYTES) if big else None
         verdict = "ok" if gated else "reports only"
         if gated and rt > limit:
             failures.append(f"{key}: time {rt:.2f}x base (limit {limit}x)")
