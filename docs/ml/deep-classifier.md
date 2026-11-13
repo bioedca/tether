@@ -1,12 +1,19 @@
 # Deep trace classifier (optional GPU add-on)
 
-Tether's M8 milestone adds a **deep** trace classifier — a 1-D CNN/LSTM that scores each
-molecule [accept/reject](../pipeline.md#curate) from its raw windowed donor/acceptor intensities, in the
+**Who this page is for.** Anyone who wants to train a deep-learning model on their own
+curation labels, or use one to sort traces. It assumes you can build a conda environment from a
+lock file and call Tether from Python. A GPU is optional.
+
+Tether has an optional **deep** trace classifier. It scores each molecule
+[accept/reject](../pipeline.md#curate) from its raw windowed donor/acceptor intensities, in the
 DeepFRET/Deep-LASI lineage of deep-learning smFRET trace selection
 ([Thomsen 2020](#deepfret); [Wanninger 2023](#deeplasi); [Li 2020](#autosim)). It is a
 **terminal optional add-on**: the classifier is a strict superset of the CPU app, and the
-load-bearing acceptance clause (PRD §9 M8) is that *"a deep classifier trains on the shared
-label store **and is optional — the CPU base app is unaffected**."*
+CPU base app is unaffected.
+
+The classifier is a 1-D CNN/LSTM, added in Tether's M8 milestone. The load-bearing acceptance
+clause (PRD §9 M8) is that *"a deep classifier trains on the shared label store **and is
+optional — the CPU base app is unaffected**."*
 
 This page puts what you run first: **setup** (the CPU environment from the committed lock,
 then the CUDA wheel for a GPU), then **using the classifier** (the training/inference API and its
@@ -159,7 +166,7 @@ neither escape these legs nor redden the base matrix.
 | Leg | Workflow | Trigger | Runner | What it exercises |
 |-----|----------|---------|--------|-------------------|
 | **CPU smoke** | `deep.yml` | pull_request (deep paths), nightly cron, manual | `ubuntu-latest` | restores `deep/conda-lock.yml`; trains a tiny CNN/LSTM on synthetic labeled traces and asserts it trains, predicts, and is reproducible on CPU |
-| **GPU smoke** | `deep-gpu.yml` | `workflow_dispatch` **only** | self-hosted CUDA runner | installs the documented CUDA wheel at run time and exercises the `device="cuda"` training + inference path; self-skips off-GPU |
+| **GPU smoke** | `deep-gpu.yml` | `workflow_dispatch` **only** | self-hosted CUDA runner | installs the documented CUDA wheel at run time and exercises the `device="cuda"` training + inference path; the job fails when the runner has no visible CUDA device, so a green run means the GPU tests ran |
 
 `deep.yml` is non-required by design (its `paths:` filter is safe precisely because it never
 gates). `deep-gpu.yml` is **non-required by construction**: it is triggered only by

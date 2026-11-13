@@ -9,7 +9,9 @@ deep"``) *and* self-skips unless a CUDA device is present. Consequences:
 * base env (no torch): ``importorskip`` skips the module at import — never an error;
 * CPU ``deep.yml`` leg (torch, no GPU): the ``skipif`` skips both tests cleanly;
 * non-required ``deep-gpu.yml`` leg on a real CUDA box: it exercises the
-  ``device="cuda"`` training + inference path end to end.
+  ``device="cuda"`` training + inference path end to end. That workflow fails
+  before pytest when no CUDA device is visible, so a green run there means these
+  tests ran rather than skipped (#752, ML-U1).
 
 The file name matches ``deep.yml`` / ``deep-gpu.yml``'s ``tests/test_*_deep.py``
 suffix collection glob — enforced by :mod:`tests.test_marker_contract`.
@@ -89,15 +91,28 @@ def test_trains_on_cuda_and_returns_host_predictions() -> None:
 
 
 def test_cuda_and_cpu_training_agree_on_the_decision() -> None:
-    """A GPU-trained and a CPU-trained model (same seed) both separate the classes.
+    """A GPU-trained and a CPU-trained model (same seed) make the same decisions.
 
-    Cross-device kernels are not bit-identical (cuDNN vs CPU BLAS), so this asserts
-    the *decision* agrees — both split accept from reject — not exact probability
-    equality (which only the CPU-vs-CPU reproducibility test in the sibling smoke
-    is entitled to).
+    Cross-device kernels are not bit-identical (cuDNN vs CPU BLAS), so this compares
+    the *decision* per molecule — the thresholded ``P(accept) >= 0.5`` of each — not
+    exact probability equality (which only the CPU-vs-CPU reproducibility test in the
+    sibling smoke is entitled to). Each device must also separate the classes *and*
+    decide correctly at that threshold, so two models that agree by both being wrong
+    do not pass (#752, ML-U7). Separation alone does not: means of 0.9 and 0.6 are
+    0.3 apart while every reject is decided as accept.
     """
     ds = _synthetic_dataset(n_per_class=12, seed=3)
     on_gpu = train_classifier(ds, epochs=15, batch_size=8, seed=3, device="cuda").predict_proba(ds)
     on_cpu = train_classifier(ds, epochs=15, batch_size=8, seed=3, device="cpu").predict_proba(ds)
-    for proba in (on_gpu, on_cpu):
-        assert proba[ds.y == 1].mean() > proba[ds.y == 0].mean() + 0.2
+    truth = ds.y == 1
+    for device, proba in (("cuda", on_gpu), ("cpu", on_cpu)):
+        assert proba[truth].mean() > proba[~truth].mean() + 0.2
+        accuracy = float(((proba >= 0.5) == truth).mean())
+        assert accuracy >= 0.9, f"{device} decides {accuracy:.2f} of molecules correctly"
+    gpu_decision = on_gpu >= 0.5
+    cpu_decision = on_cpu >= 0.5
+    agreement = float((gpu_decision == cpu_decision).mean())
+    assert agreement >= 0.9, (
+        f"cuda and cpu decide differently on {int((gpu_decision != cpu_decision).sum())} of "
+        f"{ds.n_samples} molecules (agreement {agreement:.2f})"
+    )

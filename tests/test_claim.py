@@ -340,6 +340,44 @@ def test_no_refusal_token_depends_on_the_separator_it_is_written_with(token: str
             claim.AUTONOMY_REFUSES = original
 
 
+# Written out here, never read from `claim.AUTONOMY_REFUSES` (#753 AGT-F6). The separator test
+# above takes its parameters from the table it tests, so an entry deleted from the table deletes its
+# own test case and the run still passes, one case shorter. These literals are the table's content
+# as the contract relies on it, pinned apart from the separator property.
+REFUSING_TOKENS = (
+    "maintainer decision",
+    "maintainer input",
+    "human action",
+    "needs-maintainer-input",
+    "needs-human-action",
+    "human-executed",
+    "external/human",
+)
+
+
+def test_the_refusal_table_still_holds_every_token_the_contract_relies_on() -> None:
+    """A deleted entry fails here by name, rather than as one test case fewer.
+
+    A superset, not an equality: a new refusing token is a tightening and needs no edit here.
+    """
+    missing = set(REFUSING_TOKENS) - set(claim.AUTONOMY_REFUSES)
+    assert not missing, f"AUTONOMY_REFUSES lost {sorted(missing)}; those bodies now admit"
+
+
+@pytest.mark.parametrize("token", REFUSING_TOKENS)
+def test_each_refusing_token_refuses_an_admitting_heading_in_prose(token: str) -> None:
+    """The body #753 demonstrates: the heading admits and the prose below it restricts.
+
+    `human-executed` and `external/human` had no literal body anywhere else, so deleting either one
+    from the table made such an issue claimable while every test still passed. The token scan is
+    the only check that reads this prose, so a refusal here can come only from the table.
+    """
+    body = f"## Execution autonomy\n\nagent-can-do-alone\n\nThe last step is {token}.\n"
+    refusal = claim._autonomy_refusal(body)
+    assert refusal is not None, f"a body naming {token!r} in prose was admitted - fail-open"
+    assert "heading remainder" in refusal, refusal
+
+
 def test_an_autonomy_table_row_can_refuse_but_not_admit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -3659,6 +3697,37 @@ def test_losing_the_race_is_an_ordinary_exit_not_a_crash(
     assert str(ROOT) not in captured
 
 
+@pytest.mark.parametrize("status", [403, 429, 500, 502])
+def test_a_failed_ref_creation_is_an_error_and_never_a_claim(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: int
+) -> None:
+    """Only `201` wins the mutex and only `422` loses it; every other answer is "I could not ask".
+
+    No test sent anything else to `POST /git/refs` (#753 AGT-F2). Without the guard a worker whose
+    POST was refused - a rate limit, a server error - while another agent holds the ref is told it
+    won: the activity feed names the OTHER holder's generation, a claim record prints, the labels
+    flip, and `claim check` then passes for both workers. Here the feed says 42 to make that the
+    reachable outcome, so the assertions below are what stand between it and the run.
+    """
+    routes = _routes({("POST", "/repos/bioedca/tether/git/refs"): (status, {"message": "no"})})
+    fake = _install(monkeypatch, Fake(routes))
+    with pytest.raises(claim.ClaimError, match=f"claim ref creation failed with HTTP {status}"):
+        claim._cmd_claim(_args(issue=7))
+    assert capsys.readouterr().out == "", "a refused ref creation printed a claim record"
+    assert not [c for c in fake.calls if "/labels" in c[1]], "a refused claim flipped the labels"
+
+    # And through `main`: exit 2, the "could not ask" code, never 0 and never a verdict.
+    fake.calls.clear()
+    monkeypatch.setattr(
+        claim.sys, "argv", ["claim.py", "claim", "--issue", "7", "--vendor", "claude"]
+    )
+    assert claim.main() == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"error: claim ref creation failed with HTTP {status}")
+    assert not [c for c in fake.calls if "/labels" in c[1]]
+
+
 def test_a_failed_label_write_does_not_void_the_claim(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5243,6 +5312,79 @@ def test_doctor_writes_nothing(
     claim._cmd_doctor(_args(owner="bioedca"))
     capsys.readouterr()
     assert not [c for c in fake.calls if c[0] in {"POST", "PATCH", "PUT", "DELETE"}]
+
+
+def test_doctor_writes_nothing_when_every_remedy_is_on_offer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The write check, run where a remedy exists for each section (#753 AGT-F1).
+
+    `test_doctor_writes_nothing` runs on `DOCTOR_ROUTES`, where no pull request is open, no marker
+    is stale or malformed, and the held issue still names an open blocker - so a `doctor` that
+    merged a stranded pull request, re-posted a stale marker or promoted a held issue passed it.
+    This fixture holds one case of each remedy, and asserts that the report SHOWS each one before
+    it asserts that nothing was written, so the fixture cannot quietly stop reaching them.
+    """
+    stale = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    pr = {
+        "number": 50,
+        "draft": False,
+        "state": "open",
+        "auto_merge": None,
+        "mergeable_state": "clean",
+        "updated_at": stale,
+        "head": {"sha": HEAD},
+    }
+    routes = dict(DOCTOR_ROUTES)
+    routes.update(
+        {
+            # Arming someone else's merge: a finished pull request idle past the grace.
+            ("GET", "/repos/bioedca/tether/pulls?state=open"): (200, [pr]),
+            ("GET", "/repos/bioedca/tether/pulls/50"): (200, pr),
+            # Re-approving: one stale marker, one malformed marker.
+            ("GET", "/repos/bioedca/tether/issues/3/comments"): (
+                200,
+                [
+                    {
+                        "user": {"login": "bioedca"},
+                        "body": '<!-- tether-agent-ready {"version":1,"criteria_sha256":"'
+                        + OTHER
+                        + '"} -->',
+                    }
+                ],
+            ),
+            ("GET", "/repos/bioedca/tether/issues/4/comments"): (
+                200,
+                [
+                    {
+                        "user": {"login": "bioedca"},
+                        "body": "<!-- tether-agent-ready "
+                        '{"version":1,"criteria_sha256":"nope"} -->',
+                    }
+                ],
+            ),
+            # Promoting a label: every blocker the held issue names has closed or merged.
+            ("GET", "/repos/bioedca/tether/issues/2"): (
+                200,
+                {
+                    "number": 2,
+                    "state": "closed",
+                    "pull_request": {"merged_at": "2026-08-01T00:00:00Z"},
+                },
+            ),
+        }
+    )
+    fake = _install(monkeypatch, Fake(routes))
+    claim._cmd_doctor(_args(owner="bioedca"))
+    report = json.loads(capsys.readouterr().out)
+
+    markers = {r["issue"]: r["marker"] for r in report["ready"]}
+    assert markers[3] == "stale" and markers[4] == "malformed", markers
+    assert report["blocked"] == [{"issue": 9, "mentions": {"1": "closed", "2": "merged"}}]
+    assert [u["pr"] for u in report["unarmed"]] == [50]
+
+    writes = [c for c in fake.calls if c[0] in {"POST", "PATCH", "PUT", "DELETE"}]
+    assert not writes, f"doctor wrote while reporting: {writes}"
 
 
 def test_the_exit_three_message_points_at_doctor(
