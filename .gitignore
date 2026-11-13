@@ -43,6 +43,8 @@ env/
 .coverage.*
 htmlcov/
 coverage.xml
+coverage.json
+coverage.txt
 
 # --- Project store working files & experiment markers (PRD §5.1, §5.4) ---
 # local working project stores (fixtures are committed explicitly)

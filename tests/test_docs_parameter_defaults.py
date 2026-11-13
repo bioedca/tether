@@ -46,6 +46,7 @@ of its keywords spelled leaves its other constant-backed defaults unbound by thi
 
 from __future__ import annotations
 
+import argparse
 import ast
 import functools
 import re
@@ -566,7 +567,9 @@ _Entry = tuple[tuple[str, ...], object] | tuple[tuple[str, ...], object, tuple[s
 def _registry() -> list[_Entry]:
     opt = ("tether.project.extract", "ExtractOptions")
     entries: list[_Entry] = [
-        # Detection and extraction (ExtractOptions is the pinned CLI contract).
+        # Detection and extraction (ExtractOptions is the pinned CLI contract; the
+        # argparse defaults are pinned to it by
+        # test_each_extract_flag_default_is_the_dataclass_default).
         ((name,), dataclass_field(*opt, name))
         for name in (
             "donor_side",
@@ -1202,6 +1205,81 @@ def test_documented_default_matches_the_code(claim: Claim) -> None:
                 else ""
             )
         )
+
+
+# The ten ExtractOptions fields that `tether extract` exposes as flags. The page says
+# that for these "the command line is the **only** surface".
+_EXTRACT_FLAG_FIELDS = {
+    "--donor-side": "donor_side",
+    "--detection-mode": "detection_mode",
+    "--detection-threshold": "detection_threshold",
+    "--detection-block": "detection_block",
+    "--min-separation": "min_separation",
+    "--window": "window",
+    "--prealign": "prealign",
+    "--pair-tol": "pair_tol",
+    "--rms-gate": "rms_gate",
+    "--coloc-distance": "coloc_distance",
+}
+
+
+def test_each_extract_flag_default_is_the_dataclass_default() -> None:
+    """The default a CLI run applies is the ``ExtractOptions`` default this page prints.
+
+    The registry above reads these ten defaults from the dataclass, but on the only
+    surface that sets them the dataclass default is never used: ``tether.cli`` repeats
+    each one as an argparse literal, and ``_run_extract`` always passes the argparse
+    value into ``ExtractOptions(...)``. A changed literal therefore changed every CLI
+    extraction while this page stayed green (#744, DCN-F2).
+
+    The parser comes from :func:`tether.cli.build_parser`, which imports only
+    :mod:`argparse` (``tests/test_cli_reference.py`` depends on that as well), so this
+    keeps the module free of third-party imports. ``--detection-mode`` is the one flag
+    whose argparse default is ``None``: it tells an explicit choice from no flag, and
+    ``_run_extract`` resolves it to the library default. That resolution is proved end
+    to end in ``tests/test_extract_cli.py``, which runs ``tether extract`` with no flag
+    and compares the recorded options with ``ExtractOptions()``.
+    """
+    from tether.cli import build_parser  # noqa: PLC0415 - argparse only, see above
+
+    subparsers = next(
+        action
+        for action in build_parser()._actions  # noqa: SLF001 - no public subparser lookup
+        if isinstance(action, argparse._SubParsersAction)  # noqa: SLF001
+    )
+    extract = subparsers.choices["extract"]
+    opt = ("tether.project.extract", "ExtractOptions")
+    cls = next(
+        s for s in _module_source(opt[0]).body if isinstance(s, ast.ClassDef) and s.name == opt[1]
+    )
+    field_names = set(_constructor_keywords(cls))
+    by_flag = {
+        flag: action
+        for action in extract._actions  # noqa: SLF001
+        for flag in action.option_strings
+        if flag.startswith("--")
+    }
+    flag_backed = {flag: a.dest for flag, a in by_flag.items() if a.dest in field_names}
+    assert flag_backed == _EXTRACT_FLAG_FIELDS, (
+        "the `tether extract` flags that set an ExtractOptions field changed; update "
+        "_EXTRACT_FLAG_FIELDS and the flag list on docs/reference/parameters.md together"
+    )
+    text = PAGE.read_text(encoding="utf-8")
+    unnamed = sorted(flag for flag in _EXTRACT_FLAG_FIELDS if f"`{flag}`" not in text)
+    assert not unnamed, f"docs/reference/parameters.md does not name these flags: {unnamed}"
+
+    drifted = {}
+    for flag, field in sorted(_EXTRACT_FLAG_FIELDS.items()):
+        cli_default = by_flag[flag].default
+        if field == "detection_mode" and cli_default is None:
+            continue  # the "no flag given" sentinel described above
+        expected = dataclass_field(*opt, field)
+        if cli_default != expected:
+            drifted[flag] = (cli_default, expected)
+    assert not drifted, (
+        "these `tether extract` argparse defaults are not the ExtractOptions defaults the "
+        f"page prints, as {{flag: (argparse, ExtractOptions)}}: {drifted}"
+    )
 
 
 def test_a_multi_value_row_states_each_registered_default_separately() -> None:

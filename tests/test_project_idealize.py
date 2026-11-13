@@ -24,6 +24,7 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
+from _synth import step_traces as _step_trace  # noqa: E402
 from tether.idealize import IdealizationResult, StateModel, read_smd  # noqa: E402
 from tether.idealize.driver import NO_STATE  # noqa: E402
 from tether.imaging.aperture import IntegratedTraces  # noqa: E402
@@ -159,14 +160,6 @@ def _build_store(
         k.decode() if isinstance(k, bytes) else str(k) for k in read_molecules(path)["molecule_key"]
     ]
     return proj, keys
-
-
-def _step_trace(n: int, t: int, *, low: float = 200.0, high: float = 800.0) -> np.ndarray:
-    """``(n, t)`` two-level step (a distinct switch frame per molecule)."""
-    out = np.full((n, t), low, dtype="float64")
-    for i in range(n):
-        out[i, (t // 3) + i :] = high
-    return out
 
 
 # --- the fake sidecar --------------------------------------------------------
@@ -444,15 +437,27 @@ def test_fixed_nstates_runs_once(tmp_path) -> None:
 
 def test_subset_selection_by_key_preserves_request_order(tmp_path) -> None:
     n, t = 3, 24
-    proj, keys = _build_store(tmp_path / "e.tether", _step_trace(n, t), _step_trace(n, t))
+    # ``_step_trace`` switches at a different frame for each molecule, and the acceptor is
+    # scaled, so every (molecule, channel) trace is distinct: a row of the wrong molecule or
+    # of the wrong channel is visible in the SMD data and in the provenance hash (#729 PRJ-F6).
+    donor = _step_trace(n, t)
+    acceptor = _step_trace(n, t) * 0.5
+    proj, keys = _build_store(tmp_path / "e.tether", donor, acceptor)
     calls: list = []
-    requested = [keys[2], keys[0]]  # reversed subset
+    requested_rows = [2, 0]  # reversed subset
+    requested = [keys[i] for i in requested_rows]
     stored = idealize_molecules(proj, requested, nstates=2, _runner=_make_runner({2: -1.0}, calls))
 
     assert stored.molecule_keys == requested
     smd = calls[-1]["smd"]
     assert smd.n_molecules == 2
     assert smd.molecule_keys == requested  # SMD carries the requested selection order
+    # ... and each SMD row carries the trace of the molecule its key names, not only the key.
+    assert smd.raw.shape == (2, t, 2)
+    for j, i in enumerate(requested_rows):
+        np.testing.assert_array_equal(smd.raw[j, :, 0], donor[i])
+        np.testing.assert_array_equal(smd.raw[j, :, 1], acceptor[i])
+        assert stored.input_hashes[j] == _uncorrected_hash(donor[i], acceptor[i], pre=0, post=t)
 
 
 def test_missing_key_raises(tmp_path) -> None:
@@ -707,6 +712,38 @@ def test_reidealize_preserves_stored_cohort_after_member_is_rejected(tmp_path) -
 
     assert refreshed.molecule_keys == keys
     assert calls[0]["smd"].molecule_keys == keys
+
+
+def test_reidealize_repeats_the_max_elbo_sweep_over_the_recorded_grid(tmp_path) -> None:
+    # A model chosen by maximum ELBO is re-fitted with a new sweep over the grid it
+    # recorded, not with its old state count (#727, PRJ-F9). The grid differs from
+    # NSTATES_GRID_DEFAULT, and the new fit prefers another state count.
+    n, t = 3, 24
+    path = tmp_path / "e.tether"
+    proj, keys = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    first = idealize_molecules(
+        proj,
+        nstates=None,
+        nstates_grid=(2, 3, 5),
+        _runner=_make_runner({2: -1.0, 3: -4.0, 5: -9.0}, []),
+    )
+    assert (first.nstates, first.nstates_selected_by) == (2, "max-elbo")
+    _set_factors(path, alpha=0.05, gamma=1.2, method=METHOD_CORRECTED)
+    assert sorted(stale_molecule_keys(proj, "vbconhmm")) == sorted(keys)
+
+    calls: list = []
+    refreshed = reidealize(
+        proj, "vbconhmm", _runner=_make_runner({2: -6.0, 3: -2.0, 5: -7.0}, calls)
+    )
+
+    assert [c["nstates"] for c in calls] == [2, 3, 5]
+    assert refreshed.nstates == 3
+    assert refreshed.nstates_selected_by == "max-elbo"
+    assert refreshed.elbo_by_nstates == {2: -6.0, 3: -2.0, 5: -7.0}
+    back = read_idealization(proj, "vbconhmm")
+    assert (back.nstates, back.nstates_selected_by) == (3, "max-elbo")
+    assert back.elbo_by_nstates == refreshed.elbo_by_nstates
+    assert stale_molecule_keys(proj, "vbconhmm") == []
 
 
 def test_project_live_and_reidealize_delegators(tmp_path) -> None:
