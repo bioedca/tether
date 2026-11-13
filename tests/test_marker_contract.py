@@ -982,6 +982,25 @@ def test_deep_gpu_leg_targets_a_self_hosted_runner() -> None:
     )
 
 
+def test_deep_gpu_leg_fails_rather_than_skips_without_cuda() -> None:
+    """Without a CUDA device the GPU leg fails before pytest, so green means the GPU tests ran.
+
+    ``tests/test_deep_gpu_deep.py`` self-skips when torch sees no CUDA device; a run with only
+    those skips would otherwise be green (#752, ML-U1). The guard is a step before the pytest step
+    that exits non-zero when ``torch.cuda.is_available()`` is false.
+    """
+    lines = DEEP_GPU_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    code = [ln.strip() for ln in lines if not ln.lstrip().startswith("#")]
+    pytest_at = next(i for i, ln in enumerate(code) if "pytest -m deep" in ln)
+    before = code[:pytest_at]
+    assert "if not available:" in before, "deep-gpu.yml must test for a missing CUDA device"
+    check_at = before.index("if not available:")
+    assert any(ln.startswith("available = torch.cuda.is_available()") for ln in before[:check_at])
+    assert before[check_at + 1].startswith("sys.exit("), (
+        "deep-gpu.yml must exit non-zero (sys.exit with a message) when no CUDA device is visible"
+    )
+
+
 # --- The same contract for the non-required packaging leg (packaging.yml, M9 / ADR-0049) ---
 # packaging.yml builds the constructor installer (base env + the isolated tMAVEN sidecar as an
 # `extra_envs`) and runs the offline install-smoke on each of the 3 OSes. Building a full
@@ -3615,6 +3634,20 @@ def test_the_required_matrix_deselects_reference_download() -> None:
         if any(_collects(command, m) for m in _reference_modules()):
             expression = _marker_expression(command) or ""
             assert f"not {REFERENCE_MARKER}" in expression, command
+
+
+def test_the_reference_job_materializes_the_lfs_extract_it_rebuilds() -> None:
+    """``ebfret_mrec_sessions.hdf5`` is compared with a fresh extraction only if its LFS object
+    is there; on a pointer ``fetch.path_for`` skips and the job passes without comparing (#719)."""
+    workflow = yaml.safe_load((WORKFLOWS_DIR / "reference-data.yml").read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["reference-data"]["steps"]
+    extract = "tests/fixtures/large/ebfret_mrec_sessions.hdf5"
+    (pull,) = [s for s in steps if "git lfs pull" in str(s.get("run", ""))]
+    assert pull["env"]["EXTRACT"] == extract
+    assert '--include="$EXTRACT"' in pull["run"]
+    assert "git-lfs.github.com/spec" in pull["run"], "a pointer left behind must fail the step"
+    (tests,) = [s for s in steps if "-m reference_download" in str(s.get("run", ""))]
+    assert steps.index(pull) < steps.index(tests)
 
 
 def test_the_reference_job_downloads_into_its_keyed_cache() -> None:
