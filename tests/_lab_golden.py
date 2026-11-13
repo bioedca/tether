@@ -162,8 +162,11 @@ def lab_quantities(movie: Path, tmap: Path | None, workdir: Path) -> dict[str, A
 
     workdir.mkdir(parents=True, exist_ok=True)
     code, path = extract_project(movie, tmap, workdir)
+    if code != 0:
+        # A failed stage must never become a golden number, even when a project was written.
+        raise RuntimeError(f"tether batch exited {code}; no golden quantities from a failed run")
     if path is None:
-        raise RuntimeError(f"tether batch exited {code} and wrote no single project")
+        raise RuntimeError("tether batch wrote no single project")
     q: dict[str, Any] = {"cli.batch.exit_code": code}
     mols = read_molecules(path)
     traces = read_traces(path)
@@ -198,8 +201,10 @@ def compare_export_routes(project_a: Path, project_b: Path) -> dict[str, float]:
 
     Returns summary numbers only: the molecule counts, how many molecules have the same
     donor and acceptor positions, the frame counts, and the largest absolute difference of a raw
-    trace frame over those matched molecules and the frames both have. The routes agree when
-    ``n_unmatched`` is 0, the frame counts are equal and ``max_trace_diff`` is 0.
+    trace frame over those matched molecules and the frames both have. ``n_nonfinite_diff``
+    counts the frames where only one route has a non-finite value, so a NaN cannot hide a
+    difference. The routes agree when ``n_matched`` is above 0, ``n_unmatched`` and
+    ``n_nonfinite_diff`` are 0, the frame counts are equal and ``max_trace_diff`` is 0.
     """
     from tether.imaging.extract import read_molecules, read_traces  # noqa: PLC0415
 
@@ -213,13 +218,18 @@ def compare_export_routes(project_a: Path, project_b: Path) -> dict[str, float]:
     ka, kb = keyed(ma), keyed(mb)
     common = sorted(set(ka) & set(kb))
     worst = 0.0
+    nonfinite = 0
     frames = (int(np.asarray(ta["donor_raw"]).shape[1]), int(np.asarray(tb["donor_raw"]).shape[1]))
     width = min(frames)
     for channel in ("donor_raw", "acceptor_raw"):
         a = np.asarray(ta[channel], dtype="float64")[:, :width]
         b = np.asarray(tb[channel], dtype="float64")[:, :width]
         for key in common:
-            worst = max(worst, float(np.max(np.abs(a[ka[key]] - b[kb[key]]), initial=0.0)))
+            ra, rb = a[ka[key]], b[kb[key]]
+            fa, fb = np.isfinite(ra), np.isfinite(rb)
+            nonfinite += int(np.count_nonzero(fa != fb))
+            both = fa & fb
+            worst = max(worst, float(np.max(np.abs(ra[both] - rb[both]), initial=0.0)))
     return {
         "n_molecules_a": int(ma.shape[0]),
         "n_molecules_b": int(mb.shape[0]),
@@ -227,6 +237,7 @@ def compare_export_routes(project_a: Path, project_b: Path) -> dict[str, float]:
         "n_frames_b": frames[1],
         "n_matched": len(common),
         "n_unmatched": len(set(ka) ^ set(kb)),
+        "n_nonfinite_diff": nonfinite,
         "max_trace_diff": worst,
     }
 

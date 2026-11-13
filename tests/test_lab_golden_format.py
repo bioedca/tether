@@ -208,6 +208,39 @@ def test_a_project_agrees_with_itself_across_export_routes(synthetic) -> None:
     assert diff["n_frames_a"] == diff["n_frames_b"] == 60
 
 
+def test_a_nan_in_one_route_counts_as_a_trace_difference(
+    synthetic, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, project = synthetic
+    import tether.imaging.extract as extract  # noqa: PLC0415
+
+    real = extract.read_traces
+    calls: list[Path] = []
+
+    def with_a_nan(path: Path):
+        traces = dict(real(path))
+        calls.append(path)
+        if len(calls) == 2:  # the second route only
+            raw = np.array(traces["donor_raw"], dtype="float64")
+            raw[0, 5] = np.nan
+            traces["donor_raw"] = raw
+        return traces
+
+    monkeypatch.setattr(extract, "read_traces", with_a_nan)
+    diff = _lab_golden.compare_export_routes(project, project)
+    assert diff["n_nonfinite_diff"] == 1
+    assert diff["max_trace_diff"] == 0.0  # the finite frames agree
+
+
+def test_a_failed_batch_gives_no_golden_numbers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_project = tmp_path / "batch" / "x.tether"
+    monkeypatch.setattr(_lab_golden, "extract_project", lambda *a: (1, fake_project))
+    with pytest.raises(RuntimeError, match="exited 1"):
+        _lab_golden.lab_quantities(tmp_path / "movie.tif", None, tmp_path / "run")
+
+
 # --- the update script --------------------------------------------------------------------
 
 

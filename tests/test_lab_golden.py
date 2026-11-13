@@ -76,5 +76,10 @@ def test_export_routes_give_the_same_molecules_and_traces(private_data, tmp_path
         projects.append(project)
     diff = _lab_golden.compare_export_routes(*projects)
     private_data.record(nid, rotation_k=_lab_golden.EXPORT_ROUTE_ROTATION, **diff)
-    agree = diff["n_unmatched"] == 0 and diff["n_frames_a"] == diff["n_frames_b"]
+    agree = (
+        diff["n_matched"] > 0
+        and diff["n_unmatched"] == 0
+        and diff["n_nonfinite_diff"] == 0
+        and diff["n_frames_a"] == diff["n_frames_b"]
+    )
     assert agree and diff["max_trace_diff"] == 0.0, f"{nid}: the two export routes differ: {diff}"
