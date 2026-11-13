@@ -90,7 +90,9 @@ def _leakage_rel_error(project: MashProject) -> float:
                 continue
             scale = np.max(np.abs(want_a[ok]))
             got_a = apply_leakage(i_d[ok], i_a[ok], alpha)
-            worst = max(worst, float(np.max(np.abs(got_a - want_a[ok]))) / scale)
+            error = float(np.max(np.abs(got_a - want_a[ok]))) / scale
+            assert np.isfinite(error), f"molecule {m}, laser {laser}: non-finite leakage result"
+            worst = max(worst, error)
             # The donor is not changed (Tether's bare-donor convention, ADR-0028).
             assert np.array_equal(i_d[ok], want_d[ok])
     return worst
