@@ -134,13 +134,33 @@ def test_next_prev_navigate_the_molecule_list(shell) -> None:
     assert shell.molecule_list.currentRow() == 2
 
 
+def _cheatsheet_cells(overlay):
+    """The ``(Key, Action)`` text of every row of the table the cheat-sheet shows."""
+    from pyqtgraph.Qt import QtWidgets
+
+    table = overlay.dialog.findChild(QtWidgets.QTableWidget)
+    headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+    assert headers == ["Key", "Action"]
+    return [(table.item(r, 0).text(), table.item(r, 1).text()) for r in range(table.rowCount())]
+
+
 def test_overflow_picker_lists_and_assigns_beyond_nine(shell) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
     from tether.gui.shell import OverflowCategoryPicker
 
     categories = [f"cat {i}" for i in range(1, 13)]  # twelve categories
     picker = OverflowCategoryPicker(categories, parent=shell.window)
     # Only classes beyond the 1-9 hotkeys are offered (10, 11, 12).
     assert picker.overflow_classes == [10, 11, 12]
+    # The list the curator reads pairs each class number with its own category name
+    # (class N is categories[N - 1]); an off-by-one here assigns the wrong category.
+    shown = picker.dialog.findChild(QtWidgets.QListWidget)
+    assert [shown.item(i).text() for i in range(shown.count())] == [
+        "10: cat 10",
+        "11: cat 11",
+        "12: cat 12",
+    ]
     picker.choose(12)
     assert picker.selected_class() == 12
     from tether.gui.curation import Command, CurationAction
@@ -156,7 +176,9 @@ def test_cheatsheet_overlay_reflects_the_keymap(shell) -> None:
 
     overlay = CheatSheetOverlay(shell.keymap, parent=shell.window)
     assert dict(overlay.rows).get("Space") == "Accept trace"
-    assert overlay.dialog is not None
+    # The table the user sees holds exactly those rows, Key column then Action column.
+    assert _cheatsheet_cells(overlay) == shell.keymap.cheatsheet()
+    assert dict(_cheatsheet_cells(overlay)).get("Space") == "Accept trace"
 
     # After a rebinding, refresh() re-reads the live keymap into the table.
     k = QtCore.Qt.Key
@@ -165,6 +187,10 @@ def test_cheatsheet_overlay_reflects_the_keymap(shell) -> None:
     rows = dict(overlay.rows)
     assert rows.get("A") == "Accept trace"
     assert "Space" not in rows
+    shown = _cheatsheet_cells(overlay)
+    assert shown == shell.keymap.cheatsheet()
+    assert dict(shown).get("A") == "Accept trace"
+    assert "Space" not in dict(shown)
 
 
 def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> None:
@@ -192,6 +218,49 @@ def test_show_cheatsheet_populates_the_overlay(shell) -> None:
     overlay = shell.show_cheatsheet()
     assert shell.cheatsheet is overlay
     assert dict(overlay.rows).get("Space") == "Accept trace"
+    shown = _cheatsheet_cells(overlay)
+    assert len(shown) == len(shell.keymap.cheatsheet()) > 0
+    assert dict(shown).get("Space") == "Accept trace"
+
+
+def _menu_action(shell, menu_title, action_text):
+    """The action ``action_text`` of the menu-bar menu ``menu_title`` (as the user sees it)."""
+    from pyqtgraph.Qt import QtWidgets
+
+    # findChildren, not QAction.menu(): reading the menus through QAction.menu() left
+    # the Hand-off menu's C++ object deleted later in the test ("Internal C++ object
+    # already deleted"), so the menu is found by its title among the window's children.
+    (menu,) = [m for m in shell.window.findChildren(QtWidgets.QMenu) if m.title() == menu_title]
+    actions = {a.text(): a for a in menu.actions()}
+    return actions[action_text]
+
+
+def test_curation_menu_shortcuts_action_shows_the_cheatsheet(shell) -> None:
+    # Trigger the menu action itself (not show_cheatsheet()), so a disconnected
+    # action fails: the overlay stays hidden and its table stays as built.
+    overlay = shell.cheatsheet
+    assert not overlay.dialog.isVisible()
+    _menu_action(shell, "&Curation", "Keyboard &shortcuts…").trigger()
+    assert overlay.dialog.isVisible()
+    assert dict(_cheatsheet_cells(overlay)).get("Space") == "Accept trace"
+    overlay.dialog.hide()
+
+
+def test_curation_menu_overflow_action_dispatches_the_chosen_class(shell, monkeypatch) -> None:
+    from tether.gui import shell as shell_mod
+    from tether.gui.curation import Command, CurationAction
+
+    # Only the modal loop is replaced; the trigger runs the real menu handler.
+    opened = []
+
+    def _exec(picker):
+        opened.append(picker)
+        return 11
+
+    monkeypatch.setattr(shell_mod.OverflowCategoryPicker, "exec", _exec)
+    _menu_action(shell, "&Curation", "Assign category (&overflow)…").trigger()
+    assert len(opened) == 1
+    assert shell.controller.last == Command(CurationAction.ASSIGN_CATEGORY, 11)
 
 
 def test_close_removes_the_event_filter(qapp, qtbot) -> None:
@@ -616,6 +685,28 @@ def test_handoff_menu_exposes_export_and_import(make_shell) -> None:
     labels = [a.text() for a in make_shell().handoff_menu.actions()]
     assert any("tMAVEN" in t for t in labels)
     assert any("Import" in t for t in labels)
+
+
+def test_handoff_menu_import_action_runs_the_return_leg(make_shell, monkeypatch) -> None:
+    from pyqtgraph.Qt import QtWidgets
+
+    shell = make_shell(handoff=_FakeHandoff(report=_shell_report()))
+    # The two file pickers answer "ret.hdf5" and then Cancel (no model); the trigger
+    # runs the real menu handler, which must hand both answers to the return leg.
+    answers = iter([("ret.hdf5", ""), ("", "")])
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: next(answers))
+    )
+    calls = []
+    shell.import_return_leg = lambda smd, *, model_path=None: calls.append((smd, model_path))
+    _menu_action(shell, "&Hand-off", "&Import return leg…").trigger()
+    assert calls == [("ret.hdf5", None)]
+
+
+def test_handoff_menu_import_action_without_project_reports(make_shell) -> None:
+    shell = make_shell()  # no handoff seam: the handler reports before any picker opens
+    _menu_action(shell, "&Hand-off", "&Import return leg…").trigger()
+    assert "load a project" in shell.status_message
 
 
 def test_hand_off_without_project_reports(make_shell) -> None:
@@ -1212,3 +1303,22 @@ def test_legacy_menu_action_triggers_import(shell) -> None:
     shell.import_deeplasi_bundle = lambda: calls.append(True) or ()
     shell.legacy_menu.actions()[0].trigger()
     assert calls == [True]
+
+
+def test_import_deeplasi_bundle_builds_the_real_wizard_dialog(shell, monkeypatch) -> None:
+    # No dialog_factory: the shell's own factory must build the real wizard dialog,
+    # parented to the shell window (#746 GUI-F14). Only the modal loop is replaced.
+    from tether.gui.deeplasi_wizard_ui import DeepLasiWizardDialog
+
+    shown = []
+
+    def _exec(dialog):
+        shown.append(dialog)
+        return ()
+
+    monkeypatch.setattr(DeepLasiWizardDialog, "exec", _exec)
+    assert shell.import_deeplasi_bundle() == ()
+    assert len(shown) == 1
+    assert isinstance(shown[0], DeepLasiWizardDialog)
+    assert shown[0].dialog.parent() is shell.window
+    assert "no projects written" in shell.status_message

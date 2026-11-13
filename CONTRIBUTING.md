@@ -168,6 +168,23 @@ workflow's pytest command from selecting a `workstation` test, and
 `sidecar` or `deep`. Without the runner a `workstation` test skips, so a local run that
 leaves out `and not workstation` still passes.
 
+### Coverage floors
+
+The Linux leg of the required matrix runs the same tests under `coverage` with branch
+measurement and puts a table of line and branch coverage, for the total and for each
+package of `src/tether`, in the job summary (ADR-0072). `.github/coverage-floors.toml`
+holds one floor of line coverage for the total and one for each package. The job fails
+when a value is below its floor, and when a new package has no floor. A floor can only
+go up: `tests/test_coverage_floors.py` fails when a floor is lower than on `main`. When
+the job prints a notice that a floor can be raised, raise it in the same or a later pull
+request. To see the numbers locally:
+
+```bash
+python -m pip install "coverage==7.17.2"
+QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep"
+coverage json -o coverage.json && python scripts/check_coverage_floors.py coverage.json
+```
+
 ### Building the docs locally
 
 The required `docs-build` gate is `mkdocs build --strict`, where **warnings are
