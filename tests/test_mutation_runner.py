@@ -159,6 +159,80 @@ def test_a_mutant_runs_the_tests_of_its_statement_and_a_default_runs_the_callers
     assert rm.covering_tests(mutants[(11, "< -> <=")], lines, {"t::b"}) == ["t::b"]
 
 
+def _tree(root: Path, files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+
+
+def test_a_module_level_mutant_runs_the_tests_that_only_read_the_value(tmp_path: Path) -> None:
+    # #883: ``test_defaults`` reads DEFAULT_STATE_NUMBER_LOW through the package that passes it
+    # on, runs no line of state_number.py, and must still run the mutant of that constant.
+    path = "src/tether/analysis/state_number.py"
+    source = (_REPO / path).read_text(encoding="utf-8")
+    _tree(
+        tmp_path,
+        {
+            path: source,
+            "src/tether/__init__.py": "",
+            "src/tether/analysis/__init__.py": (
+                "from tether.analysis.state_number import (\n"
+                "    DEFAULT_STATE_NUMBER_LOW,\n    state_number_counts,\n)\n"
+            ),
+            "tests/test_analysis_state_number.py": (
+                "from tether.analysis import DEFAULT_STATE_NUMBER_LOW\n\n\n"
+                "def test_defaults():\n    assert DEFAULT_STATE_NUMBER_LOW == 1\n"
+            ),
+            "tests/test_other.py": "import tether\n\n\ndef test_x():\n    pass\n",
+        },
+    )
+    (mutant,) = [
+        m
+        for m in rm.mutants_of(source, path)
+        if m.line_text == "DEFAULT_STATE_NUMBER_LOW = 1" and m.change == "1 -> 2"
+    ]
+    assert mutant.function == "<module>" and not mutant.test_lines
+    body = next(m for m in rm.mutants_of(source, path) if m.test_lines)
+    defaults, other = (
+        "tests/test_analysis_state_number.py::test_defaults",
+        "tests/test_other.py::test_x",
+    )
+    counts = "tests/test_analysis_state_number.py::test_counts"
+    lines = {path: {body.test_lines[0]: {counts}}}
+    passed = {defaults, other, counts}
+    imports = rm.imports_of_tests(tmp_path, [t.split("::")[0] for t in passed])
+    assert rm.covering_tests(mutant, lines, passed) == [counts], "the gap #883 closes"
+    assert rm.covering_tests(mutant, lines, passed, None, imports) == [counts, defaults]
+    # A mutant inside a function runs the tests of its lines only, importers or not.
+    assert defaults not in rm.covering_tests(body, lines, passed, None, imports)
+
+
+def test_each_import_form_names_the_modules_the_test_file_loads(tmp_path: Path) -> None:
+    _tree(
+        tmp_path,
+        {
+            "src/pkg/__init__.py": "from .sub import ALIAS as NAME\nfrom pkg import loop\n",
+            "src/pkg/sub.py": "from pkg.deep.leaf import VALUE as ALIAS\n",
+            "src/pkg/deep/__init__.py": "",
+            "src/pkg/deep/leaf.py": "VALUE = 1\n",
+            "src/pkg/mod.py": "X = 1\n",
+            "src/pkg/loop.py": "from pkg import loop\n",
+        },
+    )
+    of = rm._Imports(tmp_path / "src").of
+    assert of("import pkg.mod as m\n") == {"pkg.mod"}
+    assert of("from pkg.mod import X\n") == {"pkg.mod"}
+    assert of("from pkg import mod\n") == {"pkg", "pkg.mod"}
+    # A name passed on through two modules, relative and renamed on the way.
+    assert of("from pkg import NAME\n") == {"pkg", "pkg.sub", "pkg.deep.leaf"}
+    assert of("def t():\n    from pkg.deep import leaf\n") == {"pkg.deep", "pkg.deep.leaf"}
+    assert of("from pkg import *\n") == {"pkg"}
+    assert of("from pkg import loop\n") == {"pkg", "pkg.loop"}, "a cycle ends"
+    assert of("from . import x\nimport numpy\n") == {"numpy"}
+    assert rm.module_name("src/pkg/deep/__init__.py") == "pkg.deep"
+    assert rm.module_name("src/pkg/deep/leaf.py") == "pkg.deep.leaf"
+
+
 def test_identical_changes_on_one_line_have_different_occurrences() -> None:
     mutants = [m for m in rm.mutants_of("def f(a):\n    return a + a + a\n", "x") if m.old == "+"]
     assert [m.occurrence for m in mutants] == [0, 1]
