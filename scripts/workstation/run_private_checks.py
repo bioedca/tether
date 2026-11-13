@@ -661,7 +661,8 @@ def _perf_history():
 
 
 def run_benchmarks(python: Path, source: Path, env: dict[str, str], log) -> list[dict]:
-    """The benchmark suite of #722 on *source*, one round; a group that fails is left out."""
+    """The benchmark suite of #722 on *source*, one round. A group that does not run gives
+    ``{"group": ..., "error": ...}``, so the history records it and its check fails."""
     out = []
     for group in BENCH_GROUPS:
         with tempfile.TemporaryDirectory(prefix="tether-bench-") as tmp:
@@ -671,6 +672,8 @@ def run_benchmarks(python: Path, source: Path, env: dict[str, str], log) -> list
             code = _run_logged([*cmd, "--out", str(result)], log, check=False, env=env)
             if code == 0 and result.is_file():
                 out.append(json.loads(result.read_text(encoding="utf-8")))
+            else:
+                out.append({"group": group, "error": f"exit {code}"})
     return out
 
 

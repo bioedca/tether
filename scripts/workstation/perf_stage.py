@@ -25,6 +25,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 STAGES = ("extract", "correct", "idealize", "analysis", "save", "export", "selftest")
@@ -127,45 +128,53 @@ def _posix_peak() -> int:
     return max(own, resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss * scale)
 
 
-def _stage(name: str, args: argparse.Namespace) -> None:
+def _stage(name: str, args: argparse.Namespace) -> Callable[[], object]:
+    """Import what stage *name* needs and return the call to time; the imports stay untimed."""
     store = Path(args.store)
     if name == "selftest":
-        block = bytearray(SELFTEST_BYTES)
-        block[::4096] = b"\x01" * len(block[::4096])  # touch each page
-        time.sleep(0.1)
-        return
+
+        def hold() -> None:
+            block = bytearray(SELFTEST_BYTES)
+            block[::4096] = b"\x01" * len(block[::4096])  # touch each page
+            time.sleep(0.1)
+
+        return hold
     if name == "extract":
         from tether.project.extract import extract_movie
 
-        extract_movie(args.movie, store, tmap=args.tmap, tdat=args.tdat, overwrite=True)
-    elif name == "correct":
+        return lambda: extract_movie(
+            args.movie, store, tmap=args.tmap, tdat=args.tdat, overwrite=True
+        )
+    if name == "correct":
         from tether.project.batch import run_correct_stage
 
-        run_correct_stage(store)
-    elif name == "idealize":
+        return lambda: run_correct_stage(store)
+    if name == "idealize":
         from tether.project.idealize import idealize_molecules
 
-        idealize_molecules(store, overwrite=True)
-    elif name == "analysis":
+        return lambda: idealize_molecules(store, overwrite=True)
+    if name == "analysis":
         from tether.analysis.crosscorr import population_cross_correlation
         from tether.analysis.dwell import population_dwell_times
         from tether.analysis.histogram import population_apparent_e_histogram
         from tether.analysis.tdp import population_transition_density
         from tether.project.idealize import list_idealizations
 
-        model = list_idealizations(store)[0]
-        population_apparent_e_histogram(store)
-        population_cross_correlation(store)
-        population_transition_density(store, model)
-        population_dwell_times(store, model)
-    elif name == "save":
+        def analyse() -> None:
+            model = list_idealizations(store)[0]
+            population_apparent_e_histogram(store)
+            population_cross_correlation(store)
+            population_transition_density(store, model)
+            population_dwell_times(store, model)
+
+        return analyse
+    if name == "save":
         from tether.project.export import export_subset_tether
 
-        export_subset_tether(store, args.out, include_raw=True, overwrite=True)
-    elif name == "export":
-        from tether.project.export import export_molecule_table_csv
+        return lambda: export_subset_tether(store, args.out, include_raw=True, overwrite=True)
+    from tether.project.export import export_molecule_table_csv
 
-        export_molecule_table_csv(store, args.out)
+    return lambda: export_molecule_table_csv(store, args.out)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,8 +187,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", help="save and export: the output file")
     args = parser.parse_args(argv)
     job = _windows_job() if os.name == "nt" else None
+    call = _stage(args.stage, args)
     start = time.perf_counter()
-    _stage(args.stage, args)
+    call()
     elapsed = time.perf_counter() - start
     peak = _windows_peak(job) if os.name == "nt" else _posix_peak()
     print(json.dumps({"stage": args.stage, "time_s": elapsed, "peak_bytes": peak}))

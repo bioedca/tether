@@ -237,3 +237,42 @@ def test_the_hardware_probes_answer_or_say_nothing(tmp_path) -> None:
     assert ph.disk_type(tmp_path) in (None, "ssd", "hdd")
     gpu = ph.gpu_name()
     assert gpu is None or (isinstance(gpu, str) and gpu)
+
+
+def test_a_benchmark_case_or_group_that_cannot_run_fails_the_benchmark_check() -> None:
+    bench = _bench()
+    bench[0]["sides"]["main"]["gamma/small"] = {"error": "ValueError: boom"}
+    bench.append({"group": "gui", "error": "exit 1"})
+    record = _record(bench=bench)
+    assert record["benchmark_errors"] == ["gamma/small", "gui/run"]
+    assert ph.validate_record(record) == []
+    by_name = {c["check"]: c["outcome"] for c in ph.checks_for(record, [])}
+    assert by_name[ph.CHECK_BENCHMARKS] == "failed"
+    assert by_name[ph.CHECK_ACQUISITIONS] == "passed"
+    record["benchmark_errors"] = ["movie.tif"]
+    assert ph.validate_record(record)
+
+
+def test_the_baseline_is_the_last_10_records_not_the_last_10_values(tmp_path) -> None:
+    """Codex on #878: three old values of an id must not stay its baseline for ever."""
+    path = tmp_path / "h.jsonl"
+    for i in range(3):
+        ph.append(path, _record(i))
+    for i in range(3, 13):  # ten records in which lab-11 has no values
+        record = _record(i)
+        del record["acquisitions"]["lab-11"]
+        ph.append(path, record)
+    found = ph.slowdowns(ph.read_history(path), _record(13, scale=1.5))
+    assert not any(":lab-11:" in f["series"] for f in found)
+    assert any(":lab-12:" in f["series"] for f in found)
+
+
+def test_a_stage_imports_before_its_timer_starts() -> None:
+    """Codex on #878: the timed call holds the operation only, not the cold imports."""
+    import argparse
+
+    stage = _load("perf_stage")
+    args = argparse.Namespace(store="none.tether", out="none.csv", movie=None, tmap=None, tdat=None)
+    call = stage._stage("export", args)  # imports Tether; runs nothing yet
+    assert callable(call)
+    assert "tether.project.export" in sys.modules

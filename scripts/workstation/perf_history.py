@@ -51,7 +51,7 @@ _CASE = re.compile(r"[a-z][a-z0-9_]*/[a-z]+")
 _HEX40 = re.compile(r"[0-9a-f]{40}")
 _STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 _TOP = {"schema", "commit", "on_main", "date", "hardware", "acquisitions", "benchmarks"}
-_TOP |= {"projection"}
+_TOP |= {"benchmark_errors", "projection"}
 _HARDWARE = {"os", "machine", "cpu", "cpu_count", "memory_gb", "disk", "gpu"}
 _PROJECTION = {"per_movie_s", "condition_movies", "condition_hours", "window_hours", "fits_window"}
 
@@ -128,17 +128,24 @@ def projection(acquisitions: dict[str, dict[str, float]]) -> dict | None:
     }
 
 
-def bench_values(bench: dict | None) -> dict[str, dict[str, float]]:
-    """Time and peak memory of each case of a ``benchmarks/bench.py run`` result (one side)."""
+def bench_values(bench: list | None) -> tuple[dict[str, dict[str, float]], list[str]]:
+    """Time and peak memory of each case of the ``benchmarks/bench.py run`` results (one side
+    each), and the cases that could not run: a case key, or ``<group>/run`` for a whole group."""
     out: dict[str, dict[str, float]] = {}
+    errors: list[str] = []
     for result in bench or []:
+        if "error" in result:
+            errors.append(f"{result['group']}/run")
+            continue
         for case, rec in next(iter(result["sides"].values()), {}).items():
-            if "error" not in rec and _number(rec.get("time_s")):
-                peak = rec.get("peak_child_rss_bytes") or rec.get("peak_py_bytes")
-                out[case] = {"time_s": rec["time_s"]}
-                if _number(peak):
-                    out[case]["peak_bytes"] = peak
-    return out
+            if "error" in rec or not _number(rec.get("time_s")):
+                errors.append(case)
+                continue
+            peak = rec.get("peak_child_rss_bytes") or rec.get("peak_py_bytes")
+            out[case] = {"time_s": rec["time_s"]}
+            if _number(peak):
+                out[case]["peak_bytes"] = peak
+    return out, sorted(errors)
 
 
 def build_record(
@@ -146,6 +153,7 @@ def build_record(
 ) -> dict:
     pipeline = next((c for c in checks if c["check"] == PIPELINE_CHECK), None)
     acquisitions = dict(pipeline["datasets"]) if pipeline else {}
+    benchmarks, errors = bench_values(bench)
     return {
         "schema": HISTORY_SCHEMA,
         "commit": commit,
@@ -153,7 +161,8 @@ def build_record(
         "date": date,
         "hardware": {k: v for k, v in hardware.items() if k in _HARDWARE},
         "acquisitions": acquisitions,
-        "benchmarks": bench_values(bench),
+        "benchmarks": benchmarks,
+        "benchmark_errors": errors,
         "projection": projection(acquisitions),
     }
 
@@ -182,6 +191,11 @@ def validate_record(record: object) -> list[str]:
                 problems.append(f"{name} has a key that is not valid")
             elif not all(_METRIC.fullmatch(k) and _number(v) for k, v in values.items()):
                 problems.append(f"{name}.{key} holds a value that is not a number")
+    errors = record["benchmark_errors"]
+    if not isinstance(errors, list) or not all(
+        isinstance(e, str) and _CASE.fullmatch(e) for e in errors
+    ):
+        problems.append("benchmark_errors is not a list of case names")
     proj = record["projection"]
     if proj is not None and not (
         isinstance(proj, dict)
@@ -220,10 +234,10 @@ def slowdowns(history: list[dict], record: dict) -> list[dict]:
         for r in history
         if r["on_main"] and _fingerprint(r["hardware"]) == _fingerprint(record["hardware"])
     ]
-    earlier = [series(r) for r in same]
+    earlier = [series(r) for r in same[-WINDOW_RUNS:]]
     found = []
     for name, value in series(record).items():
-        past = [s[name] for s in earlier if name in s][-WINDOW_RUNS:]
+        past = [s[name] for s in earlier if name in s]
         if len(past) < MIN_BASELINE:
             continue
         median = statistics.median(past)
@@ -244,8 +258,10 @@ def checks_for(record: dict, found: list[dict]) -> list[dict]:
     proj = record["projection"]
     acq_ok = bool(record["acquisitions"]) and proj is not None and proj["fits_window"]
     acq_ok = acq_ok and not datasets
-    bench_ok = bool(record["benchmarks"]) and not any(
-        i["series"].startswith("benchmarks:") for i in found
+    bench_ok = (
+        bool(record["benchmarks"])
+        and not record["benchmark_errors"]
+        and not any(i["series"].startswith("benchmarks:") for i in found)
     )
     return [
         {"check": CHECK_ACQUISITIONS, "outcome": "passed" if acq_ok else "failed",

@@ -213,6 +213,7 @@ holds these fields and nothing more:
 | `hardware` | operating system, machine, processor, processor count, memory, `disk` (`ssd` or `hdd`, the disk of the data folder) and `gpu` |
 | `acquisitions` | for each neutral id: `<stage>_s` and `<stage>_peak_bytes` for the six stages, and `tether_bytes` |
 | `benchmarks` | for each case and size of #722 (`extraction/large`): `time_s` and `peak_bytes` |
+| `benchmark_errors` | the cases that did not run, and `<group>/run` for a group that did not run at all |
 | `projection` | `per_movie_s` (the median over the acquisitions of extraction + corrections + idealization), `condition_movies` (100), `condition_hours`, `window_hours` (12, ADR-0032) and `fits_window` |
 
 On Linux a peak is the peak resident set of the stage process or of one of its children. On
@@ -225,13 +226,15 @@ a copy of the history, or its plot, to an issue.
 
 **The report rule** (maintainer decision Q27). A value is a slowdown when it is larger than 1.2
 times the median of the same value in the last 10 records of `main` on the same hardware
-(processor, memory, disk, GPU). A value with fewer than 3 earlier values only records. A peak
+(processor, memory, disk, GPU). A value with fewer than 3 earlier values in those 10 records only
+records. A peak
 memory below 1 MiB only records. The runner adds two checks to the result file:
 
 - `perf-history/acquisitions` fails on a slowdown of an acquisition value, and when the
   projection does not fit the overnight window. Its datasets give `<value>_ratio` for each
   slowdown.
-- `perf-history/benchmarks` fails on a slowdown of a benchmark value.
+- `perf-history/benchmarks` fails on a slowdown of a benchmark value, and when a benchmark case
+  or group did not run.
 
 A check that fails opens or updates its issue through the steps above (#698). A history that
 cannot be read gives both checks the outcome `error`; the runner does not change that file.
