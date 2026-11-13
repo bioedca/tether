@@ -127,6 +127,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0081](0081-kinsoft-levels-two-and-three-are-reported.md) | kinSoft levels 2 and 3 are reported against the simulator settings, never band-checked | accepted; amends [ADR-0048](0048-kinsoft-kinetics-oracle.md) on the deferred levels | §8 NFR-VALID(c), §9 M8, §11.2 (the kinSoftChallenge parity band row), N2 |
 | [0082](0082-measured-kinsoft-sets-are-placed-not-scored.md) | The measured kinSoft sets are placed among the published results, not scored | accepted | §8 NFR-VALID(c), §9 M8, §11.2 |
 | [0084](0084-smfret-analysis2-is-a-reference-at-a-pinned-commit.md) | smfret-analysis2 at a pinned commit is the reference for the histogram and the cross-correlation | accepted | §1 (the two model-free lenses), §7.7 FR-ANALYZE, §8 NFR-VALID, N4 |
+| [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12) | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
 
 <!-- gen:adr-index end -->
 
