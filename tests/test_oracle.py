@@ -495,7 +495,7 @@ def test_extraction_meets_m1_acceptance_on_uckopsb(private_data, tmp_path) -> No
 
     The data is private, so this is a ``workstation`` test: the runner of ADR-0071 runs it
     at each scheduled run, and the numbers recorded below go into its result file before
-    any assertion, so a failed run still says how far off it was.
+    the gate assertions, so a run that fails the gate still says how far off it was.
     """
     pytest.importorskip("scipy")
     pytest.importorskip("skimage")

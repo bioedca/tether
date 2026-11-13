@@ -156,6 +156,17 @@ and gates registration RMS only when the map is fit natively (an imported `.tmap
 it as not applicable). Its own behaviour is pinned without the movie by
 `tests/test_run_m1_oracle.py`.
 
+**Newest recorded run.** On the maintainer's workstation on 2026-11-13, at commit `3697f80`
+(a run by hand of the pull request of [#699](https://github.com/bioedca/tether/issues/699),
+before the weekly task had a `main` commit that holds this check): **passed**, matched fraction
+0.984 (246 of 250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854.
+The numbers agree with ADR-0022. The record is
+[`docs/validation/oracle-a-last-run.json`](validation/oracle-a-last-run.json), one check entry of
+a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
+step. A deliberate regression (the donor traces reversed in time) made the same check fail at the
+donor Pearson gate; the demonstration is recorded on
+[#699](https://github.com/bioedca/tether/issues/699).
+
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
 `.mat` exports through Tether's two Deep-LASI readers and asserts they agree (Pearson
