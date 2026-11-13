@@ -413,7 +413,7 @@ NCBD, confocal, 19 traces, binned at 10 ms and at 1 ms) and the three of its Fig
 DNA hairpin, TIRF, 100 ms frames, 134, 163 and 118 traces). Measured data has no ground truth, so
 this check is **advisory**: it shows where Tether's rates lie among the rates that the analyses of
 the challenge reported, and it never gives a pass or a fail on that position.
-[ADR-0082](adr/0082-measured-kinsoft-sets-are-placed-not-scored.md) records the choices.
+[ADR-0081](adr/0081-measured-kinsoft-sets-are-placed-not-scored.md) records the choices.
 
 - **Tether.** The tMAVEN sidecar fits a 2-state consensus VB-HMM with seed 0. The rate of each
   FRET class is `1/⟨τ⟩` of the pooled Viterbi dwells.

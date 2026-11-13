@@ -65,7 +65,7 @@ jobs:
         uses: ./.github/actions/setup-env
       - name: Install test tooling
         run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
-      - name: Restore the tMAVEN sidecar env beside the base env (#718, ADR-0082)
+      - name: Restore the tMAVEN sidecar env beside the base env (#718, ADR-0081)
         # The measured kinSoft sets are fitted by the sidecar. Its env is restored from its own
         # lock into a directory NOT named `sidecar` beside the base env, which tether would take
         # for an installer layout. The base env stays the active one, and the tests reach the

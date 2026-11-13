@@ -7,7 +7,7 @@ of ``test_kinsoft_kinetics.py`` does not use: the two sets of Fig. 2 of Götz et
 NCBD binding, confocal, 10 ms and 1 ms bins) and the three sets of its Fig. 5 (SSB binding to a DNA
 hairpin, TIRF, 100 ms frames). ``reference_data/kinsoft_published_results.json`` holds the rate
 matrices the analyses of the challenge reported for them, copied from the paper's Supplementary
-Data, and Tether's own frozen result. ADR-0082 records the choices.
+Data, and Tether's own frozen result. ADR-0081 records the choices.
 
 Measured data has no ground truth, so the comparison is a position, never a pass or a fail: the
 exit rate of each FRET class from Tether's fit beside the same quantity from every analysis.

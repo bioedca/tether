@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0082 — The measured kinSoft sets are placed among the published results, not scored
+# 0081 — The measured kinSoft sets are placed among the published results, not scored
 
 - **Status:** accepted
 - **Date:** 2026-11-12

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The measured kinSoftChallenge sets beside the published results of the challenge (#718).
 
-Advisory by construction (ADR-0082): measured data has no ground truth, so no test here fails on
+Advisory by construction (ADR-0081): measured data has no ground truth, so no test here fails on
 where Tether's rates lie among the published ones. They fail on a wrong copy, a wrong derivation,
 a page that no longer shows the file, or a Tether fit that has drifted from its frozen result.
 
