@@ -1,0 +1,118 @@
+{
+  "date": "2026-11-13T17:29:23+00:00",
+  "driver": {
+    "clean": true,
+    "commit": "72ace90afec39d6c35414773b2e4b03e150fde86"
+  },
+  "inputs": {},
+  "manual_steps": [],
+  "matlab": {
+    "release": "2023b",
+    "version": "23.2.0.2859533 (R2023b) Update 10"
+  },
+  "method": "matlab-batch",
+  "os": "Windows-11-10.0.26300-SP0",
+  "outputs": {
+    "coordinates/uneven.coord": "c8617e25042acc1e28a6af031bdce0c98cc25cbba4d7cb29fc9c99b5a8c0c66b",
+    "traces_ASCII/uneven_mol10of15.txt": "7a5965029018021533f7ee66df110e15d922a28acb3e2f3b40ed3c95fdd26bcb",
+    "traces_ASCII/uneven_mol11of15.txt": "eee0553fa99798f013163e47f5b0ab0219fdd7fb9d51e28c4796cf8d9da1d486",
+    "traces_ASCII/uneven_mol12of15.txt": "f9e77f0195b6835fb6554ada23e8da1225923d9ec535515efa775d7615b121b8",
+    "traces_ASCII/uneven_mol13of15.txt": "2bb1bc8d2f8c41c8c01c152a53a64f46d3b5a8e035bf5c42cd722a1fb32e20e0",
+    "traces_ASCII/uneven_mol14of15.txt": "afdfe24522ccbd3fc079b2c779a3888c18c0ff7fbdf9838e410a6cdb29ca3e94",
+    "traces_ASCII/uneven_mol15of15.txt": "aa2caa8e6b21965996eede6918a15702aadebda20f6fd80160006a3a81a69006",
+    "traces_ASCII/uneven_mol1of15.txt": "76ed6303ceba123c06bc1b82916fe5bf59b0fd4acdf2711a059cf7d669bccc61",
+    "traces_ASCII/uneven_mol2of15.txt": "f26d2ed60ab4d879ae5f189000a64a1b977cd07ed9ef01526c2e173a1e0c5c8b",
+    "traces_ASCII/uneven_mol3of15.txt": "f82b3565d98b37583b7a6387031c13f6c76d1c787210dd6be77b0f6b45958b49",
+    "traces_ASCII/uneven_mol4of15.txt": "62b284b3797b083c5e018d9fbb0113294d8c98b8ec74c9d9d9229e62e65d953f",
+    "traces_ASCII/uneven_mol5of15.txt": "a602b8165a57aa01c4c104d70f864f1fa56ef4418ace6a5404ac372fb5c41d38",
+    "traces_ASCII/uneven_mol6of15.txt": "c1e4abd65f546c5ee04570eb5da42817c9d70e67f330b98b8e25a3281100ad47",
+    "traces_ASCII/uneven_mol7of15.txt": "96e9f57d96313420a593629e3bfc7d6ee0a3fce38e0ae87f833600b32332745a",
+    "traces_ASCII/uneven_mol8of15.txt": "e7264a1b39c94439b08383f68c9b88f9093bcc5608f1795deef9e31111f3bbd2",
+    "traces_ASCII/uneven_mol9of15.txt": "6759209cbc9c6a15d8d446f663645eabe43fe8c7e6d0e250500e049ab77a4962",
+    "uneven.sira.gz": "0b4edd7e1f0a7f021b96f42636c9ebf222576d4b2daa5780d14da5c6e2a64727",
+    "uneven_param.log": "c84cb125a53fd01ee3c6ce337f3fd1d3b0d45ab8fe9a2107e9a64df73740b9c8",
+    "uneven_tether_note.txt": "67d2afd9012bfe1d11c4eac5f70ed8e9c44333f24e26c3ceb37192e18e3cc4f7"
+  },
+  "params": {
+    "export": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true
+    ],
+    "gzip_video": true,
+    "name": "uneven",
+    "overrides": {
+      "Bt": [
+        0,
+        0
+      ],
+      "FRET": [
+        0.3,
+        0.7
+      ],
+      "Itot": 400,
+      "J": 2,
+      "L": 40,
+      "N": 15,
+      "bg": 2,
+      "bgDec": false,
+      "bgI": [
+        12,
+        12
+      ],
+      "bgW": [
+        30,
+        30
+      ],
+      "bleach": false,
+      "camnoise": 1,
+      "dE": [
+        0,
+        0
+      ],
+      "defocus": false,
+      "gamma": 1,
+      "k": [
+        [
+          0,
+          2
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "pc_in": true,
+      "pixdim": 0.25,
+      "psf": true,
+      "psfW": [
+        0.32,
+        0.35
+      ],
+      "rate": 10,
+      "viddim": [
+        160,
+        80
+      ],
+      "wFRET": [
+        0,
+        0
+      ],
+      "wGamma": 0,
+      "wItot": 0
+    },
+    "seed": 714004,
+    "units": 2
+  },
+  "record_version": 1,
+  "task": "simulate",
+  "tool": {
+    "commit": "83fcadf3b7274f2eeb22591429202dda0328c05b",
+    "name": "mash-fret",
+    "url": "https://github.com/RNA-FRETools/MASH-FRET"
+  }
+}
