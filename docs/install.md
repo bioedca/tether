@@ -237,7 +237,10 @@ Windows PowerShell. To start the desktop application:
 While the application loads, a splash window shows the Tether name, the version and
 **Loading…**. The splash window closes when the main window opens.
 
-The application opens with no project loaded; use **File → Open project…** to open one. The
+The application opens with no project loaded and shows the start page. To open a project,
+click **Open project…** on the start page, use **File → Open project…**, or drop a `.tether`
+file on the window. **Help → About Tether** shows the version and the commit, and its **Copy**
+button copies them for a bug report. The
 [Command line](cli.md) reference covers what `tether` itself can do.
 
 ## What gets installed, and where
