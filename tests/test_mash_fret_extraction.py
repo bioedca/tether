@@ -20,7 +20,8 @@ defaults) on each video and compares it with the truth:
   ``dense``, for each found molecule), the
   ratio of Tether's corrected intensity summed over the video to the expected image counts
   (``ETA`` x the ideal photon count), and the Pearson correlation of the two traces, in each
-  channel. The ratio is below 1 because the 3-px disk does not hold the whole PSF.
+  channel. The 3-px disk does not hold the whole PSF, so for an isolated molecule the ratio
+  is below 1; in ``dense`` it can be above 1, because the disk also holds light from neighbours.
 
 The limits in ``LIMITS`` come from the first measurement (ADR-0088 gives the values and the
 margins) and are frozen. Two fault injections — an aperture moved by 2 px and a channel mapping

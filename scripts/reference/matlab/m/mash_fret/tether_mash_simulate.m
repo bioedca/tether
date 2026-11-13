@@ -55,7 +55,7 @@ notes = {};
 try
     ok = pushbutton_exportSim_Callback({out, job.params.name}, [], h_fig);
 catch err
-    notes = known_redraw_error(err, out, job, 'export');
+    notes = known_redraw_error(err, out, job, p.N, 'export');
     ok = true;
 end
 if ~ok
@@ -73,7 +73,7 @@ h = guidata(h_fig);
 try
     pushbutton_closeProj_Callback(h.pushbutton_closeProj, [], h_fig, true);
 catch err
-    notes = [notes, known_redraw_error(err, out, job, 'project close')];
+    notes = [notes, known_redraw_error(err, out, job, p.N, 'project close')];
 end
 delete(h_fig);
 
@@ -85,7 +85,7 @@ if ~isempty(notes)
 end
 end
 
-function notes = known_redraw_error(err, out, job, step)
+function notes = known_redraw_error(err, out, job, n_mol, step)
 % KNOWN_REDRAW_ERROR  Accept one known MASH-FRET error, or rethrow.
 %   MASH-FRET v1.3.6 draws its trace plot with the legend property IconColumnWidth
 %   (plotData>addleg2plot), which MATLAB R2023b does not have. exportResults calls that redraw
@@ -109,7 +109,7 @@ for k = 1:numel(expected)
     end
 end
 traces = dir(fullfile(out, 'traces_ASCII', [name '_mol*of*.txt']));
-if numel(traces) ~= job.params.overrides.N
+if numel(traces) ~= n_mol
     rethrow(err);
 end
 notes = {sprintf(['MASH-FRET raised "%s" in plotData>addleg2plot (the window redraw after ' ...
