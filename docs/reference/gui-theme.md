@@ -70,7 +70,7 @@ version (ink) and a dark version (chalk), and the icons change with the theme.
 | Curation → Assign category | curate |
 | Hand-off → Hand to tMAVEN | hand-off |
 | Hand-off → Import return leg | import |
-| Legacy → Import Deep-LASI bundle | import |
+| Import → Deep-LASI bundle | import |
 | Analysis → Population histogram | analyze |
 | Conditions → Validate conditions | conditions |
 
