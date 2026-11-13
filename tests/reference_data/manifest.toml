@@ -86,6 +86,60 @@ extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
 
+# The simulator settings of the three simulated levels: the truth of oracle (c) (#717, ADR-0081).
+# Only the three .cfg files are committed; the MATLAB simulator in the same zip is not (PRD N2).
+
+[[dataset]]
+id = "kinsoft-simulator"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "MATLAB_simulator.zip"
+size = 26527
+sha256 = "0a3c65403782fb1378b600fad9a26da8d99b5f955127f6ddb884afcaa3ed20b4"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/MATLAB_simulator.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
+
+[[dataset]]
+id = "kinsoft-settings-level1"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_1.cfg"
+size = 2942
+sha256 = "773cd7839459892a319af55803bda77caf68abedb33f82bfe5d44db6d83cc64a"
+tier = "git"
+extract_of = ["kinsoft-simulator"]
+extract_member = "MATLAB_simulator/Config_simulation_round_1_level_1.cfg"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
+
+[[dataset]]
+id = "kinsoft-settings-level2"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_2.cfg"
+size = 3074
+sha256 = "f16348ab18bd941b85781a2223711c02396c1ebbb40039e6c3a7b85b5a76cb8b"
+tier = "git"
+extract_of = ["kinsoft-simulator"]
+extract_member = "MATLAB_simulator/Config_simulation_round_1_level_2.cfg"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
+
+[[dataset]]
+id = "kinsoft-settings-level3"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_3.cfg"
+size = 3034
+sha256 = "024b515e9c2765dd071748b970d01ddc928ef099c7cad12d6daa2ebbe4e6b176"
+tier = "git"
+extract_of = ["kinsoft-simulator"]
+extract_member = "MATLAB_simulator/Config_simulation_round_1_level_3.cfg"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
+
 # --- MreC-MreD ebFRET sessions: Zenodo 10.5281/zenodo.13910538, CC-BY-4.0 (#719) ------------
 
 [[dataset]]
