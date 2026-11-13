@@ -124,6 +124,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0078](0078-benchmarks-compare-a-pull-request-with-its-merge-base.md) | Benchmarks compare a pull request with its merge base on one runner | accepted | §8 (NFR-PERF), §12.6 (continuous integration) |
 | [0080](0080-self-drift-golden-numbers.md) | A self-drift suite freezes end-to-end numbers in golden files | accepted | §9.5 (the validation suite), §12.6 (continuous integration) |
 | [0081](0081-kinsoft-levels-two-and-three-are-reported.md) | kinSoft levels 2 and 3 are reported against the simulator settings, never band-checked | accepted; amends [ADR-0048](0048-kinsoft-kinetics-oracle.md) on the deferred levels | §8 NFR-VALID(c), §9 M8, §11.2 (the kinSoftChallenge parity band row), N2 |
+| [0082](0082-measured-kinsoft-sets-are-placed-not-scored.md) | The measured kinSoft sets are placed among the published results, not scored | accepted | §8 NFR-VALID(c), §9 M8, §11.2 |
 
 <!-- gen:adr-index end -->
 
