@@ -146,6 +146,11 @@ def test_panel_displays_movie_headless(qtbot) -> None:  # qtbot: ensure a QAppli
             np.asarray(layer.data[0]).astype(np.int64),
             np.asarray(reader.frame(0)).astype(np.int64),
         )
+        # the display range spans the first frame, so a 16-bit movie is not shown
+        # saturated against a [0, 1] range (#745 GUI-F15)
+        frame0 = np.asarray(reader.frame(0)).astype(np.int64)
+        assert frame0.min() < frame0.max()
+        assert list(layer.contrast_limits) == [int(frame0.min()), int(frame0.max())]
 
         # set_movie replaces rather than appends
         panel.set_movie(reader)
@@ -225,6 +230,24 @@ def _write_native_movie(path: Path, frames: np.ndarray) -> Path:
     return path
 
 
+def _assert_acceptor_rings(panel, overlay) -> None:
+    """The acceptor aperture layer draws ``overlay``'s acceptor rings (#745 GUI-F15)."""
+    layer = panel.acceptor_aperture_layer
+    expected = overlay.acceptor_xy[:, ::-1]
+    np.testing.assert_array_equal(layer.data, expected)
+    assert np.allclose(np.asarray(layer.size), 2 * overlay.aperture_radius)
+    for i in range(len(expected)):
+        assert np.allclose(layer.border_color[i], _RED, atol=5e-3)
+        assert np.allclose(layer.face_color[i], [0.0, 0.0, 0.0, 0.0])
+
+
+def _assert_first_frame_contrast(panel, reader) -> None:
+    """The image display range is the first frame's [min, max] (#745 GUI-F15)."""
+    frame0 = np.asarray(reader.frame(0)).astype(np.int64)
+    assert frame0.min() < frame0.max()
+    assert list(panel.movie_layer.contrast_limits) == [int(frame0.min()), int(frame0.max())]
+
+
 @pytest.mark.gui
 @_needs_napari
 @_needs_gl
@@ -272,6 +295,10 @@ def test_overlays_present_for_multiple_movies(qtbot, tmp_path) -> None:
         assert np.allclose(panel.acceptor_layer.border_color[0], _RED, atol=5e-3)
         assert np.allclose(panel.donor_aperture_layer.face_color[0], [0.0, 0.0, 0.0, 0.0])
         assert tuple(panel.movie_layer.data.shape) == m0.shape
+        # the acceptor rings: at the ACCEPTOR centres, PSF-disk diameter, acceptor
+        # colour, transparent face — not a copy of the donor layer (#745 GUI-F15)
+        _assert_acceptor_rings(panel, ov0)
+        _assert_first_frame_contrast(panel, m0)
 
         # switch to the second movie: overlays + image follow, no layer pile-up
         panel.set_active_movie(1)
@@ -282,6 +309,8 @@ def test_overlays_present_for_multiple_movies(qtbot, tmp_path) -> None:
         assert len(panel.acceptor_layer.data) == 3
         assert np.allclose(np.asarray(panel.donor_aperture_layer.size), 2 * 4.0)
         assert tuple(panel.movie_layer.data.shape) == m1.shape
+        _assert_acceptor_rings(panel, ov1)
+        _assert_first_frame_contrast(panel, m1)
         # exactly one layer of each kind (switch swaps in place, never appends)
         for kind in ("movie", "donor", "acceptor", "donor aperture", "acceptor aperture"):
             assert sum(1 for ly in panel.layers if ly.name == kind) == 1

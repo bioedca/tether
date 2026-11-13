@@ -42,6 +42,15 @@ from tether.project.leakage import compute_leakage_alpha  # noqa: E402
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
 _WINDOW = 21
 
+# Limit for the injected α = 0.1 on the noisy cohort stores (noise 4, seeds 1..12, a
+# tail of 80 frames or more), set at not less than 10 times the agreement the code
+# reaches on them (#728, PRJ-F5). Measured on 2026-11-11: the dataset median is off by
+# 3.7e-6 (tail 80 frames) and 1.1e-6 (tail 90 frames), identical on the Linux, macOS
+# and Windows legs of the required matrix. An α estimate that reads the raw donor layer
+# (donor + its 100-count background) in place of the corrected one gives 0.0909, so it
+# fails here.
+_ALPHA_ABS = 1e-3
+
 
 def _distinct_coords(n: int) -> np.ndarray:
     return np.array([[12.0 + 1.7 * i, 14.0 + 2.3 * (i % 7)] for i in range(n)], dtype="float64")
@@ -198,12 +207,34 @@ def test_writes_dataset_median_alpha_to_all_molecules(tmp_path: Path) -> None:
     assert summary.n_molecules == 12
     assert summary.n_qualifying == 12
     assert summary.applied is True
-    assert summary.alpha == pytest.approx(0.1, abs=0.02)
+    assert summary.alpha == pytest.approx(0.1, abs=_ALPHA_ABS)
     assert summary.source == "post-acceptor-bleach-tail"
 
     table = read_molecules(path)
     # The single per-condition factor is written to every processed molecule.
     assert np.allclose(table["alpha"], summary.alpha)
+
+
+def test_raw_and_corrected_layers_give_their_own_alpha(tmp_path: Path) -> None:
+    # The store's raw layers are the corrected ones plus a 100-count background, so the
+    # two layers give clearly different α: 0.1 from the corrected tail (leakage only)
+    # and (0.1·1000 + 100)/(1000 + 100) = 0.1818 from the raw tail. Each pass must read
+    # both channels from the layer it names; mixing the raw donor with the corrected
+    # acceptor gives 100/1100 = 0.0909 (#728, PRJ-F5).
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1)
+
+    corrected = compute_leakage_alpha(path)
+    assert corrected.intensity_quantity == "corrected"
+    assert corrected.alpha == pytest.approx(0.1, abs=_ALPHA_ABS)
+
+    raw = compute_leakage_alpha(path, intensity_quantity="raw")
+    assert raw.intensity_quantity == "raw"
+    # Measured 2026-11-11 on the three OS legs: 0.181811, off by 7.0e-6 from 200/1100.
+    assert raw.alpha == pytest.approx(200.0 / 1100.0, abs=_ALPHA_ABS)
+    with h5py.File(path, "r") as f:
+        assert f["settings/leakage"].attrs["intensity_quantity"] == "raw"
+        assert float(f["settings/leakage"].attrs["alpha"]) == pytest.approx(raw.alpha)
 
 
 def test_stamps_settings_leakage_provenance(tmp_path: Path) -> None:
@@ -219,7 +250,7 @@ def test_stamps_settings_leakage_provenance(tmp_path: Path) -> None:
         assert float(grp.attrs["ceiling"]) == 0.3
         assert grp.attrs["min_qualifying_traces"] == 10
         assert grp.attrs["intensity_quantity"] == "corrected"
-        assert 0.08 <= float(grp.attrs["alpha"]) <= 0.12
+        assert float(grp.attrs["alpha"]) == pytest.approx(0.1, abs=_ALPHA_ABS)
         assert "app_version" in grp.attrs
         assert "created_utc" in grp.attrs
 
@@ -304,7 +335,37 @@ def test_nonzero_frame_range_start_converts_correctly(tmp_path: Path) -> None:
     summary = compute_leakage_alpha(path)
     assert summary.applied is True
     assert summary.n_qualifying == 12
-    assert summary.alpha == pytest.approx(0.1, abs=0.02)
+    assert summary.alpha == pytest.approx(0.1, abs=_ALPHA_ABS)
+
+
+def test_nonzero_frame_range_start_converts_the_acceptor_bleach_frame(tmp_path: Path) -> None:
+    # frame_range = (10, 120), acceptor bleach 100, donor never bleaches (absolute
+    # frames). The window-local tail is 110 − 90 = 20 frames, which qualifies. An
+    # acceptor bleach frame left absolute would read local 100 and a tail of 10 frames,
+    # and no molecule would qualify (#728, PRJ-F17).
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1, n=120, acc=100, don=120, start=10)
+    summary = compute_leakage_alpha(path)
+    assert summary.applied is True
+    assert summary.n_qualifying == 12
+    # A tail of 20 frames only: measured 2026-11-11 off by 5.9e-4, so this limit is
+    # wider than _ALPHA_ABS (still about 17 times the agreement).
+    assert summary.alpha == pytest.approx(0.1, abs=0.01)
+
+
+def test_nonzero_frame_range_start_converts_the_donor_bleach_frame(tmp_path: Path) -> None:
+    # frame_range = (10, 120), acceptor bleach 30, donor bleach 45 (absolute frames).
+    # The window-local tail is 45 − 30 = 15 frames, shorter than 20, so no molecule
+    # qualifies. A donor bleach frame left absolute would read local 45 and a tail of
+    # 25 frames, and all 12 would qualify (#728, PRJ-F17).
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1, n=120, acc=30, don=45, start=10)
+    summary = compute_leakage_alpha(path)
+    assert summary.n_molecules == 12
+    assert summary.n_qualifying == 0
+    assert summary.alpha is None
+    assert summary.applied is False
+    assert np.all(np.isnan(read_molecules(path)["alpha"]))
 
 
 def test_never_bleach_donor_tail_extends_to_end(tmp_path: Path) -> None:
@@ -315,7 +376,7 @@ def test_never_bleach_donor_tail_extends_to_end(tmp_path: Path) -> None:
     summary = compute_leakage_alpha(path)
     assert summary.applied is True
     assert summary.n_qualifying == 12
-    assert summary.alpha == pytest.approx(0.1, abs=0.02)
+    assert summary.alpha == pytest.approx(0.1, abs=_ALPHA_ABS)
 
 
 def test_all_traces_rejected_yields_no_qualifying(tmp_path: Path) -> None:
