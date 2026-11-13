@@ -197,9 +197,9 @@ def test_the_runner_gets_two_checks_that_match_the_result_format(tmp_path, monke
     assert titles == [runner.issue_title(ph.CHECK_ACQUISITIONS)]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows keeps the inherited ACL (#787)")
 def test_the_runner_writes_a_new_history_owner_only_whatever_the_umask(tmp_path) -> None:
-    """#787: files of the state folder are owner-only on POSIX; the history is one of them."""
+    """#787: files of the state folder are owner-only on POSIX; the history is one of them. On
+    Windows the file keeps the ACL that it inherits, so only the write is checked there."""
     import os
     import stat
 
@@ -212,8 +212,9 @@ def test_the_runner_writes_a_new_history_owner_only_whatever_the_umask(tmp_path)
         )  # fmt: skip
     finally:
         os.umask(old)
-    assert stat.S_IMODE(history.stat().st_mode) & runner.GROUP_OTHER == 0
     assert len(ph.read_history(history)) == 1
+    if sys.platform != "win32":
+        assert stat.S_IMODE(history.stat().st_mode) & runner.GROUP_OTHER == 0
 
 
 def _write_result(tmp_path: Path, result: dict) -> Path:
