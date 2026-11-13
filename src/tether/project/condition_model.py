@@ -225,7 +225,10 @@ def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
     :mod:`tether.project.gbranking` rule).
     """
     from tether.imaging.extract import read_molecules  # noqa: PLC0415
-    from tether.project.gbranking import _latest_provisional_labels  # noqa: PLC0415
+    from tether.project.gbranking import (  # noqa: PLC0415
+        _latest_provisional_labels,
+        _require_featured_human_labels,
+    )
     from tether.project.labels import read_labels  # noqa: PLC0415
     from tether.project.ranking import ranking_dataset  # noqa: PLC0415
     from tether.project.weighting import human_counts_by_condition  # noqa: PLC0415
@@ -241,6 +244,7 @@ def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
         _to_str(key): _to_str(cond)
         for key, cond in zip(molecules["molecule_key"], molecules["condition_id"], strict=True)
     }
+    _require_featured_human_labels(path, molecules, data.molecule_keys, condition_id)
     n_molecules = sum(1 for cond in condition_by_key.values() if cond == condition_id)
     n_human = human_counts_by_condition(molecules["condition_id"], molecules["curation_label"]).get(
         condition_id, 0
@@ -319,6 +323,8 @@ def condition_training_set(
         for the availability check.
     KeyError
         A project has no ``/features/table`` (run ``compute_features`` first).
+    tether.project.gbranking.FeatureCacheIncompleteError
+        A human label of the condition has no feature row in a project (a partial cache).
     ValueError
         ``projects`` is empty or names one file twice, or two projects store different feature
         columns.
@@ -411,7 +417,7 @@ def train_condition_model(
 
     Raises
     ------
-    SourceProjectUnavailableError, KeyError
+    SourceProjectUnavailableError, KeyError, FeatureCacheIncompleteError
         As :func:`condition_training_set`.
     ValueError
         ``project`` holds no molecule of the condition, no labeled molecule, or only one class.
@@ -466,6 +472,8 @@ def retrain_condition_model(
         A recorded project is missing, offline or unreadable. Raised before any project is read.
     KeyError
         A project has no ``/features/table``.
+    FeatureCacheIncompleteError
+        As :func:`condition_training_set`; the input model is not changed.
     ValueError
         The model records no source projects (an artifact saved before ADR-0077, or one fitted on
         caller-supplied arrays): a retrain from one project would forget the rest. Or ``project``

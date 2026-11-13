@@ -61,6 +61,7 @@ from tether.project.condition_model import (  # noqa: E402
     train_condition_model,
 )
 from tether.project.features import compute_features  # noqa: E402
+from tether.project.gbranking import FeatureCacheIncompleteError  # noqa: E402
 from tether.project.labels import (  # noqa: E402
     LABEL_SOURCE_CROSS_CONDITION,
     CurationLabel,
@@ -436,3 +437,31 @@ def test_a_refit_on_caller_arrays_drops_the_record(two_days) -> None:
     assert refit.source_projects == ()
     with pytest.raises(ValueError, match="records no source projects"):
         retrain_condition_model(refit, b)
+
+
+def test_a_human_label_with_no_feature_row_stops_the_fit(two_days, tmp_path) -> None:
+    # #880: a human label of the condition with no feature row in any project stops the fit and
+    # the retrain, naming that project and molecule, before the saved model is touched.
+    a, keys_a, b, keys_b = two_days
+    cid = _condition(a)
+    model_path = tmp_path / "cond.tethermodel"
+    save_model(train_condition_model(a, condition_id=cid), model_path)
+    saved = _sha(model_path)
+    compute_features(b, molecule_keys=keys_b[1:])  # keys_b[0] is accepted, now with no row
+    missing_id = _s(read_molecules(b)["molecule_id"][0])
+
+    for fit in (
+        lambda: train_condition_model(b, condition_id=cid),
+        lambda: retrain_condition_model(load_model(model_path), b),
+        lambda: condition_training_set([a, b], cid),
+    ):
+        with pytest.raises(FeatureCacheIncompleteError) as info:
+            fit()
+        assert info.value.path == b
+        assert info.value.molecule_ids == (missing_id,)
+        assert str(b) in str(info.value)
+        assert "compute_features" in str(info.value)
+    assert _sha(model_path) == saved
+
+    compute_features(b)  # a full cache retrains again
+    assert retrain_condition_model(load_model(model_path), b).n_train == 10
