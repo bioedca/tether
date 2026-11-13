@@ -289,8 +289,8 @@ study (Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A,
 Nature under **CC BY-NC-ND 4.0**. The files below are **unchanged** members of the archive
 `41467_2024_50885_MOESM4_ESM.zip`, byte for byte; nothing was converted, cropped, corrected or
 re-encoded, and under the project rule of ADR-0083 none may be. That rule is stricter than the
-licence, which permits technical format modifications (§2(a)(4)) but no shared cropped or corrected
-copy. They are for non-commercial use only. They are annotated
+licence, which permits sharing the material in whole or in part and technical format modifications
+(§2(a)(1)(A), §2(a)(4)), but not sharing Adapted Material (§1(a)) such as a corrected copy. They are for non-commercial use only. They are annotated
 `CC-BY-NC-ND-4.0` in `REUSE.toml` and attributed in `NOTICE`; the hooks that rewrite whitespace and
 ruff skip their directories, and `.gitattributes` keeps their bytes (`-text`) on every OS.
 

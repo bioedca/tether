@@ -46,10 +46,11 @@ Can a copy of these files be in this repository, and which rules must a copy kee
 1. **Download only, commit nothing.** Rejected: the checks of #756 to #758 that need only the small
    text files would then run once a week and not on a pull request.
 2. **Commit converted or cropped copies** (for example, one HDF5 file in Tether's format).
-   Rejected. A cropped or corrected copy is Adapted Material (§1(a)), which the licence does not
-   permit to share. A format conversion can be a technical modification that §2(a)(4) permits, but
-   whether a given conversion is one is a legal judgement for each file, and a converted file cannot
-   be compared byte for byte with the publisher's archive. The rule below is therefore the project's
+   Rejected. The licence permits sharing the material "in whole or in part" (§2(a)(1)(A)), and a
+   format conversion can be a technical modification that §2(a)(4) permits. A copy that is changed
+   enough to be Adapted Material (§1(a)), such as a corrected file, the licence does not permit to
+   share. Where a given crop or conversion falls is a legal judgement for each file, and a cropped or
+   converted file cannot be compared byte for byte with the publisher's archive. The rule below is therefore the project's
    own, and it is stricter than the licence.
 3. **Keep the data on the reference workstation only.** Rejected: the data is public, and the
    decision of batch 1 permits the copy.
