@@ -12,7 +12,8 @@ window from ``matlab -batch`` and drives it with MASH-FRET's own routine helpers
     python scripts/reference/matlab/mash_fret.py run --clone PATH --task simulate \\
         --param seed=1 --param 'overrides={"L": 300}' --out <dir>
 
-No real run has used this task yet (#700 item 8); the issue of the first run corrects it.
+The first real run of this task made the extraction set of #714
+(``mash_fret_extraction_set.py``, ADR-0086).
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ import harness  # noqa: E402
 TOOL = "mash-fret"
 TASKS = {
     # export: the seven switches of set_S_fileExport (.mat, .sira, .avi, .txt, .dt, .log, .crd).
+    # units: the export unit list (1 photon counts, 2 electron counts = the camera's image
+    # counts). gzip_video: compress the .sira losslessly so that it fits the git tier (#714).
     "simulate": {
         "dir": "mash_fret",
         "entry": "tether_mash_simulate",
@@ -33,7 +36,9 @@ TASKS = {
         "params": {
             "seed": 0,
             "overrides": {},
-            "export": [True, True, False, True, True, True, True],
+            "export": [False, True, False, True, False, True, True],
+            "units": 2,
+            "gzip_video": True,
             "name": "sim",
         },
     },
