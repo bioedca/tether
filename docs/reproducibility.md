@@ -15,8 +15,7 @@ version ran in. The record is not complete: some steps and some settings are nev
 and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
 [project store reference](reference/tether-format.md) documents every group and dataset in a
 `.tether` file, and the [exports reference](reference/exports.md) documents every column of
-every export. What to cite, and the caveats on which steps leave no stamp, are on
-[Citing Tether](citing.md#reporting-a-tether-analysis).
+every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis).
 
 ## What is recorded
 
@@ -139,11 +138,20 @@ engineered feature table, the dataset `/features/table`, carries `app_version`,
 
 ### What is not recorded
 
-Some steps leave no version or parameter stamp in the project: photobleach detection, and
-ranking and classification runs. The SMD file handed off to standalone tMAVEN has no
-sidecar, and a fit run there is stamped only with the Tether version that imported it. For
-those, keep your own note of the version and settings; [Citing Tether](citing.md#reporting-a-tether-analysis)
-lists each case.
+Some steps leave no version or parameter stamp in the project, and one leaves only part of one:
+
+- Photobleach detection. Rerunning it overwrites the bleach frames and analysis windows and
+  records no version.
+- Ranking and classification runs. A saved classical ranker records the version it was
+  trained under (`tether_version` in its model manifest). The deep classifier records none.
+- The SMD file handed off to standalone tMAVEN has no sidecar. A fit run there is stamped
+  only with the Tether version that imported it, so report the tMAVEN version you ran.
+- Extraction is stamped once, for the first movie (see `/settings/extraction` above).
+  Tether records no per-movie version, so the release that extracted a later movie is not
+  recorded.
+
+For those, keep your own note of the version and settings, and see
+[Citing Tether](citing.md#reporting-a-tether-analysis) for what to quote.
 
 Nor is every setting of the stamped stages stored. The idealization fitter's restart count
 (`nrestarts`), for one, is passed to tMAVEN but never written to the model group. The

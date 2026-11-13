@@ -27,8 +27,10 @@ rejected.
 tether-gui movie.tether
 ```
 
-On Windows and Linux you can also start Tether from the Start menu or applications menu and
-choose **File → Open project…**.
+On Windows and Linux you can also start Tether from the Start menu or applications menu. The
+window then shows the start page. Click **Open project…** there, choose **File → Open
+project…**, or drop the `.tether` file on the window. A dropped file of a different type does
+not open, and the status bar says why.
 When the project opens, the status bar at the bottom of the window names it and its molecule
 count:
 
@@ -49,7 +51,20 @@ underneath.
 2. Press **Left arrow** or **Up arrow** for the previous one.
 3. Or click a name in the list.
 
-**Curation → Keyboard shortcuts…** shows every key at any time.
+**Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
+
+The window commands use your operating system's standard keys. Each key includes a modifier
+key or is a function key, so no window command replaces a curation key. On macOS, use Cmd
+where this list shows Ctrl:
+
+- **File → Open project…**: Ctrl+O.
+- **File → Close project**: Ctrl+W.
+- **File → Quit**: Ctrl+Q.
+- **Help → Documentation**: F1. It opens the documentation for your version of Tether.
+
+Tether saves each mark when you make it, so **File → Close project** has nothing to save. It
+releases the project so that another window can open it, and it shows the start page again. **File → Quit** releases the project in the
+same way before Tether closes.
 
 ## 3. Accept or reject each molecule
 

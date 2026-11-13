@@ -219,8 +219,10 @@ new launcher by its full path, `~/tether/bin/tether --version` on Linux,
 Windows PowerShell. To start the desktop application:
 
 - **Windows:** open the Start menu and choose **Tether**, or run `tether-gui` in a terminal.
-  If there is no **Tether** entry, the installer could not create the shortcut on your account
-  (it warns and carries on); run `C:\Users\<you>\Tether\bin\tether-gui.bat` instead.
+  The Start menu entry opens no console window. If there is no **Tether** entry, the installer
+  could not create the shortcut on your account (it warns and carries on); open
+  `C:\Users\<you>\Tether\envs\tether\Scripts\tether-gui.exe` instead, which also opens no
+  console window.
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
   (A desktop that was already running may only show the menu entry after you log out and back
   in.)
@@ -230,7 +232,10 @@ Windows PowerShell. To start the desktop application:
 While the application loads, a splash window shows the Tether name, the version and
 **Loading…**. The splash window closes when the main window opens.
 
-The application opens with no project loaded; use **File → Open project…** to open one. The
+The application opens with no project loaded and shows the start page. To open a project,
+click **Open project…** on the start page, use **File → Open project…**, or drop a `.tether`
+file on the window. **Help → About Tether** shows the version and the commit, and its **Copy**
+button copies them for a bug report. The
 [Command line](cli.md) reference covers what `tether` itself can do.
 
 ## What gets installed, and where
