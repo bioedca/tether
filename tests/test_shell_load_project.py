@@ -165,6 +165,35 @@ def test_traces_from_store_reads_positive_frame_time(qapp, tmp_path) -> None:
     assert all(v.frame_time == pytest.approx(0.05) for v in views)
 
 
+def test_traces_from_store_slices_each_molecule_to_its_frame_range(qapp, tmp_path) -> None:
+    # In a project with movies of different length, /traces rows are zero-padded to
+    # the longest movie and frame_range marks each molecule's own native extent. A
+    # reader that ignores frame_range shows the pad as frames (#745 GUI-F6). Rewrite
+    # the ranges of a single-movie store: one narrowed window, one full extent and
+    # one unset [0, 0], which falls back to the full row.
+    import h5py
+
+    from tether.gui.shell import traces_from_store
+
+    project, keys, donor, acceptor = _round_trip_store(tmp_path, n=3, t=12)
+    with h5py.File(project.path, "r+") as handle:
+        table = handle["molecules"]["table"][:]
+        for i, (lo, hi) in enumerate([(2, 9), (0, 12), (0, 0)]):
+            table["frame_range"][i] = (lo, hi)
+        handle["molecules"]["table"][:] = table
+
+    views = traces_from_store(project)
+
+    assert [v.molecule_key for v in views] == keys
+    assert views[0].donor.shape == (7,)
+    np.testing.assert_allclose(views[0].donor, donor[0, 2:9].astype(np.float32))
+    np.testing.assert_allclose(views[0].acceptor, acceptor[0, 2:9].astype(np.float32))
+    for i in (1, 2):  # the full extent, and the [0, 0] fallback to the full row
+        assert views[i].donor.shape == (12,)
+        np.testing.assert_allclose(views[i].donor, donor[i].astype(np.float32))
+        np.testing.assert_allclose(views[i].acceptor, acceptor[i].astype(np.float32))
+
+
 def test_traces_from_store_empty_store_returns_empty(qapp, tmp_path) -> None:
     from tether.gui.shell import traces_from_store
     from tether.io.schema import create_project
@@ -222,6 +251,36 @@ def test_load_project_opens_round_trip_store_live(shell, tmp_path) -> None:
     assert shell.show_histogram() is not None
     # overlap seam wired (coords + patches present) → selecting row 0 built the dock
     assert shell.overlap_dock is not None
+
+
+def test_load_project_histogram_draws_the_population_histogram_of_the_store(
+    shell, tmp_path
+) -> None:
+    # The joined path: load_project wires make_store_histogram over the real store,
+    # and &Analysis must draw exactly what population_apparent_e_histogram returns
+    # for that project with its defaults (#745 GUI-F8). The layers are tested alone
+    # elsewhere (a faked seam; a hand-made Histogram1D); this compares the join.
+    from tether.analysis.histogram import population_apparent_e_histogram
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    opened = shell.load_project(project.path)
+    assert opened is not None
+
+    dock = shell.show_histogram()
+    assert dock is not None
+    expected = population_apparent_e_histogram(opened)
+    drawn = dock.histogram
+    assert drawn is not None
+    np.testing.assert_allclose(drawn.bin_edges, expected.bin_edges)
+    np.testing.assert_allclose(drawn.counts, expected.counts)
+    assert drawn.density is expected.density
+    assert drawn.value_range == expected.value_range
+    assert drawn.n_molecules == expected.n_molecules == 3
+    assert drawn.n_samples == expected.n_samples
+    # ...and the curve on screen carries those edges and counts.
+    x, y = dock.curve.getData()
+    np.testing.assert_allclose(x, expected.bin_edges)
+    np.testing.assert_allclose(y, expected.counts)
 
 
 def test_second_shell_in_process_cannot_share_writable_project(qapp, qtbot, tmp_path) -> None:

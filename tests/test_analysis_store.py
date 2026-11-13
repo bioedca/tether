@@ -19,7 +19,15 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
-from tether.analysis._store import QUANTITY_KEYS, resolve_quantity, windowed_channels  # noqa: E402
+from _analysis_store import MEANS, build_store_with_model  # noqa: E402
+from tether.analysis._store import (  # noqa: E402
+    QUANTITY_KEYS,
+    resolve_quantity,
+    windowed_channels,
+    windowed_state_and_channels,
+    windowed_states,
+)
+from tether.idealize import NO_STATE  # noqa: E402
 from tether.imaging.aperture import IntegratedTraces  # noqa: E402
 from tether.imaging.calibrate import RegistrationMap  # noqa: E402
 from tether.imaging.coloc import ColocalizedMolecules  # noqa: E402
@@ -186,8 +194,10 @@ def test_analysis_window_fallback_to_frame_range(tmp_path) -> None:
 
 
 def test_windowed_slice_respects_analysis_window(tmp_path) -> None:
-    donor = np.full((1, 20), 400.0)
-    acceptor = np.full((1, 20), 100.0)
+    # ramps, not constants, so the slice VALUES pin the window offset as well as its
+    # length (#741, ANA-F12): a slice of the right length from frame 0 fails here.
+    donor = (400.0 + np.arange(20.0))[None, :]
+    acceptor = (100.0 + 2.0 * np.arange(20.0))[None, :]
     path = tmp_path / "s.tether"
     proj, _ = _build_store(path, donor, acceptor)
     with h5py.File(path, "r+") as f:
@@ -196,3 +206,75 @@ def test_windowed_slice_respects_analysis_window(tmp_path) -> None:
         f["molecules"]["table"][:] = table
     pairs = windowed_channels(proj, None, "corrected", False)
     assert pairs[0][0].shape[0] == 8
+    np.testing.assert_array_equal(pairs[0][0], donor[0, 3:11])
+    np.testing.assert_array_equal(pairs[0][1], acceptor[0, 3:11])
+
+
+# --- windowed_states / windowed_state_and_channels (#741, ANA-F12) -----------
+
+
+def _state_store(tmp_path):
+    """Three idealized molecules: all NO_STATE, one valid frame, and frames 2..6 valid.
+
+    Returns the project, the keys and the state matrix. Apparent E follows the state
+    level (``MEANS``), so the paired intensities are known exactly.
+    """
+    states = np.tile(np.arange(10) % MEANS.size, (3, 1)).astype("int64")
+    states[0, :] = NO_STATE  # never idealized -> skipped
+    states[1, :] = NO_STATE
+    states[1, 4] = 2  # one valid frame -> kept, length 1
+    states[2, :2] = NO_STATE
+    states[2, 7:] = NO_STATE  # valid frames 2..6
+    project, keys = build_store_with_model(tmp_path, states, MEANS)
+    return project, keys, states
+
+
+def test_windowed_states_skip_empty_and_slice_exactly(tmp_path) -> None:
+    project, _, states = _state_store(tmp_path)
+    out = windowed_states(project, "vbconhmm", None, False)
+    assert len(out) == 2  # the all-NO_STATE molecule is skipped
+    np.testing.assert_array_equal(out[0], np.array([2]))  # the single valid frame
+    np.testing.assert_array_equal(out[1], states[2, 2:7])  # exact bounds [2, 7)
+    assert all(row.dtype == np.int64 for row in out)
+
+
+def test_windowed_states_selection_rejected_and_empty_store(tmp_path) -> None:
+    project, keys, _ = _state_store(tmp_path)
+    assert len(windowed_states(project, "vbconhmm", [keys[2]], False)) == 1
+    project.reject(keys[2], labeler="tester")
+    assert len(windowed_states(project, "vbconhmm", None, False)) == 1
+    assert len(windowed_states(project, "vbconhmm", None, True)) == 2
+    with pytest.raises(KeyError):
+        windowed_states(project, "no-such-model", None, False)
+    path = tmp_path / "empty.tether"
+    create_project(path, overwrite=True)
+    assert windowed_states(Project.open(path), "vbconhmm", None, False) == []
+
+
+def test_windowed_state_and_channels_pairs_state_with_its_frames(tmp_path) -> None:
+    project, _, states = _state_store(tmp_path)
+    out = windowed_state_and_channels(project, "vbconhmm", None, "corrected", False)
+    assert len(out) == 2
+    for state, donor, acceptor in out:
+        assert state.shape == donor.shape == acceptor.shape
+    state, donor, acceptor = out[1]
+    np.testing.assert_array_equal(state, states[2, 2:7])
+    # apparent E = acceptor / (donor + acceptor) equals the state level on every frame
+    np.testing.assert_allclose(acceptor / (donor + acceptor), MEANS[state], rtol=1e-6)
+    single_state, single_donor, _ = out[0]
+    np.testing.assert_array_equal(single_state, np.array([2]))
+    assert single_donor.shape == (1,)
+
+
+def test_windowed_state_and_channels_missing_layer_raises(tmp_path) -> None:
+    project, _, _ = _state_store(tmp_path)
+    with h5py.File(project.path, "r+") as f:
+        del f["traces"]["acceptor_corrected"]
+    with pytest.raises(ValueError, match="layer"):
+        windowed_state_and_channels(project, "vbconhmm", None, "corrected", False)
+
+
+def test_windowed_state_and_channels_empty_store_returns_empty(tmp_path) -> None:
+    path = tmp_path / "empty.tether"
+    create_project(path, overwrite=True)
+    assert windowed_state_and_channels(Project.open(path), "m", None, "corrected", False) == []
