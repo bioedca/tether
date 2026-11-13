@@ -125,6 +125,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0078](0078-benchmarks-compare-a-pull-request-with-its-merge-base.md) | Benchmarks compare a pull request with its merge base on one runner | accepted | §8 (NFR-PERF), §12.6 (continuous integration) |
 | [0080](0080-self-drift-golden-numbers.md) | A self-drift suite freezes end-to-end numbers in golden files | accepted | §9.5 (the validation suite), §12.6 (continuous integration) |
 | [0082](0082-measured-kinsoft-sets-are-placed-not-scored.md) | The measured kinSoft sets are placed among the published results, not scored | accepted | §8 NFR-VALID(c), §9 M8, §11.2 |
+| [0084](0084-smfret-analysis2-is-a-reference-at-a-pinned-commit.md) | smfret-analysis2 at a pinned commit is the reference for the histogram and the cross-correlation | accepted | §1 (the two model-free lenses), §7.7 FR-ANALYZE, §8 NFR-VALID, N4 |
 
 <!-- gen:adr-index end -->
 
