@@ -594,7 +594,7 @@ def test_a_pull_request_opened_mid_sweep_saves_the_claim(
     with pytest.raises(reaper.ReaperError, match="gained an open pull request mid-sweep"):
         reaper.sweep(dry_run=False)
     assert fake.list_reads == 2, "the decision and the re-read must each read the PR list once"
-    assert not fake.did("DELETE", "git/refs")
+    assert not [c for c in fake.calls if c[0] in {"DELETE", "PATCH", "POST"}]
 
 
 def test_the_claim_ref_is_deleted_last_so_a_failed_requeue_retries(
