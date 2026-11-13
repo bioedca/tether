@@ -27,6 +27,10 @@ on:
     paths:
       - "deep/**"
       - "src/tether/ml/**"
+      # The store-to-train test imports these three directly (#752).
+      - "src/tether/project/deep_dataset.py"
+      - "src/tether/project/features.py"
+      - "src/tether/project/labels.py"
       - "tests/test_*_deep.py"
       - "pyproject.toml"
       - ".github/workflows/deep.yml"
