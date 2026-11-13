@@ -199,6 +199,28 @@ def test_a_renamed_test_reruns_by_file_and_the_source_is_always_restored(
     assert target.read_text(encoding="utf-8") == source
 
 
+def test_the_file_fallback_deselects_the_tests_that_failed_without_the_mutant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = "def f(a):\n    return a + 1\n"
+    target = tmp_path / "src" / "x.py"
+    target.parent.mkdir()
+    target.write_text(source, encoding="utf-8")
+    (mutant,) = [m for m in rm.mutants_of(source, "src/x.py") if m.old == "+"]
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        calls.append(cmd)
+        return type("Done", (), {"returncode": (4, 0)[len(calls) - 1]})()
+
+    monkeypatch.setattr(rm.subprocess, "run", fake_run)
+    tests = ["tests/test_a.py::test_one[1e-06]"]
+    broken = ["tests/test_a.py::test_broken", "tests/test_other.py::test_broken"]
+    assert rm.run_one(mutant, source, tmp_path, tests, 60.0, broken) == "survived"
+    assert calls[1][-2:] == ["--deselect=tests/test_a.py::test_broken", "tests/test_a.py"]
+    assert not any("test_other" in arg for arg in calls[1])
+
+
 def _record(path: str, status: str) -> dict:
     return {"path": path, "status": status, "key": [path, "f", "x", "a -> b", 0]}
 

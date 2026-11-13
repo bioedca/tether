@@ -441,8 +441,18 @@ def covering_tests(
     return sorted(found)
 
 
-def run_one(mutant: Mutant, source: str, worker: Path, tests: list[str], limit: float) -> str:
-    """Run *tests* against *mutant* in one worker's copy of ``src/``; return the outcome."""
+def run_one(
+    mutant: Mutant,
+    source: str,
+    worker: Path,
+    tests: list[str],
+    limit: float,
+    exclude: Iterable[str] = (),
+) -> str:
+    """Run *tests* against *mutant* in one worker's copy of ``src/``; return the outcome.
+
+    *exclude* holds the tests that did not pass in the coverage run; the file fallback deselects
+    them, so a test that fails without the mutant never counts as a kill."""
     target = worker / "src" / Path(mutant.path).relative_to("src")
     target.write_text(apply(source, mutant), encoding="utf-8")
     # No bytecode: a mutant of the same size written in the same second as the last one would
@@ -451,10 +461,12 @@ def run_one(mutant: Mutant, source: str, worker: Path, tests: list[str], limit: 
     base = [sys.executable, "-m", "pytest", "-x", "-q", "--no-header", "-p", "no:cacheprovider"]
     base += [f"--basetemp={worker / 'tmp'}", "-m", MARKERS]
     # A mutant can rename a test: a module constant in a ``parametrize`` id (``[1e-06]``). Then
-    # a test id is not found (exit 4) or nothing is collected (exit 5), and the files run.
+    # a test id is not found (exit 4) or nothing is collected (exit 5), and the files run,
+    # less the tests of those files that did not pass in the coverage run.
     files = sorted({test.split("::", 1)[0] for test in tests})
+    skip = [f"--deselect={t}" for t in sorted(exclude) if t.split("::", 1)[0] in files]
     try:
-        for selection in (tests, files):
+        for selection in (tests, [*skip, *files]):
             done = subprocess.run(
                 [*base, *selection], cwd=REPO, env=env, capture_output=True, timeout=limit
             )
@@ -608,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
                 + ", ".join(failed[:10]),
                 flush=True,
             )
+        not_passed = sorted(set(tests) - passed)
         fixtures = {t: r.get("fixtures", []) for t, r in tests.items()}
         records: list[dict] = []
         todo: list[tuple[dict, Mutant, str, list[str]]] = []
@@ -644,7 +657,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 took = sum(tests[t]["duration"] for t in selected)
                 limit = TIME_FLOOR + TIME_FACTOR * took
-                rec["status"] = run_one(mutant, source, worker, selected, limit)
+                rec["status"] = run_one(mutant, source, worker, selected, limit, not_passed)
             finally:
                 workers.put(worker)
             print(f"{rec['status']:>10} {mutant.path}:{mutant.line} {mutant.change}", flush=True)
