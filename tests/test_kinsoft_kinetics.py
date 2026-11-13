@@ -7,7 +7,7 @@ Three layers, mirroring ``test_oracle.py``:
 * **pure primitives** (numpy only, required matrix): the base-env Gaussian HMM
   recovers every parameter of a synthetic 2-state chain, iterates, and stops on the
   documented ``tol`` rule; the pooled dwell-time MLE gives the exact ``1/⟨τ⟩`` on a
-  hand-built path; the frozen-reference loader and the deferred-level guards.
+  hand-built path; the frozen-reference loader and the guards on the reported levels.
 * **synthetic recovery**: the full ``two_state_rate_constants`` pipeline recovers
   the exit rates of a generated 2-state Markov process (compared to the rates of
   its own ground-truth idealization, so the check is sampling-robust), and
@@ -366,9 +366,20 @@ def test_load_kinsoft_reference() -> None:
     assert lvl1["nstates"] == 2
     gt = lvl1["ground_truth"]["rates_s_inv"]
     assert gt == pytest.approx({"k12_low_high": 0.15, "k21_high_low": 0.22})
+    # Levels 2 and 3 come from the simulator settings files (#717); test_kinsoft_levels.py
+    # ties each value to its file, and these literals tie the file to the docs page.
     l2 = ref.levels["level2"]["ground_truth"]["rates_s_inv"]
-    assert l2 == pytest.approx({"k12_low_mid": 0.05, "k21_mid_low": 0.30})
-    # The 4-state (Fig. 4) ground truth is recorded exactly (Suppl. Table 1).
+    assert l2 == pytest.approx(
+        {
+            "k12_low_mid": 0.30,
+            "k13_low_high": 0.38,
+            "k21_mid_low": 0.05,
+            "k23_mid_high": 0.37,
+            "k31_high_low": 0.45,
+            "k32_high_mid": 0.10,
+        }
+    )
+    # The 4-state (Fig. 4) ground truth, in the state numbers of Suppl. Table 1.
     l3 = ref.levels["level3"]["ground_truth"]["rates_s_inv"]
     assert l3 == pytest.approx(
         {"k12": 0.053, "k14": 0.018, "k21": 0.080, "k23": 0.250, "k32": 0.680, "k41": 0.032}
@@ -387,8 +398,9 @@ def test_load_kinsoft_reference() -> None:
     assert meas["k21_rel_dev"] < ref.band_rate_rel_deviation_max
 
 
-@pytest.mark.parametrize("deferred", ["level2", "level3"])
-def test_evaluate_rejects_deferred_levels(deferred: str) -> None:
+@pytest.mark.parametrize("reported", ["level2", "level3"])
+def test_evaluate_rejects_the_reported_levels(reported: str) -> None:
+    # Levels 2 and 3 are reported by test_kinsoft_levels.py, never band-checked (#717).
     ref = load_kinsoft_reference(REFERENCE)
 
     class _Dummy:  # never fitted (the guard fires first)
@@ -396,7 +408,7 @@ def test_evaluate_rejects_deferred_levels(deferred: str) -> None:
         frame_time_s = 0.2
 
     with pytest.raises(ValueError, match="no active 2-state oracle"):
-        evaluate_kinsoft_level(_Dummy(), ref, deferred)
+        evaluate_kinsoft_level(_Dummy(), ref, reported)
 
 
 def test_evaluate_rejects_an_active_level_that_is_not_two_state() -> None:

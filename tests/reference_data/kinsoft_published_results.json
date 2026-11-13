@@ -1,0 +1,467 @@
+{
+  "schema_version": 1,
+  "issue": 718,
+  "description": "The measured data sets of the kinSoftChallenge and the kinetic models its analyses reported for them, beside Tether's own 2-state fit. Measured data has no ground truth, so this is ADVISORY: it reports where Tether's rates lie among the published ones and never gates (ADR-0082).",
+  "source": {
+    "citation": "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nature Communications 13:5402 (2022).",
+    "doi": "10.1038/s41467-022-33023-3",
+    "pmcid": "PMC9474500",
+    "license": "CC-BY-4.0",
+    "retrieved_utc": "2026-11-12",
+    "transcription": "Each analysis is one sheet of the named Supplementary Data file, copied unchanged with openpyxl 3.1.5: 'FRET E' to fret_e, 'kinetic model' to rates_s_inv, the two 'uncertainty rates' blocks to uncertainty_plus and uncertainty_minus. Rows are the start state and columns the end state, in s^-1, in the state order the lab submitted (Supplementary Data 4). For Fig. 5 only the sheets whose name ends in _FS_2 (two FRET states) are copied, the models the paper's Fig. 5 compares; the other models are in Supplementary Tables 2-4. Each file's SHA-256 is that of its manifest entry (published.data), and each equals the same table in the paper's Source Data archive."
+  },
+  "comparison": {
+    "quantity": "The exit rate of the low-FRET and of the high-FRET class, 1 / mean residence time (s^-1). For a 2-state model it is k12 and k21; for a model with hidden states it is the rate of the aggregated class (stationary entry flux), comparable to the pooled dwell-time MLE 1/<tau> of Tether's Viterbi paths.",
+    "tether_method": "tMAVEN sidecar consensus VB-HMM (vbconhmm), 2 states, seed 0, on the donor and acceptor columns, each trace's full length as its window; pooled exit rate 1/<tau> of the Viterbi paths, first and last dwell of each trace dropped.",
+    "advisory": true
+  },
+  "sets": {
+    "fig2-10ms": {
+      "data": "kinsoft-exp-fig2-10ms",
+      "members": "Traces EG 10ms/[0-9]*.txt",
+      "time_unit_s": 0.001,
+      "n_traces": 19,
+      "dt_s": 0.01,
+      "system": "ACTR binding NCBD, confocal photon counts in 10 ms bins (B. Schuler; Zosel et al., PNAS 117:13480, 2020)",
+      "published": {
+        "data": "kinsoft-results-fig2-10ms",
+        "supplementary_data": 6,
+        "sheets_from": "Results_round_3_set_2.xlsx",
+        "panels": "Fig. 2f,g",
+        "paper_spread": "Main text, 'The archetypal 2-state system': the rate constants vary by 12 % and 16 % (CV of k12 and k21) across the analyses."
+      },
+      "measured_utc": "2026-11-12",
+      "tether_measured": {"fret_low": 0.268172, "fret_high": 0.711152, "k_low": 2.743364, "k_high": 3.310014, "n_dwells_low": 3368, "n_dwells_high": 3364},
+      "analyses": [
+        {
+          "sheet": "1_Pomegranate_10ms",
+          "tool": "Pomegranate",
+          "fret_e": [0.268, 0.711],
+          "rates_s_inv": [[0.0, 2.91], [3.19, 0.0]],
+          "uncertainty_plus": [[0.0, 0.1], [0.1, 0.0]],
+          "uncertainty_minus": [[0.0, 0.1], [0.1, 0.0]]
+        },
+        {
+          "sheet": "2_Tracy (HMM)_10ms",
+          "tool": "Tracy (HMM)",
+          "fret_e": [0.27, 0.72],
+          "rates_s_inv": [[0.0, 2.5], [3.0, 0.0]],
+          "uncertainty_plus": [[0.0, 0.1], [0.1, 0.0]],
+          "uncertainty_minus": [[0.0, 0.1], [0.1, 0.0]]
+        },
+        {
+          "sheet": "3_FRETboard_10ms",
+          "tool": "FRETboard",
+          "fret_e": [0.268, 0.7],
+          "rates_s_inv": [[0.0, 2.71], [3.11, 0.0]],
+          "uncertainty_plus": [[0.0, 0.321], [0.503, 0.0]],
+          "uncertainty_minus": [[0.0, 0.32], [0.532, 0.0]]
+        },
+        {
+          "sheet": "4_Hidden-Markury_10ms",
+          "tool": "Hidden-Markury",
+          "fret_e": [0.268, 0.711],
+          "rates_s_inv": [[0.0, 3.17], [2.65, 0.0]],
+          "uncertainty_plus": [[0.0, 0.31], [0.2, 0.0]],
+          "uncertainty_minus": [[0.0, 0.31], [0.2, 0.0]]
+        },
+        {
+          "sheet": "5_SMACKS(SS)_10ms",
+          "tool": "SMACKS(SS)",
+          "fret_e": [0.26, 0.71],
+          "rates_s_inv": [[0.0, 2.67358], [3.2514, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0871204], [0.105507, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0854179], [0.103467, 0.0]]
+        },
+        {
+          "sheet": "6_SMACKS_10ms",
+          "tool": "SMACKS",
+          "fret_e": [0.26, 0.71],
+          "rates_s_inv": [[0.0, 2.68231], [3.23234, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0874201], [0.104924, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0857119], [0.102895, 0.0]]
+        },
+        {
+          "sheet": "7_Correlation_10ms",
+          "tool": "Correlation",
+          "fret_e": [0.259650556803202, 0.714029379934791],
+          "rates_s_inv": [[0.0, 3.52], [1.91, 0.0]],
+          "uncertainty_plus": [[0.0, 0.06], [0.06, 0.0]],
+          "uncertainty_minus": [[0.0, 0.05], [0.07, 0.0]]
+        },
+        {
+          "sheet": "8_Edge finding (CK)_10ms",
+          "tool": "Edge finding (CK)",
+          "fret_e": [0.264, 0.715],
+          "rates_s_inv": [[0.0, 3.001], [3.722, 0.0]],
+          "uncertainty_plus": null,
+          "uncertainty_minus": null
+        },
+        {
+          "sheet": "9_Edge finding (k-means)_10ms",
+          "tool": "Edge finding (k-means)",
+          "fret_e": [0.2685, 0.7123],
+          "rates_s_inv": [[0.0, 2.7392], [3.7322, 0.0]],
+          "uncertainty_plus": null,
+          "uncertainty_minus": null
+        },
+        {
+          "sheet": "10_Step finding_10ms",
+          "tool": "Step finding",
+          "fret_e": [0.271, 0.704],
+          "rates_s_inv": [[0.0, 2.34], [2.925, 0.0]],
+          "uncertainty_plus": [[0.0, 2.066], [2.317, 0.0]],
+          "uncertainty_minus": [[0.0, 2.066], [2.317, 0.0]]
+        },
+        {
+          "sheet": "11_STaSI_10ms",
+          "tool": "STaSI",
+          "fret_e": [0.27, 0.71],
+          "rates_s_inv": [[0.0, 3.31], [2.62, 0.0]],
+          "uncertainty_plus": [[0.0, 0.02], [0.01, 0.0]],
+          "uncertainty_minus": [[0.0, 0.02], [0.01, 0.0]]
+        },
+        {
+          "sheet": "12_MASH-FRET (bootstrap)_10ms",
+          "tool": "MASH-FRET (bootstrap)",
+          "fret_e": [0.27, 0.71],
+          "rates_s_inv": [[0.0, 2.65], [3.3, 0.0]],
+          "uncertainty_plus": [[0.0, 0.23], [0.41, 0.0]],
+          "uncertainty_minus": [[0.0, 0.23], [0.41, 0.0]]
+        },
+        {
+          "sheet": "13_MASH-FRET (prob.)_10ms",
+          "tool": "MASH-FRET (prob.)",
+          "fret_e": [0.267, 0.713],
+          "rates_s_inv": [[0.0, 2.737], [3.299, 0.0]],
+          "uncertainty_plus": [[0.0, 0.032], [0.039, 0.0]],
+          "uncertainty_minus": [[0.0, 0.028], [0.034, 0.0]]
+        },
+        {
+          "sheet": "14_postFRET_10ms",
+          "tool": "postFRET",
+          "fret_e": [0.261, 0.712],
+          "rates_s_inv": [[0.0, 2.5], [2.51, 0.0]],
+          "uncertainty_plus": [[0.0, 0.02], [0.05, 0.0]],
+          "uncertainty_minus": [[0.0, 0.04], [0.04, 0.0]]
+        }
+      ]
+    },
+    "fig2-1ms": {
+      "data": "kinsoft-exp-fig2-1ms",
+      "members": "Traces EG 1ms/[0-9]*.txt",
+      "time_unit_s": 0.001,
+      "n_traces": 19,
+      "dt_s": 0.001,
+      "system": "The same measurement in 1 ms bins (lower signal-to-noise ratio, single-photon discretization)",
+      "published": {
+        "data": "kinsoft-results-fig2-1ms",
+        "supplementary_data": 7,
+        "sheets_from": "Results_round3_set_1.xlsx",
+        "panels": "Supplementary Fig. 2b,c",
+        "paper_spread": "Main text, 'The archetypal 2-state system', and Supplementary Fig. 2: CV = 33 % and 45 % for k12 and k21."
+      },
+      "measured_utc": "2026-11-12",
+      "tether_measured": {"fret_low": 0.260771, "fret_high": 0.700354, "k_low": 2.973449, "k_high": 3.593548, "n_dwells_low": 3658, "n_dwells_high": 3656},
+      "analyses": [
+        {
+          "sheet": "1_Pomegranate_1ms",
+          "tool": "Pomegranate",
+          "fret_e": [0.264, 0.715],
+          "rates_s_inv": [[0.0, 2.9], [3.5, 0.0]],
+          "uncertainty_plus": [[0.0, 0.001], [0.1, 0.0]],
+          "uncertainty_minus": [[0.0, 0.001], [0.1, 0.0]]
+        },
+        {
+          "sheet": "2_Tracy (HMM)_1ms",
+          "tool": "Tracy (HMM)",
+          "fret_e": [0.27, 0.72],
+          "rates_s_inv": [[0.0, 2.6], [3.1, 0.0]],
+          "uncertainty_plus": [[0.0, 0.1], [0.1, 0.0]],
+          "uncertainty_minus": [[0.0, 0.1], [0.1, 0.0]]
+        },
+        {
+          "sheet": "3_FRETboard_1ms",
+          "tool": "FRETboard",
+          "fret_e": [0.264, 0.72],
+          "rates_s_inv": [[0.0, 6.11], [7.47, 0.0]],
+          "uncertainty_plus": [[0.0, 0.604], [1.02, 0.0]],
+          "uncertainty_minus": [[0.0, 0.539], [1.06, 0.0]]
+        },
+        {
+          "sheet": "5_SMACKS(SS)_1ms",
+          "tool": "SMACKS(SS)",
+          "fret_e": [0.26, 0.71],
+          "rates_s_inv": [[0.0, 4.15191], [5.03061, 0.0]],
+          "uncertainty_plus": [[0.0, 0.117658], [0.142531, 0.0]],
+          "uncertainty_minus": [[0.0, 0.115543], [0.13997, 0.0]]
+        },
+        {
+          "sheet": "6_SMACKS_1ms",
+          "tool": "SMACKS",
+          "fret_e": [0.26, 0.71],
+          "rates_s_inv": [[0.0, 4.10705], [4.93983, 0.0]],
+          "uncertainty_plus": [[0.0, 0.116977], [0.140594, 0.0]],
+          "uncertainty_minus": [[0.0, 0.114863], [0.138057, 0.0]]
+        },
+        {
+          "sheet": "7_Correlation_1ms",
+          "tool": "Correlation",
+          "fret_e": null,
+          "rates_s_inv": [[0.0, 3.56], [2.04, 0.0]],
+          "uncertainty_plus": [[0.0, 0.06], [0.04, 0.0]],
+          "uncertainty_minus": [[0.0, 0.05], [0.04, 0.0]],
+          "excluded": "no FRET efficiencies reported, so its two states cannot be put in a class"
+        },
+        {
+          "sheet": "10_Step finding_1ms",
+          "tool": "Step finding",
+          "fret_e": [0.265, 0.695],
+          "rates_s_inv": [[0.0, 2.783], [3.268, 0.0]],
+          "uncertainty_plus": [[0.0, 2.432], [2.643, 0.0]],
+          "uncertainty_minus": [[0.0, 2.432], [2.643, 0.0]]
+        },
+        {
+          "sheet": "11_STaSI_1ms",
+          "tool": "STaSI",
+          "fret_e": [0.27, 0.67],
+          "rates_s_inv": [[0.0, 2.14], [1.5, 0.0]],
+          "uncertainty_plus": [[0.0, 0.02], [0.04, 0.0]],
+          "uncertainty_minus": [[0.0, 0.02], [0.04, 0.0]]
+        },
+        {
+          "sheet": "12_MASH-FRET (bootstrap)_1ms",
+          "tool": "MASH-FRET (bootstrap)",
+          "fret_e": [0.26, 0.7],
+          "rates_s_inv": [[0.0, 2.81], [3.23, 0.0]],
+          "uncertainty_plus": [[0.0, 0.2], [1.09, 0.0]],
+          "uncertainty_minus": [[0.0, 0.2], [1.09, 0.0]]
+        },
+        {
+          "sheet": "13_MASH-FRET (prob.)_1ms",
+          "tool": "MASH-FRET (prob.)",
+          "fret_e": [0.26, 0.7],
+          "rates_s_inv": [[0.0, 3.117], [3.794, 0.0]],
+          "uncertainty_plus": [[0.0, 0.012], [0.017, 0.0]],
+          "uncertainty_minus": [[0.0, 0.007], [0.012, 0.0]]
+        }
+      ]
+    },
+    "fig5-set1": {
+      "data": "kinsoft-exp-fig5-set1",
+      "members": "expSet1/*.dat",
+      "time_unit_s": 1.0,
+      "n_traces": 134,
+      "dt_s": 0.1,
+      "system": "SSB binding to a DNA hairpin, prism TIRF, EMCCD (M. Schlierf), condition 1 of 3",
+      "published": {
+        "data": "kinsoft-results-fig5-set1",
+        "supplementary_data": 10,
+        "sheets_from": "Results_round_2_set_1.xlsx",
+        "panels": "Fig. 5b,c and Supplementary Table 2",
+        "paper_spread": "Main text, 'Full complexity of a black-box experiment': the five tools with two FRET states and similar models agree within CV <= 25 % for the average residence time."
+      },
+      "measured_utc": "2026-11-12",
+      "tether_measured": {"fret_low": 0.235951, "fret_high": 0.775053, "k_low": 0.483667, "k_high": 0.454044, "n_dwells_low": 536, "n_dwells_high": 535},
+      "analyses": [
+        {
+          "sheet": "4_Hidden-Markury_FS_2",
+          "tool": "Hidden-Markury",
+          "fret_e": [0.222, 0.802],
+          "rates_s_inv": [[0.0, 0.383], [0.36, 0.0]],
+          "uncertainty_plus": [[0.0, 0.05], [0.044, 0.0]],
+          "uncertainty_minus": [[0.0, 0.05], [0.044, 0.0]]
+        },
+        {
+          "sheet": "5_SMACKS(SS)_FS_2",
+          "tool": "SMACKS(SS)",
+          "fret_e": [0.25, 0.25, 0.76, 0.76],
+          "rates_s_inv": [[0.0, 0.0772712, 0.0, 0.724288], [0.0799077, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0818057], [0.605016, 0.0, 0.0710662, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0345429, 0.0, 0.0773058], [0.0315797, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0303834], [0.0655563, 0.0, 0.0318128, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0274392, 0.0, 0.0712194], [0.0255437, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0249745], [0.0600419, 0.0, 0.0252456, 0.0]]
+        },
+        {
+          "sheet": "6_SMACKS_FS_2",
+          "tool": "SMACKS",
+          "fret_e": [0.24, 0.24, 0.76, 0.76],
+          "rates_s_inv": [[0.0, 0.0, 0.068, 0.0], [0.007, 0.0, 0.622, 0.164], [0.107, 0.749, 0.0, 0.0], [0.0, 0.077, 0.017, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0, 0.020518, 0.0], [0.0, 0.0, 0.073731, 0.042309], [0.038916, 0.096711, 0.0, 0.0], [0.0, 0.020561, 0.020775, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0, 0.017612, 0.0], [0.0, 0.0, 0.068024, 0.036622], [0.032229, 0.086902, 0.0, 0.0], [0.0, 0.018416, 0.016466, 0.0]]
+        },
+        {
+          "sheet": "10_Step finding_FS_2",
+          "tool": "Step finding",
+          "fret_e": [0.221, 0.802],
+          "rates_s_inv": [[0.0, 0.522], [0.669, 0.0]],
+          "uncertainty_plus": [[0.0, 0.027], [0.024, 0.0]],
+          "uncertainty_minus": [[0.0, 0.027], [0.024, 0.0]]
+        },
+        {
+          "sheet": "13_MASH-FRET (prob.)_FS_2",
+          "tool": "MASH-FRET (prob.)",
+          "fret_e": [0.251, 0.251, 0.743, 0.743],
+          "rates_s_inv": [[0.0, 0.015, 0.062, 0.677], [0.0, 0.0, 0.0, 0.072], [0.014, 0.003, 0.0, 0.028], [0.569, 0.072, 0.0, 0.0]],
+          "uncertainty_plus": [[0.0, 0.038, 0.028, 0.075], [0.021, 0.0, 0.006, 0.021], [0.017, 0.011, 0.0, 0.019], [0.062, 0.028, 0.02, 0.0]],
+          "uncertainty_minus": [[0.0, 0.046, 0.022, 0.07], [0.0, 0.0, 0.0, 0.018], [0.015, 0.016, 0.0, 0.014], [0.057, 0.023, 0.0, 0.0]]
+        },
+        {
+          "sheet": "14_postFRET_FS_2",
+          "tool": "postFRET",
+          "fret_e": [0.24, 0.81],
+          "rates_s_inv": [[0.0, 0.2070822], [0.0711783, 0.0]],
+          "uncertainty_plus": [[0.0, 0.04], [0.01, 0.0]],
+          "uncertainty_minus": [[0.0, 0.04], [0.01, 0.0]]
+        }
+      ]
+    },
+    "fig5-set2": {
+      "data": "kinsoft-exp-fig5-set2",
+      "members": "expSet2/*.dat",
+      "time_unit_s": 1.0,
+      "n_traces": 163,
+      "dt_s": 0.1,
+      "system": "SSB binding to a DNA hairpin, prism TIRF, EMCCD (M. Schlierf), condition 2 of 3",
+      "published": {
+        "data": "kinsoft-results-fig5-set2",
+        "supplementary_data": 11,
+        "sheets_from": "Results_round_2_set_2.xlsx",
+        "panels": "Fig. 5e,f and Supplementary Table 3"
+      },
+      "measured_utc": "2026-11-12",
+      "tether_measured": {"fret_low": 0.256957, "fret_high": 0.769284, "k_low": 0.658294, "k_high": 0.620518, "n_dwells_low": 802, "n_dwells_high": 796},
+      "analyses": [
+        {
+          "sheet": "4_Hidden-Markury_FS_2",
+          "tool": "Hidden-Markury",
+          "fret_e": [0.243, 0.795],
+          "rates_s_inv": [[0.0, 0.523], [0.492, 0.0]],
+          "uncertainty_plus": [[0.0, 0.056], [0.049, 0.0]],
+          "uncertainty_minus": [[0.0, 0.056], [0.049, 0.0]]
+        },
+        {
+          "sheet": "5_SMACKS(SS)_FS_2",
+          "tool": "SMACKS(SS)",
+          "fret_e": [0.26, 0.26, 0.77, 0.77],
+          "rates_s_inv": [[0.0, 0.0464469, 0.0, 0.75673], [0.0777646, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0767983], [0.676816, 0.0, 0.0375133, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0208761, 0.0, 0.0603781], [0.0341365, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0391225], [0.0543443, 0.0, 0.02025, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0163677, 0.0, 0.0572446], [0.0273275, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0309037], [0.0512658, 0.0, 0.0155018, 0.0]]
+        },
+        {
+          "sheet": "6_SMACKS_FS_2",
+          "tool": "SMACKS",
+          "fret_e": [0.26, 0.26, 0.73, 0.73],
+          "rates_s_inv": [[0.0, 0.0, 0.069, 0.0], [0.006, 0.0, 0.668, 0.102], [0.049, 0.813, 0.0, 0.0], [0.0, 0.081, 0.041, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0, 0.02714, 0.0], [0.0, 0.0, 0.05661, 0.02833], [0.02347, 0.07443, 0.0, 0.0], [0.0, 0.02887, 0.0, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0, 0.02281, 0.0], [0.0, 0.0, 0.05324, 0.02469], [0.01902, 0.06878, 0.0, 0.0], [0.0, 0.02585, 0.0, 0.0]]
+        },
+        {
+          "sheet": "10_Step finding_FS_2",
+          "tool": "Step finding",
+          "fret_e": [0.243, 0.795],
+          "rates_s_inv": [[0.0, 0.565], [0.588, 0.0]],
+          "uncertainty_plus": [[0.0, 0.025], [0.027, 0.0]],
+          "uncertainty_minus": [[0.0, 0.025], [0.027, 0.0]]
+        },
+        {
+          "sheet": "11_STaSI_FS_2",
+          "tool": "STaSI",
+          "fret_e": [0.25, 0.25, 0.8, 0.8],
+          "rates_s_inv": null,
+          "uncertainty_plus": null,
+          "uncertainty_minus": null,
+          "excluded": "no rate matrix reported"
+        },
+        {
+          "sheet": "12_MASH-FRET (bootstrap)_FS_2",
+          "tool": "MASH-FRET (bootstrap)",
+          "fret_e": [0.755, 0.271],
+          "rates_s_inv": [[0.0, 0.53], [0.66, 0.0]],
+          "uncertainty_plus": [[0.0, 0.068], [0.052, 0.0]],
+          "uncertainty_minus": [[0.0, 0.068], [0.052, 0.0]]
+        },
+        {
+          "sheet": "13_MASH-FRET (prob.)_FS_2",
+          "tool": "MASH-FRET (prob.)",
+          "fret_e": [0.27, 0.27, 0.75, 0.75],
+          "rates_s_inv": [[0.0, 0.0, 0.0, 0.043], [0.006, 0.0, 0.047, 0.728], [0.003, 0.062, 0.0, 0.0], [0.026, 0.691, 0.0, 0.0]],
+          "uncertainty_plus": [[0.0, 0.019, 0.005, 0.02], [0.016, 0.0, 0.021, 0.044], [0.011, 0.028, 0.0, 0.03], [0.015, 0.046, 0.019, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0, 0.0, 0.015], [0.03, 0.0, 0.016, 0.038], [0.015, 0.022, 0.0, 2.068], [0.011, 0.039, 0.0, 0.0]]
+        },
+        {
+          "sheet": "14_postFRET_FS_2",
+          "tool": "postFRET",
+          "fret_e": [0.26, 0.8],
+          "rates_s_inv": [[0.0, 0.338698], [0.345414, 0.0]],
+          "uncertainty_plus": [[0.0, 0.00966], [0.040832, 0.0]],
+          "uncertainty_minus": [[0.0, 0.00966], [0.040832, 0.0]]
+        }
+      ]
+    },
+    "fig5-set3": {
+      "data": "kinsoft-exp-fig5-set3",
+      "members": "expSet3/*.dat",
+      "time_unit_s": 1.0,
+      "n_traces": 118,
+      "dt_s": 0.1,
+      "system": "SSB binding to a DNA hairpin, prism TIRF, EMCCD (M. Schlierf), condition 3 of 3",
+      "published": {
+        "data": "kinsoft-results-fig5-set3",
+        "supplementary_data": 12,
+        "sheets_from": "Results_round_2_set_3.xlsx",
+        "panels": "Fig. 5h,i and Supplementary Table 4"
+      },
+      "measured_utc": "2026-11-12",
+      "tether_measured": {"fret_low": 0.247962, "fret_high": 0.793259, "k_low": 0.434508, "k_high": 0.322978, "n_dwells_low": 550, "n_dwells_high": 525},
+      "analyses": [
+        {
+          "sheet": "4_Hidden-Markury_FS_2",
+          "tool": "Hidden-Markury",
+          "fret_e": [0.237, 0.815],
+          "rates_s_inv": [[0.0, 0.376], [0.256, 0.0]],
+          "uncertainty_plus": [[0.0, 0.051], [0.04, 0.0]],
+          "uncertainty_minus": [[0.0, 0.051], [0.04, 0.0]]
+        },
+        {
+          "sheet": "5_SMACKS(SS)_FS_2",
+          "tool": "SMACKS(SS)",
+          "fret_e": [0.27, 0.27, 0.79, 0.79],
+          "rates_s_inv": [[0.0, 0.0181472, 0.0, 0.593785], [0.0505473, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.270328], [0.578138, 0.0, 0.431789, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0187709, 0.0, 0.0623949], [0.0362205, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0531562], [0.0731692, 0.0, 0.0968345, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0117689, 0.0, 0.0575387], [0.0261478, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0459078], [0.0654878, 0.0, 0.0840121, 0.0]]
+        },
+        {
+          "sheet": "6_SMACKS_FS_2",
+          "tool": "SMACKS",
+          "fret_e": [0.27, 0.27, 0.78, 0.78],
+          "rates_s_inv": [[0.0, 0.0, 0.032, 0.0], [0.0, 0.0, 0.442, 0.228], [0.108, 0.926, 0.0, 0.393], [0.0, 0.141, 0.0, 0.0]],
+          "uncertainty_plus": [[0.0, 0.0, 0.01446, 0.0], [0.0, 0.0, 0.06305, 0.0512], [0.05789, 0.17398, 0.0, 0.21001], [0.0, 0.01789, 0.0, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0, 0.01163, 0.0], [0.0, 0.0, 0.05798, 0.04669], [0.04376, 0.14943, 0.0, 0.16172], [0.0, 0.0166, 0.0, 0.0]]
+        },
+        {
+          "sheet": "10_Step finding_FS_2",
+          "tool": "Step finding",
+          "fret_e": [0.237, 0.815],
+          "rates_s_inv": [[0.0, 0.443], [0.444, 0.0]],
+          "uncertainty_plus": [[0.0, 0.018], [0.02, 0.0]],
+          "uncertainty_minus": [[0.0, 0.018], [0.02, 0.0]]
+        },
+        {
+          "sheet": "13_MASH-FRET (prob.)_FS_2",
+          "tool": "MASH-FRET (prob.)",
+          "fret_e": [0.298, 0.298, 0.777, 0.777],
+          "rates_s_inv": [[0.0, 0.0, 0.017, 0.53], [0.0, 0.0, 0.0, 0.009], [0.013, 0.0, 0.0, 0.0], [0.321, 0.003, 0.0, 0.0]],
+          "uncertainty_plus": [[0.0, 0.008, 0.013, 0.048], [0.008, 0.0, 0.004, 0.008], [0.012, 0.0, 0.0, 0.013], [0.03, 0.004, 0.007, 0.0]],
+          "uncertainty_minus": [[0.0, 0.0, 0.008, 0.042], [0.0, 0.0, 0.0, 0.001], [0.006, 0.0, 0.0, 0.0], [0.026, 0.001, 0.0, 0.0]]
+        },
+        {
+          "sheet": "14_postFRET_FS_2",
+          "tool": "postFRET",
+          "fret_e": [0.27, 0.83],
+          "rates_s_inv": [[0.0, 0.0304298], [0.0217805, 0.0]],
+          "uncertainty_plus": [[0.0, 0.03], [0.02, 0.0]],
+          "uncertainty_minus": [[0.0, 0.03], [0.02, 0.0]]
+        }
+      ]
+    }
+  }
+}

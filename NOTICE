@@ -36,8 +36,114 @@ kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.
   tests/fixtures/kinsoft_trace_sample.txt), used only as an M8 kinetics-validation
   oracle (PRD §8 NFR-VALID(c), §9 M8). These files are licensed CC-BY-4.0 (see
   LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT GPL-3.0; attribution
-  to Götz & Schmid travels with them. The MATLAB simulator from the same record is
-  NOT vendored (PRD N2 — Tether ships no data simulator).
+  to Götz & Schmid travels with them. The three simulator settings files
+  tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_1.cfg,
+  tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_2.cfg and
+  tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_3.cfg are
+  copied verbatim from MATLAB_simulator.zip of the same record (CC-BY-4.0) as the
+  ground truth of that oracle (#717). The MATLAB simulator itself is NOT vendored
+  (PRD N2 — Tether ships no data simulator).
+
+MreC-MreD ebFRET sessions  (CC-BY-4.0)  — Gilman MSA, Shlosman I, Samé Guerra D,
+  Domecillo M, Fivenson E, Bourrett C, Bernhardt T, Polizzi N, Loparo J, Kruse A,
+  "MreC-MreD structure reveals a multifaceted interface that controls MreC
+  conformation" (data and code), Zenodo doi:10.5281/zenodo.13910538 (CC-BY-4.0).
+  Tether bundles the traces and stored results of the 11 ebFRET session files of
+  that record, repacked as the gated-tier fixture
+  tests/fixtures/large/ebfret_mrec_sessions.hdf5, used only by a report-only
+  comparison of Tether's ebFRET path (issue #719). The file is licensed CC-BY-4.0
+  (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT GPL-3.0;
+  attribution to the authors travels with it. The MATLAB code of the record is
+  NOT vendored.
+
+smfret-analysis2 test data  (GPL-3.0-only)  — the MATLAB analysis scripts of the
+  Vafabakhsh lab, https://github.com/vafabakhsh-lab/smfret-analysis2 (its commits
+  are by Michael Schamber), pinned at commit 121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4
+  (2022-05-20). Tether bundles verbatim copies of 78 files of its test-data/traces/
+  folder (76 trace files and the two outputs total_FRET.csv and total_XC.csv that
+  the commit's create_histogram.m wrote from them), used only as a reference for
+  the FRET histogram and the cross-correlation tests (#709, ADR-0084). The
+  repository gives the GPL version 3 text and no "or later" statement, so these
+  files are GPL-3.0-only (see LICENSES/GPL-3.0-only.txt and the REUSE.toml
+  annotation). The MATLAB scripts themselves are NOT vendored. The files:
+  tests/fixtures/smfret_analysis2/total_FRET.csv
+  tests/fixtures/smfret_analysis2/total_XC.csv
+  tests/fixtures/smfret_analysis2/traces/1 tr20.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr34.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr38.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr40.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr42.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr48.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr52.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr57.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr60.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr61.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr67.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr70.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr76.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr77.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr78.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr87.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr88.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr89.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr98.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr100.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr101.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr106.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr110.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr114.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr115.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr118.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr122.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr123.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr127.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr128.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr132.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr134.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr135.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr138.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr140.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr145.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr148.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr151.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr152.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr154.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr155.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr162.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr166.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr168.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr170.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr172.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr174.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr175.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr176.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr179.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr181.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr184.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr185.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr188.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr190.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr191.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr194.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr195.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr200.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr201.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr202.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr205.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr206.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr207.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr208.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr209.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr210.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr215.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr218.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr221.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr228.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr229.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr233.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr238.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr242.dat
+  tests/fixtures/smfret_analysis2/traces/1 tr245.dat
 
 Source Data of Campos-Chavez et al. (2024)  (CC-BY-NC-ND-4.0)  — Campos-Chavez,
   Paul, Zhou, Alonso, Verma, Fei & Mondragón, "Translational T-box riboswitches
