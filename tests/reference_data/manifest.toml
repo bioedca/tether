@@ -128,3 +128,126 @@ tier = "git"
 extract_of = ["rf2-arfa-archive"]
 extract_script = "scripts/make_rf2_arfa_fixture.py"
 citation = "Michael N, Huang BY, Ray KK, Kinz-Thompson CD, Gonzalez RL. A cascade of structural rearrangements positions peptide release factor 2 for polypeptide hydrolysis on the ribosome. Proc Natl Acad Sci USA (2025). doi:10.1073/pnas.2509408122"
+
+# --- kinSoftChallenge measured data sets (#718, ADR-0082): Zenodo 10.5281/zenodo.5701310 ------
+[[dataset]]
+id = "kinsoft-exp-fig2-10ms"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset_Fig2_10ms.zip"
+size = 944969
+sha256 = "68f9066ed860ce14e7133bd55a1b3fd365e4f4b1a57bbe4b68a5c0059c5ad537"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset_Fig2_10ms.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of B. Schuler (University of Zurich): ACTR-NCBD binding, Zosel F, et al. PNAS 117:13480 (2020)."
+
+[[dataset]]
+id = "kinsoft-exp-fig2-1ms"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset_Fig2_1ms.zip"
+size = 7025625
+sha256 = "2f7222d178374b66e77029b5d5c6e7d456e405915fb26fcab6adcb4cdd192c8a"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset_Fig2_1ms.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of B. Schuler (University of Zurich): ACTR-NCBD binding, Zosel F, et al. PNAS 117:13480 (2020)."
+
+[[dataset]]
+id = "kinsoft-exp-fig5-set1"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset1_Fig5.zip"
+size = 385895
+sha256 = "0ead241d0770fe829e137d70cf97def8c7b51eba7708fff998f3214e72f57ab2"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset1_Fig5.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of M. Schlierf (TU Dresden): SSB binding to a DNA hairpin."
+
+[[dataset]]
+id = "kinsoft-exp-fig5-set2"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset2_Fig5.zip"
+size = 409832
+sha256 = "d086ae546c7a1389fa0a54435333673b80338ab92814ef17c0f59c768d171e0a"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset2_Fig5.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of M. Schlierf (TU Dresden): SSB binding to a DNA hairpin."
+
+[[dataset]]
+id = "kinsoft-exp-fig5-set3"
+source = "doi:10.5281/zenodo.5701310"
+record_url = "https://zenodo.org/records/5701310"
+license = "CC-BY-4.0"
+file = "exp_dataset3_Fig5.zip"
+size = 429345
+sha256 = "738a5cc7f0cd4669db210ea8c5bb28991bc20323ee6ace4c6fe03d03c745fc94"
+tier = "download"
+download_url = "https://zenodo.org/records/5701310/files/exp_dataset3_Fig5.zip?download=1"
+citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310. Measured data of M. Schlierf (TU Dresden): SSB binding to a DNA hairpin."
+
+# --- The results the analyses of the challenge reported for them (#718): the paper's
+# Supplementary Data, CC-BY-4.0. tests/reference_data/kinsoft_published_results.json copies them.
+[[dataset]]
+id = "kinsoft-results-fig2-10ms"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM8_ESM.xlsx"
+size = 10573
+sha256 = "44e7fa77161514541b97c4d26a1b7fa05f3ec9155179fc00439401ae5493b0f0"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM8_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 6 (Fig. 2f,g)."
+
+[[dataset]]
+id = "kinsoft-results-fig2-1ms"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM9_ESM.xlsx"
+size = 8127
+sha256 = "24d2657d8ff0ac3b8d340616bb62265432793d6c45a04d83add77ceeb999d43e"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM9_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 7 (Supplementary Fig. 2b,c)."
+
+[[dataset]]
+id = "kinsoft-results-fig5-set1"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM12_ESM.xlsx"
+size = 14380
+sha256 = "2d30484e7bd748a058843d546212462901ff23d1ef11d299510abf2cdc3e4d82"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM12_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 10 (Fig. 5b,c)."
+
+[[dataset]]
+id = "kinsoft-results-fig5-set2"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM13_ESM.xlsx"
+size = 14036
+sha256 = "1653b0ad6f73a6bf894504f6e556280a562970eaa9ee01bf56236ec16ee6ce49"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM13_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 11 (Fig. 5e,f)."
+
+[[dataset]]
+id = "kinsoft-results-fig5-set3"
+source = "doi:10.1038/s41467-022-33023-3"
+record_url = "https://www.nature.com/articles/s41467-022-33023-3"
+license = "CC-BY-4.0"
+file = "41467_2022_33023_MOESM14_ESM.xlsx"
+size = 14158
+sha256 = "da8db09755b81eefbf2682fc8a04ae98121675bc03be0c249c6f6a700e85bc3a"
+tier = "download"
+download_url = "https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-022-33023-3/MediaObjects/41467_2022_33023_MOESM14_ESM.xlsx"
+citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3. Supplementary Data 12 (Fig. 5h,i)."

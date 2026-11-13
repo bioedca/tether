@@ -36,7 +36,7 @@ jobs:
   reference-data:
     name: reference-data
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     defaults:
       run:
         # Activate the restored micromamba base env (init-shell: bash).
@@ -65,8 +65,25 @@ jobs:
         uses: ./.github/actions/setup-env
       - name: Install test tooling
         run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+      - name: Restore the tMAVEN sidecar env beside the base env (#718, ADR-0082)
+        # The measured kinSoft sets are fitted by the sidecar. Its env is restored from its own
+        # lock into a directory NOT named `sidecar` beside the base env, which tether would take
+        # for an installer layout. The base env stays the active one, and the tests reach the
+        # sidecar only through TETHER_SIDECAR_PYTHON.
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+        run: |
+          sidecar="$RUNNER_TEMP/tether-sidecar"
+          "${MAMBA_EXE:-micromamba}" create -y -q -p "$sidecar" -f sidecar/conda-lock.yml
+          "$sidecar/bin/python" -m pip install -e . --no-deps
+          python scripts/setup_sidecar.py --python "$sidecar/bin/python"
+          echo "TETHER_SIDECAR_PYTHON=$sidecar/bin/python" >> "$GITHUB_ENV"
       - name: Run the reference-download tests
-        run: pytest -v -m reference_download
+        # -rP prints the output of the passed tests: the measured kinSoft sets report there
+        # where Tether's rates lie among the published results (#718).
+        env:
+          NUMBA_CACHE_DIR: ${{ runner.temp }}/numba-cache
+        run: pytest -v -rP -m reference_download
 
   report:
     # A failed weekly run opens or updates one issue, and the next pass says so (#697). The called
