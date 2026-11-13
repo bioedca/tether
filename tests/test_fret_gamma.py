@@ -159,6 +159,16 @@ def test_short_pre_segment_rejected() -> None:
     assert est.reason == "short-pre"
 
 
+def test_step_at_frame_one_is_short_pre_not_no_step() -> None:
+    # The no-step gate is "step <= 0": a step at frame 1 is a real step whose pre-step
+    # segment (1 frame) is too short, so the reason is "short-pre" (#728, ANA-F9).
+    donor, acceptor = _step_trace(acceptor_pb=1, donor_pb=100)
+    est = trace_gamma(donor, acceptor, alpha=0.1, acceptor_pb=1, donor_pb=100)
+    assert est.gamma is None
+    assert est.reason == "short-pre"
+    assert (est.n_pre, est.n_post) == (1, 99)
+
+
 def test_short_post_segment_rejected() -> None:
     # post-segment [acceptor_pb, donor_pb) length == 20 is NOT > 20 → reject.
     donor, acceptor = _step_trace(acceptor_pb=40, donor_pb=60)
@@ -174,6 +184,16 @@ def test_degenerate_donor_no_rise_rejected() -> None:
     est = trace_gamma(donor, acceptor, alpha=0.1, acceptor_pb=40, donor_pb=100)
     assert est.gamma is None
     assert est.reason == "degenerate-donor"
+
+
+def test_low_count_donor_rise_still_qualifies() -> None:
+    # The degenerate-donor gate is "donor rise <= 0", with no absolute count floor: a
+    # dim trace whose donor rises by 0.5 counts (1.0 -> 1.5) still gives γ (#728,
+    # ANA-F9).
+    donor, acceptor = _step_trace(gamma_true=1.0, alpha=0.1, donor_lo=1.0, donor_hi=1.5)
+    est = trace_gamma(donor, acceptor, alpha=0.1, acceptor_pb=40, donor_pb=100)
+    assert est.reason == "ok"
+    assert est.gamma == pytest.approx(1.0, abs=1e-9)
 
 
 def test_out_of_range_gamma_rejected() -> None:

@@ -119,6 +119,21 @@ def test_inphase_fast_oscillation_is_not_flagged() -> None:
     assert signed_lag1 < -0.5
 
 
+def test_weak_positive_correlation_with_strong_lag1_is_not_flagged() -> None:
+    # #741, ANA-F8 (a): the sign gate sits at lag-0 = 0, not anywhere below +0.5. The
+    # acceptor leads the donor by one frame at a period where cos(w) = 0.3, so every
+    # window has a weakly POSITIVE lag-0 (about +0.3) and a strong lag-1 (about 0.87).
+    w = float(np.arccos(0.3))
+    t = np.arange(80, dtype="float64")
+    donor = 500.0 + 100.0 * np.sin(w * t)
+    acceptor = 500.0 + 100.0 * np.sin(w * (t + 1.0))
+    scan = find_anticorrelation_events(donor, acceptor, window=15, step=1, min_magnitude=0.5)
+    # preconditions: the case the gate must reject is the one reached
+    assert np.all((scan.lag0 > 0.2) & (scan.lag0 < 0.4))
+    assert np.all(scan.lag1_magnitude >= 0.8)
+    assert scan.n_events == 0
+
+
 def test_antiphase_shot_noise_is_rejected_by_lag1_magnitude() -> None:
     # perfectly anti-phase but WHITE (no temporal structure): lag-0 is strongly negative
     # everywhere, yet the lag-1 magnitude never reaches the threshold, so no event is
@@ -249,6 +264,28 @@ def test_min_windows_boundary_is_inclusive() -> None:
     dropped = find_anticorrelation_events(donor, acceptor, window=15, min_windows=length + 1)
     assert kept.n_events == 1
     assert kept.events[0].n_windows == length
+    assert dropped.n_events == 0
+
+
+def test_n_windows_of_an_event_that_does_not_start_at_window_zero() -> None:
+    # #741, ANA-F8 (b): every other n_windows check uses a run that starts at window 0,
+    # where i_end - i0 and i_end + i0 agree. This event starts later in the trace.
+    donor, acceptor = _localized_event(120, 45, 75)
+    scan = find_anticorrelation_events(donor, acceptor, window=15, step=1, min_magnitude=0.5)
+    (event,) = scan.events
+    flagged = _flagged_mask(scan, 0.5)
+    run = np.flatnonzero(flagged)
+    assert run[0] > 0  # precondition: the run does not start at window 0
+    assert np.array_equal(run, np.arange(run[0], run[-1] + 1))  # one contiguous run
+    assert event.n_windows == run.size
+    assert event.n_windows == event.stop - event.start - 15 + 1  # step 1: span - window + 1
+    kept = find_anticorrelation_events(
+        donor, acceptor, window=15, step=1, min_magnitude=0.5, min_windows=run.size
+    )
+    dropped = find_anticorrelation_events(
+        donor, acceptor, window=15, step=1, min_magnitude=0.5, min_windows=run.size + 1
+    )
+    assert kept.n_events == 1
     assert dropped.n_events == 0
 
 
@@ -403,6 +440,20 @@ def test_population_skips_too_short_molecules(tmp_path) -> None:
     pop = population_anticorrelation_events(proj, window=15, min_magnitude=0.5)
     assert pop.n_molecules == 2  # molecule 2 (10 frames < window 15) skipped
     assert keys[2] not in {m.molecule_key for m in pop.molecules}
+
+
+def test_population_scans_a_molecule_of_exactly_window_frames(tmp_path) -> None:
+    # #741, ANA-F8 (c): a molecule with exactly `window` frames carries one full window
+    # and must be scanned, not skipped.
+    donor, acceptor = _population_channels()
+    proj, keys = build_store_with_channels(
+        tmp_path, donor, acceptor, windows=[(0, 120), (0, 120), (0, 15)]
+    )
+    pop = population_anticorrelation_events(proj, window=15, min_magnitude=0.5)
+    assert pop.n_molecules == 3
+    by_key = {m.molecule_key: m.scan for m in pop.molecules}
+    assert by_key[keys[2]].n_frames == 15
+    assert by_key[keys[2]].n_windows == 1
 
 
 def test_population_molecule_keys_selection(tmp_path) -> None:

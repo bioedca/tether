@@ -90,6 +90,28 @@ def test_bonferroni_threshold_is_alpha_over_n_tested() -> None:
             assert f.drifted is False
 
 
+def test_bonferroni_correction_suppresses_a_borderline_feature() -> None:
+    # The correction must be active, not only reported (#742 ML-F3). Column a is shifted by 14 of
+    # 50 evenly spaced values (KS D = 0.28 exactly); its asymptotic p-value lies between
+    # alpha / 3 and alpha, so with three tested features it does NOT drift, while an uncorrected
+    # threshold alpha would flag it. Columns b and c are identical in both samples (p = 1).
+    base = np.arange(50, dtype=np.float64)
+    src = np.column_stack([base, base, base])
+    tgt = np.column_stack([base + 14.0, base, base])
+    report = condition_drift(src, tgt, _NAMES, alpha=0.05)
+    by = {f.name: f for f in report.features}
+    assert report.n_tested == 3
+    assert by["a"].statistic == pytest.approx(0.28)
+    assert 0.05 / 3 < by["a"].pvalue < 0.05  # pins the band that gives the test its teeth
+    assert by["a"].drifted is False
+    assert report.drifted is False
+    # The same column judged alone (n_tested = 1, threshold alpha) does drift: the verdict
+    # changed only because of the number of tested features.
+    alone = condition_drift(src[:, :1], tgt[:, :1], ("a",), alpha=0.05)
+    assert alone.features[0].pvalue == pytest.approx(by["a"].pvalue)
+    assert alone.drifted is True
+
+
 def test_nan_values_are_dropped_not_fabricated() -> None:
     # A column that is all-NaN in one condition is untestable (never a fabricated "no drift"); a
     # column with a few NaNs is still tested on its finite values.

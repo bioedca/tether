@@ -7,8 +7,10 @@ pytest-qt ``QApplication`` from a synthetic
 :class:`~tether.project.handoff.ReconcileReport` (the headless PR-A result type,
 constructed directly so the dialog tests need no on-disk ``.tether``) and assert
 the per-facet accept toggles, the M4-deferred-class disabling, the idealization
-import gate, unmatched surfacing, and that :meth:`ReconcileDialog.decision` maps
-to the ``apply_reconcile`` accept-spec. Pixel rendering is left to the live smoke.
+import gate, unmatched surfacing, the change text each row shows (old window before
+new, the returned class and the category it proposes), and that
+:meth:`ReconcileDialog.decision` maps to the ``apply_reconcile`` accept-spec. Pixel
+rendering is left to the live smoke.
 """
 
 from __future__ import annotations
@@ -87,6 +89,44 @@ def test_dialog_lists_only_changed_rows(qtbot) -> None:
     ]
     dlg = _dialog(qtbot, _report(traces))
     assert [t.molecule_key for t in dlg.change_rows()] == ["a", "b"]
+
+
+def _shown_rows(dlg):
+    """``{molecule: (window cell, class cell)}`` as the dialog's table shows them."""
+    from pyqtgraph.Qt import QtWidgets
+
+    table = dlg.dialog.findChild(QtWidgets.QTableWidget)
+    headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+    assert headers == [
+        "Molecule",
+        "Analysis-window change",
+        "Accept",
+        "tMAVEN class change",
+        "Accept",
+    ]
+    return {
+        table.item(r, 0).text(): (table.item(r, 1).text(), table.item(r, 3).text())
+        for r in range(table.rowCount())
+    }
+
+
+def test_rows_show_the_old_value_before_the_new_one(qtbot) -> None:
+    # The user accepts or rejects what this text says, so it must read old -> new:
+    # the stored window 0-100 is replaced by the returned 0-50, never the reverse.
+    from tether.project.handoff import ClassChange
+
+    proposal = ClassChange(2, "good", proposed_category="static", applicable=True)
+    traces = [
+        _trace(0, "a", window=_window()),
+        _trace(1, "b", cls=proposal),
+        _trace(2, "c", cls=_deferred_class()),
+    ]
+    shown = _shown_rows(_dialog(qtbot, _report(traces)))
+    assert shown == {
+        "a": ("0–100 → 0–50", "—"),
+        "b": ("—", "class 2 → «static»"),
+        "c": ("—", "class 3 vs «good» (M4-deferred)"),
+    }
 
 
 def test_accept_boxes_enabled_per_facet(qtbot) -> None:
