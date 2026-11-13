@@ -179,6 +179,12 @@ and derived envelopes, not measurements or a service guarantee**:
 `tests/test_project_perf.py` runs a real extraction and holds the projections under them,
 which is what keeps them honest.
 
+These budgets cannot see a regression that stays inside them. The `benchmarks` workflow
+([ADR-0078](adr/0078-benchmarks-compare-a-pull-request-with-its-merge-base.md)) does that part:
+on a pull request that changes `src/tether/`, it times each operation and records its peak
+memory on the merge base and on the pull request, on one runner, and it fails when a gated
+operation becomes more than 1.5 times slower or larger. The job summary shows the table.
+
 | Quantity | Value | Constant |
 |---|---|---|
 | Reference movie | 512 × 512, 1700 frames | `REFERENCE_MOVIE_*` |

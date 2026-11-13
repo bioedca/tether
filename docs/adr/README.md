@@ -121,6 +121,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0074](0074-matlab-reference-outputs-come-from-pinned-runs.md) | MATLAB reference outputs come from pinned runs with a provenance record | accepted | §1 (reference tools), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0075](0075-seeded-ebfret-parity-gate.md) | The ebFRET parity gate runs on two fixed seeds | accepted; amends [ADR-0007](0007-parity-is-statistical.md) on pinning the seed | §7.4 (parity definition), §11.2 (the ebFRET tolerance row), §12.6 (`sidecar/parity`), §9 M6 |
 | [0076](0076-the-gui-activates-its-own-dll-path.md) | The GUI puts its env's DLL folders first on PATH, so the Windows shortcut needs no console | accepted; changes the Windows shortcut part of [ADR-0051](0051-installed-app-launch-surface.md), whose other decisions govern unchanged | §12.7 (installers), §7.8 |
+| [0078](0078-benchmarks-compare-a-pull-request-with-its-merge-base.md) | Benchmarks compare a pull request with its merge base on one runner | accepted | §8 (NFR-PERF), §12.6 (continuous integration) |
 | [0081](0081-kinsoft-levels-two-and-three-are-reported.md) | kinSoft levels 2 and 3 are reported against the simulator settings, never band-checked | accepted; amends [ADR-0048](0048-kinsoft-kinetics-oracle.md) on the deferred levels | §8 NFR-VALID(c), §9 M8, §11.2 (the kinSoftChallenge parity band row), N2 |
 
 <!-- gen:adr-index end -->
