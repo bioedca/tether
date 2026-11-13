@@ -121,6 +121,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0074](0074-matlab-reference-outputs-come-from-pinned-runs.md) | MATLAB reference outputs come from pinned runs with a provenance record | accepted | §1 (reference tools), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0075](0075-seeded-ebfret-parity-gate.md) | The ebFRET parity gate runs on two fixed seeds | accepted; amends [ADR-0007](0007-parity-is-statistical.md) on pinning the seed | §7.4 (parity definition), §11.2 (the ebFRET tolerance row), §12.6 (`sidecar/parity`), §9 M6 |
 | [0076](0076-the-gui-activates-its-own-dll-path.md) | The GUI puts its env's DLL folders first on PATH, so the Windows shortcut needs no console | accepted; changes the Windows shortcut part of [ADR-0051](0051-installed-app-launch-surface.md), whose other decisions govern unchanged | §12.7 (installers), §7.8 |
+| [0088](0088-extraction-test-on-mash-fret-simulated-videos.md) | An extraction test on videos with known truth from the MASH-FRET simulator | accepted | §9.5 (the validation suite), §8 NFR-VALID, §8 NFR-FIXTURES |
 
 <!-- gen:adr-index end -->
 

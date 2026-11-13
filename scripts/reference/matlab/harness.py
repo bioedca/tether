@@ -21,7 +21,11 @@ CI has no MATLAB. ``--matlab`` takes any executable; a ``.py`` file is run with 
 interpreter, which is how the tests use the stand-in ``tests/_matlab_standin.py``. On Windows,
 ``bin\matlab.exe`` is a launcher that starts MATLAB in another process and returns at once,
 before the run, so the harness also passes ``-wait``: the launcher then waits for MATLAB and
-returns its exit code (#714).
+returns its exit code (#714). On one workstation the launcher sometimes started a second copy
+of itself and returned 0 at once even with ``-wait``. ``tether_run_job.m`` therefore reports
+the MATLAB release only after the task ended without an error, and the harness writes no
+record without that report; a run that comes back early is refused, never recorded. Where it
+happens often, give ``--matlab`` a wrapper that waits for the MATLAB process itself.
 """
 
 from __future__ import annotations

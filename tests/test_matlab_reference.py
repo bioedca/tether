@@ -146,6 +146,25 @@ def test_a_files_pin_checks_each_script_hash(tmp_path, traces) -> None:
         harness.verify_clone("lab", scripts, pins)
 
 
+def test_a_launcher_that_returns_before_the_job_writes_no_record(tmp_path, clone) -> None:
+    # The Windows launcher can return 0 before MATLAB has run the job (#714). MATLAB reports
+    # its release only after the task ends without an error, so the harness refuses.
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": {"return_early": True}}}
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    with pytest.raises(harness.HarnessError, match="did not report its MATLAB release"):
+        harness.run(
+            "x",
+            "t",
+            tasks,
+            clone=clone[0],
+            inputs={},
+            out=tmp_path / "o",
+            matlab=STANDIN,
+            pins=pins,
+        )
+    assert not (tmp_path / "o" / harness.RECORD).exists()
+
+
 def test_a_failed_run_writes_no_record(tmp_path, clone) -> None:
     tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": {"fail": True}}}
     pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
