@@ -45,6 +45,9 @@ tests/fixtures/smfret_analysis2/** -text
 # The unchanged CC BY-NC-ND copies of the paper's Source Data (#755, ADR-0083): the licence permits
 # no changed copy, and their SHA-256 is recorded, so no checkout may convert a line ending.
 tests/fixtures/campos_chavez_2024/** -text
+# Ha-laboratory SAM/SAH files (#796, ADR-0086): verbatim Zenodo bytes (CRLF text and binary
+# .traces), SHA-256 in the manifest.
+tests/fixtures/ha_sam_sah/** -text
 
 # --- Git-LFS: the LARGE-fixture / benchmark tier only (PRD §8 NFR-FIXTURES) ---
 # The ≈0.9 GB UCKOPSB movie, kinSoftChallenge assets, and large *.hdf5 benchmarks

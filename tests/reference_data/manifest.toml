@@ -1548,3 +1548,747 @@ tier = "lfs"
 extract_of = ["campos2024-source-data"]
 extract_member = "smFRET_SourceData/intraFRET_WT+WT_13uM.txt"
 citation = "Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. Translational T-box riboswitches bind tRNA by modulating conformational flexibility. Nat Commun 15:6592 (2024). doi:10.1038/s41467-024-50885-x. Source Data, CC BY-NC-ND 4.0"
+
+# --- Ha laboratory, SAM/SAH riboswitch: Zenodo 10.5281/zenodo.8088172, CC-BY-4.0 (#796, ADR-0086).
+# The Fig. 1 archive, and verbatim copies of 56 files of its folder "20200129 RNA only condition/
+# RNA only/": the 53 short .traces snapshots, frets.dat, test3.dat and counts2.txt. -------------
+
+[[dataset]]
+id = "ha-sam-sah-fig1"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "Fig 1 Studies of ligand-free conformations.zip"
+size = 75685670
+sha256 = "a8c0e41a9c080b39048bcee22503d86bb58d99824aa82c564d08535dbf5422f3"
+tier = "download"
+download_url = "https://zenodo.org/records/8088172/files/Fig%201%20Studies%20of%20ligand-free%20conformations.zip?download=1"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel1"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel1.traces"
+size = 34966
+sha256 = "0ce42e85fd2d41f0ebeeaf4f2697dc5bc573673eced6efc6d3cab12c7a479df3"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel1.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel2"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel2.traces"
+size = 33766
+sha256 = "45781c2bd17808f5946a897d4c0c55464e8bf152f29be2b3e5b96eb652fde40c"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel2.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel3"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel3.traces"
+size = 34246
+sha256 = "88b26c09e89f48bd86038df15cb9ace18ccf1afff6fb94a0c3edec6671317405"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel3.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel4"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel4.traces"
+size = 33686
+sha256 = "a729f934994ca3842f7c62649c2b9ac3c199cfc3bfc5930422f216c66fcdb67f"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel4.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel5"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel5.traces"
+size = 32726
+sha256 = "8606c9d59b608683b8806ab6dc03f736c7a5164caae46ad9000d457d3dc773cd"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel5.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel6"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel6.traces"
+size = 36006
+sha256 = "869d5100552cffd2257eae0498905ed348bd7c3f6bc4fe0b335124e080ff81ab"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel6.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel7"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel7.traces"
+size = 34966
+sha256 = "a6e3cc581785c30c8ac23229fb960758f8fca1e7f116b430a5f2adba888b451c"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel7.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel8"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel8.traces"
+size = 35126
+sha256 = "2a0ad48e35e84f88f5422b3961a2e8bc2e4935a68a417ed475cc7d59e87bcecb"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel8.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel9"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel9.traces"
+size = 35366
+sha256 = "a3959c95e0099d5af7a3c4c6e9598b279c64ea6ded2e743d8e7ec21de52b8305"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel9.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel10"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel10.traces"
+size = 34966
+sha256 = "3cf678464d671693ee9f788ba8cceaeebefffc5be2aeeee80e9a77171ae720c7"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel10.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel11"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel11.traces"
+size = 33846
+sha256 = "11a31ece602904eb5874d5606eb3d7de8c54b87079d31398fe8d93bbf02b8263"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel11.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel12"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel12.traces"
+size = 34646
+sha256 = "9e210a4e169bf7bd7d3a5d89234002e9146ca624e5b0e49076f035499c4dc87c"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel12.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel13"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel13.traces"
+size = 33286
+sha256 = "e921c3579fd76fc687ea1ddda5208e3895d96f002d243b836ff60babdef57cda"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel13.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel14"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel14.traces"
+size = 36006
+sha256 = "f003b0c477b084d8160b8eb4b29a3d32ec8d9c6030099413661f4c056a37fccf"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel14.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel15"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel15.traces"
+size = 35046
+sha256 = "2a200eb4896fb261f9b9d2431d8aec81e5869c1a4e5b454ac5227c6c6ea389d9"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel15.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel16"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel16.traces"
+size = 35446
+sha256 = "ed0232e600c23d80057184e3b3d7b6cb3183329cd43d8423123bbb94a5947781"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel16.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel17"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel17.traces"
+size = 34406
+sha256 = "6845b97e09bea414e2811203855f509366fc65dcf3a83a42ebbe9f3f4e81df5c"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel17.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel18"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel18.traces"
+size = 34966
+sha256 = "f8092792877fa0f2b251973402244e7ca61d74b72a0e07b291006cb30fdcb90f"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel18.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel19"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel19.traces"
+size = 33126
+sha256 = "321dd25dcb0337fa92eee0245bd4f53c17995a7afceb97eb7c11eda289b3334c"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel19.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel20"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel20.traces"
+size = 34726
+sha256 = "09ec0505e50543452ece639734502babd9f6e4b7ee65f3c9e2f02128befc444d"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel20.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel21"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel21.traces"
+size = 32966
+sha256 = "06be429d05dd97a6c54118161939d48488b0901ee927e88e8d6b5096c94be51b"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel21.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel22"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel22.traces"
+size = 34646
+sha256 = "2b8221c6fc94d4b0518f46a25d5b9d6a87f3c10ffa917140e7d64365684eb6a8"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel22.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel23"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel23.traces"
+size = 36086
+sha256 = "798ff04f5be85f6de625d58f5c878a4f6036cdadfdad97368ea2526fcd930d53"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel23.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel24"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel24.traces"
+size = 33766
+sha256 = "dad5d8eca2dab5887310c27336040ec214947e311187bb5d04c86c6f61f41249"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel24.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel25"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel25.traces"
+size = 32806
+sha256 = "04c62648fed6eaa8a8d961c8245bc29ac9f0af2dabfb9969251a9d5379b2deeb"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel25.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel26"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel26.traces"
+size = 36566
+sha256 = "33b6fb375fbc8a8c64afdd6ff4825c0a2c38071ab2cb7daec7260fcc8e2c33c0"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel26.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel27"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel27.traces"
+size = 33926
+sha256 = "1f5015e1c464cd2f5903f1e9195665c8b14f2360a619aa6d31e2b31ccb1cec09"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel27.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel28"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel28.traces"
+size = 34326
+sha256 = "fd9634fb0ca447d30b2c0c6bd072102548ba550b28da765a743e96b4cc8f3d2d"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel28.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel29"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel29.traces"
+size = 33686
+sha256 = "a6409f7db0f061150df44f4488805a5feb3ec47830ea7209d86c7710ecbff16f"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel29.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel30"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel30.traces"
+size = 34486
+sha256 = "72c7d95e018052d920d0861ae1b8262fc6760cb990eccba42a9dc839c16d8f09"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel30.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel31"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel31.traces"
+size = 28886
+sha256 = "ec49f2f6b2d31046e3f7913436c3eee46a7d00effa19fa53015b6c1bf900e3ea"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel31.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel32"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel32.traces"
+size = 33686
+sha256 = "905cdfcec85539567a0f937ecd673664170fee067f79890bed3af29f333f0691"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel32.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel33"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel33.traces"
+size = 31926
+sha256 = "b00c7151d865da1444365539b03cadc9e9f869f7a5386fa179d9e16592d8d599"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel33.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel34"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel34.traces"
+size = 32486
+sha256 = "0b2550cb78b1f1f5eb02dec4a9239921ce0e6a443d128dd0b5f2821863a6eb71"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel34.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel35"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel35.traces"
+size = 34006
+sha256 = "cd3a052fb327d35ca77afbd905b56a61ab091c092cf26d6119a82e5f11021b03"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel35.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel36"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel36.traces"
+size = 33046
+sha256 = "23f75459d20974df6d07474cab57c875c55873593cda71459c5bf39fa917cadd"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel36.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel37"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel37.traces"
+size = 37366
+sha256 = "5fec7b056eafdf917d9acb19e47f5497074ca17578b82fce1185ce4a69a42634"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel37.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel38"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel38.traces"
+size = 34406
+sha256 = "1d01c8d3e365a2189b725dbd2603951b54a0323541e047ec9e1f53b7acc62334"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel38.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel39"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel39.traces"
+size = 36166
+sha256 = "1c45ed2deec8341d7eb7d6fdfe40af88ea3383dd03bd70cf0b018f15ea44a8cf"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel39.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel40"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel40.traces"
+size = 34966
+sha256 = "cf7f51cda154aa0608c5643b370579d8f4cfce7d26389823bf6d756ca02d902e"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel40.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel41"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel41.traces"
+size = 36486
+sha256 = "c721253ab239199387a24ee0e47998bdc7a117fa16bbf25522dd6b1b119dc757"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel41.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel42"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel42.traces"
+size = 32886
+sha256 = "5f03d8a0c8b7253211afaff969557cc0a88f7d93720f587912187792862dfced"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel42.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel43"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel43.traces"
+size = 33446
+sha256 = "fce90bd1f66d67a00040ae9031c2214866af83d91cc7874cf8cca94ba6f97044"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel43.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel44"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel44.traces"
+size = 33686
+sha256 = "35a0c27a31625917b450f5c04f45788972858f278820036cccbb3e1dc22e2d56"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel44.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel45"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel45.traces"
+size = 35366
+sha256 = "a3c1ea1f76b7640d627e00bc12deb4def90389b3218fb577169529a9ca8e257c"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel45.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel46"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel46.traces"
+size = 32326
+sha256 = "e9f35208ccd871ab32c1cefbe0c413c97a76420939e57ab348526c220dd9ed2c"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel46.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel47"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel47.traces"
+size = 33606
+sha256 = "6b6442c80f860455ab622b51ae0678babab7350187e84d66d195cef26a316e1d"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel47.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel48"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel48.traces"
+size = 34246
+sha256 = "c9f291f3a344be104b3709efac1cbce6635834e33917bafb0225279d50c87cc5"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel48.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel49"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel49.traces"
+size = 33206
+sha256 = "1ffc607c41f6609a97db6423399862e9fadf0b337536f9075a4a84c3050d9622"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel49.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel50"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel50.traces"
+size = 34246
+sha256 = "5cb01df666816b24f796cd5ea21f3cf1be4ce2be6b3b8d52784dbe8200737385"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel50.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel51"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel51.traces"
+size = 33206
+sha256 = "97848ddd5ec85127f86b1f14241adcf56c5e0555d6de63bb69761479e9c0ae92"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel51.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel52"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel52.traces"
+size = 33846
+sha256 = "bfb791f196702be6b1118d8437167d70554c50133c07297d324b04f5db090743"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel52.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-hel53"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/hel53.traces"
+size = 33526
+sha256 = "e5aa2f59582d0fbdd3e7ffe32cb8dbe4a434570528846cc6b62688e05f2349ca"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/hel53.traces"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-frets"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/frets.dat"
+size = 845100
+sha256 = "a21913a8517488a8d08eaa1e62bd015df8e543457960ed185fe35463957c2ccb"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/frets.dat"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-test3"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/test3.dat"
+size = 4114
+sha256 = "3c24f94f3064f12be130571a25038ff6bd1398c20b86508633384b7df0bd1a65"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/test3.dat"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+[[dataset]]
+id = "ha-sam-sah-counts2"
+source = "doi:10.5281/zenodo.8088172"
+record_url = "https://zenodo.org/records/8088172"
+license = "CC-BY-4.0"
+file = "tests/fixtures/ha_sam_sah/counts2.txt"
+size = 11219
+sha256 = "f837ccac4a18bd2555adf7c3e85cf993c64395b2f7433a978ca7d84d5486f08a"
+tier = "git"
+extract_of = ["ha-sam-sah-fig1"]
+extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/counts2.txt"
+citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"

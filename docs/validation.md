@@ -95,6 +95,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
+| Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -813,6 +814,48 @@ and `test_the_stored_rates_are_the_authors_rule_on_the_stored_transition_matrix`
 `test_the_settings_the_child_used_are_the_authors`,
 `test_the_start_synchronized_histogram_equals_tmavens` and
 `test_the_post_synchronized_histogram_equals_tmavens_on_the_window_frames`.
+
+## Ha-laboratory SAM/SAH snapshot histogram
+
+**What is compared.** The ligand-free SAM/SAH riboswitch snapshots of Fig. 1 of Liao *et al.*,
+*Nucleic Acids Research* **51**:8957 (2023), doi:10.1093/nar/gkad633. The authors deposited the
+data as Zenodo 10.5281/zenodo.8088172 (CC-BY-4.0): 53 binary `.traces` snapshots of 20 frames
+each, with alternating excitation (green frames 1 to 10, red frames 11 to 20), and the
+laboratory's own output from them: 46,950 FRET values (`frets.dat`), their normalised histogram
+(`test3.dat`, bins of 0.015) and the record of the script's parameters (`counts2.txt`).
+[ADR-0086](adr/0086-ha-laboratory-snapshot-histogram-is-a-reference.md) records this set as a
+reference.
+
+**Reference data.** The 56 files are committed verbatim under `tests/fixtures/ha_sam_sah/` (tier
+`git`, CC-BY-4.0, one manifest entry each with its SHA-256 and its member of the Fig. 1 archive).
+A reader that lives only in the tests reads the `.traces` files; the product has no importer for
+them (PRD N4). The donor is the first channel of each molecule: the IDL extraction script stores
+it first, and in every file that channel falls to its background under red excitation while the
+second keeps the acceptor's direct-excitation signal.
+
+**Two checks.** The rule that turns the traces into `frets.dat` was not found (ADR-0086 says what
+was tried), so the traces are compared by their peaks only:
+
+- *Exact.* Tether's histogram of `frets.dat` on the laboratory's bins equals `test3.dat` to 5e-9
+  (the file writes 8 significant digits; measured largest difference 5.0e-10). One conversion is
+  exact: MATLAB's `hist` puts the values outside the range in the end bins, and Tether's fixed
+  range drops them (two below and two above here).
+- *Peaks.* Tether's leakage-corrected FRET (α = 0.12 from `counts2.txt`, γ = 1) of each molecule,
+  from its mean intensities over the green frames, for the 11,316 molecules whose intensities pass
+  the file's cutoffs. The two peaks of its histogram must lie within **0.015** (one bin) of the
+  two peaks of `test3.dat`. Measured 2026-11-13: Tether 0.3950 and 0.8663, the laboratory 0.3956
+  and 0.8669. With the two channels swapped, the low peak moves to 0.128 from the laboratory's.
+
+**Out of scope.** The three long movies of the folder (their 2,854 values are in `frets.dat` but
+their files are not committed), extraction from the raw `.pma` movies, the dwell times, and the
+other figures (#796). The second `.traces` variant, with a frame-index row, is #798.
+
+**Enforcing tests** (all unmarked — required 3-OS matrix):
+`tests/test_ha_sam_sah_reference.py::test_tether_histogram_of_frets_dat_equals_test3_dat`,
+`test_tether_histogram_of_the_traces_has_the_peaks_of_test3_dat`,
+`test_the_donor_is_the_first_channel_of_each_molecule`,
+`test_swapped_channels_miss_the_peaks_of_test3_dat` and
+`test_the_reader_opens_all_53_files_with_the_molecule_counts_of_the_lab`.
 
 ## External benchmark
 

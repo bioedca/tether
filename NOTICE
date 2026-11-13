@@ -200,6 +200,73 @@ Source Data of Campos-Chavez et al. (2024)  (CC-BY-NC-ND-4.0)  — Campos-Chavez
   distributes a copy of this repository for commercial purposes must remove the
   two directories above first.
 
+Ha laboratory SAM/SAH riboswitch data  (CC-BY-4.0)  — Liao T-W, Huang L,
+  Wilson TJ, Ganser LR, Lilley DMJ & Ha T, "Linking folding dynamics and
+  function of SAM/SAH riboswitches at the single molecule level," Nucleic Acids
+  Research 51(17):8957-8969 (2023), doi:10.1093/nar/gkad633. Data: Liao T-W,
+  Zenodo doi:10.5281/zenodo.8088172 (CC-BY-4.0).
+  Tether bundles verbatim copies of 56 files of the folder
+  "20200129 RNA only condition/RNA only/" of the record's Fig. 1 archive, used
+  only as a test reference for the FRET histogram (#796, ADR-0086). These files
+  are licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml
+  annotation), NOT GPL-3.0; attribution to the authors travels with them:
+    tests/fixtures/ha_sam_sah/hel1.traces
+    tests/fixtures/ha_sam_sah/hel2.traces
+    tests/fixtures/ha_sam_sah/hel3.traces
+    tests/fixtures/ha_sam_sah/hel4.traces
+    tests/fixtures/ha_sam_sah/hel5.traces
+    tests/fixtures/ha_sam_sah/hel6.traces
+    tests/fixtures/ha_sam_sah/hel7.traces
+    tests/fixtures/ha_sam_sah/hel8.traces
+    tests/fixtures/ha_sam_sah/hel9.traces
+    tests/fixtures/ha_sam_sah/hel10.traces
+    tests/fixtures/ha_sam_sah/hel11.traces
+    tests/fixtures/ha_sam_sah/hel12.traces
+    tests/fixtures/ha_sam_sah/hel13.traces
+    tests/fixtures/ha_sam_sah/hel14.traces
+    tests/fixtures/ha_sam_sah/hel15.traces
+    tests/fixtures/ha_sam_sah/hel16.traces
+    tests/fixtures/ha_sam_sah/hel17.traces
+    tests/fixtures/ha_sam_sah/hel18.traces
+    tests/fixtures/ha_sam_sah/hel19.traces
+    tests/fixtures/ha_sam_sah/hel20.traces
+    tests/fixtures/ha_sam_sah/hel21.traces
+    tests/fixtures/ha_sam_sah/hel22.traces
+    tests/fixtures/ha_sam_sah/hel23.traces
+    tests/fixtures/ha_sam_sah/hel24.traces
+    tests/fixtures/ha_sam_sah/hel25.traces
+    tests/fixtures/ha_sam_sah/hel26.traces
+    tests/fixtures/ha_sam_sah/hel27.traces
+    tests/fixtures/ha_sam_sah/hel28.traces
+    tests/fixtures/ha_sam_sah/hel29.traces
+    tests/fixtures/ha_sam_sah/hel30.traces
+    tests/fixtures/ha_sam_sah/hel31.traces
+    tests/fixtures/ha_sam_sah/hel32.traces
+    tests/fixtures/ha_sam_sah/hel33.traces
+    tests/fixtures/ha_sam_sah/hel34.traces
+    tests/fixtures/ha_sam_sah/hel35.traces
+    tests/fixtures/ha_sam_sah/hel36.traces
+    tests/fixtures/ha_sam_sah/hel37.traces
+    tests/fixtures/ha_sam_sah/hel38.traces
+    tests/fixtures/ha_sam_sah/hel39.traces
+    tests/fixtures/ha_sam_sah/hel40.traces
+    tests/fixtures/ha_sam_sah/hel41.traces
+    tests/fixtures/ha_sam_sah/hel42.traces
+    tests/fixtures/ha_sam_sah/hel43.traces
+    tests/fixtures/ha_sam_sah/hel44.traces
+    tests/fixtures/ha_sam_sah/hel45.traces
+    tests/fixtures/ha_sam_sah/hel46.traces
+    tests/fixtures/ha_sam_sah/hel47.traces
+    tests/fixtures/ha_sam_sah/hel48.traces
+    tests/fixtures/ha_sam_sah/hel49.traces
+    tests/fixtures/ha_sam_sah/hel50.traces
+    tests/fixtures/ha_sam_sah/hel51.traces
+    tests/fixtures/ha_sam_sah/hel52.traces
+    tests/fixtures/ha_sam_sah/hel53.traces
+    tests/fixtures/ha_sam_sah/frets.dat
+    tests/fixtures/ha_sam_sah/test3.dat
+    tests/fixtures/ha_sam_sah/counts2.txt
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------

@@ -130,6 +130,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0083](0083-unchanged-copies-of-cc-by-nc-nd-reference-data.md) | Unchanged copies of CC BY-NC-ND 4.0 reference data in a GPL-3.0 repository | accepted | §8 (NFR-FIXTURES, NFR-VALID), §12.1 (SPDX / REUSE) |
 | [0084](0084-smfret-analysis2-is-a-reference-at-a-pinned-commit.md) | smfret-analysis2 at a pinned commit is the reference for the histogram and the cross-correlation | accepted | §1 (the two model-free lenses), §7.7 FR-ANALYZE, §8 NFR-VALID, N4 |
 | [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12) | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
+| [0086](0086-ha-laboratory-snapshot-histogram-is-a-reference.md) | The Ha-laboratory SAM/SAH snapshot histogram is a reference, compared by its peaks | accepted | §1 (the apparent-E histogram), §2.2 (N4), §8 NFR-VALID, §8 NFR-FIXTURES |
 
 <!-- gen:adr-index end -->
 
