@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0087 — Measured traces with a stored vbFRET path are a dwell and transition reference
+# 0090 — Measured traces with a stored vbFRET path are a dwell and transition reference
 
 - **Status:** accepted
 - **Date:** 2026-11-13

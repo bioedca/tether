@@ -24,7 +24,7 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
-# Measured traces with a per-trace vbFRET path (#797, ADR-0087) — third-party reference data,
+# Measured traces with a per-trace vbFRET path (#797, ADR-0090) — third-party reference data,
 # CC-BY-4.0 (Marzano et al., Zenodo 10.5281/zenodo.11323228 and 10.5281/zenodo.17118152). The two
 # archives copy one condition folder each verbatim; the four tables are what nmarzano/smFRET_module
 # v1.0.3 (MIT, Zenodo 10.5281/zenodo.16791519) computed from them. NOTICE carries both notices.

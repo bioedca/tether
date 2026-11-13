@@ -86,7 +86,7 @@ extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
 
-# --- Measured traces with a per-trace vbFRET path (#797, ADR-0087), CC-BY-4.0 ----------------
+# --- Measured traces with a per-trace vbFRET path (#797, ADR-0090), CC-BY-4.0 ----------------
 # Marzano N. et al. Each .dat trace holds frame, donor, acceptor, FRET and vbFRET_nov12's
 # idealized FRET. The two git fixtures copy one condition folder of each record verbatim into
 # a .tar.xz; the four tables are the output of nmarzano/smFRET_module v1.0.3 (MIT,

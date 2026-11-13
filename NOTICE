@@ -49,7 +49,7 @@ Measured PPR-RNA and Hsp70/Hsp90 smFRET traces  (CC-BY-4.0)  — Marzano N, et a
   Validation_data/RNAanticognate, 114 traces) and
   tests/fixtures/marzano_chaperone_kjg_231027.tar.xz (Fig1_FigS1_FigS2/
   single-molecule/KJG/KJG_231027, 68 traces), used only as a dwell, transition
-  and idealization reference (#797, ADR-0087). The dwell and transition tables
+  and idealization reference (#797, ADR-0090). The dwell and transition tables
   tests/fixtures/reference/marzano/ppr_dwells.csv,
   tests/fixtures/reference/marzano/ppr_transitions.csv,
   tests/fixtures/reference/marzano/chaperone_dwells.csv and

@@ -262,7 +262,7 @@ compares `kinsoft_trace_sample.txt` with its member of `sim_dataset_Fig4.zip` (v
 
 Two condition folders of measured two-colour smFRET traces by **Nicholas Marzano et al.**, each
 trace with the per-trace vbFRET_nov12 idealization the authors analysed, under **CC-BY-4.0**
-(annotated in `REUSE.toml`, attributed in `NOTICE`; ADR-0087). Each `.dat` member has five
+(annotated in `REUSE.toml`, attributed in `NOTICE`; ADR-0090). Each `.dat` member has five
 columns: frame, donor, acceptor, FRET (= A / (D + A)), idealized FRET.
 
 - `tests/fixtures/marzano_ppr_rnaanticognate.tar.xz` (482,520 B · plain git) — every `.dat`

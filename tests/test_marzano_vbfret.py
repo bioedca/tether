@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Measured traces with a stored vbFRET path as a dwell and transition reference (#797, ADR-0087).
+"""Measured traces with a stored vbFRET path as a dwell and transition reference (#797, ADR-0090).
 
 Two condition folders of measured two-colour traces by Marzano et al. (CC-BY-4.0) carry the
 per-trace vbFRET_nov12 idealization the authors analysed: PPR-RNA ``RNAanticognate`` (114 traces,

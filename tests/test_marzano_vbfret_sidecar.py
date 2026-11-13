@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Live, advisory: tMAVEN's per-trace vbHMM against the stored vbFRET_nov12 paths (#797, ADR-0087).
+"""Live, advisory: tMAVEN's per-trace vbHMM against the stored vbFRET_nov12 paths (#797, ADR-0090).
 
 ``test_marzano_vbfret.py`` takes the authors' stored vbFRET path as given and checks Tether's
 dwell and transition code on it. This module asks the other question: does the per-trace

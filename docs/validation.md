@@ -392,7 +392,7 @@ equally wrong fits cannot see.
 This part compares with the **original vbFRET_nov12** output on measured data, not with
 standalone tMAVEN, so it adds evidence and replaces none of the parity above
 ([#797](https://github.com/bioedca/tether/issues/797),
-[ADR-0087](adr/0087-measured-vbfret-paths-are-a-dwell-reference.md)).
+[ADR-0090](adr/0090-measured-vbfret-paths-are-a-dwell-reference.md)).
 
 **Measured data.** Two whole condition folders of measured two-colour traces by Marzano et
 al., CC-BY-4.0, each trace with the per-trace vbFRET_nov12 idealization the authors analysed:
