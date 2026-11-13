@@ -22,8 +22,9 @@ heading font and new images, so these tests keep that sentence true:
 What a static scan sees is the HTML and CSS that a browser fetches without running code.
 Requests that the theme's JavaScript makes are outside it. The one such request is the header's
 repository facts, which Material asks ``api.github.com`` for because ``repo_url`` names a GitHub
-repository. The privacy page names it, and the last tests here keep it named while the header
-still asks (#761).
+repository. The privacy page names it. The last test here keeps it named while the header
+still asks, and the built-site scan checks that the header still has the component that
+asks (#761).
 
 Stdlib plus PyYAML (base lock and the docs toolchain both carry it).
 """
@@ -285,6 +286,13 @@ def test_the_built_site_loads_nothing_from_another_host(built_site: Path) -> Non
     files = sorted(built_site.rglob("*.html")) + sorted(built_site.rglob("*.css"))
     assert len(files) > 50, len(files)
     assert _foreign(files, built_site) == {}
+    # The one request the scan cannot see starts at the header's source component, which
+    # asks the GitHub API for the repository facts. docs/privacy.md names it (#761).
+    home = (built_site / "index.html").read_text(encoding="utf-8")
+    source = r'<a href="([^"]*)"[^>]*class="md-source"[^>]*data-md-component="source"'
+    match = re.search(source, home)
+    assert match, "the header has no source component; revisit docs/privacy.md"
+    assert match.group(1) == _config()["repo_url"]
 
 
 def test_the_built_site_uses_the_brand_on_every_page(built_site: Path) -> None:
@@ -345,11 +353,3 @@ def test_the_privacy_page_names_the_github_api_requests_of_the_header() -> None:
         assert f"`{url}`" in section, url
     # The asset claim stays: the static scans above keep it true.
     assert "**no third-party asset requests**" in section
-
-
-def test_the_built_header_has_the_source_component(built_site: Path) -> None:
-    home = (built_site / "index.html").read_text(encoding="utf-8")
-    source = r'<a href="([^"]*)"[^>]*class="md-source"[^>]*data-md-component="source"'
-    match = re.search(source, home)
-    assert match, "the header has no source component; revisit docs/privacy.md"
-    assert match.group(1) == _config()["repo_url"]
