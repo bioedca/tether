@@ -36,7 +36,7 @@ min_collected = 4016
 max_skipped = 18
 
 [jobs."sidecar / parity"]
-min_collected = 22
+min_collected = 26
 max_skipped = 0
 
 [jobs."deep / smoke"]

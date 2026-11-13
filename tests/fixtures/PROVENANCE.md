@@ -277,9 +277,37 @@ datasets' ground-truth rate constants and the reported inter-tool spread; both a
   finite-dataset floor — the advisory acceptance band.
 
 `schema/kinsoft_reference.json` is Tether's own (GPL-3.0) compilation of these
-values with full source provenance; only `level1` has an active oracle (a FRET-only
-idealizer cannot resolve the overlapping-FRET 4-state case — the paper itself uses
-cumulative dwell-time distributions there).
+values with full source provenance; only `level1` has an active, band-checked oracle.
+Levels 2 and 3 are fitted and reported, never band-checked (#717, ADR-0081).
+
+### kinSoftChallenge simulator settings (the ground truth of levels 2 and 3, #717)
+
+Since #717 the ground truth of levels 2 and 3 is read, not transcribed: the record's
+`MATLAB_simulator.zip` holds the settings file the simulator read for each level, and
+`tests/_kinsoft_config.py` parses it. The three files are copied **verbatim** (byte for
+byte, `-text` in `.gitattributes`, outside the whitespace hooks):
+
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_1.cfg` (2,942 B)
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_2.cfg` (3,074 B)
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_3.cfg` (3,034 B)
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `MATLAB_simulator.zip` | 26,527 B | `0a3c65403782fb1378b600fad9a26da8d99b5f955127f6ddb884afcaa3ed20b4` |
+
+The members are `MATLAB_simulator/Config_simulation_round_1_level_N.cfg`; their own
+checksums are in `tests/reference_data/manifest.toml` (ids `kinsoft-simulator` and
+`kinsoft-settings-level1` to `kinsoft-settings-level3`), and the weekly `reference-data`
+job compares each committed file with its member. **Accessed:** 2026-11-12 (downloaded
+from Zenodo; the record's MD5 `49ef3a860a2e05d01233466ccbd06169` also matched).
+**License:** CC-BY-4.0, the licence of the record. The zip also holds a `license.txt` that
+grants MIT terms to Markus Götz's simulator code; Tether copies none of that code (PRD N2).
+
+The files changed two recorded values. The level-2 entry had read the 1↔2 rates from the
+Suppl. Table 5 diagram as k₁₂ = 0.05 and k₂₁ = 0.30 s⁻¹; the settings file gives
+q₁₂ = 0.30 (low→mid) and q₂₁ = 0.05 s⁻¹ (mid→low), and Tether's 3-state fit agrees with
+the file on which direction is faster. The level-3 rates of Suppl. Table 1 equal the
+file's under a renumbering of the states (`settings_state_of` in the JSON).
 
 ## MreC-MreD ebFRET sessions (report-only ebFRET comparison, #719) — **CC-BY-4.0**
 
@@ -319,6 +347,80 @@ python scripts/make_ebfret_sessions_fixture.py --source <dir-with-Data.zip>
 Both files have entries in `tests/reference_data/manifest.toml` (ids `ebfret-mrec-data`,
 `ebfret-mrec-sessions`; ADR-0073). The weekly `reference-data` job downloads the zip, verifies
 its checksum and compares every array of the committed fixture with a fresh extraction.
+
+## Source Data of Campos-Chavez et al. 2024 (paper reference data) — **CC-BY-NC-ND-4.0**
+
+**External data under a licence that permits no shared Adapted Material.** The Source Data of the maintainer's
+study (Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A,
+*Nature Communications* 15:6592 (2024), **doi:10.1038/s41467-024-50885-x**) is published by Springer
+Nature under **CC BY-NC-ND 4.0**. The files below are **unchanged** members of the archive
+`41467_2024_50885_MOESM4_ESM.zip`, byte for byte; nothing was converted, cropped, corrected or
+re-encoded, and under the project rule of ADR-0083 none may be. That rule is stricter than the
+licence, which permits sharing the material in whole or in part and technical format modifications
+(§2(a)(1)(A), §2(a)(4)), but not sharing Adapted Material (§1(a)) such as a corrected copy. They are for non-commercial use only. They are annotated
+`CC-BY-NC-ND-4.0` in `REUSE.toml` and attributed in `NOTICE`; the hooks that rewrite whitespace and
+ruff skip their directories, and `.gitattributes` keeps their bytes (`-text`) on every OS.
+
+| Source archive | Size | SHA-256 |
+|---|---|---|
+| `41467_2024_50885_MOESM4_ESM.zip` | 94,911,677 B | `83141ce0dc63db35aae2a3f17d793df003de7460651a68b13cd3f2e6f9376c71` |
+
+**Download URL:**
+`https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip`
+(the Source Data link of the article page; Python `urllib` with default headers answered HTTP 200).
+**Retrieved:** 2026-11-12. The archive has 154 files and no top-level folder, so each committed path
+below the fixture directory is the member path.
+
+| Committed file | Archive member | Size | SHA-256 | Tier |
+|---|---|---|---|---|
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py` | 1,520 B | `0780f46cffa547b7a58a5bd8271639b78a7e4be14b7460f67c6b0b7d215b0523` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out` | 144 B | `bb5ef7d3f8c2de204a7f6c546e3a3ad270e73c33e8c815f4bcabbab48619fd12` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt` | 72 B | `653e64a5f8a6290f8d1791674979900334c43a4ef402971c2df1f1cefea5b461` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out` | 144 B | `c1d30c7438f4bf239dbcb5a4fb8cb74f39a318daa2f6bb3f72e94aaf001800cf` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt` | 72 B | `7749cb8b610e085d0e2498debbefa346ac350bf87bd5f5b2abf79917600049e7` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out` | 145 B | `a3cee5cdb477d364849ce8629dc2ace7051e65097062241d69f9cf15ad97481c` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt` | 74 B | `d5518bb602c4cebb40cb313c179c765d87789b4ec6129c2f3a1c6ca9dece58d9` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out` | 144 B | `6d89cc6cf888bb7797bd4439b17e2c99b7c7718da0f1d908c679d292f3ea7f4e` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt` | 70 B | `80b0acb9f3abe12ac30776cce6f7bd8319fffc9f2c17f3b339c4317695658ed6` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out` | 145 B | `6b114de98635bd9660de84c99001705cce8f33fdb3dc0f7aae92a163ab120002` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt` | 72 B | `84847b6caa0e99da38cb6df70e7a5cd97f7bf8825436bc22eccf9c1a172b0462` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out` | 142 B | `15d413040cec187d01d40b6e90a9c642d54db326593e83865f89ec8269c387da` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt` | 70 B | `ba2ff1aa1320b87ec1c723e413b41f77253bea3c414281b578e0b8bd7fbc2886` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py` | `ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py` | 3,995 B | `81d06b5b1be8ef29558ff9e7c91c932d9fda871bdb28aab642398c62f77e3320` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out` | 569 B | `69757bbaa36d1840bcaa2fc88e9cf7453fc2756a30930d7c54ad69626a189825` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt` | 58 B | `176ef1d7ac986dc96756322fb539db59eee2cfc247ef4895c03d3011b65355ef` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out` | 560 B | `b73bb640abc6fa9dd299a493f34be3d845c63785868f8cb5ff0b95a6404bb1eb` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt` | 64 B | `630ba34cffaf35051091dd8cbe0357d81f4a427040c7e238dd846252e27d3523` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out` | 958 B | `cacf2aa7aac53a750f534e26b0605711d8f7c8355357f668674cee42d368ca5e` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt` | 137 B | `36987a7fcd37d9acb6f5ae61492d3a181411287ae15f0442e7e604be818abb13` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out` | 1,497 B | `1e820cf6eed492e6602609ab44b7751203721e3e7f37b01fe17b33e77b226a1c` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt` | 241 B | `ce380d66829cf948aada4f617e2453f4613b0c43d9c053c26642cd939e78f790` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out` | 954 B | `295844a39d61fa2572e47f6c1f13fcbe1b787f7f6cfb56b05693aa7225b71bc2` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt` | 135 B | `d35a52f44cdcd4ff8157c045eeca5083412ba28751a159ece27b36c156f4f481` | git |
+| `tests/fixtures/campos_chavez_2024/checkTDP.py` | `checkTDP.py` | 2,174 B | `5cd40c12d8f6bcc7caf611639fc63249368cfde0a1cf1647f460b87b5d7002ee` | git |
+| `tests/fixtures/large/campos_chavez_2024/smFRET_SourceData/intraFRET_WT+WT_13uM.txt` | `smFRET_SourceData/intraFRET_WT+WT_13uM.txt` | 6,723,000 B | `0f4c89027159593e885e02cdc7800218aed540bc1b44ccdd29d4846064a58839` | **LFS** |
+
+**One member is not committed:**
+`ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb`
+(508,299 B, `50c413e49720c4fbec076cc442c3f3a2fe8d203846e2494b9661e05297dde8c0`). Its saved cells
+hold absolute paths of a personal computer, and this repository holds no private path. The
+licence forbids a redacted copy, so the notebook stays in the archive only; the weekly job
+verifies it there with the archive checksum.
+
+The trace matrix is the smallest file of `smFRET_SourceData/`. Two members have that size,
+`intraFRET_WT+WT_13uM.txt` and `intraFRET_WT+WT_5uM.txt`, and they are byte-identical in the
+publisher's archive (both `0f4c8902…a58839`); the first in archive order is committed. A check that
+reads both files from the downloaded archive gets the same traces twice.
+
+**`Kmatrix/CalculateKbounds.py` does not parse** (`IndentationError` at line 51: five spaces where
+its block has four). The publisher's file and the copy that the audit of #695 read are
+byte-identical (`81d06b5b…3320`), so the fault is in the published file. The licence forbids a
+corrected copy, so tests use the `.txt` inputs and `.out` outputs and never import the script.
+
+Every file has an entry in `tests/reference_data/manifest.toml` (ids `campos2024-…`, with
+`extract_member`), and the archive has the `download` entry `campos2024-source-data`. The weekly
+`reference-data` job downloads the archive, verifies the checksum above, and compares each committed
+file with its member (`tests/test_reference_data_download.py`).
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
@@ -384,6 +486,51 @@ output SHA-256 values and the method (`scripts/reference/matlab/`). `tests/test_
 verifies every committed record. `stand-in/selftest` is not a reference: the `matlab` stand-in of
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
+
+## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
+
+External third-party data under a different license, as the kinSoftChallenge sets above: the
+"RF2-ArfA smFRET data and analysis" record of **Nina Michael, Bridget Huang, Korak Kumar Ray,
+Colin Kinz-Thompson and Ruben Gonzalez**, Zenodo **doi:10.5281/zenodo.17246323**, **CC-BY-4.0**.
+It holds the tMAVEN SMD files and the "vb Consensus HMM" models behind [Michael2025]
+(Proc. Natl. Acad. Sci. USA 122(46):e2509408122, doi:10.1073/pnas.2509408122). Both files are
+annotated CC-BY-4.0 in `REUSE.toml` and attributed in `NOTICE`.
+
+| Fixture | Archive member (below `Data/Single molecule data/`) | Member size | Member SHA-256 | Fixture size | Transformation |
+|---|---|---|---|---|---|
+| `tests/fixtures/rf2_core_wtprensec_model.hdf5` | `RF2_core/Steady state/HMMs/RF2_core_wtprensEC_smd_HMM.hdf5` | 499,405 B | `edeaa298604895a842c3ab7692370d555b05b2e779d7bcb8b2f81b5d01d0be7a` | 499,405 B | verbatim copy |
+| `tests/fixtures/rf2_core_wtprensec_smd.hdf5` | `RF2_core/Steady state/RF2_core_wtprensEC_smd.hdf5` | 1,163,720 B | `d1025b31777317aefbf0da58c58cdc360f83fc6292f9d1b5557736c45f6683b9` | 313,247 B | windowed extract (below) |
+
+- **Archive:** `ArfA_RF2_data.zip`, 127,792,051 B, SHA-256
+  `1ae523076f89a1e28db2f2035b76ecabd3b4c24e649083158a08ca1ef975c9b8`. **Accessed:** 2026-11-12
+  (downloaded from Zenodo). The record's `Data/Single molecule data/tMAVEN parameters.docx`
+  (15,913 B, SHA-256 `d5df228a303c4a58be5f155ded06384ae1064f5733f7bc06a199146de5ac2e86`) gives
+  the settings the checks use: bleed-through 0.035, and the 2-D histogram settings in
+  `tests/_rf2_arfa_child.py`. It is not committed.
+- **Build:** the files name no tMAVEN build. The SMD file is dated 2022-11-29 15:53 and the
+  model 2022-11-29 16:08 (their own `date_created` and `time_made` attributes). Tether's live
+  checks run the pinned tMAVEN `10f4230` (`.github/workflows/sidecar.yml`), which is a later
+  build; ADR-0079 records what that difference does to the fit.
+- **Windowed extract.** The SMD member is larger than the 512 KiB plain-git gate, so
+  `scripts/make_rf2_arfa_fixture.py` keeps every frame inside a molecule's analysis window
+  `[pre_list, post_list)` bit for bit and sets every frame outside it to `0.0`; tMAVEN and Tether
+  fit and plot only the frames inside. It also replaces the authors' local path in
+  `source_list`/`source_name` with the archive member name, copies every other array and
+  attribute unchanged, and writes gzip level 9 with the shuffle filter. A tMAVEN fit of the
+  extract equals the fit of the original file (measured 2026-11-12).
+
+Regenerate with:
+
+```sh
+python scripts/make_rf2_arfa_fixture.py --archive /path/to/ArfA_RF2_data.zip \
+    --out tests/fixtures/rf2_core_wtprensec_smd.hdf5
+```
+
+The archive and both files have entries in `tests/reference_data/manifest.toml` (ids
+`rf2-arfa-archive`, `rf2-core-wtprensec-model`, `rf2-core-wtprensec-smd`; ADR-0073). The weekly
+`reference-data` job downloads the archive, compares the model with its member byte for byte,
+checks the SMD extract against its member as described above, and runs the import and Table 1
+checks of `tests/test_rf2_arfa.py` on all 11 SMD files and 9 models.
 
 ## smfret-analysis2 test data (#709, ADR-0084) — **GPL-3.0-only**
 
