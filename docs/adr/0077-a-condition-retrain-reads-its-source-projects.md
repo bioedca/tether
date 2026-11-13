@@ -79,9 +79,9 @@ What is built (`tether.project.condition_model`, `tether.ml.persistence`):
 3. **`n_human` counts every project.** A provisional prior trains at `w₀ / (1 + n_human)`, where
    `n_human` is the sum of the condition's human labels in all the projects read.
 4. **A missing or offline project stops the retrain.** Every project is checked before any is
-   read. A file that does not exist, or whose Windows attributes carry `FILE_ATTRIBUTE_OFFLINE`
-   (read with `os.stat`, which reads metadata only), raises `SourceProjectUnavailableError`, which
-   names the file. Nothing is saved by the retrain, so a saved model does not change.
+   read. A file that does not exist, or whose Windows attributes carry `FILE_ATTRIBUTE_OFFLINE`,
+   `FILE_ATTRIBUTE_RECALL_ON_OPEN` or `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS` (read with `os.stat`,
+   which reads metadata only), raises `SourceProjectUnavailableError`, which names the file. Nothing is saved by the retrain, so a saved model does not change.
 5. **Read-only, no lock.** The source projects are opened only through the path-based readers,
    which open the file with `h5py` mode `"r"` and never call the lock.
 
@@ -93,11 +93,14 @@ What is built (`tether.project.condition_model`, `tether.ml.persistence`):
 - **A moved project stops the retrain.** The record holds absolute paths, so a project that moved
   or a model that moved to another computer names a file that is not there. The message names it;
   relinking a source project is not built here.
-- **Placeholder detection is the `FILE_ATTRIBUTE_OFFLINE` bit only.** It is the attribute the
-  Win32 documentation gives for "the data of a file is not immediately available", and the
-  standard library carries its value. The documentation for the newer cloud-file recall attributes
-  could not be read from the session that built this, so they are not tested. A placeholder that
-  sets only a recall attribute is not detected before the read.
+- **Placeholder detection is three attribute bits.** `FILE_ATTRIBUTE_OFFLINE` is the attribute
+  the Win32 documentation gives for "the data of a file is not immediately available", and the
+  standard library carries its value. The two cloud-file recall bits (`0x00040000` and
+  `0x00400000`) mark a file that opening or reading fetches from remote storage; the standard
+  library does not carry them, so their values come from `winnt.h` of mingw-w64-headers
+  (retrieved 2026-11-13, SHA-256 `bc318d60f2c55e8cc39bf2c207fb0fa688ac6c4e5eb8d854d7545ae9802a4321`),
+  because the Microsoft page could not be fetched from the session that built this. The tests set
+  each bit alone through a stub of `os.stat`; no real OneDrive placeholder was tested.
 - **No schema change.** Nothing is written to a `.tether`; `schema-guard` and `dump_schema.py`
   are unaffected. No dependency and no new §11.2 tunable: `w0` is the existing seed weight.
 - **Out of scope:** the project's `/models` reference and the owner-curator lock

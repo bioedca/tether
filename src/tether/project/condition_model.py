@@ -72,7 +72,17 @@ _UNCURATED = int(CurationLabel.UNCURATED)
 #: ``FILE_ATTRIBUTE_OFFLINE`` (``0x1000``): "the data of a file is not immediately available"
 #: (Win32 file attribute constants, read through Context7 2026-11-12). Taken from the standard
 #: library so the value is not typed by hand. ``os.stat`` reads attributes only and never hydrates.
-_OFFLINE_ATTRIBUTES = stat.FILE_ATTRIBUTE_OFFLINE
+_FILE_ATTRIBUTE_OFFLINE = stat.FILE_ATTRIBUTE_OFFLINE
+#: The cloud-file recall bits, which the standard library does not carry: opening the file
+#: (``RECALL_ON_OPEN``) or reading its data (``RECALL_ON_DATA_ACCESS``) fetches it from remote
+#: storage. Values from ``winnt.h`` of mingw-w64-headers (``master``, retrieved 2026-11-13,
+#: SHA-256 ``bc318d60…4321``); the Microsoft page could not be fetched from that session.
+_FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
+_FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x00400000
+#: A project whose attributes carry any of these is not on the disk: it is never opened (§5.4).
+_OFFLINE_ATTRIBUTES = (
+    _FILE_ATTRIBUTE_OFFLINE | _FILE_ATTRIBUTE_RECALL_ON_OPEN | _FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+)
 
 
 class SourceProjectUnavailableError(RuntimeError):

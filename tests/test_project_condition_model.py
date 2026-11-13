@@ -307,7 +307,16 @@ def test_missing_source_project_stops_the_retrain_and_names_it(two_days, tmp_pat
     assert _sha(model_path) == saved  # the saved model did not change
 
 
-def test_offline_source_project_is_never_opened(two_days, tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "bit",
+    [
+        stat.FILE_ATTRIBUTE_OFFLINE,
+        0x00040000,  # FILE_ATTRIBUTE_RECALL_ON_OPEN, alone
+        0x00400000,  # FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, alone (a cloud-only placeholder)
+    ],
+    ids=["offline", "recall-on-open", "recall-on-data-access"],
+)
+def test_offline_source_project_is_never_opened(two_days, tmp_path, monkeypatch, bit) -> None:
     a, _, b, _ = two_days
     model_path = tmp_path / "cond.tethermodel"
     save_model(train_condition_model(a, condition_id=_condition(a)), model_path)
@@ -316,7 +325,7 @@ def test_offline_source_project_is_never_opened(two_days, tmp_path, monkeypatch)
     real_attrs = condition_model._file_attributes
 
     def attrs(path: Path) -> int:
-        return stat.FILE_ATTRIBUTE_OFFLINE if Path(path) == a else real_attrs(path)
+        return bit if Path(path) == a else real_attrs(path)
 
     opened: list[Path] = []
     real_file = h5py.File
