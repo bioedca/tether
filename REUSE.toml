@@ -24,6 +24,19 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# PySMACKS tutorial reference (#720): the histogram and HMM result that PySMACKS 1.0.0b4 gives
+# on the CC0-1.0 traces of Zenodo 10.5281/zenodo.21793247 (Molcrette & Schmid), made once by
+# scripts/make_pysmacks_reference.py. Kept under the record's CC0-1.0, so it can travel with the
+# data it describes. Attributed in NOTICE and the fixture PROVENANCE.
+[[annotations]]
+path = ["tests/fixtures/pysmacks_tutorial_reference.json"]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2026 Bastien Molcrette and Sonja Schmid (the data)",
+  "2026 The Tether Authors <bioedca@u.northwestern.edu> (the reference run)",
+]
+SPDX-License-Identifier = "CC0-1.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.

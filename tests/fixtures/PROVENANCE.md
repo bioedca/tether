@@ -281,6 +281,50 @@ values with full source provenance; only `level1` has an active oracle (a FRET-o
 idealizer cannot resolve the overlapping-FRET 4-state case — the paper itself uses
 cumulative dwell-time distributions there).
 
+## PySMACKS tutorial reference (PySMACKS comparison, #720) — **CC0-1.0**
+
+The PySMACKS tutorial record of **Bastien Molcrette & Sonja Schmid** (University of Basel),
+Zenodo **doi:10.5281/zenodo.21793247**, version 1.0.0, published 2026-08-05 under **CC0-1.0**:
+smFRET data of a two-state Holliday junction (Cy3 and ATTO647N, ALEX). Only its traces file is
+used. Tether does **not** commit it; the weekly `reference-data` job downloads it (manifest id
+`pysmacks-tutorial-traces`).
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `PySMACKS_tutorial_traces_dataset.json.zip` | 28,009,862 B | `2c19091c55326b1eadda42b0e99c8a8c6123f92f9ecccafae176db7fbcb3da59` |
+
+The record states MD5 `365ef8e808ed3f1ff1a2467c8f528a35` for the zip, which the download matched.
+**Accessed:** 2026-11-13. The zip holds one member, `HJ_classic_FOV1_raw_traces_traces_dataset.json`
+(OpenFRET JSON, 96,022,960 B): 1,136 traces of 2,100 frames with the channels `DD`, `DA`, `AA`,
+`back_DD`, `back_DA`, `back_AA`; 52 traces carry a `FRET` label, 71 a `DO` label and 26 an `AO`
+label, each an `{indmin, indmax}` frame range. The record's README says the file also holds the
+HMM kinetic analysis. **It does not**: no trace has the `HMM_param` entry that PySMACKS writes,
+there are no FRET values, and nothing names the PySMACKS version that wrote the file.
+
+So the PySMACKS side was made once, offline, and committed:
+
+- `tests/fixtures/pysmacks_tutorial_reference.json` (6,438 B · plain git, **CC0-1.0**) — written
+  by `scripts/make_pysmacks_reference.py` on 2026-11-13 with **PySMACKS 1.0.0b4** (MIT, PyPI;
+  sdist SHA-256 `ad8d3d4a36416e493f5455291f71aff1e0d055c3a92b36f7b237c58a374e9ff1`), openfret
+  0.1.3, hmmlearn 0.3.3, NumPy 2.5.4, SciPy 1.18.1 and scikit-learn 1.9.1 on CPython 3.12.13
+  (Linux x86-64); the file records these versions itself. For the 52 `FRET` traces, cut to their
+  labelled frames and background-subtracted by PySMACKS's `extract_labelled_traces`, it holds
+  the per-frame apparent-FRET histogram (151 bins over −0.5 to 1.5; 56,442 frames, 27 outside the
+  range) and the two-state ensemble HMM (`TbT_HMM_pipeline`, then `Ens_HMM`; all 52 per-trace
+  fits valid): the per-frame transition matrix and the apparent E of each state. Two runs gave
+  the same numbers. Maintainer decision of 2026-11-13 on #720: PySMACKS runs once and never in
+  CI. The weekly job checks that the file names the downloaded zip's checksum; it cannot run
+  PySMACKS again. Regenerate with:
+
+```sh
+python -m venv .venv-pysmacks
+.venv-pysmacks/bin/python -m pip install "PySMACKS==1.0.0b4"
+QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg .venv-pysmacks/bin/python \
+    scripts/make_pysmacks_reference.py --source <dir-with-the-zip>
+```
+
+A new run changes `generator.run_at`, and so the file's checksum in the manifest.
+
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
 `smd_281mol.hdf5` (the redistributable ≥50-molecule population SMD) and its
