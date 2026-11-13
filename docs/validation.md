@@ -81,6 +81,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
+| (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -140,9 +141,12 @@ every GitHub-hosted runner, so this assertion has never executed in CI. (The wee
 `7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run of
 this enforcing test with `TETHER_UCKOPSB_DIR` pointing at a staged copy of the movie, which
 supplies the `.tdat` detector settings and the 2 px gate; that run is recorded in ADR-0022.
-The `scripts/run_m1_oracle.py` helper does not reproduce that configuration yet
-([#555](https://github.com/bioedca/tether/issues/555)), so it is not the reproduction
-command.
+`scripts/run_m1_oracle.py --data-dir <staged copy>` reproduces the same configuration
+as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
+the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
+and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
+it as not applicable). Its own behaviour is pinned without the movie by
+`tests/test_run_m1_oracle.py`.
 
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
@@ -384,6 +388,55 @@ equally wrong fits cannot see.
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
 > measurement, and no committed test fits `model_type="vbfret"` against it.
 
+### ebFRET against stored ebFRET sessions (report only)
+
+The gate above checks Tether's ebFRET path only against itself. A **report** compares it with
+the MATLAB ebFRET program ([#719](https://github.com/bioedca/tether/issues/719)). The data are
+the 11 ebFRET session files of the MreC-MreD record, Zenodo
+[10.5281/zenodo.13910538](https://doi.org/10.5281/zenodo.13910538) (CC-BY-4.0), packed into
+`tests/fixtures/large/ebfret_mrec_sessions.hdf5` (manifest id `ebfret-mrec-sessions`). Each
+session holds the traces that ebFRET fitted and the result of the fit. For each condition,
+`test_ebfret_path_reports_its_difference_from_stored_ebfret_sessions` fits the same traces with
+`run_ebhmm` (the session's crop, number of states and 2 restarts, seed 1) and prints one table
+to the `sidecar / parity` job log. It compares:
+
+- the state means with the session's empirical-Bayes prior means (`analysis(K).prior.mu`), and
+- the state populations with the session's expected occupancy (`analysis(K).expect.z`, summed
+  over the series), which is the quantity tMAVEN's `frac` is.
+
+The number of states is the one the session shows (`controls.ensemble.value`): 2 for ten
+conditions and 3 for `MreC-N53E-MreD`. The session files do not state the ebFRET version. Their
+settings block has the fields and the defaults of the ebfret-gui `MainWindow`.
+
+**It cannot fail on a number.** Two implementations of one method, with different starting
+points and stopping rules, give no agreement band to hold them to (maintainer decision R6: A,
+[#695](https://github.com/bioedca/tether/issues/695)). The test fails only when the fixture
+cannot be read or a fit does not give a `K`-state `eb HMM`.
+
+Measured on 2026-11-12 (tMAVEN 10f4230, the sidecar lock, seed 1), sorted by state mean:
+
+| Condition | K | Largest \|mean difference\| | Largest \|population difference\| |
+|---|---|---|---|
+| Figure 2 / A29C-T201C | 2 | 0.039 | 0.008 |
+| Figure 2 / A29C-T201C+MreD | 2 | 0.030 | 0.371 |
+| Figure 2 / A33C-T201C | 2 | 0.035 | 0.239 |
+| Figure 2 / A33C-T201C+MreD | 2 | 0.011 | 0.108 |
+| Figure 3 / MreC-F36R-MreD | 2 | 0.008 | 0.096 |
+| Figure 3 / MreC-L39E-F36R-MreD | 2 | 0.120 | 0.100 |
+| Figure 3 / MreC-L39E-MreD | 2 | 0.018 | 0.082 |
+| Figure 3 / MreC-MreD-L59E | 2 | 0.053 | 0.019 |
+| Figure 3 / MreC-MreD-WT | 2 | 0.125 | 0.010 |
+| Figure 3 / MreC-N53E-MreD | 3 | 0.073 | 0.041 |
+| Figure 3 / MreC-N53E-MreD-L59E | 2 | 0.042 | 0.001 |
+
+Two patterns show. Where the two states are close (less than 0.1 FRET apart, as in the four
+Figure 2 conditions and two of Figure 3), the means agree to 0.04 or better but the populations
+can differ by up to 0.37: the split of the frames between two close states is not well
+determined. Where a high-FRET state holds less than 15 % of the frames (the other five
+conditions), the mean of that state differs by 0.04 to 0.13 FRET. This report is evidence about the size
+of the difference. It is not a tolerance, and nothing in `schema/parity_tolerance.json` comes
+from it.
+
 ## (c) Kinetics vs kinSoftChallenge
 
 This oracle is **advisory** and covers the **2-state level 1 dataset only**; see
@@ -402,6 +455,57 @@ than silently score. The primitives are covered by
 `test_fit_gaussian_hmm_recovers_synthetic_states` and
 `test_two_state_rate_constants_recovers_synthetic_rates` on synthetic traces, and the EM
 stop rule by `test_fit_gaussian_hmm_stops_on_the_first_iteration_that_meets_tol`.
+
+### (c) Measured data sets, beside the published results
+
+The kinSoft record also holds five *measured* sets: the two of the paper's Fig. 2 (ACTR binding
+NCBD, confocal, 19 traces, binned at 10 ms and at 1 ms) and the three of its Fig. 5 (SSB binding a
+DNA hairpin, TIRF, 100 ms frames, 134, 163 and 118 traces). Measured data has no ground truth, so
+this check is **advisory**: it shows where Tether's rates lie among the rates that the analyses of
+the challenge reported, and it never gives a pass or a fail on that position.
+[ADR-0082](adr/0082-measured-kinsoft-sets-are-placed-not-scored.md) records the choices.
+
+- **Tether.** The tMAVEN sidecar fits a 2-state consensus VB-HMM with seed 0. The rate of each
+  FRET class is `1/⟨τ⟩` of the pooled Viterbi dwells.
+- **Published.** The kinetic model of each analysis, copied unchanged from Supplementary Data 6,
+  7, 10, 11 and 12 of the paper into `tests/reference_data/kinsoft_published_results.json`, with
+  the sheet name of each model. For Fig. 5 the file holds only the two-FRET-state models, which the
+  paper's Fig. 5 compares. A model with hidden states gives the exit rate of its aggregated class,
+  `1 / mean residence time`. Two models are not compared: one reported no FRET efficiencies, and
+  one reported no rate matrix.
+
+Exit rates in s⁻¹, measured 2026-11-12:
+
+| Set | FRET class | Tether | Published range | Published median | Published below Tether |
+| --- | --- | --- | --- | --- | --- |
+| fig2-10ms | low | 2.743 | 2.340–3.520 | 2.724 | 9 of 14 |
+| fig2-10ms | high | 3.310 | 1.910–3.732 | 3.150 | 12 of 14 |
+| fig2-1ms | low | 2.973 | 2.140–6.110 | 2.900 | 5 of 9 |
+| fig2-1ms | high | 3.594 | 1.500–7.470 | 3.500 | 5 of 9 |
+| fig5-set1 | low | 0.484 | 0.207–0.522 | 0.362 | 5 of 6 |
+| fig5-set1 | high | 0.454 | 0.071–0.669 | 0.331 | 5 of 6 |
+| fig5-set2 | low | 0.658 | 0.339–0.660 | 0.480 | 6 of 7 |
+| fig5-set2 | high | 0.621 | 0.345–0.588 | 0.480 | 7 of 7 |
+| fig5-set3 | low | 0.435 | 0.030–0.443 | 0.366 | 4 of 6 |
+| fig5-set3 | high | 0.323 | 0.022–0.444 | 0.234 | 5 of 6 |
+
+Tether is inside the published range for nine of the ten rates. The high-FRET class of Fig. 5
+set 2 is above it: 0.621 s⁻¹ against a published maximum of 0.588 s⁻¹. The published results
+themselves differ: the paper gives a coefficient of variation of 12 % and 16 % for the two rates
+at 10 ms, and of 33 % and 45 % at 1 ms.
+
+**Enforcing tests.**
+`tests/test_kinsoft_measured.py::test_tether_on_a_measured_set_beside_the_published_results` runs
+in the weekly `reference-data` job, with the sidecar. It prints the position and fails only when
+Tether's fit moves from its frozen `tether_measured` result. In the same job,
+`test_every_copied_number_equals_its_cell_in_the_publisher_spreadsheet` downloads the five
+spreadsheets, checks their SHA-256 and compares each copied number with its cell. On the required
+matrix,
+`test_the_page_shows_tether_beside_the_published_range` keeps the table above equal to the file,
+`test_every_analysis_has_the_shape_of_one_sheet` and
+`test_every_set_names_its_data_and_the_paper_file_its_numbers_come_from` check the copy and its
+sources, and `test_a_class_of_two_hidden_states_exits_at_its_mean_residence_time` checks the
+derivation on a model whose answer is known.
 
 ## (d) Ranker held-out cross-validation
 
@@ -593,6 +697,52 @@ and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
 `test_tether_detector_matches_live_tmaven` and
 `test_tmaven_default_priors_are_the_ones_tether_and_the_helpers_use`.
 
+## (h) Histogram and cross-correlation vs smfret-analysis2
+
+**What is compared.** PRD §1 makes two model-free lenses first-class: the apparent-E histogram
+and the donor–acceptor cross-correlation. Both come from the laboratory's MATLAB scripts,
+smfret-analysis2. The public repository `vafabakhsh-lab/smfret-analysis2` at the commit that
+`scripts/reference/matlab/pins.toml` pins (`121634e9`, 2022-05-20, GPL-3.0) carries 76 trace
+files and the two outputs that its `create_histogram.m` wrote from them, `total_FRET.csv`
+and `total_XC.csv`. [ADR-0084](adr/0084-smfret-analysis2-is-a-reference-at-a-pinned-commit.md)
+records this as a reference.
+
+**Reference data.** The 78 files are committed verbatim under `tests/fixtures/smfret_analysis2/`
+(tier `git`, GPL-3.0-only, one manifest entry each with its SHA-256; the PROVENANCE table of the
+fixtures lists each file with its upstream path). The commit's own scripts reproduce both
+outputs from the traces, so no MATLAB run is needed. A reader that lives only in the tests
+reads the trace files; the product has no importer for them (PRD N4).
+
+**Two exact conversions, no tolerance.** Tether and the script use different conventions in
+two places, and the tests convert each one exactly before they compare:
+
+- *Bin edges.* `hist(fret, -0.2:0.01:1.2)` puts the edges at the midpoints of the centres and
+  closes each bin on the right; `apparent_e_histogram` closes each bin on the left. Only a
+  sample exactly on an edge is binned differently. In these traces there is one sample, at
+  0.375. The test moves each such sample one bin down and requires that there is exactly one.
+- *Cross-correlation normalization.* The script divides the sum at lag k by N − k and by
+  MATLAB's `std`, which divides by N − 1. Tether divides every lag by N and uses the population
+  σ (§7.7, kept by the maintainer). The exact factor from Tether's value to the script's is
+  (N − 1) / (N − k), at Tether's lag −k (the script correlates donor(t) with acceptor(t + k)).
+
+With the conversions, Tether's histogram equals the `raw` column of `total_FRET.csv` and
+Tether's cross-correlation equals `total_XC.csv`, each to 1e-14 absolute: the files write 15
+significant digits, and the rest is float64 round-off of the FFT and of the sums. Measured
+2026-11-12: largest difference 4.4e-16 for the histogram and 3.1e-16 for the cross-correlation. Without the edge rule the histogram misses by 7.5e-6 in the
+0.37 and 0.38 bins; with N / (N − k) as the only factor the cross-correlation misses by more
+than 1e-4.
+
+**Out of scope.** The successive-frame cloud (#710), the smoothed and filtered histogram
+columns, the heat map, trace selection and background subtraction. The files under
+`test-data/ground-truth/` of the same commit are not used: the commit's scripts do not
+reproduce them.
+
+**Enforcing tests** (all unmarked — required 3-OS matrix):
+`tests/test_smfret_analysis2_reference.py::test_tether_histogram_equals_total_fret_raw_column`,
+`test_tether_cross_correlation_equals_total_xc`,
+`test_the_lag_factor_alone_does_not_reach_the_file` and
+`test_the_fixtures_are_the_pinned_commit_of_smfret_analysis2`.
+
 ## External benchmark
 
 Tether's rate constants were compared against the ground truth and the reported inter-tool
@@ -709,6 +859,12 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all. The
   real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.
+- A reference that comes from an ALEX data set compares **apparent FRET from the
+  donor-excitation channels only** — the donor and acceptor intensities under donor
+  excitation. It does not check direct excitation (δ), stoichiometry or any other quantity
+  that needs the acceptor-excitation frames, and so it does not validate them. Tether is
+  single-laser only (PRD N1); the PRD's "What the tests can use" rules (§2.2) allow the
+  ALEX sets at trace level and add no ALEX feature.
 
 **Accepted diagnostics that are not gates.**
 

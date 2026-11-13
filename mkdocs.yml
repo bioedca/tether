@@ -59,7 +59,8 @@ extra_css:
 nav:
   # Two top-level groups, decided on #181 (2026-07-27, confirmed 2026-07-31): what a lab
   # scientist needs, and what only the project and its maintainers act on. Every page under
-  # "Project & maintainers" opens with a reader statement naming the access it needs.
+  # "Project & maintainers" opens with a reader statement naming the access it needs; every
+  # page except Home opens with a "Who this page is for" statement (#587).
   - Using Tether:
       - Home: index.md
       - How Tether works: pipeline.md
@@ -105,6 +106,7 @@ nav:
       - Building the installers: maintainers/building-installers.md
       - Standalone-tMAVEN cross-OS record: maintainers/standalone-tmaven-cross-os-record.md
       - Running the private-data checks: maintainers/workstation-runner.md
+      - Reading the mutation report: maintainers/mutation-testing.md
       - Writing style for documentation: maintainers/writing-style.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays

@@ -14,7 +14,9 @@ instructions rather than reference. These tests pin what makes those pages usabl
   only arguments that the source signature accepts, and every argument it requires, counting
   the keys of a ``dict(...)`` it spreads with ``**``.
 
-Imports are already checked by ``tests/test_docs_examples.py``; this module checks the calls.
+Imports are already checked by ``tests/test_docs_examples.py``, and so are the calls of every
+other docs page (#749); this module pins the six pages, their commands and the calls they make.
+The call reader is shared, in ``tests/_docs_source.py``.
 Nothing under ``tether`` is imported except :mod:`tether.cli`, whose ``build_parser`` needs only
 ``argparse``. Signatures are read from source with :mod:`ast`, so the default matrix runs this
 without SciPy, h5py or Matplotlib.
@@ -32,6 +34,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from _docs_source import check_call, dict_literals, tether_calls
 from tether.cli import build_parser
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,99 +138,13 @@ def test_every_tether_command_parses(name: str, argv: list[str]) -> None:
         pytest.fail(f"{name}: {shlex.join(argv)} does not parse (exit {exc.code})")
 
 
-def _module_tree(dotted: str) -> ast.Module:
-    path = SRC / Path(*dotted.split("."))
-    path = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
-    return ast.parse(path.read_text(encoding="utf-8"))
-
-
-def _top_level(tree: ast.Module, name: str) -> ast.AST | None:
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name == name:
-            return node
-    return None
-
-
-def _check_call(
-    call: ast.Call, func: ast.FunctionDef, *, bound: bool, spreads: dict[str, list[str]]
-) -> list[str]:
-    args = func.args
-    positional = [a.arg for a in args.posonlyargs + args.args][1 if bound else 0 :]
-    keyword_ok = set(positional[len(args.posonlyargs) :]) | {a.arg for a in args.kwonlyargs}
-    problems = []
-    if args.vararg is None and len(call.args) > len(positional):
-        problems.append(f"{len(call.args)} positional arguments, at most {len(positional)}")
-    given = set(positional[: len(call.args)])
-    names = []
-    for kw in call.keywords:
-        if kw.arg is not None:
-            names.append(kw.arg)
-        elif isinstance(kw.value, ast.Name) and kw.value.id in spreads:
-            names += spreads[kw.value.id]
-        else:
-            problems.append("a ** argument whose keys the page does not spell out")
-    for arg in names:
-        if arg not in keyword_ok and args.kwarg is None:
-            problems.append(f"no parameter {arg!r}")
-        given.add(arg)
-    n_pos_defaults = len(args.defaults)
-    required = positional[: len(positional) - n_pos_defaults] + [
-        a.arg for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=True) if d is None
-    ]
-    problems += [f"missing {r!r}" for r in required if r not in given]
-    return problems
-
-
-def _dict_literals(tree: ast.Module) -> dict[str, list[str]]:
-    """``name = dict(k=...)`` assignments, so ``f(**name)`` can be checked key by key."""
-    found = {}
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and isinstance(node.value, ast.Call)
-            and isinstance(node.value.func, ast.Name)
-            and node.value.func.id == "dict"
-            and not node.value.args
-        ):
-            found[node.targets[0].id] = [kw.arg for kw in node.value.keywords]
-    return found
-
-
-def _python_calls() -> list[tuple[str, str, ast.Call, ast.FunctionDef, bool, dict]]:
+def _python_calls() -> list[tuple[str, str, ast.Call, ast.FunctionDef | None, bool, dict]]:
     found = []
     for name in PAGES:
         for code in _fences(name, _PYTHON_LANGS):
             tree = ast.parse(re.sub(r"^(>>> |\.\.\. )", "", code, flags=re.M))
-            spreads = _dict_literals(tree)
-            imported = {
-                alias.asname or alias.name: node.module
-                for node in ast.walk(tree)
-                if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("tether")
-                for alias in node.names
-            }
-            for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
-                target, bound, label = None, False, None
-                if isinstance(call.func, ast.Name) and call.func.id in imported:
-                    target = _top_level(_module_tree(imported[call.func.id]), call.func.id)
-                    label = call.func.id
-                elif (
-                    isinstance(call.func, ast.Attribute)
-                    and isinstance(call.func.value, ast.Name)
-                    and call.func.value.id in imported
-                ):
-                    owner = _top_level(
-                        _module_tree(imported[call.func.value.id]), call.func.value.id
-                    )
-                    assert isinstance(owner, ast.ClassDef), (name, call.func.value.id)
-                    target = _top_level(
-                        ast.Module(body=owner.body, type_ignores=[]), call.func.attr
-                    )
-                    bound, label = True, f"{call.func.value.id}.{call.func.attr}"
-                if label is None:
-                    continue
-                assert isinstance(target, ast.FunctionDef), (name, label)
+            spreads = dict_literals(tree)
+            for label, call, target, bound in tether_calls(SRC, tree):
                 found.append((name, label, call, target, bound, spreads))
     return found
 
@@ -257,4 +174,5 @@ def test_the_pages_call_tether() -> None:
     ids=lambda v: v if isinstance(v, str) else "",
 )
 def test_every_tether_call_matches_its_signature(name, label, call, func, bound, spreads) -> None:
-    assert _check_call(call, func, bound=bound, spreads=spreads) == [], (name, label)
+    assert func is not None, f"{name}: {label} names no def in the source"
+    assert check_call(call, func, bound=bound, spreads=spreads) == [], (name, label)

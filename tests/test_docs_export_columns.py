@@ -267,16 +267,14 @@ def test_documented_columns_match_the_frozen_tuple_exactly() -> None:
     assert [row[0] for row in _column_table_rows()] == _frozen_columns()
 
 
-def test_column_table_row_count() -> None:
-    """The table has one data row per column and no stragglers."""
-    assert len(_column_table_rows()) == len(_frozen_columns())
+def test_an_escaped_pipe_stays_inside_its_cell() -> None:
+    """The ``molecule_key`` formula's escaped ``\\|`` is read as text, not as a cell border.
 
-
-def test_column_table_parses_all_four_cells() -> None:
-    """Every row has the complete public contract, including escaped Markdown pipes."""
-    rows = _column_table_rows()
-    assert all(len(row) == len(_TABLE_HEADER) for row in rows)
-    assert r"\|" in rows[1][2]  # molecule_key formula contains an escaped pipe
+    The row count and the four-cell shape are not asserted here: the first follows from
+    :func:`test_documented_columns_match_the_frozen_tuple_exactly`, and
+    :func:`_column_table_rows` already asserts the second for every row it returns (#749).
+    """
+    assert r"\|" in _column_table_rows()[1][2]
 
 
 def test_documented_csv_types_match_dtype_or_explicit_exception() -> None:

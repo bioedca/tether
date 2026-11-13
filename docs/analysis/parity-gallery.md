@@ -1,5 +1,9 @@
 # Seven-plot parity gallery
 
+**Who this page is for.** Anyone who used tMAVEN's analysis plots and wants to find the same
+plot in Tether, or check that the two agree. It assumes you know the tMAVEN plot types. It
+does not assume you know Tether's code.
+
 This page documents **plot and feature parity** with tMAVEN for the
 [analysis stage](../pipeline.md#analyze) — which plots exist and how
 they correspond — **not** numerical accuracy. For the accuracy evidence (the seven
@@ -33,8 +37,8 @@ render without a model. Terms used throughout this page are defined in the
 > job: `tests/test_analysis_plots_sidecar.py` calls each tMAVEN routine named below at the pinned commit
 > on the committed 281-molecule SMD and its consensus model, and compares the arrays that feed
 > the plot with Tether's **and** with each embedded in-test copy (#707). A port must be equal;
-> a re-derivation, and A2b on Tether's windowed rows, must stay inside a measured limit frozen
-> in `schema/plot_parity_limits.json`.
+> a re-derivation, and A2b on Tether's windowed rows against what the tMAVEN app plots, must
+> stay inside a measured limit frozen in `schema/plot_parity_limits.json`.
 > Where Tether persists a single shared consensus model instead of tMAVEN's independent
 > per-trace fits, the plot is re-derived from the stored Viterbi paths rather than ported
 > line-for-line — those cases are called out per plot as *re-derivations*, not *ports*.
@@ -158,11 +162,11 @@ sync = population_transition_sync_histogram2d(project, "vbconhmm",      # any �
 
 **Parity evidence.**
 
-- `tests/test_analysis_histogram_postsync.py` — the definitive A2b parity test embeds `_tmaven_postsync` (`gen_sync_list_single` / `gen_sync_list_fixed` + `histogram_sync_list` ported verbatim) and asserts `np.testing.assert_array_equal(h.counts, ref)` plus `n_molecules == nmol` and `n_transitions == npoints` across `single_dwell ∈ {True, False}` and five `(from, to)` state pairs, and for `single_dwell=True` also with 20- and 40-column windows whose `sync_preframe` is longer than every dwell, so the left limit of the single-dwell window (the frame after the previous transition) decides the result; also checks that `time_dt` scales the time axis and leaves the counts unchanged, `xbins+1` columns with the transition at `sync_preframe`, right-open signal interval, out-of-range-still-counts, `NO_STATE` borders are not jumps, and density integrates to 1.
+- `tests/test_analysis_histogram_postsync.py` — the definitive A2b parity test embeds `_tmaven_postsync` (`gen_sync_list_single` / `gen_sync_list_fixed` + `histogram_sync_list` ported verbatim) and asserts `np.testing.assert_array_equal(h.counts, ref)` plus `n_molecules == nmol` and `n_transitions == npoints` across `single_dwell ∈ {True, False}` and five `(from, to)` state pairs, and for `single_dwell=True` also with 20- and 40-column windows whose `sync_preframe` is longer than every dwell, so the left limit of the single-dwell window (the frame after the previous transition) decides the result (the oracle's rows run one NaN frame past every window, so no trailing window reaches the movie end, the one frame where the two differ; see the movie-end item below); a hand-made trace pins that a trailing dwell keeps the window's final frame and a dwell that ends at a jump does not (#806); also checks that `time_dt` scales the time axis and leaves the counts unchanged, `xbins+1` columns with the transition at `sync_preframe`, right-open signal interval, out-of-range-still-counts, `NO_STATE` borders are not jumps, and density integrates to 1.
 - `tests/test_analysis_histogram2d.py` — A2 raw-mode faithfulness to `histogram_raw`-after-`sync_start`; `test_population_defaults_match_tmaven_a2` pins the 100×61 grid over `[-0.2, 1.2]` with `time_dt=1`, and `test_population_start_synchronization_via_analysis_window` confirms per-molecule start-synchronization.
-- `tests/test_analysis_plots_sidecar.py` (live) — `data_hist2d.get_data`: the raw / start-synchronized heatmap is equal (tMAVEN allocates one more, always-empty time row). Post-sync: given tMAVEN's own rectangular rows, Tether's heatmap is equal for every selection and both window shapes, both to `gen_sync_list_*` + `histogram_sync_list` and to what the app plots. On Tether's windowed rows two measured gaps remain, frozen in `schema/plot_parity_limits.json` (largest total-variation distance 0.0061 against the routine, 0.067 against the app):
-    - tMAVEN's single-dwell window ends at the movie's last frame, so on a trace whose window photobleaching ended earlier it keeps that window's final frame; Tether drops it, as both do at a jump. Fixed windows are equal.
-    - The model tMAVEN holds pads its integer state path with 0 outside each window, so the app also synchronizes on window borders as if they were jumps. Tether's `NO_STATE` border is never a jump.
+- `tests/test_analysis_plots_sidecar.py` (live) — `data_hist2d.get_data`: the raw / start-synchronized heatmap is equal (tMAVEN allocates one more, always-empty time row). Post-sync: given tMAVEN's own rectangular rows, Tether's heatmap is equal for every selection and both window shapes, both to `gen_sync_list_*` + `histogram_sync_list` and to what the app plots. On Tether's windowed rows it is equal to the routine too (#806): a trailing single-dwell window keeps the final frame of the analysis window, as tMAVEN does on a trace whose window photobleaching ended early, and a dwell that ends at a jump still stops before the jump's frame in both. One deliberate difference remains against the app, measured and frozen in `schema/plot_parity_limits.json` (largest total-variation distance 0.068):
+    - **Window borders (deliberate).** The model the tMAVEN app holds pads its integer state path with 0 outside each window, so the app synchronizes on window borders as if they were jumps, and it also drops the final window frame of a trailing dwell because it sees the window end as a jump. Tether keeps its rule: a window border is not a state change, and the 0-padding is a property of how the app stores the model, not of the method. Tether's `NO_STATE` border is never a jump.
+    - **Movie end (deliberate).** tMAVEN ends a trailing single-dwell window at the movie's last frame index, exclusive, so when a window runs to the movie end it drops that window's final frame. Tether keeps it, by the same rule as above. The two differ by that one frame only when it lands inside the time columns; on the committed 281-molecule fixture it never does, and `test_single_dwell_trailing_frame_differs_from_tmaven_only_at_movie_end` pins the case. [ADR-0085](../adr/0085-a-trailing-dwell-keeps-the-last-window-frame.md) records both choices.
 
 ---
 
