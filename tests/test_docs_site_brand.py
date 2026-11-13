@@ -20,7 +20,11 @@ heading font and new images, so these tests keep that sentence true:
   does not install MkDocs. With the variable set, a missing folder fails.
 
 What a static scan sees is the HTML and CSS that a browser fetches without running code.
-Requests that the theme's JavaScript makes are outside it.
+Requests that the theme's JavaScript makes are outside it. The one such request is the header's
+repository facts, which Material asks ``api.github.com`` for because ``repo_url`` names a GitHub
+repository. The privacy page names it. The last test here keeps it named while the header
+still asks, and the built-site scan checks that the header still has the component that
+asks (#761).
 
 Stdlib plus PyYAML (base lock and the docs toolchain both carry it).
 """
@@ -39,6 +43,7 @@ import yaml
 _REPO = Path(__file__).resolve().parents[1]
 DOCS = _REPO / "docs"
 OVERRIDES = _REPO / "overrides"
+PRIVACY = DOCS / "privacy.md"
 FONTS = DOCS / "assets" / "fonts"
 GUI_FONTS = _REPO / "src" / "tether" / "gui" / "assets" / "brand" / "fonts"
 FONT_FILES = ("RedHatDisplay-Medium.ttf", "RedHatDisplay-Bold.ttf")
@@ -281,6 +286,13 @@ def test_the_built_site_loads_nothing_from_another_host(built_site: Path) -> Non
     files = sorted(built_site.rglob("*.html")) + sorted(built_site.rglob("*.css"))
     assert len(files) > 50, len(files)
     assert _foreign(files, built_site) == {}
+    # The one request the scan cannot see starts at the header's source component, which
+    # asks the GitHub API for the repository facts. docs/privacy.md names it (#761).
+    home = (built_site / "index.html").read_text(encoding="utf-8")
+    source = r'<a href="([^"]*)"[^>]*class="md-source"[^>]*data-md-component="source"'
+    match = re.search(source, home)
+    assert match, "the header has no source component; revisit docs/privacy.md"
+    assert match.group(1) == _config()["repo_url"]
 
 
 def test_the_built_site_uses_the_brand_on_every_page(built_site: Path) -> None:
@@ -302,3 +314,42 @@ def test_the_built_site_uses_the_brand_on_every_page(built_site: Path) -> None:
     built_css = built_site / "stylesheets" / "site.css"
     for url in css_loads(built_css.read_text(encoding="utf-8")):
         assert (built_css.parent / url).resolve().is_file(), url
+
+
+# --- Requests that the theme's JavaScript makes (#761) -----------------------------------------
+
+
+def _site_section_of_privacy() -> str:
+    text = PRIVACY.read_text(encoding="utf-8")
+    _, found, rest = text.partition("\n## The documentation website\n")
+    assert found, "docs/privacy.md has no section 'The documentation website'"
+    return rest.split("\n## ", 1)[0]
+
+
+def _header_asks_the_github_api() -> str | None:
+    """``owner/repo`` when Material's header asks the GitHub API for the repository facts.
+
+    Material 9.8 (``requirements-docs.txt``) renders ``partials/source.html`` with
+    ``data-md-component="source"`` when ``repo_url`` is set, and its JavaScript then fetches
+    ``https://api.github.com/repos/<owner>/<repo>`` and ``.../releases/latest`` for a
+    ``github.com`` URL. An override of that partial, or an ``extra.consent`` block, changes it.
+    """
+    config = _config()
+    repo = urlsplit(config.get("repo_url", ""))
+    if repo.hostname != "github.com":
+        return None
+    assert not (OVERRIDES / "partials" / "source.html").exists(), "revisit docs/privacy.md"
+    assert "consent" not in (config.get("extra") or {}), "revisit docs/privacy.md"
+    return repo.path.strip("/").removesuffix(".git")
+
+
+def test_the_privacy_page_names_the_github_api_requests_of_the_header() -> None:
+    section = _site_section_of_privacy()
+    repository = _header_asks_the_github_api()
+    assert repository == "bioedca/tether"
+    api = f"https://api.github.com/repos/{repository}"
+    assert "`api.github.com`" in section
+    for url in (api, f"{api}/releases/latest"):
+        assert f"`{url}`" in section, url
+    # The asset claim stays: the static scans above keep it true.
+    assert "**no third-party asset requests**" in section
