@@ -41,7 +41,7 @@ set, the GitHub social preview (1280 × 640), the larger installer images and th
 
 The maintainer approved the kit as the archive `tether-brand-kit.zip` (SHA-256
 `3e5f778351bae83831397d8d22d53b0d651193067788d6f2ff1d86858f4f8409`, 2026-11-10). With the
-versions above, `build.py` makes the 129 files of that archive again, byte for byte, with two
+versions above, `build.py` makes the 129 files of that archive again, byte for byte, with three
 deliberate changes:
 
 1. **The 16 px icon is fitted to the pixel grid.** At 16 px the curves of the tiny mark fall
@@ -53,6 +53,12 @@ deliberate changes:
    `build.py` writes that image again on each run.
 2. **The font license file is the upstream file.** The archive's `OFL-1.1.txt` had a
    rewritten copyright line. The repository keeps the upstream `OFL.txt` instead.
+3. **The 1200 × 630 social card fits its canvas** (#683). `social()` draws the mark, the word
+   and the tagline for the 1280 × 640 GitHub social preview. At 1200 px the tagline ran past
+   the right edge. `social()` now scales that group by the smaller of the two ratios of the
+   canvas to 1280 × 640 (never above 1) and keeps it centred, so the social card has a right
+   margin in proportion to the preview. This changes one file, `social-card-1200x630.png`.
+   The 1280 × 640 preview does not change.
 
 One more difference is in the copy step only, not in the kit: the SVGs in
 `docs/assets/brand/` that `docs/brand.md` shows get a `width` and a `height` (`PAGE_PX` in

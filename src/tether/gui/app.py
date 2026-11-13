@@ -26,6 +26,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from tether import __version__
+from tether.gui.env_path import put_env_folders_first
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.gui.shell import TetherShell
@@ -120,12 +121,19 @@ def create_shell(
     return app, shell
 
 
-def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - Qt event loop
+def main(argv: Sequence[str] | None = None) -> int:
     """Open the Tether shell and run until the window closes.
+
+    First, on Windows, it puts the env's own DLL folders at the front of ``PATH``
+    (:func:`tether.gui.env_path.put_env_folders_first`, issue #579), before PySide6 or
+    NumPy loads. That is the step ``bin\\tether-gui.bat`` used to be needed for (issue
+    #553), so the Start Menu shortcut can start the console-less ``tether-gui.exe``
+    directly and no console window flashes (ADR-0076).
 
     Returns the Qt exit status, so ``tether-gui`` propagates a non-zero code the way a
     console entry point is expected to.
     """
+    put_env_folders_first()
     app, shell = create_shell(argv)
     shell.show()
     return int(app.exec())

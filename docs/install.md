@@ -225,7 +225,9 @@ Windows PowerShell. To start the desktop application:
   `C:\Users\<you>\Tether\bin\tether-gui.bat`. The rc3 installer creates a **Tether** Start menu
   shortcut, but Start does not show it
   ([#578](https://github.com/bioedca/tether/issues/578), fixed for the next release). If you
-  find a **Tether** entry in the Start menu, you can also choose it there.
+  find a **Tether** entry in the Start menu, you can also choose it there. From the next
+  release, that entry also opens no console window
+  ([#579](https://github.com/bioedca/tether/issues/579)).
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
   (A desktop that was already running may only show the menu entry after you log out and back
   in.)
