@@ -1,7 +1,12 @@
 # Legacy Deep-LASI import
 
-Tether re-analyses an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*
-(PRD §7.8). The import path reads the legacy file set — the raw movie, the
+**Who this page is for.** A lab scientist who has an acquisition that Deep-LASI already
+processed and who wants to analyze it in Tether without extracting the traces again. It
+assumes you have a Deep-LASI export and know its file types. It does not assume you know
+Tether's code.
+
+Tether re-analyses an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*.
+The import path reads the legacy file set — the raw movie, the
 [`TIRFdata`](../glossary.md#tirfdata-mcos-refs)
 [`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the
 `…-donc-accc-w.txt`, and the tMAVEN [SMD](../glossary.md#smd) —
@@ -11,7 +16,7 @@ Tether correction-factor remap, and writes a `.tether` project store.
 Whether that project is **round-trip-ready** (linked to a movie, browsable/curatable with
 spot & overlap views) or **analysis-only** (idealization, histograms, TDP, kinetics — but
 no movie round-trip) is decided by *which files are present*, and above all by whether any
-of them carries pixel coordinates. This page is the single reference that ties that decision
+of them carries pixel coordinates. This page is the single reference (PRD §7.8) that ties that decision
 to the on-disk formats (the **coordinate-availability matrix**, PRD Appendix A), the
 **correction-factor remap** (PRD Appendix B.1), and the shipped module behind each stage.
 
@@ -192,7 +197,7 @@ acquisition — **reconstruct** (needs a movie **and** a `.mat` trace source), e
 validated mutators that raise `WizardError` on an unsupported change. `finalize()` freezes a
 `WizardPlan` once at least one acquisition is runnable with no output-name collision, and
 `execute_plan` writes one `.tether` per acquisition (fail-soft by default, continuing past a
-bad file). The `&Legacy → Import Deep-LASI bundle…` shell action runs the dialog, reports the
+bad file). The **Import → Deep-LASI bundle…** shell action (the menu was named "Legacy" before #629) runs the dialog, reports the
 written paths, and — when exactly one project was produced — opens it live via
 `TetherShell.load_project` for browse / curate / idealize; `load_project` does every fallible
 read before mutating shell state, so a bad open leaves the prior project in place.

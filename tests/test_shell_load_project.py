@@ -1534,9 +1534,9 @@ def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_file_menu_exposes_open_action(shell) -> None:
-    labels = [a.text() for a in shell.file_menu.actions()]
-    assert labels == ["&Open project…"]
+def test_file_menu_exposes_open_close_and_quit(shell) -> None:
+    labels = [a.text() for a in shell.file_menu.actions() if not a.isSeparator()]
+    assert labels == ["&Open project…", "&Close project", "&Quit"]
 
 
 def test_file_menu_open_action_opens_the_picked_project(shell, tmp_path, monkeypatch) -> None:

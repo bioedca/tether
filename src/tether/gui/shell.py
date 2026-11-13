@@ -19,6 +19,11 @@ Two companion dialogs complete the §7.3 contract:
 * :class:`CheatSheetOverlay` renders the shipped, always-current keyboard
   cheat-sheet from the live :class:`~tether.gui.curation.Keymap`.
 
+The shell also carries the desktop basics (#629): File → Close project and Quit
+with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
+log folder, and the About box of :mod:`tether.gui.about`), opening a dropped
+``.tether`` file, and the :mod:`tether.gui.start_page` shown while nothing is loaded.
+
 All three are **composition** wrappers (they *hold* a Qt widget rather than
 subclass one) so importing this module costs no Qt, matching the rest of
 ``tether.gui``. Qt is imported lazily inside ``__init__``.
@@ -180,6 +185,37 @@ def _probe_project_writable(path: str | Path) -> None:
 
     with h5py.File(path, "r+"):
         pass
+
+
+def _set_standard_shortcuts(action: Any, standard_key: Any, fallback: str) -> None:
+    """Give ``action`` the platform's keys for ``standard_key`` plus ``fallback``.
+
+    Qt's per-platform table leaves gaps: Quit has no key on Windows, and on a generic
+    Linux desktop only the dedicated Exit key. ``fallback`` (the common ``Ctrl``
+    chord, ``Cmd`` on macOS) is added when the table does not already hold it, so
+    every action stays reachable from an ordinary keyboard.
+    """
+    from pyqtgraph.Qt import QtGui
+
+    keys = list(QtGui.QKeySequence.keyBindings(standard_key))
+    extra = QtGui.QKeySequence(fallback)
+    if all(key.toString() != extra.toString() for key in keys):
+        keys.append(extra)
+    action.setShortcuts(keys)
+
+
+def _local_paths(mime: Any) -> list[Path]:
+    """The local files a drag carries (``[]`` for text, remote URLs, or no URLs)."""
+    if mime is None or not mime.hasUrls():
+        return []
+    return [Path(url.toLocalFile()) for url in mime.urls() if url.isLocalFile()]
+
+
+def _quit_application() -> None:  # pragma: no cover - ends the process's event loop
+    """Quit the running ``QApplication`` (a seam, so tests can observe File → Quit)."""
+    from pyqtgraph.Qt import QtWidgets
+
+    QtWidgets.QApplication.quit()
 
 
 class OverflowCategoryPicker:
@@ -426,9 +462,23 @@ class TetherShell:
         self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
         self._histogram_refresh_timer.timeout.connect(self._run_queued_histogram_refresh)
 
-        # Central surface: the pyqtgraph trace dock.
+        # Central surface: the pyqtgraph trace dock, behind the start page that shows
+        # while no project is open and no molecules are loaded (#629).
+        from tether.gui.start_page import StartPage
+
         self._trace_dock = TraceDock()
-        self._window.setCentralWidget(self._trace_dock.widget)
+        # The path of the project load_project opened, or None (no project open).
+        self._project_path: Path | None = None
+        self._start_page = StartPage(
+            on_open=lambda: self._open_project_dialog(),
+            on_tutorial=self.open_tutorial,
+        )
+        self._central = QtWidgets.QStackedWidget()
+        self._central.addWidget(self._start_page.widget)
+        self._central.addWidget(self._trace_dock.widget)
+        self._window.setCentralWidget(self._central)
+        # A .tether file dropped anywhere on the window opens it (#629).
+        self._window.setAcceptDrops(True)
 
         # Left browser panel: movie switcher + molecule list + editable category
         # field. The category field is the text-entry exempt from the keymap.
@@ -492,10 +542,24 @@ class TetherShell:
         # application-wide shortcut filter never outlive the visible shell.
         outer = self
 
+        drag_events = (QtCore.QEvent.Type.DragEnter, QtCore.QEvent.Type.DragMove)
+
         class _WindowCloseFilter(QtCore.QObject):
             def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802
-                if event.type() == QtCore.QEvent.Type.Close:
+                event_type = event.type()
+                if event_type == QtCore.QEvent.Type.Close:
                     outer._close(close_window=False)
+                elif event_type in drag_events and _local_paths(event.mimeData()):
+                    # Accept any local file so the drop arrives and a wrong type gets
+                    # its one refusal message (rather than a silent no-entry cursor).
+                    event.acceptProposedAction()
+                    return True
+                elif event_type == QtCore.QEvent.Type.Drop:
+                    paths = _local_paths(event.mimeData())
+                    if paths:
+                        event.acceptProposedAction()
+                        outer.open_dropped(paths)
+                        return True
                 return False
 
         self._window_close_filter = _WindowCloseFilter(self._window)
@@ -509,9 +573,22 @@ class TetherShell:
         # File menu: open a produced/extracted .tether live in this shell for
         # curation + one-click idealize — the store<->shell hookup (§7.8, FR-LEGACY;
         # the general capability the M7 Deep-LASI wizard hands off into).
+        # Open / Close project / Quit carry the platform's standard keys (#629); every
+        # one has a modifier, so none shadows a bare curation key (§7.3).
+        std = QtGui.QKeySequence.StandardKey
         self._file_menu = self._window.menuBar().addMenu("&File")
         self._act_open_project = self._file_menu.addAction("&Open project…")
+        _set_standard_shortcuts(self._act_open_project, std.Open, "Ctrl+O")
         self._act_open_project.triggered.connect(self._open_project_dialog)
+        self._act_close_project = self._file_menu.addAction("&Close project")
+        _set_standard_shortcuts(self._act_close_project, std.Close, "Ctrl+W")
+        self._act_close_project.triggered.connect(self.close_project)
+        self._act_close_project.setEnabled(False)
+        self._file_menu.addSeparator()
+        self._act_quit = self._file_menu.addAction("&Quit")
+        _set_standard_shortcuts(self._act_quit, std.Quit, "Ctrl+Q")
+        self._act_quit.setMenuRole(QtGui.QAction.MenuRole.QuitRole)
+        self._act_quit.triggered.connect(self.quit)
 
         # Help / overflow actions (menu + the shipped cheat-sheet).
         self._cheatsheet = CheatSheetOverlay(self._keymap, parent=self._window)
@@ -543,11 +620,12 @@ class TetherShell:
         self._act_validate_conditions = self._conditions_menu.addAction("Validate &conditions…")
         self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
 
-        # Legacy menu: the M7 Deep-LASI re-analysis entry point — import a folder of
-        # Deep-LASI acquisition files (movie + .tdat/.mat/.txt/SMD) into round-trip
-        # or analysis-only .tether projects through the wizard (§7.8, FR-LEGACY).
-        self._legacy_menu = self._window.menuBar().addMenu("&Legacy")
-        self._act_import_deeplasi = self._legacy_menu.addAction("&Import Deep-LASI bundle…")
+        # Import menu (FR-LEGACY in the PRD and the code): the M7 Deep-LASI
+        # re-analysis entry point — import a folder of Deep-LASI acquisition files
+        # (movie + .tdat/.mat/.txt/SMD) into round-trip or analysis-only .tether
+        # projects through the wizard (§7.8). Named for what it does (#629).
+        self._legacy_menu = self._window.menuBar().addMenu("&Import")
+        self._act_import_deeplasi = self._legacy_menu.addAction("&Deep-LASI bundle…")
         self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
 
         # View menu: View -> Theme -> System / Light / Dark (#675). The choice lasts
@@ -565,6 +643,25 @@ class TetherShell:
             self._theme_actions[value] = action
         self._theme_menu.aboutToShow.connect(self._sync_theme_menu)
         self._sync_theme_menu()
+
+        # Help menu (#629): the installed version's documentation, the shortcut
+        # cheat-sheet (the same action as Curation's), the log folder once a log
+        # exists, and the About box with the build a bug report needs.
+        self._help_menu = self._window.menuBar().addMenu("&Help")
+        self._act_documentation = self._help_menu.addAction("&Documentation")
+        _set_standard_shortcuts(self._act_documentation, std.HelpContents, "F1")
+        self._act_documentation.triggered.connect(self.open_documentation)
+        self._act_shortcuts = act_help
+        self._help_menu.addAction(act_help)
+        self._act_log_folder = self._help_menu.addAction("Open &log folder")
+        self._act_log_folder.triggered.connect(self.open_log_folder)
+        self._help_menu.aboutToShow.connect(self._sync_help_menu)
+        self._help_menu.addSeparator()
+        self._act_about = self._help_menu.addAction("&About Tether")
+        self._act_about.setMenuRole(QtGui.QAction.MenuRole.AboutRole)
+        self._act_about.triggered.connect(self.show_about)
+        self._about: Any | None = None
+        self._sync_help_menu()
 
         # Interface icons (#677): each menu item that has an icon in the brand kit
         # shows it beside its text (never instead of it), in the active theme.
@@ -590,6 +687,7 @@ class TetherShell:
         self._window.statusBar().addPermanentWidget(self._busy_indicator)
 
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
+        self._sync_start_page()
 
     # --- accessors -----------------------------------------------------------
 
@@ -708,6 +806,10 @@ class TetherShell:
             self._molecule_list.addItem(trace.name or f"mol-{i}")
         if self._traces:
             self._molecule_list.setCurrentRow(0)
+        else:
+            self._current_index = -1
+            self._trace_dock.clear()
+        self._sync_start_page()
 
     def _on_list_row_changed(self, row: int) -> None:
         if 0 <= row < len(self._traces):
@@ -777,7 +879,7 @@ class TetherShell:
 
     @property
     def file_menu(self) -> QtWidgets.QMenu:
-        """The ``&File`` menu (open a ``.tether`` project live in the shell)."""
+        """The ``&File`` menu (open or close a ``.tether`` project, and quit)."""
         return self._file_menu
 
     def _set_read_only_reason(self, reason: str | None) -> None:
@@ -1015,6 +1117,8 @@ class TetherShell:
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
+        self._project_path = Path(proj_path)
+        self._act_close_project.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
@@ -1219,6 +1323,135 @@ class TetherShell:
             self._status("Open project cancelled")
             return
         self.load_project(path)
+
+    def open_dropped(self, paths: list[Path]) -> Project | None:
+        """Open one dropped ``.tether`` file through :meth:`load_project` (#629).
+
+        Anything else — another file type, or more than one file — is refused with
+        one status message and opens nothing.
+        """
+        if len(paths) != 1:
+            self._status("Drop refused: drop one .tether project file at a time")
+            return None
+        path = paths[0]
+        if path.suffix.lower() != ".tether":
+            self._status(f"Drop refused: {path.name} is not a .tether project file")
+            return None
+        return self.load_project(path)
+
+    @property
+    def project_path(self) -> Path | None:
+        """The path of the open project, or ``None`` when no project is open."""
+        return self._project_path
+
+    def close_project(self) -> bool:
+        """Close the open project and release its session lock; show the start page.
+
+        Refused (returns ``False`` with a status message) while idealization owns the
+        store, as :meth:`load_project` is. The lock release takes the same nonce-safe
+        route as a lock-loss fallback: a transient failure keeps the handle and the
+        release timer retries it.
+        """
+        if self._project_path is None:
+            self._status("Close project: no project is open")
+            return False
+        if self._idealize_future is not None:
+            self._status("Close project unavailable: wait for idealization to finish")
+            return False
+        name = self._project_path.name
+        self._reject_active_conditions_dialog()
+        self._lock_refresh_timer.stop()
+        self._curation_project = None
+        self._set_read_only_reason(None)
+        self._idealizer = None
+        self._handoff = None
+        self._histogram_seam = None
+        self._overlap_seam = None
+        self._conditions = None
+        self._reset_store_docks()
+        self._project_path = None
+        self._act_close_project.setEnabled(False)
+        self.set_molecules([])
+        self._retry_session_release()
+        self._status(f"Closed {name}")
+        return True
+
+    def quit(self) -> None:
+        """Close the shell — releasing the session lock as a window close does — and quit."""
+        self.close()
+        _quit_application()
+
+    # --- start page + Help menu (#629) -------------------------------------
+
+    @property
+    def start_page(self) -> Any:
+        """The :class:`~tether.gui.start_page.StartPage` shown while nothing is loaded."""
+        return self._start_page
+
+    @property
+    def start_page_visible(self) -> bool:
+        """Whether the start page, not the trace dock, fills the window."""
+        return self._central.currentWidget() is self._start_page.widget
+
+    def _sync_start_page(self) -> None:
+        empty = self._project_path is None and not self._traces
+        self._central.setCurrentWidget(
+            self._start_page.widget if empty else self._trace_dock.widget
+        )
+
+    @property
+    def help_menu(self) -> QtWidgets.QMenu:
+        """The ``&Help`` menu (documentation, shortcuts, log folder, About)."""
+        return self._help_menu
+
+    def _sync_help_menu(self) -> None:
+        from tether.gui import about
+
+        self._act_log_folder.setVisible(about.log_folder() is not None)
+
+    def open_documentation(self) -> bool:
+        """Open the installed version's documentation in the web browser."""
+        from tether.gui import about
+
+        url = about.docs_url()
+        opened = about.open_external(url)
+        self._status(f"Opened {url}" if opened else f"Could not open {url}")
+        return opened
+
+    def open_tutorial(self) -> bool:
+        """Open the tutorial of the installed version's documentation."""
+        from tether.gui import about
+
+        url = about.docs_url(page="tutorial/")
+        opened = about.open_external(url)
+        self._status(f"Opened {url}" if opened else f"Could not open {url}")
+        return opened
+
+    def open_log_folder(self) -> bool:
+        """Open the log folder in the file manager, when it exists."""
+        from pyqtgraph.Qt import QtCore
+
+        from tether.gui import about
+
+        folder = about.log_folder()
+        if folder is None:
+            self._status("No log folder yet")
+            return False
+        opened = about.open_external(QtCore.QUrl.fromLocalFile(str(folder)).toString())
+        self._status("Opened the log folder" if opened else "Could not open the log folder")
+        return opened
+
+    def show_about(self) -> Any:
+        """Show the About box (version, commit, the three stacks, and **Copy**)."""
+        from tether.gui.about import AboutDialog
+
+        # A fresh box each time, so the sidecar line follows a changed environment.
+        if self._about is not None:
+            self._about.dialog.close()
+            self._about.dialog.deleteLater()
+        self._about = AboutDialog(parent=self._window)
+        self._about.show()
+        return self._about
 
     # --- dialogs -------------------------------------------------------------
 
@@ -1442,7 +1675,7 @@ class TetherShell:
 
     @property
     def legacy_menu(self) -> QtWidgets.QMenu:
-        """The ``&Legacy`` menu (Deep-LASI bundle re-analysis import, §7.8)."""
+        """The ``&Import`` menu (FR-LEGACY: Deep-LASI bundle re-analysis import, §7.8)."""
         return self._legacy_menu
 
     def _new_deeplasi_dialog(self) -> Any:  # pragma: no cover - builds the real dialog
