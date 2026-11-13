@@ -1217,7 +1217,12 @@ class TetherShell:
 
     @property
     def lock_release_pending(self) -> bool:
-        """``True`` while a session or rollback lock release failed and a retry is due."""
+        """``True`` while a session or rollback lock still waits on the release-retry timer.
+
+        Not only a failure signal: the timer also runs, for example, after
+        :meth:`close` deferred the release because an idealization still writes to
+        the project, as well as after a release attempt failed.
+        """
         return bool(self._lock_release_timer.isActive())
 
     def _refresh_project_lock(self) -> None:
