@@ -72,6 +72,14 @@ def _source(tmp_path, **kwargs) -> tuple[Project, list[str]]:
     return build_store_with_model(tmp_path, _state_matrix(), MEANS, **kwargs)
 
 
+def _assert_patches_distinct(patches: dict[str, np.ndarray]) -> None:
+    """Guard the fixture: no two molecules, and not the two channels, share a patch."""
+    for channel, block in patches.items():
+        flat = block.reshape(block.shape[0], -1)
+        assert len({row.tobytes() for row in flat}) == block.shape[0], channel
+    assert not np.array_equal(patches["donor"], patches["acceptor"])
+
+
 def _movies_rowcount(path) -> int:
     with h5py.File(path, "r") as f:
         return int(f["movies"][TABLE].shape[0])
@@ -204,7 +212,11 @@ def test_coordinates_and_patches_travel(tmp_path):
 
     src_patch = read_patches(project.path)
     sub_patch = read_patches(out)
+    assert set(sub_patch) == {"donor", "acceptor"}
     assert set(sub_patch) == set(src_patch)
+    # The fixture gives every molecule and channel its own patch, so this comparison can see
+    # an empty, reordered or wrong-channel copy (an all-zero fixture could not, #729 PRJ-F11).
+    _assert_patches_distinct(src_patch)
     for channel in src_patch:
         np.testing.assert_array_equal(sub_patch[channel], src_patch[channel])
 
@@ -404,9 +416,19 @@ def test_molecule_keys_subselect(tmp_path):
     assert result.n_molecules == 2
     sub_keys = [to_str(k) for k in read_molecules(out)["molecule_key"]]
     assert sub_keys == [keys[1], keys[3]]
-    # trace rows track the molecule rows positionally
-    assert read_traces(out)["donor_corrected"].shape[0] == 2
-    assert read_patches(out)["donor"].shape[0] == 2
+    # trace and patch rows track the molecule rows positionally: row j of the subset holds the
+    # data of source row [1, 3][j], compared by value (#729 PRJ-F11).
+    src_traces = read_traces(project.path)
+    sub_traces = read_traces(out)
+    for layer in _CORRECTED_ONLY:
+        np.testing.assert_array_equal(sub_traces[layer], src_traces[layer][[1, 3]])
+    src_patch = read_patches(project.path)
+    sub_patch = read_patches(out)
+    _assert_patches_distinct(src_patch)
+    assert set(sub_patch) == set(src_patch)
+    for channel in src_patch:
+        assert sub_patch[channel].shape[0] == 2
+        np.testing.assert_array_equal(sub_patch[channel], src_patch[channel][[1, 3]])
 
 
 def test_rejected_dropped_by_default_kept_with_include_rejected(tmp_path):

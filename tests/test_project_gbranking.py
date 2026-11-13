@@ -4,9 +4,9 @@
 
 Locks :mod:`tether.project.gbranking`: training on a ``.tether``'s ``/features`` + ``/labels``
 produces a fitted ranker; ranking scores **every** molecule (labeled and uncurated) into a
-never-auto-drop permutation of the full candidate set; apparent precision@k is a valid
-fraction; and the degenerate cases (one label class, no labels, no features) are refused
-loudly. Needs scikit-learn (base lock, #92) + h5py -> base CI matrix.
+never-auto-drop permutation of the full candidate set; apparent precision@k has its exact
+value on a separable store; and the degenerate cases (one label class, no labels, no features)
+are refused loudly. Needs scikit-learn (base lock, #92) + h5py -> base CI matrix.
 """
 
 from __future__ import annotations
@@ -203,11 +203,16 @@ def test_ranker_ranking_ranks_all_molecules_never_dropping(tmp_path) -> None:
     assert len(set(ranked.molecule_ids)) == 6
 
 
-def test_ranker_precision_at_k_is_a_valid_fraction(tmp_path) -> None:
-    proj, _ = _labeled_store(tmp_path / "x.tether")
-    for k in (1, 2, 4):
-        p = ranker_precision_at_k(proj, k)
-        assert 0.0 <= p <= 1.0
+def test_ranker_precision_at_k_exact_values_on_a_separable_store(tmp_path) -> None:
+    # Exact values, not a range (#742 ML-F12): precision@k is a fraction by construction, so a
+    # bound like 0 <= p <= 1 passes for the worst possible ranker. On the 24-molecule separable
+    # store the 12 good traces take the top 12 ranks, which fixes every value below.
+    proj, _, good = _discriminable_store(tmp_path / "x.tether")
+    n_good = int(good.sum())  # 12
+    for k in (1, 6, n_good):
+        assert ranker_precision_at_k(proj, k) == 1.0
+    assert ranker_precision_at_k(proj, 18) == pytest.approx(12 / 18)
+    assert ranker_precision_at_k(proj, 2 * n_good) == 0.5  # the whole set: the class balance
 
 
 def test_ranker_discriminates_good_from_bad_and_beats_file_order(tmp_path) -> None:
