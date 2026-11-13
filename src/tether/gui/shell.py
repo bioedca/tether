@@ -1037,6 +1037,85 @@ class TetherShell:
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
 
+    # --- session-lock state (read-only) ---------------------------------------
+    #
+    # Public, read-only views of the single-writer session state that
+    # :meth:`load_project`, the lock-refresh timer and the release-retry timer
+    # maintain. They expose state for inspection only: none has a setter, and none
+    # changes the lock or the session.
+
+    @property
+    def curation_project(self) -> Project | None:
+        """The writable project this shell curates, or ``None`` when no write is allowed.
+
+        ``None`` before any project opens, while the loaded project is browse-only
+        (see :attr:`read_only_reason`), after the session lock is lost, and after
+        :meth:`close`. Only this project receives curation, idealization, conditions
+        and return-leg writes.
+        """
+        return self._curation_project
+
+    @property
+    def session_project(self) -> Project | None:
+        """The project whose session lock this shell holds or has yet to release.
+
+        Usually the same object as :attr:`curation_project`. It stays set after the
+        project becomes browse-only or the shell closes while a release of its lock
+        is still pending (:attr:`lock_release_pending`), and is ``None`` once that
+        release succeeds or no lock was taken.
+        """
+        return self._session_project
+
+    @property
+    def holds_project_claim(self) -> bool:
+        """``True`` while this shell owns the in-process claim on its session project.
+
+        The claim stops a second Tether window in the same process from opening the
+        same file (or a hard-link alias of it) writable. It is dropped together
+        with the session lock.
+        """
+        return self._claimed_project_key is not None
+
+    @property
+    def rollback_session_project(self) -> Project | None:
+        """A project whose lock a failed project switch left held, or ``None``.
+
+        When :meth:`load_project` cannot release the prior session's lock, it gives
+        up the switch and keeps the prior project; if it then also cannot release
+        the lock just taken on the new project, that project is kept here until the
+        release-retry timer frees it.
+        """
+        return self._rollback_session_project
+
+    @property
+    def holds_rollback_claim(self) -> bool:
+        """``True`` while the in-process claim of :attr:`rollback_session_project` is held."""
+        return self._rollback_claimed_project_key is not None
+
+    @property
+    def read_only_reason(self) -> str | None:
+        """Why the loaded project is browse-only, or ``None`` when writes are not blocked.
+
+        The same text the Browser's read-only banner shows (:attr:`read_only_banner`),
+        for example a lock held by another session or a lost session lock.
+        """
+        return self._curation_read_only_reason
+
+    @property
+    def lock_refresh_active(self) -> bool:
+        """``True`` while the timer that refreshes the writable session lock runs."""
+        return bool(self._lock_refresh_timer.isActive())
+
+    @property
+    def lock_refresh_interval_ms(self) -> int:
+        """The session-lock refresh period in milliseconds (well inside the stale timeout)."""
+        return int(self._lock_refresh_timer.interval())
+
+    @property
+    def lock_release_pending(self) -> bool:
+        """``True`` while a session or rollback lock release failed and a retry is due."""
+        return bool(self._lock_release_timer.isActive())
+
     def _refresh_project_lock(self) -> None:
         """Refresh the writable session lock or fail closed to read-only browsing."""
         from tether.project.lock import LockedError
