@@ -552,7 +552,10 @@ def brand_pixmap(
     if name not in BRAND_ART:
         raise ValueError(f"brand art must be one of {BRAND_ART}, got {name!r}")
     active = active or current()
-    data = (_BRAND_DIR / f"{name}-{active.name}.svg").read_bytes()
+    try:
+        data = (_BRAND_DIR / f"{name}-{active.name}.svg").read_bytes()
+    except OSError:
+        return QtGui.QPixmap()
     renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(data))
     view = renderer.viewBoxF()
     if not renderer.isValid() or view.width() <= 0 or width <= 0:

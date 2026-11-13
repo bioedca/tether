@@ -68,6 +68,13 @@ def test_each_brand_drawing_renders_in_each_theme(qapp, art: str, name: str) -> 
     assert _visible(pixmap.toImage())
 
 
+def test_an_unreadable_brand_drawing_gives_a_null_pixmap(qapp, monkeypatch, tmp_path) -> None:
+    from tether.gui import theme
+
+    monkeypatch.setattr(theme, "_BRAND_DIR", tmp_path)  # no drawing in it
+    assert theme.brand_pixmap("tile", 96).isNull()
+
+
 def test_an_unknown_brand_drawing_is_refused() -> None:
     from tether.gui import theme
 
@@ -88,14 +95,18 @@ def test_the_start_page_shows_the_art_and_the_tagline(shell, name: str) -> None:
     assert shell.start_page_visible
     assert page.tagline.text() == TAGLINE == "Provenance-first single-molecule FRET analysis"
     art = page.art_pixmap()
-    assert art.toImage() == theme.brand_pixmap("start-art", ART_WIDTH, theme.theme(name)).toImage()
+    ratio = page.widget.devicePixelRatioF()
+    expected = theme.brand_pixmap(
+        "start-art", ART_WIDTH, theme.theme(name), device_pixel_ratio=ratio
+    )
+    assert art.toImage() == expected.toImage()
     # The art reaches the screen: the painted page carries its pixels in the art rect.
     page.widget.resize(800, 700)
     rect = page.art_rect()
     assert rect.width() == ART_WIDTH
     shot = page.widget.grab().toImage()
-    x, y = int(rect.left()) + 3, int(rect.top()) + 3
-    assert shot.pixelColor(x, y) == art.toImage().pixelColor(3, 3)
+    x, y = round((rect.left() + 3) * ratio), round((rect.top() + 3) * ratio)
+    assert shot.pixelColor(x, y) == art.toImage().pixelColor(round(3 * ratio), round(3 * ratio))
 
 
 def test_the_art_follows_a_change_of_theme(shell) -> None:
