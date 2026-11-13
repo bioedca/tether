@@ -345,3 +345,40 @@ output SHA-256 values and the method (`scripts/reference/matlab/`). `tests/test_
 verifies every committed record. `stand-in/selftest` is not a reference: the `matlab` stand-in of
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
+
+## MASH-FRET project extract (#711, ADR-0087) — **CC-BY-4.0**
+
+External third-party data under a different licence: the smFRET data of the group IIB intron study
+of **Zelger-Paulus, Hadzic, Lindner, Börner, Steffen, Fazliji, Johannsen & Sigel**, deposited at
+Zenodo **doi:10.5281/zenodo.24104528** (published 2026-11-10) under **CC-BY-4.0**. The record's
+`02_smFRET.zip` holds nine MASH-FRET project files (`.mash`). The extract is annotated CC-BY-4.0
+in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
+
+- `tests/fixtures/mashfret_ed135e_30mm_extract.mat` (498,472 B · plain git) — made by
+  `scripts/make_mashfret_fixture.py` from `02_smFRET/eD135e_encapsulated_30mMMg_25C.mash`
+  (4,872,042 B, SHA-256 `ee448ffddad370d0ae1530a838aeca66b380d3e0f35e677d368d98583f17be42`,
+  written by MASH-FRET "1.1.2 (prev. commit: 1a1f465)"). It keeps the first 18 of the 119
+  molecules with every frame and both lasers: their background-corrected, cross-talk-corrected and
+  denoised intensities, `FRET_DTA`, `bool_intensities` and `prmTT`, and the project fields
+  `MASH_version`, `nb_channel`, `nb_excitations`, `excitations`, `chanExc`, `labels`, `FRET` and
+  `fix`, all unchanged. It leaves out the raw intensities and every path and free-text field
+  (`proj_file`, `exp_parameters`). The 116-byte MATLAB header text is fixed, so the same source
+  gives the same bytes. `tests/test_mashfret_reference.py` reads it through `tests/_mashfret.py`.
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `02_smFRET.zip` | 236,278,098 B | `0a30d78ab7c67a3bc716afc760fa5f5b7bf54bc60cce5bde8ccac5a41c4605c7` |
+
+The record also gives MD5 `48096e03a7fbef53614f7148da328281` for the archive, which the download
+matched. **Accessed:** 2026-11-13 (downloaded from Zenodo). **License:** CC-BY-4.0 — **not**
+GPL-3.0. Regenerate with:
+
+```sh
+python scripts/make_mashfret_fixture.py <path>/02_smFRET.zip
+```
+
+Both files have entries in `tests/reference_data/manifest.toml` (ids
+`mashfret-group-iib-intron-archive`, `mashfret-ed135e-30mm-extract`; ADR-0073). The archive is
+larger than the 200 MB download limit, so it is a `workstation` entry: the weekly workstation run
+reads it from `$TETHER_PRIVATE_DATA`, verifies the checksum above, makes the extract again and
+compares it byte for byte with the committed file.

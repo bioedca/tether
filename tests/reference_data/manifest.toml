@@ -85,3 +85,33 @@ tier = "git"
 extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
+
+# --- Group IIB intron smFRET data with MASH-FRET projects: Zenodo 10.5281/zenodo.24104528, ----
+# CC-BY-4.0. Nine MASH-FRET project files (#711, ADR-0087). The archive is larger than the
+# download limit, so it is read on the workstation; the required matrix reads an extract of the
+# smallest project file (scripts/make_mashfret_fixture.py says what it keeps).
+
+[[dataset]]
+id = "mashfret-group-iib-intron-archive"
+source = "doi:10.5281/zenodo.24104528"
+record_url = "https://zenodo.org/records/24104528"
+license = "CC-BY-4.0"
+file = "02_smFRET.zip"
+size = 236278098
+sha256 = "0a30d78ab7c67a3bc716afc760fa5f5b7bf54bc60cce5bde8ccac5a41c4605c7"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
+
+[[dataset]]
+id = "mashfret-ed135e-30mm-extract"
+source = "doi:10.5281/zenodo.24104528"
+record_url = "https://zenodo.org/records/24104528"
+license = "CC-BY-4.0"
+file = "tests/fixtures/mashfret_ed135e_30mm_extract.mat"
+size = 498472
+sha256 = "80f72fd03980bc618c98a8098f48f648f2f33da7ffbf886a86760e12a062a55e"
+tier = "git"
+extract_of = ["mashfret-group-iib-intron-archive"]
+extract_script = "scripts/make_mashfret_fixture.py"
+citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"

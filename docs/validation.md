@@ -81,6 +81,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
+| (h) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -595,6 +596,40 @@ and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
 `tests/test_fret_photobleach_sidecar.py::test_ref_helpers_match_live_tmaven`,
 `test_tether_detector_matches_live_tmaven` and
 `test_tmaven_default_priors_are_the_ones_tether_and_the_helpers_use`.
+
+## (h) Corrected FRET vs MASH-FRET
+
+**What it checks.** Tether's leakage correction and γ-corrected FRET against MASH-FRET's own
+results, in the MASH-FRET project files that authors of MASH-FRET published with their group IIB
+intron study (Zenodo doi `10.5281/zenodo.24104528`, CC-BY-4.0, written by MASH-FRET at commit
+`1a1f465`). [ADR-0087](adr/0087-mash-fret-is-a-reference-for-corrected-fret.md) records the
+reference, the convention mapping and the ALEX rule; `tests/test_mashfret_reference.py` holds the
+tests.
+
+- **Leakage.** From MASH-FRET's background-corrected intensities and its leakage coefficient,
+  Tether's corrected acceptor equals MASH-FRET's cross-talk-corrected acceptor on both lasers, and
+  the donor is unchanged (relative limit 1e-15; the difference is exactly 0).
+- **Corrected FRET.** The files hold no FRET value for each frame, only the value of each frame's
+  state, and MASH-FRET sets that value to the mean of its γ-corrected FRET over the frames of the
+  state. With MASH-FRET's γ, the mean of Tether's corrected FRET over the same frames equals each
+  state value (relative limit 1e-13; worst 1.4e-15 on the 34 states of the committed extract and
+  6.3e-14 on the 4442 states of the eight readable files of the archive). MASH-FRET's
+  `1 / (1 + γ·I_D/I_A)` is Tether's `I_A / (I_A + γ·I_D)` with the same γ; no conversion factor is
+  needed.
+- **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail.
+
+**What it does not check.** Every file of the record has a leakage coefficient of 0, so the
+leakage test cannot catch a sign error in the correction; a follow-up issue asks for a MASH-FRET
+reference with a non-zero coefficient. The comparison is per state, not per frame. Background
+subtraction is not compared, because the files hold no video. Only the donor and acceptor channels
+under the donor's laser are used, and MASH-FRET's direct-excitation coefficient (an ALEX-only
+correction that Tether does not make) must be 0.
+
+**Where it runs.** The required matrix reads a committed extract of the smallest project file (18
+molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a
+`workstation` entry of the manifest: the weekly workstation run verifies it, makes the extract again
+and compares it byte for byte, and runs both checks on every file of the archive that has the
+layout of that MASH-FRET generation.
 
 ## External benchmark
 

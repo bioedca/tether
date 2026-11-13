@@ -39,6 +39,18 @@ kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.
   to Götz & Schmid travels with them. The MATLAB simulator from the same record is
   NOT vendored (PRD N2 — Tether ships no data simulator).
 
+Group IIB intron smFRET data  (CC-BY-4.0)  — Zelger-Paulus S, Hadzic MCAS,
+  Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S & Sigel R, Zenodo
+  doi:10.5281/zenodo.24104528 (2026), the data of "Cis-exons shape the
+  conformational landscape and Mg2+ response of a group IIB intron."
+  Tether bundles an extract of one MASH-FRET project file of the record,
+  tests/fixtures/mashfret_ed135e_30mm_extract.mat (scripts/make_mashfret_fixture.py
+  keeps 18 of its 119 molecules and leaves out the raw intensities and the
+  project's paths; it changes no value), used only as a MASH-FRET reference for
+  Tether's leakage and gamma-corrected FRET (#711, ADR-0087). This file is licensed
+  CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
+  GPL-3.0; attribution to the authors travels with it.
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------

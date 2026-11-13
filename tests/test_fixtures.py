@@ -36,6 +36,7 @@ PLAIN_FIXTURES = [
     FIXTURES / "kinsoft_trace_sample.txt",
     FIXTURES / "deeplasi_export_slice.mat",
     FIXTURES / "deeplasi_traces_slice.txt",
+    FIXTURES / "mashfret_ed135e_30mm_extract.mat",
 ]
 
 # The SHA-256 of each plain fixture's content. A fixture that a script regenerates on
@@ -53,6 +54,9 @@ PLAIN_FIXTURE_SHA256 = {
     "kinsoft_trace_sample.txt": "5eab80bc4a11b711712d78e898d9b79b3bc2997ce48a8fa2d0170ba883a23a05",
     "deeplasi_export_slice.mat": "5f164212d004801765de56da46677ccc0174c3f1ff22960ee88a2f332227cdcf",
     "deeplasi_traces_slice.txt": "6d5a88226e2f189449acb5a213bd38cf9b2fd0ff6d3f4f5b8232e3a9a8d3ddd8",
+    "mashfret_ed135e_30mm_extract.mat": (
+        "80f72fd03980bc618c98a8098f48f648f2f33da7ffbf886a86760e12a062a55e"
+    ),
 }
 
 # `.gitattributes` gives these suffixes `text=auto`: the repository stores LF, and a
