@@ -42,12 +42,14 @@ __all__ = [
     "MAP_ROLE",
     "MOVIE_ROLE",
     "QUANTITIES",
+    "EXPORT_ROUTE_ROTATION",
     "compare_export_routes",
     "dump_lab_golden",
     "extract_project",
     "lab_quantities",
     "load_lab_golden",
     "movie_role",
+    "rotate_movie",
     "validate_document",
 ]
 
@@ -62,6 +64,10 @@ NEUTRAL_ID = re.compile(r"[a-z]+-[0-9]{2,}")
 #: each route its own id; the two are one acquisition (D3: A), so only the vendor route has a
 #: golden file (item 1), and the direct route is read only by the export-route check.
 EXPORT_ROUTES: dict[str, str] = {"lab-12": "lab-11"}
+#: The vendor route is the direct TIFF turned a quarter turn clockwise: each vendor frame is
+#: ``numpy.rot90(direct_frame, k=EXPORT_ROUTE_ROTATION)`` (measured on all 1700 frames, #887).
+#: The export-route check turns the vendor frames back before it compares the two routes.
+EXPORT_ROUTE_ROTATION = 3
 #: The data acquisitions of the name table that have a golden file: every movie id except the
 #: direct route of :data:`EXPORT_ROUTES` (maintainer decisions D1-D3: the bead movie has no
 #: neutral id). The issue counted ten; the name table holds twelve (Q20: C, "ten or more").
@@ -118,6 +124,22 @@ def extract_project(movie: Path, tmap: Path | None, workdir: Path) -> tuple[int,
         code = int(main(argv))
     projects = sorted(out_dir.glob("*.tether"))
     return code, (projects[0] if len(projects) == 1 else None)
+
+
+def rotate_movie(src: Path, dst: Path, k: int) -> Path:
+    """Write the frames of ``src`` turned ``k`` quarter turns (``numpy.rot90``) to ``dst``.
+
+    The copy is the uncompressed big-endian TIFF that the extractor reads; only the pixel
+    layout changes. ``dst`` keeps the name of ``src`` when it is a folder, so a name-derived
+    tag of the movie stays the same.
+    """
+    import tifffile  # noqa: PLC0415
+
+    dst = dst / src.name if dst.is_dir() else dst
+    frames = np.asarray(tifffile.memmap(src, mode="r"))
+    turned = np.ascontiguousarray(np.rot90(frames, k=k, axes=(1, 2)), dtype=">u2")
+    tifffile.imwrite(dst, turned, photometric="minisblack", byteorder=">")
+    return dst
 
 
 def _median(values: list[float]) -> float:

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import _lab_golden
@@ -170,6 +171,33 @@ def test_the_pipeline_yields_a_valid_golden_document(synthetic) -> None:
     assert quantities["molecules.accepted"] == quantities["molecules.count"]
     assert sum(quantities["histogram.counts"]) == quantities["histogram.n_samples"] > 0
     assert len(quantities["hmm.means"]) == _lab_golden.NSTATES
+
+
+def test_a_movie_turned_and_turned_back_gives_the_same_molecules_and_traces(
+    synthetic, tmp_path: Path
+) -> None:
+    """The export-route check's own step: undo a quarter turn, then compare the extractions."""
+    _, project = synthetic
+    movie = project.parents[2] / _golden_movie_name()
+    k = _lab_golden.EXPORT_ROUTE_ROTATION
+    vendor = _lab_golden.rotate_movie(movie, tmp_path / "vendor.tif", k)
+    (tmp_path / "back").mkdir()
+    back = _lab_golden.rotate_movie(vendor, tmp_path / "back", -k)
+    assert back.name == vendor.name
+    import tifffile  # noqa: PLC0415
+
+    assert np.array_equal(tifffile.imread(back), tifffile.imread(movie))
+    assert not np.array_equal(tifffile.imread(vendor), tifffile.imread(movie))
+    code, turned = _lab_golden.extract_project(back, None, tmp_path / "run")
+    assert code == 0 and turned is not None
+    diff = _lab_golden.compare_export_routes(turned, project)
+    assert diff["n_unmatched"] == 0 and diff["max_trace_diff"] == 0.0
+
+
+def _golden_movie_name() -> str:
+    from _golden import MOVIE_NAME  # noqa: PLC0415
+
+    return MOVIE_NAME
 
 
 def test_a_project_agrees_with_itself_across_export_routes(synthetic) -> None:

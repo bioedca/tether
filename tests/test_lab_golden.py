@@ -55,17 +55,26 @@ def test_lab_numbers_match_the_golden_file(private_data, neutral_id: str, tmp_pa
 def test_export_routes_give_the_same_molecules_and_traces(private_data, tmp_path) -> None:
     """Item 4 of #703: the direct TIFF and the TIFF exported from the vendor format agree.
 
-    Both routes are extracted with the map file of the vendor route, so only the movie differs.
+    The vendor route is the direct TIFF turned a quarter turn (#887), so its frames are turned
+    back first. Both routes are then extracted with the map file of the direct route, so only
+    the export route differs.
     """
     ((nid, direct),) = _lab_golden.EXPORT_ROUTES.items()
-    tmap = private_data.path(nid, _lab_golden.MAP_ROLE)
+    tmap = private_data.path(direct, _lab_golden.MAP_ROLE)
+    vendor = private_data.path(nid, _lab_golden.movie_role(private_data.roles(nid)))
+    (tmp_path / "turned").mkdir()
+    movies = {
+        nid: _lab_golden.rotate_movie(
+            vendor, tmp_path / "turned", -_lab_golden.EXPORT_ROUTE_ROTATION
+        ),
+        direct: private_data.path(direct, _lab_golden.movie_role(private_data.roles(direct))),
+    }
     projects = []
-    for route in (nid, direct):
-        movie = private_data.path(route, _lab_golden.movie_role(private_data.roles(route)))
+    for route, movie in movies.items():
         code, project = _lab_golden.extract_project(movie, tmap, tmp_path / route)
         assert code == 0 and project is not None, f"{route}: tether batch exited {code}"
         projects.append(project)
     diff = _lab_golden.compare_export_routes(*projects)
-    private_data.record(nid, **diff)
+    private_data.record(nid, rotation_k=_lab_golden.EXPORT_ROUTE_ROTATION, **diff)
     agree = diff["n_unmatched"] == 0 and diff["n_frames_a"] == diff["n_frames_b"]
     assert agree and diff["max_trace_diff"] == 0.0, f"{nid}: the two export routes differ: {diff}"
