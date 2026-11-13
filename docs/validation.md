@@ -21,18 +21,31 @@ with `--strict-markers`. Where a test runs follows from its marker:
 
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
-| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
-| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, the workflow or the setup action reports a fast "not applicable" pass **without running the fits** |
-| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
+| Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
+| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate `_sidecar_gate.py` in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
+| Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
+| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
+| Reference downloads | `@pytest.mark.reference_download` | `.github/workflows/reference-data.yml` — weekly cron + manual dispatch; downloads the `download` tier of `tests/reference_data/manifest.toml` into a cache and verifies each SHA-256 | No — the required matrix makes no network call |
+
+**When a test skips.** pytest exits 0 when a test skips, so a job stays green when a fixture,
+a tool or a package goes absent. The three `test` legs, `sidecar / parity`, `deep / smoke` and
+`large-fixtures` therefore write a JUnit report, and `scripts/check_skips.py` compares it with
+the job's part of `tests/skip_budget.toml`. The job fails when a test skips that the file does
+not list for that job with the same reason, when more tests skip than the job's
+`max_skipped`, or when fewer tests ran than its `min_collected` (a path filter or a marker
+error that takes a file out of the run). Each listed skip says why it is correct on its jobs.
+A pull request that adds a skip, or removes tests on purpose, changes the file in the same
+pull request (#726).
 
 The required set is the `main-baseline` ruleset: `lint`, `test` on the three platforms,
 `pre-commit`, `commitlint`, `secret-scan`, `conda-lock-verify`, `docs-build`,
 `schema-guard` and `sidecar / parity`.
 
 **When a scheduled run fails.** `sidecar.yml` (nightly, and after each merge to `main`),
-`deep.yml` (nightly), `large-fixtures.yml` (weekly) and `docs-liveness.yml` (daily) call
+`sidecar-upstream.yml` (weekly), `deep.yml` (nightly), `large-fixtures.yml` (weekly),
+`reference-data.yml` (weekly) and `docs-liveness.yml` (daily) call
 `.github/workflows/scheduled-failure.yml` after their job. When the job fails on `main`, that
 workflow opens one issue with the title `ci(scheduled): <job> failed on main`. The issue gives
 the run, the commit, the failed step and the last 50 log lines up to the last error. The two
@@ -46,6 +59,17 @@ pull request never opens an issue. To test the report, run `docs-liveness` by ha
 branch with `drill` set to `fail`, then to `pass`. A drill issue has the title prefix
 `ci(drill)`, so it never touches the real issue.
 
+**Reference data sets.** Each reference file of the regression suite has one entry in
+`tests/reference_data/manifest.toml`: its DOI or accession, record URL, SPDX licence, size,
+SHA-256, tier and citation. A test gets the file with `path_for(id)` from the `fetch` module
+beside that manifest, which calculates the SHA-256 before the first use and refuses a
+file whose checksum is not the manifest's. The tiers are `git` (at most 1 MB for each file), `lfs`
+(at most 50 MB for all LFS files together), `download` (at most 200 MB for each file; downloaded
+only when the environment variable `TETHER_REFERENCE_DOWNLOAD` is `1`) and `workstation` (a
+directory that an environment variable names). A test skips, with the reason, when its tier is not
+available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
+limits and the cache rule.
+
 Which tier each oracle's *headline* assertion lives in:
 
 | Oracle | Headline assertion runs in | Also covered on the required matrix |
@@ -56,7 +80,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
-| (g) Photobleach detector | required matrix | yes |
+| (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -183,6 +207,17 @@ reproduces its kinetic model across seeds, but its empirical-Bayes per-trace sta
 loosening the shared one. Its ELBO is not commensurable with the vbconhmm reference
 model's, so it is anchored cross-seed only (ADR-0043).
 
+**The live ebFRET gate runs on two fixed seeds.** Unseeded, tMAVEN's ebFRET draws its starting
+points from two streams nothing seeds: Numba's own generator (the restart means in
+`hmm_eb.eb_outer_loop`) and NumPy's global generator, which `initialize_gmm` re-seeds from
+operating-system entropy once per molecule. The gate therefore compared two random fits, and one
+observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor
+([#311](https://github.com/bioedca/tether/issues/311)). `run_ebhmm(..., seed=N)` now seeds both
+streams in the sidecar, and the gate fits seeds 1 and 2, so it gives one answer per commit. The
+band is unchanged. `test_4mol_ebfret_same_seed_gives_the_same_model` fails if a seeded fit stops
+being reproducible ([ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)). Unseeded fits, including
+every fit run from the GUI, keep tMAVEN's own behaviour.
+
 **Which build each tolerance was measured on — and the gap that opens.** Both `method`
 blocks name a build (`sidecar_python_version`, `tmaven_commit`) rather than an interpreter
 path, and both carry a `build_provenance` string. The values in the committed artifact were
@@ -251,6 +286,18 @@ means the same tMAVEN commit on the same CPython, not an identical dependency se
 > reverts to text asserting one shared tolerance for every
 > idealization method — which contradicts ADR-0043 and this page, and which no test reads.
 
+**When upstream tMAVEN changes.** The parity tests use the pinned commit.
+`.github/workflows/sidecar-upstream.yml` runs the same tests each week with tMAVEN at the newest
+commit of its default branch, and its log names that commit. It never changes the pin, the
+sidecar lock or a limit. When a weekly run fails, the report step opens one `type:ci` issue
+whose log excerpt ends with the upstream commit and the first failing comparison (or a line
+saying the tests did not run, when the install or import failed). A manual run with `drill`
+set to `none` opens no issue: read its result on the Actions page. The weekly issue is the
+signal to decide: move the pin, or record why not. To test it, run the workflow by hand with
+`drill` set to `drift`. The drill changes one prior of the fetched tMAVEN (the consensus
+VB-HMM `b`, 0.01 to 1.0). The 281-molecule fit then fails on its ELBO, and the report uses the
+`ci(drill)` title prefix.
+
 **Enforcing tests.** Live fits are `tests/test_parity_sidecar.py`
 (`pytestmark = pytest.mark.sidecar`, so deselected from the 3-OS matrix and run instead by
 the required `sidecar / parity` job — which executes them on every nightly run and on any
@@ -313,6 +360,23 @@ Widening any of the eight bounds to some *other* finite value is caught by nothi
 all eight widened at once, as long as the default state-count floor stays above `0.5249`. In
 that region the freeze is protected in the loosening direction by review plus the deliberate
 re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
+
+**Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
+also assert a second bound, much tighter than the frozen default row: a state-mean difference of
+at most 1e-6 FRET, a relative ELBO change of at most 1e-6, and exact (1.0) state-count and
+Viterbi agreement. It is a regression limit of the pinned tMAVEN build, not a scientific
+tolerance: the frozen row above stays the oracle and does not change, and the drift limit only
+catches a change of tMAVEN or of a sidecar dependency that moves the fit but stays inside the
+frozen row — every state mean moved by 0.015 FRET, for example. It was set from 10 runs of the
+`sidecar / parity` job on GitHub runners (#737): the worst state-mean difference was 9.5e-09
+FRET and the worst relative ELBO change 1.1e-09, with state-count and Viterbi agreement 1.0 in
+all 20 comparisons. Each ceiling is at least 10 times its worst value. Each live parity test
+also writes the agreement it measured to the job log as a `[parity]` line, so every nightly run
+records it. A deliberate tMAVEN or sidecar-lock bump re-measures the drift limit in its own pull
+request, which is not a re-freeze. ebFRET has no drift limit, because its per-trace state
+selection changes from seed to seed (ADR-0043). The live tests also check that each fit is the
+requested model type with the requested state count, which a cross-seed comparison of two
+equally wrong fits cannot see.
 
 > Gap, stated plainly. PRD §8 asks for per-trace **vbFRET** parity on the small fixtures as
 > well as the consensus fit. `$.coverage.measured_methods` records only
@@ -491,7 +555,22 @@ tolerance. Read the parity leg for what it is: these tests are unmarked, so they
 required matrix, where tMAVEN is not installed and is never imported. What is proven is
 that the O(T) prefix-sum rewrite is faithful to the O(T²) reference *formulation*; a
 transcription error in the `_ref_*` helpers would not be caught, because tMAVEN itself does
-not execute here (that is what the `sidecar` tier does elsewhere on this page).
+not execute here. The live leg below closes that gap.
+
+**Live leg against tMAVEN** (#706). `tests/test_fret_photobleach_sidecar.py` runs in the
+required `sidecar / parity` job. On a pull request that job runs it when the diff touches
+`src/tether/fret/photobleach.py`, `tests/test_fret_photobleach.py` or any other path in
+its relevance filter. A child process in the sidecar environment calls tMAVEN's own
+`normal_ln_evidence`, `normal_mu_ln_evidence`, `ln_likelihood`, `get_point_pbtime` and
+`pb_ensemble`, with the priors from tMAVEN's own photobleach preferences. The inputs are
+the synthetic traces of the unmarked tests (same seeds, same draws) and the donor, acceptor
+and summed channels of the committed 4-molecule `smd_4mol.hdf5`. Tether and the `_ref_*`
+helpers are both compared with that output. The algorithm is the same, so bleach frames and
+the ensemble rate must be equal. Log evidence must agree to a relative 1e-14 for the
+helpers (measured worst 7.1e-16, the same O(T²) sums) and 1e-12 for Tether (measured worst
+6.6e-14, from the O(T) prefix sums on a trace that never bleaches); measured 2026-11-11
+against tMAVEN `10f4230`. The same one-character error put into both a `_ref_*` helper and
+`tether.fret.photobleach` passes every unmarked photobleach test and fails this leg.
 
 **Frozen constants.** The ±2-frame tolerance is asserted inline; the priors are named in
 `src/tether/fret/photobleach.py` — `PB_PRIOR_A` 1.0, `PB_PRIOR_B` 1.0, `PB_PRIOR_BETA` 1.0,
@@ -509,7 +588,10 @@ signal/noise settings and asserts `abs(pbt - k) <= 2` for each.
 `test_detect_photobleach_window_and_masks`, `test_never_bleaches_returns_length_and_all_zero_returns_zero`,
 `test_short_traces_do_not_raise`; and at the store level
 `tests/test_project_photobleach.py::test_compute_photobleach_populates_frames_and_auto_window`
-and `test_manual_window_is_not_overwritten`.
+and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
+`tests/test_fret_photobleach_sidecar.py::test_ref_helpers_match_live_tmaven`,
+`test_tether_detector_matches_live_tmaven` and
+`test_tmaven_default_priors_are_the_ones_tether_and_the_helpers_use`.
 
 ## External benchmark
 
@@ -555,8 +637,8 @@ Gaussian HMM (Baum–Welch + Viterbi) with pooled dwell-time MLE `k = 1/⟨τ⟩
 | `k21_high_low` | 0.22 | 0.2131 | 0.031 | ≤ 0.12 |
 
 Both deviations sit inside the advisory band; the artifact characterises both as
-"~4x inside the band" (`$.band.rationale`, `$.levels.level1.tether_measured.note`) for this
-one 2-state dataset. That is the whole claim: it is not a general accuracy
+"~4x inside the band" (`$.band.rationale`) and "~4x inside the 12% band"
+(`$.levels.level1.tether_measured.note`) for this one 2-state dataset. That is the whole claim: it is not a general accuracy
 guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
 enforcing test additionally requires each rate to round, at four decimals, to its frozen
 value, to reproduce the rate measured on this fixture for #740 to a relative `1e-6` (one
@@ -601,11 +683,11 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
 - Nothing in CI fails on a **loosened** `$.tolerance`: the artifact self-checks assert
   recorded values *within* the bounds, so widening a bound keeps them passing. Only
   tightening below the evidence, or removing the evidence, is caught (see §(b)).
-- The ebFRET cross-seed gate is **nondeterministic**
-  ([#311](https://github.com/bioedca/tether/issues/311)): one observed fit scored Viterbi
-  0.7568 against the frozen 0.9034 floor. A single green run is therefore not release
-  evidence; (b) binds only after #311 closes, without widening the band, and the gate is
-  shown green on consecutive runs on one commit.
+- The ebFRET gate tests **one fixed pair of seeds** (1 and 2,
+  [ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)), not a fresh pair per run. A regression
+  that shows only on some seeds can pass it. Unseeded ebFRET keeps a rare poor-optimum tail
+  (one observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor,
+  [#311](https://github.com/bioedca/tether/issues/311)) that the frozen band does not cover.
 - The kinSoftChallenge check is advisory, 2-state level 1 only, gated (see above), and
   **not blind** — the ground truth is committed and the fit is retrospective. Levels 2 and 3
   are deferred.

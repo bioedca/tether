@@ -119,18 +119,25 @@ def test_dwells_empty_path():
 def test_read_model_full(tmp_path):
     mp = tmp_path / "model.hdf5"
     likelihood = np.array([[1.0, 0, 0, 0, 0], [2.0, 0, 0, 0, 0], [3.5, 0, 0, 0, 0]])
+    # Three different N×N members with different values, so a reader that swaps any
+    # two of them (#736 IDZ-F2) fails the value checks below. The stored
+    # ``norm_tmatrix`` is the input of ``analysis/transition_prob.py``.
+    tmatrix = np.array([[9.0, 1.0], [1.0, 9.0]])  # transition counts
+    norm_tmatrix = np.array([[0.9, 0.1], [0.1, 0.9]])  # row-normalized probabilities
+    rates = np.array([[0.0, 0.1], [0.1, 0.0]])
+    idealized = np.array([[0.1, 0.9, np.nan], [0.9, 0.9, 0.1]])
     _write_model(
         mp,
         _attrs={"type": "vb Consensus HMM", "rate_type": "Transition Matrix"},
         nstates=2,
         mean=np.array([0.1, 0.9]),
         var=np.array([0.01, 0.02]),
-        tmatrix=np.array([[9.0, 1.0], [1.0, 9.0]]),
-        norm_tmatrix=np.array([[0.9, 0.1], [0.1, 0.9]]),
-        rates=np.array([[0.0, 0.1], [0.1, 0.0]]),
+        tmatrix=tmatrix,
+        norm_tmatrix=norm_tmatrix,
+        rates=rates,
         pi=np.array([80.0, 40.0]),  # unnormalized Dirichlet posterior (sum != 1)
         frac=np.array([0.7, 0.3]),  # normalized state populations (sum == 1)
-        idealized=np.array([[0.1, 0.9, np.nan], [0.9, 0.9, 0.1]]),
+        idealized=idealized,
         likelihood=likelihood,
         ran=np.array([0, 1]),
         dtype="FRET",
@@ -146,14 +153,15 @@ def test_read_model_full(tmp_path):
     assert model.nstates == 2
     np.testing.assert_array_equal(model.means, [0.1, 0.9])
     np.testing.assert_array_equal(model.variances, [0.01, 0.02])
-    assert model.tmatrix.shape == (2, 2)
-    assert model.norm_tmatrix.shape == (2, 2)
-    assert model.idealized.shape == (2, 3)
+    np.testing.assert_array_equal(model.tmatrix, tmatrix)
+    np.testing.assert_array_equal(model.norm_tmatrix, norm_tmatrix)
+    # assert_array_equal treats NaN at the same position as equal.
+    np.testing.assert_array_equal(model.idealized, idealized)
     assert model.elbo == pytest.approx(3.5)  # likelihood[-1, 0]
     np.testing.assert_array_equal(model.ran, [0, 1])
     assert model.dtype == "FRET"
     # Appendix-D.2 population members.
-    assert model.rates.shape == (2, 2)
+    np.testing.assert_array_equal(model.rates, rates)
     np.testing.assert_array_equal(model.pi, [80.0, 40.0])  # stored verbatim, unnormalized
     np.testing.assert_array_equal(model.frac, [0.7, 0.3])
     assert set(model.priors) == {"a_prior", "mu_prior", "tm_prior"}
@@ -398,6 +406,130 @@ def test_runner_main_wrong_argc():
 
 
 # --------------------------------------------------------------------------- #
+# Reproducible fits: the ``--seed`` contract (issue #311, ADR-0075)
+# --------------------------------------------------------------------------- #
+
+
+def test_runner_main_seed_flag_without_value_is_usage_error():
+    assert _sidecar_runner.main(["_sidecar_runner.py", "--seed"]) == 2
+
+
+def test_runner_main_forwards_seed_to_run(monkeypatch, capsys):
+    captured = {}
+
+    def _fake_run(*args):
+        captured["args"] = args
+        return {"ok": True}
+
+    monkeypatch.setattr(_sidecar_runner, "run", _fake_run)
+    rc = _sidecar_runner.main(
+        ["_sidecar_runner.py", "--seed", "7", "in.hdf5", "dataset", "ebhmm", "4", "out.hdf5"]
+    )
+    assert rc == 0
+    assert captured["args"] == ("in.hdf5", "dataset", "ebhmm", 4, "out.hdf5", None, 7)
+
+
+def test_runner_main_without_seed_passes_none(monkeypatch, capsys):
+    captured = {}
+
+    def _fake_run(*args):
+        captured["args"] = args
+        return {"ok": True}
+
+    monkeypatch.setattr(_sidecar_runner, "run", _fake_run)
+    rc = _sidecar_runner.main(
+        ["_sidecar_runner.py", "in.hdf5", "dataset", "ebhmm", "4", "out.hdf5", "3"]
+    )
+    assert rc == 0
+    assert captured["args"] == ("in.hdf5", "dataset", "ebhmm", 4, "out.hdf5", "3", None)
+
+
+def _capture_sidecar_cmd(monkeypatch, tmp_path, **kwargs):
+    """Run :func:`run_vbfret` against a fake launcher and return the argv it built."""
+    import subprocess
+
+    from tether.idealize import write_smd
+
+    smd = tmp_path / "smd.hdf5"
+    write_smd(smd, np.zeros((1, 4, 2)))
+    seen = {}
+
+    def _fake_run(cmd, **_kw):
+        seen["cmd"] = cmd
+        out = STATUS_PREFIX + '{"ok": false, "error": "stop here"}\n'
+        return subprocess.CompletedProcess(cmd, 1, stdout=out, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    with pytest.raises(SidecarError, match="stop here"):
+        run_vbfret(smd, sidecar_python=sys.executable, model_type="ebhmm", **kwargs)
+    return seen["cmd"]
+
+
+def test_run_vbfret_seed_reaches_the_sidecar_argv(monkeypatch, tmp_path):
+    cmd = _capture_sidecar_cmd(monkeypatch, tmp_path, seed=11, nrestarts=2)
+    # ``--seed N`` comes first, before the positional contract, which is unchanged.
+    assert cmd[2:4] == ["--seed", "11"]
+    assert cmd[4:] == [str(tmp_path / "smd.hdf5"), "dataset", "ebhmm", "2", cmd[8], "2"]
+
+
+def test_run_vbfret_without_seed_keeps_the_old_argv(monkeypatch, tmp_path):
+    cmd = _capture_sidecar_cmd(monkeypatch, tmp_path)
+    assert "--seed" not in cmd
+    assert cmd[2] == str(tmp_path / "smd.hdf5")
+
+
+@pytest.mark.parametrize("bad", [-1, 1.5, True, "3"])
+def test_run_vbfret_rejects_a_bad_seed_before_launch(tmp_path, bad):
+    with pytest.raises((ValueError, TypeError)):
+        run_vbfret(tmp_path / "absent.hdf5", sidecar_python=sys.executable, seed=bad)
+
+
+def _draws_after_seeding(seed):
+    """Seed both streams, then draw the way tMAVEN's ebFRET path does."""
+    import numba
+
+    @numba.njit(cache=False)
+    def _numba_rand(n):
+        out = np.empty(n)
+        for i in range(n):
+            out[i] = np.random.rand()
+        return out
+
+    _sidecar_runner.seed_random_streams(seed)
+    compiled = _numba_rand(4)  # eb_outer_loop's restart means
+    per_trace = []
+    for _ in range(3):  # initialize_gmm: an argument-less reseed, then a draw
+        np.random.seed()
+        per_trace.append(np.random.rand())
+    np.random.seed(666)  # clip_traces: an explicit seed passes through unchanged
+    explicit = np.random.rand()
+    return compiled, np.array(per_trace), explicit
+
+
+def test_seed_random_streams_makes_both_streams_reproducible(monkeypatch):
+    # The patch replaces ``np.random.seed`` in this process; monkeypatch restores it.
+    monkeypatch.setattr(np.random, "seed", np.random.seed)
+    a = _draws_after_seeding(5)
+    b = _draws_after_seeding(5)
+    c = _draws_after_seeding(6)
+
+    np.testing.assert_array_equal(a[0], b[0])
+    np.testing.assert_array_equal(a[1], b[1])
+    assert not np.array_equal(a[0], c[0])
+    assert not np.array_equal(a[1], c[1])
+    # The argument-less reseeds give a different draw each time, as entropy would.
+    assert len(set(a[1].tolist())) == 3
+    # An explicit seed is honoured exactly.
+    assert a[2] == b[2] == c[2] == np.random.RandomState(666).rand()
+
+
+def test_seed_random_streams_rejects_a_negative_seed(monkeypatch):
+    monkeypatch.setattr(np.random, "seed", np.random.seed)
+    with pytest.raises(ValueError, match="non-negative"):
+        _sidecar_runner.seed_random_streams(-1)
+
+
+# --------------------------------------------------------------------------- #
 # read_model against a REAL tMAVEN export (the 281-mol consensus VB-HMM
 # reference model, Appendix D.2). LFS `large` tier — validates the reader and
 # the full dwell pipeline against ground truth without running a (slow) fit.
@@ -417,6 +549,14 @@ def test_read_model_real_281mol_reference():
     # Means match the Appendix D.2 documented levels [0.110, 0.428, 0.755, 0.952].
     np.testing.assert_allclose(model.means, [0.110, 0.428, 0.755, 0.952], atol=2e-3)
     assert model.tmatrix.shape == (4, 4)
+    # In this verbatim tMAVEN export, ``tmatrix`` holds transition counts (row sums in
+    # the thousands) and ``norm_tmatrix`` is the same matrix normalized by row. A
+    # reader that swaps the two members fails here (#736 IDZ-F2).
+    assert (model.tmatrix.sum(axis=1) > 1000.0).all()
+    np.testing.assert_allclose(model.norm_tmatrix.sum(axis=1), 1.0, atol=1e-9)
+    np.testing.assert_allclose(
+        model.norm_tmatrix, model.tmatrix / model.tmatrix.sum(axis=1, keepdims=True), atol=1e-12
+    )
     assert model.idealized.shape == (281, 1700)
     assert model.elbo is not None and model.elbo > 0
     assert model.ran.size == 281

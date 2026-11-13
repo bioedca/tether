@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# reference-data — the weekly run of the `@pytest.mark.reference_download` tests (#696, ADR-0073).
+# Those tests download the `download` tier of tests/reference_data/manifest.toml and verify each
+# file against its SHA-256 before first use (tests/reference_data/fetch.py). The required matrix in
+# ci.yml deselects the marker (`... and not reference_download`) and makes no network call; this
+# job is where a changed upstream record or a drifted committed extract goes red.
+#
+# The cache key is a digest of the ids and checksums of the download entries (`fetch.py
+# cache-key`) plus the calendar month. An edit to a citation keeps the cache and a new or changed
+# file replaces it. The month makes the first run of each month download every set again from
+# upstream, so a changed or withdrawn upstream file goes red within about five weeks, while the
+# other weekly runs re-verify the cached bytes without downloading them again.
+#
+# NON-REQUIRED BY CONSTRUCTION: schedule + workflow_dispatch only, never pull_request/push/
+# merge_group, so an upstream outage can never gate a merge. tests/test_marker_contract.py holds
+# this file to that and to collecting every `reference_download` test; a failed scheduled run
+# opens or updates one issue through scheduled-failure.yml (#697).
+name: reference-data
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Wednesdays 05:41 UTC (a minute and day no other workflow's cron uses).
+    - cron: "41 5 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reference-data:
+    name: reference-data
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        # Activate the restored micromamba base env (init-shell: bash).
+        shell: bash -el {0}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NAPARI_ASYNC: "0"
+      TETHER_REFERENCE_DOWNLOAD: "1"
+      TETHER_REFERENCE_CACHE: ${{ github.workspace }}/.reference-data-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compute the cache key from the manifest checksums and the month
+        id: key
+        shell: bash -e {0}
+        run: |
+          echo "key=$(python3 tests/reference_data/fetch.py cache-key)" >> "$GITHUB_OUTPUT"
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - name: Restore the reference-data cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .reference-data-cache
+          key: reference-data-${{ steps.key.outputs.key }}-${{ steps.key.outputs.month }}
+      - name: Restore env + install tether
+        uses: ./.github/actions/setup-env
+      - name: Install test tooling
+        run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+      - name: Run the reference-download tests
+        run: pytest -v -m reference_download
+
+  report:
+    # A failed weekly run opens or updates one issue, and the next pass says so (#697). The called
+    # workflow decides the event (never a pull request) and is the only job here that writes.
+    needs: reference-data
+    if: ${{ !cancelled() }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/scheduled-failure.yml
+    with:
+      job-name: reference-data
+      result: ${{ needs.reference-data.result }}

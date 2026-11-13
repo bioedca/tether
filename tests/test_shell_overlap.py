@@ -7,8 +7,9 @@ Two layers:
 * **Headless** checks of :func:`tether.gui.shell.make_store_overlap` — a plain
   ``molecule_key -> OverlapInfo`` callable, so it is exercised over a real
   ``.tether`` in the default matrix (no Qt): the nearest-neighbour distance,
-  apertures-overlap flag, cached patch, and per-movie confinement are all asserted
-  against a controlled store.
+  apertures-overlap flag, cached patch, per-movie confinement (a two-movie store)
+  and the stored aperture radius (one that differs from the default) are all
+  asserted against a controlled store.
 * **``@pytest.mark.gui``** smokes that wire an overlap seam into a real
   :class:`~tether.gui.shell.TetherShell` and assert the right-hand overlap dock is
   built lazily on the first selection, shows the NN distance, and refreshes as the
@@ -70,8 +71,34 @@ def _reg_map() -> RegistrationMap:
     return RegistrationMap(1, 2, poly, poly, rms_residual=0.1, n_control_points=100)
 
 
-def _build_store(path: Path, coords: np.ndarray, patches: np.ndarray) -> tuple[Project, list[str]]:
-    """A ``.tether`` with the given donor coordinates + per-molecule donor patches."""
+def _build_store(
+    path: Path,
+    coords: np.ndarray,
+    patches: np.ndarray,
+    *,
+    disk_radius: float = 3.0,
+    more_movies: tuple[tuple[np.ndarray, np.ndarray], ...] = (),
+) -> tuple[Project, list[str]]:
+    """A ``.tether`` with the given donor coordinates + per-molecule donor patches.
+
+    ``coords``/``patches`` are movie ``mov-1``; each ``(coords, patches)`` pair in
+    ``more_movies`` is appended as a further movie (``mov-2``, ...), so per-movie
+    confinement can be seen. ``disk_radius`` is the stored extraction aperture.
+    """
+    create_project(path, overwrite=True)
+    movies = ((coords, patches), *more_movies)
+    for index, (movie_coords, movie_patches) in enumerate(movies, start=1):
+        _append_movie(path, f"mov-{index}", movie_coords, movie_patches, disk_radius)
+    proj = Project.open(path)
+    keys = [
+        k.decode() if isinstance(k, bytes) else str(k) for k in read_molecules(path)["molecule_key"]
+    ]
+    return proj, keys
+
+
+def _append_movie(
+    path: Path, movie_id: str, coords: np.ndarray, patches: np.ndarray, disk_radius: float
+) -> None:
     n, t = coords.shape[0], 12
     donor = np.full((n, t), 400.0)
     acceptor = np.full((n, t), 600.0)
@@ -88,21 +115,20 @@ def _build_store(path: Path, coords: np.ndarray, patches: np.ndarray) -> tuple[P
         donor_patches=np.asarray(patches, dtype="float32"),
         acceptor_patches=np.asarray(patches, dtype="float32"),
         window=_WINDOW,
-        disk_radius=3.0,
+        disk_radius=disk_radius,
         ring_inner=6.0,
         ring_outer=8.0,
         bg_window=10,
     )
     movie = MovieMetadata(
-        movie_id="mov-1",
-        sha256="a" * 64,
+        movie_id=movie_id,
+        sha256=movie_id[-1] * 64,
         n_frames=t,
         height=64,
         width=64,
         donor_geometry=ChannelGeometry(crop=(1, 1, 64, 64)),
         acceptor_geometry=ChannelGeometry(crop=(1, 65, 64, 128)),
     )
-    create_project(path, overwrite=True)
     write_extraction(
         path,
         movie=movie,
@@ -111,11 +137,6 @@ def _build_store(path: Path, coords: np.ndarray, patches: np.ndarray) -> tuple[P
         parsed=_PARSED,
         registration_map=_reg_map(),
     )
-    proj = Project.open(path)
-    keys = [
-        k.decode() if isinstance(k, bytes) else str(k) for k in read_molecules(path)["molecule_key"]
-    ]
-    return proj, keys
 
 
 # --- make_store_overlap (headless) -------------------------------------------
@@ -134,7 +155,9 @@ def test_make_store_overlap_reports_neighbours_flags_and_patch(tmp_path: Path) -
     assert info0 is not None
     assert info0.nn_distance == pytest.approx(4.0)
     assert info0.overlaps is True
-    assert info0.aperture_radius == pytest.approx(3.0)  # from stored disk_radius
+    # 3.0 is both the stored disk_radius and the default, so this line alone cannot
+    # tell the two apart; test_make_store_overlap_uses_the_stored_disk_radius does.
+    assert info0.aperture_radius == pytest.approx(3.0)
     assert info0.nn_molecule_key == keys[1]
     np.testing.assert_allclose(info0.patch, patches[0])
 
@@ -142,6 +165,55 @@ def test_make_store_overlap_reports_neighbours_flags_and_patch(tmp_path: Path) -
     assert info2 is not None
     assert info2.overlaps is False  # nearest neighbour is ~40 px away
     assert info2.nn_distance > 6.0
+
+
+def test_make_store_overlap_confines_neighbours_to_their_movie(tmp_path: Path) -> None:
+    # Two movies with a molecule at the same pixel in each. Molecules of different
+    # movies never share a field of view, so they must not be called neighbours:
+    # the nearest neighbour of mov-1's (10, 10) is mov-1's own far molecule, not
+    # mov-2's molecule 0 px away (#745 GUI-F7; per-movie confinement, §5.2).
+    from tether.gui.shell import make_store_overlap
+
+    coords_a = np.array([[10.0, 10.0], [40.0, 40.0]])
+    coords_b = np.array([[10.0, 10.0], [10.0, 25.0]])
+    patches = np.zeros((2, _WINDOW, _WINDOW), dtype="float32")
+    proj, keys = _build_store(
+        tmp_path / "two_movies.tether", coords_a, patches, more_movies=((coords_b, patches),)
+    )
+    assert len(keys) == 4
+    movie_ids = [
+        m.decode() if isinstance(m, bytes) else str(m)
+        for m in read_molecules(proj.path)["movie_id"]
+    ]
+    assert movie_ids == ["mov-1", "mov-1", "mov-2", "mov-2"]
+
+    seam = make_store_overlap(proj)
+    for own, other_movie_twin, same_movie_nn in ((0, 2, 1), (2, 0, 3)):
+        info = seam(keys[own])
+        assert info is not None
+        assert info.nn_molecule_key == keys[same_movie_nn]
+        assert info.nn_molecule_key != keys[other_movie_twin]
+        assert info.nn_distance > 6.0
+        assert info.overlaps is False
+
+
+def test_make_store_overlap_uses_the_stored_disk_radius(tmp_path: Path) -> None:
+    # The stored radius (5.0) differs from DEFAULT_APERTURE_RADIUS (3.0), so the
+    # assertion tells "read from the store" from "the default" (#745 GUI-F7). Two
+    # molecules 8 px apart overlap at radius 5 (8 < 10) but not at radius 3 (8 > 6).
+    from tether.analysis.overlap import DEFAULT_APERTURE_RADIUS
+    from tether.gui.shell import make_store_overlap
+
+    assert pytest.approx(5.0) != DEFAULT_APERTURE_RADIUS
+    coords = np.array([[10.0, 10.0], [18.0, 10.0]])
+    patches = np.zeros((2, _WINDOW, _WINDOW), dtype="float32")
+    proj, keys = _build_store(tmp_path / "radius.tether", coords, patches, disk_radius=5.0)
+
+    info = make_store_overlap(proj)(keys[0])
+    assert info is not None
+    assert info.aperture_radius == pytest.approx(5.0)
+    assert info.nn_distance == pytest.approx(8.0)
+    assert info.overlaps is True
 
 
 def test_make_store_overlap_unknown_key_is_none(tmp_path: Path) -> None:
