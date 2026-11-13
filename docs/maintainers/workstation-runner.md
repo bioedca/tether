@@ -150,6 +150,44 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
    passed, with the commit. Do not close the issue: a person or an agent closes it with the
    cause.
 
+## Golden numbers of the laboratory acquisitions
+
+The weekly run also checks the ten data acquisitions `lab-01` to `lab-10` for self-drift (#703).
+For each one it runs the movie from end to end with the default settings and the map file of
+its series: `tether batch --no-idealize --tmap`, then the two-state HMM of the self-drift suite
+(ADR-0080). Then it compares the summary numbers with `tests/golden/workstation/<id>.json`,
+with the tolerance of that suite. The result file has one check for each id, with `passed` or
+`failed`, and the numbers `n_molecules`, `n_accepted`, `n_moved` and `max_relative_change`.
+
+A golden file holds only these numbers: the molecule count, the accepted count, the median
+intensities, the histogram counts and the state means. It holds no trace, no image and no file
+name. A test on the required matrix fails if a golden file holds a string that is not a
+neutral id.
+
+Each id needs two roles in the mapping file:
+
+| Role | File |
+|---|---|
+| `movie` | the movie. For the acquisition that has two export routes, the TIFF exported from the vendor format |
+| `tmap` | the Deep-LASI map file of the acquisition series |
+| `movie_direct` | only for the acquisition that has two export routes: the direct TIFF |
+
+The check of the two export routes is a separate check. It extracts both files of that
+acquisition with the same map file. It passes when both give the same molecules, the same
+number of frames and the same raw traces. It records the counts and the largest difference.
+
+To write or update the golden files, run this on the workstation, in the environment of the
+state folder, from a clone of the commit to freeze:
+
+```sh
+python scripts/workstation/update_lab_golden.py --data <data folder> --check
+python scripts/workstation/update_lab_golden.py --data <data folder>
+```
+
+The first command writes nothing and lists what moved. The second command writes the files
+and prints the old/new table. Put the table and a `Cause:` line in the pull request, as for the
+other golden files. The script prints neutral ids and numbers only.
+
 ## Add a check
 
 1. Mark the test `@pytest.mark.workstation`, and give it no other tier marker (`large`,
