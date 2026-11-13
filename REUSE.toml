@@ -34,6 +34,16 @@ precedence = "override"
 SPDX-FileCopyrightText = "2025 Nina Michael, Bridget Huang, Korak Kumar Ray, Colin Kinz-Thompson and Ruben Gonzalez"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# smfret-analysis2 test data (#709, ADR-0084): verbatim copies of 78 files of test-data/traces/ of
+# github.com/vafabakhsh-lab/smfret-analysis2 at commit 121634e. The repository gives the GPL
+# version 3 text with no "or later" statement, so GPL-3.0-only, not the project's -or-later.
+# Attributed in NOTICE and tests/fixtures/PROVENANCE.md; the MATLAB scripts are not vendored.
+[[annotations]]
+path = ["tests/fixtures/smfret_analysis2/*.csv", "tests/fixtures/smfret_analysis2/traces/*.dat"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2)"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.
