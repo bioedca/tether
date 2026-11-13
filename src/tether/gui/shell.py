@@ -2013,6 +2013,7 @@ class TetherShell:
             QtWidgets.QApplication.restoreOverrideCursor()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
+        self._start_page.close()
         if session_project is not None and future is not None and not future.done():
             # Keep both lifecycle ownership records until the abandoned writer
             # settles. The repeating timer then attempts release and keeps retrying

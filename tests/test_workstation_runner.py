@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -472,6 +473,80 @@ def test_latest_names_one_issue_for_each_check_that_did_not_pass(passing_run, tm
         "test(workstation): tests/test_x.py::test_y failed on main"
     ]
     assert report["passed"] == [runner.issue_title(ok["check"])]
+
+
+def test_a_completed_scheduled_run_after_a_run_error_names_the_run_issue_for_recovery(
+    passing_run, tmp_path
+) -> None:
+    """#787: an open run-level issue gets one recovery comment (``passed``), and is not closed."""
+    root, _ = passing_run
+    _, done = _only_result(root)
+    done.update(mode="scheduled", on_main=True, commit="0123456789abcdef" * 2 + "01234567")
+    broken = {**done, "status": "error", "checks": []}
+    assert runner.validate_result(done) == runner.validate_result(broken) == []
+
+    def report_of(name: str, result: dict) -> tuple[list[str], list[str]]:
+        (tmp_path / name).write_text(json.dumps(result), "utf-8")
+        report = runner.latest(tmp_path)
+        assert report["result"] == name
+        return [i["title"] for i in report["open_or_update"]], report["passed"]
+
+    opened, passed = report_of("20261107T030000Z-0123456789ab.json", broken)
+    assert opened == [runner.RUN_ISSUE_TITLE] and runner.RUN_ISSUE_TITLE not in passed
+    opened, passed = report_of("20261114T030000Z-0123456789ab.json", done)
+    assert opened == [] and passed == [runner.issue_title(done["checks"][0]["check"])] + [
+        runner.RUN_ISSUE_TITLE
+    ]
+    # A failed check is still a completed run: the check gets its own issue, the run recovers.
+    failed = {**done, "status": "failed", "checks": [{**done["checks"][0], "outcome": "failed"}]}
+    opened, passed = report_of("20261121T030000Z-0123456789ab.json", failed)
+    assert runner.RUN_ISSUE_TITLE not in opened and passed == [runner.RUN_ISSUE_TITLE]
+    # A result too old to be the weekly run, or a dry run, is no recovery.
+    newest = tmp_path / "20261121T030000Z-0123456789ab.json"
+    old = time.time() - (runner.STALE_HOURS + 1) * 3600
+    os.utime(newest, (old, old))
+    assert runner.RUN_ISSUE_TITLE not in runner.latest(tmp_path)["passed"]
+    opened, passed = report_of(
+        "20261128T030000Z-0123456789ab.json", {**done, "mode": "dry-run", "on_main": False}
+    )
+    assert runner.RUN_ISSUE_TITLE not in opened + passed
+
+
+def _mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_the_state_folder_and_its_log_are_owner_only_whatever_the_umask(tmp_path) -> None:
+    """#787: the pytest log can name private files, so no other account may read it. On Windows
+    the runner changes nothing: the folders keep the ACL that they inherit."""
+    data = _data_dir(tmp_path)
+    state = tmp_path / "state"
+    (state / "logs").mkdir(parents=True)
+    if os.name == "nt":
+        proc = _dry_run(tmp_path, data)
+        assert proc.returncode == runner.EXIT_OK, proc.stdout + proc.stderr
+        assert "note:" not in proc.stdout and not runner.private_dir(state)
+        return
+    os.chmod(state, 0o777)  # an existing state folder that is open to everyone is corrected
+    os.chmod(state / "logs", 0o755)
+    old = os.umask(0)  # the subprocess inherits it: a permissive umask must not open anything
+    try:
+        proc = _dry_run(tmp_path, data)
+        record = tmp_path / "record.jsonl"
+        runner.append_record(record, {"kind": "open"})
+    finally:
+        os.umask(old)
+    assert proc.returncode == runner.EXIT_OK, proc.stdout + proc.stderr
+    notes = [line for line in proc.stdout.splitlines() if line.startswith("note:")]
+    assert notes == [
+        "note: removed the group and other permissions of the state folder",
+        "note: removed the group and other permissions of logs/",
+    ]
+    (log,) = (state / "logs").glob("*.log")
+    for path in (state, state / "logs", state / "results", log, record):
+        assert _mode(path) & runner.GROUP_OTHER == 0, (path.name, oct(_mode(path)))
+    assert _mode(state) == 0o700 and _mode(log) == 0o600
+    assert not list(state.glob("*.record.jsonl"))  # the record is removed after the run
 
 
 def test_the_runner_and_ci_install_the_same_test_tooling() -> None:
