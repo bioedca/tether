@@ -374,6 +374,14 @@ editable category names (`_write_category_names` in
 `src/tether/project/conditions.py`). It appears only once a category list has been
 set; emptying the list resizes the dataset to zero rows rather than deleting it.
 
+A condition can span several projects ([ADR-0068](../adr/0068-a-project-holds-one-experiment.md)),
+and each project keeps its own copy of this list. `copy_category_list` in
+`src/tether/project/conditions.py` writes one project's list for a condition into another
+project that holds the same condition, in the same order, so every category keeps its integer
+code. `compare_category_lists` reports each category whose name or code differs between the two
+projects. Both refuse a project that has no `/conditions` row for the condition and name that
+file in the message.
+
 ## `/labels` — the append-only curation log
 
 Group holding `/labels/table` (`LABELS_DTYPE`, 8 fields): one row per labelling
