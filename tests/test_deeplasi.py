@@ -93,24 +93,56 @@ def _write_mat(path: Path, fields: dict[str, object]) -> Path:
 # --- scipy-free: lazy-import contract + char-array helper --------------------
 
 
-def test_deeplasi_imports_without_scipy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+# Run in a fresh interpreter: every ``tether.io`` submodule must be imported with
+# scipy blocked, which an in-process check cannot do without dropping cached
+# modules -- and dropping them left ``tether.io`` split between two module objects
+# for every later test in the session (#734 IMG-F15, IMG-F16).
+_SCIPY_FREE_IMPORT = """
+import importlib.abc
+import sys
+
+
+class _BlockScipy(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name == "scipy" or name.startswith("scipy."):
+            raise ModuleNotFoundError(f"scipy is blocked for this check: {name}")
+        return None
+
+
+sys.meta_path.insert(0, _BlockScipy())
+sys.path.insert(0, sys.argv[1])
+
+import tether.io  # the whole package, every submodule it imports
+from tether.io.deeplasi import read_deeplasi_txt
+
+traces = read_deeplasi_txt(sys.argv[2])
+assert (traces.n_molecules, traces.n_frames) == (1, 2), (traces.n_molecules, traces.n_frames)
+leaked = sorted(m for m in sys.modules if m == "scipy" or m.startswith("scipy."))
+assert not leaked, leaked
+print("scipy-free import ok")
+"""
+
+
+def test_deeplasi_imports_without_scipy(tmp_path: Path) -> None:
     # ADR-0017 lazy-scipy contract: importing the module/package must not require
     # scipy, and the numpy-only .txt reader must work with scipy blocked.
+    import subprocess
     import sys
 
-    monkeypatch.setitem(sys.modules, "scipy", None)
-    monkeypatch.setitem(sys.modules, "scipy.io", None)
-    for name in ("tether.io.deeplasi", "tether.io"):
-        monkeypatch.delitem(sys.modules, name, raising=False)
+    import tether
 
-    mod = importlib.import_module("tether.io.deeplasi")  # must not import scipy
-    importlib.import_module("tether.io")  # the package re-export path, too
-
+    src_root = Path(tether.__file__).resolve().parent.parent  # the tree under test
     txt = tmp_path / "x.txt"
     txt.write_text("1.0 2.0\n3.0 4.0\n", encoding="utf-8")
-    traces = mod.read_deeplasi_txt(txt)
-    assert traces.n_molecules == 1
-    assert traces.n_frames == 2
+    result = subprocess.run(
+        [sys.executable, "-c", _SCIPY_FREE_IMPORT, str(src_root), str(txt)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "scipy-free import ok" in result.stdout
 
 
 def test_scalar_str_joins_char_array() -> None:
