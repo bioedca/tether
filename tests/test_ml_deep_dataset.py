@@ -120,9 +120,20 @@ def test_assemble_mask_marks_only_real_frames():
 def test_assemble_crops_long_trace_to_leading_window():
     donor = [np.arange(7, dtype=float)]
     acceptor = [np.arange(7, dtype=float)[::-1].copy()]
-    ds = assemble_dataset(["m"], donor, acceptor, np.array([1]), np.array([1.0]), window_length=3)
+    ds = assemble_dataset(
+        ["m"],
+        donor,
+        acceptor,
+        np.array([1]),
+        np.array([1.0]),
+        window_length=3,
+        normalization="none",
+    )
     assert ds.lengths.tolist() == [3]
     assert np.all(ds.mask[0])  # every window frame is real (trace longer than the window)
+    # ML-F6: the LEADING three frames are kept (PRD §11.2 "crop leading"), not the trailing ones.
+    assert ds.X[0, 0].tolist() == [0.0, 1.0, 2.0]
+    assert ds.X[0, 1].tolist() == [6.0, 5.0, 4.0]
 
 
 def test_assemble_channel_order_and_subset_under_no_normalization():
@@ -221,6 +232,31 @@ def test_split_is_reproducible_for_a_given_seed():
     b_train, b_val = train_val_split(y, val_fraction=0.25, seed=7)
     assert np.array_equal(a_train, b_train)
     assert np.array_equal(a_val, b_val)
+
+
+def _first_rows_of_each_class(y: np.ndarray, val_fraction: float) -> np.ndarray:
+    """The validation rows an UNSHUFFLED stratified split would take: the first of each class."""
+    parts = []
+    for cls in np.unique(y):
+        group = np.nonzero(y == cls)[0]
+        n_val = max(1, min(round(group.shape[0] * val_fraction), group.shape[0] - 1))
+        parts.append(group[:n_val])
+    return np.sort(np.concatenate(parts))
+
+
+def test_split_depends_on_the_seed_and_is_shuffled():
+    # ML-F10: a seeded *random* stratified split (PRD §11.2 "train/val split = 0.2 stratified,
+    # seed 0"). Two seeds must give different validation sets, and no seed may simply take the
+    # leading rows of each class in store order — so a split that ignores its seed fails here.
+    y = np.array([1, 0] * 20)  # 40 labels, 20 per class
+    val_by_seed = {seed: train_val_split(y, val_fraction=0.2, seed=seed)[1] for seed in range(4)}
+    assert not np.array_equal(val_by_seed[0], val_by_seed[1])
+    assert len({tuple(v.tolist()) for v in val_by_seed.values()}) > 1
+    leading = _first_rows_of_each_class(y, 0.2)
+    for seed, val in val_by_seed.items():
+        assert int(np.count_nonzero(y[val] == 1)) == 4  # still stratified: round(20 * 0.2)
+        assert int(np.count_nonzero(y[val] == 0)) == 4
+        assert not np.array_equal(val, leading), f"seed {seed} took the leading rows unshuffled"
 
 
 def test_split_partitions_all_rows_disjointly():
