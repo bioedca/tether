@@ -42,7 +42,9 @@ line with the comment `# pragma: no mutate`. A change that does not compile is n
 
 A mutant in a default value runs the tests that run the function. A mutant in a statement at
 module or class level runs on import, before any test starts, so it runs every test that ran a
-line of that file.
+line of that file. A test that only reads a value the import made, such as
+`assert DEFAULT_STATE_NUMBER_LOW == 1`, runs no line of the file, so it is not selected for that
+mutant (#883).
 
 ## How to read the report
 
@@ -53,8 +55,9 @@ The artifact holds `mutation-report.md` (the same text is in the job summary) an
   Uncovered, equivalent, error and not-run mutants are not in the score.
 - **Uncovered**: no test ran the line. The coverage floors of #724 watch these lines.
 - **Survivors**: each survivor has its file, line, function, change and the tests that ran the
-  line. A survivor is a test gap or an equivalent mutant. Fix a test gap with a test in its own
-  issue, not in the report job.
+  line. A survivor is a test gap or an equivalent mutant. At module or class level it can also
+  be a mutant that only a test which runs no line of the file finds (see above), so look for such
+  a test first. Fix a test gap with a test in its own issue, not in the report job.
 - **Incomplete**: the run used all its time before it finished the module. The score of an
   incomplete module is not compared.
 
