@@ -848,7 +848,7 @@ FRET-only 2-state fit sees two states, as the benchmark found for most tools. Th
 compares this level through cumulative dwell-time distributions, which it simulates from
 each submitted model (Götz *et al.* 2022, above). Tether compares the pooled Viterbi dwells
 of each FRET level (first and last dwell of each molecule dropped) with the distribution
-the true matrix gives in closed form: a dwell in class `A` starts in its states with the
+the true matrix gives in closed form: a dwell in class *A* starts in its states with the
 probabilities `φ_A ∝ π_B Q_BA` of an entry at steady state and lasts longer than `t` with
 probability `φ_A exp(Q_AA t) 1` — the dwell-time distribution of an aggregated Markov process
 (Colquhoun & Hawkes, *Proc. R. Soc. Lond. B* **211**:205 (1981), doi
