@@ -55,8 +55,8 @@ keywords:
 #      `date-released:` (ISO 8601) to the release being cut; until then they describe the
 #      newest archived release.
 # docs/release.md "Archiving (Zenodo)" is the operational copy of these steps.
-version: "1.0.0-rc2"
-date-released: "2026-10-11"
+version: "1.0.0-rc3"
+date-released: "2026-11-09"
 doi: "10.5281/zenodo.23306397"
 # Keep this file's author list identical to any JOSS paper.md author list.
 references:

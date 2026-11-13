@@ -50,6 +50,7 @@ from tether.project.features import (  # noqa: E402
     compute_features,
     feature_matrix,
     read_features,
+    windowed_traces,
 )
 
 _N_TRACE = len(TRACE_FEATURE_NAMES)  # trace columns precede the spatial block in the matrix
@@ -224,6 +225,31 @@ def test_recompute_replaces_and_overwrite_guard(tmp_path) -> None:
         compute_features(proj, overwrite=False)
 
 
+def test_molecule_keys_selects_exactly_the_named_molecules(tmp_path) -> None:
+    # compute_features(molecule_keys=...) and windowed_traces(molecule_keys=...) keep only the
+    # named molecules; a key absent from /molecules is skipped (#742 ML-F15). With the default
+    # overwrite=True the stored table is then exactly the selected subset.
+    donor, acceptor = _anticorrelated(3, 18)
+    path = tmp_path / "x.tether"
+    proj, keys = _build_store(path, donor, acceptor)
+    full = compute_features(proj)
+
+    picked = windowed_traces(proj, molecule_keys=[keys[1], "no-such-key"])
+    assert [row[1] for row in picked] == [keys[1]]
+    np.testing.assert_allclose(picked[0][2], donor[1])
+    np.testing.assert_allclose(picked[0][3], acceptor[1])
+
+    subset = compute_features(proj, molecule_keys=[keys[1], "no-such-key"])
+    assert subset.molecule_keys == [keys[1]]
+    np.testing.assert_allclose(subset.matrix[0], full.matrix[1], equal_nan=True)
+    on_disk = feature_matrix(proj)
+    assert on_disk.molecule_keys == [keys[1]]
+    np.testing.assert_allclose(on_disk.matrix, subset.matrix, equal_nan=True)
+
+    with pytest.raises(ValueError, match="none matched the selection"):
+        compute_features(proj, molecule_keys=["no-such-key"])
+
+
 def test_provenance_attrs_stamped(tmp_path) -> None:
     donor, acceptor = _anticorrelated(2, 16)
     path = tmp_path / "x.tether"
@@ -371,6 +397,13 @@ def test_raw_layer_is_actually_read(tmp_path) -> None:
     raw = compute_features(proj, intensity_quantity="raw", overwrite=True)
     ti = FEATURE_NAMES.index("total_intensity")
     np.testing.assert_allclose(raw.matrix[:, ti], corrected.matrix[:, ti] + 200.0, atol=0.05)
+    # The recompute replaced the table ON DISK, not only the returned object (#742 ML-F4): a
+    # reader of the store sees the raw features and the raw provenance stamp.
+    on_disk = feature_matrix(proj)
+    np.testing.assert_array_equal(on_disk.matrix, raw.matrix)
+    assert on_disk.molecule_ids == raw.molecule_ids
+    with h5py.File(path, "r") as f:
+        assert f[FEATURES_GROUP]["table"].attrs["intensity_quantity"] == "raw"
 
 
 # --- spatial (crowding) features -----------------------------------------------
@@ -447,6 +480,8 @@ def test_spatial_overlap_reads_stored_aperture_radius(tmp_path) -> None:
     nd = FEATURE_NAMES.index("neighbor_distance")
     assert at_r3.matrix[0, nd] == pytest.approx(10.0)
     assert at_r6.matrix[0, nd] == pytest.approx(10.0)
+    # The stored table holds the recomputed flag, not the stale one (#742 ML-F4).
+    assert feature_matrix(proj).matrix[0, ov] == 1.0
 
 
 def _set_molecule_id(path: Path, row: int, value: str) -> None:

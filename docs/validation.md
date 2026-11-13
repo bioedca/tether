@@ -23,6 +23,7 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | --- | --- | --- | --- |
 | Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
 | Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate `_sidecar_gate.py` in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
+| Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
 | Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
@@ -43,8 +44,8 @@ The required set is the `main-baseline` ruleset: `lint`, `test` on the three pla
 `schema-guard` and `sidecar / parity`.
 
 **When a scheduled run fails.** `sidecar.yml` (nightly, and after each merge to `main`),
-`deep.yml` (nightly), `large-fixtures.yml` (weekly), `reference-data.yml` (weekly) and
-`docs-liveness.yml` (daily) call
+`sidecar-upstream.yml` (weekly), `deep.yml` (nightly), `large-fixtures.yml` (weekly),
+`reference-data.yml` (weekly) and `docs-liveness.yml` (daily) call
 `.github/workflows/scheduled-failure.yml` after their job. When the job fails on `main`, that
 workflow opens one issue with the title `ci(scheduled): <job> failed on main`. The issue gives
 the run, the commit, the failed step and the last 50 log lines up to the last error. The two
@@ -151,9 +152,12 @@ every GitHub-hosted runner, so this assertion has never executed in CI. (The wee
 `7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run of
 this enforcing test with `TETHER_UCKOPSB_DIR` pointing at a staged copy of the movie, which
 supplies the `.tdat` detector settings and the 2 px gate; that run is recorded in ADR-0022.
-The `scripts/run_m1_oracle.py` helper does not reproduce that configuration yet
-([#555](https://github.com/bioedca/tether/issues/555)), so it is not the reproduction
-command.
+`scripts/run_m1_oracle.py --data-dir <staged copy>` reproduces the same configuration
+as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
+the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
+and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
+it as not applicable). Its own behaviour is pinned without the movie by
+`tests/test_run_m1_oracle.py`.
 
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
@@ -296,6 +300,18 @@ means the same tMAVEN commit on the same CPython, not an identical dependency se
 > `"vbconhmm (vb Consensus HMM)"` quoted below, `applied_to` gains `"ebFRET (M6)"`, and `note`
 > reverts to text asserting one shared tolerance for every
 > idealization method — which contradicts ADR-0043 and this page, and which no test reads.
+
+**When upstream tMAVEN changes.** The parity tests use the pinned commit.
+`.github/workflows/sidecar-upstream.yml` runs the same tests each week with tMAVEN at the newest
+commit of its default branch, and its log names that commit. It never changes the pin, the
+sidecar lock or a limit. When a weekly run fails, the report step opens one `type:ci` issue
+whose log excerpt ends with the upstream commit and the first failing comparison (or a line
+saying the tests did not run, when the install or import failed). A manual run with `drill`
+set to `none` opens no issue: read its result on the Actions page. The weekly issue is the
+signal to decide: move the pin, or record why not. To test it, run the workflow by hand with
+`drill` set to `drift`. The drill changes one prior of the fetched tMAVEN (the consensus
+VB-HMM `b`, 0.01 to 1.0). The 281-molecule fit then fails on its ELBO, and the report uses the
+`ci(drill)` title prefix.
 
 **Enforcing tests.** Live fits are `tests/test_parity_sidecar.py`
 (`pytestmark = pytest.mark.sidecar`, so deselected from the 3-OS matrix and run instead by
@@ -708,6 +724,12 @@ k32 0.680, k41 0.032 s⁻¹, all other off-diagonal rates zero), with blinking r
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all. The
   real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.
+- A reference that comes from an ALEX data set compares **apparent FRET from the
+  donor-excitation channels only** — the donor and acceptor intensities under donor
+  excitation. It does not check direct excitation (δ), stoichiometry or any other quantity
+  that needs the acceptor-excitation frames, and so it does not validate them. Tether is
+  single-laser only (PRD N1); the PRD's "What the tests can use" rules (§2.2) allow the
+  ALEX sets at trace level and add no ALEX feature.
 
 **Accepted diagnostics that are not gates.**
 

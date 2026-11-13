@@ -15,9 +15,10 @@ both on the page and what the program actually produces:
   histogram with the status-bar lines the page quotes (``gui``; headless);
 * the export call on the page returns the molecule count it shows.
 
-Step 7 (idealize) needs the tMAVEN sidecar and is not run here; its quoted lines reuse
-the molecule ID step 6 checks. Default tier only: no ``large``, ``sidecar`` or ``deep``
-marker.
+Step 7 (idealize) needs the tMAVEN sidecar for the fit itself, so the store-backed
+idealizer the shell wires is replaced by a stub that returns a path; the **I** key, the
+background worker and both status-bar lines the page quotes are the shell's own (#749).
+Default tier only: no ``large``, ``sidecar`` or ``deep`` marker.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import shutil
+import threading
 from pathlib import Path
 
 import pytest
@@ -58,6 +60,10 @@ ACCEPTED_IDS = (
     "7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057",
 )
 HISTOGRAM_LINE = "Population histogram — 2 molecule(s), 48 frame(s)"
+#: Frames in each molecule's trace: the histogram's 48 frames are two molecules of 24.
+N_FRAMES = 24
+IDEALIZING_LINE = f"Idealizing {ACCEPTED_IDS[1]} (one-click vbFRET)…"
+IDEALIZED_LINE = f"Idealized {ACCEPTED_IDS[1]} (one-click vbFRET)"
 
 
 def _page() -> str:
@@ -108,13 +114,31 @@ def test_extract_prints_the_line_the_page_quotes(tmp_path, monkeypatch, capsys) 
 @pytest.mark.gui
 @_needs_qt
 def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatch, capsys) -> None:
+    import numpy as np
     from pyqtgraph.Qt import QtCore
 
+    import tether.gui.shell as shell_module
     from tether.gui.app import create_shell
     from tether.project.export import export_molecule_table_csv
 
     _extract(tmp_path, monkeypatch, capsys)
     page = _page()
+
+    # Step 7's fit runs in the tMAVEN sidecar, which this tier does not have. Everything
+    # around it is real: the shell still builds its idealizer through the seam it uses for
+    # a project, and the stub holds the fit open until the test has read the first line.
+    release = threading.Event()
+    asked: list[str] = []
+
+    def stub_idealizer(_project, **_kwargs):
+        def idealize(molecule_key: str):
+            asked.append(molecule_key)
+            assert release.wait(10), "the test never released the stub fit"
+            return np.full(N_FRAMES, 0.5)
+
+        return idealize
+
+    monkeypatch.setattr(shell_module, "make_store_idealizer", stub_idealizer)
 
     # Step 4: open the project.
     _app, shell = create_shell(["tutorial.tether"])
@@ -137,6 +161,14 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         press(QtCore.Qt.Key.Key_Right)
         assert press(QtCore.Qt.Key.Key_Space) == f"Accepted {ACCEPTED_IDS[1]}"
 
+        # Step 7: idealize mol-2, the second accepted molecule, still selected.
+        assert press(QtCore.Qt.Key.Key_I) == IDEALIZING_LINE
+        release.set()
+        qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=10_000)
+        assert status.currentMessage() == IDEALIZED_LINE
+        assert asked == [ACCEPTED_IDS[1]]
+        assert len(shell.trace_dock.idealized_path) == N_FRAMES  # drawn on the dock
+
         # Step 8: the population histogram leaves the rejected molecule out.
         shell._act_histogram.trigger()
         assert status.currentMessage() == HISTOGRAM_LINE
@@ -148,9 +180,8 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
         assert f"```text\n{line}\n```" in page, line
     for molecule_id in ACCEPTED_IDS:
         assert f"```text\nAccepted {molecule_id}\n```" in page, molecule_id
-    # Step 7 idealizes mol-2, the second accepted molecule.
-    assert f"Idealizing {ACCEPTED_IDS[1]} (one-click vbFRET)…" in page
-    assert f"Idealized {ACCEPTED_IDS[1]} (one-click vbFRET)" in page
+    for line in (IDEALIZING_LINE, IDEALIZED_LINE):
+        assert f"```text\n{line}\n```" in page, line
 
     # Step 9: the export call on the page, after the shell has closed.
     result = export_molecule_table_csv("tutorial.tether", "tutorial.csv", include_rejected=False)

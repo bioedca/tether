@@ -7,7 +7,8 @@ acts on, and ``Project & maintainers`` for what only the project acts on. These 
 properties that decision exists for, so a later nav edit cannot quietly undo them:
 
 * commands that need write access to ``bioedca/tether`` live only on maintainer pages;
-* every maintainer page says, in its first paragraph, what access it needs;
+* every nav page except the ``Home`` router opens with a "Who this page is for" statement (#587),
+  and every maintainer page says, in its first paragraph, what access it needs;
 * the standalone-tMAVEN cross-OS acceptance record keeps its three ``10f4230`` rows with no
   ``pending`` row left, on a maintainer page rather than a user one (it is ADR-0010's manual GUI
   leg, not tracker state);
@@ -30,6 +31,10 @@ _REPO = Path(__file__).resolve().parents[1]
 DOCS = _REPO / "docs"
 USER_GROUP = "Using Tether"
 MAINTAINER_GROUP = "Project & maintainers"
+# The router: it sends each reader to a page, so it needs no reader statement of its own (#587).
+_ROUTER = "index.md"
+_READER_STATEMENT = "Who this page is for"
+_STATEMENT_WINDOW = 5
 
 # Each needs write or admin rights on the repository; a user page must never instruct them.
 _MAINTAINER_COMMANDS = ("git tag -s", "gh workflow run", "gh api repos/bioedca")
@@ -72,6 +77,14 @@ def _first_paragraph(page: str) -> str:
     return " ".join(paragraphs[0].split()) if paragraphs else ""
 
 
+def _opening_lines(page: str) -> list[str]:
+    """The first non-blank lines after the page's H1, skipping a leading SPDX comment block."""
+    lines = (DOCS / page).read_text(encoding="utf-8").splitlines()
+    title = next((i for i, line in enumerate(lines) if line.startswith("# ")), None)
+    assert title is not None, f"{page} has no H1 title"
+    return [line for line in lines[title + 1 :] if line.strip()][:_STATEMENT_WINDOW]
+
+
 def test_the_nav_has_exactly_the_two_decided_groups() -> None:
     assert list(_groups()) == [USER_GROUP, MAINTAINER_GROUP]
 
@@ -89,6 +102,19 @@ def test_maintainer_commands_appear_only_on_maintainer_pages() -> None:
             continue
         offenders.append(page)
     assert not offenders, f"write-access commands on pages a user reaches: {offenders}"
+
+
+def test_every_nav_page_except_the_router_opens_with_a_reader_statement() -> None:
+    # #587: a reader decides from the opening lines whether a page is for them. The bold lead-in
+    # and the how-to guides' ``## Who this page is for`` heading both carry the phrase.
+    pages = [page for group in _groups().values() for page in group if page != _ROUTER]
+    assert pages, "the nav lists no pages"
+    missing = {
+        page: _opening_lines(page)[:1]
+        for page in pages
+        if not any(_READER_STATEMENT in line for line in _opening_lines(page))
+    }
+    assert not missing, f"nav pages with no reader statement near the top: {missing}"
 
 
 def test_every_maintainer_page_opens_with_a_reader_statement_naming_its_access() -> None:
