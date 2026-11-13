@@ -474,8 +474,27 @@ def test_every_call_in_a_docs_python_fence_can_run() -> None:
             "from tether.project.core import Project\nProject.open(path, mode=1)\n",
             "no parameter 'mode'",
         ),
+        # A keyword that repeats a positional argument: a TypeError at run time.
+        (
+            "from tether.analysis.histogram import population_apparent_e_histogram\n"
+            'hist = population_apparent_e_histogram("x.tether", project="y.tether")\n',
+            "'project' given more than once",
+        ),
+        # Two ** spreads that both carry one key: a TypeError at run time.
+        (
+            "from tether.analysis.histogram import population_apparent_e_histogram\n"
+            "a = dict(project='x.tether')\nb = dict(project='y.tether')\n"
+            "hist = population_apparent_e_histogram(**a, **b)\n",
+            "'project' given more than once",
+        ),
     ],
-    ids=["bad-keyword", "unbound-name", "bad-method-keyword"],
+    ids=[
+        "bad-keyword",
+        "unbound-name",
+        "bad-method-keyword",
+        "keyword-repeats-positional",
+        "key-in-two-spreads",
+    ],
 )
 def test_a_call_that_cannot_run_is_reported(code: str, expected: str) -> None:
     problems = _call_problems("docs/x.md", [(1, ast.parse(code))])

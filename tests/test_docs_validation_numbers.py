@@ -2072,6 +2072,22 @@ class _Located(NamedTuple):
     value: tuple[int, int]
 
 
+def _cell_start(line: str, column: int) -> int:
+    """Where the stripped text of cell ``column`` starts in the table row ``line``.
+
+    It splits on ``|`` exactly as :func:`_cells` does, so the two agree on every row.
+    """
+    pipes = [i for i, ch in enumerate(line) if ch == "|"]
+    lead = len(line) - len(line.lstrip())
+    while pipes and pipes[0] == lead:
+        lead, pipes = lead + 1, pipes[1:]
+    bounds = [lead - 1, *pipes]
+    begin = bounds[column] + 1
+    end = bounds[column + 1] if column + 1 < len(bounds) else len(line)
+    segment = line[begin:end]
+    return begin + len(segment) - len(segment.lstrip())
+
+
 def _locate(pin: Pin, text: str | None = None) -> _Located:
     """Find the text ``pin`` reads as its value on ``text`` (default: the page).
 
@@ -2090,9 +2106,12 @@ def _locate(pin: Pin, text: str | None = None) -> _Located:
             and _row_matches(_cells(line)[0], pin.row)
             and _cells(line)[column] == cell
         ]
-        assert len(lines) == 1 and lines[0].count(cell) == 1, f"{pin.source}: no single row"
+        assert len(lines) == 1, f"{pin.source}: no single row"
         line = lines[0]
-        start = line.index(cell)
+        # The column's own boundaries, not the cell's text: a consistent re-freeze can
+        # make two cells of one row print the same value, and that is no reason to fail.
+        start = _cell_start(line, column)
+        assert line[start : start + len(cell)] == cell, f"{pin.source}: {cell!r} not at its column"
         if isinstance(pin.value, str):
             assert cell.count(pin.value) == 1, f"{pin.source}: {pin.value!r} not once in {cell!r}"
             offset = cell.index(pin.value)
@@ -2264,6 +2283,19 @@ def test_the_mutations_find_the_printed_value_and_change_only_it() -> None:
     assert _nudged("0.9") == "0.1"
     with pytest.raises(AssertionError, match="does not hold"):
         _locate(pin, mutated)
+
+
+def test_a_cell_is_located_by_its_column_when_a_neighbour_prints_the_same_value() -> None:
+    """A consistent re-freeze may leave two cells of one row equal; the pin's own is found."""
+    page = "## S\n\n| Row | A | B |\n| --- | --- | --- |\n| `r` | 1.0 | 1.0 |\n"
+    for column in ("A", "B"):
+        pin = Cell("S", "Row", "r", column, f"synthetic {column}", 1.0)
+        located = _locate(pin, page)
+        line = located.region
+        assert line[located.value[0] : located.value[1]] == "1.0"
+        marked = line[: located.value[0]] + "X" + line[located.value[1] :]
+        expected = ["`r`", "X", "1.0"] if column == "A" else ["`r`", "1.0", "X"]
+        assert _cells(marked) == expected
 
 
 def test_a_number_moved_to_a_neighbouring_key_fails() -> None:

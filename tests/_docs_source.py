@@ -77,6 +77,8 @@ def check_call(
     if args.vararg is None and len(call.args) > len(positional):
         problems.append(f"{len(call.args)} positional arguments, at most {len(positional)}")
     given = set(positional[: len(call.args)])
+    # A positional-only name may also arrive as a ``**kwargs`` key without a clash.
+    clashable = given - {a.arg for a in args.posonlyargs}
     names = []
     for kw in call.keywords:
         if kw.arg is not None:
@@ -86,9 +88,12 @@ def check_call(
         else:
             problems.append("a ** argument whose keys the page does not spell out")
     for arg in names:
-        if arg not in keyword_ok and args.kwarg is None:
+        if arg in clashable:
+            problems.append(f"{arg!r} given more than once")
+        elif arg not in keyword_ok and args.kwarg is None:
             problems.append(f"no parameter {arg!r}")
         given.add(arg)
+        clashable.add(arg)
     n_pos_defaults = len(args.defaults)
     required = positional[: len(positional) - n_pos_defaults] + [
         a.arg for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=True) if d is None
