@@ -151,6 +151,13 @@ def test_compute_photobleach_populates_frames_and_auto_window(tmp_path: Path) ->
     summary = compute_photobleach(path)
     assert summary.n_molecules == 4
     assert summary.intensity_quantity == "corrected"
+    # The summary feeds the batch log line ``pb <n>D/<m>A``: molecule 2's donor and
+    # molecule 3's acceptor never bleach, so 3 of 4 bleach in each channel. The summed
+    # signal of every molecule bleaches before the trace end (frames 70, 55, 90, 40),
+    # so all 4 default windows are set (#728, PRJ-F18).
+    assert summary.n_donor_bleached == 3
+    assert summary.n_acceptor_bleached == 3
+    assert summary.n_windows_autoset == 4
 
     table = read_molecules(path)
     for i in range(4):
@@ -161,6 +168,41 @@ def test_compute_photobleach_populates_frames_and_auto_window(tmp_path: Path) ->
         # ...and the detector recovers the injected steps within the ±2 tolerance.
         assert abs(res.donor_pb - donor_k[i]) <= 2
         assert abs(res.acceptor_pb - acceptor_k[i]) <= 2
+
+
+def test_nonzero_frame_range_start_stores_absolute_frames(tmp_path: Path) -> None:
+    # frame_range = (10, 100): detection runs on the window-local slice [10, 100), and
+    # the stored bleach frames and auto window must be absolute again (start + local),
+    # because compute_leakage_alpha and compute_gamma subtract the start (#728, PRJ-F17).
+    start = 10
+    donor, acceptor, donor_k, acceptor_k = _traces_with_known_bleach()
+    n_frames = donor.shape[1]
+    path = tmp_path / "pb.tether"
+    _build_store(path, donor, acceptor)
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["frame_range"][:] = (start, n_frames)
+        table["analysis_window"][:] = (start, n_frames)  # still the default window
+        f["molecules"][TABLE][:] = table
+
+    summary = compute_photobleach(path)
+    results = [detect_photobleach(donor[i, start:], acceptor[i, start:]) for i in range(4)]
+    assert summary.n_molecules == 4
+    assert summary.n_donor_bleached == 3
+    assert summary.n_acceptor_bleached == 3
+    # On the slice, molecule 3's summed signal (its acceptor never bleaches) reads as
+    # not bleaching, so 3 of the 4 default windows end before the trace end.
+    assert summary.n_windows_autoset == sum(0 < r.sum_pb < n_frames - start for r in results)
+    assert summary.n_windows_autoset == 3
+
+    table = read_molecules(path)
+    for i, res in enumerate(results):
+        expected = (start + res.donor_pb, start + res.acceptor_pb)
+        assert tuple(int(x) for x in table["bleach_frames"][i]) == expected
+        assert tuple(int(x) for x in table["analysis_window"][i]) == (start, start + res.sum_pb)
+        # The injected steps are absolute frames, so the stored frames land on them.
+        assert abs(int(table["bleach_frames"][i][0]) - donor_k[i]) <= 2
+        assert abs(int(table["bleach_frames"][i][1]) - acceptor_k[i]) <= 2
 
 
 def test_never_bleaching_channel_leaves_full_window(tmp_path: Path) -> None:

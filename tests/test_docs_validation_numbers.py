@@ -65,6 +65,14 @@ on* stays bound to the artifact. That the two name one build — the page's "the
 has no such gap" — is asserted once, by :func:`no_gap_violations`, so a live pin that
 advances past a correctly frozen record fails as a stale sentence, not a value mismatch.
 
+**Recorded evidence and cited tests (#748).** Oracle (a)'s measured results have no
+machine-readable artifact, so they are pinned to the results table of ADR-0022, the
+decision record the page names as their source, and so are their restatements in (a) and
+in *Scope*. The six figures a committed artifact holds that were in neither the registry
+nor :data:`EXCLUSIONS` are pinned where the page states them, and the figures with no
+source are recorded there with a reason. Every test the page cites by name must also
+exist: :func:`missing_cited_tests` reads the test modules with :mod:`ast`.
+
 This is still **not** a page-wide numerical-coverage manifest. What stays unpinned on
 purpose — including ``RMS ≤ 0.5 px`` in (a)'s enforcing-tests sentence, which is a test's
 own literal rather than a transcription — is in :data:`EXCLUSIONS` with its reason.
@@ -80,11 +88,14 @@ import math
 import os
 import re
 import sys
+import textwrap
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
 import pytest
+
+import _docs_source
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "docs" / "validation.md"
@@ -95,8 +106,11 @@ SIDECAR_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "sidecar.yml"
 RELEASE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release.yml"
 SIDECAR_LOCK_PATH = ROOT / "sidecar" / "conda-lock.yml"
 SIDECAR_ENV_PATH = ROOT / "sidecar" / "environment.yml"
+ADR_0022_PATH = ROOT / "docs" / "adr" / "0022-m1-acceptance-reframe-and-close.md"
+TESTS = ROOT / "tests"
 
 PAGE_TEXT = PAGE.read_text(encoding="utf-8")
+ADR_0022_TEXT = ADR_0022_PATH.read_text(encoding="utf-8")
 PARITY = json.loads(PARITY_PATH.read_text(encoding="utf-8"))
 KINSOFT = json.loads(KINSOFT_PATH.read_text(encoding="utf-8"))
 
@@ -118,28 +132,11 @@ def module_constant(dotted: str, name: str) -> object:
     """The module-level value of ``name`` in ``tether.x.y``, read from disk with ``ast``.
 
     Parsed rather than imported so the guard has no runtime dependency and executes no
-    module-import side effects — the same reason ``test_docs_parameter_defaults`` reads
-    its defaults this way.
-
-    The **last** top-level binding is the one returned, because it is the one the runtime
-    uses: a module that rebinds ``X = 5.0`` and then ``X = 8.0`` is read as ``8.0``.
-    Returning the first would pin the page to a value the code never uses.
+    module-import side effects. The **last** top-level binding is returned, because it is
+    the one the runtime uses. The reader is shared with ``test_docs_parameter_defaults``
+    (``tests/_docs_source.py``, #749), whose own copy used to return the first.
     """
-    path = SRC / Path(*dotted.split(".")).with_suffix(".py")
-    bound: ast.expr | None = None
-    for stmt in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
-        if isinstance(stmt, ast.AnnAssign):
-            # An annotation with no value (`X: float`) binds nothing at runtime, so the
-            # assignment before it stays the effective one.
-            if isinstance(stmt.target, ast.Name) and stmt.target.id == name and stmt.value:
-                bound = stmt.value
-        elif isinstance(stmt, ast.Assign):
-            for target in stmt.targets:
-                if isinstance(target, ast.Name) and target.id == name:
-                    bound = stmt.value
-    if bound is None:
-        raise AssertionError(f"{dotted} has no module-level constant {name!r}")
-    return ast.literal_eval(bound)
+    return _docs_source.module_constant(SRC, dotted, name)
 
 
 # --- Reading the page ----------------------------------------------------------
@@ -585,17 +582,27 @@ def paragraph(text: str, section: str, anchor: str) -> str:
     return matches[0]
 
 
-def _template_regex(template: str) -> re.Pattern[str]:
+def _template_regex(template: str, gap: str = r"\s*") -> re.Pattern[str]:
     """``"Paper doi `{}`"`` as a pattern that captures whatever value is printed there.
 
     Used so a :class:`Quote` can check *every* place its claim is made rather than
     stopping at the first. The placeholder captures a run of non-space characters, which
     is what every pinned value is; the surrounding words are matched literally, so the
     pattern only fires where the claim is actually being made.
+
+    A space in the template matches any run of whitespace, none included (``gap``): the
+    words are the claim, the spacing is typography, so ``(5% average)`` states the same
+    value as ``(5 % average)`` and a re-spacing is no reason to fail (#749). The value
+    itself is still compared exactly.
     """
     head, placeholder, tail = template.partition("{}")
     assert placeholder, f"a Quote template needs a {{}} placeholder: {template!r}"
-    return re.compile(re.escape(head) + r"(\S+?)" + re.escape(tail))
+    return re.compile(_phrase(head, gap) + r"(\S+?)" + _phrase(tail, gap))
+
+
+def _phrase(text: str, gap: str) -> str:
+    """``text`` as a pattern whose every run of whitespace matches ``gap`` instead."""
+    return gap.join(re.escape(part) for part in re.split(r"\s+", text))
 
 
 #: The ``>`` that opens every line of a Markdown blockquote, with the one space after it.
@@ -734,6 +741,44 @@ def _blinking_rate(name: str) -> object:
         "itself, so there is no single value to pin the page to"
     )
     return ast.literal_eval(stated.pop())
+
+
+#: ``margin=0.5`` inside ``$.freeze_policy``, matched whole like :data:`_BLINKING_RE`.
+_MARGIN_RE = re.compile(r"\bmargin=([-+]?\d+(?:\.\d+)?)(?![\w.])")
+
+
+def freeze_margin() -> object:
+    """The margin ``$.freeze_policy`` records, which is free text and not a field."""
+    stated = set(_MARGIN_RE.findall(str(at(PARITY, "$.freeze_policy"))))
+    assert len(stated) == 1, f"$.freeze_policy must state one margin=; found {sorted(stated)}"
+    return ast.literal_eval(stated.pop())
+
+
+#: Oracle (a)'s measured results as ADR-0022's results table labels them, beside the row
+#: label of (a)'s "Measured result" table on the page.
+_ADR_0022_METRICS = (
+    ("recall @ 1 px", "Recall @ 1 px"),
+    ("recall @ 2 px", "Recall @ 2 px"),
+    ("donor per-molecule Pearson (median)", "Donor per-molecule Pearson (median)"),
+    ("acceptor per-molecule Pearson (median)", "Acceptor per-molecule Pearson (median)"),
+    ("donor precision", "Donor precision"),
+)
+
+
+def adr_0022_measured(text: str, metric: str) -> object:
+    """``metric``'s value in ADR-0022's results table, the record of oracle (a)'s run.
+
+    No machine-readable artifact holds these numbers (#699 adds one for future runs), and
+    ADR-0022 is the record the page names as their source. Pinning the page to the ADR
+    means the published numbers move only with an edit to an accepted decision record,
+    which review sees, instead of with a page edit alone (#748, DCN-F1).
+    """
+    tables = [t for t in _tables(text) if t.header[:2] == ("metric", "value")]
+    assert len(tables) == 1, f"ADR-0022 must hold one metric/value table; found {len(tables)}"
+    table = tables[0]
+    rows = [row for row in table.rows if row[0] == metric]
+    assert len(rows) == 1, f"ADR-0022's results table must hold one {metric!r} row"
+    return ast.literal_eval(rows[0][1].strip("* "))
 
 
 # --- Derived renderings ----------------------------------------------------------
@@ -1168,10 +1213,109 @@ def _restatement_pins() -> list[Pin]:
                 LIVE_TMAVEN_COMMIT,
                 short_commit,
             ),
-            ("on CPython {} — 13 upstream", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
+            # The template stops at the dash: the "13 upstream commits" after it is declared
+            # unpinned in EXCLUSIONS, so it may not ride inside this pin (#749).
+            ("on CPython {} —", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
             ("on CPython {} that CI", _LIVE_PYTHON, LIVE_SIDECAR_PYTHON, None),
         )
     ]
+    pins += _evidence_restatement_pins()
+    return pins
+
+
+_A_SECTION = "(a) Extraction vs Deep-LASI"
+#: (a)'s required-matrix paragraph, which restates the donor and acceptor medians.
+_A_REQUIRED_MATRIX_ANCHOR = "tests/test_oracle.py::test_real_slice_txt_correlates_with_mat"
+#: §Scope's "Accepted diagnostics" list, which restates the acceptor median and precision.
+#: It carries no pointer, so it is selected by lead-in.
+_DIAGNOSTICS_ANCHOR = "- M1 acceptor per-molecule Pearson median"
+#: (b)'s paragraphs that restate the freeze margin, the fixtures' state counts and the
+#: evidence counts. The first two name no pointer of their own, so they use the lead-in.
+_FREEZE_RULE_ANCHOR = "The freeze rule is recorded"
+_REFERENCE_DATA_ANCHOR = "**Reference data.**"
+_EVIDENCE_ANCHOR = "_EXPECTED_EVIDENCE"
+
+
+def _evidence_restatement_pins() -> list[Pin]:
+    """Restatements of recorded evidence that no pin and no exclusion held (#748).
+
+    DCN-F1: the donor and acceptor medians and the donor precision of oracle (a), stated
+    again outside (a)'s table, against ADR-0022. DCN-F6: five of the six figures a
+    committed artifact holds that were in neither :data:`REGISTRY` nor :data:`EXCLUSIONS`
+    — ebFRET's Viterbi floor in §Scope, the freeze margin, the two fixtures' state
+    counts, and the state and comparison counts that ``_EXPECTED_EVIDENCE`` and
+    ``_EXPECTED_EVIDENCE_BY_METHOD`` pin. The sixth, the "~4x" quotation, is a
+    quotation and is in :data:`_VERBATIM_QUOTES`.
+    """
+    pins: list[Pin] = []
+    adr = {metric: adr_0022_measured(ADR_0022_TEXT, metric) for metric, _ in _ADR_0022_METRICS}
+    donor = "donor per-molecule Pearson (median)"
+    acceptor = "acceptor per-molecule Pearson (median)"
+    spread, ebhmm = "$.spread_by_fixture", "$.measured_by_method.ebhmm.spread_by_fixture"
+    viterbi_floor = "$.tolerance_by_method.ebhmm.viterbi_min_agreement"
+    # (section, anchor, location, ((template, source, value), ...)). Every float is
+    # rendered shortest-round-trip, as the other exact restatements are.
+    for section, anchor, where, rows in (
+        (
+            _A_SECTION,
+            _A_REQUIRED_MATRIX_ANCHOR,
+            "(a) required-matrix paragraph",
+            (
+                ("measured at donor {} /", f"ADR-0022 {donor}", adr[donor]),
+                ("/ acceptor {} above", f"ADR-0022 {acceptor}", adr[acceptor]),
+            ),
+        ),
+        (
+            _SCOPE_SECTION,
+            _DIAGNOSTICS_ANCHOR,
+            "Scope diagnostics bullet",
+            (
+                ("Pearson median **{}** and", f"ADR-0022 {acceptor}", adr[acceptor]),
+                ("donor precision **{}** are", "ADR-0022 donor precision", adr["donor precision"]),
+            ),
+        ),
+        (
+            _SCOPE_SECTION,
+            _SCOPE_ANCHOR,
+            "Scope #311 bullet",
+            (("against the frozen {} floor", viterbi_floor, at(PARITY, viterbi_floor)),),
+        ),
+        (
+            _PARITY_SECTION,
+            _FREEZE_RULE_ANCHOR,
+            "(b) freeze-rule paragraph",
+            (("worst case with a {} margin", "$.freeze_policy margin=", freeze_margin()),),
+        ),
+        (
+            _PARITY_SECTION,
+            _REFERENCE_DATA_ANCHOR,
+            "(b) reference-data paragraph",
+            (
+                ("molecules, {} states, cross-seed", f"{spread}.smd_4mol.nstates", None),
+                ("molecules, {} states)", f"{spread}.smd_281mol.nstates", None),
+            ),
+        ),
+        (
+            _PARITY_SECTION,
+            _EVIDENCE_ANCHOR,
+            "(b) evidence paragraph",
+            (
+                ("`smd_4mol` spread at {} states", f"{spread}.smd_4mol.nstates", None),
+                ("states and {} of", f"{spread}.smd_4mol.n_comparisons", None),
+                ("of {} runs;", "$.method.n_runs_per_fixture", None),
+                ("`smd_281mol` at {} states and", f"{spread}.smd_281mol.nstates", None),
+                ("states and {} runs against", f"{spread}.smd_281mol.n_comparisons", None),
+                ("ebFRET on `smd_281mol` at {} states,", f"{ebhmm}.smd_281mol.nstates", None),
+                ("run00-anchored, {})", f"{ebhmm}.smd_281mol.n_comparisons", None),
+            ),
+        ),
+    ):
+        for template, source, value in rows:
+            value = at(PARITY, source) if value is None else value
+            render = shortest if isinstance(value, float) else None
+            pins.append(
+                Quote(section, anchor, template, f"{source} @ {where}", value, render=render)
+            )
     return pins
 
 
@@ -1185,6 +1329,18 @@ def _registry() -> list[Pin]:
             (n, module_constant("tether.project.oracle", n))
             for n in ("RECALL_THRESHOLD", "MATCH_TOL_PX", "PEARSON_THRESHOLD", "RMS_THRESHOLD_PX")
         )
+    ]
+    # (a) — the measured results, against ADR-0022's record of the run (#748).
+    pins += [
+        Cell(
+            _A_SECTION,
+            "Status",
+            row,
+            "Value",
+            f"ADR-0022 {metric}",
+            adr_0022_measured(ADR_0022_TEXT, metric),
+        )
+        for metric, row in _ADR_0022_METRICS
     ]
 
     # (b) — both frozen tolerance blocks, side by side in one table.
@@ -1254,7 +1410,7 @@ def _registry() -> list[Pin]:
         Quote(
             _PARITY_SECTION,
             "**Measured result.**",
-            "{} self-reseeded fits per fixture",
+            "{} self-reseeded fits",
             "$.method.n_runs_per_fixture",
             at(PARITY, "$.method.n_runs_per_fixture"),
         ),
@@ -1532,10 +1688,52 @@ EXCLUSIONS: dict[str, str] = {
         "A historical GitHub Actions run id. It appears in the artifact only inside the "
         "free-text `build_provenance` narrative, not as a machine-readable field."
     ),
-    "the ADR-0022 extraction numbers (0.928, 0.984, 0.982, 0.854, 0.34, ~0.66, ~0.9 GB)": (
-        "Measured on a local run on the maintainer's workstation and recorded in "
-        "docs/adr/0022 as prose. There is no machine-readable artifact, so a pin would "
-        "only assert that two transcriptions of the same paragraph agree."
+    "the ADR-0022 prose figures: '≈0.66' bidirectional recall, '≈0.9 GB' movie, "
+    "'≈1.3 px' acceptor read-position scatter": (
+        "Approximations ADR-0022 states only in its prose ('~0.66', '891 MB', '~1.3 px'), "
+        "outside the results table that (a)'s measured numbers are pinned to (#748); an "
+        "approximate sign has no exact value to compare against."
+    ),
+    "(a)'s reader-agreement bar 'medians ≥ 0.99 on both channels'": (
+        "The literal of tests/test_oracle.py::test_real_slice_txt_correlates_with_mat "
+        "(`>= 0.99`), a reader-to-reader check that the page itself says is not an "
+        "extraction gate. No artifact or module constant holds it."
+    ),
+    "(b)'s fixture sizes '4 molecules' and '281 molecules'": (
+        "The artifact records no molecule count; it is the row count of each HDF5 fixture, "
+        "which this guard does not open (no h5py). The state counts beside them are pinned "
+        "to `$.spread_by_fixture.*.nstates` (#748)."
+    ),
+    "the observed ebFRET Viterbi '0.7568' in the #311 Scope bullet": (
+        "One nondeterministic live fit, tracked in #311 and stated in docs/PRD.md only as "
+        "prose; no artifact records it. The frozen 0.9034 floor beside it is pinned (#748)."
+    ),
+    "(c)'s '`abs=0.01`' (twice) and 'more than 500 pooled dwells'": (
+        "The literals of tests/test_kinsoft_kinetics.py::"
+        "test_kinsoft_level1_within_inter_tool_spread (`abs=0.01`, `> 500`). "
+        "schema/kinsoft_reference.json holds neither."
+    ),
+    "(e)'s γ set '{0.5, 1.0, 2.0, 4.0}'": (
+        "The `parametrize` literal of tests/test_fret_gamma.py::test_recovers_known_gamma. "
+        "No artifact or module constant holds it."
+    ),
+    "(e)'s '≈ 9 % at α ≈ 0.09'": (
+        "ADR-0028's prose ('α ≈ 0.09 ⇒ ~9 %'), an approximation of the (1 + α) factor, "
+        "not a transcription of any recorded value."
+    ),
+    "(e)'s deferred bars '≤ 20 %', '0.05–0.2' and '±10 %'": (
+        "PRD §11.2 rows for the two legs this page says are not implemented. They are "
+        "prose in docs/PRD.md; no code, constant or artifact holds them yet."
+    ),
+    "(g)'s '±2 frames', the step positions 30-160, 'three signal/noise settings' and "
+    "'`abs(pbt - k) <= 2`'": (
+        "The PRD §11.2 bleach-frame tolerance and the literals of "
+        "tests/test_fret_photobleach.py::test_point_pbtime_recovers_known_step_within_two_"
+        "frames; the page says the tolerance 'is asserted inline'. No constant holds them."
+    ),
+    "(g)'s 'constant 60 for all 250 molecules' and the bleach frames ≈97, ≈644, ≈1693": (
+        "Properties of a Deep-LASI `.mat` export that ADR-0026 records. The export is not "
+        "in the repository, so no committed file holds them."
     ),
     "(a)'s enforcing-tests sentence: 'RMS <= 0.5 px', '>= 95 %' and 'within 1 px'": (
         "All three are the hard-coded literals of the test that sentence describes, "
@@ -1597,6 +1795,15 @@ EXCLUSIONS: dict[str, str] = {
         "Facts of Gotz et al. 2022. kinsoft_reference.json records them only inside the "
         "free-text `spread_source` and `deferred_reason` strings, which the page "
         "paraphrases rather than quotes, so there is no literal to pin against."
+    ),
+    "(g)'s live-leg paragraph: 1e-14, 1e-12, 7.1e-16, 6.6e-14, 2026-11-11 and `10f4230`": (
+        "The two limits are the literals REF_RTOL and TETHER_RTOL of the test the paragraph "
+        "describes, tests/test_fret_photobleach_sidecar.py, and the two measured worst cases "
+        "with their date are a one-off measurement recorded in that module's docstring and "
+        "in #706's pull request. No committed artifact or src/ constant carries any of them, "
+        "the same reason as (a)'s enforcing-tests sentence. `10f4230` names the build the "
+        "measurement ran on, not the build the live gate runs; where the page states the "
+        "live build it is pinned to TMAVEN_SPEC (#512)."
     ),
 }
 
@@ -1713,6 +1920,15 @@ _VERBATIM_QUOTES = (
         _PARITY_SECTION,
         _GAP_QUOTE_ANCHOR,
     ),
+    # The kinSoft result paragraph quotes each of the two fields in its own words (#748).
+    ("~4x inside the band", KINSOFT, "$.band.rationale", _KINSOFT_SECTION, "$.band.rationale"),
+    (
+        "~4x inside the 12% band",
+        KINSOFT,
+        "$.levels.level1.tether_measured.note",
+        _KINSOFT_SECTION,
+        "$.band.rationale",
+    ),
 )
 
 
@@ -1802,7 +2018,12 @@ def test_provisional_still_equals_the_frozen_tolerance() -> None:
 
 
 def test_every_exclusion_records_why() -> None:
-    """#214's third acceptance criterion: no silent omissions."""
+    """#214's third acceptance criterion: every recorded omission says why.
+
+    This sees only what :data:`EXCLUSIONS` lists. A figure in neither the registry nor
+    this list is invisible to it, so the list is kept complete by review and by audits
+    such as #748's, which found sixteen such figures and pinned or recorded each.
+    """
     assert EXCLUSIONS, "the exclusion list may not be emptied without saying so"
     for figure, reason in EXCLUSIONS.items():
         assert reason.strip(), f"exclusion {figure!r} carries no reason"
@@ -1830,217 +2051,251 @@ def _mutate(section: str, old: str, new: str, text: str | None = None) -> str:
     return page[:start] + body.replace(old, new) + page[end:]
 
 
+# --- Mutations built from the live value (#749) ---------------------------------
+# A mutation test used to spell the page's current text -- ``"| `k21_high_low` | 0.22 |"``
+# -- and so had to be edited by hand at every re-freeze: re-measure one pooled-worst value
+# and nine tests failed, none of them about a wrong page. The mutations below find the
+# printed value the way the pin itself does (the cell, the owned literal, the template
+# match), check it is the live value, and change exactly that text. Nothing in them is a
+# copy of the page, so a correct re-freeze leaves them green.
+
+
+class _Located(NamedTuple):
+    """Where a pin's printed value sits: a raw region of the page and two spans in it."""
+
+    section: str
+    #: The raw text the pin reads: its table row's line, or its paragraph.
+    region: str
+    #: The claim around the value: the cell, the owned literal, or the template match.
+    phrase: tuple[int, int]
+    #: The printed value itself.
+    value: tuple[int, int]
+
+
+def _cell_start(line: str, column: int) -> int:
+    """Where the stripped text of cell ``column`` starts in the table row ``line``.
+
+    It splits on ``|`` exactly as :func:`_cells` does, so the two agree on every row.
+    """
+    pipes = [i for i, ch in enumerate(line) if ch == "|"]
+    lead = len(line) - len(line.lstrip())
+    while pipes and pipes[0] == lead:
+        lead, pipes = lead + 1, pipes[1:]
+    bounds = [lead - 1, *pipes]
+    begin = bounds[column] + 1
+    end = bounds[column + 1] if column + 1 < len(bounds) else len(line)
+    segment = line[begin:end]
+    return begin + len(segment) - len(segment.lstrip())
+
+
+def _locate(pin: Pin, text: str | None = None) -> _Located:
+    """Find the text ``pin`` reads as its value on ``text`` (default: the page).
+
+    It must be the live value: the precondition every mutation below relies on.
+    """
+    page = PAGE_TEXT if text is None else text
+    assert satisfied(page, pin), f"{pin.source} does not hold on the page being mutated"
+    if isinstance(pin, Cell):
+        cell = cell_text(page, pin)
+        column = _table(page, pin).header.index(pin.column)
+        lines = [
+            line
+            for line in _section(page, pin.section).split("\n")
+            if line.strip().startswith("|")
+            and len(_cells(line)) > column
+            and _row_matches(_cells(line)[0], pin.row)
+            and _cells(line)[column] == cell
+        ]
+        assert len(lines) == 1, f"{pin.source}: no single row"
+        line = lines[0]
+        # The column's own boundaries, not the cell's text: a consistent re-freeze can
+        # make two cells of one row print the same value, and that is no reason to fail.
+        start = _cell_start(line, column)
+        assert line[start : start + len(cell)] == cell, f"{pin.source}: {cell!r} not at its column"
+        if isinstance(pin.value, str):
+            assert cell.count(pin.value) == 1, f"{pin.source}: {pin.value!r} not once in {cell!r}"
+            offset = cell.index(pin.value)
+            span = (offset, offset + len(pin.value))
+        else:
+            span = next(
+                m.span()
+                for m in _NUMBER_RE.finditer(cell)
+                if _same_kind(literal := ast.literal_eval(m.group()), pin.value)
+                and literal == pin.value
+            )
+        return _Located(
+            pin.section, line, (start, start + len(cell)), (start + span[0], start + span[1])
+        )
+    region = paragraph(page, pin.section, pin.anchor)
+    if isinstance(pin, Prose):
+        # The last literal the key owns: where a key is stated twice, the second statement
+        # is the one a check reading only the first would miss.
+        owner, span = None, None
+        for match in _TOKEN_RE.finditer(region.replace("`", " ")):
+            if match.lastgroup == "name":
+                owner = match.group()
+            elif owner == pin.key:
+                with contextlib.suppress(SyntaxError, ValueError):
+                    literal = ast.literal_eval(match.group())
+                    if type(literal) is type(pin.value) and literal == pin.value:
+                        span = match.span()
+        assert span is not None, f"{pin.source}: no literal owned by {pin.key!r}"
+        return _Located(pin.section, region, span, span)
+    match = _template_regex(pin.template, gap=r"[\s>]*").search(region)
+    assert match is not None and match.group(1) == pin.value_text(), pin.source
+    return _Located(pin.section, region, match.span(), match.span(1))
+
+
+def _printed(pin: Pin, text: str | None = None) -> str:
+    """The text ``pin`` reads as its value -- the live value, as the page spells it."""
+    found = _locate(pin, text)
+    return found.region[slice(*found.value)]
+
+
+def _restated(pin: Pin, new: str, text: str | None = None) -> str:
+    """The page with the value ``pin`` reads replaced by ``new``, and nothing else changed."""
+    found = _locate(pin, text)
+    start, end = found.value
+    region = found.region[:start] + new + found.region[end:]
+    return _mutate(found.section, found.region, region, text)
+
+
+def _contradicted(pin: Pin, text: str | None = None) -> str:
+    """The page keeping ``pin``'s right value and publishing a wrong one beside it."""
+    found = _locate(pin, text)
+    (p_start, p_end), (v_start, v_end) = found.phrase, found.value
+    printed = found.region[v_start:v_end]
+    phrase = found.region[p_start:p_end]
+    wrong = phrase[: v_start - p_start] + _nudged(printed) + phrase[v_end - p_start :]
+    addition = f" (was {_nudged(printed)})" if isinstance(pin, Cell) else f", or {wrong}"
+    region = found.region[:p_end] + addition + found.region[p_end:]
+    return _mutate(found.section, found.region, region, text)
+
+
+_HEX = "0123456789abcdef"
+
+
+def _nudged(printed: str) -> str:
+    """``printed`` with its first significant character moved on by one.
+
+    A different value spelled the same way, whatever the value is: ``0.5249`` becomes
+    ``0.6249``, ``71cfa1af…`` becomes ``81cfa1af…``, ``3.12.13`` becomes ``4.12.13``.
+    The *first* significant digit, never the last, because a last-place edit of a long
+    float can parse back to the same double. A run of hex is moved on within hex.
+    """
+    hexadecimal = re.fullmatch(r"[0-9a-f]{7,40}", printed) is not None
+    for i, char in enumerate(printed):
+        if hexadecimal:
+            return printed[:i] + _HEX[(_HEX.index(char) + 1) % 16] + printed[i + 1 :]
+        if char in "123456789":
+            return printed[:i] + str(int(char) % 9 + 1) + printed[i + 1 :]
+    raise AssertionError(f"{printed!r} has no significant digit to change")
+
+
+def _rounded(figures: int) -> Callable[[str], str]:
+    """A transcription error that keeps only ``figures`` significant figures."""
+    return lambda printed: f"{float(printed):.{figures}g}"
+
+
+def _pin(source: str) -> Pin:
+    (pin,) = (p for p in REGISTRY if p.source == source)
+    return pin
+
+
+#: ``(source, how the printed value is made wrong)``; ``None`` is :func:`_nudged`.
+_ONE_VALUE_MISMATCHES: list[tuple[str, Callable[[str], str] | None]] = [
+    # A tightened ebFRET state-count floor, in one table cell.
+    ("$.tolerance_by_method.ebhmm.state_count_min_fraction", None),
+    # A pooled-worst value rounded rather than transcribed.
+    ("$.pooled_worst.state_mean_abs_delta", _rounded(12)),
+    # An ebFRET number truncated rather than transcribed.
+    ("$.measured_by_method.ebhmm.pooled_worst.viterbi_agreement", _rounded(8)),
+    # A module constant the page prints but src/ no longer holds.
+    ("gamma.GAMMA_CEILING", None),
+    # A kinSoft ground-truth rate.
+    ("$.levels.level1.ground_truth.rates_s_inv.k21_high_low", None),
+    # One entry of the deferred level-3 matrix.
+    ("$.levels.level3.ground_truth.rates_s_inv.k32", None),
+    # A blinking rate, which is the one pair read out of the artifact's free text.
+    ("$.levels.level3.ground_truth.note kbright", None),
+    # The SECOND of two statements of one constant in a single paragraph (:func:`_locate`
+    # takes the last). The first stays correct, so this fails only because every
+    # occurrence has to agree.
+    ("ml.prequential.DEFAULT_SHIP_BAR_PTS", None),
+    # --- #435: restatements, one case per pinned location ----------------------------
+    (f"{_M05_COMMIT}[:8]…{_AT_BUILD_TABLE}", None),
+    (f"{_EBHMM_COMMIT}[:8]…{_AT_BUILD_TABLE}", None),
+    (f"{_LIVE_COMMIT}{_AT_LIVE_PIN}", None),
+    (f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, CPython clause", None),
+    (f"{_LIVE_PYTHON_SPEC}{_AT_LIVE_PIN}", None),
+    (f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, lock clause", None),
+    (f"{_M05_COMMIT}[:8]{_AT_GAP_QUOTE}", None),
+    (f"{_LIVE_COMMIT}[:8]{_AT_GAP_QUOTE}", None),
+    (f"{_M05_PYTHON}{_AT_GAP_QUOTE}", None),
+    (
+        "$.pooled_worst.state_count_fraction == $.pooled_worst.viterbi_agreement" + _AT_GAP_QUOTE,
+        None,
+    ),
+    (f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}", None),
+    (f"$.pooled_worst.relative_elbo, 3 s.f.{_AT_GAP_QUOTE}", None),
+    (f"$.tolerance.state_mean_abs_delta_max{_AT_GAP_QUOTE}", None),
+    (f"$.tolerance.relative_elbo_max{_AT_GAP_QUOTE}", None),
+    (f"$.method.n_runs_per_fixture{_AT_GAP_QUOTE}", None),
+    (f"{_EBHMM_FLOOR} @ (b) ship-floor bullet", None),
+    (f"{_EBHMM_FLOOR} @ (b) widening paragraph", None),
+    (f"{_M05_COMMIT}[:8]{_AT_SCOPE}", None),
+    (f"{_LIVE_COMMIT}[:8]{_AT_SCOPE}", None),
+    (f"{_M05_PYTHON}{_AT_SCOPE}", None),
+    (f"{_LIVE_PYTHON}{_AT_SCOPE}", None),
+]
+
+
 @pytest.mark.parametrize(
-    ("section", "old", "new", "source"),
-    [
-        # A tightened ebFRET state-count floor: one digit, in one table cell.
-        (
-            _PARITY_SECTION,
-            "| `state_count_min_fraction` | floor | 0.9 | 0.5249 |",
-            "| `state_count_min_fraction` | floor | 0.9 | 0.5250 |",
-            "$.tolerance_by_method.ebhmm.state_count_min_fraction",
-        ),
-        # A pooled-worst value rounded rather than transcribed.
-        (
-            _PARITY_SECTION,
-            "8.34719832143449e-09",
-            "8.34719832143e-09",
-            "$.pooled_worst.state_mean_abs_delta",
-        ),
-        # An ebFRET number truncated rather than transcribed. The mutation has to change
-        # the *double*, not just the digits: a last-place edit inside one ULP parses back
-        # to the same float, and the same float is the same number.
-        (
-            _PARITY_SECTION,
-            "`viterbi_agreement` 0.9355949176941853",
-            "`viterbi_agreement` 0.93559492",
-            "$.measured_by_method.ebhmm.pooled_worst.viterbi_agreement",
-        ),
-        # A module constant the page prints but src/ no longer holds.
-        (
-            "(e) α / γ estimator edge cases",
-            "| `GAMMA_CEILING` | 5.0 |",
-            "| `GAMMA_CEILING` | 5.5 |",
-            "gamma.GAMMA_CEILING",
-        ),
-        # A kinSoft ground-truth rate.
-        (
-            _KINSOFT_SECTION,
-            "| `k21_high_low` | 0.22 |",
-            "| `k21_high_low` | 0.23 |",
-            "$.levels.level1.ground_truth.rates_s_inv.k21_high_low",
-        ),
-        # One entry of the deferred level-3 matrix.
-        (
-            _KINSOFT_SECTION,
-            "k32 0.680",
-            "k32 0.690",
-            "$.levels.level3.ground_truth.rates_s_inv.k32",
-        ),
-        # A blinking rate, which is the one pair read out of the artifact's free text.
-        (
-            _KINSOFT_SECTION,
-            "`kbright` 7 s⁻¹",
-            "`kbright` 8 s⁻¹",
-            "$.levels.level3.ground_truth.note kbright",
-        ),
-        # The SECOND of two statements of one constant in a single paragraph. The first
-        # stays correct, so this fails only because every occurrence has to agree.
-        (
-            "(d) Ranker held-out cross-validation",
-            "`DEFAULT_SHIP_BAR_PTS == 10.0`",
-            "`DEFAULT_SHIP_BAR_PTS == 11.0`",
-            "ml.prequential.DEFAULT_SHIP_BAR_PTS",
-        ),
-        # --- #435: restatements, one case per pinned location ------------------------
-        # (b) build table, both commits, abbreviated.
-        (
-            _PARITY_SECTION,
-            "| `71cfa1af…` (2025-05-06) |",
-            "| `81cfa1af…` (2025-05-06) |",
-            f"{_M05_COMMIT}[:8]…{_AT_BUILD_TABLE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "| `10f4230b…` (2025-10-05) |",
-            "| `20f4230b…` (2025-10-05) |",
-            f"{_EBHMM_COMMIT}[:8]…{_AT_BUILD_TABLE}",
-        ),
-        # (b) live-pin paragraph: the full commit, both copies of its interpreter and the
-        # environment spec, all read from the live configuration.
-        (
-            _PARITY_SECTION,
-            "`10f4230b6d13c6d2ad67b05d801696b4a40eff4a`",
-            "`10f4230b6d13c6d2ad67b05d801696b4a40eff4b`",
-            f"{_LIVE_COMMIT}{_AT_LIVE_PIN}",
-        ),
-        (
-            _PARITY_SECTION,
-            "3.12.13 — `TMAVEN_SPEC`",
-            "3.12.14 — `TMAVEN_SPEC`",
-            f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, CPython clause",
-        ),
-        (
-            _PARITY_SECTION,
-            "`python=3.12.*`",
-            "`python=3.11.*`",
-            f"{_LIVE_PYTHON_SPEC}{_AT_LIVE_PIN}",
-        ),
-        (
-            _PARITY_SECTION,
-            "resolving to 3.12.13",
-            "resolving to 3.12.14",
-            f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, lock clause",
-        ),
-        # (b) gap blockquote: every artifact value it restates.
-        (
-            _PARITY_SECTION,
-            "tMAVEN `71cfa1af` (2025-05-06) on CPython 3.9.23. That is",
-            "tMAVEN `81cfa1af` (2025-05-06) on CPython 3.9.23. That is",
-            f"{_M05_COMMIT}[:8]{_AT_GAP_QUOTE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "the pinned `10f4230b` (2025-10-05)",
-            "the pinned `20f4230b` (2025-10-05)",
-            f"{_LIVE_COMMIT}[:8]{_AT_GAP_QUOTE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "on CPython 3.9.23. That is",
-            "on CPython 3.9.24. That is",
-            f"{_M05_PYTHON}{_AT_GAP_QUOTE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "are 1.0 on",
-            "are 1.00 on",
-            "$.pooled_worst.state_count_fraction == $.pooled_worst.viterbi_agreement"
-            + _AT_GAP_QUOTE,
-        ),
-        (
-            _PARITY_SECTION,
-            "8.35e-09 / 1.00e-09",
-            "8.36e-09 / 1.00e-09",
-            f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "8.35e-09 / 1.00e-09",
-            "8.35e-09 / 1.01e-09",
-            f"$.pooled_worst.relative_elbo, 3 s.f.{_AT_GAP_QUOTE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "ceilings of 0.02 and 0.01",
-            "ceilings of 0.03 and 0.01",
-            f"$.tolerance.state_mean_abs_delta_max{_AT_GAP_QUOTE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "ceilings of 0.02 and 0.01",
-            "ceilings of 0.02 and 0.02",
-            f"$.tolerance.relative_elbo_max{_AT_GAP_QUOTE}",
-        ),
-        (
-            _PARITY_SECTION,
-            "--n-runs 20",
-            "--n-runs 30",
-            f"$.method.n_runs_per_fixture{_AT_GAP_QUOTE}",
-        ),
-        # (b) the two prose copies of ebFRET's floor. A bare `0.5249` is not unique.
-        (
-            _PARITY_SECTION,
-            "frozen `0.5249` or below",
-            "frozen `0.5250` or below",
-            f"{_EBHMM_FLOOR} @ (b) ship-floor bullet",
-        ),
-        (
-            _PARITY_SECTION,
-            "stays above `0.5249`",
-            "stays above `0.5250`",
-            f"{_EBHMM_FLOOR} @ (b) widening paragraph",
-        ),
-        # Scope and known limitations, third bullet.
-        (
-            _SCOPE_SECTION,
-            "measured against tMAVEN `71cfa1af`",
-            "measured against tMAVEN `81cfa1af`",
-            f"{_M05_COMMIT}[:8]{_AT_SCOPE}",
-        ),
-        (
-            _SCOPE_SECTION,
-            "behind the pinned `10f4230b`",
-            "behind the pinned `20f4230b`",
-            f"{_LIVE_COMMIT}[:8]{_AT_SCOPE}",
-        ),
-        (
-            _SCOPE_SECTION,
-            "on CPython 3.9.23 — 13 upstream",
-            "on CPython 3.9.24 — 13 upstream",
-            f"{_M05_PYTHON}{_AT_SCOPE}",
-        ),
-        (
-            _SCOPE_SECTION,
-            "on CPython 3.12.13 that CI",
-            "on CPython 3.12.14 that CI",
-            f"{_LIVE_PYTHON}{_AT_SCOPE}",
-        ),
-    ],
+    ("source", "make_wrong"), _ONE_VALUE_MISMATCHES, ids=[s for s, _ in _ONE_VALUE_MISMATCHES]
 )
 def test_a_deliberate_one_value_mismatch_fails(
-    section: str, old: str, new: str, source: str
+    source: str, make_wrong: Callable[[str], str] | None
 ) -> None:
-    """Change exactly one number and the pin that owns it must reject the page."""
-    mutated = _mutate(section, old, new)
-    pins = [p for p in REGISTRY if p.source == source]
-    assert pins, f"no registry entry sources {source}"
-    for pin in pins:
-        assert satisfied(PAGE_TEXT, pin), f"{source} does not hold on the unmutated page"
-        assert not satisfied(mutated, pin), (
-            f"the guard accepted a page that states the wrong value for {source} — "
-            "the pin is decorative"
-        )
+    """Change exactly one printed number and the pin that owns it must reject the page."""
+    pin = _pin(source)
+    printed = _printed(pin)
+    wrong = make_wrong(printed) if make_wrong else _nudged(printed)
+    if wrong == printed:  # a live value already short at that precision has nothing to round
+        wrong = _nudged(printed)
+    mutated = _restated(pin, wrong)
+    assert not satisfied(mutated, pin), (
+        f"the guard accepted a page that states {wrong!r} for {source}, whose live value "
+        f"the page printed as {printed!r} — the pin is decorative"
+    )
+
+
+def test_the_mutations_find_the_printed_value_and_change_only_it() -> None:
+    """The machinery itself: the live text is found, and one edit is all that changes."""
+    pin = _pin("$.levels.level1.ground_truth.rates_s_inv.k21_high_low")
+    printed = _printed(pin)
+    assert ast.literal_eval(printed) == pin.value
+    mutated = _restated(pin, _nudged(printed))
+    assert len(mutated) == len(PAGE_TEXT)
+    assert sum(a != b for a, b in zip(mutated, PAGE_TEXT, strict=True)) == 1
+    assert _nudged("0.5249") == "0.6249"
+    assert _nudged("71cfa1af…") == "81cfa1af…"
+    assert _nudged("10f4230b6d13c6d2ad67b05d801696b4a40eff4a")[0] == "2"
+    assert _nudged("0.9") == "0.1"
+    with pytest.raises(AssertionError, match="does not hold"):
+        _locate(pin, mutated)
+
+
+def test_a_cell_is_located_by_its_column_when_a_neighbour_prints_the_same_value() -> None:
+    """A consistent re-freeze may leave two cells of one row equal; the pin's own is found."""
+    page = "## S\n\n| Row | A | B |\n| --- | --- | --- |\n| `r` | 1.0 | 1.0 |\n"
+    for column in ("A", "B"):
+        pin = Cell("S", "Row", "r", column, f"synthetic {column}", 1.0)
+        located = _locate(pin, page)
+        line = located.region
+        assert line[located.value[0] : located.value[1]] == "1.0"
+        marked = line[: located.value[0]] + "X" + line[located.value[1] :]
+        expected = ["`r`", "X", "1.0"] if column == "A" else ["`r`", "1.0", "X"]
+        assert _cells(marked) == expected
 
 
 def test_a_number_moved_to_a_neighbouring_key_fails() -> None:
@@ -2050,24 +2305,17 @@ def test_a_number_moved_to_a_neighbouring_key_fails() -> None:
     distinct, so a check that merely looked for the digits would stay green while the
     page told a reader ebFRET's Viterbi floor was its state-count worst case.
     """
-    swapped = _mutate(
-        _PARITY_SECTION,
-        "`state_count_fraction` 0.6832740213523132",
-        "`state_count_fraction` 0.9355949176941853",
+    first, second = (
+        _pin(f"$.measured_by_method.ebhmm.pooled_worst.{metric}")
+        for metric in ("state_count_fraction", "viterbi_agreement")
     )
-    swapped_text = _mutate(
-        _PARITY_SECTION,
-        "`viterbi_agreement` 0.9355949176941853",
-        "`viterbi_agreement` 0.6832740213523132",
-        swapped,
-    )
-    for metric in ("state_count_fraction", "viterbi_agreement"):
-        pin = next(
-            p for p in REGISTRY if p.source == f"$.measured_by_method.ebhmm.pooled_worst.{metric}"
-        )
+    one, other = _printed(first), _printed(second)
+    assert one != other
+    swapped_text = _restated(second, one, _restated(first, other))
+    for pin in (first, second):
         assert satisfied(PAGE_TEXT, pin)
         assert not satisfied(swapped_text, pin), (
-            f"{metric} was accepted next to another metric's value"
+            f"{pin.source} was accepted next to another metric's value"
         )
 
 
@@ -2089,41 +2337,27 @@ def test_swapping_the_two_dois_fails() -> None:
 
 
 @pytest.mark.parametrize(
-    ("section", "old", "new", "source"),
+    "source",
     [
         # A table cell that keeps the right value and publishes a stale one beside it.
-        (
-            _PARITY_SECTION,
-            "| `viterbi_min_agreement` | floor | 0.95 |",
-            "| `viterbi_min_agreement` | floor | 0.95 (was 0.93) |",
-            "$.tolerance.viterbi_min_agreement",
-        ),
+        "$.tolerance.viterbi_min_agreement",
         # The same shape in a Quote's paragraph rather than a cell.
-        (
-            _KINSOFT_SECTION,
-            "(5 % average)",
-            "(5 % average), or (6 % average)",
-            "$.levels.level1.reported_inter_tool_spread.rate_mean_rel_dev_from_gt",
-        ),
+        "$.levels.level1.reported_inter_tool_spread.rate_mean_rel_dev_from_gt",
     ],
 )
-def test_a_contradiction_beside_a_correct_value_fails(
-    section: str, old: str, new: str, source: str
-) -> None:
+def test_a_contradiction_beside_a_correct_value_fails(source: str) -> None:
     """Keeping the right number is not enough if a wrong one is published beside it.
 
     Cell, Prose and Quote all have to agree about this. They did not: only the Prose
     branch rejected a contradiction, so the same stale restatement passed or failed
     depending on whether the page happened to print it in a table.
     """
-    mutated = _mutate(section, old, new)
-    pins = [p for p in REGISTRY if p.source == source]
-    assert pins, f"no registry entry sources {source}"
-    for pin in pins:
-        assert satisfied(PAGE_TEXT, pin), f"{source} does not hold on the unmutated page"
-        assert not satisfied(mutated, pin), (
-            f"{source} was accepted while the page also stated a contradicting value"
-        )
+    pin = _pin(source)
+    mutated = _contradicted(pin)
+    assert _printed(pin) in _section(mutated, pin.section)
+    assert not satisfied(mutated, pin), (
+        f"{source} was accepted while the page also stated a contradicting value"
+    )
 
 
 @pytest.mark.parametrize(
@@ -2187,7 +2421,8 @@ def test_a_row_label_only_matches_at_a_boundary() -> None:
 
 def test_an_extra_transition_on_the_page_fails() -> None:
     """A seventh rate printed beside the six contradicts the "all other zero" clause."""
-    extra = _mutate(_KINSOFT_SECTION, "k32 0.680", "k13 0.010, k32 0.680")
+    k32 = _pin(f"{_LEVEL3_RATES_POINTER}.k32")
+    extra = _restated(k32, f"{_printed(k32)}, k13 0.010")
     displayed = {
         name
         for name, values in _owned_literals(
@@ -2269,57 +2504,46 @@ def test_no_anchor_embeds_a_value() -> None:
     assert not embedding, f"these anchors embed a value: {embedding}"
 
 
-@pytest.mark.parametrize(
-    ("old", "new", "source"),
-    [
-        (
-            "`$.band.rate_rel_deviation_max = 0.12`",
-            "`$.band.rate_rel_deviation_max = 0.13`",
-            "$.band.rate_rel_deviation_max",
-        ),
-        (
-            "(5 % average)",
-            "(6 % average)",
-            "$.levels.level1.reported_inter_tool_spread.rate_mean_rel_dev_from_gt",
-        ),
-    ],
-)
-def test_a_re_anchored_pin_still_rejects_a_stale_page(old: str, new: str, source: str) -> None:
+#: The prose pins reading the paragraph #435 re-anchored on a bare pointer.
+_REANCHORED_PINS = [
+    p
+    for p in REGISTRY
+    if isinstance(p, Prose | Quote)
+    and p.source
+    in {
+        "$.band.rate_rel_deviation_max",
+        "$.levels.level1.reported_inter_tool_spread.rate_mean_rel_dev_from_gt",
+    }
+    and p.anchor == _REANCHORED[0][1]
+]
+
+
+@pytest.mark.parametrize("pin", _REANCHORED_PINS, ids=[p.label for p in _REANCHORED_PINS])
+def test_a_re_anchored_pin_still_rejects_a_stale_page(pin: Pin) -> None:
     """Re-anchoring changed how the paragraph is found, not what the pin demands of it.
 
-    Kept out of :func:`test_a_deliberate_one_value_mismatch_fails` on purpose: that test
-    requires every pin sharing a ``source`` to reject the edit, and the two `Advisory band`
-    table cells also carry `$.band.rate_rel_deviation_max` while reading a table this
-    prose-only edit does not touch.
+    Kept out of :func:`test_a_deliberate_one_value_mismatch_fails` on purpose: the two
+    `Advisory band` table cells also carry `$.band.rate_rel_deviation_max` while reading a
+    table this prose-only edit does not touch.
     """
-    mutated = _mutate(_KINSOFT_SECTION, old, new)
-    pins = [
-        p
-        for p in REGISTRY
-        if isinstance(p, Prose | Quote) and p.source == source and p.anchor == _REANCHORED[0][1]
-    ]
-    assert pins, f"no re-anchored prose pin sources {source}"
-    for pin in pins:
-        assert satisfied(PAGE_TEXT, pin)
-        assert not satisfied(mutated, pin), f"{source} accepted a stale page"
+    assert len(_REANCHORED_PINS) == 2
+    mutated = _restated(pin, _nudged(_printed(pin)))
+    assert not satisfied(mutated, pin), f"{pin.source} accepted a stale page"
 
 
 def test_a_correctly_updated_span_is_still_selectable() -> None:
     """The defect the re-anchor removes: a right page must not fail *selection*.
 
     A page that moved its span to a new band value is still found by the bare pointer,
-    and is then rejected for the value — the artifact still says 0.12 — rather than with
-    a selection error that names the wrong problem.
+    and is then rejected for the value -- the artifact still holds the old one -- rather
+    than with a selection error that names the wrong problem.
     """
-    updated = _mutate(
-        _KINSOFT_SECTION,
-        "`$.band.rate_rel_deviation_max = 0.12`",
-        "`$.band.rate_rel_deviation_max = 0.15`",
-    )
     pin = next(
         p for p in REGISTRY if isinstance(p, Prose) and p.source == "$.band.rate_rel_deviation_max"
     )
-    assert "0.15" in paragraph(updated, pin.section, pin.anchor)
+    moved = _nudged(_printed(pin))
+    updated = _restated(pin, moved)
+    assert moved in paragraph(updated, pin.section, pin.anchor)
     assert not satisfied(updated, pin)
 
 
@@ -2333,9 +2557,10 @@ def test_the_exact_tier_wins_over_the_leading_token_tier() -> None:
 @pytest.mark.parametrize(
     "value",
     [
-        # Real artifact values, neither of which survives ':g'.
-        PARITY["pooled_worst"]["state_mean_abs_delta"],
-        PARITY["measured_by_method"]["ebhmm"]["pooled_worst"]["viterbi_agreement"],
+        # Fixed probes that do not survive ':g'. Not read live: a re-freeze onto a short
+        # value would leave nothing for this property to be shown on (#749).
+        8.34719832143449e-09,
+        0.9355949176941853,
     ],
 )
 def test_a_quote_refuses_a_value_g_would_round(value: float) -> None:
@@ -2361,12 +2586,14 @@ def test_module_constant_reads_the_last_binding(
 
 def test_mutate_chains_on_a_text_it_is_given() -> None:
     """The optional ``text`` lets a second mutation build on the first, still checked."""
-    first = _mutate(_KINSOFT_SECTION, "k32 0.680", "k32 0.690")
-    second = _mutate(_KINSOFT_SECTION, "k32 0.690", "k32 0.700", first)
-    assert "k32 0.700" in second
-    assert "k32 0.680" not in second
+    k32 = _printed(_pin(f"{_LEVEL3_RATES_POINTER}.k32"))
+    once, twice = _nudged(k32), _nudged(_nudged(k32))
+    first = _mutate(_KINSOFT_SECTION, f"k32 {k32}", f"k32 {once}")
+    second = _mutate(_KINSOFT_SECTION, f"k32 {once}", f"k32 {twice}", first)
+    assert f"k32 {twice}" in second
+    assert f"k32 {k32}" not in second
     with pytest.raises(AssertionError, match="not unique"):
-        _mutate(_KINSOFT_SECTION, "k32 0.680", "k32 0.710", second)
+        _mutate(_KINSOFT_SECTION, f"k32 {k32}", f"k32 {once}", second)
 
 
 #: The four mutation sites a review found replacing text without proving it applied.
@@ -2674,28 +2901,28 @@ def test_the_rounded_and_the_exact_rendering_stay_different_paths() -> None:
 
 
 def test_a_re_freeze_onto_a_three_figure_value_keeps_the_rendering_path() -> None:
-    """A live `8.35e-09` is exact at three figures, and the rounded pin still holds (#512)."""
-    pin = next(
-        p
-        for p in REGISTRY
-        if p.source == f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}"
-    )
-    refrozen = pin._replace(value=8.35e-09)
-    assert sci3(refrozen.value) == shortest(refrozen.value)
+    """A live value exact at three figures still holds through the rounded pin (#512).
+
+    Such a value renders the same both ways (shown on a fixed probe, since whether the
+    *frozen* value has three non-zero figures is an accident of the last measurement), and
+    the pin re-frozen onto the page's own rounding of the live value still holds, keeping
+    its ``sci3`` path (#749).
+    """
+    probe = 8.35e-09
+    assert sci3(probe) == shortest(probe)
+    pin = _pin(f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}")
+    refrozen = pin._replace(value=float(sci3(pin.value)))
     assert rendering_path_violations(refrozen) == []
     assert satisfied(PAGE_TEXT, refrozen)
     assert rendering_path_violations(refrozen._replace(render=shortest)) != []
 
 
-@pytest.mark.parametrize("printed", ["8.3472e-09", "8.3e-09", "8.347e-09"])
-def test_the_page_text_is_never_rounded_before_comparison(printed: str) -> None:
+@pytest.mark.parametrize("decimals", [4, 1, 3], ids=["5 s.f.", "2 s.f.", "4 s.f."])
+def test_the_page_text_is_never_rounded_before_comparison(decimals: int) -> None:
     """Only the live value is rounded. A page printing more or fewer figures fails."""
-    mutated = _mutate(_PARITY_SECTION, "8.35e-09 / 1.00e-09", f"{printed} / 1.00e-09")
-    pin = next(
-        p
-        for p in REGISTRY
-        if p.source == f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}"
-    )
+    pin = _pin(f"$.pooled_worst.state_mean_abs_delta, 3 s.f.{_AT_GAP_QUOTE}")
+    assert isinstance(pin.value, float)
+    mutated = _restated(pin, f"{pin.value:.{decimals}e}")
     assert satisfied(PAGE_TEXT, pin)
     assert not satisfied(mutated, pin)
 
@@ -2709,23 +2936,25 @@ def test_both_floors_must_hold_one_common_value() -> None:
 def test_a_blockquote_pin_survives_a_rewrap_across_a_line_break() -> None:
     """The blockquote's ``>`` markers are not part of the sentence.
 
-    Re-wraps the gap blockquote so pinned phrases straddle a line break, and every pin
-    reading that blockquote still holds. The naive flattening — whitespace only, no
-    marker strip — is shown failing on the same re-wrap, which is what the strip fixes.
+    Re-wraps the gap blockquote narrow, after its first line, so pinned phrases straddle
+    line breaks, and every pin reading that blockquote still holds. The naive flattening --
+    whitespace only, no marker strip -- is shown failing on the same re-wrap, which is what
+    the strip fixes. The re-wrap is built from the page's own text (#749).
     """
-    rewrapped = _mutate(
-        _PARITY_SECTION,
-        "8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01, and",
-        "8.35e-09 /\n> 1.00e-09 against\n> ceilings of 0.02 and\n> 0.01, and",
-    )
+    region = paragraph(PAGE_TEXT, _PARITY_SECTION, _GAP_QUOTE_ANCHOR)
+    lead, _, rest = region.partition("\n")
+    narrow = "\n".join(f"> {line}" for line in textwrap.wrap(_flat(rest), 24))
+    rewrapped = _mutate(_PARITY_SECTION, region, f"{lead}\n{narrow}")
     pins = [p for p in REGISTRY if isinstance(p, Quote) and p.anchor == _GAP_QUOTE_ANCHOR]
     assert len(pins) == 9
     for pin in pins:
         assert satisfied(rewrapped, pin), f"{pin.source} broke on a re-wrap"
-    region = paragraph(rewrapped, _PARITY_SECTION, _GAP_QUOTE_ANCHOR)
-    naive = " ".join(region.split())
-    assert "8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01" not in naive
-    assert "8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01" in _flat(region)
+    wrapped = paragraph(rewrapped, _PARITY_SECTION, _GAP_QUOTE_ANCHOR)
+    assert wrapped != region
+    naive = " ".join(wrapped.split())
+    phrases = [pin.rendered().strip() for pin in pins]
+    assert any(phrase not in naive for phrase in phrases)
+    assert all(phrase in _flat(wrapped) for phrase in phrases)
 
 
 def test_the_blockquote_copy_of_the_measured_methods_quotation_is_checked() -> None:
@@ -2793,7 +3022,9 @@ def test_an_exact_float_restatement_catches_a_change_past_six_digits() -> None:
         for p in _restatement_pins()
         if isinstance(p, Quote) and isinstance(p.value, float) and p.render is not sci3
     ]
-    assert len(exact) == 5  # both ceilings, the 1.0 floors clause, both 0.5249 copies
+    # Both ceilings, the 1.0 floors clause, both 0.5249 copies, and #748's six: the four
+    # ADR-0022 restatements, ebFRET's Viterbi floor in §Scope and the freeze margin.
+    assert len(exact) == 11
     for pin in exact:
         assert pin.render is shortest, f"{pin.source} renders a float with ':g'"
         assert isinstance(pin.value, float)
@@ -2917,7 +3148,13 @@ def test_an_advanced_live_pin_fails_as_a_stale_sentence_not_a_value_mismatch() -
     live = [p for p in REGISTRY if p.source.startswith(_LIVE_COMMIT)]
     assert len(live) == 3
     assert not any(satisfied(page, pin) for pin in live), "the page edit changed nothing"
-    for pin in REGISTRY:
+    # The pins this edit is about, and only those (#749): the live ones against the new
+    # pin, and the build-table cell the frozen ebFRET record still owns. Every other pin is
+    # already checked against the real page; asserting all of them here gave every real
+    # drift a second failure, about this test's subject rather than its own.
+    frozen = [p for p in REGISTRY if p.source.startswith(_EBHMM_COMMIT)]
+    assert frozen
+    for pin in [*live, *frozen]:
         moved = pin._replace(value=new) if pin in live else pin
         assert satisfied(page, moved), f"{pin.source} rejected a correctly updated page"
     measured = (at(PARITY, _EBHMM_COMMIT), at(PARITY, _EBHMM_PYTHON))
@@ -2937,3 +3174,125 @@ def test_an_advanced_live_pin_fails_as_a_stale_sentence_not_a_value_mismatch() -
     )
     assert no_gap_claims(page) == []
     assert no_gap_violations(page, measured, (new, LIVE_SIDECAR_PYTHON)) == []
+
+
+# --- #748: recorded evidence and cited tests ------------------------------------
+
+
+def _evidence_pins() -> list[Pin]:
+    """Every pin #748 added: (a)'s results table and the evidence restatements."""
+    table = [p for p in REGISTRY if isinstance(p, Cell) and p.source.startswith("ADR-0022 ")]
+    return table + _evidence_restatement_pins()
+
+
+def _moved(value: object) -> object:
+    """A different value of the same kind, far enough that no rendering can absorb it."""
+    assert isinstance(value, int | float) and not isinstance(value, bool), value
+    return value + 1
+
+
+def test_every_evidence_pin_rejects_a_moved_value() -> None:
+    """A pin that holds for every value is prose (#748).
+
+    Built from the live value rather than from a copy of the page text, so a correct
+    re-measure followed by a page update keeps this green. The page-side direction — the
+    page edited, the source kept — is the same comparison, read the other way.
+    """
+    pins = _evidence_pins()
+    assert len(pins) == len({p.source for p in pins}) == 20
+    for pin in pins:
+        assert satisfied(PAGE_TEXT, pin), f"{pin.source} does not hold on the page"
+        moved = pin._replace(value=_moved(pin.value))
+        assert not satisfied(PAGE_TEXT, moved), (
+            f"{pin.source} still holds with {moved.value!r} in place of {pin.value!r}"
+        )
+
+
+#: A cited test: a code span that is a test function's name, bare or as
+#: ``tests/<module>.py::<name>``, and a code span that is a test module's path.
+_CITED_TEST_RE = re.compile(r"(?:(?P<module>tests/[\w/]+\.py)::)?(?P<name>test_\w+)")
+_CITED_MODULE_RE = re.compile(r"tests/[\w/]+\.py")
+
+
+def defined_tests(root: Path) -> dict[str, set[str]]:
+    """Each test function under ``root`` mapped to the modules that define it.
+
+    What pytest collects: module-level ``test_*`` functions and the ``test_*`` methods of
+    module-level classes. Read with :mod:`ast`, so no test module is imported.
+    """
+    out: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        module = path.relative_to(ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=module)
+        nodes = list(tree.body)
+        nodes += [n for c in tree.body if isinstance(c, ast.ClassDef) for n in c.body]
+        for node in nodes:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and (
+                node.name.startswith("test_")
+            ):
+                out.setdefault(node.name, set()).add(module)
+    return out
+
+
+def cited_tests(text: str) -> list[str]:
+    """Every code span in ``text`` that names a test or a test module, fences excluded."""
+    lines = text.split("\n")
+    unfenced = "\n".join("" if f else line for line, f in zip(lines, _fenced(lines), strict=True))
+    return [
+        span
+        for span in (s.strip() for s in _BACKTICKED_RE.findall(unfenced))
+        if _CITED_TEST_RE.fullmatch(span) or _CITED_MODULE_RE.fullmatch(span)
+    ]
+
+
+def missing_cited_tests(text: str, defined: dict[str, set[str]]) -> list[str]:
+    """The tests and test modules ``text`` cites that ``defined`` does not hold.
+
+    A bare name must be defined in some test module; a ``module::name`` pair in that
+    module; a module path must define at least one test.
+    """
+    modules = {m for found in defined.values() for m in found}
+    missing: list[str] = []
+    for span in cited_tests(text):
+        if module_only := _CITED_MODULE_RE.fullmatch(span):
+            if module_only.group() not in modules:
+                missing.append(span)
+            continue
+        cited = _CITED_TEST_RE.fullmatch(span)
+        assert cited is not None
+        where = defined.get(cited.group("name"), set())
+        if not where or (cited.group("module") and cited.group("module") not in where):
+            missing.append(span)
+    return missing
+
+
+def test_every_test_the_page_cites_exists() -> None:
+    """The page's "Enforcing tests" name real tests (#748, DCN-F13).
+
+    A renamed or deleted test would otherwise leave the validation page citing, as
+    evidence, a test that no longer runs.
+    """
+    cited = cited_tests(PAGE_TEXT)
+    assert any("::" in c for c in cited) and any(c.startswith("test_") for c in cited)
+    missing = missing_cited_tests(PAGE_TEXT, defined_tests(TESTS))
+    assert not missing, f"docs/validation.md cites tests that do not exist: {missing}"
+
+
+def test_a_renamed_cited_test_fails() -> None:
+    """The check above bites on each kind of citation; built from the live page."""
+    defined = defined_tests(TESTS)
+    cited = cited_tests(PAGE_TEXT)
+    bare = next(c for c in cited if c.startswith("test_"))
+    pair = next(c for c in cited if "::" in c)
+    module = next(c for c in cited if "::" not in c and c.startswith("tests/"))
+    pair_module, pair_name = pair.split("::")
+    elsewhere = min({m for f in defined.values() for m in f} - defined[pair_name])
+    for old, new in (
+        (bare, f"{bare}_renamed"),
+        (pair, f"{pair_module.removesuffix('.py')}_renamed.py::{pair_name}"),
+        (pair, f"{elsewhere}::{pair_name}"),
+        (module, f"{module.removesuffix('.py')}_renamed.py"),
+    ):
+        page = PAGE_TEXT.replace(f"`{old}`", f"`{new}`", 1)
+        assert page != PAGE_TEXT
+        assert missing_cited_tests(page, defined) == [new], (old, new)

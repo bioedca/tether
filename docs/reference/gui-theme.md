@@ -5,6 +5,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Window themes and trace colors
 
+**Who this page is for.** Anyone who uses the Tether window and wants to change its theme, or
+who wants to know the trace colors and how they were checked. It assumes you can open the
+Tether window. It does not assume you know Qt or color science.
+
 The Tether window has a light theme and a dark theme. This page tells you how to select a
 theme, and it records the colors of the traces and how they were checked.
 
@@ -66,7 +70,7 @@ version (ink) and a dark version (chalk), and the icons change with the theme.
 | Curation → Assign category | curate |
 | Hand-off → Hand to tMAVEN | hand-off |
 | Hand-off → Import return leg | import |
-| Legacy → Import Deep-LASI bundle | import |
+| Import → Deep-LASI bundle | import |
 | Analysis → Population histogram | analyze |
 | Conditions → Validate conditions | conditions |
 
@@ -74,7 +78,8 @@ An icon is never the only sign of a function. Each menu item keeps its text.
 
 **Busy indicator.** When a task runs and does not give a percentage, the right end of the
 status bar shows the busy indicator and the name of the task. Today this task is the
-one-click idealize (the `I` key). The three wavefronts of the mark light in sequence, from
+one-click idealize (the `I` key). The task name uses the molecule name from the molecule
+list, for example `Idealizing mol-3`. The three wavefronts of the mark light in sequence, from
 the surface to the molecule. The indicator stops when the task stops.
 
 If your operating system asks for reduced motion, the wavefronts do not move. The
