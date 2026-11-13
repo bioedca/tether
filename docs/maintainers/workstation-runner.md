@@ -174,9 +174,16 @@ Each id needs two roles in the mapping file:
 
 One movie has two export routes, and each route has its own id: `lab-12` is the TIFF
 exported from the vendor format and `lab-11` is the direct TIFF. They are one acquisition, so
-only `lab-12` has a golden file. The check of the two export routes is a separate check. It
-extracts both files with the map file of `lab-12`. It passes when both give the same molecules, the same
-number of frames and the same raw traces. It records the counts and the largest difference.
+only `lab-12` has a golden file. The check of the two export routes is a separate check. The
+vendor export is the direct TIFF turned 90° clockwise (#887), so the check first turns its
+frames back. Then it extracts both files with the map file of `lab-11`. It passes when both
+give the same molecules, the same number of frames and the same raw traces. It records the
+counts and the largest difference.
+
+The numbers in a golden file are what Tether computed when the file was written. They are not
+reference values. #887 tracks the three vendor-route acquisitions of the series of `lab-12`,
+which share a map file with the direct-route `lab-13` and are probably registered with a map
+turned against their frames.
 
 To write or update the golden files, run this on the workstation, in the environment of the
 state folder, from a clone of the commit to freeze:
