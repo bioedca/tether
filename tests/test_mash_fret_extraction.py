@@ -196,10 +196,12 @@ def violations(result: Measured, limits: dict) -> list[str]:
         found.append(f"found {result.n_found} of {result.n_eligible}, limit {limits['found']}")
     if result.n_false > limits["false"]:
         found.append(f"false detections {result.n_false}, limit {limits['false']}")
+    # Every comparison is written so that NaN breaks it: a NaN (a constant trace gives a NaN
+    # correlation) must never read as a kept limit.
     for what in ("donor_err", "acceptor_err"):
         values = getattr(result, what)
         worst = float(values.max()) if values.size else np.inf
-        if worst > limits[what]:
+        if not worst <= limits[what]:
             found.append(f"{what} {worst:.3f} px, limit {limits[what]}")
     for channel in ("donor", "acceptor"):
         ratios = result.gain.get(channel, np.empty(0))
@@ -209,9 +211,32 @@ def violations(result: Measured, limits: dict) -> list[str]:
             found.append(f"{channel} gain {median:.3f}, limit [{low}, {high}]")
         rs = result.corr.get(channel, np.empty(0))
         lowest = float(rs.min()) if rs.size else -np.inf
-        if lowest < limits["min_r"][channel]:
+        if not lowest >= limits["min_r"][channel]:
             found.append(f"{channel} lowest r {lowest:.3f}, limit {limits['min_r'][channel]}")
     return found
+
+
+def test_a_nan_breaks_a_limit() -> None:
+    """A NaN position error, ratio or correlation is a broken limit, never a kept one."""
+    good = Measured(
+        n_eligible=6,
+        n_found=4,
+        n_false=0,
+        donor_err=np.array([0.1, 0.2]),
+        acceptor_err=np.array([0.1, 0.2]),
+        gain={"donor": np.array([0.91, 0.92]), "acceptor": np.array([0.91, 0.92])},
+        corr={"donor": np.array([0.9, 0.95]), "acceptor": np.array([0.9, 0.95])},
+    )
+    assert violations(good, LIMITS["easy"]) == []
+    with np.errstate(invalid="ignore"):
+        constant = np.corrcoef(np.ones(5), np.arange(5.0))[0, 1]
+    assert np.isnan(constant)
+    nan_r = replace(good, corr={**good.corr, "donor": np.array([constant, 0.95])})
+    assert [v for v in violations(nan_r, LIMITS["easy"]) if v.startswith("donor lowest r")]
+    nan_err = replace(good, acceptor_err=np.array([np.nan, 0.2]))
+    assert [v for v in violations(nan_err, LIMITS["easy"]) if v.startswith("acceptor_err")]
+    nan_gain = replace(good, gain={**good.gain, "acceptor": np.array([np.nan])})
+    assert [v for v in violations(nan_gain, LIMITS["easy"]) if v.startswith("acceptor gain")]
 
 
 @pytest.mark.parametrize("name", SCENARIOS)
