@@ -1,6 +1,6 @@
 # 0013 — 4-DOF Fourier-Mellin similarity prealign: log-polar recovery, masked-NCC disambiguation, real-data oracle
 
-- **Status:** accepted
+- **Status:** accepted; amended by [ADR-0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) on the spectrum sampling, the band-pass default and the regime
 - **Date:** 2026-06-28
 - **Deciders:** bioedca
 - **PRD anchor:** Appendix E Stage 7 (4-DOF similarity prealign), §11.2 (prealign row), §11.1 (coordinates)
@@ -80,6 +80,16 @@ Chosen: **C (brute-force masked-NCC) + windowed translation + a hybrid oracle.**
 Everything is version-matched to the base `conda-lock` scikit-image 0.26 (the
 `warp_polar` log-polar constants and `phase_cross_correlation` 3-tuple return were
 read from the 0.26 source, not training memory).
+
+> **Amended by ADR-0089 (#780).** Steps 1–2 below missed small warps: the spectrum
+> grid was not square, the log-polar grid was coarse, and the 3 px band-pass low cut
+> removed the signal, so scale 1.01 and rotation 1° came back as identity. ADR-0089
+> pads to a square of twice the longer side, adds the Reddy-Chatterji emphasis,
+> samples to the Nyquist radius with phase normalisation, and lowers `low_sigma` to
+> 1 px. The tests now assert recovered values for rotations up to a few degrees and
+> scales within about 2 % of unity, on square and channel-half images. The real crop
+> resolves scale only to about 0.002 (its scale limit is 0.005); the "Δscale 0.0002"
+> below was one scale step of the old grid, not a measurement.
 
 **Reliable regime.** Validated for the near-identity regime of sub-degree rotation
 and sub-percent scale — all dual-view split-sensor registration needs (the
