@@ -12,8 +12,12 @@ the live computer-use smoke; these assert wiring/behaviour only.
 
 The plan is built from hand-made :class:`~tether.io.intake.AcquisitionFileSet`s
 (discovery reads no file contents, so the role paths need not exist) and the
-executor is faked (its own suite covers the real importers), so no ``.tether`` is
-written and the tests stay in the default-plus-Qt matrix.
+executor is faked (its own suite covers the real importers), except in one test:
+it runs the dialog with **no** injected runner over a committed fixture, so the
+join between the dialog and the real
+:func:`~tether.gui.deeplasi_executor.execute_plan` (its signature, and the report
+attributes the dialog reads) is executed and a real ``.tether`` is written to
+``tmp_path`` (#746 GUI-F14).
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ pytestmark = [pytest.mark.gui, _needs_qt]
 # --------------------------------------------------------------------------- #
 
 
-def _fileset(key, *, movie=False, mat=False, tdat=False, txt=False, smd=False):
+def _fileset(key, *, movie=False, mat=False, tdat=False, txt=False, smd=False, warnings=()):
     from tether.io.intake import AcquisitionFileSet
 
     root = Path("fixtures") / key
@@ -47,6 +51,7 @@ def _fileset(key, *, movie=False, mat=False, tdat=False, txt=False, smd=False):
         mat=root.with_suffix(".mat") if mat else None,
         txt=root.with_suffix(".txt") if txt else None,
         smd=root.with_suffix(".hdf5") if smd else None,
+        warnings=tuple(warnings),
     )
 
 
@@ -80,6 +85,89 @@ def _dialog(qtbot, **kwargs):
 
 
 # --------------------------------------------------------------------------- #
+# reading the dialog as the user sees it — widgets found by their visible text
+# (button/checkbox labels, table headers, placeholders) through Qt's public child
+# lookup, not through the dialog's private attributes (#746 GUI-U3)
+# --------------------------------------------------------------------------- #
+
+_CONFIRM_HEADERS = ["Acquisition", "Mode", "Coordinates", "Output name", "Notes"]
+_REPORT_HEADERS = ["Acquisition", "Mode", "Result", "Notes"]
+
+
+def _only(widgets):
+    (widget,) = widgets
+    return widget
+
+
+def _button(dlg, *texts):
+    """The one push button whose label is one of ``texts``."""
+    from pyqtgraph.Qt import QtWidgets
+
+    return _only(b for b in dlg.dialog.findChildren(QtWidgets.QPushButton) if b.text() in texts)
+
+
+def _next_button(dlg):
+    """The navigation button, labelled *Next* on intake and *Run* on confirm."""
+    return _button(dlg, "Next", "Run")
+
+
+def _checkbox(dlg, text):
+    from pyqtgraph.Qt import QtWidgets
+
+    return _only(c for c in dlg.dialog.findChildren(QtWidgets.QCheckBox) if c.text() == text)
+
+
+def _bleach_box(dlg):
+    return _checkbox(dlg, "Detect photobleaching on import")
+
+
+def _recursive_box(dlg):
+    return _checkbox(dlg, "Search sub-folders")
+
+
+def _folder_edit(dlg):
+    from pyqtgraph.Qt import QtWidgets
+
+    return _only(
+        e
+        for e in dlg.dialog.findChildren(QtWidgets.QLineEdit)
+        if e.placeholderText() == "Acquisition folder…"
+    )
+
+
+def _table(dlg, headers):
+    from pyqtgraph.Qt import QtWidgets
+
+    def _headers(table):
+        return [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+
+    return _only(
+        t for t in dlg.dialog.findChildren(QtWidgets.QTableWidget) if _headers(t) == headers
+    )
+
+
+def _confirm_table(dlg):
+    return _table(dlg, _CONFIRM_HEADERS)
+
+
+def _report_table(dlg):
+    return _table(dlg, _REPORT_HEADERS)
+
+
+def _cells(table, row):
+    """The text of each cell of ``row`` (``None`` where the cell holds a widget)."""
+    items = [table.item(row, c) for c in range(table.columnCount())]
+    return [None if item is None else item.text() for item in items]
+
+
+def _shown_text(dlg):
+    """Every label text the dialog holds, one per line (status, heading, summary)."""
+    from pyqtgraph.Qt import QtWidgets
+
+    return "\n".join(label.text() for label in dlg.dialog.findChildren(QtWidgets.QLabel))
+
+
+# --------------------------------------------------------------------------- #
 # rendering the plan
 # --------------------------------------------------------------------------- #
 
@@ -108,6 +196,47 @@ def test_summary_line_reflects_mode_counts(qapp, qtbot) -> None:
     assert "skip 1" in text
 
 
+def test_notes_column_shows_the_rationale_and_the_first_warning(qapp, qtbot) -> None:
+    from tether.gui.deeplasi_wizard import DeepLasiWizard
+
+    wizard = DeepLasiWizard(
+        _discovery(
+            _fileset(
+                "recon_010", movie=True, mat=True, tdat=True, warnings=("pairing is ambiguous",)
+            ),
+            _fileset("smd_020", txt=True),
+        )
+    )
+    dlg = _dialog(qtbot, wizard=wizard)
+    plans = {p.key: p for p in wizard.plans}
+    table = _confirm_table(dlg)
+    notes = {_cells(table, r)[0]: _cells(table, r)[4] for r in range(table.rowCount())}
+
+    # A row with a warning shows its rationale and the warning; a row without shows
+    # its rationale. Both rationales are real text, so an empty cell fails.
+    assert plans["recon_010"].warnings[0] == "pairing is ambiguous"
+    assert plans["recon_010"].rationale
+    assert notes["recon_010"] == f"{plans['recon_010'].rationale} — pairing is ambiguous"
+    assert plans["smd_020"].rationale
+    assert notes["smd_020"] == plans["smd_020"].rationale
+
+
+def test_summary_line_shows_the_discovery_advisories(qapp, qtbot) -> None:
+    from tether.gui.deeplasi_wizard import DeepLasiWizard
+
+    wizard = DeepLasiWizard(
+        _discovery(
+            _fileset("smd_020", txt=True),
+            unpaired=(Path("fixtures/orphan.hdf5"),),
+            ignored=(Path("fixtures/readme.pdf"),),
+        )
+    )
+    dlg = _dialog(qtbot, wizard=wizard)
+    text = dlg.summary_text()
+    assert "1 SMD file(s) matched no acquisition and will not be imported" in text
+    assert "1 unrecognized file(s) ignored" in text
+
+
 # --------------------------------------------------------------------------- #
 # intake step
 # --------------------------------------------------------------------------- #
@@ -118,7 +247,7 @@ def test_intake_scan_builds_controller_and_enables_next(qapp, qtbot, monkeypatch
 
     dlg = _dialog(qtbot)  # no wizard → opens on intake
     assert dlg.step == 0
-    assert not dlg._next_btn.isEnabled()
+    assert not _next_button(dlg).isEnabled()
 
     built = _mixed_wizard()
     captured: dict = {}
@@ -132,16 +261,16 @@ def test_intake_scan_builds_controller_and_enables_next(qapp, qtbot, monkeypatch
 
     monkeypatch.setattr(ui, "DeepLasiWizard", _Stub)
     dlg.set_directory("/some/folder")
-    dlg._recursive_box.setChecked(True)
+    _recursive_box(dlg).setChecked(True)
     dlg.scan()
 
     assert captured == {"directory": "/some/folder", "recursive": True}
     assert dlg.wizard is built
-    assert dlg._next_btn.isEnabled()
+    assert _next_button(dlg).isEnabled()
     # Advancing lands on the populated confirm table.
-    dlg._advance()
+    _next_button(dlg).click()
     assert dlg.step == 1
-    assert dlg._table.rowCount() == 3
+    assert _confirm_table(dlg).rowCount() == 3
 
 
 def test_intake_scan_of_empty_folder_keeps_next_disabled(qapp, qtbot, monkeypatch) -> None:
@@ -158,8 +287,8 @@ def test_intake_scan_of_empty_folder_keeps_next_disabled(qapp, qtbot, monkeypatc
     dlg.scan()
 
     assert dlg.wizard is empty
-    assert not dlg._next_btn.isEnabled()
-    assert "No Deep-LASI acquisitions" in dlg._intake_status.text()
+    assert not _next_button(dlg).isEnabled()
+    assert "No Deep-LASI acquisitions" in _shown_text(dlg)
 
 
 def test_intake_scan_surfaces_an_unreadable_folder(qapp, qtbot, monkeypatch) -> None:
@@ -177,15 +306,15 @@ def test_intake_scan_surfaces_an_unreadable_folder(qapp, qtbot, monkeypatch) -> 
     dlg.scan()
 
     assert dlg.wizard is None
-    assert not dlg._next_btn.isEnabled()
-    assert "Could not scan" in dlg._intake_status.text()
+    assert not _next_button(dlg).isEnabled()
+    assert "Could not scan" in _shown_text(dlg)
 
 
 def test_scan_with_no_folder_prompts_and_does_not_build(qapp, qtbot) -> None:
     dlg = _dialog(qtbot)
     dlg.scan()
     assert dlg.wizard is None
-    assert "Choose a folder" in dlg._intake_status.text()
+    assert "Choose a folder" in _shown_text(dlg)
 
 
 def _scan_stub(dlg, monkeypatch, wizard, directory="/some/folder"):
@@ -202,24 +331,24 @@ def test_editing_the_folder_after_a_scan_invalidates_the_plan(qapp, qtbot, monke
     dlg = _dialog(qtbot)
     _scan_stub(dlg, monkeypatch, _mixed_wizard())
     assert dlg.wizard is not None
-    assert dlg._next_btn.isEnabled()
+    assert _next_button(dlg).isEnabled()
 
     # Changing the folder text drops the stale plan so Next cannot re-open the old one.
-    dlg._dir_edit.setText("/some/other/folder")
+    _folder_edit(dlg).setText("/some/other/folder")
     assert dlg.wizard is None
-    assert not dlg._next_btn.isEnabled()
-    assert dlg._table.rowCount() == 0
-    assert "scan again" in dlg._intake_status.text().lower()
+    assert not _next_button(dlg).isEnabled()
+    assert _confirm_table(dlg).rowCount() == 0
+    assert "scan again" in _shown_text(dlg).lower()
 
 
 def test_toggling_recursive_after_a_scan_invalidates_the_plan(qapp, qtbot, monkeypatch) -> None:
     dlg = _dialog(qtbot)
     _scan_stub(dlg, monkeypatch, _mixed_wizard())
-    assert dlg._next_btn.isEnabled()
+    assert _next_button(dlg).isEnabled()
 
-    dlg._recursive_box.setChecked(True)
+    _recursive_box(dlg).setChecked(True)
     assert dlg.wizard is None
-    assert not dlg._next_btn.isEnabled()
+    assert not _next_button(dlg).isEnabled()
 
 
 # --------------------------------------------------------------------------- #
@@ -255,7 +384,7 @@ def test_unsupported_mode_reverts_and_reports_the_reason(qapp, qtbot) -> None:
     assert combo.currentData() == WizardMode.SKIP.value
     plan = next(p for p in wizard.plans if p.key == "bare_030")
     assert plan.mode is WizardMode.SKIP
-    assert "cannot reconstruct" in dlg._status.text()
+    assert "cannot reconstruct" in _shown_text(dlg)
 
 
 def test_switching_off_reconstruct_disables_the_coordinate_combo(qapp, qtbot) -> None:
@@ -306,7 +435,7 @@ def test_empty_output_name_reverts_to_the_current_name(qapp, qtbot) -> None:
     plan = next(p for p in wizard.plans if p.key == "recon_010")
     assert plan.output_name == "recon_010.tether"
     assert edit.text() == "recon_010.tether"
-    assert "cannot be empty" in dlg._status.text()
+    assert "cannot be empty" in _shown_text(dlg)
 
 
 def test_path_like_output_name_is_rejected_and_reverted(qapp, qtbot) -> None:
@@ -320,7 +449,7 @@ def test_path_like_output_name_is_rejected_and_reverted(qapp, qtbot) -> None:
     plan = next(p for p in wizard.plans if p.key == "recon_010")
     assert plan.output_name == "recon_010.tether"  # unchanged
     assert edit.text() == "recon_010.tether"  # reverted
-    assert "bare filename" in dlg._status.text()
+    assert "bare filename" in _shown_text(dlg)
 
 
 # --------------------------------------------------------------------------- #
@@ -331,10 +460,10 @@ def test_path_like_output_name_is_rejected_and_reverted(qapp, qtbot) -> None:
 def test_run_is_gated_on_readiness_and_a_destination(qapp, qtbot, tmp_path) -> None:
     dlg = _dialog(qtbot, wizard=_mixed_wizard())
     # Ready (one reconstruct + one analysis-only) but no destination yet → Run disabled.
-    assert not dlg._next_btn.isEnabled()
+    assert not _next_button(dlg).isEnabled()
     dlg.set_output_dir(tmp_path)
-    assert dlg._next_btn.isEnabled()
-    assert dlg._next_btn.text() == "Run"
+    assert _next_button(dlg).isEnabled()
+    assert _next_button(dlg).text() == "Run"
 
 
 def test_run_disabled_and_blocking_shown_when_nothing_runnable(qapp, qtbot, tmp_path) -> None:
@@ -344,7 +473,7 @@ def test_run_disabled_and_blocking_shown_when_nothing_runnable(qapp, qtbot, tmp_
     wizard = DeepLasiWizard(_discovery(_fileset("bare_030", movie=True)))
     dlg = _dialog(qtbot, wizard=wizard)
     dlg.set_output_dir(tmp_path)
-    assert not dlg._next_btn.isEnabled()
+    assert not _next_button(dlg).isEnabled()
     assert "Cannot run yet" in dlg.summary_text()
 
 
@@ -402,7 +531,7 @@ def test_run_invokes_the_runner_and_renders_the_report(qapp, qtbot, tmp_path) ->
     wizard = _mixed_wizard()
     dlg = _dialog(qtbot, wizard=wizard, runner=_runner)
     dlg.set_output_dir(tmp_path)
-    dlg._detect_bleach_box.setChecked(False)
+    _bleach_box(dlg).setChecked(False)
 
     report = dlg.run()
 
@@ -413,10 +542,36 @@ def test_run_invokes_the_runner_and_renders_the_report(qapp, qtbot, tmp_path) ->
     # The report step renders one row per executed acquisition + exposes the produced project.
     assert dlg.step == 2
     assert report is not None
-    assert dlg._report_table.rowCount() == 2
+    table = _report_table(dlg)
+    assert table.rowCount() == 2
+    # Each row reads Acquisition, Mode, Result, Notes; a failed import says so.
+    assert _cells(table, 0) == [
+        "recon_010",
+        "reconstruct",
+        "Imported · coords=tdat",
+        "coordinate fallback applied",
+    ]
+    assert _cells(table, 1) == ["smd_020", "analysis_only", "Failed · ValueError: boom", ""]
     assert dlg.produced_projects() == (Path(tmp_path) / "recon_010.tether",)
-    assert "Imported 1 of 2" in dlg._report_heading.text()
-    assert "1 failed" in dlg._report_heading.text()
+    assert "Imported 1 of 2" in _shown_text(dlg)
+    assert "1 failed" in _shown_text(dlg)
+
+
+def test_run_with_the_default_checked_box_asks_for_photobleach_detection(
+    qapp, qtbot, tmp_path
+) -> None:
+    calls: dict = {}
+
+    def _runner(plan, output_dir, *, detect_photobleach):
+        calls["detect_photobleach"] = detect_photobleach
+        return _fake_report(output_dir)
+
+    dlg = _dialog(qtbot, wizard=_mixed_wizard(), runner=_runner)
+    dlg.set_output_dir(tmp_path)
+    assert _bleach_box(dlg).isChecked()  # the default the user sees
+
+    assert dlg.run() is not None
+    assert calls["detect_photobleach"] is True
 
 
 def test_run_before_ready_returns_none_without_calling_the_runner(qapp, qtbot, tmp_path) -> None:
@@ -444,11 +599,45 @@ def test_run_without_destination_returns_none(qapp, qtbot) -> None:
 
     dlg = _dialog(qtbot, wizard=_mixed_wizard(), runner=_runner)
     assert dlg.run() is None
-    assert "destination" in dlg._status.text().lower()
+    assert "destination" in _shown_text(dlg).lower()
 
 
 def test_back_from_confirm_returns_to_intake(qapp, qtbot) -> None:
     dlg = _dialog(qtbot, wizard=_mixed_wizard())
     assert dlg.step == 1
-    dlg._go_back()
+    _button(dlg, "Back").click()
     assert dlg.step == 0
+
+
+# --------------------------------------------------------------------------- #
+# the real executor, not a fake (#746 GUI-F14)
+# --------------------------------------------------------------------------- #
+
+
+def test_run_without_an_injected_runner_uses_the_real_executor(qapp, qtbot, tmp_path) -> None:
+    pytest.importorskip("h5py")
+    from tether.gui.deeplasi_executor import ExecutionReport
+    from tether.gui.deeplasi_wizard import DeepLasiWizard
+    from tether.io.intake import AcquisitionFileSet
+    from tether.project.analysis_import import read_analysis_only_marker
+
+    txt = Path(__file__).parent / "fixtures" / "deeplasi_traces_slice.txt"
+    fileset = AcquisitionFileSet(key="ao_txt", condition_id="cond", video_index="001", txt=txt)
+    wizard = DeepLasiWizard(_discovery(fileset))
+    dlg = _dialog(qtbot, wizard=wizard)  # no runner: the dialog imports execute_plan
+    out = tmp_path / "out"
+    dlg.set_output_dir(out)
+
+    report = dlg.run()
+
+    assert isinstance(report, ExecutionReport)
+    assert report.n_ok == 1
+    written = out / "ao_txt.tether"
+    assert dlg.produced_projects() == (written,)
+    assert written.is_file()
+    marker = read_analysis_only_marker(written)
+    assert marker is not None
+    assert marker.round_trip_available is False
+    table = _report_table(dlg)
+    assert table.rowCount() == 1
+    assert _cells(table, 0)[:3] == ["ao_txt", "analysis_only", "Imported"]

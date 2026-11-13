@@ -111,6 +111,45 @@ def test_tail_alpha_short_tail_rejected() -> None:
     assert res.reason == "short-tail"
 
 
+def test_tail_alpha_tail_of_exactly_min_window_qualifies() -> None:
+    # The gate is "at least min_window_frames": a tail of exactly 20 frames qualifies
+    # and a tail of 19 does not (#728, ANA-F9).
+    assert DEFAULT_MIN_WINDOW_FRAMES == 20
+    donor, acceptor = _leaky_trace(n=60, acceptor_pb=30, donor_pb=50, alpha=0.1)
+    res = tail_alpha(donor, acceptor, acceptor_pb=30, donor_pb=50)
+    assert res.reason == "ok"
+    assert res.n_frames == 20
+    assert res.alpha == pytest.approx(0.1, abs=0.01)
+
+    donor, acceptor = _leaky_trace(n=60, acceptor_pb=30, donor_pb=49, alpha=0.1)
+    res = tail_alpha(donor, acceptor, acceptor_pb=30, donor_pb=49)
+    assert res.alpha is None
+    assert res.reason == "short-tail"
+    assert res.n_frames == 19
+
+
+def test_tail_alpha_one_frame_tail_is_short_not_absent() -> None:
+    # A one-frame tail exists but is too short: "short-tail", never "no-tail", which
+    # is kept for a tail of zero frames (#728, ANA-F9).
+    donor, acceptor = _leaky_trace(n=60, acceptor_pb=30, donor_pb=31, alpha=0.1)
+    res = tail_alpha(donor, acceptor, acceptor_pb=30, donor_pb=31)
+    assert res.alpha is None
+    assert res.reason == "short-tail"
+    assert (res.start, res.stop, res.n_frames) == (30, 31, 1)
+
+
+def test_tail_alpha_low_count_donor_still_qualifies() -> None:
+    # The degenerate-donor gate is "mean donor <= 0", with no absolute count floor: a
+    # dim but positive donor tail (mean 0.5 counts) with leakage 0.1 gives α = 0.1
+    # (#728, ANA-F9).
+    donor, acceptor = _leaky_trace(
+        n=120, acceptor_pb=30, donor_pb=110, alpha=0.1, donor_level=0.5, fret_level=0.3, noise=0.0
+    )
+    res = tail_alpha(donor, acceptor, acceptor_pb=30, donor_pb=110)
+    assert res.reason == "ok"
+    assert res.alpha == pytest.approx(0.1, abs=1e-12)
+
+
 def test_tail_alpha_no_tail_when_acceptor_bleaches_after_donor() -> None:
     donor, acceptor = _leaky_trace(n=100, acceptor_pb=30, donor_pb=90, alpha=0.1)
     res = tail_alpha(donor, acceptor, acceptor_pb=90, donor_pb=40)
