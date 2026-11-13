@@ -89,7 +89,8 @@ read from the 0.26 source, not training memory).
 > 1 px. The tests now assert recovered values for rotations up to a few degrees and
 > scales within about 2 % of unity, on square and channel-half images. The real crop
 > resolves scale only to about 0.002 (its scale limit is 0.005); the "Δscale 0.0002"
-> below was one scale step of the old grid, not a measurement.
+> below was the gap between the old estimate 1.00135, one 0.0014 grid step above 1.0,
+> and the ground truth, not a measurement.
 
 **Reliable regime.** Validated for the near-identity regime of sub-degree rotation
 and sub-percent scale — all dual-view split-sensor registration needs (the
