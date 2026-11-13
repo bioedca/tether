@@ -55,12 +55,14 @@ from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import create_project  # noqa: E402
+from tether.ml.gbranker import train_quality_ranker  # noqa: E402
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT, seed_weight  # noqa: E402
 from tether.project.core import Project  # noqa: E402
 from tether.project.features import compute_features  # noqa: E402
 from tether.project.gbranking import (  # noqa: E402
     ranker_precision_at_k,
     ranker_ranking,
+    score_molecules,
     train_ranker,
     weighted_training_set,
 )
@@ -108,8 +110,17 @@ def _integrated(intensity: np.ndarray) -> IntegratedTraces:
     )
 
 
-def _build_store(path: Path, donor: np.ndarray, acceptor: np.ndarray) -> tuple[Project, list[str]]:
-    """A single-condition ``.tether`` with corrected traces exactly ``donor``/``acceptor``."""
+def _write_movie(
+    path: Path,
+    donor: np.ndarray,
+    acceptor: np.ndarray,
+    *,
+    movie_id: str = "mov-1",
+    sha_char: str = "a",
+    parsed=_PARSED,
+    create: bool = True,
+) -> None:
+    """Write one movie whose corrected traces are exactly ``donor``/``acceptor``."""
     donor = np.asarray(donor, dtype="float64")
     acceptor = np.asarray(acceptor, dtype="float64")
     n, t = donor.shape
@@ -133,39 +144,41 @@ def _build_store(path: Path, donor: np.ndarray, acceptor: np.ndarray) -> tuple[P
         bg_window=10,
     )
     movie = MovieMetadata(
-        movie_id="mov-1",
-        sha256="a" * 64,
+        movie_id=movie_id,
+        sha256=sha_char * 64,
         n_frames=t,
         height=64,
         width=64,
         donor_geometry=ChannelGeometry(crop=(1, 1, 64, 64)),
         acceptor_geometry=ChannelGeometry(crop=(1, 65, 64, 128)),
     )
-    create_project(path, overwrite=True)
+    if create:
+        create_project(path, overwrite=True)
     write_extraction(
         path,
         movie=movie,
         molecules=mols,
         traces=traces,
-        parsed=_PARSED,
+        parsed=parsed,
         registration_map=_reg_map(),
     )
-    proj = Project.open(path)
-    keys = [
+
+
+def _store_keys(path: Path) -> list[str]:
+    return [
         k.decode() if isinstance(k, bytes) else str(k) for k in read_molecules(path)["molecule_key"]
     ]
-    return proj, keys
 
 
-def _separable_store(path: Path, n_per: int = 8) -> tuple[Project, list[str], np.ndarray]:
-    """A ``2*n_per``-molecule featured (unlabeled) store separable by label in feature space.
+def _build_store(path: Path, donor: np.ndarray, acceptor: np.ndarray) -> tuple[Project, list[str]]:
+    """A single-condition ``.tether`` with corrected traces exactly ``donor``/``acceptor``."""
+    _write_movie(path, donor, acceptor)
+    return Project.open(path), _store_keys(path)
 
-    Even rows are clean, high-SNR, strongly anticorrelated 'good' traces; odd rows are noisy,
-    uncorrelated 'bad' traces (the :mod:`tests.test_project_gbranking` discriminable pattern). The
-    caller supplies the labels/seeds; returns the project, its ``molecule_key`` list, and the
-    per-row good mask (``good[i]`` is ``True`` for the good molecules).
-    """
-    rng = np.random.default_rng(7)
+
+def _separable_traces(n_per: int, seed: int = 7) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``2*n_per`` traces separable by label: even rows clean 'good', odd rows noisy 'bad'."""
+    rng = np.random.default_rng(seed)
     t = 40
     n = 2 * n_per
     donor = np.empty((n, t), dtype=np.float64)
@@ -179,6 +192,18 @@ def _separable_store(path: Path, n_per: int = 8) -> tuple[Project, list[str], np
         acceptor[gi] = 1400.0 - d + rng.normal(0.0, 8.0, size=t)  # strongly anticorrelated
         donor[bi] = rng.normal(250.0, 130.0, size=t)  # noisy, uncorrelated
         acceptor[bi] = rng.normal(250.0, 130.0, size=t)
+    return donor, acceptor, good
+
+
+def _separable_store(path: Path, n_per: int = 8) -> tuple[Project, list[str], np.ndarray]:
+    """A ``2*n_per``-molecule featured (unlabeled) store separable by label in feature space.
+
+    Even rows are clean, high-SNR, strongly anticorrelated 'good' traces; odd rows are noisy,
+    uncorrelated 'bad' traces (the :mod:`tests.test_project_gbranking` discriminable pattern). The
+    caller supplies the labels/seeds; returns the project, its ``molecule_key`` list, and the
+    per-row good mask (``good[i]`` is ``True`` for the good molecules).
+    """
+    donor, acceptor, good = _separable_traces(n_per)
     proj, keys = _build_store(path, donor, acceptor)
     compute_features(proj)
     return proj, keys, good
@@ -260,16 +285,53 @@ def test_human_label_supersedes_a_provisional_prior_on_the_same_molecule(tmp_pat
 def test_evaluation_ground_truth_stays_human_only(tmp_path) -> None:
     # A provisional seed trains the model but is never counted as evaluation ground truth: is_good
     # (and thus apparent precision@k) spans the human labels only.
-    proj, keys, _ = _separable_store(tmp_path / "p.tether")
-    accept(proj.path, keys[0])
-    reject(proj.path, keys[1])  # two human labels
-    _seed(proj.path, keys[2], CurationLabel.ACCEPT)  # provisional-only molecule
+    proj, keys, good = _separable_store(tmp_path / "p.tether")
+    accept(proj.path, keys[0])  # a good molecule
+    reject(proj.path, keys[1])  # a bad molecule: the only two human labels
+    for i in range(2, 16):  # every other molecule carries a correct provisional seed
+        _seed(proj.path, keys[i], CurationLabel.ACCEPT if good[i] else CurationLabel.REJECT)
 
     is_good = ranking_dataset(proj).is_good
     ids = _id_by_key(proj.path)
-    assert len(is_good) == 2  # the seed is NOT in the human ground truth
+    assert len(is_good) == 2  # the seeds are NOT in the human ground truth
     assert ids[keys[2]] not in is_good
-    assert 0.0 <= ranker_precision_at_k(proj, 2) <= 1.0
+    # The value itself separates the two ground truths (#742 ML-F2). The fit ranks the 8 good
+    # molecules first, so the human-only relevance in ranked order is [accept, reject] and
+    # precision@2 is exactly 1/2. If the 14 seeds were counted as truth, the top 2 of the 16
+    # would both be accepts and precision@2 would be 1.
+    assert ranker_precision_at_k(proj, 1) == 1.0
+    assert ranker_precision_at_k(proj, 2) == 0.5
+
+
+def test_store_fit_trains_on_the_seed_weights(tmp_path) -> None:
+    # The decayed seed weights must reach the model fit behind every store entry point, not only
+    # the training-set view (#742 ML-F1). Four human labels plus twelve seeds that contradict the
+    # features (accept on the bad traces, reject on the good ones): the weights change the fit.
+    proj, keys, good = _separable_store(tmp_path / "p.tether")
+    accept(proj.path, keys[0])
+    reject(proj.path, keys[1])
+    accept(proj.path, keys[2])
+    reject(proj.path, keys[3])  # n_human = 4 -> each seed weighs w0/5
+    for i in range(4, 16):
+        _seed(proj.path, keys[i], CurationLabel.REJECT if good[i] else CurationLabel.ACCEPT)
+
+    ts = weighted_training_set(proj)
+    assert not np.all(ts.sample_weight == 1.0)  # the set is truly non-uniform
+    data = ranking_dataset(proj)
+    weighted = train_quality_ranker(
+        ts.X, ts.y, ts.feature_names, sample_weight=ts.sample_weight
+    ).score(data.X)
+    unweighted = train_quality_ranker(ts.X, ts.y, ts.feature_names).score(data.X)
+    assert not np.allclose(weighted, unweighted)  # the weights matter for this store
+
+    scored = score_molecules(proj)
+    assert scored.dataset.molecule_ids == data.molecule_ids
+    np.testing.assert_allclose(scored.scores, weighted)
+    np.testing.assert_allclose(train_ranker(proj).score(data.X), weighted)
+    # w0 changes the seed weights, so it must change the scores of the store fit too.
+    assert not np.allclose(
+        score_molecules(proj, w0=0.05).scores, score_molecules(proj, w0=1.0).scores
+    )
 
 
 # --- seeds can bootstrap a humanly-uncurated condition -------------------------------------------
@@ -349,6 +411,58 @@ def test_custom_w0_flows_into_the_seed_weight(tmp_path) -> None:
     ids = _id_by_key(proj.path)
     w_by_id = dict(zip(ts.molecule_ids, ts.sample_weight.tolist(), strict=True))
     assert w_by_id[ids[keys[4]]] == pytest.approx(seed_weight(2, w0=0.6))  # 0.6/(1+2)
+
+
+def _two_condition_store(path: Path) -> tuple[Project, list[str], np.ndarray]:
+    """Two movies in two conditions (ligand 600 vs 300 nM), 8 separable molecules each, featured.
+
+    Returns the project, its ``molecule_key`` list and each molecule's ``condition_id``.
+    """
+    donor_a, acceptor_a, _ = _separable_traces(4, seed=7)
+    donor_b, acceptor_b, _ = _separable_traces(4, seed=8)
+    _write_movie(path, donor_a, acceptor_a, movie_id="mov-A", sha_char="a")
+    _write_movie(
+        path,
+        donor_b,
+        acceptor_b,
+        movie_id="mov-B",
+        sha_char="b",
+        # The ligand concentration is a condition-key field (tether.io.filename).
+        parsed=parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_300nM_011.tif"),
+        create=False,
+    )
+    proj = Project.open(path)
+    compute_features(proj)
+    conditions = np.array(
+        [
+            c.decode() if isinstance(c, bytes) else str(c)
+            for c in read_molecules(path)["condition_id"]
+        ]
+    )
+    return proj, _store_keys(path), conditions
+
+
+def test_seed_weight_decays_per_condition_in_the_training_fold(tmp_path) -> None:
+    # n_human in w0/(1 + n_human) counts the human labels of the seed's own condition, not of the
+    # whole project (#742 ML-F7). Condition A has one human label, condition B three.
+    proj, keys, conditions = _two_condition_store(tmp_path / "two.tether")
+    cond_a, cond_b = conditions[0], conditions[-1]
+    assert cond_a != cond_b
+    a_idx = np.flatnonzero(conditions == cond_a)
+    b_idx = np.flatnonzero(conditions == cond_b)
+    _seed(proj.path, keys[a_idx[0]], CurationLabel.ACCEPT)
+    _seed(proj.path, keys[b_idx[0]], CurationLabel.ACCEPT)
+    accept(proj.path, keys[a_idx[1]])  # condition A: n_human = 1
+    accept(proj.path, keys[b_idx[1]])
+    reject(proj.path, keys[b_idx[2]])
+    accept(proj.path, keys[b_idx[3]])  # condition B: n_human = 3
+
+    ts = weighted_training_set(proj)
+    ids = _id_by_key(proj.path)
+    w_by_id = dict(zip(ts.molecule_ids, ts.sample_weight.tolist(), strict=True))
+    assert ts.n_train == 6  # four human rows + two seeds
+    assert w_by_id[ids[keys[a_idx[0]]]] == pytest.approx(DEFAULT_SEED_WEIGHT / 2.0)  # w0/(1+1)
+    assert w_by_id[ids[keys[b_idx[0]]]] == pytest.approx(DEFAULT_SEED_WEIGHT / 4.0)  # w0/(1+3)
 
 
 # --- the /labels event stream: latest provisional wins, a clear removes the prior ----------------
