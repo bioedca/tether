@@ -8,6 +8,10 @@
 # ($'\r': command not found) before the first probe runs (issue #217).
 *.sh text eol=lf
 
+# Self-drift golden files (#702): the same bytes on every OS, so `update_golden.py` on a
+# Windows checkout leaves an unchanged file unchanged and the suite reads what it wrote.
+tests/golden/*.json text eol=lf
+
 # --- Binary file types: never line-ending-normalized (avoids corrupting data) ---
 *.tif   binary
 *.tiff  binary
@@ -35,6 +39,8 @@ tests/fixtures/kinsoft_trace_sample.txt -text
 # Frozen MATLAB reference outputs (#700, ADR-0074): their SHA-256 is recorded, so the
 # checkout must keep their bytes on every platform (no CRLF on Windows).
 tests/fixtures/reference/** -text
+# smfret-analysis2 test data (#709): verbatim upstream bytes, SHA-256 in the manifest.
+tests/fixtures/smfret_analysis2/** -text
 
 # --- Git-LFS: the LARGE-fixture / benchmark tier only (PRD §8 NFR-FIXTURES) ---
 # The ≈0.9 GB UCKOPSB movie, kinSoftChallenge assets, and large *.hdf5 benchmarks
