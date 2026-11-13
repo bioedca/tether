@@ -32,7 +32,7 @@ def test_lab_numbers_match_the_golden_file(private_data, neutral_id: str, tmp_pa
         f"no golden file for {neutral_id}; run scripts/workstation/update_lab_golden.py"
     )
     actual = _lab_golden.lab_quantities(
-        private_data.path(neutral_id, _lab_golden.MOVIE_ROLE),
+        private_data.path(neutral_id, _lab_golden.movie_role(private_data.roles(neutral_id))),
         private_data.path(neutral_id, _lab_golden.MAP_ROLE),
         tmp_path,
     )
@@ -66,7 +66,7 @@ def test_export_routes_give_the_same_molecules_and_traces(private_data, tmp_path
     (nid,) = with_two
     tmap = private_data.path(nid, _lab_golden.MAP_ROLE)
     projects = []
-    for role in (_lab_golden.MOVIE_ROLE, _lab_golden.EXPORT_ROUTE_ROLE):
+    for role in (_lab_golden.movie_role(private_data.roles(nid)), _lab_golden.EXPORT_ROUTE_ROLE):
         code, project = _lab_golden.extract_project(
             private_data.path(nid, role), tmap, tmp_path / role
         )

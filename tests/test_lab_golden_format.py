@@ -126,6 +126,13 @@ def test_dump_refuses_a_document_that_breaks_the_rule(tmp_path: Path) -> None:
     assert path.read_bytes().endswith(b"}\n")
 
 
+def test_the_movie_role_falls_back_to_the_default_role() -> None:
+    assert _lab_golden.movie_role(["movie", "tmap"]) == "movie"
+    assert _lab_golden.movie_role(["file", "tmap"]) == "file"
+    assert _lab_golden.movie_role(["file", "movie", "tmap"]) == "movie"
+    assert _lab_golden.movie_role(["tmap"]) == "movie"  # then the lookup names the missing role
+
+
 # --- the pipeline, on the synthetic movie of #701 -----------------------------------------
 
 
@@ -179,7 +186,8 @@ def _data_dir(root: Path) -> Path:
     data = root / "data"
     mapping = {}
     for nid in _lab_golden.LAB_ACQUISITIONS:
-        names = {"movie": f"SECRET-series/{nid}-ZETA.tif", "tmap": "SECRET-series/OMEGA.tmap"}
+        movie = "file" if nid == "lab-03" else "movie"
+        names = {movie: f"SECRET-series/{nid}-ZETA.tif", "tmap": "SECRET-series/OMEGA.tmap"}
         for rel in names.values():
             (data / rel).parent.mkdir(parents=True, exist_ok=True)
             (data / rel).write_bytes(b"synthetic")

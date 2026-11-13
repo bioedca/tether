@@ -47,6 +47,7 @@ __all__ = [
     "extract_project",
     "lab_quantities",
     "load_lab_golden",
+    "movie_role",
     "validate_document",
 ]
 
@@ -60,8 +61,10 @@ NEUTRAL_ID = re.compile(r"[a-z]+-[0-9]{2,}")
 #: no neutral id, and the two export routes of one movie are one acquisition).
 LAB_ACQUISITIONS: tuple[str, ...] = tuple(f"lab-{i:02d}" for i in range(1, 11))
 #: Role of the movie that the pipeline reads. For the acquisition with two export routes this
-#: is the TIFF exported from the vendor format (D3: A).
+#: is the TIFF exported from the vendor format (D3: A). An id whose mapping value is one file
+#: name has only the runner's default role ``file``, which then names the movie.
 MOVIE_ROLE = "movie"
+DEFAULT_ROLE = "file"
 #: Role of the Deep-LASI map file of the acquisition's series (D2: A).
 MAP_ROLE = "tmap"
 #: Role of the direct TIFF of the acquisition that also exists in a second export route.
@@ -86,6 +89,12 @@ QUANTITIES: dict[str, str] = {
 
 
 # --- the pipeline ------------------------------------------------------------------------
+
+
+def movie_role(roles: Iterable[str]) -> str:
+    """The role that names the movie of an id: ``movie``, else the default role ``file``."""
+    roles = set(roles)
+    return MOVIE_ROLE if MOVIE_ROLE in roles or DEFAULT_ROLE not in roles else DEFAULT_ROLE
 
 
 def extract_project(movie: Path, tmap: Path | None, workdir: Path) -> tuple[int, Path | None]:

@@ -168,7 +168,7 @@ Each id needs two roles in the mapping file:
 
 | Role | File |
 |---|---|
-| `movie` | the movie. For the acquisition that has two export routes, the TIFF exported from the vendor format |
+| `movie` | the movie (an id with one file name has the role `file`, which then names the movie). For the acquisition that has two export routes, the TIFF exported from the vendor format |
 | `tmap` | the Deep-LASI map file of the acquisition series |
 | `movie_direct` | only for the acquisition that has two export routes: the direct TIFF |
 

@@ -76,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for nid in ids:
             print(f"{nid}: running", flush=True)
             try:
-                movie = data.path(nid, _lab_golden.MOVIE_ROLE)
+                movie = data.path(nid, _lab_golden.movie_role(data.roles(nid)))
                 tmap = data.path(nid, _lab_golden.MAP_ROLE)
                 new = _lab_golden.lab_quantities(movie, tmap, Path(tmp) / nid)
             except Exception as exc:  # noqa: BLE001 - report the id and the kind, not the text
