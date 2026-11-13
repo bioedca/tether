@@ -81,7 +81,18 @@ jobs:
         # redden this leg. The glob is the contract enforced in the base matrix by
         # tests/test_marker_contract.py. `-m deep` still filters within the collected
         # files, so a non-deep-marked test that happened to match is deselected.
-        run: pytest -m deep tests/test_*_deep.py -q
+        # The JUnit report feeds the skip budget below (#726).
+        id: pytest
+        run: pytest -m deep tests/test_*_deep.py -q --junitxml="$RUNNER_TEMP/pytest-junit.xml"
+      # A test that skips leaves pytest at exit 0. This step fails the job when a test skips
+      # that tests/skip_budget.toml does not list for this job, when more tests skip than it
+      # allows, or when fewer tests ran than its committed minimum (#726). It runs after a red
+      # pytest step too.
+      - name: Compare the skips with the committed budget
+        if: ${{ !cancelled() && (steps.pytest.outcome == 'success' || steps.pytest.outcome == 'failure') }}
+        env:
+          SKIP_BUDGET_JOB: deep / smoke
+        run: python scripts/check_skips.py --job "$SKIP_BUDGET_JOB" --report "$RUNNER_TEMP/pytest-junit.xml"
 
   report:
     # A failed nightly run opens or updates one issue, and the next pass says so (#697). The called
