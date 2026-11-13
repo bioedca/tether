@@ -39,6 +39,7 @@ EXEMPT = {"agent-reaper.yml", "deps-audit.yml", "scorecard.yml"}
 #: The four the acceptance criteria name, and the later scheduled jobs of #695.
 NAMED = {
     "sidecar.yml",
+    "sidecar-upstream.yml",  # #704
     "deep.yml",
     "large-fixtures.yml",
     "docs-liveness.yml",
