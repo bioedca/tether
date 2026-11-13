@@ -54,20 +54,39 @@ def test_frame_read_is_lazy_memmap_view() -> None:
         assert np.shares_memory(frame, movie.data)
 
 
-def test_frame_values_match_independent_read() -> None:
-    """Big-endian values are read correctly, not silently byte-swapped."""
-    expected = tifffile.imread(FIXTURE, key=0)
+# Frame indices whose values are compared with an independent tifffile read. Frame 0
+# alone cannot tell "frame i" from "always frame 0" (#734 IMG-F13); 17 and 49 can,
+# because the fixture's frames differ (asserted below).
+_CHECKED_FRAMES = (0, 17, 49)
+
+
+def test_fixture_frames_differ() -> None:
+    # Precondition of the value checks: a reader that returns the wrong frame must
+    # give other numbers, which holds only if the frames are not all the same.
+    for key in _CHECKED_FRAMES[1:]:
+        assert not np.array_equal(
+            tifffile.imread(FIXTURE, key=key), tifffile.imread(FIXTURE, key=0)
+        )
+
+
+@pytest.mark.parametrize("index", _CHECKED_FRAMES)
+def test_frame_values_match_independent_read(index: int) -> None:
+    """Big-endian values are read correctly, not silently byte-swapped, for any frame."""
+    expected = tifffile.imread(FIXTURE, key=index)
     with MovieReader(FIXTURE) as movie:
-        got = np.asarray(movie.frame(0))
+        got = np.asarray(movie.frame(index))
     assert got.dtype == np.dtype(">u2")
     np.testing.assert_array_equal(got, expected)
 
 
 def test_last_frame_and_negative_index() -> None:
+    expected_last = tifffile.imread(FIXTURE, key=49)
     with MovieReader(FIXTURE) as movie:
         last = np.asarray(movie.frame(49))
         neg = np.asarray(movie.frame(-1))
         np.testing.assert_array_equal(last, neg)
+        np.testing.assert_array_equal(neg, expected_last)
+        np.testing.assert_array_equal(np.asarray(movie.frame(-50)), tifffile.imread(FIXTURE, key=0))
 
 
 def test_iter_yields_every_frame_lazily() -> None:
@@ -76,6 +95,11 @@ def test_iter_yields_every_frame_lazily() -> None:
         assert len(frames) == 50
         assert all(isinstance(f, np.memmap) for f in frames)
         assert all(f.shape == (64, 64) for f in frames)
+        # Each yielded frame is that frame, in order (not frame 0 fifty times).
+        for key in _CHECKED_FRAMES:
+            np.testing.assert_array_equal(
+                np.asarray(frames[key]), tifffile.imread(FIXTURE, key=key)
+            )
 
 
 def test_out_of_range_frame_raises() -> None:

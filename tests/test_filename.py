@@ -84,6 +84,12 @@ def test_different_condition_distinct_id() -> None:
 def test_condition_id_is_deterministic() -> None:
     # Content hash, no salt → stable across runs/platforms (PRD §5.1 join key).
     assert parse_filename(UCKOPSB_TIF).condition_id == parse_filename(UCKOPSB_TIF).condition_id
+    # Two calls in one process cannot see a per-process salt (for example the
+    # randomized built-in ``hash``), so the id is also pinned to its literal value:
+    # every interpreter start on every platform must give these 12 hex digits. A
+    # change here breaks the join with /conditions rows of existing projects
+    # (#734 IMG-F10).
+    assert parse_filename(UCKOPSB_TIF).condition_id == "cond-353fd5a76531"
 
 
 @pytest.mark.parametrize(
