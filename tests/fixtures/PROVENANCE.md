@@ -278,7 +278,7 @@ datasets' ground-truth rate constants and the reported inter-tool spread; both a
 
 `schema/kinsoft_reference.json` is Tether's own (GPL-3.0) compilation of these
 values with full source provenance; only `level1` has an active, band-checked oracle.
-Levels 2 and 3 are fitted and reported, never band-checked (#717, ADR-0082).
+Levels 2 and 3 are fitted and reported, never band-checked (#717, ADR-0081).
 
 ### kinSoftChallenge simulator settings (the ground truth of levels 2 and 3, #717)
 

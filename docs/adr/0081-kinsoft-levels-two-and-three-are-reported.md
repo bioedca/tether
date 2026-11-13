@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0082 — kinSoft levels 2 and 3 are reported against the simulator settings, never band-checked
+# 0081 — kinSoft levels 2 and 3 are reported against the simulator settings, never band-checked
 
 - **Status:** accepted; amends [ADR-0048](0048-kinsoft-kinetics-oracle.md) on the deferred levels
 - **Date:** 2026-11-12

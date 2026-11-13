@@ -4,7 +4,7 @@
 
 Oracle (c) band-checks only level 1. This module adds the two harder simulated levels, both
 **advisory**: their measured errors are printed and pinned against drift, never held to a band
-(ADR-0082).
+(ADR-0081).
 
 * **The truth is read, not typed.** ``tests/_kinsoft_config.py`` parses the three committed
   ``Config_simulation_round_1_level_N.cfg`` files, and the required-matrix tests here require
@@ -177,7 +177,7 @@ def test_levels_2_and_3_are_reported_and_level1_alone_is_band_checked() -> None:
     for name in ("level2", "level3"):
         assert levels[name]["oracle"] == "report"
         assert "deferred_reason" not in levels[name]
-        assert "ADR-0082" in levels[name]["report_reason"]
+        assert "ADR-0081" in levels[name]["report_reason"]
 
 
 def test_the_manifest_resolves_the_settings_files() -> None:

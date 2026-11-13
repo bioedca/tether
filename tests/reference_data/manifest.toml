@@ -86,7 +86,7 @@ extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
 
-# The simulator settings of the three simulated levels: the truth of oracle (c) (#717, ADR-0082).
+# The simulator settings of the three simulated levels: the truth of oracle (c) (#717, ADR-0081).
 # Only the three .cfg files are committed; the MATLAB simulator in the same zip is not (PRD N2).
 
 [[dataset]]

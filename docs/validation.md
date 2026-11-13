@@ -612,7 +612,7 @@ retrospective fit (see the qualifiers below). Paper doi
 below is recorded in `schema/kinsoft_reference.json` (`schema_version` 2,
 `frozen_at_milestone` `"M8"`, `measured_utc` `"2026-07-13"`) and rationalized in
 [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md); levels 2 and 3 in
-[ADR-0082](adr/0082-kinsoft-levels-two-and-three-are-reported.md).
+[ADR-0081](adr/0081-kinsoft-levels-two-and-three-are-reported.md).
 
 Read the qualifiers first, because the result means nothing without them:
 
@@ -658,7 +658,7 @@ Viterbi frame moved between the states changes a rate by more than that), and ea
 contribute more than 500 pooled dwells.
 
 **The reported levels, with ground truth from the simulator settings.** Since #717
-([ADR-0082](adr/0082-kinsoft-levels-two-and-three-are-reported.md)) the truth of levels 2
+([ADR-0081](adr/0081-kinsoft-levels-two-and-three-are-reported.md)) the truth of levels 2
 and 3 is read, not transcribed: the record's `MATLAB_simulator.zip` holds the settings file
 the simulator read for each level, the three files are committed verbatim under
 `tests/fixtures/kinsoft_simulator/`, and a parser in the test suite reads them (the simulator

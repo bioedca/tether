@@ -33,7 +33,7 @@ Three pieces:
   idealizer can faithfully recover. The 3-state non-equilibrium (Fig. 3) and 4-state
   kinetic-heterogeneity (Fig. 4) levels are fitted and reported by
   ``tests/test_kinsoft_levels.py`` against the simulator settings files, never
-  band-checked (ADR-0082), and this function refuses them.
+  band-checked (ADR-0081), and this function refuses them.
 
 All headless (no Qt, no sidecar) → runs in the base CI matrix; the fixture-backed
 oracle is gated behind ``@pytest.mark.large`` (the LFS ``kinsoft_sim.hdf5``).
