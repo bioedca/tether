@@ -100,69 +100,19 @@ projects Tether builds on is in
 
 ## Reporting a Tether analysis
 
-[Reproducibility and reporting](reproducibility.md) lists the version and settings stamps
-on each pipeline stage and export, with real read-back output, says which steps and settings
-are not stamped, and explains how to rebuild the environment a release ran in. This section covers what to quote.
+Quote the version that produced the results you report, not the version you have installed
+today. When you run an analysis that you will publish, write down the output of
+`tether --version` (see the [command-line reference](cli.md)). Not every step records a
+version in the project, so your own note is the dependable record.
 
-Quote the version that actually produced the results you report, not the version you have
-installed today. The dependable record is the one you keep yourself: when you run an
-analysis you will publish, note the output of `tether --version` (see the
-[command-line reference](cli.md)). Not every step leaves a version in the project.
+Cite Tether with the concept DOI in [Cite Tether](#cite-tether). If one exact release
+matters, cite the version DOI of that release instead. Then cite the papers in
+[Also cite the methods you used](#also-cite-the-methods-you-used) for each step that you ran.
 
-A `.tether` project does record versions in several places, which help you reconstruct
-them afterwards. A project created with one release can be corrected or idealized later
-with another, so they can differ:
-
-- the corrections stamp `app_version` on `/settings/leakage`, `/settings/gamma` and
-  `/settings/correction`, rewritten each time they run, and each idealization run in
-  Tether stamps its own `/idealization/<model>` group;
-- a model imported from standalone tMAVEN (its group's `nstates_selected_by` attribute
-  is `imported`) is stamped with the Tether version that *imported* it, not the software
-  that ran the fit, so for those results report the tMAVEN version you ran;
-- extraction stamps `/settings/extraction` only the *first* time a movie is extracted
-  into the project. Movies added later under a newer release leave it unchanged, and
-  Tether records no per-movie version, so if you extracted movies into one project with
-  different releases, the stamp names only the first;
-- the publication exports listed in the [exports reference](reference/exports.md) (the
-  molecule-table CSV, the Deep-LASI text export, the subset `.tether` and figures) carry
-  the version that wrote them in a `.provenance.json` sidecar. The SMD file handed off
-  to standalone tMAVEN has none;
-- the root `app_version` attribute records the version that *created* the project. It is
-  optional, so a valid project can lack it.
-
-Steps with **no** version stamp in the project include photobleach detection (rerunning
-it overwrites the bleach frames and analysis windows without recording a version), and
-ranking and classification runs. A saved classical ranker records the version it was
-trained under (`tether_version` in its model manifest); the deep classifier records
-none. For those steps, rely on the version you noted.
-
-To read the stamps that exist, use any HDF5 viewer, or `h5py`:
-
-```python
-import h5py
-
-with h5py.File("experiment.tether", "r") as f:
-    print("created by:", f.attrs.get("app_version", "not recorded"))
-    for name in ("extraction", "leakage", "gamma", "correction"):
-        group = f.get(f"settings/{name}")
-        if group is not None:
-            print(name, group.attrs.get("app_version", "not recorded"))
-    for name, group in f.get("idealization", {}).items():
-        print("idealization", name, group.attrs.get("app_version", "not recorded"))
-```
-
-If the steps you report ran under different versions, name each one.
-
-A sample methods sentence, to adapt to what you ran:
-
-> Single-molecule FRET movies were processed with Tether version 1.0.0
-> (https://doi.org/10.5281/zenodo.23306397). Traces were corrected for donor leakage (α)
-> and for the detection-efficiency and quantum-yield ratio (γ) as described by McCann et al. (2010) and Hellenkamp et al.
-> (2018), and idealized with the consensus variational-Bayes HMM (Bronson et al., 2009)
-> run through tMAVEN (Verma et al., 2024).
-
-Replace `1.0.0` with the version you noted when you ran the analysis (a stamp from the
-steps you report will do where one exists), and swap the corrections and the idealization
-backend for the rows above that match your analysis. If you need to
-point at one exact release, use that version's own DOI from its Zenodo record instead of
-the concept DOI.
+[Reproducibility and reporting](reproducibility.md) is the one page for the rest. It lists
+[the version and settings stamps](reproducibility.md#what-is-recorded) on each pipeline
+stage and export, and [the steps and settings with no stamp](reproducibility.md#what-is-not-recorded).
+It gives [a script that reads the stamps back](reproducibility.md#how-to-read-it-back) and
+[a sample Methods paragraph](reproducibility.md#a-sample-methods-paragraph). Start from that
+paragraph. It says which correction factors were estimated, and that the trajectories were
+idealized on the apparent FRET efficiency.
