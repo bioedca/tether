@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "issue": 707,
+  "description": "Frozen limits for the parity-gallery plots that Tether does not compute the way tMAVEN does (docs/analysis/parity-gallery.md). tests/test_analysis_plots_sidecar.py runs the tMAVEN routines in the sidecar job and asserts each measured distance stays at or under its limit. Ported plots (A1, A2, B1, B2, D1, and A2b given tMAVEN's own rows) need no limit: they must be equal.",
+  "metric": "Total-variation distance 0.5 * sum(|p / sum(p) - q / sum(q)|) between Tether's array p and tMAVEN's array q: 0 is identical, 1 is disjoint.",
+  "limit_rule": "Each limit is its measurement rounded up at the second significant digit. tests/test_plot_parity_limits.py enforces the rule, so a limit cannot be widened without a new measurement (PRD section 11.2 re-freeze policy).",
+  "measured": {
+    "utc": "2026-11-11",
+    "tmaven": "GonzalezBiophysicsLab/tmaven 10f4230b6d13c6d2ad67b05d801696b4a40eff4a (0.3.0)",
+    "environment": "sidecar/conda-lock.yml: CPython 3.12.13, NumPy 1.26.4, SciPy 1.17.1, Numba 0.60.0, Matplotlib 3.10.9; Linux x86-64",
+    "smd_281mol_sha256": "286130c45a6792636689eb4e60d111439a5a3a7d1b0bb5dcfb5254e3f9e02263",
+    "model_281mol_sha256": "8f78fa48ad0311fd75cc97a9e042adcf8e46032e275bef453b633e1cbef022a2",
+    "per_trace_fit": "B3 and C1: tMAVEN modeler.run_vbgmm_vbhmm on smd_281mol.hdf5, modeler.vbhmm.nstates 4, ncpu 1, each tMAVEN reseed replaced by the next integer from 0 (NumPy and Numba); repeated runs give identical arrays.",
+    "tether_input": "The consensus model_281mol.hdf5 state paths and apparent E, each sliced to its SMD pre/post window, as the store path feeds them."
+  },
+  "limits": {
+    "A2b_windowed_vs_tmaven_routine": {
+      "why": "Selection key single_dwell_from_to. tMAVEN's single-dwell window ends at the movie's last frame, so on a trace whose window photobleaching ended earlier it keeps the final window frame; Tether drops it, as both do at a jump. Fixed windows are equal (0).",
+      "values": {
+        "1_-1_-1": {
+          "measured": 0.006120016413157649,
+          "limit": 0.0062
+        },
+        "1_0_-1": {
+          "measured": 0.0005319853347935123,
+          "limit": 0.00054
+        },
+        "1_-1_2": {
+          "measured": 0.0002061843007167714,
+          "limit": 0.00021
+        },
+        "1_1_2": {
+          "measured": 0.00039308025185523895,
+          "limit": 0.0004
+        },
+        "1_2_1": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "0_-1_-1": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "0_0_-1": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "0_-1_2": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "0_1_2": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "0_2_1": {
+          "measured": 0.0,
+          "limit": 0.0
+        }
+      }
+    },
+    "A2b_windowed_vs_tmaven_app": {
+      "why": "As above, and the model tMAVEN holds pads its integer state path with 0 outside each window, so the app also synchronizes on window borders as if they were jumps.",
+      "values": {
+        "1_-1_-1": {
+          "measured": 0.018700381238484165,
+          "limit": 0.019
+        },
+        "1_0_-1": {
+          "measured": 0.06708510669679195,
+          "limit": 0.068
+        },
+        "1_-1_2": {
+          "measured": 0.02414408113306522,
+          "limit": 0.025
+        },
+        "1_1_2": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "1_2_1": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "0_-1_-1": {
+          "measured": 0.012923703623243672,
+          "limit": 0.013
+        },
+        "0_0_-1": {
+          "measured": 0.053867268409974356,
+          "limit": 0.054
+        },
+        "0_-1_2": {
+          "measured": 0.013872141278160223,
+          "limit": 0.014
+        },
+        "0_1_2": {
+          "measured": 0.0,
+          "limit": 0.0
+        },
+        "0_2_1": {
+          "measured": 0.0,
+          "limit": 0.0
+        }
+      }
+    },
+    "B3_histogram": {
+      "why": "Key init_final. Tether: per-molecule empirical P(init -> final) from the consensus path; tMAVEN: each trace's own VB norm_tmatrix entry, states matched by nearest mean. 25 bins over [-0.05, 1.05], density.",
+      "values": {
+        "0_1": {
+          "measured": 0.7043712292248626,
+          "limit": 0.71
+        },
+        "1_0": {
+          "measured": 0.46411104867744707,
+          "limit": 0.47
+        },
+        "1_2": {
+          "measured": 0.4897920958981083,
+          "limit": 0.49
+        },
+        "2_1": {
+          "measured": 0.3751605634989156,
+          "limit": 0.38
+        },
+        "2_3": {
+          "measured": 0.930025900734907,
+          "limit": 0.94
+        },
+        "3_2": {
+          "measured": 0.8884107147783387,
+          "limit": 0.89
+        }
+      }
+    },
+    "B3_kde": {
+      "why": "The same two samples, Gaussian KDE (bandwidth 0.25) on 100 points over [0, 1].",
+      "values": {
+        "0_1": {
+          "measured": 0.8956960633468372,
+          "limit": 0.9
+        },
+        "1_0": {
+          "measured": 0.44147353311721105,
+          "limit": 0.45
+        },
+        "1_2": {
+          "measured": 0.287928745233817,
+          "limit": 0.29
+        },
+        "2_1": {
+          "measured": 0.6564030165123317,
+          "limit": 0.66
+        },
+        "2_3": {
+          "measured": 0.943139213534952,
+          "limit": 0.95
+        },
+        "3_2": {
+          "measured": 0.8908588785298578,
+          "limit": 0.9
+        }
+      }
+    },
+    "C1_bars": {
+      "why": "Tether: distinct states each consensus path visits; tMAVEN model_vbstates: each per-trace model's state count (bars 1 to 10).",
+      "values": {
+        "all": {
+          "measured": 0.16725978647686832,
+          "limit": 0.17
+        }
+      }
+    }
+  }
+}
