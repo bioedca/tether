@@ -111,7 +111,7 @@ _NO_DERIVATIVES = MANIFEST["campos2024-kmatrix-wt-wt-txt"]
         (
             _NO_DERIVATIVES,
             {"extract_member": None, "extract_script": "scripts/make_kinsoft_fixture.py"},
-            "permits no changed copy",
+            "data is kept unchanged",
         ),
     ],
 )
@@ -214,7 +214,7 @@ def test_every_paper_file_is_an_unchanged_member_at_its_archive_path() -> None:
     """A committed copy sits at its fixture directory plus its member path, and is one member.
 
     Every file below the two directories has an entry (the REUSE test finds a file without one),
-    and no entry is the output of a script: the licence permits no changed copy.
+    and no entry is the output of a script: ADR-0083 keeps these copies unchanged.
     """
     entries = _paper_entries()
     on_disk = sorted(

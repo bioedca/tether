@@ -76,7 +76,7 @@ Source Data of Campos-Chavez et al. (2024)  (CC-BY-NC-ND-4.0)  — Campos-Chavez
     tests/fixtures/large/campos_chavez_2024/smFRET_SourceData/intraFRET_WT+WT_13uM.txt
   These files are licensed CC BY-NC-ND 4.0 (see LICENSES/CC-BY-NC-ND-4.0.txt and
   the REUSE.toml annotation), NOT GPL-3.0. They are for NON-COMMERCIAL use only,
-  and no changed version of them may be shared. They are not part of Tether's
+  and no adapted version of them may be shared. They are not part of Tether's
   code, the wheel or the installers; only tests read them. A person who
   distributes a copy of this repository for commercial purposes must remove the
   two directories above first.

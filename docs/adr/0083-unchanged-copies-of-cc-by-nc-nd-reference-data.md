@@ -23,7 +23,7 @@ with them.
 The publisher gives the Source Data under **CC BY-NC-ND 4.0**. The repository is GPL-3.0-or-later,
 and the only other third-party data in it (kinSoftChallenge) is CC-BY-4.0, which permits changes.
 This licence does not: it permits copies of the material, in whole or in part, for non-commercial
-purposes, and it does not permit a changed version to be shared.
+purposes, and it does not permit an adapted version (Adapted Material, §1(a)) to be shared.
 
 Can a copy of these files be in this repository, and which rules must a copy keep?
 
@@ -32,7 +32,9 @@ Can a copy of these files be in this repository, and which rules must a copy kee
 - **The licence decides what is possible.** Under CC BY-NC-ND 4.0 §2(a)(1)(A) a licensee may
   "reproduce and Share the Licensed Material, in whole or in part, for NonCommercial purposes only",
   and under §2(a)(1)(B) may make Adapted Material but not Share it. A copy in a public repository is
-  sharing, so only unchanged files can be in it.
+  sharing, so the repository can hold copies but no Adapted Material. Under §2(a)(4) a technical
+  modification that is necessary to use the material in another medium or format "never produces
+  Adapted Material".
 - **The required matrix makes no network call** (ADR-0073). A check that must run on each pull
   request needs a committed copy.
 - **The repository licence must not mislead.** A reader of `LICENSE` must not think that these
@@ -44,8 +46,11 @@ Can a copy of these files be in this repository, and which rules must a copy kee
 1. **Download only, commit nothing.** Rejected: the checks of #756 to #758 that need only the small
    text files would then run once a week and not on a pull request.
 2. **Commit converted or cropped copies** (for example, one HDF5 file in Tether's format).
-   Rejected: a converted copy is Adapted Material (§1(a)), which the licence does not permit to
-   share.
+   Rejected. A cropped or corrected copy is Adapted Material (§1(a)), which the licence does not
+   permit to share. A format conversion can be a technical modification that §2(a)(4) permits, but
+   whether a given conversion is one is a legal judgement for each file, and a converted file cannot
+   be compared byte for byte with the publisher's archive. The rule below is therefore the project's
+   own, and it is stricter than the licence.
 3. **Keep the data on the reference workstation only.** Rejected: the data is public, and the
    decision of batch 1 permits the copy.
 4. **Commit a small set of unchanged files, and download the full archive in the weekly job
@@ -77,7 +82,9 @@ with its member, byte for byte (ADR-0073).
 ### The rules for these copies
 
 1. **Unchanged only.** A committed file is byte-identical to its member of the archive. The
-   repository keeps no converted, cropped, corrected or re-encoded copy. A test that needs another
+   repository keeps no converted, cropped, corrected or re-encoded copy. This is a project rule,
+   stricter than the licence (which permits technical format modifications, §2(a)(4)): it keeps the
+   weekly byte-for-byte check possible and needs no legal judgement for each file. A test that needs another
    format converts the file in memory or in a temporary directory when it runs.
 2. **No tool rewrites them.** The files have `-text` in `.gitattributes`, so a Windows checkout keeps
    their bytes. The pre-commit hooks that change files (whitespace, end of file, ruff) exclude the

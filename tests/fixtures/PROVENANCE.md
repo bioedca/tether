@@ -283,12 +283,14 @@ cumulative dwell-time distributions there).
 
 ## Source Data of Campos-Chavez et al. 2024 (paper reference data) — **CC-BY-NC-ND-4.0**
 
-**External data under a licence that permits no changed copy.** The Source Data of the maintainer's
+**External data under a licence that permits no shared Adapted Material.** The Source Data of the maintainer's
 study (Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A,
 *Nature Communications* 15:6592 (2024), **doi:10.1038/s41467-024-50885-x**) is published by Springer
 Nature under **CC BY-NC-ND 4.0**. The files below are **unchanged** members of the archive
 `41467_2024_50885_MOESM4_ESM.zip`, byte for byte; nothing was converted, cropped, corrected or
-re-encoded, and none may be (ADR-0083). They are for non-commercial use only. They are annotated
+re-encoded, and under the project rule of ADR-0083 none may be. That rule is stricter than the
+licence, which permits technical format modifications (§2(a)(4)) but no shared cropped or corrected
+copy. They are for non-commercial use only. They are annotated
 `CC-BY-NC-ND-4.0` in `REUSE.toml` and attributed in `NOTICE`; the hooks that rewrite whitespace and
 ruff skip their directories, and `.gitattributes` keeps their bytes (`-text`) on every OS.
 

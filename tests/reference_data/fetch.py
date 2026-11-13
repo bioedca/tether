@@ -72,7 +72,7 @@ _ID = re.compile(r"[a-z0-9][a-z0-9-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SOURCE = re.compile(r"(doi:10\.\d{4,9}/\S+|accession:\S+)")
 _ENV = re.compile(r"TETHER_[A-Z0-9_]+")
-#: A NoDerivatives licence (for example CC-BY-NC-ND-4.0): no changed copy may exist (ADR-0083).
+#: A NoDerivatives licence (for example CC-BY-NC-ND-4.0): ADR-0083 keeps unchanged copies only.
 _NO_DERIVATIVES = re.compile(r"-ND(-|$)")
 _CHUNK = 1 << 20
 
@@ -231,8 +231,8 @@ def check_manifest(datasets: dict[str, Dataset], repo: Path = REPO) -> list[str]
                 say(f"{d.id}: extract_script {d.extract_script} does not exist")
             if d.extract_script and _NO_DERIVATIVES.search(d.license):
                 say(
-                    f"{d.id}: {d.license} permits no changed copy, so an extract is an unchanged "
-                    "extract_member, never the output of an extract_script (ADR-0083)"
+                    f"{d.id}: {d.license} data is kept unchanged (ADR-0083), so an extract "
+                    "is an unchanged extract_member, never the output of an extract_script"
                 )
         elif d.extract_script or d.extract_member:
             say(f"{d.id}: extract_script and extract_member need extract_of")

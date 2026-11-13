@@ -27,7 +27,7 @@ SPDX-License-Identifier = "CC-BY-4.0"
 # Source Data of Campos-Chavez et al., Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x
 # (#755, ADR-0083): unchanged copies of members of the publisher's archive
 # 41467_2024_50885_MOESM4_ESM.zip, under CC BY-NC-ND 4.0 as published, NOT GPL-3.0. Non-commercial
-# use only, and no changed copy may be shared. `override` beats the blanket GPL entry above.
+# use only, and no adapted copy may be shared. `override` beats the blanket GPL entry above.
 # Attributed in NOTICE, docs/validation.md and tests/fixtures/PROVENANCE.md.
 [[annotations]]
 path = ["tests/fixtures/campos_chavez_2024/**", "tests/fixtures/large/campos_chavez_2024/**"]

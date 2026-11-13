@@ -88,7 +88,7 @@ citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis to
 
 # --- Source Data of Campos-Chavez et al., Nat Commun 15:6592 (2024), CC-BY-NC-ND-4.0 ----------
 # (#755, ADR-0083). The archive is downloaded by the weekly job; the committed files are members of
-# it, byte for byte. The licence permits no changed copy: a test that needs another format converts
+# it, byte for byte. ADR-0083 keeps them unchanged: a test that needs another format converts
 # a file when it runs, and nothing here is ever edited, re-encoded or trimmed.
 
 [[dataset]]
