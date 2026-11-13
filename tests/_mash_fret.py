@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Readers for the frozen MASH-FRET simulation outputs of #714 (ADR-0086).
+"""Readers for the frozen MASH-FRET simulation outputs of #714 (ADR-0088).
 
 MASH-FRET v1.3.6 writes, for one simulation called ``<name>``:
 

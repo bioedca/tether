@@ -18,7 +18,9 @@ No path outside the output directory goes into a record: inputs are named by fil
 because the inputs of a real run live on the maintainer's workstation.
 
 CI has no MATLAB. ``--matlab`` takes any executable; a ``.py`` file is run with this
-interpreter, which is how the tests use the stand-in ``tests/_matlab_standin.py``.
+interpreter, which is how the tests use the stand-in ``tests/_matlab_standin.py``. On Windows,
+give the MATLAB program itself, ``<release>\bin\win64\MATLAB.exe``: ``bin\matlab.exe`` is a
+launcher that starts MATLAB in another process and returns at once, before the run (#714).
 """
 
 from __future__ import annotations
@@ -219,7 +221,10 @@ def run(
         try:
             info = json.loads(Path(job["matlab_info"]).read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            raise HarnessError("the run did not report its MATLAB release") from exc
+            raise HarnessError(
+                "the run did not report its MATLAB release (on Windows, --matlab must be "
+                "bin\\win64\\MATLAB.exe, not the bin\\matlab.exe launcher)"
+            ) from exc
     # The record must name the bytes MATLAB read, so an input changed during the run is refused.
     if {name: _files(path) for name, path in sorted(inputs.items())} != input_part:
         raise HarnessError("an input changed while MATLAB ran; no record written")

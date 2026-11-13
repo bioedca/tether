@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Make the MASH-FRET simulated extraction set of #714 (ADR-0086) with the harness of #700.
+"""Make the MASH-FRET simulated extraction set of #714 (ADR-0088) with the harness of #700.
 
 Four two-channel videos with known truth, one ``simulate`` run each at the pinned MASH-FRET
 commit, every parameter and seed below:
@@ -17,6 +17,9 @@ aperture fits around a molecule in more than half of each channel, and it has 40
 the compressed video stays below the 512 KB limit of the repository's large-file hook.
 
     python scripts/reference/matlab/mash_fret_extraction_set.py --clone PATH [--matlab EXE]
+
+(on Windows, ``EXE`` is ``<release>\\bin\\win64\\MATLAB.exe``, not the ``bin\\matlab.exe``
+launcher)
 
 writes ``tests/fixtures/reference/mash-fret/<scenario>/`` with a ``provenance.json`` each, and
 refuses an output directory that is not empty (the harness rule).

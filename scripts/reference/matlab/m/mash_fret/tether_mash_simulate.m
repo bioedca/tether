@@ -51,7 +51,13 @@ h = guidata(h_fig);
 pushbutton_startSim_Callback(h.pushbutton_startSim, [], h_fig);
 h = guidata(h_fig);
 pushbutton_updateSim_Callback(h.pushbutton_updateSim, [], h_fig);
-ok = pushbutton_exportSim_Callback({out, job.params.name}, [], h_fig);
+notes = {};
+try
+    ok = pushbutton_exportSim_Callback({out, job.params.name}, [], h_fig);
+catch err
+    notes = known_redraw_error(err, out, job, 'export');
+    ok = true;
+end
 if ~ok
     error('tether:mash', 'MASH-FRET did not export the simulation');
 end
@@ -64,8 +70,47 @@ end
 
 % Close the project without the save prompt, then the window (as routinetest_S does).
 h = guidata(h_fig);
-pushbutton_closeProj_Callback(h.pushbutton_closeProj, [], h_fig, true);
-close(h_fig);
+try
+    pushbutton_closeProj_Callback(h.pushbutton_closeProj, [], h_fig, true);
+catch err
+    notes = [notes, known_redraw_error(err, out, job, 'project close')];
+end
+delete(h_fig);
+
+if ~isempty(notes)
+    % The note is an output like the others, so the record holds its SHA-256.
+    fid = fopen(fullfile(out, [job.params.name '_tether_note.txt']), 'w');
+    fprintf(fid, '%s\n', notes{:});
+    fclose(fid);
+end
+end
+
+function notes = known_redraw_error(err, out, job, step)
+% KNOWN_REDRAW_ERROR  Accept one known MASH-FRET error, or rethrow.
+%   MASH-FRET v1.3.6 draws its trace plot with the legend property IconColumnWidth
+%   (plotData>addleg2plot), which MATLAB R2023b does not have. exportResults calls that redraw
+%   (updateFields) only after it has written every file, so the export is complete. This
+%   accepts exactly that error, and only when every expected export file exists; any other
+%   error ends the run.
+names = {err.stack.name};
+known = contains(lower(err.message), 'iconcolumnwidth') && any(strcmp(names, 'plotData>addleg2plot'));
+if ~known
+    rethrow(err);
+end
+name = job.params.name;
+expected = {[name '.sira'], fullfile('coordinates', [name '.coord']), [name '_param.log']};
+for k = 1:numel(expected)
+    if ~isfile(fullfile(out, expected{k})) && ~isfile(fullfile(out, [expected{k} '.gz']))
+        rethrow(err);
+    end
+end
+traces = dir(fullfile(out, 'traces_ASCII', [name '_mol*of*.txt']));
+if numel(traces) ~= job.params.overrides.N
+    rethrow(err);
+end
+notes = {sprintf(['MASH-FRET raised "%s" in plotData>addleg2plot (the window redraw after ' ...
+    'the %s step) on MATLAB %s. Every export file existed, so the run went on.'], ...
+    err.message, step, version('-release'))};
 end
 
 function rmdir_quiet(path)

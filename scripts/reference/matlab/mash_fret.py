@@ -13,7 +13,7 @@ window from ``matlab -batch`` and drives it with MASH-FRET's own routine helpers
         --param seed=1 --param 'overrides={"L": 300}' --out <dir>
 
 The first real run of this task made the extraction set of #714
-(``mash_fret_extraction_set.py``, ADR-0086).
+(``mash_fret_extraction_set.py``, ADR-0088).
 """
 
 from __future__ import annotations
