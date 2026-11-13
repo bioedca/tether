@@ -345,3 +345,93 @@ output SHA-256 values and the method (`scripts/reference/matlab/`). `tests/test_
 verifies every committed record. `stand-in/selftest` is not a reference: the `matlab` stand-in of
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
+
+## Ha laboratory SAM/SAH riboswitch snapshots (#796, ADR-0086) — **CC-BY-4.0**
+
+External third-party data under a different licence: the data of Liao et al., Nucleic Acids Res.
+51:8957 (2023), doi:10.1093/nar/gkad633, deposited by **Ting-Wei Liao** (Ha Single-Molecule Lab)
+at Zenodo **doi:10.5281/zenodo.8088172** (version 1.1, 2023-06-27) under **CC-BY-4.0**. They are
+annotated CC-BY-4.0 in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
+
+The 56 files are verbatim copies (no transformation) of members of the record's Fig. 1 archive,
+`Fig 1 Studies of ligand-free conformations.zip` (75,685,670 B, MD5
+`c5929e9679142e85fa9ae3156e3440b2`, SHA-256
+`a8c0e41a9c080b39048bcee22503d86bb58d99824aa82c564d08535dbf5422f3`), folder
+`20200129 RNA only condition/RNA only/` (shortened to `…/RNA only/` below):
+
+- the 53 short binary snapshots `hel1.traces` to `hel53.traces` (20 frames each, 361 to 467
+  molecules; the format is in `_ha_traces.py` under `tests/`). The three long movies
+  `hel54.traces` to `hel56.traces` (about 5 MB each) and every `.pks`, `.smt`, `.smt2`, `.tif`,
+  `.tlog` and `.log` file of the folder are not copied;
+- `frets.dat`, the laboratory's 46,950 FRET values, one on each line;
+- `test3.dat`, its normalised histogram (centre and fraction; bin width 0.015, centres -0.4 to
+  1.4);
+- `counts2.txt`, the record that the laboratory's script wrote of its parameters (leakage 0.12,
+  intensity cutoffs 100 and 1000, FRET split 0.5, green-excitation frames 1 to 10,
+  red-excitation frames 11 to 20) and of its counts for each of the 56 movies.
+
+| Fixture | Source member | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/ha_sam_sah/hel1.traces` | `…/RNA only/hel1.traces` | 34,966 B | `0ce42e85fd2d41f0ebeeaf4f2697dc5bc573673eced6efc6d3cab12c7a479df3` |
+| `tests/fixtures/ha_sam_sah/hel2.traces` | `…/RNA only/hel2.traces` | 33,766 B | `45781c2bd17808f5946a897d4c0c55464e8bf152f29be2b3e5b96eb652fde40c` |
+| `tests/fixtures/ha_sam_sah/hel3.traces` | `…/RNA only/hel3.traces` | 34,246 B | `88b26c09e89f48bd86038df15cb9ace18ccf1afff6fb94a0c3edec6671317405` |
+| `tests/fixtures/ha_sam_sah/hel4.traces` | `…/RNA only/hel4.traces` | 33,686 B | `a729f934994ca3842f7c62649c2b9ac3c199cfc3bfc5930422f216c66fcdb67f` |
+| `tests/fixtures/ha_sam_sah/hel5.traces` | `…/RNA only/hel5.traces` | 32,726 B | `8606c9d59b608683b8806ab6dc03f736c7a5164caae46ad9000d457d3dc773cd` |
+| `tests/fixtures/ha_sam_sah/hel6.traces` | `…/RNA only/hel6.traces` | 36,006 B | `869d5100552cffd2257eae0498905ed348bd7c3f6bc4fe0b335124e080ff81ab` |
+| `tests/fixtures/ha_sam_sah/hel7.traces` | `…/RNA only/hel7.traces` | 34,966 B | `a6e3cc581785c30c8ac23229fb960758f8fca1e7f116b430a5f2adba888b451c` |
+| `tests/fixtures/ha_sam_sah/hel8.traces` | `…/RNA only/hel8.traces` | 35,126 B | `2a0ad48e35e84f88f5422b3961a2e8bc2e4935a68a417ed475cc7d59e87bcecb` |
+| `tests/fixtures/ha_sam_sah/hel9.traces` | `…/RNA only/hel9.traces` | 35,366 B | `a3959c95e0099d5af7a3c4c6e9598b279c64ea6ded2e743d8e7ec21de52b8305` |
+| `tests/fixtures/ha_sam_sah/hel10.traces` | `…/RNA only/hel10.traces` | 34,966 B | `3cf678464d671693ee9f788ba8cceaeebefffc5be2aeeee80e9a77171ae720c7` |
+| `tests/fixtures/ha_sam_sah/hel11.traces` | `…/RNA only/hel11.traces` | 33,846 B | `11a31ece602904eb5874d5606eb3d7de8c54b87079d31398fe8d93bbf02b8263` |
+| `tests/fixtures/ha_sam_sah/hel12.traces` | `…/RNA only/hel12.traces` | 34,646 B | `9e210a4e169bf7bd7d3a5d89234002e9146ca624e5b0e49076f035499c4dc87c` |
+| `tests/fixtures/ha_sam_sah/hel13.traces` | `…/RNA only/hel13.traces` | 33,286 B | `e921c3579fd76fc687ea1ddda5208e3895d96f002d243b836ff60babdef57cda` |
+| `tests/fixtures/ha_sam_sah/hel14.traces` | `…/RNA only/hel14.traces` | 36,006 B | `f003b0c477b084d8160b8eb4b29a3d32ec8d9c6030099413661f4c056a37fccf` |
+| `tests/fixtures/ha_sam_sah/hel15.traces` | `…/RNA only/hel15.traces` | 35,046 B | `2a200eb4896fb261f9b9d2431d8aec81e5869c1a4e5b454ac5227c6c6ea389d9` |
+| `tests/fixtures/ha_sam_sah/hel16.traces` | `…/RNA only/hel16.traces` | 35,446 B | `ed0232e600c23d80057184e3b3d7b6cb3183329cd43d8423123bbb94a5947781` |
+| `tests/fixtures/ha_sam_sah/hel17.traces` | `…/RNA only/hel17.traces` | 34,406 B | `6845b97e09bea414e2811203855f509366fc65dcf3a83a42ebbe9f3f4e81df5c` |
+| `tests/fixtures/ha_sam_sah/hel18.traces` | `…/RNA only/hel18.traces` | 34,966 B | `f8092792877fa0f2b251973402244e7ca61d74b72a0e07b291006cb30fdcb90f` |
+| `tests/fixtures/ha_sam_sah/hel19.traces` | `…/RNA only/hel19.traces` | 33,126 B | `321dd25dcb0337fa92eee0245bd4f53c17995a7afceb97eb7c11eda289b3334c` |
+| `tests/fixtures/ha_sam_sah/hel20.traces` | `…/RNA only/hel20.traces` | 34,726 B | `09ec0505e50543452ece639734502babd9f6e4b7ee65f3c9e2f02128befc444d` |
+| `tests/fixtures/ha_sam_sah/hel21.traces` | `…/RNA only/hel21.traces` | 32,966 B | `06be429d05dd97a6c54118161939d48488b0901ee927e88e8d6b5096c94be51b` |
+| `tests/fixtures/ha_sam_sah/hel22.traces` | `…/RNA only/hel22.traces` | 34,646 B | `2b8221c6fc94d4b0518f46a25d5b9d6a87f3c10ffa917140e7d64365684eb6a8` |
+| `tests/fixtures/ha_sam_sah/hel23.traces` | `…/RNA only/hel23.traces` | 36,086 B | `798ff04f5be85f6de625d58f5c878a4f6036cdadfdad97368ea2526fcd930d53` |
+| `tests/fixtures/ha_sam_sah/hel24.traces` | `…/RNA only/hel24.traces` | 33,766 B | `dad5d8eca2dab5887310c27336040ec214947e311187bb5d04c86c6f61f41249` |
+| `tests/fixtures/ha_sam_sah/hel25.traces` | `…/RNA only/hel25.traces` | 32,806 B | `04c62648fed6eaa8a8d961c8245bc29ac9f0af2dabfb9969251a9d5379b2deeb` |
+| `tests/fixtures/ha_sam_sah/hel26.traces` | `…/RNA only/hel26.traces` | 36,566 B | `33b6fb375fbc8a8c64afdd6ff4825c0a2c38071ab2cb7daec7260fcc8e2c33c0` |
+| `tests/fixtures/ha_sam_sah/hel27.traces` | `…/RNA only/hel27.traces` | 33,926 B | `1f5015e1c464cd2f5903f1e9195665c8b14f2360a619aa6d31e2b31ccb1cec09` |
+| `tests/fixtures/ha_sam_sah/hel28.traces` | `…/RNA only/hel28.traces` | 34,326 B | `fd9634fb0ca447d30b2c0c6bd072102548ba550b28da765a743e96b4cc8f3d2d` |
+| `tests/fixtures/ha_sam_sah/hel29.traces` | `…/RNA only/hel29.traces` | 33,686 B | `a6409f7db0f061150df44f4488805a5feb3ec47830ea7209d86c7710ecbff16f` |
+| `tests/fixtures/ha_sam_sah/hel30.traces` | `…/RNA only/hel30.traces` | 34,486 B | `72c7d95e018052d920d0861ae1b8262fc6760cb990eccba42a9dc839c16d8f09` |
+| `tests/fixtures/ha_sam_sah/hel31.traces` | `…/RNA only/hel31.traces` | 28,886 B | `ec49f2f6b2d31046e3f7913436c3eee46a7d00effa19fa53015b6c1bf900e3ea` |
+| `tests/fixtures/ha_sam_sah/hel32.traces` | `…/RNA only/hel32.traces` | 33,686 B | `905cdfcec85539567a0f937ecd673664170fee067f79890bed3af29f333f0691` |
+| `tests/fixtures/ha_sam_sah/hel33.traces` | `…/RNA only/hel33.traces` | 31,926 B | `b00c7151d865da1444365539b03cadc9e9f869f7a5386fa179d9e16592d8d599` |
+| `tests/fixtures/ha_sam_sah/hel34.traces` | `…/RNA only/hel34.traces` | 32,486 B | `0b2550cb78b1f1f5eb02dec4a9239921ce0e6a443d128dd0b5f2821863a6eb71` |
+| `tests/fixtures/ha_sam_sah/hel35.traces` | `…/RNA only/hel35.traces` | 34,006 B | `cd3a052fb327d35ca77afbd905b56a61ab091c092cf26d6119a82e5f11021b03` |
+| `tests/fixtures/ha_sam_sah/hel36.traces` | `…/RNA only/hel36.traces` | 33,046 B | `23f75459d20974df6d07474cab57c875c55873593cda71459c5bf39fa917cadd` |
+| `tests/fixtures/ha_sam_sah/hel37.traces` | `…/RNA only/hel37.traces` | 37,366 B | `5fec7b056eafdf917d9acb19e47f5497074ca17578b82fce1185ce4a69a42634` |
+| `tests/fixtures/ha_sam_sah/hel38.traces` | `…/RNA only/hel38.traces` | 34,406 B | `1d01c8d3e365a2189b725dbd2603951b54a0323541e047ec9e1f53b7acc62334` |
+| `tests/fixtures/ha_sam_sah/hel39.traces` | `…/RNA only/hel39.traces` | 36,166 B | `1c45ed2deec8341d7eb7d6fdfe40af88ea3383dd03bd70cf0b018f15ea44a8cf` |
+| `tests/fixtures/ha_sam_sah/hel40.traces` | `…/RNA only/hel40.traces` | 34,966 B | `cf7f51cda154aa0608c5643b370579d8f4cfce7d26389823bf6d756ca02d902e` |
+| `tests/fixtures/ha_sam_sah/hel41.traces` | `…/RNA only/hel41.traces` | 36,486 B | `c721253ab239199387a24ee0e47998bdc7a117fa16bbf25522dd6b1b119dc757` |
+| `tests/fixtures/ha_sam_sah/hel42.traces` | `…/RNA only/hel42.traces` | 32,886 B | `5f03d8a0c8b7253211afaff969557cc0a88f7d93720f587912187792862dfced` |
+| `tests/fixtures/ha_sam_sah/hel43.traces` | `…/RNA only/hel43.traces` | 33,446 B | `fce90bd1f66d67a00040ae9031c2214866af83d91cc7874cf8cca94ba6f97044` |
+| `tests/fixtures/ha_sam_sah/hel44.traces` | `…/RNA only/hel44.traces` | 33,686 B | `35a0c27a31625917b450f5c04f45788972858f278820036cccbb3e1dc22e2d56` |
+| `tests/fixtures/ha_sam_sah/hel45.traces` | `…/RNA only/hel45.traces` | 35,366 B | `a3c1ea1f76b7640d627e00bc12deb4def90389b3218fb577169529a9ca8e257c` |
+| `tests/fixtures/ha_sam_sah/hel46.traces` | `…/RNA only/hel46.traces` | 32,326 B | `e9f35208ccd871ab32c1cefbe0c413c97a76420939e57ab348526c220dd9ed2c` |
+| `tests/fixtures/ha_sam_sah/hel47.traces` | `…/RNA only/hel47.traces` | 33,606 B | `6b6442c80f860455ab622b51ae0678babab7350187e84d66d195cef26a316e1d` |
+| `tests/fixtures/ha_sam_sah/hel48.traces` | `…/RNA only/hel48.traces` | 34,246 B | `c9f291f3a344be104b3709efac1cbce6635834e33917bafb0225279d50c87cc5` |
+| `tests/fixtures/ha_sam_sah/hel49.traces` | `…/RNA only/hel49.traces` | 33,206 B | `1ffc607c41f6609a97db6423399862e9fadf0b337536f9075a4a84c3050d9622` |
+| `tests/fixtures/ha_sam_sah/hel50.traces` | `…/RNA only/hel50.traces` | 34,246 B | `5cb01df666816b24f796cd5ea21f3cf1be4ce2be6b3b8d52784dbe8200737385` |
+| `tests/fixtures/ha_sam_sah/hel51.traces` | `…/RNA only/hel51.traces` | 33,206 B | `97848ddd5ec85127f86b1f14241adcf56c5e0555d6de63bb69761479e9c0ae92` |
+| `tests/fixtures/ha_sam_sah/hel52.traces` | `…/RNA only/hel52.traces` | 33,846 B | `bfb791f196702be6b1118d8437167d70554c50133c07297d324b04f5db090743` |
+| `tests/fixtures/ha_sam_sah/hel53.traces` | `…/RNA only/hel53.traces` | 33,526 B | `e5aa2f59582d0fbdd3e7ffe32cb8dbe4a434570528846cc6b62688e05f2349ca` |
+| `tests/fixtures/ha_sam_sah/frets.dat` | `…/RNA only/frets.dat` | 845,100 B | `a21913a8517488a8d08eaa1e62bd015df8e543457960ed185fe35463957c2ccb` |
+| `tests/fixtures/ha_sam_sah/test3.dat` | `…/RNA only/test3.dat` | 4,114 B | `3c24f94f3064f12be130571a25038ff6bd1398c20b86508633384b7df0bd1a65` |
+| `tests/fixtures/ha_sam_sah/counts2.txt` | `…/RNA only/counts2.txt` | 11,219 B | `f837ccac4a18bd2555adf7c3e85cf993c64395b2f7433a978ca7d84d5486f08a` |
+
+**Accessed:** 2026-11-13 (downloaded from Zenodo; MD5 and SHA-256 of the archive checked).
+**License:** CC-BY-4.0 (Liao, Ha Single-Molecule Lab) — **not** GPL-3.0. Regenerate by
+downloading the archive and copying the members above; every file has an entry in
+`tests/reference_data/manifest.toml` (ids `ha-sam-sah-fig1` for the archive and
+`ha-sam-sah-hel1` to `ha-sam-sah-hel53`, `ha-sam-sah-frets`, `ha-sam-sah-test3`,
+`ha-sam-sah-counts2`), and the weekly `reference-data` job compares each copy with its member.

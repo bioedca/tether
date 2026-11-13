@@ -24,6 +24,15 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# Ha laboratory SAM/SAH riboswitch data (#796, ADR-0086): verbatim copies of 56 files of the Fig. 1
+# archive of Zenodo 10.5281/zenodo.8088172 (CC-BY-4.0): 53 .traces snapshots, frets.dat, test3.dat
+# and counts2.txt. Attributed in NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/ha_sam_sah/*"]
+precedence = "override"
+SPDX-FileCopyrightText = "2023 Ting-Wei Liao, Ha Single-Molecule Lab (Zenodo 10.5281/zenodo.8088172)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.
