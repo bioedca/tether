@@ -9,8 +9,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 - **Date:** 2026-11-13
 - **Deciders:** bioedca (issue #797 approved 2026-11-11; the live method chosen on the #797
   thread 2026-11-13: tMAVEN's own per-trace vbHMM in a test-only sidecar script)
-- **PRD anchor:** §2.2 ("What the tests can use", rule 2), §8 (NFR-VALID (b), NFR-FIXTURES),
-  §7.7 (dwell times and the TDP)
+- **PRD anchor:** §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP)
 - **Milestone:** M19
 
 ## Context and problem statement
