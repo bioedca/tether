@@ -46,8 +46,8 @@ never merge, release, or declare a PR ready while required checks are red or pen
 
 - **Model — GitHub Flow.** All work happens on short-lived branches off `main`,
   opened as a PR, merged via **squash-merge**, branch **deleted on merge**. No
-  long-lived `develop`/`release` branches; milestones M0–M10 are GitHub
-  Milestones, not git branches.
+  long-lived `develop`/`release` branches; milestones are GitHub Milestones,
+  not git branches.
 - **Branch naming:** `type/issue-N-short-slug`, optionally milestone/FR-scoped —
   e.g. `feat/issue-123-m1-atrous-detector`, `fix/issue-124-correct-nan-guard`. The
   slug is kebab-case, ≤ ~5 words. The branch name is not load-bearing (the PR
@@ -167,6 +167,36 @@ workflow's pytest command from selecting a `workstation` test, and
 `tests/conftest.py` stops collection when a `workstation` test also carries `large`,
 `sidecar` or `deep`. Without the runner a `workstation` test skips, so a local run that
 leaves out `and not workstation` still passes.
+
+### Golden numbers (the self-drift suite)
+
+`tests/test_golden.py` runs three inputs from end to end — the committed 4-molecule SMD
+fixture, the synthetic movie of `tests/_synth.py` (through `tether batch`), and synthetic
+traces that exercise every correction — and compares each result with its golden file in
+`tests/golden/`: molecule counts, per-molecule statistics, histogram counts, the native HMM,
+TDP, dwell rates, and the SHA-256 of each exported table. `tests/test_golden_gui.py` checks
+that the histogram dock draws the same histogram. It is a **regression suite, not an oracle**:
+it fails when a number changes, not when a number is wrong.
+
+Integers, strings and table checksums must match exactly. Floats must match to the relative
+limit `FLOAT_RTOL` in the suite's helper module, which [ADR-0080](docs/adr/0080-self-drift-golden-numbers.md)
+measured across the three operating systems of the matrix. Do not widen it to make a change
+pass.
+
+When a change moves a golden number on purpose:
+
+```bash
+python scripts/update_golden.py --check   # list what moved; write nothing
+python scripts/update_golden.py           # rewrite tests/golden/ and print the table
+```
+
+Paste the printed table (it starts with `| golden file | quantity | old | new | relative change |`)
+into the pull request body and add a line that starts with `Cause:` and says why the numbers
+moved. An array that kept its shape gets one row for each changed element, at most 20,
+and then one row that counts the rest. The `golden-table` workflow fails a pull request that changes a file in `tests/golden/`
+without both, and runs again when you edit the body. Never edit a golden file by hand. A
+dependency update that moves a number fails here on purpose: the table and the cause are then
+the record of what the update changed.
 
 ### Coverage floors
 
