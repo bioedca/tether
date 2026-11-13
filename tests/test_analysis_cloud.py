@@ -92,6 +92,45 @@ def test_kde_surface_shape_and_nonnegative() -> None:
     assert cloud.bandwidth is not None and cloud.bandwidth > 0.0
 
 
+def _centers(edges: np.ndarray) -> np.ndarray:
+    return 0.5 * (edges[:-1] + edges[1:])
+
+
+def test_kde_density_sits_on_the_two_bands() -> None:
+    # #741, ANA-F4: the surface must be WHERE the data is, not only the right shape.
+    cloud = raw_fret_cloud(_two_band_cloud(), time_bins=60, signal_bins=60)
+    assert cloud.density is not None
+    e = _centers(cloud.signal_edges)
+    width = float(e[1] - e[0])
+    marginal = cloud.density.sum(axis=0)  # E-marginal of the surface
+    low, high = e < 0.5, e >= 0.5
+    assert abs(float(e[low][np.argmax(marginal[low])]) - 0.3) <= width
+    assert abs(float(e[high][np.argmax(marginal[high])]) - 0.7) <= width
+    # the empty gap between the bands carries almost no density
+    at_gap = float(marginal[np.argmin(np.abs(e - 0.5))])
+    assert at_gap < 0.1 * float(marginal.max())
+
+
+def test_kde_density_follows_the_time_axis() -> None:
+    # Every molecule sits at E = 0.3 for frames 0..39 and at E = 0.7 for frames 40..79,
+    # so each time row of the surface must peak at the band of its own time. This pins
+    # the time and E grid centres and their pairing in the KDE evaluation (#741, ANA-F4).
+    rng = np.random.default_rng(5)
+    frames = np.arange(80)
+    chunks = [np.where(frames < 40, 0.3, 0.7) + 0.03 * rng.standard_normal(80) for _ in range(20)]
+    cloud = raw_fret_cloud(chunks, time_bins=40, signal_bins=60)
+    assert cloud.density is not None
+    t = _centers(cloud.time_edges)
+    e = _centers(cloud.signal_edges)
+    width = float(e[1] - e[0])
+    row_peak = e[np.argmax(cloud.density, axis=1)]
+    early = (t > 5.0) & (t < 30.0)
+    late = (t > 50.0) & (t < 75.0)
+    assert early.sum() >= 10 and late.sum() >= 10
+    assert np.all(np.abs(row_peak[early] - 0.3) <= 2.0 * width)
+    assert np.all(np.abs(row_peak[late] - 0.7) <= 2.0 * width)
+
+
 def test_default_grid_shape() -> None:
     cloud = raw_fret_cloud(_two_band_cloud())
     assert cloud.density is not None
@@ -115,8 +154,11 @@ def test_hdr_levels_enclose_requested_mass() -> None:
     frac95 = _grid_mass_fraction_above(cloud, float(cloud.hdr_levels[1]))
     # the 50% contour encloses ~half the grid mass, the 95% contour ~all of it, and the
     # larger coverage never encloses less mass (the density-quantile guarantee).
-    assert 0.45 <= frac50 <= 0.65
-    assert frac95 >= 0.9
+    # Tight limits (#741, ANA-F5): the grid method reaches 0.5011 / 0.9502 on this cloud,
+    # so a threshold read 10 points too far along the sorted mass (a 60 % contour
+    # reported as the 50 % one) fails here.
+    assert frac50 == pytest.approx(0.50, abs=0.01)
+    assert frac95 == pytest.approx(0.95, abs=0.01)
     assert frac50 <= frac95 + 1e-9
 
 
@@ -176,6 +218,36 @@ def test_out_of_range_outliers_excluded_from_kde_fit() -> None:
     assert clean.hdr_levels is not None and dirty.hdr_levels is not None
     assert np.array_equal(clean.hdr_levels, dirty.hdr_levels)
     assert clean.bandwidth == dirty.bandwidth
+
+
+def test_points_below_zero_inside_the_grid_are_fit() -> None:
+    # #741, ANA-F7: the lower E bound of the KDE fit is signal_range[0] (-0.25 by
+    # default), not 0. Points at E = -0.1 are in the grid and must not be counted out.
+    rng = np.random.default_rng(2)
+    chunks = [-0.1 + 0.02 * rng.standard_normal(40) for _ in range(5)]
+    chunks += [0.6 + 0.02 * rng.standard_normal(40) for _ in range(5)]
+    cloud = raw_fret_cloud(chunks)
+    assert cloud.n_out_of_range == 0
+    assert cloud.density is not None
+    e = _centers(cloud.signal_edges)
+    marginal = cloud.density.sum(axis=0)
+    width = float(e[1] - e[0])
+    low = e < 0.25
+    assert abs(float(e[low][np.argmax(marginal[low])]) + 0.1) <= width
+
+
+def test_explicit_time_range_excludes_later_points_from_the_fit() -> None:
+    # #741, ANA-F7: a time_range narrower than the data keeps every point in the scatter
+    # but counts the later ones out of range and leaves them out of the KDE fit.
+    chunks = _two_band_cloud(10, 80)
+    cloud = raw_fret_cloud(chunks, time_range=(0.0, 39.0))
+    assert cloud.n_samples == 10 * 80
+    assert cloud.n_out_of_range == 10 * 40  # frames 40..79 lie after the time range
+    clipped = raw_fret_cloud([c[:40] for c in chunks], time_range=(0.0, 39.0))
+    assert clipped.n_out_of_range == 0
+    assert cloud.density is not None and clipped.density is not None
+    np.testing.assert_allclose(cloud.density, clipped.density, rtol=1e-12, atol=0)
+    assert cloud.bandwidth == clipped.bandwidth
 
 
 # --- pure core: never-crash guards --------------------------------------------
@@ -364,6 +436,27 @@ def test_population_cloud_forwards_time_dt(tmp_path) -> None:
     cloud = population_raw_fret_cloud(project, time_dt=2.0, kde=False)
     assert cloud.time_dt == 2.0
     assert cloud.time_range[1] == pytest.approx(24 * 2.0)  # (n_frames - 1) * time_dt
+
+
+def test_population_cloud_forwards_grid_and_kde_arguments(tmp_path) -> None:
+    # #741, ANA-F7: each documented pass-through argument must reach raw_fret_cloud.
+    project, _ = build_store_with_model(tmp_path, _states(4, 30), MEANS)
+    cloud = population_raw_fret_cloud(
+        project,
+        time_bins=7,
+        signal_bins=9,
+        time_range=(0.0, 14.0),
+        hdr_coverages=(0.9, 0.25, 0.5),
+        bw_method=0.5,
+    )
+    assert cloud.density is not None and cloud.hdr_levels is not None
+    assert cloud.density.shape == (7, 9)
+    assert cloud.time_bins == 7 and cloud.signal_bins == 9
+    assert cloud.time_range == (0.0, 14.0)
+    assert cloud.n_out_of_range == 4 * 15  # frames 15..29 lie after the time range
+    assert cloud.hdr_coverages.tolist() == [0.25, 0.5, 0.9]
+    assert cloud.hdr_levels.shape == (3,)
+    assert cloud.bandwidth == pytest.approx(0.5)  # a scalar bw_method is the KDE factor
 
 
 def test_dataclass_is_frozen() -> None:

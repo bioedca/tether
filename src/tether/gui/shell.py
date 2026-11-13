@@ -1657,7 +1657,9 @@ class TetherShell:
                 return
         self._idealize_key = key
         self._status(f"Idealizing {key} (one-click vbFRET)…")
-        self._busy_indicator.start(f"Idealizing {key}")
+        # The indicator names the molecule as the list shows it (``trace.name`` or
+        # ``mol-<i>``); the key stays for the idealizer and the status message.
+        self._busy_indicator.start(f"Idealizing {self._molecule_list.item(row).text()}")
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         self._idealize_future = self._idealize_executor.submit(self._idealizer, key)
         self._sync_project_write_controls()

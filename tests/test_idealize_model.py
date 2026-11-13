@@ -406,6 +406,130 @@ def test_runner_main_wrong_argc():
 
 
 # --------------------------------------------------------------------------- #
+# Reproducible fits: the ``--seed`` contract (issue #311, ADR-0075)
+# --------------------------------------------------------------------------- #
+
+
+def test_runner_main_seed_flag_without_value_is_usage_error():
+    assert _sidecar_runner.main(["_sidecar_runner.py", "--seed"]) == 2
+
+
+def test_runner_main_forwards_seed_to_run(monkeypatch, capsys):
+    captured = {}
+
+    def _fake_run(*args):
+        captured["args"] = args
+        return {"ok": True}
+
+    monkeypatch.setattr(_sidecar_runner, "run", _fake_run)
+    rc = _sidecar_runner.main(
+        ["_sidecar_runner.py", "--seed", "7", "in.hdf5", "dataset", "ebhmm", "4", "out.hdf5"]
+    )
+    assert rc == 0
+    assert captured["args"] == ("in.hdf5", "dataset", "ebhmm", 4, "out.hdf5", None, 7)
+
+
+def test_runner_main_without_seed_passes_none(monkeypatch, capsys):
+    captured = {}
+
+    def _fake_run(*args):
+        captured["args"] = args
+        return {"ok": True}
+
+    monkeypatch.setattr(_sidecar_runner, "run", _fake_run)
+    rc = _sidecar_runner.main(
+        ["_sidecar_runner.py", "in.hdf5", "dataset", "ebhmm", "4", "out.hdf5", "3"]
+    )
+    assert rc == 0
+    assert captured["args"] == ("in.hdf5", "dataset", "ebhmm", 4, "out.hdf5", "3", None)
+
+
+def _capture_sidecar_cmd(monkeypatch, tmp_path, **kwargs):
+    """Run :func:`run_vbfret` against a fake launcher and return the argv it built."""
+    import subprocess
+
+    from tether.idealize import write_smd
+
+    smd = tmp_path / "smd.hdf5"
+    write_smd(smd, np.zeros((1, 4, 2)))
+    seen = {}
+
+    def _fake_run(cmd, **_kw):
+        seen["cmd"] = cmd
+        out = STATUS_PREFIX + '{"ok": false, "error": "stop here"}\n'
+        return subprocess.CompletedProcess(cmd, 1, stdout=out, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    with pytest.raises(SidecarError, match="stop here"):
+        run_vbfret(smd, sidecar_python=sys.executable, model_type="ebhmm", **kwargs)
+    return seen["cmd"]
+
+
+def test_run_vbfret_seed_reaches_the_sidecar_argv(monkeypatch, tmp_path):
+    cmd = _capture_sidecar_cmd(monkeypatch, tmp_path, seed=11, nrestarts=2)
+    # ``--seed N`` comes first, before the positional contract, which is unchanged.
+    assert cmd[2:4] == ["--seed", "11"]
+    assert cmd[4:] == [str(tmp_path / "smd.hdf5"), "dataset", "ebhmm", "2", cmd[8], "2"]
+
+
+def test_run_vbfret_without_seed_keeps_the_old_argv(monkeypatch, tmp_path):
+    cmd = _capture_sidecar_cmd(monkeypatch, tmp_path)
+    assert "--seed" not in cmd
+    assert cmd[2] == str(tmp_path / "smd.hdf5")
+
+
+@pytest.mark.parametrize("bad", [-1, 1.5, True, "3"])
+def test_run_vbfret_rejects_a_bad_seed_before_launch(tmp_path, bad):
+    with pytest.raises((ValueError, TypeError)):
+        run_vbfret(tmp_path / "absent.hdf5", sidecar_python=sys.executable, seed=bad)
+
+
+def _draws_after_seeding(seed):
+    """Seed both streams, then draw the way tMAVEN's ebFRET path does."""
+    import numba
+
+    @numba.njit(cache=False)
+    def _numba_rand(n):
+        out = np.empty(n)
+        for i in range(n):
+            out[i] = np.random.rand()
+        return out
+
+    _sidecar_runner.seed_random_streams(seed)
+    compiled = _numba_rand(4)  # eb_outer_loop's restart means
+    per_trace = []
+    for _ in range(3):  # initialize_gmm: an argument-less reseed, then a draw
+        np.random.seed()
+        per_trace.append(np.random.rand())
+    np.random.seed(666)  # clip_traces: an explicit seed passes through unchanged
+    explicit = np.random.rand()
+    return compiled, np.array(per_trace), explicit
+
+
+def test_seed_random_streams_makes_both_streams_reproducible(monkeypatch):
+    # The patch replaces ``np.random.seed`` in this process; monkeypatch restores it.
+    monkeypatch.setattr(np.random, "seed", np.random.seed)
+    a = _draws_after_seeding(5)
+    b = _draws_after_seeding(5)
+    c = _draws_after_seeding(6)
+
+    np.testing.assert_array_equal(a[0], b[0])
+    np.testing.assert_array_equal(a[1], b[1])
+    assert not np.array_equal(a[0], c[0])
+    assert not np.array_equal(a[1], c[1])
+    # The argument-less reseeds give a different draw each time, as entropy would.
+    assert len(set(a[1].tolist())) == 3
+    # An explicit seed is honoured exactly.
+    assert a[2] == b[2] == c[2] == np.random.RandomState(666).rand()
+
+
+def test_seed_random_streams_rejects_a_negative_seed(monkeypatch):
+    monkeypatch.setattr(np.random, "seed", np.random.seed)
+    with pytest.raises(ValueError, match="non-negative"):
+        _sidecar_runner.seed_random_streams(-1)
+
+
+# --------------------------------------------------------------------------- #
 # read_model against a REAL tMAVEN export (the 281-mol consensus VB-HMM
 # reference model, Appendix D.2). LFS `large` tier — validates the reader and
 # the full dwell pipeline against ground truth without running a (slow) fit.

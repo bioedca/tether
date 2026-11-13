@@ -1,0 +1,235 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The skip budget of each CI job that runs pytest (#726). After pytest writes its JUnit
+# report, `scripts/check_skips.py --job "<check name>"` compares the report with this file and
+# fails the job when:
+#
+#   * a test skips and no [[skip]] entry below lists that job, matches the node id (`test`, an
+#     exact node id or an fnmatch pattern) and has the same reason (`reason`, exact text);
+#   * more tests skip than the job's `max_skipped`;
+#   * fewer tests are in the report than the job's `min_collected` (a path filter, a marker
+#     expression or a module-level skip took tests out of the run).
+#
+# A pull request that adds a skip adds an entry here with `why`: the reason the skip is
+# correct on each job that it lists. A pull request that removes tests on purpose lowers
+# `min_collected` here. Both changes are then visible in review. The script prints a notice
+# when a limit is loose (fewer skips than `max_skipped`, more tests than `min_collected`).
+#
+# The counts were measured on main at 4f2468e (2026-11-12) with this file's own tests: the
+# three required legs and the large-fixtures job from their CI logs and a local run,
+# sidecar / parity and deep / smoke from a local run in the locked sidecar and deep
+# environments.
+
+# --- The jobs: one table for each check name -----------------------------------------------
+
+[jobs."test (ubuntu-latest)"]
+min_collected = 4016
+max_skipped = 20
+
+[jobs."test (macos-latest)"]
+min_collected = 4016
+max_skipped = 33
+
+[jobs."test (windows-latest)"]
+min_collected = 4016
+max_skipped = 18
+
+[jobs."sidecar / parity"]
+min_collected = 22
+max_skipped = 0
+
+[jobs."deep / smoke"]
+min_collected = 17
+max_skipped = 2
+
+[jobs."large-fixtures"]
+min_collected = 15
+max_skipped = 4
+
+# --- Expected skips on the three required legs ---------------------------------------------
+
+[[skip]]
+test = "tests/test_coverage_floors.py::test_floors_never_go_down"
+reason = "no origin/main in this checkout (CI's Linux leg fetches it and sets TETHER_COVERAGE_BASE_REF)"
+jobs = ["test (macos-latest)", "test (windows-latest)"]
+why = """The coverage-floor ratchet (#724, ADR-0072) compares the floors with the copy on main. \
+Only the Linux leg fetches main and sets TETHER_COVERAGE_BASE_REF, which makes the test fail \
+instead of skip there; the macOS and Windows legs do not change, so they have no main to read."""
+
+[[skip]]
+test = "tests/test_deep_gpu_deep.py"
+reason = "could not import 'torch': No module named 'torch'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)", "large-fixtures"]
+why = """torch is only in the isolated deep stack (ADR-0047); the base environment of these \
+jobs has none. The module skips at import, before `-m` can deselect its `deep` tests, so it is \
+one skip and not a missing test. deep / smoke runs the module in the deep environment."""
+
+[[skip]]
+test = "tests/test_claim.py::test_the_default_really_is_strict_on_the_interpreters_that_have_it"
+reason = "VERIFY_X509_STRICT is off before 3.13"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock pins Python 3.12 on all three legs; the test checks a default that only \
+Python 3.13 and later have (ADR-0061). It runs when the lock moves to 3.13."""
+
+[[skip]]
+test = "tests/test_deeplasi.py::test_full_export_matches_when_present"
+reason = "external example-data Deep-LASI export absent"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The Deep-LASI export of the laboratory movie is private data that is on no GitHub \
+runner. #699 is to run it on the workstation."""
+
+[[skip]]
+test = "tests/test_docs_site_brand.py::test_the_built_site_*"
+reason = "TETHER_BUILT_SITE is not set; the docs-build job sets it after the build"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The two tests read the built site, and the test legs build no site. The docs-build job \
+sets TETHER_BUILT_SITE after `mkdocs build` and runs them there (#674)."""
+
+[[skip]]
+test = "tests/test_docs_validation_numbers.py::test_the_fence_rule_is_python_markdowns"
+reason = "could not import 'markdown.extensions.fenced_code': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#517)."""
+
+[[skip]]
+test = "tests/test_docs_validation_numbers.py::test_the_attr_list_scanner_is_python_markdowns"
+reason = "could not import 'markdown.extensions.attr_list': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#517)."""
+
+[[skip]]
+test = "tests/test_docs_validation_numbers.py::test_the_unbalanced_attrs_row_renders_as_python_markdown_says"
+reason = "could not import 'markdown': No module named 'markdown'"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
+docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#517)."""
+
+[[skip]]
+test = "tests/test_register.py::test_read_tmap_matches_committed_fixture"
+reason = "external .tmap not present (default checkout)"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The real Deep-LASI .tmap of the laboratory movie is private data that is on no GitHub \
+runner. #699 is to run it on the workstation."""
+
+[[skip]]
+test = "tests/test_tdat.py::test_real_tdat_*"
+reason = "external .tdat not present (default checkout)"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The three tests read the real Deep-LASI .tdat of the laboratory movie, which is \
+private data that is on no GitHub runner. #699 is to run them on the workstation."""
+
+# --- Platform skips: each test runs on the other legs ---------------------------------------
+
+[[skip]]
+test = "tests/test_gui_identity.py::test_windows_app_id_is_set_on_the_process"
+reason = "the AppUserModelID is a Windows call"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The AppUserModelID is a Windows API (#673); test (windows-latest) runs the test."""
+
+[[skip]]
+test = "tests/test_gui_identity.py::test_*shortcut*"
+reason = "shortcuts are a Windows feature"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The three tests write and read a Windows .lnk shortcut (#673); test (windows-latest) \
+runs them."""
+
+[[skip]]
+test = "tests/test_gui_identity.py::test_linux_post_install_*"
+reason = "the icon step of post_install.sh runs on Linux only"
+jobs = ["test (macos-latest)", "test (windows-latest)"]
+why = """The icon step of the installer's post_install.sh is the Linux menu entry (#673); \
+test (ubuntu-latest) runs the two tests."""
+
+[[skip]]
+test = "tests/test_gui_indicators.py::test_the_windows_setting_is_read_without_error"
+reason = "Windows setting"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The test reads the Windows reduced-motion setting of the busy indicator (#677); \
+test (windows-latest) runs it."""
+
+[[skip]]
+test = "tests/test_gui_indicators.py::test_the_macos_setting_is_read_without_error"
+reason = "macOS setting"
+jobs = ["test (ubuntu-latest)", "test (windows-latest)"]
+why = """The test reads the macOS reduced-motion setting of the busy indicator (#677); \
+test (macos-latest) runs it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_windows_guard_byte_initialization_retries_stale_zero_observation"
+reason = "Windows byte-range lock semantics"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The test drives the Windows byte-range lock path of the project lock; \
+test (windows-latest) runs it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_windows_refresh_retries_atomic_replace_while_observer_is_open"
+reason = "Windows sharing-violation semantics"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)"]
+why = """The test needs the Windows sharing violation of an open file; test (windows-latest) \
+runs it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_creation_allows_group_shared_writers"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks POSIX file modes and the umask, which Windows does not have; \
+test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_fork_child_does_not_prolong_parent_lifecycle_guard"
+reason = "requires POSIX fork"
+jobs = ["test (windows-latest)"]
+why = """Windows has no os.fork; test (ubuntu-latest) and test (macos-latest) run the test."""
+
+[[skip]]
+test = "tests/test_gui_theme.py::test_the_napari_viewer_follows_the_theme"
+reason = "napari Viewer needs Qt + a GL context"
+jobs = ["test (macos-latest)"]
+why = """A napari Viewer needs an OpenGL context, and Qt under QT_QPA_PLATFORM=offscreen on \
+macOS gives none (the cocoa GL backend crashes). test (ubuntu-latest) under xvfb and \
+test (windows-latest) run the test."""
+
+[[skip]]
+test = "tests/test_movie_panel.py::*"
+reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
+jobs = ["test (macos-latest)"]
+why = """The six movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
+under QT_QPA_PLATFORM=offscreen on macOS does not give. test (ubuntu-latest) under xvfb and \
+test (windows-latest) run them."""
+
+[[skip]]
+test = "tests/test_roundtrip.py::*"
+reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
+jobs = ["test (macos-latest)"]
+why = """The four round-trip tests open a napari Viewer (#745 added the click-versus-drag \
+test), which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not \
+give. test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
+
+# --- deep / smoke ---------------------------------------------------------------------------
+
+[[skip]]
+test = "tests/test_deep_gpu_deep.py::*"
+reason = "requires a CUDA-capable GPU"
+jobs = ["deep / smoke"]
+why = """deep / smoke runs on a CPU runner. The two CUDA tests run in deep-gpu.yml on a \
+CUDA machine (manual dispatch)."""
+
+# --- large-fixtures (the torch skip above is listed for this job too) ----------------------
+
+[[skip]]
+test = "tests/test_intake.py::*"
+reason = "example-data bundle not present"
+jobs = ["large-fixtures"]
+why = """The two tests read the private laboratory example-data bundle, which is on no GitHub \
+runner. #699 is to run them on the workstation."""
+
+[[skip]]
+test = "tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb"
+reason = "gated UCKOPSB movie + .tmap + .tdat + Deep-LASI .mat absent"
+jobs = ["large-fixtures"]
+why = """Oracle (a) needs the 0.9 GB laboratory movie, which is too large for the LFS budget \
+and is on no GitHub runner (docs/validation.md, oracle (a)). #699 is to run it on the \
+workstation."""
