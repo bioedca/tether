@@ -8,7 +8,7 @@ Usage, on the workstation, in the locked environment, from a clone of the commit
     python scripts/workstation/update_lab_golden.py --data <data folder> --check
     python scripts/workstation/update_lab_golden.py --data <data folder> --only lab-03
 
-Each data acquisition of ``tests/_lab_golden.py`` (``lab-01`` to ``lab-10``) runs from its movie
+Each data acquisition of ``tests/_lab_golden.py`` (``LAB_ACQUISITIONS``) runs from its movie
 through the default pipeline with the map file of its series, in a temporary folder. The script
 then writes ``tests/golden/workstation/<id>.json`` with summary numbers only and prints the
 same Markdown old/new table as ``scripts/update_golden.py``; a pull request that changes one of

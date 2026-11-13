@@ -126,6 +126,16 @@ def test_dump_refuses_a_document_that_breaks_the_rule(tmp_path: Path) -> None:
     assert path.read_bytes().endswith(b"}\n")
 
 
+def test_the_two_export_routes_count_as_one_acquisition() -> None:
+    """Item 1 reads the vendor route; the direct route has no golden file of its own (D3: A)."""
+    ((vendor, direct),) = _lab_golden.EXPORT_ROUTES.items()
+    assert vendor in _lab_golden.LAB_ACQUISITIONS
+    assert direct not in _lab_golden.LAB_ACQUISITIONS
+    ids = list(_lab_golden.LAB_ACQUISITIONS)
+    assert ids == sorted(set(ids)) and len(ids) >= 10  # Q20: C, ten or more
+    assert all(_lab_golden.NEUTRAL_ID.fullmatch(nid) for nid in [*ids, direct])
+
+
 def test_the_movie_role_falls_back_to_the_default_role() -> None:
     assert _lab_golden.movie_role(["movie", "tmap"]) == "movie"
     assert _lab_golden.movie_role(["file", "tmap"]) == "file"

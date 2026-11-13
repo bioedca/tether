@@ -152,7 +152,8 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
 
 ## Golden numbers of the laboratory acquisitions
 
-The weekly run also checks the ten data acquisitions `lab-01` to `lab-10` for self-drift (#703).
+The weekly run also checks the data acquisitions for self-drift (#703): `lab-01` to `lab-10`,
+`lab-12` and `lab-13`.
 For each one it runs the movie from end to end with the default settings and the map file of
 its series: `tether batch --no-idealize --tmap`, then the two-state HMM of the self-drift suite
 (ADR-0080). Then it compares the summary numbers with `tests/golden/workstation/<id>.json`,
@@ -168,12 +169,13 @@ Each id needs two roles in the mapping file:
 
 | Role | File |
 |---|---|
-| `movie` | the movie (an id with one file name has the role `file`, which then names the movie). For the acquisition that has two export routes, the TIFF exported from the vendor format |
+| `movie` | the movie (an id with one file name has the role `file`, which then names the movie) |
 | `tmap` | the Deep-LASI map file of the acquisition series |
-| `movie_direct` | only for the acquisition that has two export routes: the direct TIFF |
 
-The check of the two export routes is a separate check. It extracts both files of that
-acquisition with the same map file. It passes when both give the same molecules, the same
+One movie has two export routes, and each route has its own id: `lab-12` is the TIFF
+exported from the vendor format and `lab-11` is the direct TIFF. They are one acquisition, so
+only `lab-12` has a golden file. The check of the two export routes is a separate check. It
+extracts both files with the map file of `lab-12`. It passes when both give the same molecules, the same
 number of frames and the same raw traces. It records the counts and the largest difference.
 
 To write or update the golden files, run this on the workstation, in the environment of the

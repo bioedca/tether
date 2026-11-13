@@ -3,7 +3,7 @@
 """Self-drift golden numbers for the full laboratory acquisitions on the workstation (#703).
 
 The self-drift suite of #702 (``_golden``, ADR-0080) runs small inputs on every CI runner. A
-real acquisition has thousands of spots, uneven background, drift and bleaching. The ten data
+real acquisition has thousands of spots, uneven background, drift and bleaching. The data
 acquisitions that the maintainer keeps on the reference workstation are private, so this
 module runs them only through the ``private_data`` fixture of the workstation runner
 (ADR-0071), and the repository keeps **summary numbers only**: one file
@@ -36,7 +36,7 @@ import numpy as np
 import _golden
 
 __all__ = [
-    "EXPORT_ROUTE_ROLE",
+    "EXPORT_ROUTES",
     "LAB_ACQUISITIONS",
     "LAB_GOLDEN_DIR",
     "MAP_ROLE",
@@ -57,18 +57,23 @@ LAB_FORMAT = 1
 #: Same pattern as the runner's ``NEUTRAL_ID`` (``scripts/workstation/run_private_checks.py``).
 NEUTRAL_ID = re.compile(r"[a-z]+-[0-9]{2,}")
 
-#: The ten data acquisitions of the name table (maintainer decisions D1-D3: the bead movie has
-#: no neutral id, and the two export routes of one movie are one acquisition).
-LAB_ACQUISITIONS: tuple[str, ...] = tuple(f"lab-{i:02d}" for i in range(1, 11))
-#: Role of the movie that the pipeline reads. For the acquisition with two export routes this
-#: is the TIFF exported from the vendor format (D3: A). An id whose mapping value is one file
-#: name has only the runner's default role ``file``, which then names the movie.
+#: The ids of the two export routes of one movie (#703 item 4), as ``{vendor: direct}``: the TIFF
+#: exported from the vendor format, and the direct TIFF of the same movie. The name table gives
+#: each route its own id; the two are one acquisition (D3: A), so only the vendor route has a
+#: golden file (item 1), and the direct route is read only by the export-route check.
+EXPORT_ROUTES: dict[str, str] = {"lab-12": "lab-11"}
+#: The data acquisitions of the name table that have a golden file: every movie id except the
+#: direct route of :data:`EXPORT_ROUTES` (maintainer decisions D1-D3: the bead movie has no
+#: neutral id). The issue counted ten; the name table holds twelve (Q20: C, "ten or more").
+LAB_ACQUISITIONS: tuple[str, ...] = tuple(
+    f"lab-{i:02d}" for i in range(1, 14) if f"lab-{i:02d}" not in EXPORT_ROUTES.values()
+)
+#: Role of the movie that the pipeline reads. An id whose mapping value is one file name has only
+#: the runner's default role ``file``, which then names the movie.
 MOVIE_ROLE = "movie"
 DEFAULT_ROLE = "file"
 #: Role of the Deep-LASI map file of the acquisition's series (D2: A).
 MAP_ROLE = "tmap"
-#: Role of the direct TIFF of the acquisition that also exists in a second export route.
-EXPORT_ROUTE_ROLE = "movie_direct"
 #: States of the native HMM whose means are frozen.
 NSTATES = 2
 

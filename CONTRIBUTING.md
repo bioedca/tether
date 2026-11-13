@@ -198,7 +198,7 @@ without both, and runs again when you edit the body. Never edit a golden file by
 dependency update that moves a number fails here on purpose: the table and the cause are then
 the record of what the update changed.
 
-The ten full laboratory acquisitions of the maintainer have golden files too, in
+The full laboratory acquisitions of the maintainer have golden files too, in
 `tests/golden/workstation/`, with summary numbers only (#703). They are private, so they run only
 on the reference workstation, and only the maintainer or an agent session there can rewrite
 them, with `scripts/workstation/update_lab_golden.py`

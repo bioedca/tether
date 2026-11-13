@@ -53,24 +53,17 @@ def test_lab_numbers_match_the_golden_file(private_data, neutral_id: str, tmp_pa
 
 
 def test_export_routes_give_the_same_molecules_and_traces(private_data, tmp_path) -> None:
-    """Item 4 of #703: the direct TIFF and the TIFF exported from the vendor format agree."""
-    with_two = [
-        nid
-        for nid in _lab_golden.LAB_ACQUISITIONS
-        if nid in private_data.ids and _lab_golden.EXPORT_ROUTE_ROLE in private_data.roles(nid)
-    ]
-    assert len(with_two) == 1, (
-        f"expected one acquisition with the role {_lab_golden.EXPORT_ROUTE_ROLE!r}, "
-        f"found {len(with_two)}"
-    )
-    (nid,) = with_two
+    """Item 4 of #703: the direct TIFF and the TIFF exported from the vendor format agree.
+
+    Both routes are extracted with the map file of the vendor route, so only the movie differs.
+    """
+    ((nid, direct),) = _lab_golden.EXPORT_ROUTES.items()
     tmap = private_data.path(nid, _lab_golden.MAP_ROLE)
     projects = []
-    for role in (_lab_golden.movie_role(private_data.roles(nid)), _lab_golden.EXPORT_ROUTE_ROLE):
-        code, project = _lab_golden.extract_project(
-            private_data.path(nid, role), tmap, tmp_path / role
-        )
-        assert code == 0 and project is not None, f"{nid}/{role}: tether batch exited {code}"
+    for route in (nid, direct):
+        movie = private_data.path(route, _lab_golden.movie_role(private_data.roles(route)))
+        code, project = _lab_golden.extract_project(movie, tmap, tmp_path / route)
+        assert code == 0 and project is not None, f"{route}: tether batch exited {code}"
         projects.append(project)
     diff = _lab_golden.compare_export_routes(*projects)
     private_data.record(nid, **diff)
