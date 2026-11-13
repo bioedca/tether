@@ -50,8 +50,9 @@ The required set is the `main-baseline` ruleset: `lint`, `test` on the three pla
 workflow opens one issue with the title `ci(scheduled): <job> failed on main`. The issue gives
 the run, the commit, the failed step and the last 50 log lines up to the last error. The two
 oracle jobs, `sidecar / parity` and `large-fixtures`, use the fields and labels of the
-validation-oracle-failure form. The other jobs use `type:ci`. A later failure adds one comment,
-and the next passing run adds one comment. Each day there is at most one new comment of each
+validation-oracle-failure form. The other jobs use `type:ci`. A later failure adds one comment
+with the same facts and log excerpt for its own run, because a repeat failure can have a new
+cause. The next passing run adds one comment. Each day there is at most one new comment of each
 kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
 always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
 the Actions page lists every run. The issue does not close itself: close it with the cause. A
