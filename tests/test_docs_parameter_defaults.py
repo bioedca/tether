@@ -39,9 +39,11 @@ and constant -> signature, and the registry pins only the first. The second is
 **Set via** column is read, every keyword a constant-naming row spells is resolved in the
 source, and each one defaulted to a name must be in the table (#442). The table, in turn,
 compares the constant each default's name is *bound* to -- followed through imports to the
-module that assigns it -- not merely the name it is spelled with (#513). Only the keywords a
-cell *spells* are reached: a surface written bare (``train_classifier(…)``) or with only some
-of its keywords spelled leaves its other constant-backed defaults unbound by this module.
+module that assigns it -- not merely the name it is spelled with (#513). The page reaches only
+the keywords a cell *spells*, so a surface written bare (``train_classifier(…)``) used to leave
+its other constant-backed defaults unbound; :data:`_UNSPELLED_CONSTANT_BACKED` now lists every
+other public default spelled with a printed constant, and that list is checked against the
+source both ways (#749).
 """
 
 from __future__ import annotations
@@ -55,6 +57,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
+
+import _docs_source
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "docs" / "reference" / "parameters.md"
@@ -80,17 +84,15 @@ def _literal(node: ast.AST) -> object:
 
 
 def module_constant(dotted: str, name: str) -> object:
-    """The module-level value of ``name`` in module ``dotted``."""
-    for stmt in _module_source(dotted).body:
-        if isinstance(stmt, ast.AnnAssign):
-            if isinstance(stmt.target, ast.Name) and stmt.target.id == name:
-                assert stmt.value is not None
-                return _literal(stmt.value)
-        elif isinstance(stmt, ast.Assign):
-            for target in stmt.targets:
-                if isinstance(target, ast.Name) and target.id == name:
-                    return _literal(stmt.value)
-    raise AssertionError(f"{dotted} has no module-level constant {name!r}")
+    """The module-level value of ``name`` in module ``dotted``: its **last** binding.
+
+    The last one is the value at runtime, so it is the one the page has to print. This
+    reader used to return the first, while ``test_docs_validation_numbers`` returned the
+    last and had two regression tests for it; a constant rebound later in its module
+    (``X = 2`` then ``X = 1``) then pinned the page to a value the code never uses (#749).
+    Both modules now read through the one helper in ``tests/_docs_source.py``.
+    """
+    return _docs_source.module_constant(SRC, dotted, name)
 
 
 def function_default(dotted: str, func: str, param: str) -> object:
@@ -626,6 +628,10 @@ def _registry() -> list[_Entry]:
             function_default(detect, "detect_spots_bandpass", "min_separation"),
             ("bandpass",),
         ),
+        # The ``None`` both rows print first: ``ExtractOptions`` itself stores no number,
+        # and the page says so before giving the per-mode values (#749).
+        (("detection_threshold",), dataclass_field(*opt, "detection_threshold")),
+        (("min_separation",), dataclass_field(*opt, "min_separation")),
         # Batch over-gate policy (the row names no constant, only its module).
         (("tether.project.batch",), module_constant("tether.project.batch", "POLICY_WARN")),
         # Photobleaching priors.
@@ -988,6 +994,15 @@ def _registry() -> list[_Entry]:
                 "tether.analysis.cloud", "population_fret_cloud_alpha_shape", "in_grid_only"
             ),
         ),
+        # ``alpha=None`` (auto-select) on both surfaces the row names (#749).
+        (
+            ("alpha", "in_grid_only"),
+            function_default("tether.analysis.cloud", "population_fret_cloud_alpha_shape", "alpha"),
+        ),
+        (
+            ("alpha", "in_grid_only"),
+            function_default("tether.analysis.cloud", "alpha_shape", "alpha"),
+        ),
         (
             ("DEFAULT_ANTICORR_WINDOW",),
             module_constant("tether.analysis.anticorrelation", "DEFAULT_ANTICORR_WINDOW"),
@@ -1115,6 +1130,15 @@ def _registry() -> list[_Entry]:
         ),
         (("DEFAULT_FREEZE_CONV",), module_constant("tether.ml.deep.model", "DEFAULT_FREEZE_CONV")),
         (("DEFAULT_DEVICE",), module_constant("tether.ml.deep.model", "DEFAULT_DEVICE")),
+        # ``None`` (the training device) on the two surfaces that adapt or score (#749).
+        (
+            ("device", "DEFAULT_DEVICE"),
+            function_default("tether.ml.deep.model", "fine_tune", "device"),
+        ),
+        (
+            ("device", "DEFAULT_DEVICE"),
+            function_default("tether.ml.deep.model", "predict_proba", "device"),
+        ),
     ]
     return entries
 
@@ -1366,7 +1390,8 @@ def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
 #: ``(surface, keyword)`` pair a constant-naming row's **Set via** cell spells and requires
 #: each one defaulted to a name to be here -- the keywords a cell *spells*, and no more: a
 #: surface written bare (``population_transition_density(…)``) contributes nothing, so its
-#: constant-backed defaults are not bound here. The table may hold more than the page names
+#: constant-backed defaults are bound by :data:`_UNSPELLED_CONSTANT_BACKED` below instead
+#: (#749). The table may hold more than the page names
 #: (the ``w0`` seam below); it may not hold less. The *module* is not derived, because the
 #: row names the module its constant lives in, which is not always the function's
 #: (``compute_photobleach`` is in ``tether.project.photobleach``, ``PB_PRIOR_A`` in
@@ -1487,6 +1512,272 @@ _CONSTANT_BACKED_SURFACES = [
 ]
 
 
+#: Every other public signature or dataclass field under ``src/tether`` whose default is a
+#: constant the page prints a value for, one ``qualified-name parameter CONSTANT`` line per
+#: default under its module (#749).
+#:
+#: The page names many of these surfaces bare (``population_transition_density(…)``) or
+#: not at all (``find_anticorrelation_events`` beside its ``population_…`` wrapper), so
+#: :func:`_derive` reaches none of them, and before #749 nothing bound them: change
+#: ``nskip: int = DEFAULT_TDP_NSKIP`` to ``nskip: int = 1`` and the page, the constant and
+#: every docs test still agreed while the documented call used another default. The list is
+#: not derived from the source, because a default that has *left* its constant is exactly
+#: what deriving would miss; it is checked against the source instead, both ways, by
+#: :func:`test_every_constant_backed_default_under_src_is_bound`.
+_UNSPELLED_CONSTANT_BACKED = """
+tether.analysis.anticorrelation
+    find_anticorrelation_events min_magnitude DEFAULT_ANTICORR_MIN_MAGNITUDE
+    find_anticorrelation_events min_windows DEFAULT_ANTICORR_MIN_WINDOWS
+    find_anticorrelation_events step DEFAULT_ANTICORR_STEP
+    find_anticorrelation_events window DEFAULT_ANTICORR_WINDOW
+    population_anticorrelation_events min_magnitude DEFAULT_ANTICORR_MIN_MAGNITUDE
+    population_anticorrelation_events min_windows DEFAULT_ANTICORR_MIN_WINDOWS
+    population_anticorrelation_events step DEFAULT_ANTICORR_STEP
+    population_anticorrelation_events window DEFAULT_ANTICORR_WINDOW
+tether.analysis.cloud
+    population_fret_cloud_alpha_shape signal_range DEFAULT_CLOUD_SIGNAL_RANGE
+    population_fret_cloud_alpha_shape time_dt DEFAULT_CLOUD_TIME_DT
+    population_fret_cloud_state_number_elbow k_max DEFAULT_ELBOW_K_MAX
+    population_fret_cloud_state_number_elbow restarts DEFAULT_ELBOW_RESTARTS
+    population_fret_cloud_state_number_elbow seed DEFAULT_ELBOW_SEED
+    population_fret_cloud_state_number_elbow signal_range DEFAULT_CLOUD_SIGNAL_RANGE
+    population_fret_cloud_state_number_elbow time_dt DEFAULT_CLOUD_TIME_DT
+    population_raw_fret_cloud bw_method DEFAULT_CLOUD_BW_METHOD
+    population_raw_fret_cloud hdr_coverages DEFAULT_CLOUD_HDR_COVERAGES
+    population_raw_fret_cloud signal_bins DEFAULT_CLOUD_SIGNAL_BINS
+    population_raw_fret_cloud signal_range DEFAULT_CLOUD_SIGNAL_RANGE
+    population_raw_fret_cloud time_bins DEFAULT_CLOUD_TIME_BINS
+    population_raw_fret_cloud time_dt DEFAULT_CLOUD_TIME_DT
+    raw_fret_cloud bw_method DEFAULT_CLOUD_BW_METHOD
+    raw_fret_cloud hdr_coverages DEFAULT_CLOUD_HDR_COVERAGES
+    raw_fret_cloud signal_bins DEFAULT_CLOUD_SIGNAL_BINS
+    raw_fret_cloud signal_range DEFAULT_CLOUD_SIGNAL_RANGE
+    raw_fret_cloud time_bins DEFAULT_CLOUD_TIME_BINS
+tether.analysis.dwell
+    fit_survival ci_level DEFAULT_DWELL_CI_LEVEL
+tether.analysis.histogram
+    bootstrap_histogram_ci bins DEFAULT_NBINS
+    bootstrap_histogram_ci value_range DEFAULT_RANGE
+    model_gaussian_overlay value_range DEFAULT_RANGE
+    per_condition_apparent_e_histograms bins DEFAULT_NBINS
+    per_condition_apparent_e_histograms value_range DEFAULT_RANGE
+    population_apparent_e_histogram bins DEFAULT_NBINS
+    population_apparent_e_histogram value_range DEFAULT_RANGE
+    population_apparent_e_histogram_ci bins DEFAULT_NBINS
+    population_apparent_e_histogram_ci ci_level DEFAULT_CI_LEVEL
+    population_apparent_e_histogram_ci n_resamples DEFAULT_BOOTSTRAP_RESAMPLES
+    population_apparent_e_histogram_ci seed DEFAULT_SEED
+    population_apparent_e_histogram_ci value_range DEFAULT_RANGE
+    population_model_gaussian_overlay value_range DEFAULT_RANGE
+    population_time_signal_histogram2d signal_bins DEFAULT_SIGNAL_BINS
+    population_time_signal_histogram2d signal_range DEFAULT_SIGNAL_RANGE
+    population_time_signal_histogram2d time_bins DEFAULT_TIME_BINS
+    population_time_signal_histogram2d time_dt DEFAULT_TIME_DT
+    population_transition_sync_histogram2d signal_bins DEFAULT_SIGNAL_BINS
+    population_transition_sync_histogram2d signal_range DEFAULT_SIGNAL_RANGE
+    population_transition_sync_histogram2d sync_preframe DEFAULT_SYNC_PREFRAME
+    population_transition_sync_histogram2d time_bins DEFAULT_TIME_BINS
+    population_transition_sync_histogram2d time_dt DEFAULT_TIME_DT
+    time_signal_histogram2d signal_bins DEFAULT_SIGNAL_BINS
+    time_signal_histogram2d signal_range DEFAULT_SIGNAL_RANGE
+    time_signal_histogram2d time_bins DEFAULT_TIME_BINS
+    transition_sync_histogram2d signal_bins DEFAULT_SIGNAL_BINS
+    transition_sync_histogram2d signal_range DEFAULT_SIGNAL_RANGE
+    transition_sync_histogram2d time_bins DEFAULT_TIME_BINS
+    transition_sync_histogram2d time_dt DEFAULT_TIME_DT
+tether.analysis.kinetics
+    two_state_rate_constants n_iter DEFAULT_HMM_MAX_ITER
+    two_state_rate_constants tol DEFAULT_HMM_TOL
+tether.analysis.state_number
+    state_number_counts states_low DEFAULT_STATE_NUMBER_LOW
+tether.analysis.tdp
+    population_transition_density nskip DEFAULT_TDP_NSKIP
+    population_transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
+    population_transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE
+    transition_density nskip DEFAULT_TDP_NSKIP
+    transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
+    transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE
+tether.analysis.transition_prob
+    population_transition_prob_histogram kde_bandwidth DEFAULT_TPROB_KDE_BANDWIDTH
+    population_transition_prob_histogram kde_points DEFAULT_TPROB_KDE_POINTS
+    population_transition_prob_histogram prob_bins DEFAULT_TPROB_NBINS
+    population_transition_prob_histogram prob_range DEFAULT_TPROB_RANGE
+    transition_prob_histogram kde_bandwidth DEFAULT_TPROB_KDE_BANDWIDTH
+    transition_prob_histogram kde_points DEFAULT_TPROB_KDE_POINTS
+    transition_prob_histogram prob_bins DEFAULT_TPROB_NBINS
+    transition_prob_histogram prob_range DEFAULT_TPROB_RANGE
+tether.fret.gamma
+    estimate_gamma ceiling GAMMA_CEILING
+    estimate_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
+    estimate_gamma min_qualifying_traces DEFAULT_MIN_QUALIFYING_TRACES
+    estimate_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
+    trace_gamma ceiling GAMMA_CEILING
+    trace_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
+    trace_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
+tether.fret.leakage
+    estimate_leakage_alpha ceiling LEAKAGE_CEILING
+    estimate_leakage_alpha min_qualifying_traces DEFAULT_MIN_QUALIFYING_TRACES
+    estimate_leakage_alpha min_window_frames DEFAULT_MIN_WINDOW_FRAMES
+    tail_alpha ceiling LEAKAGE_CEILING
+    tail_alpha min_window_frames DEFAULT_MIN_WINDOW_FRAMES
+tether.fret.photobleach
+    ensemble_pbtime a PB_PRIOR_A
+    ensemble_pbtime b PB_PRIOR_B
+    ensemble_pbtime beta PB_PRIOR_BETA
+    ensemble_pbtime mu PB_PRIOR_MU
+    point_pbtime a PB_PRIOR_A
+    point_pbtime b PB_PRIOR_B
+    point_pbtime beta PB_PRIOR_BETA
+    point_pbtime mu PB_PRIOR_MU
+tether.idealize.driver
+    run_vbfret timeout DEFAULT_SIDECAR_TIMEOUT
+tether.idealize.supervisor
+    SidecarSupervision max_restarts DEFAULT_MAX_RESTARTS
+    SidecarSupervision timeout DEFAULT_SIDECAR_TIMEOUT
+    probe_sidecar timeout DEFAULT_PROBE_TIMEOUT
+tether.imaging.side_check
+    check_donor_side a PB_PRIOR_A
+    check_donor_side b PB_PRIOR_B
+    check_donor_side beta PB_PRIOR_BETA
+    check_donor_side mu PB_PRIOR_MU
+    classify_bleach_event a PB_PRIOR_A
+    classify_bleach_event b PB_PRIOR_B
+    classify_bleach_event beta PB_PRIOR_BETA
+    classify_bleach_event mu PB_PRIOR_MU
+tether.ml.deep.dataset
+    DeepTraceDataset.split seed DEFAULT_SPLIT_SEED
+    DeepTraceDataset.split val_fraction DEFAULT_VAL_FRACTION
+    normalize_pair method DEFAULT_NORMALIZATION
+tether.ml.deep.model
+    TrainedDeepClassifier.predict_proba batch_size DEFAULT_BATCH_SIZE
+    fine_tune batch_size DEFAULT_BATCH_SIZE
+    fine_tune epochs DEFAULT_FINE_TUNE_EPOCHS
+    fine_tune freeze_conv DEFAULT_FREEZE_CONV
+    fine_tune learning_rate DEFAULT_FINE_TUNE_LEARNING_RATE
+    predict_proba batch_size DEFAULT_BATCH_SIZE
+    rank_by_deep_model batch_size DEFAULT_BATCH_SIZE
+    train_classifier batch_size DEFAULT_BATCH_SIZE
+    train_classifier bidirectional DEFAULT_BIDIRECTIONAL
+    train_classifier conv_channels DEFAULT_CONV_CHANNELS
+    train_classifier dropout DEFAULT_DROPOUT
+    train_classifier epochs DEFAULT_EPOCHS
+    train_classifier kernel_size DEFAULT_KERNEL_SIZE
+    train_classifier learning_rate DEFAULT_LEARNING_RATE
+    train_classifier lstm_hidden DEFAULT_LSTM_HIDDEN
+    train_classifier num_conv_layers DEFAULT_NUM_CONV_LAYERS
+tether.ml.drift
+    condition_drift alpha DEFAULT_DRIFT_ALPHA
+tether.ml.prequential
+    prequential_uplift ship_bar_pts DEFAULT_SHIP_BAR_PTS
+tether.project.core
+    Project.idealize timeout DEFAULT_SIDECAR_TIMEOUT
+    Project.reidealize timeout DEFAULT_SIDECAR_TIMEOUT
+tether.project.deep_dataset
+    build_deep_dataset normalization DEFAULT_NORMALIZATION
+    build_deep_dataset window_length DEFAULT_WINDOW_LENGTH
+tether.project.idealize
+    reidealize timeout DEFAULT_SIDECAR_TIMEOUT
+"""
+
+
+def _inventory(text: str) -> list[tuple[str, str, str, str]]:
+    """``_UNSPELLED_CONSTANT_BACKED`` as ``(module, qualified name, parameter, constant)``."""
+    rows: list[tuple[str, str, str, str]] = []
+    module = ""
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if not line.startswith(" "):
+            module = line.strip()
+            continue
+        qualname, param, constant = line.split()
+        rows.append((module, qualname, param, constant))
+    return rows
+
+
+#: Every constant-backed default the guard binds: the page-derived table, then the rest.
+_ALL_CONSTANT_BACKED = [*_CONSTANT_BACKED_SURFACES, *_inventory(_UNSPELLED_CONSTANT_BACKED)]
+
+
+def _printed_constants() -> frozenset[str]:
+    """Every constant the page prints a value for, or names as a surface's default."""
+    return frozenset(
+        {t for claim in REGISTRY for t in claim.tokens if _CONSTANT_RE.match(t)}
+        | {constant for *_, constant in _CONSTANT_BACKED_SURFACES}
+    )
+
+
+def _constant_backed_defaults(
+    modules: _Modules, constants: frozenset[str]
+) -> set[tuple[str, str, str, str]]:
+    """Every public default under ``modules`` spelled with one of ``constants``.
+
+    Walks module-level functions, dataclass constructors and the methods of public classes,
+    reading what a caller can pass by keyword, as :func:`_resolve` does.
+    """
+    found: set[tuple[str, str, str, str]] = set()
+    for dotted, tree in modules:
+        if not _is_public(dotted):
+            continue
+        for stmt in tree.body:
+            surfaces: list[tuple[str, dict[str, ast.expr | None]]] = []
+            if isinstance(stmt, ast.FunctionDef) and not stmt.name.startswith("_"):
+                surfaces.append((stmt.name, _keyword_parameters(stmt)))
+            elif isinstance(stmt, ast.ClassDef) and not stmt.name.startswith("_"):
+                if _is_dataclass(stmt):
+                    surfaces.append((stmt.name, _constructor_keywords(stmt)))
+                surfaces += [
+                    (f"{stmt.name}.{item.name}", _keyword_parameters(item))
+                    for item in stmt.body
+                    if isinstance(item, ast.FunctionDef) and not item.name.startswith("_")
+                ]
+            for qualname, params in surfaces:
+                found |= {
+                    (dotted, qualname, param, node.id)
+                    for param, node in params.items()
+                    if isinstance(node, ast.Name) and node.id in constants
+                }
+    return found
+
+
+def test_every_constant_backed_default_under_src_is_bound() -> None:
+    """No public default may leave a printed constant, or join one, without the list noticing.
+
+    The source is walked for every public keyword default spelled with a constant the page
+    prints, and the result must equal :data:`_ALL_CONSTANT_BACKED`. A default changed from
+    the constant to a literal (or to another name) drops out of the walk and leaves a stale
+    entry; a new surface on the constant is unbound until it is listed. Each listed entry is
+    then traced to the constant's own assignment by
+    :func:`test_a_documented_constant_backed_default_still_names_its_constant`.
+    """
+    listed = set(_ALL_CONSTANT_BACKED)
+    assert len(listed) == len(_ALL_CONSTANT_BACKED), "a constant-backed default is listed twice"
+    found = _constant_backed_defaults(_source_modules(), _printed_constants())
+    assert found == listed, (
+        "the public defaults spelled with a constant docs/reference/parameters.md prints, and "
+        "_ALL_CONSTANT_BACKED, have diverged — "
+        f"unbound: {sorted(found - listed)}; no longer on their constant: {sorted(listed - found)}"
+    )
+
+
+def test_a_default_that_leaves_its_constant_drops_out_of_the_walk() -> None:
+    """The mechanism, on a snippet: the walk sees a constant default and loses a literal one."""
+    constants = frozenset({"DEFAULT_X"})
+    before = _snippets(
+        ("tether.m", "def f(nskip=DEFAULT_X): ...\nclass C:\n    def g(self, k=DEFAULT_X): ...")
+    )
+    after = _snippets(
+        ("tether.m", "def f(nskip=1): ...\nclass C:\n    def g(self, k=DEFAULT_X): ...")
+    )
+    assert _constant_backed_defaults(before, constants) == {
+        ("tether.m", "f", "nskip", "DEFAULT_X"),
+        ("tether.m", "C.g", "k", "DEFAULT_X"),
+    }
+    assert _constant_backed_defaults(after, constants) == {("tether.m", "C.g", "k", "DEFAULT_X")}
+    private = _snippets(("tether._m", "def f(nskip=DEFAULT_X): ..."))
+    assert _constant_backed_defaults(private, constants) == set()
+
+
 def test_the_w0_surface_list_is_exhaustive() -> None:
     """No public ``w0`` keyword may exist outside :data:`_CONSTANT_BACKED_SURFACES`.
 
@@ -1514,8 +1805,8 @@ def test_the_w0_surface_list_is_exhaustive() -> None:
 
 @pytest.mark.parametrize(
     ("dotted", "func", "param", "constant"),
-    _CONSTANT_BACKED_SURFACES,
-    ids=[f"{f}.{p}" for _, f, p, _ in _CONSTANT_BACKED_SURFACES],
+    _ALL_CONSTANT_BACKED,
+    ids=[f"{d}.{f}.{p}" for d, f, p, _ in _ALL_CONSTANT_BACKED],
 )
 def test_a_documented_constant_backed_default_still_names_its_constant(
     dotted: str, func: str, param: str, constant: str
@@ -1551,9 +1842,9 @@ def test_a_documented_constant_backed_default_still_names_its_constant(
 # list would let the whole check be discharged by binding a few surfaces and exempting the
 # rest. A token that spells no keyword (``DeepTraceDataset.split(…)``) yields no pair, and
 # a row naming no constant is not walked: the predicate is the keywords a cell *spells*.
-# That is a limit of what this guard covers, not a claim that the rest is safe: a default
-# the cell leaves unspelled (``train_classifier(…)``, ``population_transition_density(…)``)
-# can drift off its constant without any check here noticing.
+# A default the cell leaves unspelled (``train_classifier(…)``,
+# ``population_transition_density(…)``) is not derived here; it is bound by
+# :data:`_UNSPELLED_CONSTANT_BACKED` instead, which the source walk checks (#749).
 
 #: A **Set via** token naming a callable surface: ``NAME(…)``, where ``NAME`` may be dotted
 #: (``DwellTimeAnalysis.histogram``). CLI flags and prose never match.
@@ -2170,6 +2461,241 @@ def test_every_row_states_whether_it_is_recorded_in_the_project() -> None:
         assert row[5], f"empty 'Recorded in .tether' cell in row: {row[0]}"
 
 
+# --- The rest of a row: CLI flags and "Recorded in" (#749) ---------------------
+# The passes above read a row's Parameter, Default and the call-shaped Set via tokens. The
+# legend defines Set via as "a real surface: a `tether` CLI flag, a GUI control, or a
+# documented keyword argument", and the CLI half of that was compared with nothing, so
+# `tether batch --max-restart` (no such flag) passed. "Recorded in" was checked only for
+# being non-empty, so `/settings/gamma` could become **no**, or name a group nothing
+# writes.
+
+#: A Set via token that is a CLI call: ``tether <subcommand> [--flag …]``.
+_CLI_TOKEN_RE = re.compile(r"^tether\s+([a-z][\w-]*)((?:\s+\S+)*)$")
+#: A bare flag token (``--tdat``), read against the cell's most recent subcommand.
+_FLAG_TOKEN_RE = re.compile(r"^--[a-z][\w-]*$")
+#: A ``/settings/<group>`` path a Recorded-in cell names.
+_SETTINGS_PATH_RE = re.compile(r"/settings/([A-Za-z_]\w*)")
+
+
+def _cli_flag_problems(rows: list[list[str]], options: dict[str, set[str]]) -> list[str]:
+    """Every CLI flag a Set via cell spells that ``options[subcommand]`` lacks, exactly spelled.
+
+    ``options`` maps each subcommand to its option strings, read from the real parser by the
+    test. A bare ``--flag`` belongs to the last ``tether <subcommand>`` before it in the cell.
+    """
+    problems = []
+    for row in rows:
+        if len(row) != 6:
+            continue
+        subcommand: str | None = None
+        for token in _BACKTICKED_RE.findall(row[4]):
+            flags: list[str] = []
+            if match := _CLI_TOKEN_RE.match(token):
+                subcommand = match.group(1)
+                if subcommand not in options:
+                    problems.append(f"`{token}`: tether has no subcommand {subcommand!r}")
+                    continue
+                flags = [t.split("=", 1)[0] for t in match.group(2).split() if t.startswith("-")]
+            elif _FLAG_TOKEN_RE.match(token):
+                if subcommand is None:
+                    problems.append(f"`{token}`: a flag with no `tether <subcommand>` before it")
+                    continue
+                flags = [token]
+            problems += [
+                f"`{token}`: `tether {subcommand}` has no flag {flag}"
+                for flag in flags
+                if subcommand in options and flag not in options[subcommand]
+            ]
+    return problems
+
+
+def _cli_options() -> dict[str, set[str]]:
+    """Each ``tether`` subcommand's option strings, from the real parser.
+
+    :func:`tether.cli.build_parser` imports nothing beyond ``argparse`` (see
+    ``tests/test_cli_reference.py``), so the default matrix runs this without SciPy or h5py.
+    """
+    import argparse  # noqa: PLC0415
+
+    from tether.cli import build_parser  # noqa: PLC0415
+
+    parser = build_parser()
+    (sub,) = (a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    return {name: set(p._option_string_actions) for name, p in sub.choices.items()}
+
+
+def test_every_cli_flag_a_set_via_cell_names_exists() -> None:
+    """A documented ``tether <cmd> --flag`` must be a flag of that subcommand, spelled exactly.
+
+    Exact, because argparse would also accept an abbreviation a reader cannot grep for --
+    the same rule ``tests/test_docs_how_to.py`` applies to the shell fences of the guides.
+    """
+    tokens = [
+        t
+        for row in ROWS
+        if len(row) == 6
+        for t in _BACKTICKED_RE.findall(row[4])
+        if _CLI_TOKEN_RE.match(t)
+    ]
+    assert len(tokens) >= 10, f"expected the page's CLI flags; found only {tokens}"
+    problems = _cli_flag_problems(ROWS, _cli_options())
+    assert not problems, "docs/reference/parameters.md documents CLI flags tether lacks:\n" + (
+        "\n".join(problems)
+    )
+
+
+def test_a_misspelt_or_orphan_flag_is_reported() -> None:
+    options = {"batch": {"--max-restarts", "--policy"}}
+    row = ["`x`", "`1`", "", "", "`tether batch --max-restart`; also `--policy`", "**no**"]
+    assert _cli_flag_problems([row], options) == [
+        "`tether batch --max-restart`: `tether batch` has no flag --max-restart"
+    ]
+    orphan = ["`x`", "`1`", "", "", "`--policy`", "**no**"]
+    assert len(_cli_flag_problems([orphan], options)) == 1
+    unknown = ["`x`", "`1`", "", "", "`tether batches --policy`", "**no**"]
+    assert "no subcommand" in _cli_flag_problems([unknown], options)[0]
+
+
+def _string_constants(tree: ast.Module) -> dict[str, str]:
+    """The module-level ``NAME = "text"`` bindings of ``tree``."""
+    return {
+        target.id: stmt.value.value
+        for stmt in tree.body
+        if isinstance(stmt, ast.Assign)
+        and isinstance(stmt.value, ast.Constant)
+        and isinstance(stmt.value.value, str)
+        for target in stmt.targets
+        if isinstance(target, ast.Name)
+    }
+
+
+def _settings_stamps(modules: _Modules) -> dict[str, dict[str, frozenset[str]]]:
+    """``{group: {module: attribute keys}}`` for every ``/settings/<group>`` the code writes.
+
+    Read the way every stamp under ``src/`` is written: inside one function, a name bound to
+    ``<file>[<"settings">]``, a group made on it with ``.create_group(<group>)``, and that
+    group's ``.attrs["<key>"] = …``. The group and ``"settings"`` may be spelled as string
+    literals or as the module's own string constants.
+    """
+    out: dict[str, dict[str, set[str]]] = {}
+    for dotted, tree in modules:
+        strings = _string_constants(tree)
+
+        def text(node: ast.expr, strings: dict[str, str] = strings) -> str | None:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            return strings.get(node.id) if isinstance(node, ast.Name) else None
+
+        for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)):
+            assigns = [n for n in ast.walk(fn) if isinstance(n, ast.Assign)]
+            settings = {
+                t.id
+                for a in assigns
+                if isinstance(a.value, ast.Subscript) and text(a.value.slice) == "settings"
+                for t in a.targets
+                if isinstance(t, ast.Name)
+            }
+            groups: dict[str, str] = {}
+            for a in assigns:
+                call = a.value
+                if (
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "create_group"
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id in settings
+                    and call.args
+                    and (group := text(call.args[0])) is not None
+                ):
+                    groups |= {t.id: group for t in a.targets if isinstance(t, ast.Name)}
+            for a in assigns:
+                for target in a.targets:
+                    if (
+                        isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Attribute)
+                        and target.value.attr == "attrs"
+                        and isinstance(target.value.value, ast.Name)
+                        and target.value.value.id in groups
+                        and (key := text(target.slice)) is not None
+                    ):
+                        group = groups[target.value.value.id]
+                        out.setdefault(group, {}).setdefault(dotted, set()).add(key)
+    return {g: {m: frozenset(k) for m, k in mods.items()} for g, mods in out.items()}
+
+
+def _recorded_in_problems(
+    rows: list[list[str]], stamps: dict[str, dict[str, frozenset[str]]], modules: _Modules
+) -> list[str]:
+    """What a Recorded-in cell gets wrong about ``stamps``.
+
+    * every ``/settings/<group>`` the cell names is a group the code writes, and
+    * a row whose Set via spells ``f(kw=…)``, where ``f``'s own module stamps ``kw`` into
+      ``/settings/<group>``, names that group -- so the cell cannot say **no** about a value
+      the code records.
+
+    A surface whose stamp lives in another module (``ExtractOptions`` is in
+    ``tether.project.extract``, the ``/settings/extraction`` writer in
+    ``tether.imaging.extract``) and a CLI-only row are held to the first rule only.
+    """
+    problems = []
+    for row in rows:
+        if len(row) != 6:
+            continue
+        named = set(_SETTINGS_PATH_RE.findall(row[5]))
+        problems += [
+            f"row {row[0][:60]!r} names /settings/{g}, which nothing under src/ writes"
+            for g in sorted(named - set(stamps))
+        ]
+        for token in _BACKTICKED_RE.findall(row[4]):
+            match = _SURFACE_TOKEN_RE.match(token)
+            if match is None or not _is_call(token, match.group(1)):
+                continue
+            hits = _resolve(match.group(1), modules)
+            if len(hits) != 1:
+                continue  # disposition 3 of :func:`_derive`, reported there
+            ((dotted, _),) = hits
+            for keyword in _KEYWORD_RE.findall(match.group(2)):
+                problems += [
+                    f"`{token}`: {dotted} records {keyword} in /settings/{group}, but the "
+                    f"row's Recorded-in cell says {row[5][:40]!r}"
+                    for group, writers in sorted(stamps.items())
+                    if keyword in writers.get(dotted, frozenset()) and group not in named
+                ]
+    return problems
+
+
+def test_every_recorded_in_cell_matches_what_the_code_stamps() -> None:
+    stamps = _settings_stamps(_source_modules())
+    # The anchor that keeps this from passing on nothing: the writers the page names.
+    assert {"extraction", "leakage", "gamma", "correction", "batch"} <= set(stamps), stamps
+    assert "ceiling" in stamps["gamma"]["tether.project.gamma"]
+    problems = _recorded_in_problems(ROWS, stamps, _source_modules())
+    assert not problems, "\n".join(problems)
+
+
+def test_a_recorded_value_the_cell_calls_unrecorded_is_reported() -> None:
+    modules = _snippets(
+        (
+            "tether.m",
+            "_S = 'settings'\n_G = 'thing'\n"
+            "def compute(f, *, ceiling=1.0):\n"
+            "    settings = f[_S]\n"
+            "    grp = settings.create_group(_G, track_order=True)\n"
+            "    grp.attrs['ceiling'] = ceiling\n",
+        )
+    )
+    stamps = _settings_stamps(modules)
+    assert stamps == {"thing": {"tether.m": frozenset({"ceiling"})}}
+    right = ["`x`", "`1`", "", "", "`compute(ceiling=…)`", "`/settings/thing`"]
+    assert _recorded_in_problems([right], stamps, modules) == []
+    no = [*right[:5], "**no**"]
+    assert "records ceiling in /settings/thing" in _recorded_in_problems([no], stamps, modules)[0]
+    invented = [*right[:5], "`/settings/other`"]
+    assert any(
+        "nothing under src/ writes" in p for p in _recorded_in_problems([invented], stamps, modules)
+    )
+
+
 # --- The label binding itself -------------------------------------------------
 # The passes above assert what the page currently says. These assert that the guard
 # would NOTICE if it changed -- which is the whole of #221, since every literal stayed
@@ -2310,3 +2836,21 @@ def test_the_two_mode_keyed_rows_are_registered_with_labels() -> None:
         ("min_separation", 8.0): frozenset({"wavelet"}),
         ("min_separation", 3.0): frozenset({"intensity", "bandpass"}),
     }
+
+
+def test_module_constant_reads_the_last_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``X = 2`` then ``X = 1`` is ``1`` at runtime, so the page must print ``1`` (#749).
+
+    The reader is the one ``test_docs_validation_numbers`` uses; this pins that the
+    parameter page reads through it rather than through a first-binding copy of its own.
+    """
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "mod.py").write_text("X = 2\nY: int = 5\nX = 1\nY: int\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SRC", tmp_path)
+    assert module_constant("pkg.mod", "X") == 1
+    assert module_constant("pkg.mod", "Y") == 5
+    with pytest.raises(AssertionError, match="no module-level constant 'Z'"):
+        module_constant("pkg.mod", "Z")
