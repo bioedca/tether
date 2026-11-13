@@ -24,6 +24,16 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# MreC-MreD ebFRET sessions — third-party reference data, CC-BY-4.0 (Gilman, Shlosman, Samé
+# Guerra, et al., Zenodo 10.5281/zenodo.13910538), repacked by scripts/make_ebfret_sessions_fixture.py
+# into one LFS fixture for the report-only ebFRET comparison (#719). Attributed in NOTICE and the
+# fixture PROVENANCE. `override` beats the blanket GPL entry above.
+[[annotations]]
+path = ["tests/fixtures/large/ebfret_mrec_sessions.hdf5"]
+precedence = "override"
+SPDX-FileCopyrightText = "2024 Morgan S. A. Gilman, Irina Shlosman, Daniel Samé Guerra, Masy Domecillo, Elayne Fivenson, Claire Bourrett, Thomas Bernhardt, Nicholas Polizzi, Joseph Loparo and Andrew Kruse"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # smfret-analysis2 test data (#709, ADR-0084): verbatim copies of 78 files of test-data/traces/ of
 # github.com/vafabakhsh-lab/smfret-analysis2 at commit 121634e. The repository gives the GPL
 # version 3 text with no "or later" statement, so GPL-3.0-only, not the project's -or-later.
