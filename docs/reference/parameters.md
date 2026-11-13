@@ -1,7 +1,11 @@
 # Analysis parameters
 
-This page is for the person running the experiment, not the person maintaining the code. For
-each parameter it tables, it answers three questions:
+**Who this page is for.** The person who runs the experiment, not the person who maintains the
+code. It is for anyone who wants to know a default, change it, or report it in a methods
+section. It assumes you know the stages of an analysis in
+[How Tether works](../pipeline.md).
+
+For each parameter it tables, this page answers three questions:
 
 1. **What is the default, and where does it live?** Every row names the constant or field and
    the module it is defined in, so you can read the value straight out of the source.

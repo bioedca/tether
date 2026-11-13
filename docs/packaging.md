@@ -1,7 +1,10 @@
 # Packaging &amp; installers
 
-> **Looking to install Tether?** This page describes what an installer contains and how to
-> check a download is genuine. To download, install and run Tether step by step, follow
+**Who this page is for.** Anyone who wants to know what a Tether installer contains, or who
+must check that a download is genuine. It assumes you can run a command in a terminal. It does
+not assume you know conda.
+
+> **Looking to install Tether?** To download, install and run Tether step by step, follow
 > [Install Tether](install.md). Maintainers building the installers themselves want
 > [Building the installers](maintainers/building-installers.md).
 

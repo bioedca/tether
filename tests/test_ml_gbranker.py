@@ -120,12 +120,38 @@ def test_ranker_records_training_balance() -> None:
     assert ranker.feature_names == FEATURES
 
 
+def _fitted_hyperparams(ranker) -> dict[str, object]:
+    """The hyperparameters the fitted estimator actually carries (not a recorded copy)."""
+    params = ranker._model.get_params()
+    return {name: params[name] for name in RankerHyperparams.__dataclass_fields__}
+
+
 def test_custom_hyperparams_are_honored() -> None:
     X, y, ids = _separable()
-    ranker = train_quality_ranker(
-        X, y, FEATURES, hyperparams=RankerHyperparams(max_iter=20, random_state=5)
+    hp = RankerHyperparams(
+        learning_rate=0.05,
+        max_iter=20,
+        max_leaf_nodes=7,
+        min_samples_leaf=3,
+        l2_regularization=0.5,
+        random_state=5,
     )
+    ranker = train_quality_ranker(X, y, FEATURES, hyperparams=hp)
     assert ranker.rank(ids, X).n == len(ids)
+    # ML-F8: every given value reaches the fitted estimator, not only the call signature.
+    assert _fitted_hyperparams(ranker) == {
+        name: getattr(hp, name) for name in RankerHyperparams.__dataclass_fields__
+    }
+    assert ranker._model.n_iter_ == 20  # early stopping is off, so the fit ran max_iter rounds
+
+
+def test_custom_hyperparams_change_the_scores() -> None:
+    # ML-F8, behavioural: one boosting round scores the candidates differently from the default
+    # 100-round fit, so a fit that silently falls back to the defaults cannot pass.
+    X, y, ids = _separable()
+    default_scores = train_quality_ranker(X, y, FEATURES).rank(ids, X).scores
+    one_round = train_quality_ranker(X, y, FEATURES, hyperparams=RankerHyperparams(max_iter=1))
+    assert one_round.rank(ids, X).scores != pytest.approx(default_scores)
 
 
 # --- NaN features: scored natively, never imputed or dropped -----------------
