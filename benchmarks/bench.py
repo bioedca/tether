@@ -220,7 +220,8 @@ def compare(result: dict, base: str, head: str, limit: float) -> tuple[list[str]
             failures.append(f"{key}: time {rt:.2f}x base (limit {limit}x)")
             verdict = "FAIL: slower"
         if gated and rm is not None and rm > limit:
-            failures.append(f"{key}: peak memory {rm:.2f}x base (limit {limit}x)")
+            floored = " (base counted as 1 MiB)" if b_mem < MEMORY_FLOOR_BYTES else ""
+            failures.append(f"{key}: peak memory {rm:.2f}x base{floored} (limit {limit}x)")
             verdict = "FAIL: memory" if verdict == "ok" else verdict + ", memory"
         size = h.get("tether_bytes")
         lines.append(

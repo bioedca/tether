@@ -76,7 +76,7 @@ def test_a_head_peak_above_the_floor_is_gated_when_the_base_peak_is_below_it() -
     base = {"cloud/small": _rec(0.1, 900 << 10), "gamma/small": _rec(0.1, 512 << 10)}
     head = {"cloud/small": _rec(0.1, 45 << 20), "gamma/small": _rec(0.1, 1200 << 10)}
     _, failures = bench.compare(_result(base, head), "base", "head", 1.5)
-    assert failures == ["cloud/small: peak memory 45.00x base (limit 1.5x)"]
+    assert failures == ["cloud/small: peak memory 45.00x base (base counted as 1 MiB) (limit 1.5x)"]
 
 
 def test_the_sidecar_case_gates_on_the_peak_rss_of_the_fitting_process() -> None:

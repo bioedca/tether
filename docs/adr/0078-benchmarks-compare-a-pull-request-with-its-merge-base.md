@@ -45,7 +45,7 @@ this decision.
 4. **Warm-up.** The first call is timed apart (`first_call_s`) and never enters the timed part,
    so a one-time cost such as a Numba compilation is reported and not compared.
 5. **Limits.** A gated case fails when head is above 1.5 times base in time or in peak
-   memory, and the job names the case. A case that fails on head fails the job; a case that
+   memory (with base counted as at least 1 MiB, item 3), and the job names the case. A case that fails on head fails the job; a case that
    fails only on base (an API that the pull request changed) is reported as not compared.
 6. **Noise first.** `workflow_dispatch` runs the suite ten times on one commit and reports
    max/min for each case. A case keeps the 1.5 gate only when its spread is at most 1.2;
