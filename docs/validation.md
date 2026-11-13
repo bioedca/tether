@@ -163,7 +163,10 @@ before the weekly task had a `main` commit that holds this check): **passed**, m
 The numbers agree with ADR-0022. The record is
 [`docs/validation/oracle-a-last-run.json`](validation/oracle-a-last-run.json), one check entry of
 a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
-step. A deliberate regression (the donor traces reversed in time) made the same check fail at the
+step. Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
+reads one stops when the file is not the pinned one; the pins were measured on the workstation
+on 2026-11-13 after this run, and their first 16 hex digits agree with the fixture provenance
+table. A deliberate regression (the donor traces reversed in time) made the same check fail at the
 donor Pearson gate; the demonstration is recorded on
 [#699](https://github.com/bioedca/tether/issues/699).
 
