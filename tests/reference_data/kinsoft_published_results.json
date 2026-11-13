@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "issue": 718,
-  "description": "The measured data sets of the kinSoftChallenge and the kinetic models its analyses reported for them, beside Tether's own 2-state fit. Measured data has no ground truth, so this is ADVISORY: it reports where Tether's rates lie among the published ones and never gates (ADR-0081).",
+  "description": "The measured data sets of the kinSoftChallenge and the kinetic models its analyses reported for them, beside Tether's own 2-state fit. Measured data has no ground truth, so this is ADVISORY: it reports where Tether's rates lie among the published ones and never gates (ADR-0082).",
   "source": {
     "citation": "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nature Communications 13:5402 (2022).",
     "doi": "10.1038/s41467-022-33023-3",

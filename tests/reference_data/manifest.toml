@@ -86,7 +86,7 @@ extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
 
-# --- kinSoftChallenge measured data sets (#718, ADR-0081): Zenodo 10.5281/zenodo.5701310 ------
+# --- kinSoftChallenge measured data sets (#718, ADR-0082): Zenodo 10.5281/zenodo.5701310 ------
 [[dataset]]
 id = "kinsoft-exp-fig2-10ms"
 source = "doi:10.5281/zenodo.5701310"
