@@ -70,6 +70,18 @@ directory that an environment variable names). A test skips, with the reason, wh
 available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
 limits and the cache rule.
 
+**The Source Data of the 2024 T-box paper.** The study of Campos-Chavez, Paul, Zhou, Alonso, Verma,
+Fei and Mondragón, *Nature Communications* **15**:6592 (2024),
+[doi:10.1038/s41467-024-50885-x](https://doi.org/10.1038/s41467-024-50885-x), publishes its Source
+Data as one archive (95 MB). The weekly job downloads it and verifies its SHA-256. The repository
+holds 26 of its members, unchanged: the folder `ErrorCalculations_CodeAndSourceData/` (without
+its one notebook, whose saved cells hold private paths) and `checkTDP.py` in plain git, and one trace matrix (6.7 MB) in Git LFS. These files are **not under
+GPL-3.0**. They are under the licence of the publication, CC BY-NC-ND 4.0: you can use and share
+them unchanged, for non-commercial purposes only, and you must cite the article. A test that needs
+another format converts a file when it runs; the repository keeps no changed copy.
+[ADR-0083](adr/0083-unchanged-copies-of-cc-by-nc-nd-reference-data.md) records these rules, and
+`tests/fixtures/PROVENANCE.md` the checksum of each file.
+
 Which tier each oracle's *headline* assertion lives in:
 
 | Oracle | Headline assertion runs in | Also covered on the required matrix |
