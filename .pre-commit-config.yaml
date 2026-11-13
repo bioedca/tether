@@ -15,9 +15,9 @@ repos:
       # are checked byte for byte against their SHA-256; a hook that rewrote their
       # whitespace would break the record.
       - id: trailing-whitespace
-        exclude: ^tests/fixtures/(reference|kinsoft_simulator)/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2)/
       - id: end-of-file-fixer
-        exclude: ^tests/fixtures/(reference|kinsoft_simulator)/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2)/
       - id: check-yaml
         # packaging/construct.yaml is a `constructor` recipe, not plain YAML: it
         # uses conda-build line selectors (`# [win]`) and Jinja, so the same key
