@@ -1238,13 +1238,13 @@ def test_close_closes_histogram_dock(qapp, qtbot) -> None:
     assert closed == [True]
 
 
-# --- &Legacy menu (M7 Deep-LASI re-analysis bundle import, §7.8) --------------
+# --- &Import menu (FR-LEGACY: M7 Deep-LASI re-analysis bundle import, §7.8) ----
 
 
 class _StubWizardDialog:
     """A stand-in for ``DeepLasiWizardDialog`` returning preset produced paths.
 
-    Lets the ``&Legacy`` entry point be driven headlessly (no modal event loop):
+    Lets the ``&Import`` (FR-LEGACY) entry point be driven headlessly (no modal event loop):
     :meth:`exec` records its call count and hands back the paths the shell reports.
     """
 
@@ -1258,8 +1258,9 @@ class _StubWizardDialog:
 
 
 def test_legacy_menu_exposes_import_action(shell) -> None:
+    assert shell.legacy_menu.title() == "&Import"
     labels = [a.text() for a in shell.legacy_menu.actions()]
-    assert labels == ["&Import Deep-LASI bundle…"]
+    assert labels == ["&Deep-LASI bundle…"]
 
 
 def test_import_deeplasi_bundle_reports_produced_projects(shell) -> None:

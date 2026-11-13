@@ -1,5 +1,9 @@
 # Seven-plot parity gallery
 
+**Who this page is for.** Anyone who used tMAVEN's analysis plots and wants to find the same
+plot in Tether, or check that the two agree. It assumes you know the tMAVEN plot types. It
+does not assume you know Tether's code.
+
 This page documents **plot and feature parity** with tMAVEN for the
 [analysis stage](../pipeline.md#analyze) — which plots exist and how
 they correspond — **not** numerical accuracy. For the accuracy evidence (the seven

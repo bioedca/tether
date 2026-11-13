@@ -29,7 +29,14 @@ import numpy as np
 import pytest
 
 from tether.ml.deep import assemble_dataset
-from tether.ml.deep.model import fine_tune, rank_by_deep_model, train_classifier
+from tether.ml.deep.model import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_FINE_TUNE_EPOCHS,
+    DEFAULT_FINE_TUNE_LEARNING_RATE,
+    fine_tune,
+    rank_by_deep_model,
+    train_classifier,
+)
 from tether.ml.ranking import file_order_ranking, precision_at_k
 
 pytestmark = pytest.mark.deep
@@ -108,6 +115,11 @@ def test_fine_tune_improves_held_out_metric() -> None:
     labels then lifts it to near-perfect. Calibrated to a comfortable ~0.48 gap (worst observed
     over 9 data × training seeds), so the margins survive the ``deep/`` env's cpu_mkl (linux/win)
     vs cpu_generic (osx) BLAS differences.
+
+    This test cannot tell a warm start from training from scratch (#752, ML-U6): the base is at
+    chance and 25 epochs at the fresh-training rate fit the clean target either way. That the
+    base weights carry over is
+    ``test_fine_tune_with_the_registered_defaults_keeps_what_the_base_learned``.
     """
     # Pretrain on a high-noise "provisional/classical" source -> a chance-level base on the target.
     source = _dataset(n_per_class=28, seed=1, label_noise=0.40, sep=0.60, sigma=80.0)
@@ -131,6 +143,47 @@ def test_fine_tune_improves_held_out_metric() -> None:
     assert history.shape == (25,) and np.all(np.isfinite(history))
     assert tuned.hyperparameters["fine_tuned"] is True
     assert tuned.hyperparameters["base_hyperparameters"]["epochs"] == 12
+
+
+def test_fine_tune_with_the_registered_defaults_keeps_what_the_base_learned() -> None:
+    """A good base stays good under the default fine-tune, which scratch training cannot match.
+
+    ML-U6: the base is trained well on an easy source task and fine-tuned with the registered
+    defaults (``DEFAULT_FINE_TUNE_EPOCHS`` epochs at ``DEFAULT_FINE_TUNE_LEARNING_RATE``) on a
+    few labels of a related, harder task. A warm start keeps the base's held-out accuracy; the
+    same budget from fresh weights stays near chance, so a fine-tune that dropped the base weights
+    fails both assertions.
+    """
+    source = _dataset(n_per_class=24, seed=20)
+    target_train = _dataset(n_per_class=8, seed=21, sep=0.7, sigma=60.0)
+    target_val = _dataset(n_per_class=24, seed=22, sep=0.7, sigma=60.0)  # held-out
+    base = train_classifier(
+        source, epochs=20, batch_size=8, conv_channels=16, lstm_hidden=16, seed=0
+    )
+    base_acc = _accuracy(base, target_val)
+    assert base_acc >= 0.9, f"fixture bug: the base should already transfer, got {base_acc}"
+
+    tuned = fine_tune(base, target_train, seed=0)
+    assert tuned.hyperparameters["epochs"] == DEFAULT_FINE_TUNE_EPOCHS
+    assert tuned.hyperparameters["learning_rate"] == DEFAULT_FINE_TUNE_LEARNING_RATE
+    assert tuned.hyperparameters["freeze_conv"] is False
+    tuned_acc = _accuracy(tuned, target_val)
+
+    scratch = train_classifier(
+        target_train,
+        epochs=DEFAULT_FINE_TUNE_EPOCHS,
+        batch_size=DEFAULT_BATCH_SIZE,
+        learning_rate=DEFAULT_FINE_TUNE_LEARNING_RATE,
+        conv_channels=16,
+        lstm_hidden=16,
+        seed=0,
+    )
+    scratch_acc = _accuracy(scratch, target_val)
+
+    assert tuned_acc >= base_acc - 0.05, f"fine-tune degraded the base: {base_acc} -> {tuned_acc}"
+    assert tuned_acc >= scratch_acc + 0.2, (
+        f"fine-tune is no better than scratch at the same budget: {tuned_acc} vs {scratch_acc}"
+    )
 
 
 def test_fine_tune_does_not_mutate_the_base_model() -> None:
