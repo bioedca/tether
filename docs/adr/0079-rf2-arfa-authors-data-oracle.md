@@ -96,9 +96,9 @@ pinned as measured differences in `TABLE_1_DIFFERENCES`.
 
 **2-D histogram.** Start-synchronized, Tether's A2 counts equal tMAVEN's cell for cell (204
 molecules; tMAVEN has one more time row, with no counts). Post-synchronized on the frames of each
-window, both find the same 38 transitions in 29 molecules, and Tether lacks 2 of tMAVEN's 1608
-counts: the last window frame of the two transitions whose next dwell runs to the end of the
-window (#806). tMAVEN's app reads the whole model chain, whose out-of-window frames are state 0,
+window, both find the same 38 transitions in 29 molecules and the same 1608 counts, cell for
+cell. Before #806 (ADR-0085) Tether lacked 2 of them: the last window frame of the two
+transitions whose next dwell runs to the end of the window. tMAVEN's app reads the whole model chain, whose out-of-window frames are state 0,
 so it also counts 2 jumps at a window border (40 transitions in 30 molecules; #707).
 
 ## Consequences

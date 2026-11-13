@@ -19,10 +19,11 @@ parameters" document, and this process compares what it returns with the authors
    to 2e-5 relative, and the rates to 5e-4.
 4. **Plots.** tMAVEN's 2-D histogram (``data_hist2d``) at the authors' settings. Start-
    synchronized, Tether's A2 histogram equals tMAVEN's counts cell for cell. Post-synchronized
-   on the frames of each molecule's window, Tether's A2b histogram lacks 2 of tMAVEN's 1608
-   counts: the last window frame of the two transitions whose next dwell runs to the end of
-   the window (#806). tMAVEN's app reads the whole model chain, whose out-of-window frames hold
-   state 0, so it also counts 2 jumps at a window border (#707); both are pinned below.
+   on the frames of each molecule's window, Tether's A2b histogram also equals tMAVEN's 1608
+   counts cell for cell; before #806 Tether lacked the last window frame of the two
+   transitions whose next dwell runs to the end of the window. tMAVEN's app reads the whole
+   model chain, whose out-of-window frames hold state 0, so it also counts 2 jumps at a window
+   border (#707); that difference is pinned below.
 
 Measured 2026-11-12 on tMAVEN ``10f4230``, CPython 3.12.13, NumPy 1.26.4 (the sidecar lock).
 The authors' files name no tMAVEN build; the model file is dated 2022-11-29.
@@ -71,10 +72,6 @@ RATES_RTOL = 5e-4
 
 #: tMAVEN's 2-D histogram settings, as ``_rf2_arfa_child.py`` reports them back.
 HIST = {"time_bins": 100, "signal_bins": 61, "signal_range": (-0.2, 1.2), "time_dt": 0.1}
-
-#: MEASURED DIFFERENCE (#806): the post-synchronized cells where tMAVEN counts one more frame
-#: than Tether, ``(time row, signal column)``.
-POSTSYNC_MISSING_CELLS = {(59, 47), (67, 49)}
 
 
 def _run(*args: str, cwd: Path) -> None:
@@ -164,7 +161,7 @@ def test_the_start_synchronized_histogram_equals_tmavens(hist) -> None:
 
 
 @requires_sidecar
-def test_the_post_synchronized_histogram_differs_only_where_806_says(hist) -> None:
+def test_the_post_synchronized_histogram_equals_tmavens_on_the_window_frames(hist) -> None:
     smd, e = _efficiency()
     model = read_model(MODEL)
     paths = states_from_idealized(model.idealized, model.means)
@@ -182,11 +179,10 @@ def test_the_post_synchronized_histogram_differs_only_where_806_says(hist) -> No
         )
         == (38, 29)
     )
-    differ = {tuple(int(x) for x in cell) for cell in np.argwhere(ours.counts != theirs)}
-    assert differ == POSTSYNC_MISSING_CELLS
-    for cell in POSTSYNC_MISSING_CELLS:
-        assert theirs[cell] - ours.counts[cell] == 1
-    assert int(theirs.sum()) == 1608 == int(ours.counts.sum()) + 2
+    # Before #806 Tether lacked one count in each of the cells (59, 47) and (67, 49): the last
+    # window frame of a dwell that runs to the window end. Now the two are equal.
+    np.testing.assert_array_equal(ours.counts, theirs)
+    assert int(theirs.sum()) == 1608 == int(ours.counts.sum())
 
     # The app's own post-synchronized histogram reads the whole chain (#707): 2 more jumps,
     # from the state-0 frames outside a window, in 1 more molecule.
