@@ -82,6 +82,50 @@ def test_dock_renders_nn_distance_and_patch(qtbot) -> None:
 
 @pytest.mark.gui
 @_needs_qt
+def test_dock_draws_the_patch_upright_like_the_movie(qtbot) -> None:
+    # The centre-only patch above is the same after a transpose or a flip, so it
+    # cannot show the orientation. Here one bright pixel sits at row 2, col 17 (top
+    # right). Render the view and find the bright pixel inside the drawn image: it
+    # must be top right too — image row 0 at the top, columns left to right, as in
+    # napari and the movie panel (#745 GUI-F16). A y flip moves it to the bottom
+    # right; a transpose (col-major) moves it to the bottom left.
+    from pyqtgraph.Qt import QtWidgets
+
+    from tether.gui.overlap_dock import OverlapDock
+
+    w, row, col = 21, 2, 17
+    patch = np.full((w, w), 100.0, dtype="float32")
+    patch[row, col] = 500.0
+    info = OverlapInfo(
+        nn_distance=4.2, overlaps=True, aperture_radius=3.0, patch=patch, name="mol-3"
+    )
+    with OverlapDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.widget.resize(320, 360)
+        dock.widget.show()
+        dock.set_molecule(info)
+        for _ in range(5):
+            QtWidgets.QApplication.processEvents()
+
+        image = dock.graphics.grab().toImage()
+        scale = image.width() / dock.graphics.width()
+        pixels = np.frombuffer(image.constBits(), dtype=np.uint8).reshape(
+            image.height(), image.bytesPerLine()
+        )[:, : image.width() * 4]
+        rgb = pixels.reshape(image.height(), image.width(), 4)[:, :, :3].astype(int).sum(axis=2)
+        rect = dock.image_item.sceneBoundingRect()
+        x0, x1 = round(rect.left() * scale), round(rect.right() * scale)
+        y0, y1 = round(rect.top() * scale), round(rect.bottom() * scale)
+        drawn = rgb[y0:y1, x0:x1]
+        assert drawn.shape[0] > 4 * w and drawn.shape[1] > 4 * w  # the patch is on screen
+        ys, xs = np.nonzero(drawn == drawn.max())
+        fx, fy = xs.mean() / drawn.shape[1], ys.mean() / drawn.shape[0]
+        assert fx == pytest.approx((col + 0.5) / w, abs=1.0 / w)
+        assert fy == pytest.approx((row + 0.5) / w, abs=1.0 / w)
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_dock_clear_neighbour_has_no_overlap_warning(qtbot) -> None:
     from tether.gui.overlap_dock import OverlapDock
 

@@ -20,7 +20,7 @@ h5py = pytest.importorskip("h5py")
 import numpy as np  # noqa: E402
 
 from _analysis_store import build_store_with_channels  # noqa: E402
-from tether.imaging.extract import read_traces  # noqa: E402
+from tether.imaging.extract import read_molecules, read_traces  # noqa: E402
 from tether.io.deeplasi import read_deeplasi_txt, write_deeplasi_txt  # noqa: E402
 from tether.project.export import (  # noqa: E402
     MOLECULE_TABLE_COLUMNS,
@@ -304,6 +304,121 @@ def test_export_molecule_table_csv_pins_documented_semantics(tmp_path):
         assert row["quality_class"] == ""
         assert row["aperture_id"] == "0"
         assert row["delta"] == "0.0"
+
+
+def test_export_molecule_table_csv_writes_every_column_in_order(tmp_path):
+    """Every one of the 25 columns, by name, by position and by value (#729 PRJ-F12).
+
+    The header is read as a list (a set would accept any column order), and each molecule's
+    stored fields are set to distinct values, so a value written under its neighbour's column
+    (the donor and acceptor bleach frames, for example) or under another molecule's row is
+    visible. The expected cells are literals of the values written here; only the
+    builder-generated identity fields are read back from the store.
+    """
+    n_frames = 8
+    donor, acceptor = _constant_e_channels(n=3, n_frames=n_frames)
+    project, keys = build_store_with_channels(
+        tmp_path, donor, acceptor, windows=[(1, 7), (0, 8), (2, 5)]
+    )
+    _set_molecule_fields(
+        project.path,
+        bleach_frames=np.array([[3, 6], [5, 2], [-1, 4]], dtype="int32"),
+        frame_range=np.array([[0, 8], [0, 8], [0, 8]], dtype="int32"),
+        condition_id=np.array(["cond-a", "cond-b", "cond-c"], dtype=object),
+        category=np.array(["static", "dynamic", ""], dtype=object),
+        correction_method=np.array(["corrected", "apparent", ""], dtype=object),
+        correction_confidence=np.array([0.75, np.nan, 0.125]),
+        curation_label=np.array([1, -1, 0], dtype="int32"),
+        quality_class=np.array([2.0, np.nan, 0.0]),
+        aperture_id=np.array([0, 1, 2], dtype="int32"),
+        alpha=np.array([0.1, 0.2, 0.3]),
+        gamma=np.array([1.5, 2.5, 3.5]),
+        delta=np.array([0.0, 0.05, 0.5]),
+        tags=np.array(["bead;edge", "", "check"], dtype=object),
+    )
+    stored = read_molecules(project.path)
+
+    out = export_molecule_table_csv(project, tmp_path / "every.csv").path
+    with out.open(newline="", encoding="utf-8") as handle:
+        header, *body = list(csv.reader(handle))
+
+    assert header == list(MOLECULE_TABLE_COLUMNS)
+    assert len(body) == 3
+    windows = [(1, 7), (0, 8), (2, 5)]
+    literal = [
+        {
+            "condition_id": "cond-a",
+            "curation_label": "accept",
+            "category": "static",
+            "quality_class": "2.0",
+            "aperture_id": "0",
+            "alpha": "0.1",
+            "gamma": "1.5",
+            "delta": "0.0",
+            "correction_method": "corrected",
+            "correction_confidence": "0.75",
+            "donor_bleach_frame": "3",
+            "acceptor_bleach_frame": "6",
+            "tags": "bead;edge",
+        },
+        {
+            "condition_id": "cond-b",
+            "curation_label": "reject",
+            "category": "dynamic",
+            "quality_class": "",
+            "aperture_id": "1",
+            "alpha": "0.2",
+            "gamma": "2.5",
+            "delta": "0.05",
+            "correction_method": "apparent",
+            "correction_confidence": "",
+            "donor_bleach_frame": "5",
+            "acceptor_bleach_frame": "2",
+            "tags": "",
+        },
+        {
+            "condition_id": "cond-c",
+            "curation_label": "uncurated",
+            "category": "",
+            "quality_class": "0.0",
+            "aperture_id": "2",
+            "alpha": "0.3",
+            "gamma": "3.5",
+            "delta": "0.5",
+            "correction_method": "",
+            "correction_confidence": "0.125",
+            "donor_bleach_frame": "-1",
+            "acceptor_bleach_frame": "4",
+            "tags": "check",
+        },
+    ]
+    for i, (cells, fixed) in enumerate(zip(body, literal, strict=True)):
+        lo, hi = windows[i]
+        expected = {
+            "molecule_id": _to_text(stored["molecule_id"][i]),
+            "molecule_key": keys[i],
+            "movie_id": _to_text(stored["movie_id"][i]),
+            "source_filename": _to_text(stored["source_filename"][i]),
+            "condition_id_provisional": _to_text(stored["condition_id_provisional"][i]),
+            "frame_start": "0",
+            "frame_end": "8",
+            "window_start": str(lo),
+            "window_end": str(hi),
+            "n_finite_frames": str(hi - lo),
+            **fixed,
+        }
+        row = dict(zip(header, cells, strict=True))
+        # Apparent E of molecule i is the constant 1 / (i + 2) (see _constant_e_channels).
+        assert float(row.pop("mean_apparent_e")) == pytest.approx(1.0 / (i + 2))
+        assert float(row.pop("median_apparent_e")) == pytest.approx(1.0 / (i + 2))
+        assert row == expected, f"row {i}"
+    # The identity fields that were read back are themselves distinct per row.
+    for column in ("molecule_id", "molecule_key"):
+        assert len({dict(zip(header, c, strict=True))[column] for c in body}) == 3, column
+
+
+def _to_text(value: object) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
 
 
 @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf], ids=["nan", "inf", "-inf"])

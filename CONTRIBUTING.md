@@ -157,11 +157,33 @@ the run rather than failing. Read the collected count, not just the exit code.
 
 Two naming rules are enforced by `tests/test_marker_contract.py` rather than
 convention: a live sidecar test must be named `test_*sidecar*.py`, and deep tests use
-the `test_*_deep.py` suffix — the isolated workflows select on those globs. The same
-module keeps every workflow's pytest command from selecting a `workstation` test, and
+the `test_*_deep.py` suffix — the isolated workflows select on those globs. The rule
+works in both directions: every test in a file that matches one of those globs carries
+the marker too (`test_setup_sidecar.py` is the one exception), because the job's `-m`
+deselects any test that does not. A live sidecar test uses `requires_sidecar` from
+`tests/_sidecar_gate.py`, which fails it instead of skipping it where the
+`sidecar / parity` job sets `TETHER_REQUIRE_SIDECAR=1`. The same module keeps every
+workflow's pytest command from selecting a `workstation` test, and
 `tests/conftest.py` stops collection when a `workstation` test also carries `large`,
 `sidecar` or `deep`. Without the runner a `workstation` test skips, so a local run that
 leaves out `and not workstation` still passes.
+
+### Coverage floors
+
+The Linux leg of the required matrix runs the same tests under `coverage` with branch
+measurement and puts a table of line and branch coverage, for the total and for each
+package of `src/tether`, in the job summary (ADR-0072). `.github/coverage-floors.toml`
+holds one floor of line coverage for the total and one for each package. The job fails
+when a value is below its floor, and when a new package has no floor. A floor can only
+go up: `tests/test_coverage_floors.py` fails when a floor is lower than on `main`. When
+the job prints a notice that a floor can be raised, raise it in the same or a later pull
+request. To see the numbers locally:
+
+```bash
+python -m pip install "coverage==7.17.2"
+QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep"
+coverage json -o coverage.json && python scripts/check_coverage_floors.py coverage.json
+```
 
 ### Building the docs locally
 
