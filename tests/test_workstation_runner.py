@@ -516,14 +516,17 @@ def _mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
 
-@pytest.mark.skipif(
-    os.name == "nt", reason="POSIX permission bits; Windows keeps the inherited ACL"
-)
 def test_the_state_folder_and_its_log_are_owner_only_whatever_the_umask(tmp_path) -> None:
-    """#787: the pytest log can name private files, so no other account may read it."""
+    """#787: the pytest log can name private files, so no other account may read it. On Windows
+    the runner changes nothing: the folders keep the ACL that they inherit."""
     data = _data_dir(tmp_path)
     state = tmp_path / "state"
     (state / "logs").mkdir(parents=True)
+    if os.name == "nt":
+        proc = _dry_run(tmp_path, data)
+        assert proc.returncode == runner.EXIT_OK, proc.stdout + proc.stderr
+        assert "note:" not in proc.stdout and not runner.private_dir(state)
+        return
     os.chmod(state, 0o777)  # an existing state folder that is open to everyone is corrected
     os.chmod(state / "logs", 0o755)
     old = os.umask(0)  # the subprocess inherits it: a permissive umask must not open anything
