@@ -309,6 +309,45 @@ q₁₂ = 0.30 (low→mid) and q₂₁ = 0.05 s⁻¹ (mid→low), and Tether's 3
 the file on which direction is faster. The level-3 rates of Suppl. Table 1 equal the
 file's under a renumbering of the states (`settings_state_of` in the JSON).
 
+## MreC-MreD ebFRET sessions (report-only ebFRET comparison, #719) — **CC-BY-4.0**
+
+Single-molecule FRET data of the MreC-MreD study, deposited by **Gilman, Shlosman, Samé Guerra,
+Domecillo, Fivenson, Bourrett, Bernhardt, Polizzi, Loparo and Kruse** at Zenodo
+**doi:10.5281/zenodo.13910538** (2024) under **CC-BY-4.0**. Annotated CC-BY-4.0 in `REUSE.toml`
+and attributed in `NOTICE`. The record's MATLAB code and its `smFRET histograms.xlsx` are **not**
+vendored.
+
+- `tests/fixtures/large/ebfret_mrec_sessions.hdf5` (11,729,129 B · **LFS**) — the 11 ebFRET
+  session files (`Data/ebFRET outputs/<figure>/<condition>/<condition>-ebFRET.mat`) repacked, one
+  group per `<figure>/<condition>`: the fitted traces (`donor`, `acceptor`, NaN-padded float64,
+  with `length` and the 0-based crop `crop_min`/`crop_max`) and the stored result for the
+  number of states the session shows (`@nstates`): the empirical-Bayes prior state means
+  `prior_mu` and the expected-occupancy fractions `population`. Each group records its member
+  name, the member's SHA-256 and the MAT-file header. One series of one frame
+  (`Figure 2/A29C-T201C+MreD`) is left out (`@n_left_out`). It backs the report-only comparison
+  in `tests/test_ebfret_sessions_sidecar.py`.
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `Data.zip` | 46,017,564 B | `175ebcca622dd2e5e56d5ced2e610e236723da93570946e58d5a64f67ed9f932` |
+
+Zenodo states MD5 `a021a0ff561013d483f220adeb1d1c91` for the zip, which the download matched.
+**Accessed:** 2026-11-12. **License:** CC-BY-4.0 — **not** GPL-3.0.
+
+The fixture reads only the session files, because each holds both the traces ebFRET fitted and the
+result. In the record five `traces.dat` exports do not belong to the session beside them: the
+`A29C-T201C` and `A33C-T201C` files are exchanged, so are the two `+MreD` files, and
+`MreC-F36R-MreD-traces.dat` is a byte copy of `MreC-L39E-MreD-traces.dat` (their row and
+molecule counts against the sessions show it). Regenerate with:
+
+```sh
+python scripts/make_ebfret_sessions_fixture.py --source <dir-with-Data.zip>
+```
+
+Both files have entries in `tests/reference_data/manifest.toml` (ids `ebfret-mrec-data`,
+`ebfret-mrec-sessions`; ADR-0073). The weekly `reference-data` job downloads the zip, verifies
+its checksum and compares every array of the committed fixture with a fresh extraction.
+
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
 `smd_281mol.hdf5` (the redistributable ≥50-molecule population SMD) and its

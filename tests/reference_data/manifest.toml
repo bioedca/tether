@@ -140,6 +140,33 @@ extract_of = ["kinsoft-simulator"]
 extract_member = "MATLAB_simulator/Config_simulation_round_1_level_3.cfg"
 citation = "Götz M, Schmid S. kinSoftChallenge data sets. Zenodo (2021). doi:10.5281/zenodo.5701310"
 
+# --- MreC-MreD ebFRET sessions: Zenodo 10.5281/zenodo.13910538, CC-BY-4.0 (#719) ------------
+
+[[dataset]]
+id = "ebfret-mrec-data"
+source = "doi:10.5281/zenodo.13910538"
+record_url = "https://zenodo.org/records/13910538"
+license = "CC-BY-4.0"
+file = "Data.zip"
+size = 46017564
+sha256 = "175ebcca622dd2e5e56d5ced2e610e236723da93570946e58d5a64f67ed9f932"
+tier = "download"
+download_url = "https://zenodo.org/records/13910538/files/Data.zip?download=1"
+citation = "Gilman MSA, Shlosman I, Samé Guerra D, et al. MreC-MreD structure reveals a multifaceted interface that controls MreC conformation (data and code). Zenodo (2024). doi:10.5281/zenodo.13910538"
+
+[[dataset]]
+id = "ebfret-mrec-sessions"
+source = "doi:10.5281/zenodo.13910538"
+record_url = "https://zenodo.org/records/13910538"
+license = "CC-BY-4.0"
+file = "tests/fixtures/large/ebfret_mrec_sessions.hdf5"
+size = 11729129
+sha256 = "de1856cdffb554f7bd6732f8904bf03e72f79b425f2c3f62fbdfa9ccaf14c3c3"
+tier = "lfs"
+extract_of = ["ebfret-mrec-data"]
+extract_script = "scripts/make_ebfret_sessions_fixture.py"
+citation = "Gilman MSA, Shlosman I, Samé Guerra D, et al. MreC-MreD structure reveals a multifaceted interface that controls MreC conformation (data and code). Zenodo (2024). doi:10.5281/zenodo.13910538"
+
 # --- smfret-analysis2 test data: github.com/vafabakhsh-lab/smfret-analysis2 at commit 121634e,
 # GPL-3.0-only. Verbatim copies of test-data/traces/ (#709, ADR-0084): the 76 trace files and the
 # two outputs that create_histogram.m wrote from them. --------------------------------------------

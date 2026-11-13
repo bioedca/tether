@@ -50,6 +50,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Fetch the committed LFS extract that a test makes again from its source
+        # The checkout holds only LFS pointers, and fetch.path_for skips on a pointer, so
+        # without this step the comparison of ebfret_mrec_sessions.hdf5 with a fresh
+        # extraction from Data.zip (#719) would skip and the job would still pass. Fail if
+        # the object did not arrive. tests/test_marker_contract.py holds this step in place.
+        shell: bash -e {0}
+        env:
+          EXTRACT: tests/fixtures/large/ebfret_mrec_sessions.hdf5
+        run: |
+          git lfs pull --include="$EXTRACT"
+          if head -c 64 "$EXTRACT" | grep -q "git-lfs.github.com/spec"; then
+            echo "Git-LFS did not materialize $EXTRACT" >&2
+            false
+          fi
       - name: Compute the cache key from the manifest checksums and the month
         id: key
         shell: bash -e {0}

@@ -44,6 +44,18 @@ kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.
   ground truth of that oracle (#717). The MATLAB simulator itself is NOT vendored
   (PRD N2 — Tether ships no data simulator).
 
+MreC-MreD ebFRET sessions  (CC-BY-4.0)  — Gilman MSA, Shlosman I, Samé Guerra D,
+  Domecillo M, Fivenson E, Bourrett C, Bernhardt T, Polizzi N, Loparo J, Kruse A,
+  "MreC-MreD structure reveals a multifaceted interface that controls MreC
+  conformation" (data and code), Zenodo doi:10.5281/zenodo.13910538 (CC-BY-4.0).
+  Tether bundles the traces and stored results of the 11 ebFRET session files of
+  that record, repacked as the gated-tier fixture
+  tests/fixtures/large/ebfret_mrec_sessions.hdf5, used only by a report-only
+  comparison of Tether's ebFRET path (issue #719). The file is licensed CC-BY-4.0
+  (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT GPL-3.0;
+  attribution to the authors travels with it. The MATLAB code of the record is
+  NOT vendored.
+
 smfret-analysis2 test data  (GPL-3.0-only)  — the MATLAB analysis scripts of the
   Vafabakhsh lab, https://github.com/vafabakhsh-lab/smfret-analysis2 (its commits
   are by Michael Schamber), pinned at commit 121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4
