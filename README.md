@@ -151,7 +151,9 @@ Idealization needs the separate tMAVEN sidecar environment, which
 
 The installer does **not** edit your `PATH`. It writes both launchers into
 `<install-root>/bin/` (`<install-root>\bin\` on Windows), and on Windows and Linux it
-also adds a **Tether** entry to the Start Menu or applications menu.
+also adds a **Tether** entry to the Start Menu or applications menu. From the next release
+the launchers are in `<install-root>/launchers/` instead, a folder that holds only them
+([#492](https://github.com/bioedca/tether/issues/492)); read `launchers` for `bin` below.
 
 Open the desktop application from that menu entry, or run the window launcher:
 
@@ -159,8 +161,8 @@ Open the desktop application from that menu entry, or run the window launcher:
 <install-root>/bin/tether-gui        # Windows: <install-root>\bin\tether-gui.bat
 ```
 
-To use the command line, add `<install-root>/bin` to the **end** of your `PATH` (on
-Linux and macOS it also holds the installer's own `python`, `pip` and `conda`, which
+To use the command line, add `<install-root>/bin` to the **end** of your `PATH` (in rc3,
+on Linux and macOS, it also holds the installer's own `python`, `pip` and `conda`, which
 should not shadow yours), check the install, and extract a dual-channel TIFF movie into a
 new project. [Install Tether](docs/install.md) shows how
 to make the `PATH` change permanent.

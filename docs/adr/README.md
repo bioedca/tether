@@ -97,7 +97,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0048](0048-kinsoft-kinetics-oracle.md) | kinSoftChallenge kinetics oracle: base-env HMM, 2-state scope, within-spread band | accepted | §8, §9 M8, §11.2 |
 | [0049](0049-m9-packaging-constructor-architecture.md) | M9 packaging: constructor installer architecture (offline base env + isolated sidecar) | accepted | §4.1, §9 M9, §12.7 |
 | [0050](0050-release-pipeline-and-code-signing.md) | Release pipeline + code-signing (tag-driven, SignPath for Windows, gated Apple) | accepted; code-signing half superseded by [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | §9 M9, §12.7, §4.1 |
-| [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted | §7.8, §4.1, §9 M9 |
+| [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted; amended by [ADR-0094](0094-the-launchers-get-a-folder-of-their-own.md) on the folder that holds the launchers | §7.8, §4.1, §9 M9 |
 | [0052](0052-concurrent-agent-swarm-coordination.md) | Concurrent issue-swarm coordination | superseded by 0057 (fully retired) | §12.2–§12.5 |
 | [0053](0053-structured-backlog-intake-gates-swarm-admission.md) | Structured backlog intake gates swarm admission | superseded by 0057 (admitting authority) | §12.5 |
 | [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted | §5.4, §7.3, §7.5, §7.10 |
@@ -132,6 +132,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12) | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
 | [0086](0086-ha-laboratory-snapshot-histogram-is-a-reference.md) | The Ha-laboratory SAM/SAH snapshot histogram is a reference, compared by its peaks | accepted | §1 (the apparent-E histogram), §2.2 (N4), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
+| [0094](0094-the-launchers-get-a-folder-of-their-own.md) | The two launchers get a folder of their own: `<prefix>/launchers` | accepted; amends [ADR-0051](0051-installed-app-launch-surface.md) on the folder that holds the launchers | §4.1 (installers), §9 M9 (packaging & docs) |
 
 <!-- gen:adr-index end -->
 

@@ -196,9 +196,14 @@ echo 'export PATH="$PATH:$HOME/Tether/bin"' >> ~/.zshrc
   "User")
 ```
 
-The folder goes at the **end** of your PATH on purpose. On Linux and macOS it also holds the
-installer's own copies of `python`, `pip` and `conda`; at the end, any you already use keep
-working exactly as before.
+The folder goes at the **end** of your PATH on purpose. In rc3, on Linux and macOS, it also
+holds the installer's own copies of `python`, `pip` and `conda`; at the end, any you already use
+keep working exactly as before.
+
+**From the next release**, the installer puts the two launchers in a folder of their own,
+`launchers`, which holds nothing else
+([#492](https://github.com/bioedca/tether/issues/492)). With that release, write `launchers`
+in place of `bin` in the line for your system, for example `$HOME/tether/launchers` on Linux.
 
 ## 5. Check that Tether runs
 
@@ -251,7 +256,7 @@ Everything lives in the single folder you chose (`~/tether` on Linux, `~/Tether`
 
 | Inside the install folder | What it is |
 |---|---|
-| `bin/tether`, `bin/tether-gui` (on Windows, `bin\tether.bat`, `bin\tether-gui.bat`) | The two launchers this page puts on your PATH. |
+| `bin/tether`, `bin/tether-gui` (on Windows, `bin\tether.bat`, `bin\tether-gui.bat`) | The two launchers this page puts on your PATH. From the next release they are in `launchers/` (on Windows, `launchers\`), a folder that holds only them. |
 | `envs/tether` | The Tether application and everything it runs on. |
 | `envs/sidecar` | A separate, isolated copy of tMAVEN used for one-click idealization. It is kept apart because it needs older library versions than the application. |
 | everything else | The small installer toolkit used once, at install time, to lay down the two folders above. It holds no Tether code. |
@@ -315,7 +320,8 @@ rm -f ~/.local/share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256x25
 rm -f ~/.local/share/icons/hicolor/scalable/apps/tether.svg
 ```
 
-Then delete the `export PATH=…/tether/bin` line from `~/.bashrc`.
+Then delete the `export PATH=…/tether/bin` line (`…/tether/launchers` from the next release)
+from `~/.bashrc`.
 
 **macOS**
 
@@ -323,7 +329,8 @@ Then delete the `export PATH=…/tether/bin` line from `~/.bashrc`.
 rm -rf ~/Tether
 ```
 
-Then delete the `export PATH=…/Tether/bin` line from `~/.zshrc`.
+Then delete the `export PATH=…/Tether/bin` line (`…/Tether/launchers` from the next release)
+from `~/.zshrc`.
 macOS keeps its package receipt for the install; it is a small record and does no harm left
 in place.
 
@@ -331,7 +338,8 @@ in place.
 **Uninstall**. The uninstaller removes the Start menu shortcut as well. An installer from
 1.0.0-rc2 or earlier does not, so if a **Tether** folder is still in the Start menu afterwards,
 delete it. Remove
-`C:\Users\<you>\Tether\bin` from your user PATH under **Settings → System → About → Advanced
+`C:\Users\<you>\Tether\bin` (`C:\Users\<you>\Tether\launchers` from the next release) from your
+user PATH under **Settings → System → About → Advanced
 system settings → Environment Variables**.
 
 Projects, movies and exports saved anywhere **outside** the install folder are not touched

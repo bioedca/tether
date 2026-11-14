@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """No page puts Tether's launcher folder in front of the reader's ``PATH`` (#585).
 
-On Linux and macOS the installer's ``bin`` folder holds the two launchers and also the
-installer's own ``python``, ``pip`` and ``conda`` (#492). ``docs/install.md`` step 4 therefore
-*appends* the folder, and says why: at the end, the reader's own tools keep working. The
+Up to rc3, on Linux and macOS, the installer's ``bin`` folder holds the two launchers and also
+the installer's own ``python``, ``pip`` and ``conda`` (#492). ``docs/install.md`` step 4 therefore
+*appends* the folder, and says why: at the end, the reader's own tools keep working. From the
+next release the launchers have a folder of their own, ``launchers`` (ADR-0094), and the pages
+name both; the guard covers both names, so the one instruction stays in one form. The
 command-line page once *prepended* it (``export PATH="<install-root>/bin:$PATH"`` and two
 PowerShell forms), so a reader who followed that page got the bootstrap ``python`` ahead of
 their own. The same instruction had been typed twice, and the two copies disagreed.
@@ -42,8 +44,9 @@ INSTALL_STEP_4 = "install.md#4-put-tethers-launcher-folder-on-your-path"
 
 #: Tether's launcher folder as the pages spell it: the ``<install-root>`` placeholder, or a
 #: concrete install folder named ``tether``/``Tether`` (``$HOME/tether``,
-#: ``$env:USERPROFILE\\Tether``, ``C:\\...\\Tether``), followed by ``bin``.
-_LAUNCHER_DIR = r"(?:<install-root>|[^\s\"';:]*[Tt]ether)[/\\]bin[/\\]?"
+#: ``$env:USERPROFILE\\Tether``, ``C:\\...\\Tether``), followed by ``bin`` (up to rc3) or
+#: ``launchers`` (ADR-0094).
+_LAUNCHER_DIR = r"(?:<install-root>|[^\s\"';:]*[Tt]ether)[/\\](?:bin|launchers)[/\\]?"
 
 #: The reader's existing PATH, in each shell the pages use.
 _EXISTING_PATH = (
@@ -87,6 +90,9 @@ def _prepends(text: str) -> list[str]:
         "export PATH=$HOME/tether/bin:${PATH}",
         "set PATH=C:\\Users\\me\\Tether\\bin;%PATH%",
         "set -gx PATH $HOME/Tether/bin $PATH",
+        # The launcher folder of ADR-0094, prepended.
+        'export PATH="$HOME/tether/launchers:$PATH"',
+        '$env:PATH = "$env:USERPROFILE\\Tether\\launchers;$env:PATH"',
     ],
 )
 def test_prepend_forms_are_caught(line: str) -> None:
@@ -103,6 +109,7 @@ def test_prepend_forms_are_caught(line: str) -> None:
         '+ ";$env:USERPROFILE\\Tether\\bin",',
         'export PATH="$PATH:<install-root>/bin"   '
         '# PowerShell: $env:PATH = "$env:PATH;<install-root>\\bin"',
+        'export PATH="$PATH:$HOME/tether/launchers"',
         # Someone else's folder first is not this page's business.
         'export PATH="$HOME/miniforge3/bin:$PATH"',
     ],
