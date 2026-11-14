@@ -236,5 +236,5 @@ read before mutating shell state, so a bad open leaves the prior project in plac
 - **ADR-0008** — Deep-LASI → Tether correction-factor naming remap (β→α, α→δ, γ→γ).
 - **ADR-0045** — reconstruct a round-trip-ready `.tether` from Deep-LASI legacy data.
 - **ADR-0046** — analysis-only import of a coordinate-less SMD / `.txt` source.
-- **ADR-0002** — the `.tether` project file is an SMD superset; round-trip is a data-model property.
+- **ADR-0002** — the `.tether` store is an SMD superset; round-trip is a data-model property.
 - **ADR-0017** — the minimal Deep-LASI `.mat` / `.txt` validation reader and coordinate convention.

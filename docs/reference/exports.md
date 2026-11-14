@@ -634,7 +634,7 @@ extra state. Tether's own analyses do exactly that (`tether.analysis.tdp`,
 ### Why a subset `.tether` is readable at all
 
 The `.tether` project file is a **superset of the tMAVEN SMD layout**, not a private format
-(ADR-0002, [The `.tether` project file is an SMD superset](../adr/0002-smd-superset-round-trip.md)).
+(ADR-0002, [The `.tether` store is an SMD superset](../adr/0002-smd-superset-round-trip.md)).
 It is HDF5: `h5py`, MATLAB `h5read` and `rhdf5` all open it without Tether installed. The
 same property is what makes the tMAVEN round trip a data-model consequence rather than a
 conversion step.
@@ -644,13 +644,13 @@ conversion step.
 - **PRD §7.9 FR-EXPORT** — the export surface; **§8 NFR-REPRO** — "all exports are stamped
   with provenance and parameters"; **§5.4** — the subset invariant; **§7.5** — the curation
   filter; **§7.10** — `molecule_key` non-uniqueness.
-- **ADR-0001** — provenance-first project file.
-- **ADR-0002** — the `.tether` project file is an SMD superset; round-trip is a data-model property.
+- **ADR-0001** — provenance-first project store.
+- **ADR-0002** — the `.tether` store is an SMD superset; round-trip is a data-model property.
 - **ADR-0005** — the M0 schema freeze (additive-only), which the subset export honors.
 - **ADR-0008** — the Deep-LASI → Tether correction-factor remap (β→α, α→δ, γ→γ).
-- **ADR-0016** — the extraction trace layout: zero-pad-to-max-`T` traces and the
+- **ADR-0016** — the extraction trace-store layout: zero-pad-to-max-`T` traces and the
   `molecule_key` content hash.
-- **ADR-0024** — the `/idealization/{model}` layout a subset carries.
+- **ADR-0024** — the `/idealization/{model}` store layout a subset carries.
 - **ADR-0044** — `matplotlib-base` as the static vector plot-export backend.
 - [Legacy Deep-LASI import](../io/legacy-import.md) — the input side of the same story.
 - [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) — the SMD

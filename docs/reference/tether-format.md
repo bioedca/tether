@@ -304,7 +304,7 @@ rewrites `condition_id`.
 what extraction and analysis-only import write *before anyone has looked*: it means
 the photobleach detector has not run for that row, not that it ran and found nothing.
 After `compute_photobleach` (`src/tether/project/photobleach.py`) a channel that does
-**not** bleach within the trace is recorded as `frame_range[1]` — the analysis-window end — so
+**not** bleach within the trace is recorded as `frame_range[1]` — the trace end — so
 the comparison you want is against `frame_range`, never against `-1`. (`-1` also
 survives on a row with no valid native frames, which the detector skips.) On a real
 40-frame store, one bleaching and two non-bleaching molecules read
