@@ -270,7 +270,7 @@ def test_quality_record_matches_the_map(bead_image: np.ndarray) -> None:
     assert np.all(residuals >= 0)
     # The RMS residual is the RMS of the per-pair residuals, and the gate's value.
     assert quality.rms_residual == pytest.approx(float(np.sqrt(np.mean(residuals**2))), abs=1e-12)
-    assert quality.rms_residual == pytest.approx(reg_map.rms_residual, abs=1e-12)
+    assert quality.rms_residual == reg_map.rms_residual  # the same computation, exactly
     assert 0.0 < quality.coverage <= 1.0
     assert reg_map.provenance["map_quality"] == quality.to_dict()
 

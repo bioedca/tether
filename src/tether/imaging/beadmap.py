@@ -54,6 +54,7 @@ from tether.imaging.register import (
     estimate_similarity_prealign,
     estimate_translation_prealign,
     pair_control_points,
+    point_rms,
 )
 from tether.imaging.split import ChannelGeometry, split_channels
 
@@ -267,8 +268,11 @@ def map_quality(
     height, width = (int(v) for v in field_shape)
     if height < 1 or width < 1:
         raise ValueError(f"field_shape must be positive, got {field_shape}")
-    residuals = np.sqrt(np.sum((reg_map.apply_reference_to_moving(ref) - mov) ** 2, axis=1))
-    rms = float(np.sqrt(np.mean(residuals**2))) if len(residuals) else float("nan")
+    mapped = reg_map.apply_reference_to_moving(ref)
+    residuals = np.sqrt(np.sum((mapped - mov) ** 2, axis=1))
+    # The same computation the fit's RMS gate uses, so the two agree to the bit
+    # (re-deriving it from the rounded per-pair residuals can differ by one ulp).
+    rms = point_rms(mapped, mov) if len(residuals) else float("nan")
     return MapQuality(
         rms_residual=rms,
         n_pairs=len(ref),
