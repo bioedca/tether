@@ -55,16 +55,30 @@ def _codemeta() -> dict:
 
 def _cff_authors(cff: dict) -> list[tuple]:
     return [
-        (a["name"],) if "name" in a else (a["given-names"], a["family-names"], a.get("orcid"))
+        (a["name"], a.get("email"))
+        if "name" in a
+        else (
+            a["given-names"],
+            a["family-names"],
+            a.get("orcid"),
+            a.get("email"),
+            a.get("affiliation"),
+        )
         for a in cff.get("authors") or []
     ]
 
 
 def _codemeta_authors(cm: dict) -> list[tuple]:
     return [
-        (a["name"],)
+        (a["name"], a.get("email"))
         if a.get("@type") == "Organization"
-        else (a.get("givenName"), a.get("familyName"), a.get("@id"))
+        else (
+            a.get("givenName"),
+            a.get("familyName"),
+            a.get("@id"),
+            a.get("email"),
+            (a.get("affiliation") or {}).get("name"),
+        )
         for a in cm.get("author") or []
     ]
 
@@ -128,10 +142,25 @@ def test_a_changed_shared_field_is_caught(field: str, value: object) -> None:
     assert _mismatches(cff, _codemeta()) == [field]
 
 
-def test_a_changed_orcid_is_caught() -> None:
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("orcid", "https://orcid.org/0000-0000-0000-0000"),
+        ("email", "someone@example.org"),
+        ("affiliation", "Another Lab"),
+    ],
+)
+def test_a_changed_person_field_is_caught(key: str, value: str) -> None:
     cff = copy.deepcopy(_cff())
     person = next(a for a in cff["authors"] if "orcid" in a)
-    person["orcid"] = "https://orcid.org/0000-0000-0000-0000"
+    person[key] = value
+    assert _mismatches(cff, _codemeta()) == ["authors"]
+
+
+def test_a_changed_entity_email_is_caught() -> None:
+    cff = copy.deepcopy(_cff())
+    entity = next(a for a in cff["authors"] if "name" in a)
+    entity["email"] = "someone@example.org"
     assert _mismatches(cff, _codemeta()) == ["authors"]
 
 
