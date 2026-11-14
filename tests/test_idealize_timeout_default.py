@@ -17,9 +17,11 @@ Three checks, because each is satisfiable while the defect returns by another ro
   ``DEFAULT_SIDECAR_TIMEOUT``, not a number. A value check cannot see the difference
   between a name and a literal that currently happens to agree, which is precisely the
   state this issue describes.
-* **AST, per module** — ``1800`` appears across these modules exactly once, in the
-  canonical assignment. This catches what an enumeration cannot: a *new* surface, or a
-  call site, that quietly writes the number again.
+* **AST, per module** — no ``timeout`` in these modules is written as a number: not a
+  parameter default, not a call keyword. This catches what an enumeration cannot: a *new*
+  surface, or a call site, that quietly writes a number instead of naming a constant. It
+  keys on the *context* (#324), so an unrelated ``1800`` is not part of the contract,
+  while a ``timeout=900.0`` is — a second number is a second source of truth too.
 * **Runtime** — every surface's live default is the same object as the canonical
   constant, so a name that resolved to some *other* module's constant would still fail.
 
@@ -124,27 +126,103 @@ def test_the_default_is_spelled_as_the_constant(module: str, func: str, param: s
     assert node.id == CONSTANT
 
 
+def _is_number(node: ast.expr | None) -> bool:
+    """``node`` is a numeric literal, sign included (``1800.0``, ``-1``), never a bool."""
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.UAdd | ast.USub):
+        node = node.operand
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, int | float)
+        and not isinstance(node.value, bool)
+    )
+
+
+def _timeout_literals(tree: ast.AST) -> list[tuple[int, str]]:
+    """Every place ``tree`` writes a number where a ``timeout`` is expected.
+
+    Two contexts, the two #222 is about: a parameter *named* ``timeout`` whose default is
+    a numeric literal, on any ``def``, ``async def`` or ``lambda``; and a call keyword
+    ``timeout=<numeric literal>``. Each hit is ``(line, description)``. The value is
+    never consulted, so neither an unrelated ``1800`` elsewhere nor a ``timeout`` that
+    names a constant — this one or ``DEFAULT_OPEN_CHECK_TIMEOUT`` — is reported.
+    """
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            args = node.args
+            positional = args.posonlyargs + args.args
+            defaulted = positional[len(positional) - len(args.defaults) :]
+            pairs = list(zip(defaulted, args.defaults, strict=True))
+            pairs += list(zip(args.kwonlyargs, args.kw_defaults, strict=True))
+            owner = getattr(node, "name", "<lambda>")
+            for arg, default in pairs:
+                if arg.arg == "timeout" and _is_number(default):
+                    assert default is not None  # narrowed by _is_number
+                    hits.append(
+                        (default.lineno, f"{owner}() defaults timeout to {ast.unparse(default)}")
+                    )
+        elif isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg == "timeout" and _is_number(keyword.value):
+                    hits.append(
+                        (
+                            keyword.value.lineno,
+                            f"a call passes timeout={ast.unparse(keyword.value)}",
+                        )
+                    )
+    return sorted(hits)
+
+
 @pytest.mark.parametrize("module", sorted({module for module, _, _ in TIMEOUT_SURFACES}))
-def test_the_only_timeout_literal_is_the_canonical_assignment(module: str) -> None:
-    """``1800`` appears in these modules exactly once, as the constant's own value.
+def test_no_timeout_is_written_as_a_number(module: str) -> None:
+    """No ``timeout`` default or ``timeout=`` keyword in these modules is a number.
 
     The parametrized checks above pin the surfaces this issue enumerated. This one is
     the sweep behind them: a *new* surface that quietly repeats the number, or a stray
     ``timeout=1800.0`` left in a call site, fails here even though no listed default
     changed. That is the failure mode #222 describes, and enumerating known surfaces
     cannot catch it.
+
+    It reads the context rather than the value (#324): the canonical assignment and any
+    unrelated ``1800`` are not timeouts in this sense and pass, while a timeout written
+    as *any* number fails, because a second number is a second source of truth.
     """
-    tree = _module_source(module)
-    literals = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant) and node.value in (1800, 1800.0)
-    ]
-    expected = 1 if module == CANONICAL_MODULE else 0
-    assert len(literals) == expected, (
-        f"{module} spells the idealization timeout as a literal on "
-        f"line(s) {[node.lineno for node in literals]} — use {CONSTANT} (#222)"
+    hits = _timeout_literals(_module_source(module))
+    assert not hits, (
+        f"{module} writes a timeout as a number — "
+        + "; ".join(f"line {line}: {what}" for line, what in hits)
+        + f". Name a module-level constant instead: {CONSTANT} if this is the "
+        "idealization timeout (#222), or a constant of its own, as "
+        "DEFAULT_OPEN_CHECK_TIMEOUT is for the open-check"
     )
+
+
+def test_the_sweep_reads_context_not_the_number() -> None:
+    """The sweep's own contract, on source written for the purpose (#324).
+
+    The modules it guards pass it today, so they cannot show that it would *fail* on a
+    regression, nor that it ignores an unrelated ``1800``. These snippets do both.
+    """
+    unrelated = "MAX_FRAMES = 1800\nwindow = [0] * 1800\nlimit = max(1800.0, 2)\n"
+    named = (
+        "def run(*, timeout=DEFAULT_SIDECAR_TIMEOUT): ...\n"
+        "def check(timeout=DEFAULT_OPEN_CHECK_TIMEOUT): ...\n"
+        "run(timeout=timeout)\n"
+        "check(timeout=None)\n"
+        "def lock(timeout_s=30.0): ...\n"
+    )
+    assert _timeout_literals(ast.parse(unrelated)) == []
+    assert _timeout_literals(ast.parse(named)) == []
+
+    surface = "def fit(x, *, timeout: float | None = 1800.0): ...\n"
+    call = "fit(x, timeout=1800.0)\n"
+    other = "def probe(timeout=900.0): ...\nprobe(timeout=-1)\n"
+    assert _timeout_literals(ast.parse(surface)) == [(1, "fit() defaults timeout to 1800.0")]
+    assert _timeout_literals(ast.parse(call)) == [(1, "a call passes timeout=1800.0")]
+    assert _timeout_literals(ast.parse(other)) == [
+        (1, "probe() defaults timeout to 900.0"),
+        (2, "a call passes timeout=-1"),
+    ]
 
 
 @pytest.mark.parametrize(("module", "func", "param"), TIMEOUT_SURFACES)
