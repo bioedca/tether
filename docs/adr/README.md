@@ -134,6 +134,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0087](0087-mash-fret-is-a-reference-for-corrected-fret.md) | MASH-FRET's published project files are a reference for leakage and corrected FRET | accepted | §7.2 (corrections), §7.4 (FRET efficiency), §2.2 (what the tests can use), §8 NFR-VALID |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
 | [0090](0090-measured-vbfret-paths-are-a-dwell-reference.md) | Measured traces with a stored vbFRET path are a dwell and transition reference | accepted | §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP) |
+| [0092](0092-dirichlet-rate-bounds-from-the-count-matrix.md) | Rate constants with Dirichlet bounds come from the count matrix, as in Campos-Chavez et al. 2024 | accepted | §7.7 FR-ANALYZE, §8 NFR-VALID, NFR-REPRO |
 
 <!-- gen:adr-index end -->
 

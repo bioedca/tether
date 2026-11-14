@@ -113,6 +113,14 @@ Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
   and the archetypal 2-state level's rates are checked against that dataset's
   reported inter-tool spread (``schema/kinsoft_reference.json``) — an **advisory**
   gate [Götz2022].
+
+Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
+
+- :func:`~tether.analysis.rate_bounds.dirichlet_rate_bounds` /
+  :func:`~tether.analysis.rate_bounds.model_rate_bounds` — the rate constants of an
+  HMM's un-normalized transition count matrix with their Dirichlet lower and upper
+  bounds, the method of the Source Data of [CamposChavez2024], from an array or from a
+  stored idealization model (the result carries its provenance stamp).
 """
 
 from __future__ import annotations
@@ -218,6 +226,11 @@ from tether.analysis.query import (
     MoleculeMatch,
     query_molecules,
 )
+from tether.analysis.rate_bounds import (
+    RateBounds,
+    dirichlet_rate_bounds,
+    model_rate_bounds,
+)
 from tether.analysis.state_number import (
     DEFAULT_STATE_NUMBER_LOW,
     StateNumberCounts,
@@ -303,6 +316,7 @@ __all__ = [
     "MoleculeMatch",
     "PerConditionHistograms",
     "PopulationAnticorrelation",
+    "RateBounds",
     "RawFretCloud",
     "StateDwells",
     "StateNumberCounts",
@@ -315,6 +329,7 @@ __all__ = [
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
+    "dirichlet_rate_bounds",
     "empirical_transition_probability",
     "evaluate_kinsoft_level",
     "find_anticorrelation_events",
@@ -323,6 +338,7 @@ __all__ = [
     "k_rmse_elbow",
     "load_kinsoft_reference",
     "model_gaussian_overlay",
+    "model_rate_bounds",
     "occupied_state_count",
     "per_condition_apparent_e_histograms",
     "pooled_exit_rates",
