@@ -75,6 +75,9 @@ same way before Tether closes.
 
 Each decision is written into the project as you make it; there is no save step.
 
+When a button has the keyboard focus, **Space** and **Enter** push that button. They do not
+accept the molecule or jump to it. Click the molecule list to curate with the keys again.
+
 > The number keys, the analysis-window keys and **P** answer with `unavailable` in the status
 > bar and change nothing in the project. Categories, window edits and photobleach detection
 > are not saved from the curation view.
@@ -83,7 +86,8 @@ Each decision is written into the project as you make it; there is no save step.
 
 - To accept a molecule you rejected, select it and press **Space**.
 - To return a rejected molecule to *uncurated*, select it and click **Un-reject selected** in
-  the panel on the left. The status bar reads `Un-rejected` and the ID. On a molecule that is
+  the panel on the left, or move the focus to it with **Tab** and press **Space** or **Enter**.
+  The status bar reads `Un-rejected` and the ID. On a molecule that is
   not rejected it reads `Un-reject unavailable: selected molecule is not rejected` and changes
   nothing.
 

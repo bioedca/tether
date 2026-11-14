@@ -517,6 +517,15 @@ class CurationEventFilter:
     focus widget (which stays the text field throughout propagation) keeps the
     category field fully exempt, so editing text never fires a curation action.
 
+    A focused push button keeps the keys it owns natively — ``Space``, ``Enter``
+    and ``Return`` (#832) — so the start-page buttons and **Un-reject selected**
+    activate from the keyboard. ``Space`` is passed through to the button. A
+    ``QPushButton`` outside a dialog is not *auto-default*, so Qt itself ignores
+    ``Enter``/``Return`` there; the filter therefore clicks the button and consumes
+    the key, as a dialog's auto-default button does. Every other curation key
+    (``←``/``→``, ``Backspace``, the category digits …) still curates with a button
+    focused.
+
     Install with :meth:`install` (defaults to the running ``QApplication``) and
     tear down with :meth:`remove` — important under pytest-qt, whose
     ``QApplication`` is shared across the session.
@@ -556,6 +565,11 @@ class CurationEventFilter:
         )
         self._key_press = QtCore.QEvent.Type.KeyPress
         self._key_release = QtCore.QEvent.Type.KeyRelease
+        # The keys a focused push button owns natively (#832): Space presses it,
+        # Enter/Return activates it.
+        key = QtCore.Qt.Key
+        self._space_key = _as_int(key.Key_Space)
+        self._activate_keys = frozenset({_as_int(key.Key_Return), _as_int(key.Key_Enter)})
 
         # Lazily define the QObject subclass so the module stays Qt-free to import.
         outer = self
@@ -659,10 +673,29 @@ class CurationEventFilter:
         if is_text_entry(watched) or is_text_entry(focus):
             return False
         modifiers = _as_int(event.modifiers()) & self._significant_mask
-        command = self._keymap.command_for(_as_int(event.key()), modifiers)
+        key = _as_int(event.key())
+        # A focused push button keeps Space and Enter/Return (#832). As with the
+        # text exemption, check the target and the focused widget.
+        button = self._push_button(focus) or self._push_button(watched)
+        if button is not None and not modifiers:
+            if key == self._space_key:
+                return False  # QAbstractButton presses on Space, clicks on release
+            if key in self._activate_keys:
+                if not button.autoDefault() and button.isEnabled():
+                    # Qt ignores Enter on a non-auto-default button; click it here.
+                    # Record the key first: a click that opens a modal dialog runs
+                    # its event loop inside this call, and the release must not
+                    # reach that dialog.
+                    self._consumed_press_keys.add(key)
+                    if not event.isAutoRepeat():
+                        button.click()
+                    return True
+                # An auto-default button clicks itself on Enter; a disabled one
+                # takes no action. Neither curates.
+                return False
+        command = self._keymap.command_for(key, modifiers)
         if command is None:
             return False  # unmapped: let the native widget handle it
-        key = _as_int(event.key())
         # One physical hold must not append repeated accept/reject provenance rows.
         # Navigation still repeats so a curator can keep moving through the list.
         if event.isAutoRepeat() and command.action in {
@@ -678,6 +711,12 @@ class CurationEventFilter:
             self._focus_dock.setFocus()
         self._consumed_press_keys.add(key)
         return True
+
+    def _push_button(self, widget: Any) -> Any:
+        """``widget`` if it is a ``QPushButton``, else ``None`` (#832)."""
+        if isinstance(widget, self._qtwidgets.QPushButton):
+            return widget
+        return None
 
     def _current_focus(self) -> Any:
         """The application's focused widget (``None`` when nothing has focus)."""
