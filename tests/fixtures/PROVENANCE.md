@@ -154,8 +154,13 @@ crop's local `[x, y]` frame (`gt_scale` 1.00114, `gt_rotation_deg` +0.0382,
 `gt_translation` ≈ `[-7.59, -1.91]`), obtained by sampling the decoded `.tmap`
 polynomial on a grid and least-squares (Umeyama) fitting a similarity (grid fit
 residual 0.192 px); also `donor_crop_offset` `[0, 128]` and `acceptor_crop_offset`
-`[256, 128]` (`[col, row]`). The estimator recovers this on the real pair to
-Δscale 0.0002, Δrotation 0.04°, Δtranslation 0.33 px.
+`[256, 128]` (`[col, row]`). Since ADR-0089 (#780) the estimator gives, on the
+real pair, Δscale 0.0033, Δrotation 0.25°, Δtranslation 0.77 px. The crop holds
+14 bead pairs, whose own similarity fit has a bootstrap scale SD of 0.0023 (seed 0,
+300 resamples; locked by `test_real_crop_scale_uncertainty_is_above_the_old_limit`
+in `tests/test_register_prealign.py`), so it checks the scale only to 0.005; the earlier "Δscale 0.0002" was the gap between the
+old estimate 1.00135, one 0.0014 log-polar grid step above 1.0, and the ground
+truth, not a measurement (ADR-0089).
 
 **Validation scope.** `map.tif` is a contrast-stretched, partly-saturated display
 export — its FFT magnitude is DC-dominated, so it can only validate the
