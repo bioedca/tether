@@ -374,7 +374,9 @@ Deep-LASI  — Wanninger, Asadiatouei, Bohlen, Salem, Tinnefeld, Ploetz & Lamb
 MASH-FRET  — Börner, Kowerko, Hadzic, König, Ritter & Sigel (2018),
   PLoS ONE 13(4):e0195277, doi:10.1371/journal.pone.0195277.
   Consulted as a simulation / methodology reference (PRD Appendix references);
-  no MASH-FRET source is included.
+  no MASH-FRET source is included. Its simulator (v1.3.6) made the simulated
+  videos and truth under tests/fixtures/reference/mash-fret/ (#714, ADR-0088);
+  those files are outputs of a run, not MASH-FRET source.
 
 SMD (Single-Molecule Dataset) format — Greenfeld, van de Meent, Pavlichin,
   Mabuchi, Wiggins, Gonzalez & Herschlag (2015), BMC Bioinformatics 16:3,
