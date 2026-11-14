@@ -1,3 +1,7 @@
+---
+description: "Run tether extract and tether batch without the window: script the pipeline, process movies unattended or repeat an extraction from recorded settings."
+---
+
 # Command line
 
 **Who this page is for.** Anyone driving Tether without the window: scripting the

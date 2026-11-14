@@ -1,3 +1,7 @@
+---
+description: "For the maintainer: run the checks that need private laboratory data on the reference workstation, and read their results."
+---
+
 # Running the private-data checks
 
 **Who this page is for.** The maintainer, who has access to the reference workstation and to the

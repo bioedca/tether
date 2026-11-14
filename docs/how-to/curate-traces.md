@@ -1,3 +1,7 @@
+---
+description: "Look at each extracted trace in the Tether window and mark the molecule accepted or rejected for your analysis."
+---
+
 # Curate traces by accepting and rejecting molecules
 
 ## Who this page is for

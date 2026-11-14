@@ -166,13 +166,14 @@ jobs:
           python -m pip install "pytest==9.1.1"
           python -m pytest -v tests/test_docs_validation_numbers.py -k python_markdown
       # The built site may load no font, image, stylesheet or script from another host, so the
-      # "no third-party asset requests" sentence of docs/privacy.md stays true (#674). The 3-OS
-      # matrix has no MkDocs and so no built site; it runs the source checks of the same file
-      # and skips the two built-site tests, which TETHER_BUILT_SITE turns on here.
-      - name: Built site loads nothing from another host
+      # "no third-party asset requests" sentence of docs/privacy.md stays true (#674), and each
+      # page head carries its description and the citation metadata of CITATION.cff (#599). The
+      # 3-OS matrix has no MkDocs and so no built site; it runs the source checks of the same
+      # files and skips the built-site tests, which TETHER_BUILT_SITE turns on here.
+      - name: Built site loads nothing from another host and carries the citation metadata
         env:
           TETHER_BUILT_SITE: site
-        run: python -m pytest -v tests/test_docs_site_brand.py
+        run: python -m pytest -v tests/test_docs_site_brand.py tests/test_docs_citation_head.py
       # The rendered site, so a reviewer can open the page a docs PR changes instead of
       # inferring it from markdown (#183). `--strict` only sees links it can resolve, so
       # the rendered HTML is the one place an unresolved `[text][key]` is visible as text.

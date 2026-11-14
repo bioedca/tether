@@ -1,3 +1,7 @@
+---
+description: "Terms used across the Tether documentation, as this codebase uses them, with the module that defines each term and a link to more detail."
+---
+
 # Glossary
 
 **Who this page is for.** A bench scientist or new contributor reading the rest of this

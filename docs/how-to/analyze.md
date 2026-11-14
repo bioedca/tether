@@ -1,3 +1,7 @@
+---
+description: "Draw a FRET-efficiency histogram, a transition-density plot and dwell-time survival curves from an idealized project, and save each as a figure."
+---
+
 # Draw a FRET histogram, a TDP and dwell-time survival plots
 
 ## Who this page is for

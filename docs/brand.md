@@ -1,3 +1,7 @@
+---
+description: "How to show the Tether name and mark on a slide, a poster, a paper or a web page, and where to get the files."
+---
+
 # Brand
 
 **Who this page is for.** Anyone who shows the Tether name or mark: on a slide, a poster, a

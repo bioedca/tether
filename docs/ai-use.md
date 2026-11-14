@@ -1,3 +1,7 @@
+---
+description: "How AI tools draft the Tether documentation and source code, who directs and reviews that work, and the limits that apply."
+---
+
 # How AI tools are used in Tether
 
 **Who this page is for.** Anyone who reads the Tether documentation or runs the software. You

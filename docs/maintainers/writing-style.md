@@ -1,3 +1,7 @@
+---
+description: "The writing rules for Tether documentation pages, derived from ASD-STE100, with one number for each rule so that a reviewer can cite it."
+---
+
 # Writing style for documentation
 
 **Who this page is for.** Anyone who writes or reviews a Tether documentation page. It assumes

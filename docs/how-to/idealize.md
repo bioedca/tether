@@ -1,3 +1,7 @@
+---
+description: "Fit a hidden Markov model to the traces of a project to get the FRET states and the state of each molecule at each frame."
+---
+
 # Idealize traces into FRET states
 
 ## Who this page is for
