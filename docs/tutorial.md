@@ -29,7 +29,10 @@ folder, then download [tutorial_movie.tif](tutorial/data/tutorial_movie.tif) int
 
 The file is 157,674 bytes. It is a short synthetic movie in the same layout as a real
 dual-view acquisition: 24 frames of 40 × 80 pixels, the donor channel in the left half and
-the acceptor channel in the right half, with three molecules in each half.
+the acceptor channel in the right half, with three molecules in each half. The movie shows no
+real sample. Tether's own script
+[`scripts/make_tutorial_movie.py`](https://github.com/bioedca/tether/blob/main/scripts/make_tutorial_movie.py)
+made it, and you can reuse it under the same license as Tether, GPL-3.0-or-later.
 
 In the terminal, move into that folder:
 

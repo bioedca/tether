@@ -15,7 +15,8 @@ version ran in. The record is not complete: some steps and some settings are nev
 and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
 [project store reference](reference/tether-format.md) documents every group and dataset in a
 `.tether` file, and the [exports reference](reference/exports.md) documents every column of
-every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis).
+every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis). Which
+files to deposit with a paper is on [Share and deposit a dataset](how-to/share-a-dataset.md).
 
 ## What is recorded
 

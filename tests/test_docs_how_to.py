@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The six task guides under ``docs/how-to/`` keep the shape and the commands #177 set.
+"""The seven task guides under ``docs/how-to/`` keep the shape and the commands #177 set.
 
 The how-to layer is one page per user goal, so a reader who knows what they want lands on
 instructions rather than reference. These tests pin what makes those pages usable and true:
 
-* ``docs/how-to/`` holds exactly the six pages, each in the nav under ``Using Tether``;
+* ``docs/how-to/`` holds exactly the seven pages, each in the nav under ``Using Tether``;
 * each opens with a task H1, then ``## Who this page is for``, then ``## Before you start``;
 * none carries a Markdown table, so no flag enumeration creeps in (reference pages own those);
 * every ``tether …`` command in a shell fence parses with the real argparse parser, and no
@@ -15,7 +15,7 @@ instructions rather than reference. These tests pin what makes those pages usabl
   the keys of a ``dict(...)`` it spreads with ``**``.
 
 Imports are already checked by ``tests/test_docs_examples.py``, and so are the calls of every
-other docs page (#749); this module pins the six pages, their commands and the calls they make.
+other docs page (#749); this module pins the seven pages, their commands and the calls they make.
 The call reader is shared, in ``tests/_docs_source.py``.
 Nothing under ``tether`` is imported except :mod:`tether.cli`, whose ``build_parser`` needs only
 ``argparse``. Signatures are read from source with :mod:`ast`, so the default matrix runs this
@@ -48,6 +48,7 @@ PAGES = (
     "idealize.md",
     "analyze.md",
     "export-results.md",
+    "share-a-dataset.md",
 )
 
 # Python-Markdown's fenced_code matches fences at column zero only, so this is what renders.
@@ -75,7 +76,7 @@ def _nav_pages(entries: object) -> list[str]:
     return [entries] if isinstance(entries, str) else []
 
 
-def test_the_folder_holds_exactly_the_six_pages() -> None:
+def test_the_folder_holds_exactly_the_seven_pages() -> None:
     assert sorted(p.name for p in HOW_TO.iterdir()) == sorted(PAGES)
 
 
