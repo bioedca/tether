@@ -561,6 +561,26 @@ class Project:
         self._assert_writable()
         return movie_metadata.confirm_frame_time(self.path, movie_id)
 
+    def update_movie_metadata(
+        self,
+        movie_id: str,
+        *,
+        frame_time: float | None = None,
+        pixel_size_um: float | None = None,
+        confirm_frame_time: bool = False,
+    ) -> MovieMetadataRecord:
+        """Apply several metadata changes in one all-or-nothing write. Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.update_movie_metadata(
+            self.path,
+            movie_id,
+            frame_time=frame_time,
+            pixel_size_um=pixel_size_um,
+            confirm_frame_time=confirm_frame_time,
+        )
+
     def set_pixel_size(self, movie_id: str, micrometres: float) -> MovieMetadataRecord:
         """Give a movie's pixel size in µm (origin ``user``). Refuses a locked file."""
         from tether.project import movie_metadata

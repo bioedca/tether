@@ -221,3 +221,19 @@ def test_cli_writes_nothing_when_any_requested_change_is_refused(tmp_path, capsy
     assert main(["metadata", str(out), "--frame-time", "0.2", "--pixel-size", "-1"]) == 1
     assert "finite positive" in capsys.readouterr().err
     assert _only(out) == before  # the valid frame time was not written either
+
+
+def test_one_update_applies_every_change_or_none(tmp_path) -> None:
+    out = tmp_path / "k.tether"
+    extract_movie(_make_movie(tmp_path), out, options=_OPTIONS)
+    movie_id = _only(out).movie_id
+
+    with pytest.raises(ValueError, match="separate action"):
+        mm.update_movie_metadata(out, movie_id, frame_time=0.1, confirm_frame_time=True)
+    with pytest.raises(ValueError, match="no frame time to confirm"):
+        mm.update_movie_metadata(out, movie_id, pixel_size_um=0.16, confirm_frame_time=True)
+    assert _only(out).pixel_size_origin == "unknown"  # the refused call wrote nothing
+
+    record = Project.open(out).update_movie_metadata(movie_id, frame_time=0.1, pixel_size_um=0.16)
+    assert (record.frame_time_origin, record.pixel_size_origin) == ("user", "user")
+    assert _only(out) == record

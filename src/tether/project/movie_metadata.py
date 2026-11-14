@@ -41,6 +41,7 @@ __all__ = [
     "read_movie_metadata",
     "set_frame_time",
     "set_pixel_size",
+    "update_movie_metadata",
     "write_metadata_record",
 ]
 
@@ -146,14 +147,50 @@ def read_movie_metadata(path: str | Path) -> dict[str, MovieMetadataRecord]:
         return _read_all(f)
 
 
-def _update(path: str | Path, movie_id: str, **changes: object) -> MovieMetadataRecord:
+def update_movie_metadata(
+    path: str | Path,
+    movie_id: str,
+    *,
+    frame_time: float | None = None,
+    pixel_size_um: float | None = None,
+    confirm_frame_time: bool = False,
+) -> MovieMetadataRecord:
+    """Apply a user's changes to one movie in a single write; all or nothing.
+
+    ``frame_time`` (seconds) and ``pixel_size_um`` record a given value (origin
+    ``user``); a given frame time is never verified. ``confirm_frame_time`` verifies
+    the frame time the store holds when the file is opened, so it cannot be combined
+    with ``frame_time`` (:class:`ValueError`): the confirmation is a separate action.
+    Every check runs inside the one read-write open, before anything is written, so
+    a refused call (:class:`KeyError` for an unknown movie, :class:`ValueError` for a
+    value that is not finite and positive or an unknown frame time) changes nothing.
+    """
     import h5py  # noqa: PLC0415
 
+    if confirm_frame_time and frame_time is not None:
+        raise ValueError("confirming a frame time is a separate action from giving one")
+    changes: dict[str, object] = {}
+    if frame_time is not None:
+        changes.update(
+            frame_time=positive_value(frame_time, "frame time"),
+            frame_time_origin=ORIGIN_USER,
+            frame_time_verified=False,
+        )
+    if pixel_size_um is not None:
+        changes.update(
+            pixel_size_um=positive_value(pixel_size_um, "pixel size"),
+            pixel_size_origin=ORIGIN_USER,
+        )
     with h5py.File(Path(path), "r+") as f:
         records = _read_all(f)
         if movie_id not in records:
             raise KeyError(f"no /movies row with movie_id {movie_id!r}")
-        record = replace(records[movie_id], **changes)
+        record = records[movie_id]
+        if confirm_frame_time:
+            if record.frame_time <= 0.0:
+                raise ValueError(f"movie {movie_id!r} has no frame time to confirm; give one first")
+            changes["frame_time_verified"] = True
+        record = replace(record, **changes)
         write_metadata_record(f, record)
     return record
 
@@ -164,10 +201,7 @@ def set_frame_time(path: str | Path, movie_id: str, seconds: float) -> MovieMeta
     The value replaces any earlier one, a file value included, and clears the
     verified flag: only :func:`confirm_frame_time` verifies a user's value.
     """
-    value = positive_value(seconds, "frame time")
-    return _update(
-        path, movie_id, frame_time=value, frame_time_origin=ORIGIN_USER, frame_time_verified=False
-    )
+    return update_movie_metadata(path, movie_id, frame_time=seconds)
 
 
 def confirm_frame_time(path: str | Path, movie_id: str) -> MovieMetadataRecord:
@@ -175,15 +209,9 @@ def confirm_frame_time(path: str | Path, movie_id: str) -> MovieMetadataRecord:
 
     Refuses (:class:`ValueError`) when the frame time is unknown.
     """
-    record = read_movie_metadata(path).get(movie_id)
-    if record is None:
-        raise KeyError(f"no /movies row with movie_id {movie_id!r}")
-    if record.frame_time <= 0.0:
-        raise ValueError(f"movie {movie_id!r} has no frame time to confirm; give one first")
-    return _update(path, movie_id, frame_time_verified=True)
+    return update_movie_metadata(path, movie_id, confirm_frame_time=True)
 
 
 def set_pixel_size(path: str | Path, movie_id: str, micrometres: float) -> MovieMetadataRecord:
     """Record a pixel size (µm per pixel) the user gives (origin ``user``)."""
-    value = positive_value(micrometres, "pixel size")
-    return _update(path, movie_id, pixel_size_um=value, pixel_size_origin=ORIGIN_USER)
+    return update_movie_metadata(path, movie_id, pixel_size_um=micrometres)

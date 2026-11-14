@@ -429,7 +429,6 @@ def _run_metadata(args: argparse.Namespace) -> int:
 
     from tether.project.core import Project
     from tether.project.lock import LockedError
-    from tether.project.movie_metadata import positive_value
 
     if args.confirm_frame_time and args.frame_time is not None:
         print(
@@ -450,22 +449,14 @@ def _run_metadata(args: argparse.Namespace) -> int:
                         f"the project has {len(records)} movies; name one with --movie"
                     )
                 (movie_id,) = records
-            # Check every requested change before the first write, so a refused
-            # command (exit 1) leaves the project as it was.
-            if movie_id not in records:
-                raise KeyError(f"no /movies row with movie_id {movie_id!r}")
-            if args.frame_time is not None:
-                positive_value(args.frame_time, "frame time")
-            if args.pixel_size is not None:
-                positive_value(args.pixel_size, "pixel size")
-            if args.confirm_frame_time and records[movie_id].frame_time <= 0.0:
-                raise ValueError(f"movie {movie_id!r} has no frame time to confirm; give one first")
-            if args.frame_time is not None:
-                project.set_frame_time(movie_id, args.frame_time)
-            if args.pixel_size is not None:
-                project.set_pixel_size(movie_id, args.pixel_size)
-            if args.confirm_frame_time:
-                project.confirm_frame_time(movie_id)
+            # One all-or-nothing write: a refused command (exit 1) leaves the
+            # project as it was.
+            project.update_movie_metadata(
+                movie_id,
+                frame_time=args.frame_time,
+                pixel_size_um=args.pixel_size,
+                confirm_frame_time=args.confirm_frame_time,
+            )
             records = project.movie_metadata()
     except (KeyError, ValueError, OSError, LockedError) as exc:
         print(f"tether metadata: {exc}", file=sys.stderr)
