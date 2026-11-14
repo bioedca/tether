@@ -114,9 +114,11 @@ nav:
 # (adr/README.md) is in the nav, and the individual records build and get their
 # links validated, but are kept out of the nav tree via `not_in_nav` — so
 # `mkdocs build --strict` stays green without ~50 nav leaves and without silencing
-# genuine link warnings.
+# genuine link warnings. The workflow design under design/ (#891) is the PRD's companion: its
+# README, DOT sources and SVG drawings are read on GitHub beside the PRD, not on the site.
 exclude_docs: |
   PRD.md
+  design/
 
 not_in_nav: |
   adr/0*.md

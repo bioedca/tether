@@ -1,0 +1,65 @@
+digraph Tether {
+graph [layout=neato, rankdir=TB, overlap=true, compound=true, newrank=true, bgcolor="white", fontname="Arial", nodesep=0.65, ranksep=0.85, pad=0.20, splines=ortho, outputorder=edgesfirst];
+node [fontname="Arial", fontsize=13, color="#263D4C", fontcolor="#122937", penwidth=1.2, margin="0.16,0.11", width=2.45, height=0.58];
+edge [fontname="Arial", fontsize=10, color="#364D5C", fontcolor="#263F4E", penwidth=1.25, arrowsize=0.7];
+files [label="Movie input\nTIFF / ND2 / CZI / SIF / SIRA / AVI\n[N]", shape=note, style=filled, fillcolor="#F5F1FA", pos="0.0,0.0!", pin=true];
+normalize [label="Pair channels; assign D/A\nConvert, crop, rotate, flip, translate\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="0.0,-1.9!", pin=true];
+valid [label="Geometry / pixels /\nchannel pairing valid?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="0.0,-3.8!", pin=true];
+fix [label="Repair input or choose adapter\nSupply missing metadata\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="0.0,-5.699999999999999!", pin=true];
+reuse [label="Saved map matches\nchannel geometry?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="5.8,0.0!", pin=true];
+mapinput [label="Calibration source\nImage or daily bead-slide video\n[N]", shape=note, style=filled, fillcolor="#F5F1FA", pos="5.8,-1.9!", pin=true];
+project [label="Video: choose frames + max projection\nImage: use supplied calibration view\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-3.8!", pin=true];
+fit [label="Detect calibration spots; pair; fit\nReview overlay + residuals\n[C/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-5.699999999999999!", pin=true];
+accept [label="Map accepted\nwith recorded QC?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="5.8,-7.6!", pin=true];
+method [label="Detection image + method\nContrast / threshold preview\n[C/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,0.0!", pin=true];
+policy [label="Colocalization\npolicy?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="11.6,-1.9!", pin=true];
+strictpair [label="Require detected partner in both\nDeep-LASI-compatible default\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-3.8!", pin=true];
+donor [label="Read acceptor at mapped donor position\nIndependent acceptor detection\noptional\n[C]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-5.699999999999999!", pin=true];
+aperture [label="Set apertures + background\nInspect overlap / edges; preview\ntraces\n[C/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-7.6!", pin=true];
+integrate [label="Integrate selected movies\nApply map to source coordinates\n[C/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-9.5!", pin=true];
+raw [label="Immutable source registry\nOriginals + derived files + recipes\n[C/N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="17.4,0.0!", pin=true];
+mapfile [label="Separate reusable map file\nSource IDs + geometry + transform\n[C/N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="17.4,-1.9!", pin=true];
+job [label="Checkpointed extraction job\nProgress / cancel / retry failed movie\n[C/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="17.4,-3.8!", pin=true];
+trace [label="New trace generation\nIntensities + coordinates + provenance\n[C]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="17.4,-5.699999999999999!", pin=true];
+curation [label="Enter apparent E_FRET curation", shape=oval, style=filled, fillcolor="#263D4C", fontcolor=white, pos="17.4,-7.6!", pin=true];
+subgraph cluster_0 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_0 [label="IMPORT", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="0.0,1.15!", pin=true];
+files;normalize;valid;fix;
+}
+subgraph cluster_1 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_1 [label="MAPPING", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="5.8,1.15!", pin=true];
+reuse;mapinput;project;fit;accept;
+}
+subgraph cluster_2 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_2 [label="EXTRACTION", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="11.6,1.15!", pin=true];
+method;policy;strictpair;donor;aperture;integrate;
+}
+subgraph cluster_3 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_3 [label="PERSISTENCE", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="17.4,1.15!", pin=true];
+raw;mapfile;job;trace;curation;
+}
+files -> normalize [];
+normalize -> valid [];
+valid -> fix [tooltip="No", xlabel="No"];
+fix -> normalize [tooltip="Retry", xlabel="Retry", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+normalize -> raw [tooltip="Register originals / recipe", xlabel="Register originals /\nrecipe", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+valid -> reuse [tooltip="Yes", xlabel="Yes"];
+reuse -> mapinput [tooltip="No", xlabel="No"];
+mapinput -> project [];
+project -> fit [];
+fit -> accept [];
+accept -> fit [tooltip="No: revise", xlabel="No: revise", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+accept -> mapfile [tooltip="Yes", xlabel="Yes", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+mapfile -> method [tooltip="Read transform", xlabel="Read transform", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+reuse -> method [tooltip="Yes", xlabel="Yes"];
+method -> policy [];
+policy -> strictpair [tooltip="Both detected", xlabel="Both detected"];
+policy -> donor [tooltip="Donor-anchored", xlabel="Donor-anchored"];
+strictpair -> aperture [];
+donor -> aperture [];
+aperture -> integrate [];
+integrate -> job [tooltip="Run job", xlabel="Run job"];
+job -> trace [tooltip="Completed", xlabel="Completed", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+job -> integrate [tooltip="Failure: retry / cancel", xlabel="Failure: retry / cancel", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+trace -> curation [];
+}
