@@ -769,8 +769,10 @@ reproduce them.
 
 **What it checks.** Tether's leakage correction and γ-corrected FRET against MASH-FRET's own
 results, in the MASH-FRET project files that authors of MASH-FRET published with their group IIB
-intron study (Zenodo doi `10.5281/zenodo.24104528`, CC-BY-4.0, written by MASH-FRET at commit
-`1a1f465`). [ADR-0087](adr/0087-mash-fret-is-a-reference-for-corrected-fret.md) records the
+intron study (Zenodo doi `10.5281/zenodo.24104528`, CC-BY-4.0). MASH-FRET at commit `1a1f465`
+wrote the smallest file, which is the source of the committed extract; the other files name commits
+`89deb70`, `e0bc2229` and `5ab2aff0`, and one file in the 1.3.4 layout (`240b0d99`) is not read.
+[ADR-0087](adr/0087-mash-fret-is-a-reference-for-corrected-fret.md) records the
 reference, the convention mapping and the ALEX rule; `tests/test_mashfret_reference.py` holds the
 tests.
 
@@ -790,9 +792,10 @@ tests.
 leakage test cannot catch a sign error in the correction;
 [#870](https://github.com/bioedca/tether/issues/870) asks for a MASH-FRET reference with a non-zero
 coefficient. The comparison is per state, not per frame. Background
-subtraction is not compared, because the files hold no video. Only the donor and acceptor channels
-under the donor's laser are used, and MASH-FRET's direct-excitation coefficient (an ALEX-only
-correction that Tether does not make) must be 0.
+subtraction is not compared, because the files hold no video. The leakage comparison uses both
+lasers; the FRET comparison uses only the donor and acceptor channels under the donor's laser.
+MASH-FRET's direct-excitation coefficient (an ALEX-only correction that Tether does not make) must
+be 0.
 
 **Where it runs.** The required matrix reads a committed extract of the smallest project file (18
 molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a

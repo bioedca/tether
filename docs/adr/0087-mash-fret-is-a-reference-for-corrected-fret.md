@@ -77,8 +77,9 @@ Tether's leakage correction and γ-corrected FRET, through `tests/test_mashfret_
     `prmTT{m}{6}{1}(1,p)`. That is Tether's `I_A / (I_A + γ·I_D)` with the same γ, **no
     conversion** — unlike Deep-LASI's `(1 + α)` donor (ADR-0028). MASH-FRET sets an undefined
     FRET to 0 where Tether gives NaN; no included frame of the record is undefined.
-- **The ALEX rule.** The set alternates 532 nm and 638 nm lasers. The tests use only the donor and
-  acceptor channels under the donor's laser (PRD §2.2), and they require `fix{4}{2}` (direct
+- **The ALEX rule.** The set alternates 532 nm and 638 nm lasers. The FRET test uses only the donor and
+  acceptor channels under the donor's laser (PRD §2.2); the leakage test uses both lasers. The tests
+  require `fix{4}{2}` (direct
   excitation of the acceptor by the donor laser, an ALEX-only correction that Tether does not
   make) to be 0.
 - **What is compared.** From `intensities_bgCorr`, at MASH-FRET's α, Tether's corrected acceptor
