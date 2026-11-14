@@ -82,8 +82,9 @@ Tether.app/Contents/Resources/tether.icns  the brand icon from the installed whe
   reinstall updates the version and the launcher target. Any other `Tether.app`, or a folder of
   that name without a readable plist, is left as it is with a warning.
 - **Registration.** `lsregister -f` and `mdimport` are run best-effort, so Launchpad and
-  Spotlight need not wait for the next scan of the folder; on the real Mac, Spotlight had not
-  listed a bundle registered with `lsregister` alone three minutes after the install. When the script runs as root and the bundle is in the user's
+  Spotlight need not wait for the next scan of the folder. On the real Mac, Spotlight still
+  listed the bundle only about ten minutes after the install, once it had indexed the new
+  install folder; the install guide says so. When the script runs as root and the bundle is in the user's
   home folder, the bundle is given back to the user, as constructor does for the prefix.
 - **Uninstall.** constructor's `pre_uninstall` is Windows-only (constructor 3.17.3,
   `docs/source/construct-yaml.md`), and the macOS uninstall is the documented deletion of the

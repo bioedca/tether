@@ -822,7 +822,8 @@ installer. The `osx-arm64` installer is for Apple silicon. The `osx-64` installe
 Intel, and on Apple silicon it needs Rosetta 2, which macOS does not install by default.
 
 If **Tether** is not in Launchpad or Spotlight right after the install, wait some minutes:
-the installer asks Spotlight to index the application, but the index can be slow. You can
+the installer asks Spotlight to index the application, but Spotlight first indexes the new
+install folder. On a test Mac, Spotlight listed **Tether** about ten minutes after the install. You can
 also open the `Applications` folder of your home folder in Finder, where macOS sees the
 application. Until then, and whenever the application does not open, run `tether-gui` in
 Terminal: it starts the same application and shows any error text.
