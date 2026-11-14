@@ -404,7 +404,12 @@ imported as a degraded, round-trip-disabled **analysis-only** project (§7.8).
   signature** (size + mtime + offline-availability flag — **zero byte reads**) and **never auto-hydrates** a
   dehydrated placeholder — it warns instead; the head/tail content hash and full `sha256` run only on relink or
   explicit verify. A mismatch is flagged and never silently trusted.
-- Schema migration backs up and migrates in place and refuses files newer than the app.
+- Tether refuses files newer than the app: a file whose `schema_version` is above the app's `SCHEMA_VERSION` does
+  not open. Schema migration (back up the file, then migrate it in place) is **not needed** while the schema is
+  additive-only (ADR-0005): `SCHEMA_VERSION` has never been raised, so there is no version step to migrate across.
+  The **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an ADR (§9.2,
+  §12.6), makes it required: that change carries the backup-and-migrate path and a test that exercises it, and
+  the test joins oracle (f) (§9.5).
 - **Movie-less mode** is first-class (patches + coordinates); a subset-export `.tether` always opens movie-less
   (raw is not reconstructable there).
 
@@ -1119,7 +1124,8 @@ boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) s
   leave-one-video-out, the precision@k protocol of §7.5); (e) the α/γ estimators via **edge-case unit tests**
   (missing/sparse bleach steps, median-fallback paths, and the **total-failure → apparent-E** path that must never
   emit a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
-  agreement** (§7.2, §11.2); (f) round-trip integrity and schema-migration tests under existing conventions;
+  agreement** (§7.2, §11.2); (f) round-trip integrity and schema-integrity tests under existing conventions,
+  with a schema-migration test from the first schema-version step on (§5.4);
   (g) the photobleaching detector's **per-channel first-bleach frames**, reframed by ADR-0026 (§9.5 (g)):
   reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the
   **§11.2 bleach-frame tolerance** — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground
@@ -1299,7 +1305,7 @@ tolerance), is release-acceptance work owned by its GitHub milestone.
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
 | **(d)** Ranker held-out cross-validation | prequential precision@k uplift over file order, median across videos | required matrix | yes (synthetic stores only) | synthetic and programmatic stores | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`; the real-video uplift and leave-one-video-out legs are not yet evidenced (§9.6) | gate on the protocol; the real-data legs are *not yet met* |
 | **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E never NaN | required matrix | yes | synthetic known-α/known-γ and edge-case traces | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
-| **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); the schema-migration leg §8 and §5.4 name has no test (§9.6) | gate |
+| **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); no schema-migration leg while the schema is additive-only; the first schema-version step adds a backup-and-migrate test (§5.4) | gate |
 | **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
 
 **What "runs end to end" means.** Every *gate* row has passing evidence bound to the release commit, and (c) may be
@@ -1352,7 +1358,6 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | A check that fails when a frozen `$.tolerance` bound is loosened (the artifact self-checks catch only tightening below the evidence, or its removal) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
 | The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
 | The §8 NFR-VALID (d) leave-one-video-out protocol, implemented or settled against the prequential protocol | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
-| Oracle (f)'s schema-migration leg: §8 NFR-VALID (f) and §5.4 name migration tests that the additive-only freeze has never needed | M0, §8 | [#547](https://github.com/bioedca/tether/issues/547) |
 | The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
 | γ agreement with the Deep-LASI median on a shared frame set — withheld: the vendored export carries no per-frame classification (ADR-0028) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
 

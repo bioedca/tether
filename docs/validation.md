@@ -739,10 +739,16 @@ tMAVEN's own loader in `tests/test_handoff_sidecar.py::test_tether_smd_opens_in_
 `test_coordinate_superset_intact_after_tmaven_open` — `sidecar`-marked, so they run in the
 required `sidecar / parity` job under its path filter rather than on the 3-OS matrix.
 
-> Gap, stated plainly. There are **no schema-migration tests**, because there is no
-> migration machinery: the freeze is additive-only by construction (ADR-0005), so there is
-> no version step to migrate across. A search for `migrate`/`migration` in `tests/`,
-> `src/tether/io/` and the workflows returns nothing.
+**Schema migration is not part of (f) yet.** There is no migration machinery and no
+migration test, and none is needed: the freeze is additive-only by construction (ADR-0005)
+and `SCHEMA_VERSION` has never been raised, so there is no version step to migrate across.
+A search for `migrate`/`migration` in `tests/`, `src/tether/io/` and the workflows returns
+nothing. PRD §5.4 names the condition that changes this: the **first schema-version step**,
+a structural change that raises `SCHEMA_VERSION` with an ADR, carries the backup-and-migrate
+path and a test that exercises it, and that test joins (f) in the same pull request. The
+refuse-newer half of §5.4 is tested now (`test_assert_compatible_refuses_newer_file`).
+Maintainer decision of 2026-11-13 on
+[#547](https://github.com/bioedca/tether/issues/547).
 
 ## (g) Photobleaching detector
 
@@ -1224,8 +1230,9 @@ evidence about the size of the difference and not a tolerance.
   comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no leave-one-video-out protocol and no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
-  Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section
-  above with the ADR that deferred it.
+  Deep-LASI-median oracle. Each is stated in its own section above with the ADR that
+  deferred it. (f) has no migration tests, which is not a gap: PRD §5.4 makes them required
+  only at the first schema-version step (see (f) above).
 - PRD §8 states that no synthetic-data simulator is introduced. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
   synthetic separable multi-video store, because the real fixtures do not carry the required
