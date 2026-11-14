@@ -100,14 +100,21 @@ precondition: a pull request opened ready with its reason recorded is asked ther
 in the lane and on the same green checks. What does not change either way is the order — Codex
 reads the diff before any metered provider does. **One review**, and a review is not always one credit — a standard review costs one, a TREX review three (see above). The cap of **at most one completed
 review per metered provider** in `AGENTS.md` §Review applies here as everywhere. A request that produced no review — a throttle, a quota refusal, a failed run — is not an
-ask and spends nothing. CodeRabbit, not Greptile, is the metered gate — and when CodeRabbit's own
+ask and spends nothing. CodeRabbit, not Greptile, is the metered gate, except in the two cases below — and when CodeRabbit's own
 cap is spent with no finding left outstanding, an unmetered **posted** Codex review closes it — §Review carries the
 conditions on that, and this page states none of them.
 
-**One exception makes Greptile the metered gate** (ADR-0069). Where CodeRabbit posts a refusal that
+**The stand-in makes Greptile the metered gate** (ADR-0069). Where CodeRabbit posts a refusal that
 names more than 30 minutes, §Review lets one **standard** Greptile review stand in for it — the one
 already on the pull request, or else a new one asked only while the seat has credits left and Tether
 is under its share of 45 for the cycle, both read from the script above at that moment. Count a TREX
 review as three in that reading, because the script counts it as one (see "Reading the balance before
 spending"). An unreadable balance is a no. §Review carries the conditions, and this page states none
 beyond these.
+
+**The load-bearing route makes Greptile the metered gate as well** (ADR-0099). A pull request that
+changes `AGENTS.md`, `CLAUDE.md` or `docs/PRD.md`, or whose Risk is `high` and whose changed lines
+are mostly not Markdown, takes one standard Greptile review instead of CodeRabbit, asked only while
+`.agents/bin/greptile_usage.py --fail-over-share` exits 0. After a review with findings, one
+CodeRabbit review and a Codex close finish it, and Greptile is not asked again. §Review carries the
+conditions.
