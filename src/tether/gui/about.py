@@ -22,12 +22,19 @@ The documentation link points at the installed version's docs: a final release
 ``X.Y.Z`` opens the ``X.Y`` docs that ``docs.yml`` publishes with mike, and every other
 build (a release candidate, a development build) opens ``latest``.
 
+Above the build rows the box shows the brand (#689): the tile at
+:data:`TILE_SIZE` px, the name and the tagline. Below them it gives the two licences
+(:data:`LICENSE_LINE`), the citation with the concept DOI of ``CITATION.cff``
+(:data:`CONCEPT_DOI`), and links to the documentation and the repository. **Copy**
+copies all of that text and never the picture.
+
 Like the other ``tether.gui`` dialogs, :class:`AboutDialog` *holds* a ``QDialog``
 rather than subclassing one, and Qt is imported lazily.
 """
 
 from __future__ import annotations
 
+import html
 import os
 import platform
 import re
@@ -41,7 +48,12 @@ if TYPE_CHECKING:
     from pyqtgraph.Qt import QtWidgets
 
 __all__ = [
+    "CITATION",
+    "CONCEPT_DOI",
     "DOCS_ROOT",
+    "LICENSE_LINE",
+    "REPOSITORY_URL",
+    "TILE_SIZE",
     "AboutDialog",
     "about_rows",
     "about_text",
@@ -53,6 +65,18 @@ __all__ = [
 
 #: The root of the published documentation site (mkdocs ``site_url``).
 DOCS_ROOT: Final = "https://bioedca.github.io/tether/"
+#: The source repository (``repository-code`` in ``CITATION.cff``).
+REPOSITORY_URL: Final = "https://github.com/bioedca/tether"
+#: The Zenodo concept DOI (``doi`` in ``CITATION.cff``): it resolves to the newest release.
+CONCEPT_DOI: Final = "10.5281/zenodo.23306397"
+#: The citation, as ``docs/citing.md`` gives it.
+CITATION: Final = f"Campos-Chávez E, Mondragon A. Tether. Zenodo. https://doi.org/{CONCEPT_DOI}"
+#: The two licences: the program's, and the brand files' (``REUSE.toml``).
+LICENSE_LINE: Final = "GPL-3.0-or-later (the program); CC BY 4.0 (the brand files)"
+#: The tile's size in the About box, in logical pixels.
+TILE_SIZE: Final = 96
+# Rows whose value is a web address; the box shows them as links.
+_LINK_ROWS: Final = frozenset({"Documentation", "Source code"})
 
 _FINAL_RELEASE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 _LOCAL_COMMIT = re.compile(r"\+g([0-9a-f]{7,40})(?:\.|$)")
@@ -178,12 +202,19 @@ def about_rows() -> list[tuple[str, str]]:
         ("Base stack", _base_stack()),
         ("Sidecar stack", _sidecar_stack()),
         ("Deep stack", _deep_stack()),
+        ("License", LICENSE_LINE),
+        ("Cite", CITATION),
+        ("Documentation", docs_url()),
+        ("Source code", REPOSITORY_URL),
     ]
 
 
 def about_text(rows: list[tuple[str, str]] | None = None) -> str:
     """The plain text the **Copy** button puts on the clipboard (one row per line)."""
-    lines = ["Tether"] + [f"{label}: {value}" for label, value in (rows or about_rows())]
+    from tether.gui.start_page import TAGLINE
+
+    lines = ["Tether", TAGLINE]
+    lines += [f"{label}: {value}" for label, value in (rows or about_rows())]
     return "\n".join(lines)
 
 
@@ -213,24 +244,54 @@ def open_external(url: str) -> bool:
 
 
 class AboutDialog:
-    """The **Help → About Tether** box: the build rows and a **Copy** button."""
+    """The **Help → About Tether** box: the brand, the build rows, the licences, the citation,
+    the links, and a **Copy** button."""
 
     def __init__(self, *, parent: QtWidgets.QWidget | None = None) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
         from tether.gui import theme
+        from tether.gui.start_page import TAGLINE
 
         self._rows = about_rows()
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("About Tether")
         layout = QtWidgets.QVBoxLayout(self._dialog)
+
+        header = QtWidgets.QHBoxLayout()
+        header.setSpacing(16)
+        self._tile = QtWidgets.QLabel()
+        self._tile.setPixmap(
+            theme.brand_pixmap(
+                "tile", TILE_SIZE, device_pixel_ratio=self._dialog.devicePixelRatioF()
+            )
+        )
+        self._tile.setAccessibleName("Tether logo")
+        header.addWidget(self._tile, 0, QtCore.Qt.AlignmentFlag.AlignTop)
+        names = QtWidgets.QVBoxLayout()
         title = QtWidgets.QLabel("Tether")
         title.setFont(theme.heading_font())
-        layout.addWidget(title)
+        names.addWidget(title)
+        tagline = QtWidgets.QLabel(TAGLINE)
+        tagline.setWordWrap(True)
+        names.addWidget(tagline)
+        names.addStretch(1)
+        header.addLayout(names, 1)
+        layout.addLayout(header)
+
         form = QtWidgets.QFormLayout()
         for label, value in self._rows:
-            field = QtWidgets.QLabel(value)
-            field.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+            field = QtWidgets.QLabel()
+            if label in _LINK_ROWS:
+                field.setTextFormat(QtCore.Qt.TextFormat.RichText)
+                link = html.escape(value, quote=True)
+                field.setText(f'<a href="{link}">{link}</a>')
+                field.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextBrowserInteraction)
+                field.linkActivated.connect(lambda url: open_external(url))
+            else:
+                field.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+                field.setText(value)
+                field.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
             field.setWordWrap(True)
             form.addRow(f"{label}:", field)
         layout.addLayout(form)
@@ -252,6 +313,11 @@ class AboutDialog:
     def rows(self) -> list[tuple[str, str]]:
         """The ``(label, value)`` rows shown."""
         return list(self._rows)
+
+    @property
+    def tile(self) -> QtWidgets.QLabel:
+        """The tile picture (:data:`TILE_SIZE` px); **Copy** never copies it."""
+        return self._tile
 
     @property
     def copy_button(self) -> QtWidgets.QPushButton:

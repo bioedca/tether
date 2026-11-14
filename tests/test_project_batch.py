@@ -277,12 +277,16 @@ def test_idealize_failure_isolated_then_resumable(tmp_path: Path) -> None:
 def test_extract_stage_receives_each_jobs_tmap_tdat_and_the_options(tmp_path: Path) -> None:
     calls: list[dict[str, object]] = []
     options = object()  # run_batch must hand the caller's object through unchanged
-    shared_tmap = tmp_path / "beads.tmap"
+    # Each job with a map has its own map path (#809). With one shared path, a batch that
+    # gave every job the map of the first job would still pass.
     jobs = [
         MovieJob(
-            tmp_path / "a.tif", tmp_path / "a.tether", tmap=shared_tmap, tdat=tmp_path / "a.tdat"
+            tmp_path / "a.tif",
+            tmp_path / "a.tether",
+            tmap=tmp_path / "a.tmap",
+            tdat=tmp_path / "a.tdat",
         ),
-        MovieJob(tmp_path / "b.tif", tmp_path / "b.tether", tmap=shared_tmap),
+        MovieJob(tmp_path / "b.tif", tmp_path / "b.tether", tmap=tmp_path / "b.tmap"),
         MovieJob(tmp_path / "c.tif", tmp_path / "c.tether", tdat=tmp_path / "c.tdat"),
     ]
 
@@ -294,6 +298,10 @@ def test_extract_stage_receives_each_jobs_tmap_tdat_and_the_options(tmp_path: Pa
     assert [(c["movie_path"], c["output_path"], c["tmap"], c["tdat"]) for c in calls] == [
         (j.movie_path, j.output_path, j.tmap, j.tdat) for j in jobs
     ]
+    # The map of each call, one by one, so a failure names the job that got the wrong map.
+    assert calls[0]["tmap"] == tmp_path / "a.tmap"
+    assert calls[1]["tmap"] == tmp_path / "b.tmap"
+    assert calls[2]["tmap"] is None
     assert all(c["options"] is options for c in calls)
     assert all(c["overwrite"] is True for c in calls)
 
