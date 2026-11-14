@@ -1004,6 +1004,10 @@ skipped.
 Criteria that a closed milestone did not meet, including legs withheld under the data-gaps rule (§9.1 item 8). None
 is retracted and no closed milestone is reopened; each is carried by the open issue named here.
 
+Some rows are §7 requirements that the application does not meet yet. Where a §9.3 bar named the requirement, *From*
+gives that bar's milestone, and the row says when the bar was met on library evidence alone. Where no §9.3 bar named
+it, *From* gives the §7 clause (or the goal or use case) that states it.
+
 | Criterion | From | Carried by |
 |---|---|---|
 | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies, in the shipped application | M2 | [#357](https://github.com/bioedca/tether/issues/357) (the movie panel it drives: [#356](https://github.com/bioedca/tether/issues/356)) |
@@ -1011,6 +1015,20 @@ is retracted and no closed milestone is reopened; each is carried by the open is
 | Category (and analysis-window) edits made in the application persist to the project | M4 | [#359](https://github.com/bioedca/tether/issues/359) (the setters it writes through: [#358](https://github.com/bioedca/tether/issues/358)) |
 | Every plot renders from the application — each Appendix C type reachable from the GUI, not only from the API | M6 | [#374](https://github.com/bioedca/tether/issues/374) |
 | The multi-movie project: a second movie appends into an existing `.tether` | M2 | [#347](https://github.com/bioedca/tether/issues/347) |
+| The ranker pre-sorts a movie's traces when the movie opens in the application, and the application shows each trace's feature values next to it. The M5 *Curation ranking* bar was met on library evidence alone; no bar named the feature values | M5; §7.5 | [#639](https://github.com/bioedca/tether/issues/639) |
+| The per-condition model in the application's UC3 loop: loaded when a video opens, warm-start-retrained at the video boundary and saved. The M5 bar's reload and portability legs were met on library evidence alone | M5 | [#640](https://github.com/bioedca/tether/issues/640) (the model's `/models` reference and owner-curator lock: [#561](https://github.com/bioedca/tether/issues/561)) |
+| "Find traces like these", from the application | §7.5 | [#641](https://github.com/bioedca/tether/issues/641) |
+| The active-learning "recommended next" badge in the application. The M5 bar's active-learning leg was met on library evidence alone | M5 | [#642](https://github.com/bioedca/tether/issues/642) |
+| Opt-in threshold-reject with confirmation and undo, and the visible rejected bin with its toggleable filter, in the application | §7.5 | [#643](https://github.com/bioedca/tether/issues/643) |
+| Seeding a condition's model from another condition in the application, with the advisory drift flag. The M5 bar's drift-flag test was met on library evidence alone | M5 | [#644](https://github.com/bioedca/tether/issues/644) |
+| The steal-lock override with typed confirmation, and stale-lock recovery, in the application. The M2 *File lifecycle* bar was met on library evidence alone | M2 | [#626](https://github.com/bioedca/tether/issues/626) |
+| Curating into a split file of a locked project, and the owner's merge-back of its labels, from the application. The M5 bar's two-curator split-and-merge test was met on library evidence alone | M5 | [#637](https://github.com/bioedca/tether/issues/637) |
+| "All bindings are rebindable": the application loads the saved keymap and lets the user change a binding (the library keymap is rebindable; the application starts from the defaults) | §7.3 | [#635](https://github.com/bioedca/tether/issues/635) |
+| The fully user-editable per-condition category list, in the application: add, rename and remove categories, and show their names (the M4 "category edits persist" row above is assignment, not the list) | §7.6 | [#633](https://github.com/bioedca/tether/issues/633) |
+| Free tags on molecules and conditions, in the application | §7.6 | [#634](https://github.com/bioedca/tether/issues/634) |
+| Idealization of the project from the application, with a manual state-count override (the application fits only the selected molecule, with no state-count choice) | §7.4, §3.2 | [#625](https://github.com/bioedca/tether/issues/625) |
+| A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#660](https://github.com/bioedca/tether/issues/660) |
+| The overnight batch of many movies without a terminal: a multi-movie queue in the application. The M3 *Batch runner* bar was met by the library and the `tether batch` command | M3; UC7, G6 | [#645](https://github.com/bioedca/tether/issues/645) |
 | Per-trace vbFRET parity against the frozen tolerance (the row was measured on consensus `vbconhmm`; no test fits per-trace vbFRET) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The transition-matrix term of consensus VB-HMM / ebFRET parity on the ≥ 50-molecule SMD (the parity metrics have no transition-matrix term) | M6 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The default idealization-parity row re-measured and re-frozen on the pinned tMAVEN `10f4230b` / CPython 3.12.13 build (it was measured on `71cfa1af` / CPython 3.9.23) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
@@ -1757,7 +1775,7 @@ Governance is **established whole at M0** and then enforced continuously — no 
 | **M11** | The agent coordination layer: the atomic claim-ref mutex and its reaper (`.agents/bin/claim.py`, `agent-reaper.yml`; ADR-0057) and the draft-first review lane (ADR-0062–ADR-0065). It coordinates writers, not reviews (ADR-0064). |
 | **M12** | Write safety on the project store and the multi-movie append (§9.6); the schema freeze holds — `schema-guard` green with `SCHEMA_VERSION` unchanged. |
 | **M13** | The in-app updater verifies a download against its build-provenance attestation before handing off to the OS installer (ADR-0060). |
-| **M14–M17** | The unified GUI shell and its extraction, curation and analysis sections: durable coverage is committed `pytest-qt` tests run headless on the required 3-OS matrix. M16 and M17 discharge the §9.6 criteria they carry. |
+| **M14–M17** | The unified GUI shell and its extraction, curation and analysis sections: durable coverage is committed `pytest-qt` tests run headless on the required 3-OS matrix. Each of M14–M17 discharges the §9.6 criteria it carries; §9.6 names the issue that carries each one. |
 | **M18** | Release acceptance: one evidence artifact per §9.5 oracle bound to the release commit, a forced full `sidecar` run on that commit, recorded clean-machine passes on three OSes, then SemVer **1.0.0** cut from a signed `v1.0.0` tag through `release.yml`. |
 
 The **schema-guard** gate persists from M0 through every later milestone, mechanically enforcing the §5/§9-M0
