@@ -208,13 +208,13 @@ validity turns on it being the right test — must satisfy both.
   usage-based-billing offer, which is the maintainer's spending decision.
   **Where the posted refusal names more than 30 minutes, one standard Greptile review may stand in
   as this gate** (ADR-0069): the one already on this PR, or else a new one — asked only if
-  `greptile_usage.py`, read then, shows credits left and Tether under its share of 15 a month, a
-  TREX review counted as three because the script counts it as one; an unreadable balance is a
-  no. Quote the refusal. The stand-in is held to everything asked of CodeRabbit's review, and
+  `greptile_usage.py`, read then, shows credits left and Tether under its share; an unreadable
+  balance is a no. Quote the refusal. The stand-in is held to everything asked of CodeRabbit's review, and
   CodeRabbit is not asked again. Codex never stands in.
-- **Small docs-only PRs take Greptile, not CodeRabbit**, while `greptile_usage.py
-  --fail-over-share` exits 0: one standard review, held to all asked of CodeRabbit's. Its clean
-  summary comment is a completed review (ADR-0099).
+- **Load-bearing PRs take one Greptile review, not CodeRabbit**, while `greptile_usage.py
+  --fail-over-share` exits 0: those changing `AGENTS.md`, `CLAUDE.md` or `docs/PRD.md`, or with
+  Risk `high` and mostly code. A clean one's summary comment is a completed review; findings take
+  one CodeRabbit review, then the Codex close (ADR-0099).
 - **A spent cap closes on Codex rather than on a maintainer.** When a *completed* CodeRabbit
   review, or the stand-in for it, stands on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
   inline findings of its own; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
@@ -308,8 +308,8 @@ validity turns on it being the right test — must satisfy both.
   findings are all disposed of and whose threads are all resolved finishes on an unmetered read
   rather than on a maintainer. Nothing counts this for you; the merged history is auditable.
 - **A Greptile review is not always one credit** — a standard review costs one, a TREX review
-  three — and Tether's share of the seat is **15 a month**, the optional review and the stand-in
-  together. Do not ask for a review whose cost would take Tether past it.
+  three — and Tether's share of the seat is **45 a cycle** from the 17th. Do not ask for a review
+  whose cost would take Tether past it.
 - Human sign-off: releases, tags, signing, any new scientific claim or citation. Nothing else waits.
 - Merge under explicit per-PR authority, with checks green and threads resolved. Then arm and exit —
   never wait, never poll:

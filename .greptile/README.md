@@ -39,10 +39,10 @@ The cover for those older branches is the account-level **file-change limit**, s
 config to land in each. Note the comparison is **exceeding** — a pull request touching exactly one
 file is still reviewed automatically, so the limit is a broad net, not a seal.
 
-**It does not enforce a budget.** Tether's share of the seat is **15 credits a month**
-(ADR-0069), and nothing stops a sixteenth `@greptileai` except not typing it. The small docs-only
-route of ADR-0099 draws on the same share and asks only while
-`.agents/bin/greptile_usage.py --fail-over-share` exits 0.
+**It does not enforce a budget.** Tether's share of the seat is **45 credits a cycle** from the
+17th (ADR-0099, which raised the 15 of ADR-0069), and nothing stops a forty-sixth `@greptileai`
+except not typing it. The load-bearing route of ADR-0099 draws on the same share and asks only
+while `.agents/bin/greptile_usage.py --fail-over-share` exits 0.
 
 ## Once this has merged, this repository no longer needs the account-level limit
 
@@ -107,7 +107,7 @@ conditions on that, and this page states none of them.
 **One exception makes Greptile the metered gate** (ADR-0069). Where CodeRabbit posts a refusal that
 names more than 30 minutes, §Review lets one **standard** Greptile review stand in for it — the one
 already on the pull request, or else a new one asked only while the seat has credits left and Tether
-is under its share of 15 for the month, both read from the script above at that moment. Count a TREX
+is under its share of 45 for the cycle, both read from the script above at that moment. Count a TREX
 review as three in that reading, because the script counts it as one (see "Reading the balance before
 spending"). An unreadable balance is a no. §Review carries the conditions, and this page states none
 beyond these.

@@ -1689,9 +1689,9 @@ TREX one three; then ready-for-review if it is not already; then **CodeRabbit wi
 which is the last metered gate before merge — and when that one-review cap is spent, a fresh posted Codex review
 of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
 than on a maintainer (ADR-0065, as ADR-0069 amends it)**. Where CodeRabbit posts a refusal that names more than 30 minutes,
-one standard Greptile review **may** stand in as that gate within Tether's share of 15 credits a month, and Codex
-**shall not** stand in (ADR-0069). A small docs-only pull request takes one standard Greptile review in CodeRabbit's
-place, within the same share (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
+one standard Greptile review **may** stand in as that gate within Tether's share of 45 credits a cycle, and Codex
+**shall not** stand in (ADR-0069). A load-bearing pull request takes one standard Greptile review in CodeRabbit's
+place, within the same share, and after a review with findings one CodeRabbit review and a Codex review close it (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
 and the pull-request template do carry working copies, as detail and as evidence fields, and both
 defer to §Review where they differ. Four drafts of this
@@ -1705,7 +1705,7 @@ uncapped**, being unmetered. The cap bounds how many times a provider whose read
 diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not that one; counting those would make the gate
 unsatisfiable exactly when the provider is rate-limiting. It licenses neither a second review nor hammering: the retry
-interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 15 a month. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 45 a cycle from the 17th (ADR-0099). Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a

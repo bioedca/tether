@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,16 +35,16 @@ usage = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(usage)
 
 
-def _pr(number: int, author: str = "bioedca", updated: str = "2026-08-02T00:00:00Z") -> dict:
+def _pr(number: int, author: str = "bioedca", updated: str = "2026-08-18T00:00:00Z") -> dict:
     """One item of GitHub's REST search for pull requests (`search/issues`)."""
     return {"number": number, "user": {"login": author}, "updated_at": updated}
 
 
-def _review(bot: str = "greptile-apps[bot]", when: str = "2026-08-02T00:00:00Z") -> dict:
+def _review(bot: str = "greptile-apps[bot]", when: str = "2026-08-18T00:00:00Z") -> dict:
     return {"user": {"login": bot}, "submitted_at": when}
 
 
-def _summary(reviews: int | None = 1, when: str = "2026-08-02T00:00:00Z") -> dict:
+def _summary(reviews: int | None = 1, when: str = "2026-08-18T00:00:00Z") -> dict:
     """Greptile's summary comment, the only trace a clean review leaves (#996)."""
     counter = f"Reviews ({reviews}) · " if reviews is not None else ""
     body = (
@@ -107,7 +108,7 @@ def test_the_seat_total_spans_every_repository_not_just_this_one(
             {1: [_review()], 2: [_review()]},
         ),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     out = capsys.readouterr().out
     assert f"used 2 of {usage.INCLUDED_CREDITS}" in out
@@ -128,7 +129,7 @@ def test_an_unreadable_repository_makes_the_total_unknown_rather_than_low(
         "_gh",
         _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [_review()]}, fail={"bioedca/Yeliztli"}),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     captured = capsys.readouterr()
     assert "UNKNOWN" in captured.err
@@ -152,7 +153,7 @@ def test_a_missing_gh_is_unknown_not_over_budget(
     # `subprocess.run` is patched rather than `_gh`, so the real `_gh` runs and its OSError arm is
     # what the exit code is being read from.
     monkeypatch.setattr(subprocess, "run", _no_gh)
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     assert usage.EXIT_UNKNOWN != usage.EXIT_OVER_BUDGET
     captured = capsys.readouterr()
@@ -186,7 +187,7 @@ def test_a_gh_too_old_for_a_flag_is_reported_as_that_not_as_usage_text(
         raise subprocess.CalledProcessError(1, argv, stderr=usage_text.encode())
 
     monkeypatch.setattr(subprocess, "run", _rejects_the_flag)
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     captured = capsys.readouterr()
     assert "--slurp" in captured.err, "the rejected flag must be named"
@@ -207,7 +208,7 @@ def test_output_that_is_not_json_is_unknown_rather_than_zero(
         return subprocess.CompletedProcess(["gh"], 0, b"<html>login</html>", b"")
 
     monkeypatch.setattr(subprocess, "run", _html)
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     assert "remaining" not in capsys.readouterr().out
 
@@ -236,7 +237,7 @@ def test_pages_that_arrive_unmerged_are_unknown_rather_than_a_short_count(
         return subprocess.CompletedProcess(["gh"], 0, b'[{"id": 1}]\n[{"id": 2}]\n', b"")
 
     monkeypatch.setattr(subprocess, "run", _unmerged_pages)
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     captured = capsys.readouterr()
     assert "remaining" not in captured.out, "a partial page count must never print a balance"
@@ -252,24 +253,24 @@ def test_only_reviews_the_seat_is_billed_for_are_counted(
         "_gh",
         _fake_gh({"bioedca/tether": [_pr(1, author="someone-else")]}, {1: [_review()]}),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     assert "used 0 of" in capsys.readouterr().out
 
 
-def test_a_review_from_another_month_is_not_this_months_spend(
+def test_a_review_from_another_cycle_is_not_this_cycles_spend(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Credits reset per billing period, so the month filter is the whole point of the number."""
+    """Credits reset per billing period, so the cycle filter is the whole point of the number."""
     monkeypatch.setattr(
         usage,
         "_gh",
         _fake_gh(
-            {"bioedca/tether": [_pr(1, updated="2026-08-02T00:00:00Z")]},
-            {1: [_review(when="2026-07-30T00:00:00Z")]},
+            {"bioedca/tether": [_pr(1, updated="2026-08-18T00:00:00Z")]},
+            {1: [_review(when="2026-08-16T00:00:00Z")]},
         ),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     assert "used 0 of" in capsys.readouterr().out
 
@@ -286,7 +287,7 @@ def test_over_budget_and_unknown_are_different_exit_codes(monkeypatch: pytest.Mo
         ),
     )
     monkeypatch.setattr(
-        "sys.argv", ["greptile_usage.py", "--month", "2026-08", "--fail-over-budget"]
+        "sys.argv", ["greptile_usage.py", "--cycle", "2026-08", "--fail-over-budget"]
     )
     assert usage.main() == usage.EXIT_OVER_BUDGET
 
@@ -301,11 +302,11 @@ def test_a_malformed_month_fails_closed_rather_than_reporting_a_full_balance(
     does not have.
     """
     monkeypatch.setattr(usage, "_gh", _fake_gh({}, {}))
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-8"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-8"])
     assert usage.main() == usage.EXIT_UNKNOWN
 
 
-def test_the_month_is_queried_server_side_not_filtered_after_a_capped_fetch(
+def test_the_cycle_is_queried_server_side_not_filtered_after_a_capped_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A capped newest-N fetch cannot detect truncation, so the month is part of the query.
@@ -323,14 +324,14 @@ def test_the_month_is_queried_server_side_not_filtered_after_a_capped_fetch(
         return []
 
     monkeypatch.setattr(usage, "_gh", spy)
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     listings = [a for a in seen if "search/issues" in a]
     assert listings, "the repositories must actually be listed"
     assert not [a for a in seen if a and a[0] == "pr"], "`gh pr list` reads GraphQL"
     for call in listings:
         query = next(arg for arg in call if arg.startswith("q="))
-        assert "updated:>=2026-08-01" in query, "the month must be part of the query"
+        assert "updated:>=2026-08-17" in query, "the cycle start must be part of the query"
         assert "updated:<" not in query and ".." not in query, (
             "lower bound only - an upper bound drops a PR reviewed in the month but touched later"
         )
@@ -347,7 +348,7 @@ def test_a_clean_review_that_left_only_a_summary_is_a_credit(
     monkeypatch.setattr(
         usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: []}, comments={1: [_summary()]})
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     assert f"used 1 of {usage.INCLUDED_CREDITS}" in capsys.readouterr().out
 
@@ -373,12 +374,12 @@ def test_a_review_object_and_its_summary_are_one_credit_not_two(
             comments={1: [_summary(counter)]},
         ),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     assert f"used {expected} of {usage.INCLUDED_CREDITS}" in capsys.readouterr().out
 
 
-def test_a_summary_written_in_another_month_is_not_this_months_spend(
+def test_a_summary_written_in_another_cycle_is_not_this_cycles_spend(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(
@@ -387,10 +388,10 @@ def test_a_summary_written_in_another_month_is_not_this_months_spend(
         _fake_gh(
             {"bioedca/tether": [_pr(1)]},
             {1: []},
-            comments={1: [_summary(when="2026-07-30T00:00:00Z")]},
+            comments={1: [_summary(when="2026-08-16T00:00:00Z")]},
         ),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     assert "used 0 of" in capsys.readouterr().out
 
@@ -403,7 +404,7 @@ def test_an_unreadable_comment_list_is_unknown(
         "_gh",
         _fake_gh({"bioedca/tether": [_pr(1)]}, {1: []}, comments={1: {"message": "Not Found"}}),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     assert "remaining" not in capsys.readouterr().out
 
@@ -427,7 +428,7 @@ def test_a_search_that_cannot_be_trusted_is_unknown(
         return page if "search/issues" in args else []
 
     monkeypatch.setattr(usage, "_gh", call)
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     assert "remaining" not in capsys.readouterr().out
 
@@ -453,7 +454,7 @@ def test_every_page_of_the_search_is_read(
         return [_review()]
 
     monkeypatch.setattr(usage, "_gh", call)
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     assert f"used {usage.PER_PAGE + 1} of" in capsys.readouterr().out
 
@@ -477,7 +478,7 @@ def test_repo_counts_tether_alone_and_prints_no_seat_balance(
         ),
     )
     monkeypatch.setattr(
-        "sys.argv", ["greptile_usage.py", "--month", "2026-08", "--repo", "bioedca/tether"]
+        "sys.argv", ["greptile_usage.py", "--cycle", "2026-08", "--repo", "bioedca/tether"]
     )
     assert usage.main() == 0
     out = capsys.readouterr().out
@@ -486,11 +487,11 @@ def test_repo_counts_tether_alone_and_prints_no_seat_balance(
     assert "NOT READ" in out
 
 
-@pytest.mark.parametrize(("spent", "code"), [(14, 0), (15, 1), (16, 1)])
-def test_fail_over_share_stops_at_tethers_fifteen(
+@pytest.mark.parametrize(("spent", "code"), [(44, 0), (45, 1), (46, 1)])
+def test_fail_over_share_stops_at_tethers_forty_five(
     monkeypatch: pytest.MonkeyPatch, spent: int, code: int
 ) -> None:
-    """The docs-only route asks only while a credit is left in Tether's share (ADR-0099)."""
+    """The Greptile route asks only while a credit is left in Tether's share of 45 (ADR-0099)."""
     monkeypatch.setattr(
         usage,
         "_gh",
@@ -503,7 +504,7 @@ def test_fail_over_share_stops_at_tethers_fifteen(
         "sys.argv",
         [
             "greptile_usage.py",
-            "--month",
+            "--cycle",
             "2026-08",
             "--repo",
             "bioedca/tether",
@@ -518,10 +519,10 @@ def test_fail_over_share_refuses_an_empty_seat_whatever_tethers_count(
 ) -> None:
     """Tether's share is a ceiling inside the seat, not a credit of its own (Codex P2 on #1036).
 
-    14 for Tether and 18 in each other repository is 50 of 50: Tether is under its share, and the
+    44 for Tether and 3 in each other repository is 50 of 50: Tether is under its share, and the
     seat still has nothing to spend.
     """
-    counts = {"bioedca/tether": 14, "bioedca/Yeliztli": 18, "bioedca/tbox-finder": 18}
+    counts = {"bioedca/tether": 44, "bioedca/Yeliztli": 3, "bioedca/tbox-finder": 3}
     prs: dict[str, list] = {}
     reviews: dict[int, list] = {}
     number = 0
@@ -533,7 +534,7 @@ def test_fail_over_share_refuses_an_empty_seat_whatever_tethers_count(
             reviews[number] = [_review()]
     monkeypatch.setattr(usage, "_gh", _fake_gh(prs, reviews))
     monkeypatch.setattr(
-        "sys.argv", ["greptile_usage.py", "--month", "2026-08", "--fail-over-share"]
+        "sys.argv", ["greptile_usage.py", "--cycle", "2026-08", "--fail-over-share"]
     )
     assert usage.main() == usage.EXIT_OVER_BUDGET
 
@@ -556,7 +557,7 @@ def test_tethers_own_spend_is_printed_against_its_share_of_the_seat(
     """The stand-in rule reads two figures, and the seat total is only one of them.
 
     `AGENTS.md` §Review lets a Greptile review stand in for a refused CodeRabbit only while Tether
-    is under its share of the seat (ADR-0069), so the counter has to print Tether's own spend
+    is under its share of the seat (ADR-0099), so the counter has to print Tether's own spend
     against that share - and against Tether's reviews alone, not the seat's. Two credits here and
     one in another repository are three against the 50 and two against the share.
     """
@@ -572,10 +573,10 @@ def test_tethers_own_spend_is_printed_against_its_share_of_the_seat(
             {1: [_review()], 2: [_review()], 3: [_review()]},
         ),
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == 0
     out = capsys.readouterr().out
-    assert usage.REPO_SHARE == 15, "the maintainer set Tether's share at 15 a month (ADR-0069)"
+    assert usage.REPO_SHARE == 45, "the maintainer set Tether's share at 45 a cycle (ADR-0099)"
     assert f"(Tether share: 2/{usage.REPO_SHARE})" in out
     assert f"used 3 of {usage.INCLUDED_CREDITS}" in out
 
@@ -617,7 +618,7 @@ def test_a_review_list_holding_a_non_object_is_unknown_rather_than_a_traceback(
     shape was fixed elsewhere in the stack).
     """
     monkeypatch.setattr(usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: [None]}))
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     captured = capsys.readouterr()
     assert "remaining" not in captured.out, "an unreadable list must never print a balance"
@@ -650,8 +651,57 @@ def test_an_error_envelope_where_a_review_list_belongs_is_unknown(
     monkeypatch.setattr(
         usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: {"message": "Not Found"}})
     )
-    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
     assert usage.main() == usage.EXIT_UNKNOWN
     captured = capsys.readouterr()
     assert "remaining" not in captured.out, "an envelope must never be counted as zero reviews"
     assert "UNKNOWN" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("when", "counted"),
+    [
+        ("2026-08-16T23:59:59Z", False),
+        ("2026-08-17T00:00:00Z", True),
+        ("2026-09-16T23:59:59Z", True),
+        ("2026-09-17T00:00:00Z", False),
+    ],
+)
+def test_a_cycle_runs_from_the_17th_to_the_next_17th(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], when: str, counted: bool
+) -> None:
+    """The maintainer's cycle starts on the 17th at 00:00 UTC, not on the 1st (ADR-0099)."""
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(1, updated="2026-09-20T00:00:00Z")]},
+            {1: [_review(when=when)]},
+        ),
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["greptile_usage.py", "--cycle", "2026-08", "--repo", "bioedca/tether"]
+    )
+    assert usage.main() == 0
+    out = capsys.readouterr().out
+    assert "cycle 2026-08-17 to 2026-09-17" in out
+    assert f"(Tether share: {int(counted)}/{usage.REPO_SHARE})" in out
+
+
+@pytest.mark.parametrize(
+    ("now", "cycle"),
+    [
+        ("2026-11-16T23:59:59", "2026-10"),
+        ("2026-11-17T00:00:00", "2026-11"),
+        ("2026-12-31T12:00:00", "2026-12"),
+        ("2027-01-05T12:00:00", "2026-12"),
+    ],
+)
+def test_the_default_cycle_is_the_one_running_now(now: str, cycle: str) -> None:
+    """Before the 17th, the running cycle started in the previous month, across a year end too."""
+    moment = datetime.fromisoformat(now).replace(tzinfo=UTC)
+    assert usage._current_cycle(moment) == cycle
+
+
+def test_a_december_cycle_ends_in_january() -> None:
+    assert usage._cycle("2026-12") == ("2026-12-17", "2027-01-17")

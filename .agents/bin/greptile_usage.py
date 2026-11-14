@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 The Tether Authors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""How many Greptile credits the seat has spent this month, across every repository it uses.
+"""How many Greptile credits the seat has spent this cycle, across every repository it uses.
 
 Greptile publishes **no usage API** - the dashboard (Settings -> Usage) is the only official
 surface. But its billing rule is precise enough to count from the GitHub side:
@@ -16,6 +16,10 @@ seat**, not per repository, which is why this counts across ``REPOS`` rather tha
 it happens to live in: a Tether-only number cannot say what is left when two other repositories
 draw on the same 50. ``--repo`` narrows the count for a session that can read only some of them (a
 cloud session reads only Tether); it then prints Tether's share and no seat balance.
+
+The count runs by **cycle**, not calendar month: a cycle starts on the 17th of a month at 00:00
+UTC and ends when the 17th of the next month starts (ADR-0099). ``--cycle 2026-11`` is the cycle
+that starts on 2026-11-17; the default is the cycle running now.
 
 **This is a proxy, not an invoice**, and it is written to fail toward over-counting rather than
 under-counting, because the expensive mistake is believing there is budget left when there is not:
@@ -57,15 +61,19 @@ TETHER = "bioedca/tether"
 
 BOT = "greptile-apps"
 
-#: Greptile Pro, per seat, per billing period.
+#: Greptile Pro, per seat, per billing cycle.
 INCLUDED_CREDITS = 50
 
-#: Tether's share of the seat, set by the maintainer (ADR-0069): the optional review, the review
-#: that stands in for a refused CodeRabbit and the review of a small docs-only pull request
-#: (ADR-0099) draw on it together. `--fail-over-share` exits 1 once it is used; otherwise the figure
+#: The day of the month a cycle starts on, at 00:00 UTC (the maintainer, 2026-11-14: "rolling
+#: every month on the 17th"; ADR-0099).
+CYCLE_DAY = 17
+
+#: Tether's share of the seat in one cycle, set by the maintainer (ADR-0099, which raised the 15 of
+#: ADR-0069): the Greptile route, the optional review and the review that stands in for a refused
+#: CodeRabbit draw on it together. `--fail-over-share` exits 1 once it is used; otherwise the figure
 #: is printed for the worker `AGENTS.md` §Review tells to read it before asking, and a worker past
 #: it does not ask.
-REPO_SHARE = 15
+REPO_SHARE = 45
 
 EXIT_OVER_BUDGET = 1
 
@@ -147,7 +155,7 @@ def _gh(*args: str) -> object:
 
 
 #: GitHub's search API answers at most this many results for one query, however it is paged. A
-#: month with more pull requests than this cannot be counted from the search, so it is UNKNOWN.
+#: cycle with more pull requests than this cannot be counted from the search, so it is UNKNOWN.
 SEARCH_CAP = 1000
 
 PER_PAGE = 100
@@ -161,20 +169,39 @@ SUMMARY = re.compile(r"Last reviewed commit", re.IGNORECASE)
 REVIEWS_SO_FAR = re.compile(r"Reviews \((\d+)\)")
 
 
-def _pull_requests(repo: str, month: str) -> list[dict]:
-    """The seat's pull requests in ``repo`` updated in or after ``month``, through the REST search.
+def _cycle(start_month: str) -> tuple[str, str]:
+    """The first day of the cycle that starts in ``start_month`` and of the next one, ISO dates.
+
+    Every comparison below is on ISO-8601 text, and ``"2026-12-17T00:00:00Z" < "2026-12-17"`` is
+    false, so a timestamp ``t`` is in the cycle exactly when ``start <= t < end``.
+    """
+    year, month = (int(part) for part in start_month.split("-"))
+    nyear, nmonth = (year + 1, 1) if month == 12 else (year, month + 1)
+    return f"{year:04d}-{month:02d}-{CYCLE_DAY}", f"{nyear:04d}-{nmonth:02d}-{CYCLE_DAY}"
+
+
+def _current_cycle(now: datetime) -> str:
+    """The ``YYYY-MM`` the cycle running at ``now`` started in."""
+    if now.day >= CYCLE_DAY:
+        return now.strftime("%Y-%m")
+    year, month = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+    return f"{year:04d}-{month:02d}"
+
+
+def _pull_requests(repo: str, start: str) -> list[dict]:
+    """The seat's pull requests in ``repo`` updated on or after ``start``, through the REST search.
 
     REST, not ``gh pr list``: that command reads GraphQL, which the proxy of a cloud session refuses
     (#1035), so the one number a worker must read before spending a credit could not be read there.
 
     Filtered SERVER-side, not by taking the newest N and hoping: an omitted PR reads as unspent
     credits. Lower bound only. An upper bound looks tempting and is wrong: a pull request reviewed
-    in the requested month but commented on, synchronised or merged later has an ``updated`` date
-    in that later month, and bounding the range above drops it. A review always moves ``updated``,
-    so ``>= month-01`` cannot miss one. A search that GitHub marks incomplete, or that holds more
+    in the requested cycle but commented on, synchronised or merged later has an ``updated`` date
+    after the cycle, and bounding the range above drops it. A review always moves ``updated``, so
+    ``>= start`` cannot miss one. A search that GitHub marks incomplete, or that holds more
     than ``SEARCH_CAP`` results, is UNKNOWN rather than a short list.
     """
-    query = f"repo:{repo} is:pr author:{SEAT} updated:>={month}-01"
+    query = f"repo:{repo} is:pr author:{SEAT} updated:>={start}"
     found: list[dict] = []
     page = 1
     while True:
@@ -253,14 +280,14 @@ def _by_bot(entry: dict) -> bool:
     return BOT in (entry.get("user") or {}).get("login", "").lower()
 
 
-def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]]]:
-    """Credits, PRs and per-PR detail for one repository in ``month`` (``YYYY-MM``).
+def _credits(repo: str, start: str, end: str) -> tuple[int, int, list[tuple[int, int, str]]]:
+    """Credits, PRs and per-PR detail for one repository in the cycle ``[start, end)``.
 
     A pull request's credits are the larger of two readings, never their sum, because one review can
-    leave both: the review objects Greptile submitted in the month, and the "Reviews (N)" counter of
-    its summary comment when that comment was written in the month. The summary is the only trace a
+    leave both: the review objects Greptile submitted in the cycle, and the "Reviews (N)" counter of
+    its summary comment when that comment was written in the cycle. The summary is the only trace a
     clean review leaves. Its counter covers the pull request's whole life, so a pull request
-    reviewed in two months reads its earlier reviews into the later one - an over-count, the safe
+    reviewed in two cycles reads its earlier reviews into the later one - an over-count, the safe
     direction.
 
     Raises :class:`Unreadable` if anything cannot be read. Never returns zero to mean "could not
@@ -268,24 +295,24 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
     """
     credits = prs_seen = 0
     detail: list[tuple[int, int, str]] = []
-    for pull in _pull_requests(repo, month):
+    for pull in _pull_requests(repo, start):
         if (pull.get("author") or {}).get("login") != SEAT:
             continue  # the credit is charged to the author, not to the repository
-        if pull["updatedAt"][:7] < month:
-            continue  # untouched this month, so it cannot carry a review inside it
+        if pull["updatedAt"] < start:
+            continue  # untouched this cycle, so it cannot carry a review inside it
         number = pull["number"]
         reviews = _listed(repo, f"repos/{repo}/pulls/{number}/reviews", f"#{number} reviews")
         hits = [
             review
             for review in reviews
-            if _by_bot(review) and (review.get("submitted_at") or "")[:7] == month
+            if _by_bot(review) and start <= (review.get("submitted_at") or "") < end
         ]
         comments = _listed(repo, f"repos/{repo}/issues/{number}/comments", f"#{number} comments")
         summary, summary_at = 0, ""
         for comment in comments:
             body = comment.get("body") or ""
             when = comment.get("updated_at") or ""
-            if _by_bot(comment) and SUMMARY.search(body) and when[:7] == month:
+            if _by_bot(comment) and SUMMARY.search(body) and start <= when < end:
                 counter = REVIEWS_SO_FAR.search(body)
                 summary = max(summary, int(counter.group(1)) if counter else 1)
                 summary_at = max(summary_at, when)
@@ -300,7 +327,10 @@ def _credits(repo: str, month: str) -> tuple[int, int, list[tuple[int, int, str]
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--month", help="YYYY-MM; defaults to the current UTC month")
+    parser.add_argument(
+        "--cycle",
+        help=f"YYYY-MM, the cycle that starts on day {CYCLE_DAY} of it; defaults to the cycle now",
+    )
     parser.add_argument(
         "--fail-over-budget",
         action="store_true",
@@ -319,8 +349,8 @@ def main() -> int:
         "--fail-over-share",
         action="store_true",
         help=(
-            "exit 1 when Tether has no credit left in its monthly share, or when the whole seat "
-            "was read and is empty (the docs-only route)"
+            "exit 1 when Tether has no credit left in its share for the cycle, or when the whole "
+            "seat was read and is empty (the Greptile route)"
         ),
     )
     args = parser.parse_args()
@@ -332,7 +362,7 @@ def main() -> int:
     if args.fail_over_share and TETHER not in selected:
         print(f"error: --fail-over-share needs {TETHER} among the repositories", file=sys.stderr)
         return EXIT_UNKNOWN
-    month = args.month or datetime.now(UTC).strftime("%Y-%m")
+    month = args.cycle or _current_cycle(datetime.now(UTC))
     # Validated, because every comparison here is lexicographic on ISO-8601 text. A plausible typo
     # like `2026-8` sorts BELOW every real `2026-08-..` timestamp, so it would skip every PR and
     # report all 50 credits remaining - confidently, and in exactly the direction that gets a credit
@@ -340,20 +370,21 @@ def main() -> int:
     # The shape is checked before the calendar, because `strptime` is LENIENT about zero-padding -
     # it happily parses "2026-8", which is the exact typo that breaks the comparisons.
     if not re.fullmatch(r"\d{4}-\d{2}", month):
-        print(f"error: --month must be a zero-padded YYYY-MM, not {month!r}", file=sys.stderr)
+        print(f"error: --cycle must be a zero-padded YYYY-MM, not {month!r}", file=sys.stderr)
         return EXIT_UNKNOWN
     try:
         datetime.strptime(month, "%Y-%m")  # noqa: DTZ007 - a calendar month, not an instant
     except ValueError:
-        print(f"error: --month is not a real calendar month: {month!r}", file=sys.stderr)
+        print(f"error: --cycle is not a real calendar month: {month!r}", file=sys.stderr)
         return EXIT_UNKNOWN
+    start, end = _cycle(month)
 
     per_repo: Counter[str] = Counter()
     prs: Counter[str] = Counter()
     detail: list[tuple[str, int, int, str]] = []
     try:
         for repo in selected:
-            credits, seen, rows = _credits(repo, month)
+            credits, seen, rows = _credits(repo, start, end)
             per_repo[repo] = credits
             prs[repo] = seen
             detail.extend((repo, number, count, when) for number, count, when in rows)
@@ -370,7 +401,7 @@ def main() -> int:
 
     used = sum(per_repo.values())
     left = INCLUDED_CREDITS - used
-    print(f"Greptile credits — seat {SEAT}, month {month}")
+    print(f"Greptile credits — seat {SEAT}, cycle {start} to {end} (exclusive)")
     if whole_seat:
         print(f"  used {used} of {INCLUDED_CREDITS} included; {left} remaining")
     else:
@@ -397,17 +428,17 @@ def main() -> int:
         "\n  relying on the remaining figure."
     )
     if args.fail_over_budget and left <= 0:
-        print("\nerror: the seat has no included credits left this month", file=sys.stderr)
+        print("\nerror: the seat has no included credits left this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
     if args.fail_over_share and per_repo[TETHER] >= REPO_SHARE:
-        print(f"\nerror: Tether has used its share of {REPO_SHARE} this month", file=sys.stderr)
+        print(f"\nerror: Tether has used its share of {REPO_SHARE} this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
     if args.fail_over_share and whole_seat and left <= 0:
         # Tether's share is a ceiling inside the seat, never a credit of its own: where the whole
         # seat was read and it is empty, nothing may be spent however little Tether used (Codex
         # P2 on #1036). A partial count cannot see this, which is why ADR-0099 has the maintainer
         # reconcile the seat.
-        print("\nerror: the seat has no included credits left this month", file=sys.stderr)
+        print("\nerror: the seat has no included credits left this cycle", file=sys.stderr)
         return EXIT_OVER_BUDGET
     return 0
 
