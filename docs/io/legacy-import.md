@@ -1,3 +1,7 @@
+---
+description: "Analyze an acquisition that Deep-LASI already processed in Tether, without extracting the traces from the movie again."
+---
+
 # Legacy Deep-LASI import
 
 **Who this page is for.** A lab scientist who has an acquisition that Deep-LASI already

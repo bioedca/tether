@@ -1,3 +1,7 @@
+---
+description: "The architecture decision records of Tether: the reasoning, the options and the result of each consequential design choice."
+---
+
 # Architecture Decision Records (ADRs)
 
 **Who this page is for.** Anyone who wants the reasoning behind a consequential Tether design
@@ -104,7 +108,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0056](0056-policy-fail-rejected-extraction-checkpoint.md) | Preserve policy-fail rejection across batch resume | accepted | §6, §7.11, §11.2 |
 | [0057](0057-github-native-swarm-coordination.md) | GitHub-native swarm coordination | accepted in part; supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) in full and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md) only in its admitting mechanism — ADR-0053’s intake gates remain in force as the claim precondition; its review gate, round cap, slot launcher and advisory scope guard superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md) | §12.2–§12.5 |
 | [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | Ship v1.0.0 unsigned, with SHA-256 manifests + build provenance as the integrity anchor | accepted; supersedes the code-signing half of [0050](0050-release-pipeline-and-code-signing.md) | §9 M9, §12.7, §4.1, NFR-PKG |
-| [0060](0060-in-app-update-mechanism-and-integrity-model.md) | In-app update: download, verify against build provenance, hand off to the OS installer | accepted; decision 2's mechanism amended to bundled `gh --bundle`; store location delegated to [#330](https://github.com/bioedca/tether/issues/330) | §4.1, §4.3, §8 NFR-PKG, §7.12 FR-UPDATE |
+| [0060](0060-in-app-update-mechanism-and-integrity-model.md) | In-app update: download, verify against build provenance, hand off to the OS installer | accepted; decision 2's mechanism amended to bundled `gh attestation verify --bundle`; store location delegated to [#330](https://github.com/bioedca/tether/issues/330) | §4.1, §4.3, §8 NFR-PKG, §7.12 FR-UPDATE |
 | [0061](0061-transport-failures-and-the-strict-x509-opt-out.md) | A transport failure is not a scope verdict, and strict X.509 conformance is opt-out | accepted; reverses a non-goal of [#315](https://github.com/bioedca/tether/issues/315) | §12.2–§12.5 |
 | [0062](0062-draft-first-review-lane-with-metered-providers.md) | Draft-first review lane: spend the free provider before the metered ones | superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md) | §12 |
 | [0063](0063-review-evidence-is-read-not-inferred.md) | Review evidence is read from the payload, not inferred from its shape | superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md); its measurements stand as evidence | §12 |
@@ -132,6 +136,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12) | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
 | [0086](0086-ha-laboratory-snapshot-histogram-is-a-reference.md) | The Ha-laboratory SAM/SAH snapshot histogram is a reference, compared by its peaks | accepted | §1 (the apparent-E histogram), §2.2 (N4), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0087](0087-mash-fret-is-a-reference-for-corrected-fret.md) | MASH-FRET's published project files are a reference for leakage and corrected FRET | accepted | §7.2 (corrections), §7.4 (FRET efficiency), §2.2 (what the tests can use), §8 NFR-VALID |
+| [0088](0088-extraction-test-on-mash-fret-simulated-videos.md) | An extraction test on videos with known truth from the MASH-FRET simulator | accepted | §9.5 (the validation suite), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
 | [0090](0090-measured-vbfret-paths-are-a-dwell-reference.md) | Measured traces with a stored vbFRET path are a dwell and transition reference | accepted | §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP) |
 

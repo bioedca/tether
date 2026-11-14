@@ -66,6 +66,9 @@ tether-gui = "tether.gui.app:main"
 Homepage = "https://github.com/bioedca/tether"
 Repository = "https://github.com/bioedca/tether"
 Issues = "https://github.com/bioedca/tether/issues"
+Documentation = "https://bioedca.github.io/tether/"
+Changelog = "https://github.com/bioedca/tether/releases"
+DOI = "https://doi.org/10.5281/zenodo.23306397"
 
 # --- Version: derived from git via hatch-vcs (PRD §4.1 "version from git") ----
 [tool.hatch.version]

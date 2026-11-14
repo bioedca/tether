@@ -1,3 +1,7 @@
+---
+description: "Find what you saw, such as an error message or an unexpected result, and read the cause, the module responsible and what to do."
+---
+
 # Troubleshooting
 
 **Who this page is for.** Anyone whose Tether run did something other than what they
