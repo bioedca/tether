@@ -393,14 +393,15 @@ governs.
 3. Ask Codex for a review with an `@codex review` comment.
 4. Fix each blocking Codex finding and ask Codex again. Repeat until Codex finds nothing blocking.
 5. Mark the PR ready for review.
-6. Ask CodeRabbit with an `@coderabbitai full review` comment. The incremental command reviews
-   nothing on this repository.
+6. Ask CodeRabbit once with an `@coderabbitai full review` comment. The incremental command
+   reviews nothing on this repository. A refusal is not that one review.
 7. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
 8. Resolve each review thread. An unresolved thread blocks the merge, even with green checks.
 
 No provider reviews a PR automatically here, so a review that was not asked for does not come.
-A review usually posts within an hour of the request. A provider can refuse for a quota or a
-rate limit, and that can hold a PR for hours. A refusal is a wait, not a pass.
+The one exception is Greptile on a branch cut before `.greptile/config.json` landed. A review
+usually posts within an hour of the request. A provider can refuse for a quota or a rate limit,
+and that can hold a PR for hours. A refusal is a wait, not a pass.
 
 The `main-baseline` ruleset requires these **11** status checks: `lint` · `test (ubuntu-latest)` ·
 `test (macos-latest)` · `test (windows-latest)` · `pre-commit` · `commitlint` · `secret-scan` ·
@@ -418,8 +419,7 @@ gh pr merge <PR> --auto --squash --match-head-commit <SHA>
 ```
 
 `<SHA>` is the 40-hex head that the clean review read. Take it from that review, not from the PR.
-Releases, tags, signing and each new scientific claim or citation also need the maintainer's
-sign-off.
+Releases, tags, signing and each new scientific claim or citation need the maintainer's sign-off.
 
 ## Reporting bugs & security issues
 
