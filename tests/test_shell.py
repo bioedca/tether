@@ -86,6 +86,8 @@ def test_bare_accept_key_without_project_reports_nonwriting(shell) -> None:
         "Key_BracketRight",
         "Key_R",
         "Key_P",
+        "Key_Return",
+        "Key_G",
     ],
 )
 def test_deferred_store_commands_report_unavailable(shell, qtbot, key_name) -> None:
@@ -191,6 +193,36 @@ def test_cheatsheet_overlay_reflects_the_keymap(shell) -> None:
     assert shown == shell.keymap.cheatsheet()
     assert dict(shown).get("A") == "Accept trace"
     assert "Space" not in dict(shown)
+
+
+def test_status_bar_and_cheatsheet_do_not_advertise_deferred_keys(shell) -> None:
+    # #345: the ready line no longer offers "Enter jump", and the shipped cheat sheet
+    # agrees: every deferred command is marked unavailable, the working ones are not.
+    from tether.gui.shell import DEFERRED_ACTIONS
+
+    assert "jump" not in shell.status_message.lower()
+    shown = _cheatsheet_cells(shell.cheatsheet)
+    assert shown == shell.keymap.cheatsheet(unavailable=DEFERRED_ACTIONS)
+    rows = dict(shown)
+    assert rows.get("Space") == "Accept trace"
+    assert rows.get("I") == "One-click idealize"
+    assert rows.get("G") == "Toggle grid (unavailable)"
+    assert rows.get("1") == "Assign category 1 (unavailable)"
+    assert "Jump to movie spot (unavailable)" in rows.values()
+    assert "Jump to movie spot" not in rows.values()
+
+
+def test_every_deferred_action_reports_unavailable(shell) -> None:
+    # The set the cheat sheet marks is the set the handlers route to _unavailable,
+    # so the two cannot drift apart (#357 / #364 / #359 shrink both together).
+    from tether.gui.curation import Command, CurationAction
+    from tether.gui.shell import DEFERRED_ACTIONS
+
+    shell.set_molecules(_traces(1))
+    for action in sorted(DEFERRED_ACTIONS):
+        arg = 1 if action is CurationAction.ASSIGN_CATEGORY else None
+        shell.controller.dispatch(Command(action, arg))
+        assert "unavailable" in shell.status_message, action
 
 
 def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> None:

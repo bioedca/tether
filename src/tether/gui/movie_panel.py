@@ -14,11 +14,11 @@ overlays, with a movie switcher for multi-movie experiments").
   donor/acceptor spot coordinates — and :meth:`set_active_movie` switches which is
   shown; :attr:`switcher` is a ready :class:`~qtpy.QtWidgets.QComboBox` a host can
   place to drive the switch. The napari Qt window is exposed as :attr:`qt_window`
-  so the Tether shell can embed it (the shell embed lands at M2 S4).
+  so the Tether shell can embed it (the shell embed lands in #356).
 * :meth:`center_on` and :meth:`connect_spot_click` are the napari half of the
-  M2 S4 trace↔movie round-trip (PRD §7.3, §5.2): centre the camera on a spot
-  (trace → movie) and receive a canvas click (movie → trace). The resolver that
-  drives them lives in :mod:`tether.gui.roundtrip`.
+  trace↔movie round-trip (PRD §7.3, §5.2; the shell wiring lands in #357): centre
+  the camera on a spot (trace → movie) and receive a canvas click (movie → trace).
+  The resolver that drives them lives in :mod:`tether.gui.roundtrip`.
 
 **Overlays.** Molecule spot positions are frame-independent, so a plain **2-D**
 Points layer (``[row, col]``) rides over every frame of the ``(T, H, W)`` movie as
@@ -236,7 +236,7 @@ class NapariMoviePanel:
     (each optionally with a :class:`MovieOverlay`) and :meth:`set_active_movie`
     between them. Use as a context manager or call :meth:`close`. The napari Qt
     main window is exposed as :attr:`qt_window` for embedding into the Tether shell
-    (M2 S4).
+    (#356).
     """
 
     def __init__(self, *, title: str = "Tether — movie", show: bool = False) -> None:
@@ -357,7 +357,7 @@ class NapariMoviePanel:
 
         Lazily created and kept in sync with :meth:`add_movie` /
         :meth:`set_active_movie`; selecting an entry calls :meth:`set_active_movie`.
-        A host (the Tether shell, M2 S4) places it in its chrome.
+        A host (the Tether shell, #356) places it in its chrome.
         """
         from qtpy.QtWidgets import QComboBox
 
@@ -581,7 +581,7 @@ class NapariMoviePanel:
             border_color=border,
         )
 
-    # --- round-trip navigation (M2 S4, PRD §7.3, §5.2) -----------------------
+    # --- round-trip navigation (#357, PRD §7.3, §5.2) ------------------------
 
     def center_on(self, row: float, col: float, *, zoom: float | None = None) -> None:
         """Centre the camera on a ``(row, col)`` world coordinate (trace → movie jump).

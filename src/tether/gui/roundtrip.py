@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trace↔movie round-trip navigation — the per-movie KDTree resolver + navigator.
 
-This is the M2 S4 core of the FR-ROUNDTRIP browser (PRD §7.3, §5.2): the two-way
-link between a molecule's :mod:`~tether.gui.trace_dock` trace and its spot in the
-:mod:`~tether.gui.movie_panel` napari movie.
+This is the core of the FR-ROUNDTRIP browser (PRD §7.3, §5.2; #357 wires it into
+the shell): the two-way link between a molecule's :mod:`~tether.gui.trace_dock`
+trace and its spot in the :mod:`~tether.gui.movie_panel` napari movie.
 
 * **trace → movie** (``Enter`` / list selection): resolve the molecule to *its own*
   movie and centre the camera on its spot. PRD §5.2 makes this ``O(1)`` — the
