@@ -49,16 +49,36 @@ other label, find the row that describes the same method and cite that.
 
 ### The rest of the pipeline
 
+Native extraction has three spot detectors, and they come from different papers. The one
+that ran is the `detection_mode` attribute of `/settings/extraction` in your `.tether`
+project (see [the parameter reference](reference/parameters.md#param-detection-mode)). It is
+`wavelet` unless you chose another mode or a Deep-LASI `.tdat` file supplied one.
+
 | What you ran | Cite |
 |---|---|
 | Photobleaching (bleach-step) detection, Tether's native reimplementation of tMAVEN's Bayesian single-step model | Verma 2024 |
-| Leakage (α) and γ (detection-efficiency and quantum-yield ratio) corrections, and the gamma-corrected FRET efficiency | McCann 2010; Hellenkamp 2018 |
-| Native movie-to-trace extraction and channel registration | Wanninger 2023 |
-| The deep trace classifier (GPU add-on) | Thomsen 2020; Wanninger 2023 |
+| Leakage (α) and γ (detection-efficiency and quantum-yield ratio) corrections, and the gamma-corrected FRET efficiency | Lee 2005; Roy 2008; McCann 2010; Hellenkamp 2018 |
+| Native movie-to-trace extraction and channel registration, in any detection mode | Wanninger 2023 |
+| Spot detection in `wavelet` mode (the default): the à trous wavelet detector and its centroid localization | Olivo-Marin 2002; Izeddin 2012 |
+| Spot detection in `intensity` or `bandpass` mode: the Crocker-Grier band-pass filter | Crocker 1996 |
+| The deep trace classifier (GPU add-on): its CNN/LSTM model, training and fine-tuning | Thomsen 2020; Wanninger 2023; Li 2020; Zhang 2025 |
 | Saving or exporting the `.tether` / SMD project format | Greenfeld 2015 |
 
 ### References
 
+- **Crocker 1996.** Crocker JC, Grier DG. "Methods of digital video microscopy for colloidal
+  studies." *Journal of Colloid and Interface Science* 179(1):298–310 (1996).
+  [https://doi.org/10.1006/jcis.1996.0217](https://doi.org/10.1006/jcis.1996.0217)
+- **Olivo-Marin 2002.** Olivo-Marin J-C. "Extraction of spots in biological images using
+  multiscale products." *Pattern Recognition* 35(9):1989–1996 (2002).
+  [https://doi.org/10.1016/S0031-3203(01)00127-3](https://doi.org/10.1016/S0031-3203%2801%2900127-3)
+- **Lee 2005.** Lee NK, Kapanidis AN, Wang Y, Michalet X, Mukhopadhyay J, Ebright RH, Weiss S.
+  "Accurate FRET measurements within single diffusing biomolecules using alternating-laser
+  excitation." *Biophysical Journal* 88(4):2939–2953 (2005).
+  [https://doi.org/10.1529/biophysj.104.054114](https://doi.org/10.1529/biophysj.104.054114)
+- **Roy 2008.** Roy R, Hohng S, Ha T. "A practical guide to single-molecule FRET." *Nature
+  Methods* 5(6):507–516 (2008).
+  [https://doi.org/10.1038/nmeth.1208](https://doi.org/10.1038/nmeth.1208)
 - **Bronson 2009.** Bronson JE, Fei J, Hofman JM, Gonzalez RL Jr, Wiggins CH. "Learning
   rates and states from biophysical time series: a Bayesian approach to model selection and
   single-molecule FRET data." *Biophysical Journal* 97(12):3196–3205 (2009).
@@ -67,6 +87,10 @@ other label, find the row that describes the same method and cite that.
   recover absolute FRET efficiency from immobilized single molecules." *Biophysical Journal*
   99(3):961–970 (2010).
   [https://doi.org/10.1016/j.bpj.2010.04.063](https://doi.org/10.1016/j.bpj.2010.04.063)
+- **Izeddin 2012.** Izeddin I, Boulanger J, Racine V, Specht CG, Kechkar A, Nair D,
+  Triller A, Choquet D, Dahan M, Sibarita JB. "Wavelet analysis for single molecule
+  localization microscopy." *Optics Express* 20(3):2081–2095 (2012).
+  [https://doi.org/10.1364/OE.20.002081](https://doi.org/10.1364/OE.20.002081)
 - **van de Meent 2014.** van de Meent J-W, Bronson JE, Wiggins CH, Gonzalez RL Jr.
   "Empirical Bayes methods enable advanced population-level analyses of single-molecule
   FRET experiments." *Biophysical Journal* 106(6):1327–1337 (2014).
@@ -83,6 +107,10 @@ other label, find the row that describes the same method and cite that.
   rapid and automated single-molecule FRET data classification using deep learning."
   *eLife* 9:e60404 (2020).
   [https://doi.org/10.7554/eLife.60404](https://doi.org/10.7554/eLife.60404)
+- **Li 2020.** Li J, Zhang L, Johnson-Buck A, Walter NG. "Automatic classification and
+  segmentation of single-molecule fluorescence time traces with deep learning." *Nature
+  Communications* 11:5833 (2020).
+  [https://doi.org/10.1038/s41467-020-19673-1](https://doi.org/10.1038/s41467-020-19673-1)
 - **Wanninger 2023.** Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz
   E, Lamb DC. "Deep-LASI: deep-learning assisted, single-molecule imaging analysis of
   multi-color DNA origami structures." *Nature Communications* 14:6564 (2023).
@@ -91,6 +119,10 @@ other label, find the row that describes the same method and cite that.
   the accuracy of single-molecule data analysis using tMAVEN." *Biophysical Journal*
   123(17):2765–2780 (2024).
   [https://doi.org/10.1016/j.bpj.2024.01.022](https://doi.org/10.1016/j.bpj.2024.01.022)
+- **Zhang 2025.** Zhang L, Li J, Walter NG. "Pretrained deep neural network Kin-SiM for
+  single-molecule FRET trace idealization." *The Journal of Physical Chemistry B*
+  129(4):1167–1175 (2025).
+  [https://doi.org/10.1021/acs.jpcb.4c05276](https://doi.org/10.1021/acs.jpcb.4c05276)
 
 These are the papers the tables above cite. The `references:` list in `CITATION.cff` holds
 them all, plus works Tether credits that a citing user does not need here (MASH-FRET and the
