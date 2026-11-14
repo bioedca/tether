@@ -33,7 +33,7 @@ import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 import tifffile  # noqa: E402
 
-from tether.imaging.extract import read_molecules, read_traces  # noqa: E402
+from tether.imaging.extract import MovieMetadata, read_molecules, read_traces  # noqa: E402
 from tether.imaging.layout import (  # noqa: E402
     DEFAULT_CHANNEL_LAYOUT,
     LAYOUT_KINDS,
@@ -381,3 +381,16 @@ def test_the_frozen_manifest_does_not_carry_the_layout_group() -> None:
     manifest = build_manifest()
     assert "/movies/layouts" not in manifest["groups"]
     assert manifest == json.loads(_GOLDEN.read_text(encoding="utf-8"))
+
+
+def test_movie_metadata_refuses_a_layout_that_is_not_a_record() -> None:
+    """A wrong type fails before ``write_extraction`` can append the ``/movies`` row."""
+    with pytest.raises(TypeError, match="channel_layout must be a ChannelLayout or None"):
+        MovieMetadata(
+            movie_id="mov-1",
+            sha256="0" * 64,
+            n_frames=1,
+            height=2,
+            width=2,
+            channel_layout={"kind": "top-bottom"},  # type: ignore[arg-type]
+        )

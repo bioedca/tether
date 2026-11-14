@@ -203,6 +203,13 @@ class MovieMetadata:
     def __post_init__(self) -> None:
         if not self.movie_id:
             raise ValueError("movie_id must be a non-empty string")
+        # write_layout_record reads the layout's attributes after the /movies row is
+        # appended, so a wrong type must fail here, before write_extraction mutates.
+        if self.channel_layout is not None and not isinstance(self.channel_layout, ChannelLayout):
+            raise TypeError(
+                "channel_layout must be a ChannelLayout or None, "
+                f"got {type(self.channel_layout).__name__}"
+            )
         for name in ("n_frames", "height", "width"):
             if int(getattr(self, name)) < 1:
                 raise ValueError(f"{name} must be >= 1, got {getattr(self, name)!r}")
