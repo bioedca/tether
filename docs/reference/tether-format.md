@@ -85,7 +85,7 @@ parts of this page are a promise rather than a description.
 
 What that means if you write your own reader:
 
-> **Tolerate what you do not recognise.** Read compound tables **by field name**,
+> **Tolerate what you do not recognize.** Read compound tables **by field name**,
 > never by positional index or a hard-coded record size, and ignore fields, datasets,
 > groups and attributes you do not know — a later Tether release may add them without
 > a `schema_version` bump. Conversely, you may rely on the **frozen skeleton** above —
@@ -263,11 +263,11 @@ rewrites `condition_id`.
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
 | `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
-| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analysed. `frame_range` at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed window wins. |
+| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed window wins. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
 | `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — resetting processed α rows and their downstream γ rows to `NaN` — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` on every analysable molecule (one whose `frame_range` is non-empty) and leaves the factor `NaN` — unless `apparent_e_only` forces `apparent-E (user toggle)` instead, or a manual `alpha_override`/`gamma_override` completes a usable pair (both effective factors finite, γ > 0), which stamps `manual` and **persists the override into this cell**. So read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
 | `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. Same `NaN` convention as `alpha` — `compute_gamma` withholds the dataset γ below `min_qualifying_traces` (`src/tether/project/gamma.py`) and resets processed rows to `NaN`; a withheld leakage recomputation also resets those rows because γ was derived from the prior α. A γ pass stamps `/settings/gamma` with `withheld = True`, so read `correction_method` / `/settings/gamma` rather than this cell. |
-| `delta` | `f8` | scalar | Direct-excitation δ, dimensionless. Inert in two-colour work; written `0.0`. |
+| `delta` | `f8` | scalar | Direct-excitation δ, dimensionless. Inert in two-color work; written `0.0`. |
 | `correction_method` | `str:utf-8` | scalar | Closed vocabulary from `src/tether/project/correct.py`: `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)`. `""` before any correction pass. |
 | `correction_confidence` | `f8` | scalar | A **provenance flag, not a confidence interval**: `1.0` when a real correction was applied, `0.0` on apparent-E fallback, `NaN` before any pass. |
 | `curation_label` | `i4` | scalar | Signed codec `CurationLabel` (`src/tether/project/labels.py`): `0` uncurated, `1` accept, `-1` reject. Mirrors the most recent **human** label only. |
@@ -388,7 +388,7 @@ file in the message.
 
 ## `/labels` — the append-only curation log
 
-Group holding `/labels/table` (`LABELS_DTYPE`, 8 fields): one row per labelling
+Group holding `/labels/table` (`LABELS_DTYPE`, 8 fields): one row per labeling
 *event*, **append-only** and carrying full provenance
 ([ADR-0023](../adr/0023-curation-label-codec-and-labels-log.md)). Rows are never
 removed or reordered, and every field except `weight` is immutable — `weight` is
@@ -475,7 +475,7 @@ Two datasets, `donor` and `acceptor`, each
 aperture window is fixed per project and validated on every later append.
 
 In a **natively extracted** store each entry is the **temporal mean** image crop for
-that molecule and channel, in `(row, col)` image order, centred on the molecule's
+that molecule and channel, in `(row, col)` image order, centered on the molecule's
 rounded coordinate. `_mean_patches` (`src/tether/imaging/extract.py`) zero-fills a
 molecule whose window falls outside the frame, but no such molecule reaches disk:
 `colocalize` keeps only molecules whose window fits in **both** channels, and

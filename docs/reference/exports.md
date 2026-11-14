@@ -141,7 +141,7 @@ disk's pixel count `n_psf = int(disk.sum())`.
 > `bg_window=10` — `tether.project.extract.ExtractOptions`, mirrored by
 > `tether.imaging.aperture.integrate_traces`) the disk is **29 px**, and that count is set
 > by **`disk_radius` alone**. `aperture_masks` builds the disk as `dist <= disk_radius`
-> about the window centre, so `n_psf` is 29 for *every* legal `window` — the window only
+> about the window center, so `n_psf` is 29 for *every* legal `window` — the window only
 > has to be odd and wide enough for the ring (`2 * ring_outer <= window`). Changing
 > `disk_radius` is what re-scales an intensity: `3.0 → 29 px`, `4.0 → 49 px`, `5.0 → 81 px`.
 > The `tether extract --window` flag changes the crop-box side length and leaves `n_psf`
@@ -223,7 +223,7 @@ underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 | `aperture_id` | integer | Unitless index into the aperture registry. Extraction always writes `0` (`tether.imaging.extract`) — a **placeholder**, because there is no per-aperture registry yet. It does **not** encode the aperture geometry: `tether extract --window` is settable and still writes `0`; the effective geometry lives in `/settings/extraction`, which the CSV does not carry (see [Intensity units](#intensity-units)) | Never — an integer is always written |
 | `alpha` | float | **Dimensionless.** Donor→acceptor leakage α, applied as `I_A,corr = I_A − α·I_D` (`tether.fret.efficiency`) | α is unset. Extraction writes `NaN` until M3 estimates it |
 | `gamma` | float | **Dimensionless.** Detection-correction factor γ, the denominator weight in `E = I_A,corr / (I_A,corr + γ·I_D,corr)` | γ is unset (`NaN` at extraction) |
-| `delta` | float | **Dimensionless.** Direct-excitation δ. Initialized to `0.0` and inert in 2-colour (no ALEX; ADR-0008), so it exports as `0.0`, not blank | The stored value is non-finite |
+| `delta` | float | **Dimensionless.** Direct-excitation δ. Initialized to `0.0` and inert in 2-color (no ALEX; ADR-0008), so it exports as `0.0`, not blank | The stored value is non-finite |
 | `correction_method` | string | Vocabulary from `tether.project.correct`: `""` (extraction default, nothing applied), `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)` | Nothing has been applied yet (the `""` default) |
 | `correction_confidence` | float | **Unitless provenance flag, not a statistical CI**: `1.0` when a real photophysical correction was applied, `0.0` when the molecule fell back to apparent E (`_CONFIDENCE_CORRECTED` / `_CONFIDENCE_APPARENT` in `tether.project.correct`) | No correction pass has run (`NaN` at extraction) |
 | `donor_bleach_frame` | integer | **Frames**, zero-based, absolute. `bleach_frames[0]`. Sentinel `-1` = not detected (`_UNDETECTED_FRAME`, `tether.imaging.extract`); a value equal to `frame_end` means the channel does not bleach within the trace (`tether.project.photobleach`) | Never — an integer is always written |
@@ -607,7 +607,7 @@ wrong number:
   both.
 - **A stored `0.0` means *unknown*, not "instantaneous".** The GUI treats a non-positive
   `frame_time` as absent and falls back to a frame axis (`tether.gui.shell`), and
-  `frames_to_seconds` above refuses rather than handing back a column of zeros labelled
+  `frames_to_seconds` above refuses rather than handing back a column of zeros labeled
   seconds.
 - **Some rows have no movie to key on at all.** A **subset `.tether` has zero `/movies`
   rows** by construction, and an **analysis-only import** has none either and writes
@@ -640,7 +640,7 @@ conversion step.
   filter; **§7.10** — `molecule_key` non-uniqueness.
 - **ADR-0001** — provenance-first project store.
 - **ADR-0002** — the `.tether` store is an SMD superset; round-trip is a data-model property.
-- **ADR-0005** — the M0 schema freeze (additive-only), which the subset export honours.
+- **ADR-0005** — the M0 schema freeze (additive-only), which the subset export honors.
 - **ADR-0008** — the Deep-LASI → Tether correction-factor remap (β→α, α→δ, γ→γ).
 - **ADR-0016** — the extraction trace-store layout: zero-pad-to-max-`T` traces and the
   `molecule_key` content hash.

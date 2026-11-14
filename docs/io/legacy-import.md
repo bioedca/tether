@@ -5,7 +5,7 @@ processed and who wants to analyze it in Tether without extracting the traces ag
 assumes you have a Deep-LASI export and know its file types. It does not assume you know
 Tether's code.
 
-Tether re-analyses an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*.
+Tether re-analyzes an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*.
 The import path reads the legacy file set — the raw movie, the
 [`TIRFdata`](../glossary.md#tirfdata-mcos-refs)
 [`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the
@@ -134,7 +134,7 @@ image patches, masks, `FrameTime`, HMM states, or categories.
 `recover_coordinates(tdat=…, mat=…, prefer=…)` unifies the two coordinate sources into one
 `RecoveredCoordinates` model (donor/acceptor `(N, 2)` in acquisition-molecule order), tagged
 with the source actually used. From a `.tdat` it takes donor = the reference channel and
-acceptor = the single other colocalized channel (two-colour only — one or three-plus
+acceptor = the single other colocalized channel (two-color only — one or three-plus
 channels raise). From a `.mat` it uses `donor_xy` / `acceptor_xy` directly. The two sources
 are **not** cross-validated (the `.mat` is often a curated slice with a different molecule
 count).

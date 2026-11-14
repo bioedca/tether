@@ -44,7 +44,7 @@ nothing you mark will be saved. Close the other writer and open the project agai
 ## 2. Move from trace to trace
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (red) and their total (grey) on top, its apparent FRET efficiency (blue)
+(green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
 underneath.
 
 1. Press **Right arrow** or **Down arrow** for the next molecule.
@@ -95,7 +95,7 @@ so the history survives a reversal.
 
 - **Uncurated** is where every molecule starts. Uncurated molecules are **included** in
   histograms, idealization and the other analyses, exactly like accepted ones.
-- **Accept** records your judgement. Accepting an uncurated molecule does not change which
+- **Accept** records your judgment. Accepting an uncurated molecule does not change which
   molecules an analysis uses, because only rejection removes a molecule. Accepting a
   rejected one does: it replaces the rejection and puts the molecule back in.
 - **Reject** keeps the molecule out of population analyses and idealization, and out of the

@@ -45,7 +45,7 @@ colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the
 gives exactly `1 − E`.
 
 The molecule count is *not* a control here. Donor-anchoring makes the molecule set exactly
-the detections in the half you **labelled** donor, so swapping the label swaps which half is
+the detections in the half you **labeled** donor, so swapping the label swaps which half is
 counted. The two counts agree only when both halves detect the same number of spots — true of
 a symmetric synthetic movie, and not something to rely on with real data, where the
 acceptor-dark and low-FRET population ADR-0015 exists to preserve is precisely the set present
@@ -94,7 +94,7 @@ orientation *before* you trust a dataset, two ways:
 - **Against a trace.** Open a molecule that photobleaches. At the acceptor-bleach step the
   acceptor channel drops to background and the donor channel *rises* — the dequenching step
   Tether's own γ estimator measures as `ΔI_A / ΔI_D` (`tether.fret.gamma`). If in your traces
-  the channel labelled *acceptor* is the one that rises, the sides are swapped.
+  the channel labeled *acceptor* is the one that rises, the sides are swapped.
 
 If it was wrong, **re-extract**. There is no in-place fix and nothing to flip after the fact:
 the crops, the registration map, the molecule keys and the tags are all written from the
@@ -268,7 +268,7 @@ gives the condition two arms:
 
 At **3–5 pairs the similarity is over-determined and the residual is real** — the gate works
 normally there, and a `low_confidence: True` on a 4-point fit is a genuine warning, not an
-artefact. (What it cannot tell you is whether the map needs degree 2: a 3–5-point residual
+artifact. (What it cannot tell you is whether the map needs degree 2: a 3–5-point residual
 only measures how well a *similarity* fits.) Separately, `pair_control_points` silently
 **drops** outlier pairs beyond `--pair-tol` (default 2 px), which is how a movie with plenty
 of spots lands on 6 surviving pairs; only fewer than 2 is a hard error.
@@ -504,7 +504,7 @@ one from a filename witness. It is not a claim that every molecule is now key-ma
 ### A plot shows fewer molecules than I curated
 
 **Cause.** Two on-by-default invariants on every store-level group-B/C entry point, both
-Tether additions with no tMAVEN analogue: **stale** molecules are excluded, and **rejected**
+Tether additions with no tMAVEN analog: **stale** molecules are excluded, and **rejected**
 molecules are excluded. A molecule goes stale when its input trace, its analysis window, or
 its effective applied α/γ changed after the model was fitted — so re-running the corrections
 can silently empty a TDP that worked yesterday.
@@ -604,7 +604,7 @@ for the pin in the lock file or the workflow — `.github/workflows/sidecar.yml`
 script.
 
 *Sidecar that came with the installer.* The pin is applied for you. `envs/sidecar` is
-materialised from the rendered `sidecar/conda-lock.yml` (setuptools `82.0.1`), and the
+materialized from the rendered `sidecar/conda-lock.yml` (setuptools `82.0.1`), and the
 constructor `post_install` script then lays a bundled `setuptools<81` wheel over it — a
 third offline wheel alongside `tether-*.whl` and `tmaven-*.whl` — before installing tMAVEN.
 So on an installed app this failure should not happen; if it does, the sidecar env has been

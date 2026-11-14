@@ -43,7 +43,7 @@ does not refuse, and falls back to apparent E when the factors are missing
 [`tether.project.correct`](https://github.com/bioedca/tether/blob/main/src/tether/project/correct.py)).
 
 The batch runner stops at idealization: curation, analysis and export are not part of it.
-Curation in particular is your judgement, made in the app, and it can happen any time after
+Curation in particular is your judgment, made in the app, and it can happen any time after
 extraction.
 
 ## The stages

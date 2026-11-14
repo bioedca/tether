@@ -10,7 +10,7 @@ site will change that.
 
 Tether reads **uncompressed multi-page TIFF movies from a single camera whose frame is
 split side by side, down the vertical midline, into a left and a right half** — one donor
-channel, one acceptor channel — recorded with **one excitation laser** and **two colours**.
+channel, one acceptor channel — recorded with **one excitation laser** and **two colors**.
 That is the dual-view TIRF geometry the whole pipeline is built around. A top/bottom
 (stacked) dual-view export does not fit native extraction: the built-in splitter cuts on
 width only, so it would slice each channel in two rather than separating them. (If you have
@@ -19,7 +19,7 @@ a Deep-LASI `.tmap` whose per-channel crops describe the stacked tiles, extracti
 unsupported.)
 
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
-*three-colour*, or *confocal point detectors* describes your setup, it does not — see
+*three-color*, or *confocal point detectors* describes your setup, it does not — see
 [What Tether does not do](#what-tether-does-not-do). If your movies are in a vendor
 container (`.nd2`, `.czi`, `.sif`), export them to uncompressed TIFF first and Tether will
 read them.
@@ -47,7 +47,7 @@ batch`) the filename suffix is never checked; the file is handed to `tifffile`, 
 Extension matching exists only in the Deep-LASI folder-intake wizard, where
 `tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role, `.tdat`, `.tmap`,
 `.mat`, `.txt` and `.hdf5`/`.h5` to their own legacy roles, and anything it does not
-recognise to `unknown` — collected into the discovery result's `ignored` list rather than
+recognize to `unknown` — collected into the discovery result's `ignored` list rather than
 silently dropped.
 
 **Frame time.** Tether reads seconds-per-frame from the TIFF only when the file carries an
@@ -87,12 +87,12 @@ covers both axes). Empty or all-zero `Rotation`/`Flip` — what the reference UC
 stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 `tether.imaging.register`).
 
-> ### Getting `--donor-side` backwards raises no error, and relabelling afterwards will not fix it
+> ### Getting `--donor-side` backwards raises no error, and relabeling afterwards will not fix it
 >
 > **A wrong `--donor-side` raises no error during extraction.** Both values are legal, so
 > extraction succeeds and every trace looks plausible.
 >
-> It is worse than a mislabelling. Spot detection is **donor-anchored**: Tether finds spots
+> It is worse than a mislabeling. Spot detection is **donor-anchored**: Tether finds spots
 > in the half you called donor and colocalizes the other channel against them. Get it
 > backwards and you have anchored on the acceptor half, so the molecule *set* itself is
 > different. You cannot repair the project by swapping the column names afterwards, and you
@@ -102,7 +102,7 @@ stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 >
 > **How to tell.** Find a molecule whose acceptor photobleaches partway through. When the
 > acceptor dies, energy transfer stops and the donor de-quenches, so the **donor trace
-> steps up** at that instant. If the trace you have labelled "donor" steps *down* while the
+> steps up** at that instant. If the trace you have labeled "donor" steps *down* while the
 > other steps up, your halves are swapped.
 >
 > Tether makes this check for you after every extraction. It counts each molecule whose dyes
@@ -143,7 +143,7 @@ than reconstruction.
 
 These are deliberate scope boundaries, not gaps waiting to be filled.
 
-- **No ALEX or PIE, no stoichiometry, no three-colour.** Tether is two-colour,
+- **No ALEX or PIE, no stoichiometry, no three-color.** Tether is two-color,
   single-laser only. A direct consequence: the direct-excitation correction factor δ is
   structurally inert (it is zero), because estimating it needs the
   acceptor-under-acceptor-excitation channel that only ALEX provides.
@@ -166,8 +166,8 @@ These are deliberate scope boundaries, not gaps waiting to be filled.
   carrying a warning that "the .tdat could not be decoded"
   (`tests/test_deeplasi_executor.py::test_undecodable_tdat_degrades_to_mat_apparent_e`).
 - **Older `.dat` and vbFRET `.mat` formats are out of scope.**
-- **No data simulator.** Validation runs against real labelled traces and a published
-  benchmark dataset, not synthesised data.
+- **No data simulator.** Validation runs against real labeled traces and a published
+  benchmark dataset, not synthesized data.
 - **No central server.** Tether is a desktop application; each person runs it on their own
   machine against their own storage.
 

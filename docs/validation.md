@@ -61,7 +61,7 @@ branch with `drill` set to `fail`, then to `pass`. A drill issue has the title p
 `ci(drill)`, so it never touches the real issue.
 
 **Reference data sets.** Each reference file of the regression suite has one entry in
-`tests/reference_data/manifest.toml`: its DOI or accession, record URL, SPDX licence, size,
+`tests/reference_data/manifest.toml`: its DOI or accession, record URL, SPDX license, size,
 SHA-256, tier and citation. A test gets the file with `path_for(id)` from the `fetch` module
 beside that manifest, which calculates the SHA-256 before the first use and refuses a
 file whose checksum is not the manifest's. The tiers are `git` (at most 1 MB for each file), `lfs`
@@ -77,7 +77,7 @@ Fei and Mondragón, *Nature Communications* **15**:6592 (2024),
 Data as one archive (95 MB). The weekly job downloads it and verifies its SHA-256. The repository
 holds 26 of its members, unchanged: the folder `ErrorCalculations_CodeAndSourceData/` (without
 its one notebook, whose saved cells hold private paths) and `checkTDP.py` in plain git, and one trace matrix (6.7 MB) in Git LFS. These files are **not under
-GPL-3.0**. They are under the licence of the publication, CC BY-NC-ND 4.0: you can use and share
+GPL-3.0**. They are under the license of the publication, CC BY-NC-ND 4.0: you can use and share
 them unchanged, for non-commercial purposes only, and you must cite the article. A test that needs
 another format converts a file when it runs; the repository keeps no changed copy.
 [ADR-0083](adr/0083-unchanged-copies-of-cc-by-nc-nd-reference-data.md) records these rules, and
@@ -105,7 +105,7 @@ Which tier each oracle's *headline* assertion lives in:
 **What is compared.** Tether's native extraction — donor spot coordinates and the
 per-molecule integrated donor/acceptor traces — against the Deep-LASI `.mat` export for
 the same movie. The scorers are in `src/tether/project/oracle.py`: `match_coordinates`
-(greedy unique nearest-neighbour), `coordinate_rms`, `pooled_pearson`,
+(greedy unique nearest-neighbor), `coordinate_rms`, `pooled_pearson`,
 `evaluate_extraction`.
 
 **Reference data.** The UCKOPSB movie plus its `.tdat`, `.tmap` and Deep-LASI `.mat`
@@ -171,7 +171,7 @@ the two intake tests and the five reader tests on the same bundle
 as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
 the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
 and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
-it as not applicable). Its own behaviour is pinned without the movie by
+it as not applicable). Its own behavior is pinned without the movie by
 `tests/test_run_m1_oracle.py`.
 
 **Newest recorded run.** On the maintainer's workstation on 2026-11-13, at commit `3697f80`
@@ -204,7 +204,7 @@ agreeing within 1 px, on committed fixtures).
 ## (b) Idealization parity vs tMAVEN
 
 **What is compared.** Four metrics from `src/tether/idealize/parity.py`, after canonical
-mean-sorted state relabelling: `state_count_fraction`, `state_mean_abs_delta`,
+mean-sorted state relabeling: `state_count_fraction`, `state_mean_abs_delta`,
 `viterbi_agreement`, `relative_elbo`. Parity is statistical, never bit-exact — tMAVEN
 self-reseeds ([ADR-0007](adr/0007-parity-is-statistical.md)).
 
@@ -260,7 +260,7 @@ observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor
 streams in the sidecar, and the gate fits seeds 1 and 2, so it gives one answer per commit. The
 band is unchanged. `test_4mol_ebfret_same_seed_gives_the_same_model` fails if a seeded fit stops
 being reproducible ([ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)). Unseeded fits, including
-every fit run from the GUI, keep tMAVEN's own behaviour.
+every fit run from the GUI, keep tMAVEN's own behavior.
 
 **Which build each tolerance was measured on — and the gap that opens.** Both `method`
 blocks name a build (`sidecar_python_version`, `tmaven_commit`) rather than an interpreter
@@ -373,7 +373,7 @@ carry all four metrics in their declared direction, and each summary's
 from its own `values` list with the production `SpreadSummary`. So on every pull request
 these two tests fail on a bound **tightened** below its own evidence, on a deleted fixture,
 on a dropped or truncated run — including one removed cleanly with every summary statistic
-recomputed — on a re-labelled reference anchor, SMD path or state count, on a
+recomputed — on a re-labeled reference anchor, SMD path or state count, on a
 `$.provisional` that has drifted from `PROVISIONAL`, and on a per-method
 tolerance with no `measured_by_method` entry. The anchor pin is a check on the *strings the
 artifact records*: it asserts the frozen block still names the anchor it was measured
@@ -435,8 +435,8 @@ standalone tMAVEN, so it adds evidence and replaces none of the parity above
 ([#797](https://github.com/bioedca/tether/issues/797),
 [ADR-0090](adr/0090-measured-vbfret-paths-are-a-dwell-reference.md)).
 
-**Measured data.** Two whole condition folders of measured two-colour traces by Marzano et
-al., CC-BY-4.0, each trace with the per-trace vbFRET_nov12 idealization the authors analysed:
+**Measured data.** Two whole condition folders of measured two-color traces by Marzano et
+al., CC-BY-4.0, each trace with the per-trace vbFRET_nov12 idealization the authors analyzed:
 PPR-RNA `Validation_data/RNAanticognate` (114 traces, Zenodo 10.5281/zenodo.11323228;
 Nucleic Acids Res. 52:14154, 2024) and Hsp70/Hsp90 `KJG/KJG_231027` (68 traces, Zenodo
 10.5281/zenodo.17118152; Sci. Adv. 12:eaeg5464, 2026). The fixtures hold the original `.dat` bytes; a reader under
@@ -626,7 +626,7 @@ precision@k is *not* the gate is [ADR-0034](adr/0034-gradient-boosting-quality-r
 
 **Measured result.** None on real data. Both enforcing tests build synthetic or
 programmatic stores; no committed artifact records a precision@k uplift measured on a real
-labelled video set. What is proven is that the *protocol* behaves: the first video is
+labeled video set. What is proven is that the *protocol* behaves: the first video is
 skipped rather than scored against nothing, a ranker equal to file order yields zero uplift
 and does not ship, a non-finite score raises instead of being ranked last, and a
 single-movie project raises rather than inventing a held-out video.
@@ -821,7 +821,7 @@ reads the trace files; the product has no importer for them (PRD N4).
 **Two exact conversions, no tolerance.** Tether and the script use different conventions in
 two places, and the tests convert each one exactly before they compare:
 
-- *Bin edges.* `hist(fret, -0.2:0.01:1.2)` puts the edges at the midpoints of the centres and
+- *Bin edges.* `hist(fret, -0.2:0.01:1.2)` puts the edges at the midpoints of the centers and
   closes each bin on the right; `apparent_e_histogram` closes each bin on the left. Only a
   sample exactly on an edge is binned differently. In these traces there is one sample, at
   0.375. The test moves each such sample one bin down and requires that there is exactly one.
@@ -944,7 +944,7 @@ and `test_the_stored_rates_are_the_authors_rule_on_the_stored_transition_matrix`
 *Nucleic Acids Research* **51**:8957 (2023), doi:10.1093/nar/gkad633. The authors deposited the
 data as Zenodo 10.5281/zenodo.8088172 (CC-BY-4.0): 53 binary `.traces` snapshots of 20 frames
 each, with alternating excitation (green frames 1 to 10, red frames 11 to 20), and the
-laboratory's own output from them: 46,950 FRET values (`frets.dat`), their normalised histogram
+laboratory's own output from them: 46,950 FRET values (`frets.dat`), their normalized histogram
 (`test3.dat`, bins of 0.015) and the record of the script's parameters (`counts2.txt`).
 [ADR-0086](adr/0086-ha-laboratory-snapshot-histogram-is-a-reference.md) records this set as a
 reference.
@@ -1058,7 +1058,7 @@ Gaussian HMM (Baum–Welch + Viterbi) with pooled dwell-time MLE `k = 1/⟨τ⟩
 | `k12_low_high` | 0.15 | 0.1465 | 0.023 | ≤ 0.12 |
 | `k21_high_low` | 0.22 | 0.2131 | 0.031 | ≤ 0.12 |
 
-Both deviations sit inside the advisory band; the artifact characterises both as
+Both deviations sit inside the advisory band; the artifact characterizes both as
 "~4x inside the band" (`$.band.rationale`) and "~4x inside the 12% band"
 (`$.levels.level1.tether_measured.note`) for this one 2-state dataset. That is the whole claim: it is not a general accuracy
 guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
@@ -1150,7 +1150,7 @@ PySMACKS is at a beta version, so it is a second data point and not a reference 
 **The PySMACKS side was made once, offline.** The record's README says the file holds the HMM
 analysis, but it does not: no trace has the `HMM_param` entry that PySMACKS writes, no trace has
 FRET values, and the file names no PySMACKS version. So `scripts/make_pysmacks_reference.py` ran
-PySMACKS 1.0.0b4 on the 52 labelled traces on 2026-11-13 and wrote
+PySMACKS 1.0.0b4 on the 52 labeled traces on 2026-11-13 and wrote
 `tests/fixtures/pysmacks_tutorial_reference.json`, which records the versions that ran. PySMACKS
 never runs in CI (maintainer decision of 2026-11-13). The tests read the original downloaded zip
 with a test-only reader and use only the donor-excitation channels (PRD §2.2, rules 1 and 2).
@@ -1158,7 +1158,7 @@ Both tests are in the weekly `reference-data` job.
 
 - **Histogram, exact.**
   `tests/test_pysmacks_tutorial_download.py::test_tethers_apparent_e_histogram_equals_the_pysmacks_histogram`
-  bins Tether's apparent FRET of each labelled, background-subtracted frame (56,442 frames) in
+  bins Tether's apparent FRET of each labeled, background-subtracted frame (56,442 frames) in
   151 bins over −0.5 to 1.5, and requires the count of every bin to equal the PySMACKS count.
   It does.
 - **Rates, report only.**

@@ -60,7 +60,7 @@ Every native analysis carries provenance and parameters into the `.tether` store
 `tether.analysis.plot_export` (FR-EXPORT), stamped with those parameters.
 
 Two invariants recur on the group-B/C **store-level** entry points and have **no tMAVEN
-analogue** — they are Tether additions, toggleable but on by default:
+analog** — they are Tether additions, toggleable but on by default:
 
 - **Fresh-idealization gating** — molecules whose idealization is *stale* relative to the
   current trace are excluded (PRD §5.1) unless `include_stale=True`.
@@ -120,7 +120,7 @@ overlay = population_model_gaussian_overlay(project, "vbconhmm")   # dashed stat
 ## A2 — 2-D time-vs-signal histogram (synchronized FRET heatmap)
 
 **What it is.** A 2-D occupancy heatmap of per-frame apparent FRET efficiency (*y*) versus
-time (*x*, colour = frame density) showing how a population's FRET distribution evolves over
+time (*x*, color = frame density) showing how a population's FRET distribution evolves over
 the analysis window — either **raw / start-synchronized** or **transition-synchronized**
 (post-sync, "A2b"), where every selected state jump is aligned to a common column so
 asynchronous stochastic transitions add coherently and reveal the population's average
@@ -182,7 +182,7 @@ change ([McKinney 2006](#mckinney2006)).
 
 **Tether reimplementation** — `tether.analysis.tdp`:
 
-- `transition_density(idealized_chunks, *, nskip=DEFAULT_TDP_NSKIP, signal_bins=DEFAULT_TDP_SIGNAL_BINS, signal_range=DEFAULT_TDP_SIGNAL_RANGE, density=False) -> TransitionDensityPlot` — a **verbatim port** of `get_neighbor_data`'s idealized-levels sub-branch (`hist_rawsignal=False`) followed by `gen_histogram`'s `histogram2d` step: per-molecule neighbour pairs `d1 = v[:-nskip]`, `d2 = v[nskip:]`, restricted to state-change frames (`|v[t+1]-v[t]| > 0`), finite-only, then `np.histogram2d` over a square E×E grid. Tether feeds the idealized levels `v` (`levels = means[state]`), so it reproduces the *idealized-vs-idealized* TDP; note tMAVEN's shipped default is `hist_rawsignal=True`, which instead plots the **raw** signal at the transition frames located from `v`.
+- `transition_density(idealized_chunks, *, nskip=DEFAULT_TDP_NSKIP, signal_bins=DEFAULT_TDP_SIGNAL_BINS, signal_range=DEFAULT_TDP_SIGNAL_RANGE, density=False) -> TransitionDensityPlot` — a **verbatim port** of `get_neighbor_data`'s idealized-levels sub-branch (`hist_rawsignal=False`) followed by `gen_histogram`'s `histogram2d` step: per-molecule neighbor pairs `d1 = v[:-nskip]`, `d2 = v[nskip:]`, restricted to state-change frames (`|v[t+1]-v[t]| > 0`), finite-only, then `np.histogram2d` over a square E×E grid. Tether feeds the idealized levels `v` (`levels = means[state]`), so it reproduces the *idealized-vs-idealized* TDP; note tMAVEN's shipped default is `hist_rawsignal=True`, which instead plots the **raw** signal at the transition frames located from `v`.
 - `population_transition_density(project, model_name, *, nskip=2, signal_bins=101, signal_range=(-0.25, 1.25), …) -> TransitionDensityPlot` — the store entry: reconstructs each accepted **and fresh** molecule's idealized-level trace from `/idealization/{model_name}` Viterbi paths (`levels = means[state]`).
 
 Rendering constants reproduced exactly as module defaults: `DEFAULT_TDP_NSKIP = 2`,
@@ -205,7 +205,7 @@ tdp = population_transition_density(project, "vbconhmm")   # fresh idealizations
 (`get_neighbor_data` + `gen_histogram`); `test_population_matches_tmaven_oracle_via_store`
 runs the full store path and asserts the same; `test_defaults_match_tmaven` pins the three
 ported constants; plus hand-checked semantics (off-diagonal landing, only-state-change
-frames contribute, histogram2d edge/range behaviour, NaN gaps are not transitions,
+frames contribute, histogram2d edge/range behavior, NaN gaps are not transitions,
 ragged↔padded equivalence). Live (`data_tdp.get_neighbor_data` + `gen_histogram`, idealized branch, unsmoothed): equal for `nskip = 1, 2, 3` in `tests/test_analysis_plots_sidecar.py`.
 
 ---
@@ -283,10 +283,10 @@ composite model by Gaussian nearest-mean) and overlays `scipy.stats.gaussian_kde
 
 **Tether reimplementation** — `tether.analysis.transition_prob`. This is a **re-derivation,
 not a verbatim port**: Tether persists a single shared consensus `norm_tmatrix`, not
-tMAVEN's independent per-trace fits, so B3 becomes the empirical analogue (mirroring how B1's
+tMAVEN's independent per-trace fits, so B3 becomes the empirical analog (mirroring how B1's
 real TDP rebuilds from Viterbi paths):
 
-- `empirical_transition_probability(state_path, init_state, final_state) -> float | None` — the per-molecule maximum-likelihood one-step `P(init → fin)` from a Viterbi path: numerator = frames in `init_state` whose successor is `final_state`; denominator = frames in `init_state` with an *observed* successor (gap successors `NO_STATE` excluded). Returns `None` when `init_state` is never occupied with an observed successor — the analogue of tMAVEN's `isfinite` filter, never `0/0`.
+- `empirical_transition_probability(state_path, init_state, final_state) -> float | None` — the per-molecule maximum-likelihood one-step `P(init → fin)` from a Viterbi path: numerator = frames in `init_state` whose successor is `final_state`; denominator = frames in `init_state` with an *observed* successor (gap successors `NO_STATE` excluded). Returns `None` when `init_state` is never occupied with an observed successor — the analog of tMAVEN's `isfinite` filter, never `0/0`.
 - `transition_prob_histogram(state_chunks, *, init_state, final_state, prob_bins=DEFAULT_TPROB_NBINS, prob_range=DEFAULT_TPROB_RANGE, density=True, kde=True, …) -> TransitionProbHistogram` — pools defined per-molecule probabilities, histograms them, and attaches a Gaussian-KDE curve when ≥ 2 probabilities are available (the KDE `try/except` returns `None` on singular covariance rather than crashing).
 - `population_transition_prob_histogram(project, model_name, init_state, final_state, …)` — the store entry, validating the pair against the model's `nstates` and applying the shared fresh + curation contract.
 
@@ -334,8 +334,8 @@ model type.
 fits one consensus/global model and stores each molecule's Viterbi path, so C1 counts the
 distinct states a path actually visits:
 
-- `occupied_state_count(state_path) -> int` — the number of distinct non-`NO_STATE` states one molecule's Viterbi path visits (0 for an all-gap path) — the per-molecule analogue of tMAVEN's `hmm.mu.size`.
-- `state_number_counts(state_chunks, *, states_low=DEFAULT_STATE_NUMBER_LOW, states_high=None) -> StateNumberCounts` — histograms per-molecule distinct-state counts into bars `[states_low, states_high]`; drops all-gap (zero-state) molecules (the analogue of tMAVEN counting only traces that carry a model).
+- `occupied_state_count(state_path) -> int` — the number of distinct non-`NO_STATE` states one molecule's Viterbi path visits (0 for an all-gap path) — the per-molecule analog of tMAVEN's `hmm.mu.size`.
+- `state_number_counts(state_chunks, *, states_low=DEFAULT_STATE_NUMBER_LOW, states_high=None) -> StateNumberCounts` — histograms per-molecule distinct-state counts into bars `[states_low, states_high]`; drops all-gap (zero-state) molecules (the analog of tMAVEN counting only traces that carry a model).
 - `population_state_number(project, model_name, …) -> StateNumberCounts` — the store entry, with honest `n_out_of_range` accounting so a clipped axis never silently hides molecules.
 
 tMAVEN's `states_low = 1` survives as `DEFAULT_STATE_NUMBER_LOW = 1`; its fixed
@@ -375,7 +375,7 @@ proximity ratio `A/(D+A)`), switching to corrected E at M3
 > intensities, apparent E and idealized level) are compared numerically with live tMAVEN for
 > all 281 fixture molecules (see **Parity evidence** below). The **rendered figure** is
 > **structural and conventional** — the shared 2×2 layout, the donor/acceptor/FRET channel
-> and colour conventions, and the idealization-path overlay — **not** pixel-identical: the
+> and color conventions, and the idealization-path overlay — **not** pixel-identical: the
 > **Deliberate MVP divergences** listed below (apparent-vs-corrected E, marginal binning,
 > the alpha-graded photobleach segments, the signal-mode switch) are tracked and converge in
 > later milestones (photobleach segmentation at M3). Recording both parts **here**, alongside
@@ -386,14 +386,14 @@ proximity ratio `A/(D+A)`), switching to corrected E at M3
 `calc_trajectory`, `calc_histograms`, `calc_model_traj` / `draw_model`, `draw_traj` (three
 segments per channel split at pre-truncation + photobleach), `set_linestyles` (alpha-graded
 `[0.25, 0.9, 0.25]`), `draw_hist` / `draw_fret_hist`; donor-green / acceptor-red / FRET-blue
-colour convention.
+color convention.
 
 **Tether reimplementation** — `tether.gui.trace_dock` (a **reimplementation**, not a port:
 matplotlib/PyQt5 → pyqtgraph):
 
 - `TraceView(donor, acceptor, frame_time=None, name=None, molecule_key=None)` — a Qt-free immutable value object that derives `.total` (`D+A`), `.apparent_e` (`A/(D+A)` via `tether.fret.efficiency.apparent_fret`, NaN where `total == 0`), and `.time_axis(mode)` (frames or seconds).
 - `TraceDock(*, seconds_by_default=True)` — the pyqtgraph 2×2 viewer widget: intensity time-series (top-left) over apparent-E FRET (bottom-left, x-linked), each with its marginal histogram in the y-linked right column, plus the idealization step overlay; driven by `set_trace` / `set_idealization` / `set_time_mode` / `clear`.
-- `set_idealization(idealized)` draws the per-frame Viterbi level as a `stepMode="center"` overlay (the analogue of tMAVEN `draw_model`), reset to `None` on every `set_trace` so a stale path never bleeds to the next molecule.
+- `set_idealization(idealized)` draws the per-frame Viterbi level as a `stepMode="center"` overlay (the analog of tMAVEN `draw_model`), reset to `None` on every `set_trace` so a stale path never bleeds to the next molecule.
 - `trace_from_smd(raw, index, …) -> TraceView` — the store/hand-off → dock bridge.
 
 **Deliberate MVP divergences.** The FRET panel plots apparent E instead of tMAVEN's
@@ -404,8 +404,8 @@ total-intensity curve and a seconds/frames x-axis toggle.
 
 **Parity evidence.** `tests/test_trace_dock.py` — the D1 display **contract** that mirrors
 `multi_plot` conventions (not a numeric oracle): 2×2 grid with intensity + FRET time-series
-left and marginals right; donor green, acceptor red, FRET blue, total neutral grey; the FRET
-axis labelled "apparent E" and pinned to 0–1; the FRET curve `== A/(D+A)` on finite frames
+left and marginals right; donor green, acceptor red, FRET blue, total neutral gray; the FRET
+axis labeled "apparent E" and pinned to 0–1; the FRET curve `== A/(D+A)` on finite frames
 with a `connect="finite"` gap at zero-total frames; the idealization overlay is
 `stepMode="center"`, drawn only over the finite window, re-laid on the seconds/frames toggle,
 hidden before `set_idealization`, and cleared when the trace changes.

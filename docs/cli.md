@@ -107,7 +107,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
 > when the donor bleaches first both drop. A bleach event is a molecule whose dyes bleach
 > one after the other, with a clear drop in one channel and a clear rise in the other at the
-> first bleach. If the channel labelled donor shows the acceptor's drop in at least 80 % of
+> first bleach. If the channel labeled donor shows the acceptor's drop in at least 80 % of
 > at least 15 bleach events, the command warns on standard error, names the evidence and
 > gives the remedy:
 >
@@ -130,7 +130,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 >
 > **How to check by eye (the fallback).** Look at a molecule whose acceptor photobleaches
 > mid-trace. When the acceptor dies the donor stops transferring energy, so the *donor*
-> trace steps **up** at that moment. If instead the trace you have labelled "donor" steps
+> trace steps **up** at that moment. If instead the trace you have labeled "donor" steps
 > *down* while the other steps up, your halves are swapped — re-extract with the other
 > value.
 >
@@ -147,7 +147,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > `--tmap` run, and its warning then points at the map's channel order instead of at
 > `--donor-side`.
 
-`--detection-mode` and `--prealign` are metavars in the same way — an unrecognised value
+`--detection-mode` and `--prealign` are metavars in the same way — an unrecognized value
 reaches `ExtractOptions` rather than argparse, and comes back as an error message on
 stderr with exit code 1, never a traceback. `--policy` on `tether batch` is the one flag
 in either subcommand with a real argparse `choices` list.
@@ -310,7 +310,7 @@ worth reporting. From `tether batch` it means the run finished with at least one
 having a failed stage; fix those and re-run the same command to resume the rest.
 
 > **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
-> when the run starts, the default behaviour is to *defer* idealization: the stage is
+> when the run starts, the default behavior is to *defer* idealization: the stage is
 > recorded as `deferred`, which is not `failed`, so the run exits `0` having done
 > extraction and correction only. A script that treats `0` as "these projects are fully
 > idealized" will consume them too early. Re-run the same command once the sidecar is

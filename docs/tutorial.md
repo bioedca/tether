@@ -80,7 +80,7 @@ Opened tutorial.tether — 3 molecule(s)
 
 The list on the left holds three molecules, `mol-0`, `mol-1` and `mol-2`, with `mol-0`
 selected. The large panel shows the selected molecule's trace: on top, the donor intensity
-in green, the acceptor intensity in red and their total in grey; underneath, its apparent
+in green, the acceptor intensity in red and their total in gray; underneath, its apparent
 FRET efficiency in blue.
 
 ## 5. Look at each trace

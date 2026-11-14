@@ -16,7 +16,7 @@ storage, and temporary idealization files are described below.
 
 ## The desktop application
 
-- **Local-only processing.** Tether analyses your microscopy movies and single-molecule
+- **Local-only processing.** Tether analyzes your microscopy movies and single-molecule
   FRET data entirely on your own machine. Your data — image movies, `.tether` project
   files, exported results — stays on your computer (or wherever you choose to save it).
   During idealization, selected traces are copied to your operating system's temporary

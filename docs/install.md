@@ -151,7 +151,7 @@ US$99 for the [Apple Developer Program](https://developer.apple.com/support/purc
 US$9.99 a month for Microsoft's
 [Artifact Signing](https://learn.microsoft.com/windows/apps/package-and-deploy/code-signing-options),
 which individuals can only use in the USA and Canada (a conventional Windows certificate costs
-roughly US$150–300 a year instead). The free programme for open-source projects, SignPath
+roughly US$150–300 a year instead). The free program for open-source projects, SignPath
 Foundation, declined Tether in July 2026 because the project is still young, so for now the
 installers ship unsigned and the checks in step 2 are what tell you a download is genuine.
 

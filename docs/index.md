@@ -55,7 +55,7 @@ paper.
   [idealize them](how-to/idealize.md),
   [draw a histogram, TDP and dwell plots](how-to/analyze.md) and
   [export the results](how-to/export-results.md).
-- [Legacy Deep-LASI import](io/legacy-import.md) — for re-analysing an existing
+- [Legacy Deep-LASI import](io/legacy-import.md) — for re-analyzing an existing
   Deep-LASI acquisition without re-extracting the movie.
 - [Standalone-tMAVEN hand-off](idealize/standalone-tmaven-handoff.md) — for idealizing
   in tMAVEN's own window and bringing the result back.

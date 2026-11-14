@@ -81,7 +81,7 @@ applied factor. The estimator's provenance lands on `/settings/leakage`.
 existing one). Nothing in the correction chain reads it and the estimator never writes it.
 ADR-0027 describes moving the applied α there per condition, but files that under *Deferred*
 — it has not happened, so read that ADR's "α is per-condition" as intent, not as current
-behaviour.
+behavior.
 
 ### γ (gamma, detection-correction)
 
@@ -103,7 +103,7 @@ keeps its own γ, a non-qualifying one silently takes the dataset median and is 
 
 Direct excitation of the acceptor by the donor laser. Measuring it requires the
 acceptor-under-acceptor-excitation channel that only [ALEX/PIE](#alex-pie) provides, and
-Tether is single-laser two-colour by design (non-goal N1) — so δ is carried as an **inert
+Tether is single-laser two-color by design (non-goal N1) — so δ is carried as an **inert
 `0.0`**, not "unset" (`rows["delta"] = 0.0` in `tether.imaging.extract`;
 ADR-0008).
 
@@ -169,7 +169,7 @@ model detects a decay to `N(0)`; raw traces keep a large offset and never look b
 ### analysis window
 
 `/molecules.analysis_window` — an `(start, end)` frame pair, the universal slicing contract
-every downstream reader honours (histograms, cross-correlation, features, idealization),
+every downstream reader honors (histograms, cross-correlation, features, idealization),
 each falling back to `frame_range` when it is unset.
 
 The **auto** default is trace start → first bleach of the **summed** donor+acceptor
@@ -231,7 +231,7 @@ dual-view TIRF movie; it does not itself model the optics.
 Alternating-laser excitation / pulsed interleaved excitation — acquisition schemes that add
 an acceptor-under-acceptor-excitation channel, enabling direct-excitation (δ) and
 stoichiometry correction ([Lee 2005](https://doi.org/10.1529/biophysj.104.054114)).
-**Out of scope for Tether** (non-goal N1): single-laser, two-colour only. This is why
+**Out of scope for Tether** (non-goal N1): single-laser, two-color only. This is why
 [δ](#delta-direct-excitation) is structurally zero.
 
 ### dual-view
@@ -496,7 +496,7 @@ approach to and departure from a transition. Relative time zero sits at
 
 ### staleness (stale / fresh / live)
 
-A Tether-only concept with no tMAVEN analogue, and it gates most analyses. Every molecule in
+A Tether-only concept with no tMAVEN analog, and it gates most analyses. Every molecule in
 a persisted model carries a **composite input-provenance hash** folding the windowed input
 trace, the analysis-window bounds, and the molecule's **effective applied α and γ**. If any
 of those change, the recomputed hash diverges and the molecule is **stale**;

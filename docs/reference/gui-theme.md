@@ -115,7 +115,7 @@ The colors of data are not brand colors. Tether has two sets of trace colors. Ea
 has one value for each theme.
 
 - **Classic** is the set that Tether used before: green donor, red acceptor, blue FRET,
-  grey total. It is the default. The idealized line is now ink on light and chalk on
+  gray total. It is the default. The idealized line is now ink on light and chalk on
   dark. Before, it was near-black on a black plot and you could not see it
   ([#617](https://github.com/bioedca/tether/issues/617)).
 - **Safe** is a set for persons with a color-vision deficiency. A later change makes it
