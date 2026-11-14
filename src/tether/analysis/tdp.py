@@ -7,7 +7,8 @@ level** over every state-change frame of a population, the standard way to read 
 which conformational transitions a system makes and how often. Tether builds the
 *real* TDP from a persisted ``/idealization/{model}`` (not raw signal): each state
 change contributes one ``(initial_E, final_E)`` point taken ``nskip`` frames apart,
-and the pooled points are binned into a square ``E × E`` grid the GUI renders
+and the pooled points are binned into a square ``E × E`` grid the GUI and the plot
+export (:func:`tether.analysis.plot_export.render_transition_density`) render
 log-normalized [McKinney2006][Hadzic2018].
 
 Two invariants distinguish it from a naive 2-D histogram:

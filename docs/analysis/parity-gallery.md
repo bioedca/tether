@@ -188,7 +188,12 @@ change ([McKinney 2006](#mckinney2006)).
 Rendering constants reproduced exactly as module defaults: `DEFAULT_TDP_NSKIP = 2`,
 `DEFAULT_TDP_SIGNAL_BINS = 101`, `DEFAULT_TDP_SIGNAL_RANGE = (-0.25, 1.25)`. The module
 stores the **raw, unsmoothed** histogram — tMAVEN's `gaussian_filter` smoothing and
-`LogNorm` log-normalization are display-only, applied at render time.
+`LogNorm` log-normalization are display-only, applied at render time. Tether's
+`render_transition_density` applies a log colour scale by default (`color_scale="log"`,
+#556). The scale is zero-safe: an empty bin gets the floor colour of the colour map, not
+`-inf`. The floor is one decade below the smallest non-empty bin, so the rarest transition
+stays visible. The scale changes only the picture, not the stored counts, and it is not
+part of the figure parity gate. Tether does not apply the smoothing.
 
 **Variants.** `density=True` (guarded against divide-by-zero all-NaN when no in-range mass)
 vs raw counts; `include_stale` / `include_rejected` on the store path.
