@@ -209,8 +209,9 @@ def test_single_transition_lands_at_sync_column() -> None:
     # The low-E value never appears after the sync column, nor high-E before it.
     assert h.counts[pre + 1, _sbin(0.2)] == 0.0
     assert h.counts[pre, _sbin(0.8)] == 0.0
-    # single-dwell over one transition: whole trace [0, L-1) binned -> 5 frames.
-    assert h.n_samples == 5
+    # single-dwell over one transition with no later jump: the whole trace [0, L) is
+    # binned, the window's final frame included (#806) -> 6 frames.
+    assert h.n_samples == 6
 
 
 def test_frame_mapping_matches_relative_offset() -> None:
@@ -234,30 +235,79 @@ def test_frame_mapping_matches_relative_offset() -> None:
     assert h.counts[7, _sbin(0.90)] == 1.0  # f=3 -> x=7
 
 
-def test_single_dwell_excludes_trailing_boundary_frame() -> None:
-    # tMAVEN single-dwell ends the window at the next transition (or trace end
-    # exclusive): the very last frame of the trace is the next-dwell boundary and is
-    # not binned. Here the window for the only transition is [0, L-1) = frames 0..2.
-    state = np.array([0, 0, 1, 1])
-    signal = np.array([0.10, 0.30, 0.60, 0.90])
-    h = transition_sync_histogram2d(
-        [(state, signal)], single_dwell=True, sync_preframe=5, time_bins=12
+def test_single_dwell_keeps_final_window_frame_but_not_frame_at_a_jump() -> None:
+    # #806: a trailing dwell that ends at the window end keeps the window's final frame,
+    # while a dwell that ends at a jump still stops before that jump's frame, as in
+    # tMAVEN. Jumps 0->1 between frames 1|2 (sync_t = 1) and 1->2 between frames 3|4
+    # (sync_t = 3); each frame carries its own E so every bin names one frame.
+    state = np.array([0, 0, 1, 1, 2, 2])
+    signal = np.array([0.10, 0.20, 0.40, 0.50, 0.70, 0.90])
+    pre, nbins = 5, 12
+    at_jump = transition_sync_histogram2d(
+        [(state, signal)], from_state=0, to_state=1, sync_preframe=pre, time_bins=nbins
     )
-    assert h.n_samples == 3  # frame 3 (the trailing boundary) is excluded
-    assert h.counts[7, _sbin(0.90)] == 0.0  # the excluded frame never bins
+    # Window [0, 3): frame 3 is the last frame of the dwell after the sync and the frame
+    # of the next jump, so it is not binned.
+    assert at_jump.n_samples == 3
+    assert at_jump.counts[(3 - 1) + pre, _sbin(0.50)] == 0.0
+    assert at_jump.counts[(2 - 1) + pre, _sbin(0.40)] == 1.0
+    at_end = transition_sync_histogram2d(
+        [(state, signal)], from_state=1, to_state=2, sync_preframe=pre, time_bins=nbins
+    )
+    # Window [2, 6): no later jump, so the trailing dwell runs to the window end and its
+    # final frame 5 is binned.
+    assert at_end.n_samples == 4
+    assert at_end.counts[(5 - 3) + pre, _sbin(0.90)] == 1.0
+    assert at_end.counts[(4 - 3) + pre, _sbin(0.70)] == 1.0
+    # Fixed windows are unchanged by the rule: frames 0..5 all fit in [sync - pre, sync +
+    # nbins - pre + 1), so both transitions bin the whole trace.
+    fixed = transition_sync_histogram2d(
+        [(state, signal)], single_dwell=False, sync_preframe=pre, time_bins=nbins
+    )
+    assert fixed.n_samples == 2 * 6
+
+
+def test_single_dwell_trailing_frame_differs_from_tmaven_only_at_movie_end() -> None:
+    # tMAVEN ends a trailing single-dwell window at the movie's last frame index,
+    # exclusive. A window that photobleaching ends early is NaN-padded to the movie end
+    # in tMAVEN's rows, so the oracle keeps the window's final frame, as Tether does.
+    # A window that runs to the movie end loses its final frame in tMAVEN only.
+    state = np.array([0.0, 0.0, 1.0, 1.0])
+    signal = np.array([0.10, 0.30, 0.60, 0.90])
+    kw = {"xbins": 12, "xsync": 5, "ymin": -0.2, "ymax": 1.2, "ybins": DEFAULT_SIGNAL_BINS}
+    ours = transition_sync_histogram2d(
+        [(state.astype(np.int64), signal)], single_dwell=True, sync_preframe=5, time_bins=12
+    )
+    bleached, _, _ = _tmaven_postsync(
+        np.append(state, np.nan)[None], np.append(signal, np.nan)[None],
+        vi=-1, vj=-1, single_dwell=True, **kw,
+    )  # fmt: skip
+    np.testing.assert_array_equal(ours.counts, bleached)
+    movie_end, _, _ = _tmaven_postsync(
+        state[None], signal[None], vi=-1, vj=-1, single_dwell=True, **kw
+    )
+    diff = ours.counts - movie_end
+    assert diff.sum() == 1.0  # one frame, the movie's last
+    assert diff[(3 - 1) + 5, _sbin(0.90)] == 1.0
 
 
 # --- pure core: parity with the tMAVEN oracle ---------------------------------
 
 
 def _oracle_case() -> tuple[np.ndarray, np.ndarray]:
-    """Two equal-length molecules with several transitions, all interior."""
+    """Two equal-length molecules with several transitions, all interior.
+
+    The last column (frame 20) is NaN in both arrays: the movie runs one frame past
+    every analysis window, so a trailing single-dwell window ends at the window end, not
+    at the movie's last frame, which tMAVEN alone drops (#806; see
+    ``test_single_dwell_trailing_frame_differs_from_tmaven_only_at_movie_end``).
+    """
     # molecule 0: 0->1 at t=3, 1->2 at t=8, 2->0 at t=13
     # molecule 1: 0->2 at t=4, 2->1 at t=10
-    v = np.full((2, 20), np.nan)
-    d = np.full((2, 20), np.nan)
-    v[0] = np.array([0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0])
-    v[1] = np.array([0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+    v = np.full((2, 21), np.nan)
+    d = np.full((2, 21), np.nan)
+    v[0, :20] = np.array([0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0])
+    v[1, :20] = np.array([0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1])
     # observed signal: state-dependent mean plus a tiny per-frame ripple, all in-range
     means = {0: 0.15, 1: 0.55, 2: 0.85}
     for i in range(2):

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "frozen_at_milestone": "M8",
   "measured_utc": "2026-07-13",
   "description": "kinSoftChallenge kinetic-rate validation reference (PRD §8 NFR-VALID(c), §9 M8). Ground-truth kinetic models and the reported inter-tool spread of the blind benchmark, plus Tether's own measured deviation. The oracle checks that Tether's fitted rates on a level fall within that dataset's reported inter-tool spread — an ADVISORY check (never gates main).",
@@ -52,13 +52,36 @@
       "dt_s": 0.1,
       "sampling_rate_hz": 10,
       "snr_estimate": 3,
-      "oracle": "deferred",
-      "deferred_reason": "A directional non-equilibrium 3-state system with per-trace emission/excitation variability; the benchmark's best tools reach only 9-14% average GT deviation and most systematically mis-allocate 1<->3 transitions. A faithful oracle needs a 3-state idealizer plus net-flow handling; recorded here for a future extension.",
+      "oracle": "report",
+      "report_reason": "Fitted and reported, never band-checked (#717, ADR-0081). A 3-state fit of the base-env HMM finds the three FRET levels, but a 1<->3 jump inside one 0.1 s frame averages to a mid-FRET frame, which Viterbi reads as a 1-frame dwell in state 2. So the six rates are biased: k21 and k32 up, k13 and k31 down. The method has no correction for a transition inside a frame.",
       "ground_truth": {
-        "state_assignment": {"1": "low FRET", "2": "mid FRET", "3": "high FRET"},
-        "rates_s_inv": {"k12_low_mid": 0.05, "k21_mid_low": 0.30},
-        "ring_arm_rate_magnitudes_s_inv": [0.16, 0.37, 0.38, 0.45],
-        "note": "The 1<->2 (low<->mid) rates are read exactly from the Suppl. Table 5 diagram; the four state-3 (high-FRET) arm magnitudes are read from the diagram but their exact source->dest assignment (and the counter-clockwise flow direction) must be taken from the Zenodo simulation config before activating an oracle."
+        "source": {"file": "tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_2.cfg", "block": "%transition rate matrix", "lines": [6, 8]},
+        "state_assignment": {"1": "low FRET (0.10)", "2": "mid FRET (0.53)", "3": "high FRET (0.90)"},
+        "rates_s_inv": {
+          "k12_low_mid": 0.30, "k13_low_high": 0.38,
+          "k21_mid_low": 0.05, "k23_mid_high": 0.37,
+          "k31_high_low": 0.45, "k32_high_mid": 0.10
+        },
+        "note": "The full rate matrix of the simulator settings file (rows: from, columns: to; the file's state numbers). tests/test_kinsoft_levels.py requires every value here, the state count, the frame time and the trace count to equal what tests/_kinsoft_config.py reads from the file, and the FRET values are Ida/(Idd+Ida) of its mean intensities. The entry before #717 read k12_low_mid 0.05 and k21_mid_low 0.30 from the Suppl. Table 5 diagram; the settings file gives the reverse, and Tether's fit agrees with the file on the faster direction of each pair."
+      },
+      "tether_measured": {
+        "method": "base-env 3-state Gaussian HMM (Baum-Welch + Viterbi) + pooled transition counts k_ij = n_ij / T_i over the dwells pooled_exit_rates counts",
+        "rates_s_inv": {
+          "k12_low_mid": 0.4073, "k13_low_high": 0.2338,
+          "k21_mid_low": 0.2373, "k23_mid_high": 0.4733,
+          "k31_high_low": 0.2956, "k32_high_mid": 0.2287
+        },
+        "rel_dev": {
+          "k12_low_mid": 0.358, "k13_low_high": 0.385,
+          "k21_mid_low": 3.746, "k23_mid_high": 0.279,
+          "k31_high_low": 0.343, "k32_high_mid": 1.287
+        },
+        "n_transitions": {
+          "k12_low_mid": 927, "k13_low_high": 532,
+          "k21_mid_low": 547, "k23_mid_high": 1091,
+          "k31_high_low": 910, "k32_high_mid": 704
+        },
+        "note": "Measured 2026-11-12 (#717) on the committed kinsoft_sim.hdf5 level2 (150 traces), Linux x86-64 with the base lock. Advisory: no rate is held to the band. 689 of the 1638 counted mid-FRET dwells last one frame, and 650 of all mid-FRET frames sit alone between a low and a high frame."
       }
     },
     "level3": {
@@ -69,17 +92,25 @@
       "dt_s": 0.2,
       "sampling_rate_hz": 5,
       "snr_estimate": 4,
-      "oracle": "deferred",
-      "deferred_reason": "States 1,2 share the low-FRET level and states 3,4 share the high-FRET level, so a FRET-only idealizer sees only 2 states and cannot resolve the 4-state kinetics. The benchmark itself compares this case via cumulative dwell-time distributions, not direct rate constants. Recorded exactly (Suppl. Table 1) for a future dwell-CDF extension.",
+      "oracle": "report",
+      "report_reason": "Compared through cumulative dwell-time distributions, as the benchmark does, and never band-checked (#717, ADR-0081). A FRET-only 2-state fit sees the two observable levels. For each level the test compares the pooled Viterbi dwells with the dwell-time distribution that the true 4-state matrix predicts for an aggregated Markov process [Colquhoun1981, Colquhoun1982], by the Kolmogorov-Smirnov distance and by the relative error of the mean dwell.",
       "ground_truth": {
+        "source": {"file": "tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_3.cfg", "block": "%transition rate matrix", "lines": [6, 9], "collapse_lines": [46, 46], "donor_blinking_lines": [61, 62], "acceptor_blinking_lines": [69, 70]},
         "state_assignment": {"1": "low FRET (0.18)", "2": "low FRET (0.18)", "3": "high FRET (0.73)", "4": "high FRET (0.73)"},
+        "settings_state_of": {"1": 3, "2": 2, "3": 1, "4": 4},
         "rates_s_inv": {
           "k12": 0.053, "k14": 0.018,
           "k21": 0.080, "k23": 0.250,
           "k32": 0.680,
           "k41": 0.032
         },
-        "note": "Full 4-state ground-truth rate matrix from Supplementary Table 1 (all other off-diagonal rates are 0); blinking kbright=7 s^-1, kdark=0.007 s^-1."
+        "note": "Full 4-state ground-truth rate matrix in the state numbers of Suppl. Table 1 (all other off-diagonal rates are 0); blinking kbright=7 s^-1, kdark=0.007 s^-1. The simulator settings file numbers the same states differently, and settings_state_of maps each state here to its row there. tests/test_kinsoft_levels.py requires every rate, every zero, both blinking rates of both dyes, the state count, the frame time and the trace count to equal what tests/_kinsoft_config.py reads from the file."
+      },
+      "tether_measured": {
+        "method": "base-env 2-state Gaussian HMM (Baum-Welch + Viterbi); pooled dwells of each FRET level (first and last of each molecule dropped) against the aggregated-Markov dwell-time CDF of the true matrix",
+        "low_fret": {"n_dwells": 600, "mean_dwell_s": 6.4653, "predicted_mean_dwell_s": 9.0538, "mean_rel_dev": 0.286, "ks_distance": 0.0781},
+        "high_fret": {"n_dwells": 667, "mean_dwell_s": 3.0459, "predicted_mean_dwell_s": 4.3897, "mean_rel_dev": 0.306, "ks_distance": 0.1471},
+        "note": "Measured 2026-11-12 (#717) on the committed kinsoft_sim.hdf5 level3 (250 traces), Linux x86-64 with the base lock. Advisory: no distance is held to a band. The observed dwells are shorter than predicted. The traces are short against the dwells (median 35.7 s against a predicted mean low-FRET dwell of 9.1 s), and a dwell that a trace end cuts is never counted, so long dwells are under-sampled; blinking and noise also split dwells."
       }
     }
   }
