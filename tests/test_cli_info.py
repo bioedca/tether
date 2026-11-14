@@ -362,6 +362,35 @@ def test_one_bad_project_still_prints_the_good_one(tmp_path: Path, capsys) -> No
     assert "no such file" in captured.err
 
 
+def test_the_path_is_reported_as_given(tmp_path: Path, monkeypatch, capsys) -> None:
+    """``./x.tether`` stays ``./x.tether``, as for an entry that failed (docs/cli.md)."""
+    _rich_store(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    given = "./exp.tether"
+    assert read_project_summary(given).path == given
+    assert main(["info", "--json", given, "./gone.tether"]) == 1
+    paths = [p["path"] for p in json.loads(capsys.readouterr().out)["projects"]]
+    assert paths == [given, "./gone.tether"]
+
+
+def test_a_stale_check_that_cannot_read_a_model_is_a_per_project_error(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A model removed between listing and the stale check fails that project only."""
+    import tether.project.idealize as idealize
+
+    good = _rich_store(tmp_path)
+
+    def vanished(*args, **kwargs):
+        raise KeyError("no /idealization/vbconhmm")
+
+    monkeypatch.setattr(idealize, "read_idealization", vanished)
+    with pytest.raises(ProjectSummaryError, match="could not check model 'vbconhmm'"):
+        read_project_summary(good, check_stale=True)
+    assert main(["info", "--stale", str(good)]) == 1
+    assert "could not check model 'vbconhmm'" in capsys.readouterr().err
+
+
 def test_no_project_argument_is_a_usage_error() -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["info"])

@@ -31,6 +31,7 @@ The read is deliberately narrow:
 from __future__ import annotations
 
 import math
+import os
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -307,6 +308,7 @@ def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False
     from tether.io.schema import TABLE, assert_is_compatible_project
     from tether.project.idealize import _WRITING_SUFFIX, IDEALIZATION_GROUP
 
+    given = os.fspath(path)  # reported as given: Path() would rewrite "./a" to "a"
     path = Path(path)
     if not path.is_file():
         raise ProjectSummaryError(f"{path}: no such file")
@@ -398,11 +400,16 @@ def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False
             from tether.project.idealize import read_idealization, stale_row_ids
 
             # Rows, not keys: two stale molecules may share one quantized key (§7.10).
-            stale = len(stale_row_ids(path, read_idealization(path, name)))
+            try:
+                stale = len(stale_row_ids(path, read_idealization(path, name)))
+            except (KeyError, OSError) as exc:  # e.g. the model was removed meanwhile
+                raise ProjectSummaryError(
+                    f"{path}: could not check model {name!r} for stale molecules ({exc})"
+                ) from exc
         idealizations.append(IdealizationSummary(name, method, n_states, n_fit, stale))
 
     return ProjectSummary(
-        path=str(path),
+        path=given,
         schema_version=schema_version,
         written_by=written_by,
         movies=movies,
