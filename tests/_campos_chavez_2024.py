@@ -89,6 +89,8 @@ DOUBLE_PARAMS = {
     ("Fig3e", 0): "Double-Wt+NCCA-5",
     ("Fig7d", 0): "Double-RAG-4",
 }
+HIST_BINS = 151  # tMAVEN data_hist1d.py signal_nbins (the workbook gives no bins)
+HIST_RANGE = (-0.25, 1.25)
 #: Transition density sheets (Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c), drawn by the archive's checkTDP.py.
 TDPS = ("Fig2d", "Fig3c", "Fig3i", "Fig4c", "Fig4g", "Fig6c", "Fig7c")
 TDP_BINS = 50
@@ -254,7 +256,8 @@ def compare_histogram(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
             kept.append(values[pos : pos + n])
         pos += n
     tether = apparent_e_histogram(np.concatenate(pooled), density=False)
-    published = apparent_e_histogram(np.concatenate(kept), density=False)
+    # The reference binning is tMAVEN's data_hist1d default, by numpy and not by Tether.
+    published, _ = np.histogram(np.concatenate(kept), bins=HIST_BINS, range=HIST_RANGE)
     return {
         "values": int(values.size),
         "windows": sum(1 for w in windows if w[0] >= 0),
@@ -262,7 +265,7 @@ def compare_histogram(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
         "not_found": sum(1 for w in windows if w[0] < 0),
         "not_found_after_last_frame": lost_end,
         "max_bound_ratio": ratio,
-        "bins_differing": int(np.sum(tether.counts != published.counts)),
+        "bins_differing": int(np.sum(tether.counts != published)),
     }
 
 
