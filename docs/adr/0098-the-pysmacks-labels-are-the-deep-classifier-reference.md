@@ -107,7 +107,7 @@ issue (`ci(scheduled): deep failed on main`) when either fails (#697).
   limit fails the nightly job and shows on a pull request that touches the deep paths; the
   pull request of #759 showed it with deliberate changes.
 - Good: the floor fails a model that predicts the majority class or ranks the reject ranges first.
-- Good: the nightly job stays well below 20 minutes (<JOB_MINUTES> measured).
+- Good: the nightly job stays well below 20 minutes (1 minute 43 seconds for the whole `deep` workflow on pull request #1026: `deep / smoke` 72 s with a cold data cache, `deep / ranker` 26 s).
 - Neutral: the deep job now downloads 28 MB from Zenodo when its cache is cold; a failed download
   fails the job, and a skip for want of the file fails its skip budget, so it is never silent.
 - Bad: the task is easy. A donor-only or an acceptor-only range is far from a `FRET` range in its
