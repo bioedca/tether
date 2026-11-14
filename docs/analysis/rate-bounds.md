@@ -29,7 +29,10 @@ Mondragón, *Nature Communications* **15**:6592 (2024),
 2. The transition probability is `p = C[i, j] / a0`.
 3. Its variance is `var = p × (1 − p) / (a0 + 1)`.
 4. The rate constant is `k = −ln(1 − p) / dt`. A first-order process with the rate `k` leaves
-   its state in one frame with the probability `1 − exp(−k × dt)`.
+   its state in one frame with the probability `1 − exp(−k × dt)`. Applied entry by entry, this
+   conversion is an approximation that holds when the kinetics are slow against the frame rate
+   (Kilic et al., *Cell Reports Physical Science* 2021,
+   [doi:10.1016/j.xcrp.2021.100409](https://doi.org/10.1016/j.xcrp.2021.100409)).
 5. The upper bound is the rate at `p + √var`. The lower bound is the rate at `p − √var`.
 
 The bounds are not symmetric about `k`, because the logarithm is not linear. The upper bound is

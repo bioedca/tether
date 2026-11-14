@@ -15,7 +15,9 @@ with each imported or fitted model under ``/idealization/{model}``):
    distribution).
 2. A per-frame transition probability ``p`` and a frame time ``dt`` give the rate
    constant ``k = -ln(1 - p) / dt``: a first-order process of rate ``k`` leaves its state
-   within one frame with the probability ``1 - exp(-k dt)``.
+   within one frame with the probability ``1 - exp(-k dt)``. Applied entry by entry, this
+   is an approximation that holds when the kinetics are slow against the frame rate
+   [Kilic2021]; it is the published method, kept for parity (ADR-0092).
 3. The bounds are the rates at ``p + sqrt(var)`` and at ``p - sqrt(var)``. They are not
    symmetric about ``k``, because the logarithm is not linear.
 
@@ -46,6 +48,10 @@ References
     Mondragón A. "Translational T-box riboswitches bind tRNA by modulating
     conformational flexibility." Nature Communications 15:6592 (2024).
     doi:10.1038/s41467-024-50885-x. Source Data ``Kmatrix/CalculateKbounds.py``.
+[Kilic2021] Kilic Z, Sgouralis I, et al. "Extraction of rapid kinetics from smFRET
+    measurements using integrative detectors." Cell Reports Physical Science 2:100409
+    (2021). doi:10.1016/j.xcrp.2021.100409 — the transition matrix is the matrix
+    exponential of the rate generator; the entry-wise conversion assumes slow kinetics.
 """
 
 from __future__ import annotations
