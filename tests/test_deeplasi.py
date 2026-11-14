@@ -14,8 +14,8 @@ Three layers:
   4-molecule × 80-frame slice of the real UCKOPSB export, ``scripts/
   make_deeplasi_fixture.py``), plus in-test ``savemat`` round-trips that prove
   the 1-based→0-based coordinate conversion and the input guards.
-* **Data-present** (skipped when ``example-data/`` is absent — e.g. the default
-  CI checkout): the reader on the full 250-molecule × 1700-frame export, locking
+* **Workstation** (``@pytest.mark.workstation``, ADR-0071; the export is private data on no
+  CI runner): the reader on the full 250-molecule × 1700-frame export, locking
   the coordinate convention, the ``movie_name`` filename, and the ``.txt`` ≡
   ``.mat`` ``donc`` / ``accc`` identity on the real files.
 """
@@ -31,6 +31,7 @@ pytest.importorskip("numpy")
 
 import numpy as np  # noqa: E402
 
+from _oracle_a import oracle_a_file  # noqa: E402
 from tether.io.deeplasi import (  # noqa: E402
     DeepLasiExport,
     DeepLasiTraces,
@@ -382,27 +383,14 @@ def test_read_txt_single_frame(tmp_path: Path) -> None:
     np.testing.assert_array_equal(t.acceptor_corrected[:, 0], [22.0, 44.0])
 
 
-# --- data-present: the full real export -------------------------------------
+# --- the full real export of video 010 (workstation only; ADR-0071, #699) ----
 
 
-def _find_full_export() -> tuple[Path, Path] | None:
-    for parent in Path(__file__).resolve().parents:
-        src = parent / "example-data" / "bla-uckopsb-tbox-video10"
-        mat = src / "DeepLASI_MAT_export_Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.mat"
-        txt = src / "DeepLASI_MAT_export_Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010-donc-accc-w.txt"
-        if mat.is_file() and txt.is_file():
-            return mat, txt
-    return None
-
-
+@pytest.mark.workstation
 @requires_scipy
-def test_full_export_matches_when_present() -> None:
-    found = _find_full_export()
-    if found is None:
-        pytest.skip("external example-data Deep-LASI export absent")
-    mat_path, txt_path = found
-    e = read_deeplasi_mat(mat_path)
-    t = read_deeplasi_txt(txt_path)
+def test_full_export_matches_when_present(private_data) -> None:
+    e = read_deeplasi_mat(oracle_a_file(private_data, "mat"))
+    t = read_deeplasi_txt(oracle_a_file(private_data, "txt"))
     assert (e.n_molecules, e.n_frames) == (250, 1700)
     assert (t.n_molecules, t.n_frames) == (250, 1700)
     # Coordinate convention holds on real data (molecule 0).
