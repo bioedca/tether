@@ -252,38 +252,82 @@ def milestone_labels(text: str, allowed: tuple[str, ...] = ()) -> list[str]:
     return found
 
 
-def _links_to_a_file(target: str) -> bool:
-    """A link target that opens a file: not empty, and not only an anchor on this page."""
-    return bool(target) and not target.startswith("#")
+_REPO_LINK_RE = re.compile(r"https://github\.com/bioedca/tether/(?:blob|tree)/[^/]+/([^#?]+)")
 
 
-def _outside(start: int, end: int, linked: list[tuple[int, int]]) -> bool:
-    return not any(a <= start and end <= b for a, b in linked)
+def _linked_file(target: str, page: str) -> Path | None:
+    """The repository file or folder that a link target opens, or ``None``.
+
+    A target counts when it is a link into this repository on GitHub, or a relative path from
+    ``page``; an empty target, a bare anchor or another website opens no repository file.
+    """
+    if match := _REPO_LINK_RE.fullmatch(target.split("#")[0]):
+        path = _REPO / match.group(1)
+    elif target and "://" not in target and not target.startswith(("#", "mailto:")):
+        path = (DOCS / page).parent / target.split("#")[0]
+    else:
+        return None
+    return path if path.exists() else None
 
 
-def unlinked_names(text: str, tests_allowed: bool = False) -> list[str]:
-    """Each test or private name in ``text`` outside a link to a file.
+def _name_key(name: str) -> str:
+    """The part of a written name that its file must contain: ``tether.x._f()`` gives ``_f``."""
+    name = name.strip().removesuffix("()").rstrip("*")
+    name = name.split("::")[-1]
+    name = name.rstrip("/").rsplit("/", 1)[-1]
+    if name.endswith(".py"):
+        return name
+    return name.rsplit(".", 1)[-1]
 
-    A name counts in a code span and in plain prose. With ``tests_allowed`` (the evidence
+
+def _link_names(name: str, path: Path) -> bool:
+    """Whether the file or folder at ``path`` is the source of ``name``."""
+    key = _name_key(name)
+    if path.name == key or path.stem == key:
+        return True
+    files = [path] if path.is_file() else [f for f in path.rglob("*") if f.is_file()]
+    for file in files:
+        try:
+            if key in file.read_text(encoding="utf-8"):
+                return True
+        except (UnicodeDecodeError, OSError):
+            continue
+    return False
+
+
+def unlinked_names(text: str, tests_allowed: bool = False, page: str = "index.md") -> list[str]:
+    """Each test or private name in ``text`` outside a link to its own file.
+
+    A name counts in a code span and in plain prose. A link exempts it only when the link opens
+    a repository file or folder that contains the name. With ``tests_allowed`` (the evidence
     page), test names pass and private names are still reported.
     """
     names = _PRIVATE_RE if tests_allowed else _TEST_OR_PRIVATE_RE
     found = []
     for n, line in _prose_lines(text):
-        linked = [
-            (m.start(1), m.end(1))
+        links = [
+            (m.start(1), m.end(1), _linked_file(m.group(2), page))
             for m in _LINK_TEXT_RE.finditer(line)
-            if _links_to_a_file(m.group(2))
         ]
-        for span in _CODE_SPAN_RE.finditer(line):
-            name = span.group(1).strip()
-            if _outside(span.start(), span.end(), linked) and names.match(name):
-                found.append(f"{n}: {span.group(0)}")
+
+        def linked(start: int, end: int, name: str, links=links) -> bool:
+            return any(
+                a <= start and end <= b and path is not None and _link_names(name, path)
+                for a, b, path in links
+            )
+
+        candidates = [
+            (m.start(), m.end(), m.group(1).strip(), m.group(0))
+            for m in _CODE_SPAN_RE.finditer(line)
+        ]
         prose = _CODE_SPAN_RE.sub(lambda m: " " * len(m.group(0)), line)
         prose = _URL_TARGET_RE.sub(lambda m: "(" + " " * (len(m.group(0)) - 2) + ")", prose)
-        for word in _PROSE_NAME_RE.finditer(prose):
-            if _outside(word.start(), word.end(), linked) and names.match(word.group(0)):
-                found.append(f"{n}: {word.group(0)}")
+        candidates += [
+            (m.start(), m.end(), m.group(0), m.group(0)) for m in _PROSE_NAME_RE.finditer(prose)
+        ]
+        for start, end, name, shown in candidates:
+            if names.match(name) and not linked(start, end, name):
+                found.append(f"{n}: {shown}")
     return found
 
 
@@ -319,7 +363,7 @@ def test_user_pages_name_tests_and_private_names_only_in_links() -> None:
     found = {
         page: hits
         for page, text in _user_page_texts().items()
-        if (hits := unlinked_names(text, tests_allowed=page == _EVIDENCE_PAGE))
+        if (hits := unlinked_names(text, page == _EVIDENCE_PAGE, page))
     }
     assert not found, f"test or private names on user pages without a link to their file: {found}"
 
@@ -339,8 +383,12 @@ def test_the_reference_checks_bite() -> None:
     assert unlinked_names("run `tests/test_y.py`")
     assert unlinked_names("built by `_private_helper`")
     assert unlinked_names("see `tether.io.schema._str`")
-    assert not unlinked_names("see [`_str()`](https://example.org/src/tether/io/schema.py)")
-    assert not unlinked_names("see [`tests/test_y.py`](https://example.org/tests/test_y.py)")
+    assert not unlinked_names(
+        "see [`_str()`](https://github.com/bioedca/tether/blob/main/src/tether/io/schema.py)"
+    )
+    assert not unlinked_names(
+        "see [`tests/test_fret_gamma.py`](https://github.com/bioedca/tether/blob/main/tests/test_fret_gamma.py)"
+    )
     assert not unlinked_names("the package's `__init__.py`")  # a dunder is not private
     assert unlinked_names("asserted by test_x in the suite")
     assert unlinked_names("run tests/test_y.py first")
@@ -348,6 +396,15 @@ def test_the_reference_checks_bite() -> None:
     assert not unlinked_names("an _emphasised_ word")
     assert unlinked_names("see [`_private_helper`]()")
     assert unlinked_names("see [`_private_helper`](#helpers)")
-    assert not unlinked_names("see [test_y](https://example.org/tests/test_y.py)")
+    assert not unlinked_names(
+        "see [test_reference_formula_parity](https://github.com/bioedca/tether/blob/main/tests/test_fret_gamma.py)"
+    )
+    assert unlinked_names("see [`_private_helper`](https://example.org/tests/test_y.py)")
+    assert unlinked_names(
+        "see [`_no_such_name`](https://github.com/bioedca/tether/blob/main/tests/test_fret_gamma.py)"
+    )
+    assert unlinked_names(
+        "see [`_str()`](https://github.com/bioedca/tether/blob/main/tests/no_such_file.py)"
+    )
     assert not unlinked_names("asserted by `test_x`", tests_allowed=True)
     assert unlinked_names("built by `_private_helper`", tests_allowed=True)
