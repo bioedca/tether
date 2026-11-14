@@ -145,10 +145,12 @@ installer_type: sh     # [linux]
 # the shortcuts napari would add.
 #
 # These four keys are why nothing lands on PATH, which is what ADR-0051 addresses:
-# post_install writes `<prefix>/bin/{tether,tether-gui}` shims plus a Start Menu
+# post_install writes `<prefix>/launchers/{tether,tether-gui}` shims plus a Start Menu
 # shortcut (Windows) / .desktop entry (Linux). The installer still does NOT edit the
 # user's PATH — `setx` truncates PATH past 1024 chars and rewriting a shell rc is
-# equally invasive — so adding `<prefix>/bin` stays a documented one-line step.
+# equally invasive — so adding `<prefix>/launchers` stays a documented one-line step.
+# That folder holds the two shims only; `<prefix>/bin`, their folder until rc3, is the
+# bootstrap env's own bin, with its python, pip and conda (issue #492, ADR-0094).
 keep_pkgs: false
 initialize_conda: false
 initialize_by_default: false    # [unix]

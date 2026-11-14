@@ -47,6 +47,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # cmd.exe running tether-gui.bat with `/c` arguments, minimized. post_install opens an
   # existing .lnk rather than replacing it, so the shortcut checks after the install
   # prove that every field is overwritten, the arguments included (issue #579, PR #827).
+  # rc3 wrote its launchers into bin\, so the seed names that folder (ADR-0094).
   old_sm_dir="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Tether"
   mkdir -p "$old_sm_dir"
   TETHER_LNK_W="$(cygpath -w "$old_sm_dir/Tether.lnk")" OLD_BAT_W="$prefix\\bin\\tether-gui.bat" \
@@ -79,13 +80,18 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # The USER-FACING launch surface (ADR-0051). The absolute env path above
   # proves the env was built; these prove the app can actually be STARTED.
   prefix_u="$(cygpath -u "$prefix")"
-  test -f "$prefix_u/bin/tether.bat" || { echo "missing shim: bin\\tether.bat"; exit 1; }
-  test -f "$prefix_u/bin/tether-gui.bat" || { echo "missing shim: bin\\tether-gui.bat"; exit 1; }
+  test -f "$prefix_u/launchers/tether.bat" || { echo "missing shim: launchers\\tether.bat"; exit 1; }
+  test -f "$prefix_u/launchers/tether-gui.bat" || { echo "missing shim: launchers\\tether-gui.bat"; exit 1; }
+  # The folder the install guide puts on PATH holds the two launchers and nothing else
+  # (issue #492, ADR-0094), so adding it, first or last, changes nothing else a shell finds.
+  launchers="$(ls -A "$prefix_u/launchers" | LC_ALL=C sort | tr '\n' ' ')"
+  test "$launchers" = "tether-gui.bat tether.bat " || {
+    echo "the launcher folder must hold only tether.bat and tether-gui.bat: $launchers"; exit 1; }
   # [project.gui-scripts] must produce the console-less launcher; without it a
   # shortcut flashes a terminal on every start.
   test -f "$prefix_u/envs/tether/Scripts/tether-gui.exe" || {
     echo "missing tether-gui.exe — is [project.gui-scripts] declared?"; exit 1; }
-  cmd /c "$prefix\\bin\\tether.bat" --version
+  cmd /c "$prefix\\launchers\\tether.bat" --version
   # `--version` imports nothing that touches BLAS, so it passed on rc2 while every
   # real extraction crashed in MKL on a user's PC (issue #553). Run a real one
   # through the launcher: the committed tutorial movie's native registration calls
@@ -94,7 +100,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # the user's crash; it keeps the launch route, not just the env, under test.
   # No path here contains a space, so git-bash adds no quotes for cmd to mangle.
   smoke_project="$RUNNER_TEMP\\smoke-launcher.tether"
-  cmd /c "$prefix\\bin\\tether.bat" extract docs\\tutorial\\data\\tutorial_movie.tif -o "$smoke_project"
+  cmd /c "$prefix\\launchers\\tether.bat" extract docs\\tutorial\\data\\tutorial_movie.tif -o "$smoke_project"
   test -f "$(cygpath -u "$smoke_project")" || {
     echo "tether.bat extract wrote no project: $smoke_project"; exit 1; }
   # Start Menu shortcut (created directly; menuinst cannot own a pip-installed
@@ -207,13 +213,19 @@ else
   # The USER-FACING launch surface (ADR-0051). The absolute env paths above
   # prove the envs were built; these prove the app can actually be STARTED,
   # which is the thing an install guide has to document. Exercised through
-  # the prefix shims, exactly as a user with <prefix>/bin on PATH would.
-  test -x "$prefix/bin/tether" || { echo "missing shim: $prefix/bin/tether"; exit 1; }
-  test -x "$prefix/bin/tether-gui" || { echo "missing shim: $prefix/bin/tether-gui"; exit 1; }
-  PATH="$prefix/bin:$PATH" tether --version
+  # the prefix shims, exactly as a user with <prefix>/launchers on PATH would.
+  test -x "$prefix/launchers/tether" || { echo "missing shim: $prefix/launchers/tether"; exit 1; }
+  test -x "$prefix/launchers/tether-gui" || { echo "missing shim: $prefix/launchers/tether-gui"; exit 1; }
+  # The folder the install guide puts on PATH holds the two launchers and nothing else
+  # (issue #492, ADR-0094). <prefix>/bin, their folder until rc3, is the bootstrap env's
+  # bin: on PATH it also gave the user that env's python, pip and conda.
+  launchers="$(ls -A "$prefix/launchers" | LC_ALL=C sort | tr '\n' ' ')"
+  test "$launchers" = "tether tether-gui " || {
+    echo "the launcher folder must hold only tether and tether-gui: $launchers"; exit 1; }
+  PATH="$prefix/launchers:$PATH" tether --version
   # The GUI entry point must import and answer --version WITHOUT a display;
   # `gui-scripts` on Unix is a normal console script, so this is safe headless.
-  PATH="$prefix/bin:$PATH" tether-gui --version
+  PATH="$prefix/launchers:$PATH" tether-gui --version
   if [ "$RUNNER_OS" = "Linux" ]; then
     desktop="$HOME/.local/share/applications/tether.desktop"
     test -f "$desktop" || {
