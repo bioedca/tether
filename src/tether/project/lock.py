@@ -55,6 +55,7 @@ import glob as _glob
 import json
 import os
 import socket
+import stat
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -105,9 +106,10 @@ DEFAULT_STALENESS_TIMEOUT_S: float = 30.0 * 60.0
 LOCK_SUFFIX = ".lock"
 
 #: Stable same-path sidecar used only as an OS advisory serialization inode.
-#: Lifecycle operations request ``0666`` (subject to the site's umask) so a
-#: group-shared project can keep one cross-user ``O_RDWR`` guard, and never unlink
-#: or replace it.
+#: Lifecycle operations request ``0666`` (subject to the site's umask), then the
+#: guard's owner adds read/write for every permission class that can write the
+#: project directory, so a shared project keeps one cross-user ``O_RDWR`` guard
+#: even under ``umask 022`` (#257, ADR-0094). Tether never unlinks or replaces it.
 _GUARD_SUFFIX = ".guard"
 _GUARD_ACQUIRE_TIMEOUT_S = 5.0
 _GUARD_RETRY_INTERVAL_S = 0.01
@@ -450,6 +452,56 @@ def _ensure_windows_guard_byte(fd: int, gp: Path, *, deadline: float) -> None:
             time.sleep(_GUARD_RETRY_INTERVAL_S)
 
 
+def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
+    """Give the guard read/write for each class that can write its directory (#257).
+
+    Anyone who can write the project directory can already create, replace, or
+    remove the lock sidecar, so the guard grants them nothing new; without it, a
+    guard created ``0644`` under ``umask 022`` admits only its first creator to
+    ``O_RDWR``. Bits are only added, never removed, and only the guard's owner can
+    change them, so a guard an earlier release created is repaired the next time
+    its owner runs a lifecycle operation. Best effort: a filesystem that refuses
+    ``fchmod`` still has the read-only fallback in :func:`_open_guard`.
+    """
+    try:
+        current = os.fstat(fd)
+        if current.st_uid != os.geteuid():
+            return
+        directory_mode = os.stat(gp.parent).st_mode
+        wanted = 0
+        if directory_mode & stat.S_IWGRP:
+            wanted |= stat.S_IRGRP | stat.S_IWGRP
+        if directory_mode & stat.S_IWOTH:
+            wanted |= stat.S_IROTH | stat.S_IWOTH
+        mode = stat.S_IMODE(current.st_mode)
+        if mode & wanted != wanted:
+            os.fchmod(fd, mode | wanted)
+    except OSError:
+        return
+
+
+def _open_guard(gp: Path) -> tuple[int, bool]:
+    """Open (creating if needed) the lifecycle guard; return ``(fd, read_only)``.
+
+    On POSIX a guard another user created without group write (an earlier release,
+    or a strict site umask) is opened read-only instead of failing: ``flock()``
+    takes an exclusive lock regardless of the descriptor's access mode, so a
+    second user can still serialize with the owner and run an explicit steal.
+    """
+    try:
+        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o666)
+    except PermissionError as exc:
+        if os.name == "nt":
+            raise
+        try:
+            return os.open(gp, os.O_RDONLY), True
+        except OSError:
+            raise exc from None
+    if os.name != "nt":
+        _share_guard_with_directory_writers(fd, gp)
+    return fd, False
+
+
 _register_at_fork = getattr(os, "register_at_fork", None)
 if _register_at_fork is not None:  # pragma: no branch - platform capability
     _register_at_fork(
@@ -472,7 +524,7 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
     """
     gp = _guard_path(lp)
     with _GUARD_REGISTRY_LOCK:
-        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o666)
+        fd, read_only = _open_guard(gp)
         try:
             os.set_inheritable(fd, False)
             _ACTIVE_GUARD_FDS.add(fd)
@@ -510,6 +562,16 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
                     acquired = True
                     break
                 except OSError as exc:
+                    if read_only and exc.errno == errno.EBADF:
+                        # Some network filesystems emulate flock() with byte-range
+                        # locks, which need a writable descriptor.
+                        raise PermissionError(
+                            errno.EACCES,
+                            "lock lifecycle guard is not writable by this user and this "
+                            "filesystem cannot lock it read-only; ask its owner to make "
+                            "it group-writable (chmod g+rw)",
+                            str(gp),
+                        ) from exc
                     if exc.errno not in {errno.EACCES, errno.EAGAIN}:
                         raise
                     if time.monotonic() >= deadline:

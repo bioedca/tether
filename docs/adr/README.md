@@ -100,7 +100,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted | §7.8, §4.1, §9 M9 |
 | [0052](0052-concurrent-agent-swarm-coordination.md) | Concurrent issue-swarm coordination | superseded by 0057 (fully retired) | §12.2–§12.5 |
 | [0053](0053-structured-backlog-intake-gates-swarm-admission.md) | Structured backlog intake gates swarm admission | superseded by 0057 (admitting authority) | §12.5 |
-| [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted | §5.4, §7.3, §7.5, §7.10 |
+| [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted; amended by [ADR-0094](0094-the-lock-guard-is-shared-with-directory-writers.md) on the lifecycle guard's permissions | §5.4, §7.3, §7.5, §7.10 |
 | [0056](0056-policy-fail-rejected-extraction-checkpoint.md) | Preserve policy-fail rejection across batch resume | accepted | §6, §7.11, §11.2 |
 | [0057](0057-github-native-swarm-coordination.md) | GitHub-native swarm coordination | accepted in part; supersedes [ADR-0052](0052-concurrent-agent-swarm-coordination.md) in full and [ADR-0053](0053-structured-backlog-intake-gates-swarm-admission.md) only in its admitting mechanism — ADR-0053’s intake gates remain in force as the claim precondition; its review gate, round cap, slot launcher and advisory scope guard superseded by [ADR-0064](0064-the-agent-layer-coordinates-writers-not-reviews.md) | §12.2–§12.5 |
 | [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | Ship v1.0.0 unsigned, with SHA-256 manifests + build provenance as the integrity anchor | accepted; supersedes the code-signing half of [0050](0050-release-pipeline-and-code-signing.md) | §9 M9, §12.7, §4.1, NFR-PKG |
@@ -132,6 +132,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12) | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
 | [0086](0086-ha-laboratory-snapshot-histogram-is-a-reference.md) | The Ha-laboratory SAM/SAH snapshot histogram is a reference, compared by its peaks | accepted | §1 (the apparent-E histogram), §2.2 (N4), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
+| [0094](0094-the-lock-guard-is-shared-with-directory-writers.md) | The lock lifecycle guard is shared with everyone who can write the project directory | accepted; amends [ADR-0055](0055-gui-session-writer-ownership.md) on the guard's permissions | §5.4 (single writer, steal-lock), §7.10 FR-CONCURRENCY |
 
 <!-- gen:adr-index end -->
 

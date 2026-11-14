@@ -698,6 +698,13 @@ CorruptLockError: unparseable lock file: <path>.tether.lock
   owner can be identified and writes are refused until an explicit steal overwrites it.
   Deleting the stray `.tether.lock` file is the manual fix.
 
+**Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
+Tether gives that file read and write access for each group of users who can write the project
+folder, so another lab member can run the steal above. A guard made by a release before #257 is
+corrected the next time its owner opens the project. On some network filesystems a user who cannot
+write the guard gets `PermissionError: ... lock lifecycle guard is not writable by this user`;
+the guard's owner fixes that once with `chmod g+rw <path>.tether.lock.guard`.
+
 While locked out you can still open the project read-only and curate into your own
 split/subset `.tether`, merged back later on `molecule_key`.
 

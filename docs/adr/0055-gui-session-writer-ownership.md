@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0055 — GUI session writer ownership
 
-- **Status:** accepted
+- **Status:** accepted; amended by [ADR-0094](0094-the-lock-guard-is-shared-with-directory-writers.md) on the lifecycle guard's permissions
 - **Date:** 2026-07-26
 - **Deciders:** bioedca
 - **PRD anchor:** §5.4, §7.3, §7.5, §7.10
