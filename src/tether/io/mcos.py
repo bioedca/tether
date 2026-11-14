@@ -24,11 +24,15 @@ the companion ``.tmap`` decoded in :mod:`tether.io.register`).
 FileWrapper metadata layout (the FileWrapper's first cell, a ``uint8`` blob; all
 values little-endian ``uint32`` unless noted):
 
-* **8-word header** ``[version, n_names, off1, off2, off3, off4, off5, off6]`` —
-  the ``off*`` are byte offsets into the blob delimiting the regions below.
-* **names** — NUL-terminated ASCII field/class names in ``[32 : off1]``. The two
-  short leading tokens are a binary sub-header (not names); the following
-  ``n_names`` tokens are the **1-based** name table (field/class id → name).
+* **10-word header** ``[version, n_names, off1, off2, off3, off4, off5, off6, w8, w9]``
+  — the ``off*`` are byte offsets into the blob delimiting the regions below. The
+  last two words are not read: in metadata version 4 they are not zero, and in
+  version 3 (the public Deep-LASI files of Zenodo record 7561162) both are zero.
+* **names** — NUL-terminated ASCII field/class names in ``[40 : off1]``, directly
+  after the header: the first ``n_names`` names are the **1-based** name table
+  (field/class id → name). The table is read from byte 40 in both versions; it is
+  not found by counting tokens after byte 32, because two zero words give no token
+  (#874).
 * **class table** — ``[off1 : off2]``, 4 ``uint32`` per class (row 0 is the null
   class); a class's name is ``names[col1]``.
 * **type-1 property segments** — ``[off2 : off3]`` (unused for the properties
@@ -54,9 +58,9 @@ import numpy as np
 __all__ = ["McosDecoder", "object_reference_id"]
 
 _OBJECT_REF_MARKER = 0xDD000000  # first word of an MCOS object-reference vector
-_HEADER_WORDS = 8  # 8 uint32 metadata header words
-_NAMES_START = _HEADER_WORDS * 4  # names region begins at byte 32
-_NAME_HEADER_TOKENS = 2  # two binary tokens precede the field-name strings
+_OFFSET_WORDS = 8  # version, n_names and the six region byte-offsets
+_HEADER_WORDS = 10  # the header has two more uint32 words, which are not read
+_NAMES_START = _HEADER_WORDS * 4  # names region begins at byte 40 (versions 3 and 4)
 _OBJECT_ROW = 6  # uint32 per object-table row
 _TYPE2_SKIP = 1  # leading skip word before the first type-2 segment
 _PTYPE_HEAP = 1  # property stored as a FileWrapper heap-cell reference
@@ -167,13 +171,13 @@ class McosDecoder:
         if words.size < _HEADER_WORDS:
             raise ValueError("MCOS metadata too short for its header")
         n_names = int(words[1])
-        offsets = [int(x) for x in words[2:_HEADER_WORDS]]  # 6 region byte-offsets
+        offsets = [int(x) for x in words[2:_OFFSET_WORDS]]  # 6 region byte-offsets
         if n_names <= 0 or offsets[0] <= _NAMES_START or offsets[3] > meta.size:
             raise ValueError("MCOS metadata header offsets are out of range")
 
-        # Name table: the two leading binary tokens are a sub-header, not names.
+        # Name table: it starts directly after the 10-word header, at byte 40.
         tokens = [t for t in meta[_NAMES_START : offsets[0]].tobytes().split(b"\x00") if t]
-        names = [t.decode("ascii", "replace") for t in tokens[_NAME_HEADER_TOKENS:]]
+        names = [t.decode("ascii", "replace") for t in tokens]
         if len(names) < n_names:
             raise ValueError(f"MCOS name table has {len(names)} names, header declares {n_names}")
         self._field_id = {name: i + 1 for i, name in enumerate(names[:n_names])}  # 1-based

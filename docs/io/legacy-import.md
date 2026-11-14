@@ -126,7 +126,8 @@ participating channel, so donor and acceptor rows stay index-aligned), the
 `ValueError` rather than silently mis-detected), and the embedded movie reference. Coordinate
 and correction decoding are MCOS-independent; only the detection threshold and movie
 reference need the MCOS graph and are decoded best-effort (a `None` there is normal, not an
-error). The shipped decode deliberately does **not** read the `.tdat`'s per-molecule series,
+error). The MCOS graph is read in metadata version 4 (the laboratory files) and version 3 (the
+public Deep-LASI files of Zenodo record 7561162). The shipped decode deliberately does **not** read the `.tdat`'s per-molecule series,
 image patches, masks, `FrameTime`, HMM states, or categories.
 
 ### Coordinate recovery + SMD cross-check
