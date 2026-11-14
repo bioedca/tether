@@ -6,7 +6,7 @@ you can say in a paper. You do not need to be a contributor, and nothing here as
 anything. This page is explanation only: for *how* to do something, follow the links to
 [Install Tether](install.md), the [Command line](cli.md), the [Exports](reference/exports.md)
 and [Analysis parameters](reference/parameters.md) references, and the
-[project store](reference/tether-format.md) reference.
+[project file](reference/tether-format.md) reference.
 
 ## The pipeline at a glance
 
@@ -15,7 +15,7 @@ acquisition joins it later: its traces were already integrated, so it is importe
 into a project and skips the split-to-extract stages
 ([Legacy Deep-LASI import](io/legacy-import.md)). The stages that keep a result keep it in one
 [`.tether` project file](reference/tether-format.md), which refers to your movie rather than
-copying its pixels ([the store references your movies](compatibility.md#the-store-references-your-movies-it-does-not-copy-them));
+copying its pixels ([the project file references your movies](compatibility.md#the-project-file-references-your-movies-it-does-not-copy-them));
 some stages write nothing, and exports are new files written where you direct them:
 
 ```text
@@ -234,7 +234,7 @@ missing factor reach any number. The factor's cell holds a `NaN` sentinel meanin
 applied", and the molecule is stamped `apparent-E (corrections unavailable)`, which tells
 every reader to use apparent E instead
 ([ADR-0003](adr/0003-apparent-e-never-nan.md);
-[project store](reference/tether-format.md#molecules-one-row-per-molecule)). The plot looks the same either way, so the
+[project file](reference/tether-format.md#molecules-one-row-per-molecule)). The plot looks the same either way, so the
 plot cannot tell you whether a correction was applied; the molecule's `correction_method` and
 the `/settings/correction` record can ([correction_method](glossary.md#correction_method)).
 

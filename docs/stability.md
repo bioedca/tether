@@ -62,7 +62,7 @@ today disappears before `2.0.0`.
 
 ### 2. The `.tether` on-disk format
 
-The project store is HDF5. Covered for `1.x`: the root `format` attribute value
+The project file is HDF5. Covered for `1.x`: the root `format` attribute value
 `tether-project` (`FORMAT_TAG`), the `schema_version` attribute and its rules, the
 top-level group skeleton, and the compound-dtype field sets of the four entity tables.
 

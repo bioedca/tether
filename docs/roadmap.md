@@ -3,7 +3,7 @@
 **Who this page is for.** Readers who want a short, public view of what Tether is
 shipping, what comes next, and where its scope stops. This page summarizes the internal
 product requirements; it does not duplicate the frozen schema or parameter tables. Use
-the [project-store reference](reference/tether-format.md) and
+the [project file reference](reference/tether-format.md) and
 [analysis-parameter reference](reference/parameters.md) for those contracts. Reading
 this page needs no repository access.
 
@@ -16,7 +16,7 @@ work that is now being hardened for release.
 
 The stable v1.0.0 scope is:
 
-- a provenance-first `.tether` project store that keeps every trace linked to its source
+- a provenance-first `.tether` project file that keeps every trace linked to its source
   movie, coordinates, corrections, annotations, idealization, and analysis settings;
 - native two-color, single-laser TIRF movie extraction, plus round-trip Deep-LASI and
   tMAVEN interchange;
@@ -64,7 +64,7 @@ layer. Annotated repository tags record the public checkpoints.
 
 | Milestone | Public checkpoint | What it established |
 | --- | --- | --- |
-| M0 — Foundation | `v0.0.0` | Project store and schema freeze, application shell, pinned environments, CI, and repository governance. |
+| M0 — Foundation | `v0.0.0` | Project file and schema freeze, application shell, pinned environments, CI, and repository governance. |
 | M0.5 — De-risking | Validation gate before `v0.1.0` | tMAVEN-sidecar interchange/parity and Deep-LASI extraction/registration feasibility. |
 | M1 — Extraction core | `v0.1.0` | Movie-to-trace extraction, calibration/registration, and the headless extraction path. |
 | M2 — MVP | `v0.2.0` | Trace↔movie browsing, curation provenance, idealization hand-off, locking, and first analysis views. |

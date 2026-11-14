@@ -89,7 +89,7 @@ nav:
           - Command line: cli.md
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
-          - Project store (.tether HDF5 schema): reference/tether-format.md
+          - Project file format (.tether HDF5 schema): reference/tether-format.md
           - Application window themes and trace colors: reference/gui-theme.md
           - Reproducibility & reporting: reproducibility.md
       - Glossary: glossary.md

@@ -28,7 +28,7 @@ storage, and temporary idealization files are described below.
   any third party, nor "phones home".
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
-  files**. The `.tether` project store records the application version, your analysis
+  files**. The `.tether` project file records the application version, your analysis
   parameters, and your operating-system username (as the curator, or "labeler", of your
   annotations). A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell

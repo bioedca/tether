@@ -114,7 +114,7 @@ trained model):
   the real observed frames. Padding is masked, **never zero-filled as real data**, and the
   LSTM consumes packed sequences so padded frames are excluded — never treated as observations.
 
-Labels are the shared-store **binary** accept(1)/reject(0) curation labels; the six-way
+Labels are the shared **binary** accept(1)/reject(0) curation labels; the six-way
 DeepFRET taxonomy awaits the M4 category codec (ADR-0023) and is a later extension.
 
 ## Why a third isolated environment
@@ -153,7 +153,7 @@ cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
 - `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
   of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
   init, which pulls the M5 ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
-  store bridge; scikit-learn / xgboost stay lazy and are not needed here)
+  project-file bridge; scikit-learn / xgboost stay lazy and are not needed here)
 
 ### Continuous integration
 
@@ -180,7 +180,7 @@ channel (`cu126` / `cu124` / `cu128`) that matches the runner's driver.
 The deep classifier is the M8 add-on; the milestone also carries kinSoftChallenge kinetics
 validation and a classical→deep fine-tuning path as separate PRs. The classifier is optional,
 the base app is unaffected, the schema is untouched (the substrate is read-only over the
-M0-frozen store), and every tunable is registered in PRD §11.2 — the single source of truth.
+M0-frozen project file), and every tunable is registered in PRD §11.2 — the single source of truth.
 
 ## References
 

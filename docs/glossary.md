@@ -53,7 +53,7 @@ specifics worth knowing:
 
 The fixed chain, repeated verbatim in three modules
 (`tether.fret.efficiency`, `.leakage`, `.gamma`):
-**background → leakage α → direct excitation δ (= 0) → γ**. At the store level the chain is
+**background → leakage α → direct excitation δ (= 0) → γ**. At the project level the chain is
 **photobleach → leakage α → γ → corrected FRET** (`tether.project.correct`) and it is
 enforced at runtime — calling the steps out of order raises with the next command named in
 the message (see
@@ -69,7 +69,7 @@ ratios. Gates: tail ≥ `DEFAULT_MIN_WINDOW_FRAMES = 20` frames; per-trace α ou
 traces and is **withheld** below `DEFAULT_MIN_QUALIFYING_TRACES = 10` rather than fabricated
 (ADR-0027).
 
-**Scope:** α is **store-wide** in Tether. `compute_leakage_alpha` fits one dataset median over
+**Scope:** α is **project-wide** in Tether. `compute_leakage_alpha` fits one dataset median over
 every analysable molecule in the `.tether` — it does **not** partition by
 [condition](#condition) — and writes that single value into every one of their
 `/molecules.alpha` cells, which is the field `tether.project.correct` reads back as the
@@ -513,13 +513,13 @@ transition-probability keep by default
 (ADR-0029).
 
 Consequence: re-estimating **α** re-stales **every molecule in the project**, because the α
-estimator is **store-wide** — one median written to every analysable
+estimator is **project-wide** — one median written to every analysable
 molecule's `/molecules.alpha`. A γ-median shift re-stales only the molecules that took the
 fallback.
 
 ### fresh-idealization gating / curation filter
 
-The two Tether-added, on-by-default invariants on every store-level group-B/C entry point:
+The two Tether-added, on-by-default invariants on every project-level group-B/C entry point:
 stale molecules are excluded unless `include_stale=True`, and rejected molecules are excluded
 unless `include_rejected=True`. Both are toggles, not deletions.
 

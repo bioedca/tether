@@ -10,9 +10,9 @@ the prose.
 
 Two facts frame everything else:
 
-- **Every temporal number in the three *store* exports (CSV, `.txt`, subset `.tether`) is
+- **Every temporal number in the three *project* exports (CSV, `.txt`, subset `.tether`) is
   in *frames*, zero-based, never seconds**, and none of the three carries the frame
-  duration. The store keeps it (`/movies.frame_time`, `tether.io.schema.MOVIES_DTYPE`),
+  duration. The project file keeps it (`/movies.frame_time`, `tether.io.schema.MOVIES_DTYPE`),
   but the molecule-table CSV has no such column, the Deep-LASI `.txt` has no metadata at
   all, and a subset `.tether` carries **zero** `/movies` rows by construction. Converting
   to seconds is the reader's own job — see
@@ -49,7 +49,7 @@ also writes a file — an SMD-HDF5 — but it is an *interchange* leg with a ret
 an export, and it does **not** write a provenance file. It is documented on
 [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md).
 
-## What all three store exports share
+## What all three project exports share
 
 ### Selection
 
@@ -59,8 +59,8 @@ All three take their rows from `_selected_rows` in `tether.project.export`, whic
 |---|---|
 | Order | **Store order** (ascending row index). A `molecule_keys` request does *not* reorder the output |
 | Curation filter | Rows whose `curation_label` is `CurationLabel.REJECT` (`-1`, `tether.project.labels`) are dropped unless `include_rejected=True` |
-| `molecule_keys` | A membership subselect, not a lookup. `molecule_key` is **not unique**, so one requested key matches *every* store row carrying it |
-| Unknown key | A requested key matching no store row raises `KeyError` — a typo fails loudly rather than silently under-exporting |
+| `molecule_keys` | A membership subselect, not a lookup. `molecule_key` is **not unique**, so one requested key matches *every* project row carrying it |
+| Unknown key | A requested key matching no project row raises `KeyError` — a typo fails loudly rather than silently under-exporting |
 | Empty selection | `export_deeplasi_txt` and `export_subset_tether` raise `ValueError` |
 
 The `include_rejected` default is **not** the same across the three, and the difference is
@@ -98,7 +98,7 @@ All three return a frozen `ExportResult` with three fields in this order: `path`
 Wherever an export carries an intensity (the `.txt` matrix, a subset's `/traces`), the
 number is **uncalibrated**: there is no gain, offset or quantum-efficiency conversion
 anywhere in `tether.imaging`, so nothing any export writes is in photons. What the number
-*is*, though, depends on how the store was built — and no export records that:
+*is*, though, depends on how the project file was built — and no export records that:
 
 | Store built by | What an exported intensity is |
 |---|---|
@@ -152,7 +152,7 @@ disk's pixel count `n_psf = int(disk.sum())`.
 > `bg_window`, `n_psf` — `tether.imaging.extract._write_settings_once`), which travels in
 > a subset `.tether` but is carried by **neither** the `.txt` nor its provenance file.
 
-> **An imported store's `/settings/extraction` is provenance, not a measurement.**
+> **An imported project file's `/settings/extraction` is provenance, not a measurement.**
 > `reconstruct_project` hands `write_extraction` the standard constants
 > (`_APERTURE_WINDOW = 21`, `_APERTURE_DISK_RADIUS = 3.0`, `_APERTURE_RING_INNER = 6.0`,
 > `_APERTURE_RING_OUTER = 8.0`, `_APERTURE_BG_WINDOW = 10`), annotated in the source as
@@ -188,13 +188,13 @@ print(result.path, result.provenance_path, result.n_molecules)
 | Quoting | `csv.QUOTE_MINIMAL` with `"` — a cell containing a comma (a multi-tag `tags`, a `category` like `dynamic, folded`) is quoted |
 | Line terminator | `\r\n` on **every** platform (the `csv` module default, not the OS) |
 | Header | Exactly one row, the 25 names below |
-| Rows | One per exported molecule, in store order — one `/molecules` row = one detected donor spot in one movie, or, in an analysis-only import, one imported SMD / `.txt` trace |
+| Rows | One per exported molecule, in project order — one `/molecules` row = one detected donor spot in one movie, or, in an analysis-only import, one imported SMD / `.txt` trace |
 
 **Numbers.** Integer columns go through `int()` and print with no decimal point. Float
 columns go through `_fmt_float`, which returns `""` for `None` or any non-finite value and
 otherwise `repr(float)` — Python's shortest round-tripping representation, full precision
 and no fixed decimal count. That is why a real exported cell carries all its significant
-digits: the row-0 `mean_apparent_e` of the three-molecule store used for the `.txt`
+digits: the row-0 `mean_apparent_e` of the three-molecule project file used for the `.txt`
 sample below (`tests/_analysis_store.build_store_with_channels` over the `_asym_channels`
 values of `tests/test_export_tables.py`) reads `0.3715803781168891`, not `0.372`.
 
@@ -211,8 +211,8 @@ underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 
 | Column | CSV type | Unit / domain | Blank when |
 |---|---|---|---|
-| `molecule_id` | string | Unitless identity — a stable per-row UUID, `mol-` + 32 hex chars. Unique within a store | The stored string is empty |
-| `molecule_key` | string | Unitless identity — 64-char lowercase hex SHA-256. For a store built from a movie: of `"{movie_sha256}\|{qx}\|{qy}"` with `donor_xy` quantized (`tether.imaging.extract.molecule_key`). For an analysis-only import there is no movie and no coordinate, so `tether.project.analysis_import._analysis_only_molecule_key` hashes the source id, the row index and the trace bytes instead — same shape, different inputs (callout below). The cross-file join key; **not unique** (§7.10) | The stored string is empty |
+| `molecule_id` | string | Unitless identity — a stable per-row UUID, `mol-` + 32 hex chars. Unique within a project file | The stored string is empty |
+| `molecule_key` | string | Unitless identity — 64-char lowercase hex SHA-256. For a project file built from a movie: of `"{movie_sha256}\|{qx}\|{qy}"` with `donor_xy` quantized (`tether.imaging.extract.molecule_key`). For an analysis-only import there is no movie and no coordinate, so `tether.project.analysis_import._analysis_only_molecule_key` hashes the source id, the row index and the trace bytes instead — same shape, different inputs (callout below). The cross-file join key; **not unique** (§7.10) | The stored string is empty |
 | `movie_id` | string | Unitless identity of the source `/movies` row (e.g. `mov-1`). `""` in an analysis-only project, which has no linked movie — `tether.project.analysis_import` writes the empty string explicitly | No movie is linked |
 | `source_filename` | string | The filename the row's provenance was parsed from (`tether.io.filename.parse_filename`): the source **movie** for a native extraction or a Deep-LASI reconstruction, the imported **SMD / `.txt`** for an analysis-only import | The stored string is empty |
 | `condition_id` | string | Unitless condition key (e.g. `cond-353fd5a76531`) | The stored string is empty |
@@ -228,16 +228,16 @@ underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 | `correction_confidence` | float | **Unitless provenance flag, not a statistical CI**: `1.0` when a real photophysical correction was applied, `0.0` when the molecule fell back to apparent E (`_CONFIDENCE_CORRECTED` / `_CONFIDENCE_APPARENT` in `tether.project.correct`) | No correction pass has run (`NaN` at extraction) |
 | `donor_bleach_frame` | integer | **Frames**, zero-based, absolute. `bleach_frames[0]`. Sentinel `-1` = not detected (`_UNDETECTED_FRAME`, `tether.imaging.extract`); a value equal to `frame_end` means the channel does not bleach within the trace (`tether.project.photobleach`) | Never — an integer is always written |
 | `acceptor_bleach_frame` | integer | **Frames**, zero-based, absolute. `bleach_frames[1]`; same `-1` and `== frame_end` conventions | Never |
-| `frame_start` | integer | **Frames**, zero-based, **inclusive** — `frame_range[0]`, the start of the molecule's valid native extent inside the store's zero-pad (ADR-0016). Extraction writes `0` | Never |
+| `frame_start` | integer | **Frames**, zero-based, **inclusive** — `frame_range[0]`, the start of the molecule's valid native extent inside the project file's zero-pad (ADR-0016). Extraction writes `0` | Never |
 | `frame_end` | integer | **Frames**, zero-based, **exclusive** (half-open) — `frame_range[1]`. Extraction writes `n_frames` | Never |
 | `window_start` | integer | **Frames**, zero-based, **inclusive** — the *resolved* analysis window actually used for `n_finite_frames`, `mean_apparent_e` and `median_apparent_e`: `analysis_window[0]`, falling back to `frame_range[0]` when the window is unset (`hi <= lo`), per `_window` | Never |
 | `window_end` | integer | **Frames**, zero-based, **exclusive** — the resolved upper bound, with the same fallback | Never |
-| `tags` | string | Free text, **comma-joined** in the store (`tether.analysis.query` splits on `,`). Emitted verbatim, so a multi-tag cell is CSV-quoted. Analysis-only imports carry `round-trip-unavailable` | The molecule has no tags |
+| `tags` | string | Free text, **comma-joined** in the project file (`tether.analysis.query` splits on `,`). Emitted verbatim, so a multi-tag cell is CSV-quoted. Analysis-only imports carry `round-trip-unavailable` | The molecule has no tags |
 | `n_finite_frames` | integer | **Frames** — how many frames inside the resolved analysis window have a finite apparent E. `0` when every frame in the analysis window has `D + A == 0` exactly | Never |
 | `mean_apparent_e` | float | **Dimensionless — apparent E** (the proximity ratio `A/(D+A)`), arithmetic mean over the finite frames of the resolved analysis window. **Not** γ-corrected. **Not** clipped to `[0, 1]`: `apparent_fret` deliberately leaves a noisy out-of-range value alone | `n_finite_frames == 0` |
 | `median_apparent_e` | float | **Dimensionless — apparent E**, `numpy.median` of the same finite values. Same no-clipping rule | `n_finite_frames == 0` |
 
-> **Three kinds of store write these columns, and only one of them came from a movie.**
+> **Three kinds of project file write these columns, and only one of them came from a movie.**
 > A native extraction and a Deep-LASI reconstruction (`tether.project.reconstruct`, which
 > calls the same `tether.imaging.extract.write_extraction`) both link a `/movies` row:
 > `movie_id` is that row's id, `molecule_key` is the movie `sha256` + quantized
@@ -251,9 +251,9 @@ underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 > `float64`). The source calls it "an identity, not fabricated coordinate data". It is
 > unique per row and stable across a re-import of the same source, but **nothing in it is
 > movie-derived**: it cannot be re-derived from a movie hash or from coordinates, and it
-> will not match the key the same molecule would carry in a movie-linked store. A blank
+> will not match the key the same molecule would carry in a movie-linked project file. A blank
 > `movie_id` is the flag that says so; `tether.project.analysis_import.read_analysis_only_marker`
-> is the O(1) check on the store itself.
+> is the O(1) check on the project file itself.
 
 > **`window_start`/`window_end` may equal `frame_start`/`frame_end` by *fallback*, not by
 > curation.** `_window` substitutes the frame range whenever `analysis_window` is unset
@@ -292,15 +292,15 @@ The serializer is `tether.io.deeplasi.write_deeplasi_txt`; its read-side mirror 
 | Number format | `numpy.savetxt(..., fmt="%.5f")` — fixed-point, exactly 5 decimals (`_TXT_DECIMALS = 5`). A round trip is therefore lossy to that rounding |
 | Delimiter | A single space |
 | Line ending | OS-translated (`savetxt` opens in text mode; no `newline=` is passed) — CRLF on Windows, LF elsewhere. Unlike the CSV, this is *not* fixed |
-| Values | Uncalibrated intensities — never photons, and **not necessarily movie pixel units**: what the number is depends on how the *source store* was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, not re-integrated, for a Deep-LASI reconstruction or an analysis-only import). See [Intensity units](#intensity-units). Signed either way, so background-subtracted values may be negative |
+| Values | Uncalibrated intensities — never photons, and **not necessarily movie pixel units**: what the number is depends on how the *source project file* was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, not re-integrated, for a Deep-LASI reconstruction or an analysis-only import). See [Intensity units](#intensity-units). Signed either way, so background-subtracted values may be negative |
 
-A real first line, from a three-molecule store:
+A real first line, from a three-molecule project file:
 
 ```text
 100.00000 53.00000 200.00000 56.00000 300.00000 59.00000
 ```
 
-**Frame trimming — the one place a row index is not an absolute frame.** The store's
+**Frame trimming — the one place a row index is not an absolute frame.** The project file's
 `/traces` arrays are zero-padded to the experiment-max frame count as movies of differing
 length are appended (ADR-0016), so `export_deeplasi_txt` trims to the selection's shared
 `frame_range`: the written matrix is `donor_all[rows][:, lo:hi]`. Row 0 of the file is
@@ -477,10 +477,10 @@ why the keys read alphabetically:
 | `app_version` | The git-derived `tether.__version__`, falling back to `"0.0.0+unknown"`. A provenance stamp never raises |
 | `created_utc` | Offset-aware ISO-8601 UTC with microseconds (`datetime.now(UTC).isoformat()`), e.g. `2026-07-20T22:14:26.314669+00:00`. A caller may pin it, which is how a subset's in-file attribute and its provenance file agree exactly |
 | `parameters` | The export's own parameters — different per export; the per-export lists are given above |
-| `source_project` | For the three store exports, the source `.tether` **basename only** — they call `write_provenance_sidecar(source=path.name)`. For `export_figure` it is **caller-supplied and unnormalized**: the `source=` argument is forwarded verbatim, and `write_provenance_sidecar` does no `.name` reduction of its own, so an absolute path you pass is an absolute path in the JSON. Pass a basename yourself |
+| `source_project` | For the three project exports, the source `.tether` **basename only** — they call `write_provenance_sidecar(source=path.name)`. For `export_figure` it is **caller-supplied and unnormalized**: the `source=` argument is forwarded verbatim, and `write_provenance_sidecar` does no `.name` reduction of its own, so an absolute path you pass is an absolute path in the JSON. Pass a basename yourself |
 | `tether_export` | The export-kind discriminator |
 
-`tether_export` takes exactly three fixed values from the store exports —
+`tether_export` takes exactly three fixed values from the project exports —
 `"deeplasi-txt"`, `"molecule-table-csv"`, `"subset-tether"`. For plots it is **caller-supplied
 and unvalidated**: nothing in `src/` defines or checks a plot kind vocabulary.
 
@@ -556,7 +556,7 @@ needs no equivalent flag. Counting molecules from zero, molecule *k*'s donor is
 
 ### Frames to seconds
 
-No *store* export carries the frame duration — only a plot export can, and only as a
+No *project* export carries the frame duration — only a plot export can, and only as a
 rendered seconds axis you cannot read a number back out of. The duration lives in the
 source project, **per movie** (`/movies.frame_time`, `tether.io.schema.MOVIES_DTYPE`), and
 every CSV row names its movie in `movie_id`. So the conversion is a per-row join, not one
@@ -604,7 +604,7 @@ wrong number:
 - **A project may hold more than one movie, each with its own `frame_time`.** Extraction
   appends one `/movies` row per movie, so reading `movies["frame_time"][0]` and applying
   it to every exported row silently mis-scales every molecule that came from a later
-  movie. Key by `movie_id`, as above. On a two-movie store at `0.1` and `0.25` s/frame,
+  movie. Key by `movie_id`, as above. On a two-movie project file at `0.1` and `0.25` s/frame,
   frame 8 is `0.8 s` and `2.0 s` respectively; the first-row shortcut reports `0.8 s` for
   both.
 - **A stored `0.0` means *unknown*, not "instantaneous".** The GUI treats a non-positive
@@ -629,8 +629,8 @@ extra state. Tether's own analyses do exactly that (`tether.analysis.tdp`,
 
 ### Why a subset `.tether` is readable at all
 
-The `.tether` store is a **superset of the tMAVEN SMD layout**, not a private format
-(ADR-0002, [The `.tether` store is an SMD superset](../adr/0002-smd-superset-round-trip.md)).
+The `.tether` project file is a **superset of the tMAVEN SMD layout**, not a private format
+(ADR-0002, [The `.tether` project file is an SMD superset](../adr/0002-smd-superset-round-trip.md)).
 It is HDF5: `h5py`, MATLAB `h5read` and `rhdf5` all open it without Tether installed. The
 same property is what makes the tMAVEN round trip a data-model consequence rather than a
 conversion step.
@@ -640,13 +640,13 @@ conversion step.
 - **PRD §7.9 FR-EXPORT** — the export surface; **§8 NFR-REPRO** — "all exports are stamped
   with provenance and parameters"; **§5.4** — the subset invariant; **§7.5** — the curation
   filter; **§7.10** — `molecule_key` non-uniqueness.
-- **ADR-0001** — provenance-first project store.
-- **ADR-0002** — the `.tether` store is an SMD superset; round-trip is a data-model property.
+- **ADR-0001** — provenance-first project file.
+- **ADR-0002** — the `.tether` project file is an SMD superset; round-trip is a data-model property.
 - **ADR-0005** — the M0 schema freeze (additive-only), which the subset export honors.
 - **ADR-0008** — the Deep-LASI → Tether correction-factor remap (β→α, α→δ, γ→γ).
-- **ADR-0016** — the extraction trace-store layout: zero-pad-to-max-`T` traces and the
+- **ADR-0016** — the extraction trace layout: zero-pad-to-max-`T` traces and the
   `molecule_key` content hash.
-- **ADR-0024** — the `/idealization/{model}` store layout a subset carries.
+- **ADR-0024** — the `/idealization/{model}` layout a subset carries.
 - **ADR-0044** — `matplotlib-base` as the static vector plot-export backend.
 - [Legacy Deep-LASI import](../io/legacy-import.md) — the input side of the same story.
 - [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) — the SMD

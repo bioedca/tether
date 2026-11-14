@@ -9,7 +9,7 @@ responsible. Any term that reads as jargon is defined in the
 [Glossary](glossary.md).
 
 The **silent** failures come first, because nothing will tell you about them. They are marked
-with a *Signature* block: something you can check on your own store to confirm or rule the
+with a *Signature* block: something you can check on your own project file to confirm or rule the
 diagnosis out.
 
 ---
@@ -62,7 +62,7 @@ Two related traps:
   `"detection_mode": "wavelet"`, `"pair_tol": 2.0`, `"rms_gate": 0.5`.
 
 > **Signature.** Run the two extractions side by side on one movie and compare. The relevant
-> store fields, dumped from a real pair of runs on the same input — a **symmetric** 3-spot
+> project-file fields, dumped from a real pair of runs on the same input — a **symmetric** 3-spot
 > synthetic movie, which is why the two counts match:
 >
 > | Field | `--donor-side left` | `--donor-side right` |
@@ -160,7 +160,7 @@ acceptor-bleach step. `compute_leakage_alpha` withholds α below
 console never says so, because the explanation lives in the stage *detail* string, which the
 end-of-run report does not print.
 
-> **Signature.** Three store reads, dumped from a real run:
+> **Signature.** Three project-file reads, dumped from a real run:
 >
 > ```text
 > /settings/correction : {'apparent_e_only': False, 'n_molecules': 7, 'n_corrected': 0, 'n_manual': 0, 'n_apparent': 7, 'total_failure': True, ...}
@@ -447,7 +447,7 @@ library directly.
 Two siblings from the same family:
 
 - `project has no /traces/<layer>; run extraction first` (a `KeyError`, identical text in
-  `tether.project.photobleach`, `.leakage` and `.gamma`) — the store has no traces yet.
+  `tether.project.photobleach`, `.leakage` and `.gamma`) — the project file has no traces yet.
 - `intensity_quantity must be one of ['corrected', 'raw'], got 'bogus'` — only those two
   layers exist. `tether.project.export` phrases the same condition differently:
   `unknown intensity_quantity 'bogus'; expected one of ['corrected', 'raw']`.
@@ -456,7 +456,7 @@ Two siblings from the same family:
 
 **Symptom.** `query_molecules(project, key={"ligand": "tRNA"})` matches zero molecules, or a
 per-condition histogram overlay **called with that same `key=` filter** comes back with no
-curves — while the plain population histogram over the same store is fine.
+curves — while the plain population histogram over the same project file is fine.
 
 The `key` filter is the whole story: an overlay called *without* `key` groups on the raw
 `condition_id` and is unaffected by everything below, so if your unfiltered overlay is empty,
@@ -472,7 +472,7 @@ this is not your entry.
 2. **A condition query never returns a molecule with an empty `condition_id`** — it is a
    *condition* query by definition. This one is a defensive invariant rather than a likely
    cause: every Tether writer stamps the id from `ConditionKey.condition_id()`, which always
-   returns a non-empty `cond-<12 hex>`, so no natively-extracted or imported store should
+   returns a non-empty `cond-<12 hex>`, so no natively-extracted or imported project file should
    contain one. If you do meet an empty id, note that `sync_conditions` cannot repair it — it
    skips empty ids outright (`if not cid: … continue`) and excludes them from `referenced`, so
    it reports `n_unresolved=0` while fixing nothing. `rekey_condition` is not the escape hatch
@@ -495,7 +495,7 @@ this is not your entry.
 > plain per-condition overlay were never affected — if one of those is what came back empty,
 > `sync_conditions` will not change it.
 
-**Remedy.** Call `sync_conditions(path)` once per store before using `key` filters, then
+**Remedy.** Call `sync_conditions(path)` once per project file before using `key` filters, then
 `validate_conditions(path)` to see anything still dangling. `sync_conditions` reports
 `n_unresolved` for ids with neither an existing row nor a filename witness — but read that
 number narrowly: `n_unresolved=0` means every **non-empty** id either already had a row or got
@@ -503,14 +503,14 @@ one from a filename witness. It is not a claim that every molecule is now key-ma
 
 ### A plot shows fewer molecules than I curated
 
-**Cause.** Two on-by-default invariants on every store-level group-B/C entry point, both
+**Cause.** Two on-by-default invariants on every project-level group-B/C entry point, both
 Tether additions with no tMAVEN analog: **stale** molecules are excluded, and **rejected**
 molecules are excluded. A molecule goes stale when its input trace, its analysis window, or
 its effective applied α/γ changed after the model was fitted — so re-running the corrections
 can silently empty a TDP that worked yesterday.
 
 **Remedy.** Pass `include_stale=True` / `include_rejected=True` to see them, or re-idealize
-to make the model fresh again. Mind the blast radius: the α estimator is **store-wide** —
+to make the model fresh again. Mind the blast radius: the α estimator is **project-wide** —
 `compute_leakage_alpha` fits one dataset median over every analysable molecule and writes it
 to every one of their `/molecules.alpha` cells, with no partition by condition — so
 re-estimating α re-stales **every** molecule in the project, not one condition's cohort. A
@@ -529,7 +529,7 @@ loaded project stays in place.
 | `file schema_version 99 is newer than this app's 1; refusing to open (PRD section 5.4).` | written by a newer Tether | **upgrade Tether.** Do not attempt to edit the file |
 | `<path> is not a .tether project (format marker=None)` | valid HDF5, but not ours — an SMD, a model, or a `.mat` opened by mistake | open the right file |
 | `<path> is not a readable .tether HDF5 project` | not HDF5 at all, or truncated beyond reading | restore from backup; check the copy completed |
-| `<path> is not a complete .tether project; missing: /movies, /molecules, …` | a half-written store; every missing group is named | re-extract. `tether extract` itself writes atomically (temp file + replace), so this comes from an external interruption |
+| `<path> is not a complete .tether project; missing: /movies, /molecules, …` | a half-written project file; every missing group is named | re-extract. `tether extract` itself writes atomically (temp file + replace), so this comes from an external interruption |
 
 > A batch **resume** additionally refuses a newer-schema output even under `--overwrite`:
 > `--overwrite` means "redo my extraction", not "discard whatever a newer Tether wrote". A

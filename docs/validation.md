@@ -90,7 +90,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (a) Extraction vs Deep-LASI | `workstation` — the ≈0.9 GB movie is private data on no CI runner, so the scheduled task on the maintainer's workstation runs it and records its numbers | scorer unit tests, the committed 4-molecule slice, the registration RMS gate |
 | (b) Idealization parity vs tMAVEN | `sidecar` — required, but only actually fits when a pull request touches an idealization path | the frozen artifact is checked against its own recorded evidence |
 | (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery; the level-2 and level-3 truth against the simulator settings files |
-| (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
+| (d) Ranker held-out cross-validation | required matrix | yes (synthetic project files only) |
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
@@ -447,7 +447,7 @@ Nucleic Acids Res. 52:14154, 2024) and Hsp70/Hsp90 `KJG/KJG_231027` (68 traces, 
 code, `nmarzano/smFRET_module` v1.0.3 (MIT), ran once outside the product on the fixtures. Its
 dwell and transition tables are committed, and
 `tests/test_marzano_vbfret.py` asserts that Tether's dwell code and transition density, read
-from a `.tether` store that holds the stored paths, give the same state values, the same
+from a `.tether` project file that holds the stored paths, give the same state values, the same
 durations in frames and the same order: 640 PPR and 465 chaperone transitions. Four
 definitions differ, and the test goes through each one:
 
@@ -625,7 +625,7 @@ Python constant, not a JSON artifact. Asserted exactly by
 precision@k is *not* the gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
 
 **Measured result.** None on real data. Both enforcing tests build synthetic or
-programmatic stores; no committed artifact records a precision@k uplift measured on a real
+programmatic project files; no committed artifact records a precision@k uplift measured on a real
 labeled video set. What is proven is that the *protocol* behaves: the first video is
 skipped rather than scored against nothing, a ranker equal to file order yields zero uplift
 and does not ship, a non-finite score raises instead of being ranked last, and a
@@ -635,7 +635,7 @@ single-movie project raises rather than inventing a held-out video.
 (pure core with fake scorers, including `test_perfect_ranker_beats_file_order`,
 `test_ranker_equal_to_file_order_is_zero_uplift_not_shipped`,
 `test_no_trainable_prior_raises_never_fabricates`) and `tests/test_project_prequential.py`
-(store-integrated: `test_gate_ships_on_separable_multivideo`,
+(project-integrated: `test_gate_ships_on_separable_multivideo`,
 `test_gate_uplift_is_held_out_not_apparent`, `test_custom_ship_bar_can_withhold_a_ship`,
 `test_single_movie_project_has_no_held_out_video`).
 
@@ -795,7 +795,7 @@ signal/noise settings and asserts `abs(pbt - k) <= 2` for each.
 `test_point_pbtime_matches_reference`, `test_ensemble_matches_reference`,
 `test_point_pbtime_recovers_known_step_within_two_frames`,
 `test_detect_photobleach_window_and_masks`, `test_never_bleaches_returns_length_and_all_zero_returns_zero`,
-`test_short_traces_do_not_raise`; and at the store level
+`test_short_traces_do_not_raise`; and at the project level
 `tests/test_project_photobleach.py::test_compute_photobleach_populates_frames_and_auto_window`
 and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
 `tests/test_fret_photobleach_sidecar.py::test_ref_helpers_match_live_tmaven`,
@@ -1228,13 +1228,13 @@ evidence about the size of the difference and not a tolerance.
   above with the ADR that deferred it.
 - PRD §8 states that no synthetic-data simulator is introduced. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
-  synthetic separable multi-video store, because the real fixtures do not carry the required
+  synthetic separable multi-video project file, because the real fixtures do not carry the required
   ground-truth field. Two of those substitutions were ratified in an ADR and two were not:
   [ADR-0026](adr/0026-photobleach-detection-and-window-default.md) option C ratifies the
   synthetic known-step ground truth for (g), and
   [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md) option D ships γ "validated
   against synthetic known-γ recovery". The synthetic known-α fixtures and (d)'s synthetic
-  multi-video store carry no such ratification —
+  multi-video project file carry no such ratification —
   [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md) defers the donor-only α cross-check
   but never mentions synthetic data, and neither ranker ADR
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),

@@ -11,7 +11,7 @@ The import path reads the legacy file set — the raw movie, the
 [`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the
 `…-donc-accc-w.txt`, and the tMAVEN [SMD](../glossary.md#smd) —
 recovers the per-molecule coordinates and pre-integrated traces, applies the Deep-LASI →
-Tether correction-factor remap, and writes a `.tether` project store.
+Tether correction-factor remap, and writes a `.tether` project file.
 
 Whether that project is **round-trip-ready** (linked to a movie, browsable/curatable with
 spot & overlap views) or **analysis-only** (idealization, histograms, TDP, kinetics — but
@@ -23,7 +23,7 @@ to the on-disk formats (the **coordinate-availability matrix**, PRD Appendix A),
 > **Where the behavior actually lives.** Every claim below is asserted by a committed test
 > (the "Evidence" column), which the 3-OS CI `test` matrix runs headlessly. This page
 > **consolidates** those behaviors into one reference; it does not replace the tests. Import
-> is deliberately layered: `tether.io.*` readers never write a store, `tether.project.*`
+> is deliberately layered: `tether.io.*` readers never write a project file, `tether.project.*`
 > writers never touch HDF5 directly (they drive the M0-frozen schema writers), and the
 > `tether.gui.*` wizard only orchestrates — so `schema-guard` stays green across the whole
 > path.
@@ -150,7 +150,7 @@ stores the **background-subtracted** `-donc-accc-w` intensities, so the cross-ch
 ### Round-trip reconstruction
 
 `reconstruct_project(output_path, *, export, movie, coordinates=…, corrections=…, …)` builds
-a round-trip-ready store by **reusing the existing extraction writers** — it never writes
+a round-trip-ready project file by **reusing the existing extraction writers** — it never writes
 HDF5 directly, so the M0 schema freeze holds (ADR-0045). It maps the legacy pre-integrated
 series into layers without re-integrating (background-subtracted → `intensity`, raw → `total`,
 background → `background`), writes the linked `/movies` row, the `/molecules` rows keyed by
@@ -175,7 +175,7 @@ from it instead).
 
 `import_analysis_only_project(output_path, *, source, …)` handles the degraded branch — a
 bare `.txt` or a coordinate-less SMD with no `.tdat`, `.mat`, or movie (ADR-0046). It writes
-a **movie-less** store: only the background-subtracted (`corrected`) trace layer, `donor_xy` / `acceptor_xy` as NaN
+a **movie-less** project file: only the background-subtracted (`corrected`) trace layer, `donor_xy` / `acceptor_xy` as NaN
 sentinels (genuinely absent, never a fake `[0, 0]`), a synthesized per-molecule
 `molecule_key` (a content hash over source id + row index + trace bytes, so keys stay unique
 and stable without coordinates), and every molecule tagged
@@ -186,7 +186,7 @@ movie round-trip browser and patch/overlap views are structurally impossible and
 `read_analysis_only_marker(path)` is the O(1) gate the GUI reads. **Mind the polarity:** it
 returns the marker for an analysis-only project and **`None` for a normal, round-trip-capable
 one**; a missing/partial marker defaults `round_trip_available` to `False`, so a truncated
-store never re-enables round-trip over coordinate-less data.
+project file never re-enables round-trip over coordinate-less data.
 
 ### The wizard, and opening a project live
 
@@ -232,5 +232,5 @@ read before mutating shell state, so a bad open leaves the prior project in plac
 - **ADR-0008** — Deep-LASI → Tether correction-factor naming remap (β→α, α→δ, γ→γ).
 - **ADR-0045** — reconstruct a round-trip-ready `.tether` from Deep-LASI legacy data.
 - **ADR-0046** — analysis-only import of a coordinate-less SMD / `.txt` source.
-- **ADR-0002** — the `.tether` store is an SMD superset; round-trip is a data-model property.
+- **ADR-0002** — the `.tether` project file is an SMD superset; round-trip is a data-model property.
 - **ADR-0017** — the minimal Deep-LASI `.mat` / `.txt` validation reader and coordinate convention.

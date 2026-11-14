@@ -197,11 +197,11 @@ operation becomes more than 1.5 times slower or larger. The job summary shows th
 | Per-condition projection ceiling | 5 GiB | `MAX_CONDITION_BYTES` |
 
 `perf.estimate_condition_bytes()` projects a full reference condition — 100 movies × 250
-molecules × 1700 frames — at about **1.07 GiB** of `.tether` store, against roughly 90 GB
+molecules × 1700 frames — at about **1.07 GiB** of `.tether` project file, against roughly 90 GB
 of raw movies at the reference geometry. One molecule projects to about **46 kB**.
 
 Both are deliberately *pessimistic*: the model costs the six trace layers uncompressed,
-while the store writes them gzip-chunked, so real projects come in comfortably under it.
+while the project file writes them gzip-chunked, so real projects come in comfortably under it.
 The 5 GiB ceiling is a design self-check that the test suite holds the projection beneath
 — it is **not enforced at runtime**, and nothing stops or warns you if a real condition
 exceeds it.
@@ -209,7 +209,9 @@ exceeds it.
 The 100 ms per-trace budget is what keeps curation at a 1–2 second-per-trace cadence; it
 covers drawing one molecule's donor/acceptor and FRET curves and stepping to the next.
 
-### The store references your movies, it does not copy them
+<a id="the-store-references-your-movies-it-does-not-copy-them"></a>
+
+### The project file references your movies, it does not copy them
 
 This is the most useful thing to know about disk planning. A `.tether` project records,
 per movie, the path you gave it, a `sha256`, and a metadata-only signature — file size,
@@ -219,7 +221,7 @@ movie pixels stay where they are.
 Reopening a project does not read your movie files, so it can never force a cloud-storage
 placeholder to hydrate just to check whether something changed.
 
-The one thing a **natively extracted** store caches from the pixels is a `window × window`
+The one thing a **natively extracted** project file caches from the pixels is a `window × window`
 temporal-mean patch per molecule per channel (`/patches/{donor,acceptor}`), so curation and
 the static overlap view still work with the movies offline. At the default 21-pixel aperture window
 that is about 3.5 kB per molecule, already inside the 5 kB fixed-per-molecule figure above.

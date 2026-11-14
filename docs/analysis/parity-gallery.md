@@ -55,11 +55,11 @@ render without a model. Terms used throughout this page are defined in the
 | **C1** | vbFRET state-number distribution | `controllers/analysis_plots/model_vbstates.py` | `tether.analysis.state_number` | `tests/test_analysis_state_number.py`; live: `tests/test_analysis_plots_sidecar.py` |
 | **D1** | Per-trace viewer (Tether curation trace dock) | `trace_plot/multi_plot.py` | `tether.gui.trace_dock` | `tests/test_trace_dock.py`; live: `tests/test_analysis_plots_sidecar.py` |
 
-Every native analysis carries provenance and parameters into the `.tether` store
+Every native analysis carries provenance and parameters into the `.tether` project file
 (NFR-REPRO), and every plot exports as vector PDF/SVG **and** PNG via
 `tether.analysis.plot_export` (FR-EXPORT), stamped with those parameters.
 
-Two invariants recur on the group-B/C **store-level** entry points and have **no tMAVEN
+Two invariants recur on the group-B/C **project-level** entry points and have **no tMAVEN
 analog** — they are Tether additions, toggleable but on by default:
 
 - **Fresh-idealization gating** — molecules whose idealization is *stale* relative to the
@@ -87,7 +87,7 @@ and `garnish` for the `N = %d` annotation.
 **Tether reimplementation** — `tether.analysis.histogram`:
 
 - `apparent_e_histogram(values, *, bins=DEFAULT_NBINS, value_range=DEFAULT_RANGE, density=True, weights=None) -> Histogram1D` — the pure-array core. `DEFAULT_NBINS = 151` and `DEFAULT_RANGE = (-0.25, 1.25)` are named constants copied from `data_hist1d.py`. Density over a **fixed** range keeps uncorrected proximity-ratio excursions beyond `[0, 1]` visible; non-finite (`D+A == 0`) samples are dropped, never fabricated or clipped.
-- `population_apparent_e_histogram(project, *, molecule_keys=None, intensity_quantity="corrected", …) -> Histogram1D` — the `.tether`-store entry point: pool each accepted molecule's windowed apparent E and bin it. This is the headless source of truth the GUI renders (PRD §9 M2 "reproduce the MVP histogram from the API").
+- `population_apparent_e_histogram(project, *, molecule_keys=None, intensity_quantity="corrected", …) -> Histogram1D` — the project-level entry point: pool each accepted molecule's windowed apparent E and bin it. This is the headless source of truth the GUI renders (PRD §9 M2 "reproduce the MVP histogram from the API").
 - `model_gaussian_overlay(means, variances, frac, *, value_range=DEFAULT_RANGE, n_points=DEFAULT_OVERLAY_POINTS) -> ModelGaussianOverlay` — a **verbatim port** of the tMAVEN `model_on` loop (`DEFAULT_OVERLAY_POINTS = 1001`): dashed per-state components + a solid summed mixture, drawn from the *idealized model's own* persisted emissions, **not** a fresh GMM re-fit of the pooled E. `population_model_gaussian_overlay(project, model_name, …)` reads a persisted `/idealization` model; a threshold/k-means model that carries no per-state spread **raises** rather than fabricating an overlay.
 
 **Tether extensions beyond tMAVEN.** Molecule-level (BOBA-FRET) bootstrap confidence band
@@ -111,7 +111,7 @@ overlay = population_model_gaussian_overlay(project, "vbconhmm")   # dashed stat
 
 **Parity evidence.**
 
-- `tests/test_analysis_histogram.py` — `test_default_binning_matches_tmaven_a1` asserts `nbins == 151`, 152 edges, range `(-0.25, 1.25)`, density integrates to 1; `test_population_reproduces_mvp_histogram` checks the store-level result equals an independent `np.histogram(…, bins=151, range=(-0.25, 1.25), density=True)` oracle over the pooled windowed E.
+- `tests/test_analysis_histogram.py` — `test_default_binning_matches_tmaven_a1` asserts `nbins == 151`, 152 edges, range `(-0.25, 1.25)`, density integrates to 1; `test_population_reproduces_mvp_histogram` checks the project-level result equals an independent `np.histogram(…, bins=151, range=(-0.25, 1.25), density=True)` oracle over the pooled windowed E.
 - `tests/test_analysis_histogram_overlay.py` — `test_overlay_matches_tmaven_formula_to_rounding` reproduces the `data_hist1d.py` `model_on` per-state Gaussian loop to rounding — not bit-for-bit: the vectorized form moves a value by at most 1.44e-14 relative (the file's `_tmaven_reference()` is the tMAVEN loop copied verbatim as the oracle, and matches live tMAVEN to the last bit of the NumPy build); `test_overlay_component_is_scaled_gaussian` cross-checks each component against `frac[i] · scipy.stats.norm.pdf`; `test_population_overlay_reads_persisted_model` reads a persisted model, and `test_model_without_population_members_is_withheld` / `test_model_missing_only_frac_is_withheld` lock the withhold-not-fabricate behavior.
 - `tests/test_analysis_plots_sidecar.py` (live) — `data_hist1d.plot` on the 281-molecule SMD: the 151-bin density histogram is equal, and the dashed components and solid sum it draws match `model_gaussian_overlay` to `rtol=1e-13`.
 
@@ -130,11 +130,11 @@ approach-to and departure-from a transition ([Verma 2024](#verma2024); [McCann 2
 `histogram_raw`, `sync_start`, `histogram_sync_list`, `gen_sync_list_single`,
 `gen_sync_list_fixed`, `gen_jumplist`.
 
-**Tether reimplementation** — `tether.analysis.histogram` (two pure cores + two store
+**Tether reimplementation** — `tether.analysis.histogram` (two pure cores + two project-level
 wrappers):
 
-- **Raw / start-sync.** `time_signal_histogram2d(signal_chunks, *, time_bins=DEFAULT_TIME_BINS, signal_bins=DEFAULT_SIGNAL_BINS, signal_range=DEFAULT_SIGNAL_RANGE, time_dt=DEFAULT_TIME_DT, …) -> Histogram2D`, and its store entry `population_time_signal_histogram2d(project, …)`. Faithful to `histogram_raw` after `sync_start`: the frame index drives the time column, and NaN / out-of-range / beyond-`time_bins` frames **drop without shifting** later frames.
-- **Post-sync / A2b.** `transition_sync_histogram2d(trace_pairs, *, from_state=-1, to_state=-1, single_dwell=True, sync_preframe=DEFAULT_SYNC_PREFRAME, …) -> TransitionSyncHistogram2D`, and its store entry `population_transition_sync_histogram2d(project, model_name, …)`. Faithful to `gen_sync_list_single` / `gen_sync_list_fixed` + `histogram_sync_list`, adapted from tMAVEN's rectangular NaN-padded arrays to Tether's ragged per-molecule `(state_path, signal)` pairs. The heatmap has `time_bins + 1` columns with the jump at column `sync_preframe` (relative-time zero); `time_edges` run negative before the transition.
+- **Raw / start-sync.** `time_signal_histogram2d(signal_chunks, *, time_bins=DEFAULT_TIME_BINS, signal_bins=DEFAULT_SIGNAL_BINS, signal_range=DEFAULT_SIGNAL_RANGE, time_dt=DEFAULT_TIME_DT, …) -> Histogram2D`, and its project-level entry `population_time_signal_histogram2d(project, …)`. Faithful to `histogram_raw` after `sync_start`: the frame index drives the time column, and NaN / out-of-range / beyond-`time_bins` frames **drop without shifting** later frames.
+- **Post-sync / A2b.** `transition_sync_histogram2d(trace_pairs, *, from_state=-1, to_state=-1, single_dwell=True, sync_preframe=DEFAULT_SYNC_PREFRAME, …) -> TransitionSyncHistogram2D`, and its project-level entry `population_transition_sync_histogram2d(project, model_name, …)`. Faithful to `gen_sync_list_single` / `gen_sync_list_fixed` + `histogram_sync_list`, adapted from tMAVEN's rectangular NaN-padded arrays to Tether's ragged per-molecule `(state_path, signal)` pairs. The heatmap has `time_bins + 1` columns with the jump at column `sync_preframe` (relative-time zero); `time_edges` run negative before the transition.
 
 Constants ported verbatim: `DEFAULT_TIME_BINS = 100`, `DEFAULT_SIGNAL_BINS = 61` over
 `[-0.2, 1.2]`, `DEFAULT_TIME_DT = 1`, `DEFAULT_SYNC_PREFRAME = 50`. Note A2's **61** signal
@@ -183,7 +183,7 @@ change ([McKinney 2006](#mckinney2006)).
 **Tether reimplementation** — `tether.analysis.tdp`:
 
 - `transition_density(idealized_chunks, *, nskip=DEFAULT_TDP_NSKIP, signal_bins=DEFAULT_TDP_SIGNAL_BINS, signal_range=DEFAULT_TDP_SIGNAL_RANGE, density=False) -> TransitionDensityPlot` — a **verbatim port** of `get_neighbor_data`'s idealized-levels sub-branch (`hist_rawsignal=False`) followed by `gen_histogram`'s `histogram2d` step: per-molecule neighbor pairs `d1 = v[:-nskip]`, `d2 = v[nskip:]`, restricted to state-change frames (`|v[t+1]-v[t]| > 0`), finite-only, then `np.histogram2d` over a square E×E grid. Tether feeds the idealized levels `v` (`levels = means[state]`), so it reproduces the *idealized-vs-idealized* TDP; note tMAVEN's shipped default is `hist_rawsignal=True`, which instead plots the **raw** signal at the transition frames located from `v`.
-- `population_transition_density(project, model_name, *, nskip=2, signal_bins=101, signal_range=(-0.25, 1.25), …) -> TransitionDensityPlot` — the store entry: reconstructs each accepted **and fresh** molecule's idealized-level trace from `/idealization/{model_name}` Viterbi paths (`levels = means[state]`).
+- `population_transition_density(project, model_name, *, nskip=2, signal_bins=101, signal_range=(-0.25, 1.25), …) -> TransitionDensityPlot` — the project-level entry: reconstructs each accepted **and fresh** molecule's idealized-level trace from `/idealization/{model_name}` Viterbi paths (`levels = means[state]`).
 
 Rendering constants reproduced exactly as module defaults: `DEFAULT_TDP_NSKIP = 2`,
 `DEFAULT_TDP_SIGNAL_BINS = 101`, `DEFAULT_TDP_SIGNAL_RANGE = (-0.25, 1.25)`. The module
@@ -191,7 +191,7 @@ stores the **raw, unsmoothed** histogram — tMAVEN's `gaussian_filter` smoothin
 `LogNorm` log-normalization are display-only, applied at render time.
 
 **Variants.** `density=True` (guarded against divide-by-zero all-NaN when no in-range mass)
-vs raw counts; `include_stale` / `include_rejected` on the store path.
+vs raw counts; `include_stale` / `include_rejected` on the project-level path.
 
 ```python
 from tether.analysis.tdp import population_transition_density
@@ -203,7 +203,7 @@ tdp = population_transition_density(project, "vbconhmm")   # fresh idealizations
 (parametrized `nskip = 1, 2, 3`) asserts `transition_density(...).counts` is
 `assert_array_equal` to the in-test **verbatim tMAVEN oracle** `_tmaven_tdp`
 (`get_neighbor_data` + `gen_histogram`); `test_population_matches_tmaven_oracle_via_store`
-runs the full store path and asserts the same; `test_defaults_match_tmaven` pins the three
+runs the full project-level path and asserts the same; `test_defaults_match_tmaven` pins the three
 ported constants; plus hand-checked semantics (off-diagonal landing, only-state-change
 frames contribute, histogram2d edge/range behavior, NaN gaps are not transitions,
 ragged↔padded equivalence). Live (`data_tdp.get_neighbor_data` + `gen_histogram`, idealized branch, unsmoothed): equal for `nskip = 1, 2, 3` in `tests/test_analysis_plots_sidecar.py`.
@@ -258,7 +258,7 @@ asserts `state_dwells` equals a verbatim port of `generate_dwells` (`_tmaven_dwe
 `survival()` (`_tmaven_survival`), with the exact empty-case degenerate return locked;
 `test_fit_recovers_known_rate` / `_double_sorted_by_rate` / `_stretched_reports_beta`
 recover known synthetic `k`, `A`, `β`; `test_fit_ci_and_residuals` locks
-`CI == Student-t · SE` and `residuals == survival − model_survival`; store-level tests tie
+`CI == Student-t · SE` and `residuals == survival − model_survival`; project-level tests tie
 `population_dwell_times` to the pure core and lock the fresh + §7.5 gating. Live, in
 `tests/test_analysis_plots_sidecar.py`: `calculate_dwells` (with and without the first dwell), `survival` and
 `run_dwell_analysis` (single, double, stretched) give the same dwells and curves as Tether,
@@ -288,7 +288,7 @@ real TDP rebuilds from Viterbi paths):
 
 - `empirical_transition_probability(state_path, init_state, final_state) -> float | None` — the per-molecule maximum-likelihood one-step `P(init → fin)` from a Viterbi path: numerator = frames in `init_state` whose successor is `final_state`; denominator = frames in `init_state` with an *observed* successor (gap successors `NO_STATE` excluded). Returns `None` when `init_state` is never occupied with an observed successor — the analog of tMAVEN's `isfinite` filter, never `0/0`.
 - `transition_prob_histogram(state_chunks, *, init_state, final_state, prob_bins=DEFAULT_TPROB_NBINS, prob_range=DEFAULT_TPROB_RANGE, density=True, kde=True, …) -> TransitionProbHistogram` — pools defined per-molecule probabilities, histograms them, and attaches a Gaussian-KDE curve when ≥ 2 probabilities are available (the KDE `try/except` returns `None` on singular covariance rather than crashing).
-- `population_transition_prob_histogram(project, model_name, init_state, final_state, …)` — the store entry, validating the pair against the model's `nstates` and applying the shared fresh + curation contract.
+- `population_transition_prob_histogram(project, model_name, init_state, final_state, …)` — the project-level entry, validating the pair against the model's `nstates` and applying the shared fresh + curation contract.
 
 Rendering constants ported verbatim: `DEFAULT_TPROB_NBINS = 25`,
 `DEFAULT_TPROB_RANGE = (-0.05, 1.05)`, `DEFAULT_TPROB_KDE_BANDWIDTH = 0.25`,
@@ -307,7 +307,7 @@ tph = population_transition_prob_histogram(project, "vbconhmm", init_state=0, fi
 pins the four ported constants; hand-checked `empirical_transition_probability` cases
 (`P(0→1) = 1/3`, self-pair `2/3`, gap-successor exclusion, undefined → `None`); density
 integrates to 1 and empty/out-of-range paths stay all-zeros, never NaN; KDE present with
-≥ 2 distinct probabilities and `None` on identical values; the store path enforces fresh-only
+≥ 2 distinct probabilities and `None` on identical values; the project-level path enforces fresh-only
 + rejected-exclusion + `molecule_keys ∩ fresh` and reproduces the pure-core counts.
 `tests/test_plot_export.py::test_render_transition_prob` exercises the render + vector/PNG
 export round-trip. Live, in `tests/test_analysis_plots_sidecar.py`: tMAVEN's `tm_hist` on a per-trace
@@ -336,7 +336,7 @@ distinct states a path actually visits:
 
 - `occupied_state_count(state_path) -> int` — the number of distinct non-`NO_STATE` states one molecule's Viterbi path visits (0 for an all-gap path) — the per-molecule analog of tMAVEN's `hmm.mu.size`.
 - `state_number_counts(state_chunks, *, states_low=DEFAULT_STATE_NUMBER_LOW, states_high=None) -> StateNumberCounts` — histograms per-molecule distinct-state counts into bars `[states_low, states_high]`; drops all-gap (zero-state) molecules (the analog of tMAVEN counting only traces that carry a model).
-- `population_state_number(project, model_name, …) -> StateNumberCounts` — the store entry, with honest `n_out_of_range` accounting so a clipped axis never silently hides molecules.
+- `population_state_number(project, model_name, …) -> StateNumberCounts` — the project-level entry, with honest `n_out_of_range` accounting so a clipped axis never silently hides molecules.
 
 tMAVEN's `states_low = 1` survives as `DEFAULT_STATE_NUMBER_LOW = 1`; its fixed
 `states_high = 10` becomes an auto-derived top bar (`states_high=None`).
@@ -351,7 +351,7 @@ counts = population_state_number(project, "vbconhmm")   # bars over occupied-sta
 tMAVEN counting semantics (distinct non-`NO_STATE` states; revisits don't double-count;
 all-gap → 0), and `state_number_counts` histograms per-molecule distinct-state counts,
 dropping zero-state molecules; `test_population_matches_core` reproduces the pure core over a
-seeded store; the Tether-specific fresh/curation selection, honest out-of-range accounting,
+seeded project file; the Tether-specific fresh/curation selection, honest out-of-range accounting,
 and misuse guards are locked. Live, in `tests/test_analysis_plots_sidecar.py`: `model_vbstates.plot` reads
 `model.hmms`, which no tMAVEN 0.3.0 modeler sets, so on a real model it draws no bars. Handed
 the per-trace fit's state counts under that name, its bars are 1 / 175 / 75 / 30 molecules
@@ -394,7 +394,7 @@ matplotlib/PyQt5 → pyqtgraph):
 - `TraceView(donor, acceptor, frame_time=None, name=None, molecule_key=None)` — a Qt-free immutable value object that derives `.total` (`D+A`), `.apparent_e` (`A/(D+A)` via `tether.fret.efficiency.apparent_fret`, NaN where `total == 0`), and `.time_axis(mode)` (frames or seconds).
 - `TraceDock(*, seconds_by_default=True)` — the pyqtgraph 2×2 viewer widget: intensity time-series (top-left) over apparent-E FRET (bottom-left, x-linked), each with its marginal histogram in the y-linked right column, plus the idealization step overlay; driven by `set_trace` / `set_idealization` / `set_time_mode` / `clear`.
 - `set_idealization(idealized)` draws the per-frame Viterbi level as a `stepMode="center"` overlay (the analog of tMAVEN `draw_model`), reset to `None` on every `set_trace` so a stale path never bleeds to the next molecule.
-- `trace_from_smd(raw, index, …) -> TraceView` — the store/hand-off → dock bridge.
+- `trace_from_smd(raw, index, …) -> TraceView` — the project file/hand-off → dock bridge.
 
 **Deliberate MVP divergences.** The FRET panel plots apparent E instead of tMAVEN's
 `calc_relative`; marginals use a fixed 40-bin count instead of `int(√(pbtime−pretime))`;

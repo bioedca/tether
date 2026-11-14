@@ -13,7 +13,7 @@ covered in turn below: a version stamp and the stage's settings on extraction, t
 beside every publication export, and committed dependency locks that pin the environment the
 version ran in. The record is not complete: some steps and some settings are never stamped,
 and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
-[project store reference](reference/tether-format.md) documents every group and dataset in a
+[project file reference](reference/tether-format.md) documents every group and dataset in a
 `.tether` file, and the [exports reference](reference/exports.md) documents every column of
 every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis).
 
@@ -26,8 +26,8 @@ Every project is created with these attributes on its root group
 
 | Attribute | Meaning |
 |---|---|
-| `format` | Always `tether-project`; marks the file as a Tether store. |
-| `schema_version` | The store layout version, an integer. |
+| `format` | Always `tether-project`; marks the file as a Tether project file. |
+| `schema_version` | The project file layout version, an integer. |
 | `app_version` | The Tether version that **created** the project. It is optional: a writer can leave it out, so a valid project may lack it. |
 
 The root `app_version` says nothing about later steps. A project created with one release
@@ -105,9 +105,9 @@ per stage (`extract_status`, `correct_status`, `idealize_status`), `app_version`
 `created_utc`.
 
 **`/settings/analysis_only`** — `src/tether/project/analysis_import.py`. Present only in a
-store imported from someone else's traces, where there is no movie to go back to:
+project file imported from someone else's traces, where there is no movie to go back to:
 `round_trip_available` (`False`), `reason`, `n_molecules`, `n_frames`, `banner`, `source`,
-`source_kind`, `app_version` and `created_utc`. Such a store has no `/settings/extraction`
+`source_kind`, `app_version` and `created_utc`. Such a project file has no `/settings/extraction`
 at all.
 
 ### Each idealization, under `/idealization`
@@ -175,7 +175,7 @@ filename with `.provenance.json` appended, so the original extension survives:
 | `app_version` | The Tether version that wrote the export. |
 | `created_utc` | When. |
 | `source_project` | The project it came from, as a file name. For a figure it is whatever the code that exported it passed in. |
-| `parameters` | For the store exports, the export's own settings, such as the intensity quantity and molecule count. For a figure, whatever the code that exported it passed in, plus `formats`, `dpi` and `outputs`; nothing records a plotting choice such as the bin count unless that code passes it, so pass every setting the plot was drawn with. |
+| `parameters` | For the project exports, the export's own settings, such as the intensity quantity and molecule count. For a figure, whatever the code that exported it passed in, plus `formats`, `dpi` and `outputs`; nothing records a plotting choice such as the bin count unless that code passes it, so pass every setting the plot was drawn with. |
 
 Figures are stamped twice more: the version is printed in the figure footer and embedded in
 the PDF, SVG and PNG metadata. The printed footer is there only with `export_figure`'s
@@ -231,7 +231,7 @@ set of groups and keys, because some are written only when a step ran or produce
   only when the backend reports them.
 - `profile_json` appears only when a settings profile was supplied.
 - `/settings/batch` appears only for a `tether batch` run, and `/settings/analysis_only` only
-  for an imported analysis-only store.
+  for an imported analysis-only project file.
 
 In an intact project, a missing group means the step left no completed record: it did not
 run, withheld its result, or ran and failed. For a `tether batch` run, each `<stage>_status`
