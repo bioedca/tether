@@ -11,6 +11,7 @@
 # Self-drift golden files (#702): the same bytes on every OS, so `update_golden.py` on a
 # Windows checkout leaves an unchanged file unchanged and the suite reads what it wrote.
 tests/golden/*.json text eol=lf
+tests/golden/workstation/*.json text eol=lf
 
 # --- Binary file types: never line-ending-normalized (avoids corrupting data) ---
 *.tif   binary
