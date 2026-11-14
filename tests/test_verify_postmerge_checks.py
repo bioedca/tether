@@ -355,20 +355,47 @@ def test_green_input_passes_in_both_dispositions(tmp_path, monkeypatch, capsys) 
         assert "Evaluated" in out  # the record count reaches the step log
 
 
+def _imported_roots(source: str) -> set[str]:
+    """Top-level package names of every absolute import in ``source``, at any depth.
+
+    ``ast.walk`` rather than ``tree.body``: an import inside ``main()`` or a helper runs
+    on the release runner just the same, so a module-level-only scan would let it through
+    (issue #465).
+    """
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.partition(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            imported.add(node.module.partition(".")[0])
+    return imported
+
+
+def test_import_scan_sees_nested_imports() -> None:
+    """The scan reaches imports inside functions, classes and branches, not only the module."""
+    source = (
+        "import json\n"
+        "def main():\n"
+        "    import yaml\n"
+        "    if True:\n"
+        "        from requests.adapters import HTTPAdapter\n"
+        "class C:\n"
+        "    def m(self):\n"
+        "        import numpy as np\n"
+        "        from . import sibling\n"
+    )
+    assert _imported_roots(source) == {"json", "yaml", "requests", "numpy"}
+
+
 def test_script_imports_the_standard_library_only() -> None:
     """The `verify` job provisions no environment: bare-runner Python, stdlib only.
 
     ``import yaml`` would pass the local matrix (the test env ships it) and die on the
     runner — exactly the gap between local gates and the release path this script exists
-    to close, so the constraint is asserted rather than remembered.
+    to close, so the constraint is asserted rather than remembered. Nested imports count
+    too: one inside ``main()`` fails the runner the same way.
     """
-    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
-    imported: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            imported.update(alias.name.partition(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            imported.add(node.module.partition(".")[0])
+    imported = _imported_roots(SCRIPT.read_text(encoding="utf-8"))
     non_stdlib = sorted(
         name for name in imported if name not in sys.stdlib_module_names and name != "__future__"
     )
