@@ -7,13 +7,15 @@ analogue of Deep-LASI ``imregcorr(...,'similarity')`` -- on two complementary
 fronts (ADR-0013):
 
 * **recovery** on a deterministic, non-saturated synthetic bead field (the kind of
-  raw content the pipeline sees): the translation of a near-identity warp, and the
-  rotation of a 10 degree one. The rotation and scale of a near-identity warp are
-  NOT recovered today (#780); that test is a strict expected failure until then;
+  raw content the pipeline sees): the scale, rotation and translation of
+  near-identity warps on a square image and on the non-square channel-half shape
+  that ``extract_movie`` passes (#780, ADR-0089), and the rotation of a 10 degree
+  warp;
 * **real-data behaviour** on the committed ``bead_prealign_oracle.npz`` crops,
   whose estimate must match the ``.tmap``-derived ground-truth similarity (a real
-  ~7.6 px translation, so a no-op estimator fails; a scale limit that a no-scale
-  estimate fails, #734).
+  ~7.6 px translation, so a no-op estimator fails). The crop holds too few beads
+  to resolve the scale below about 0.002, so its scale limit is the coarse one
+  and the scale recovery is proven on the synthetic field (ADR-0089).
 
 The saturated ``map.tif`` display export can only validate the near-identity real
 relationship, not large-warp recovery (see ``tests/fixtures/PROVENANCE.md``);
@@ -80,13 +82,11 @@ def _synthetic_pair(
 
 
 # Near-identity split-sensor regime (the physical case): the channels differ by a
-# real ~7 px translation with sub-degree rotation / sub-percent scale. The scale of
-# the real pair is locked by the real-fixture test below. On the SYNTHETIC field the
-# rotation and scale of these warps come back near identity, though they are
-# several estimator steps large (#780) -- so here we assert (a) translation
-# recovered within the 2 px NN-pairing gate the prealign exists to clear, and
-# (b) the estimator does not hallucinate a warp on near-identity inputs. (Larger
-# warps are seed-fragile on sparse fields and out of scope -- ADR-0013.)
+# real ~7 px translation with sub-degree rotation / sub-percent scale. Here we
+# assert (a) translation recovered within the 2 px NN-pairing gate the prealign
+# exists to clear, and (b) the scale and rotation themselves, to a few estimator
+# steps (one step is 0.07 deg and 0.0011 in scale at 256 px, ADR-0089). The
+# identity case also shows that no warp is hallucinated.
 _NEAR_IDENTITY_CASES = [
     (1.0, 0.0, 0.0, 0.0),
     (1.002, 0.3, 6.0, -3.0),
@@ -106,9 +106,9 @@ def test_near_identity_prealign_robust_across_seeds(
     # (a) translation recovered: moving control points land within the NN-pairing gate.
     point_err = float(np.sqrt(((est.apply(c_mov) - c_ref) ** 2).sum(axis=1)).mean())
     assert point_err < 2.0, f"{point_err:.3f} px (s={scale}, rot={rot_deg}, seed={seed})"
-    # (b) no hallucinated warp: the estimate stays near identity for near-identity input.
-    assert abs(est.scale - 1.0) < 0.01
-    assert abs(np.rad2deg(est.rotation)) < 1.0
+    # (b) the warp itself is recovered (#780); for the identity case, none is invented.
+    assert abs(est.scale - scale) < 0.003, f"scale {est.scale:.4f} vs {scale}"
+    assert abs(np.rad2deg(est.rotation) - rot_deg) < 0.3, f"rot {np.rad2deg(est.rotation):.3f}"
 
 
 def test_real_bead_pair_matches_tmap_ground_truth() -> None:
@@ -124,18 +124,67 @@ def test_real_bead_pair_matches_tmap_ground_truth() -> None:
 
     # reference = donor, moving = acceptor -> returns the acceptor->donor map.
     est = estimate_similarity_prealign(donor, acceptor)
-    # Scale: ADR-0013 records |est - gt| = 0.0002 (est 1.00135 vs gt 1.00114). The
-    # limit was 0.005, which a no-scale estimate (1.0, off by 0.0011) also met; 0.0005
-    # tells the two apart (#734 IMG-F9). The second line is the "not 1.0" claim itself.
-    assert abs(est.scale - gt_scale) < 0.0005
-    assert abs(est.scale - 1.0) > 0.0005
-    # Rotation: the ground truth (0.04 deg) is below the 1.4 deg / 10 angular step of a
-    # 256-row log-polar grid, so this crop cannot prove rotation recovery; see
-    # test_rotation_reaches_the_estimate for that.
+    # Scale: the crop cannot resolve it below about 0.002. Its 14 bead pairs fit a
+    # similarity with a bootstrap scale SD of 0.0023, and correct variants of the
+    # estimator give 0.997 to 1.012 on it (ADR-0089). #734 tightened this limit to
+    # 0.0005 because the old estimator gave 1.00135; that was one scale step
+    # (0.0014) above 1.0, not a measurement. So the limit is the pre-#734 0.005, and
+    # scale recovery is proven on the synthetic field (#780).
+    assert abs(est.scale - gt_scale) < 0.005
+    # Rotation: the ground truth (0.04 deg) is about one 0.07 deg angular step, so
+    # this crop cannot prove rotation recovery; the synthetic tests do.
     assert abs(np.rad2deg(est.rotation) - gt_rotation_deg) < 0.5
     assert np.hypot(*(est.translation - gt_translation)) < 1.5
     # Non-trivial: the real channels are offset ~7.6 px, so a no-op (t=[0,0]) fails.
     assert np.linalg.norm(est.translation) > 5.0
+
+
+def _similarity_scale(moving: np.ndarray, reference: np.ndarray) -> float:
+    """Least-squares 2-D similarity scale mapping ``moving`` onto ``reference``.
+
+    With the points as complex numbers, the fit ``reference ~ a * moving + b`` has
+    ``a = sum(conj(m) r) / sum(|m|^2)`` after centring, and the scale is ``|a|``.
+    """
+    m = moving[:, 0] + 1j * moving[:, 1]
+    r = reference[:, 0] + 1j * reference[:, 1]
+    m = m - m.mean()
+    r = r - r.mean()
+    return float(abs(np.sum(np.conj(m) * r) / np.sum(np.abs(m) ** 2)))
+
+
+def test_real_crop_scale_uncertainty_is_above_the_old_limit() -> None:
+    """Derives the reason for the 0.005 real-crop scale limit (ADR-0089, #780).
+
+    The crop's own bead pairs, fitted with a similarity, pin the scale only to a
+    bootstrap SD of about 0.0023: four times the 0.0005 limit #734 set, so that
+    limit asked the crop for a precision its content does not hold. A change to the
+    fixture, the detector or the pairing that changes this figure fails here, and
+    the limit must then be decided again.
+    """
+    from tether.imaging.detect import detect_spots
+    from tether.imaging.register import pair_control_points
+
+    data = np.load(FIXTURE)
+    donor = data["donor"].astype(np.float64)
+    acceptor = data["acceptor"].astype(np.float64)
+    gt = SimilarityTransform2D(
+        scale=float(data["gt_scale"]),
+        rotation=float(np.deg2rad(float(data["gt_rotation_deg"]))),
+        translation=data["gt_translation"],
+    )
+    pairs = pair_control_points(
+        np.asarray(detect_spots(donor)), np.asarray(detect_spots(acceptor)), tol=1.5, prealign=gt
+    )
+    n = len(pairs.reference)
+    assert n == 14
+    rng = np.random.default_rng(0)
+    scales = []
+    for _ in range(300):
+        pick = rng.integers(0, n, n)
+        scales.append(_similarity_scale(pairs.moving[pick], pairs.reference[pick]))
+    sd = float(np.std(scales))
+    assert 0.0015 < sd < 0.0035, f"bootstrap scale SD {sd:.5f}"
+    assert sd > 3 * 0.0005
 
 
 @pytest.mark.parametrize("rot_deg", [10.0, -10.0])
@@ -143,11 +192,9 @@ def test_real_bead_pair_matches_tmap_ground_truth() -> None:
 def test_rotation_reaches_the_estimate(rot_deg: float, seed: int) -> None:
     """The log-polar angular shift becomes the returned rotation (#734 IMG-F9).
 
-    10 degrees is outside the validated near-identity regime (ADR-0013). It is used
-    because it is the smallest rotation the estimator finds today on a square field
-    (smaller ones come back near zero, #780). This test therefore proves only that
-    the angle reaches the result with its sign; an estimator that drops the angle
-    returns about 0 degrees and fails by 10. A correct estimator also meets it.
+    10 degrees is outside the validated near-identity regime (ADR-0013, ADR-0089).
+    It proves that a larger angle also reaches the result with its sign; an
+    estimator that drops the angle returns about 0 degrees and fails by 10.
     """
     rng = np.random.default_rng(seed)
     reference, moving, c_mov, c_ref = _synthetic_pair(1.0, rot_deg, 6.0, -3.0, rng, (256, 256))
@@ -157,25 +204,33 @@ def test_rotation_reaches_the_estimate(rot_deg: float, seed: int) -> None:
     assert point_err < 2.0  # within the pairing gate the prealign exists to clear
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="#780: rotation and scale of a near-identity warp come back near identity",
-)
-def test_near_identity_rotation_and_scale_are_recovered() -> None:
-    """Recovery of scale 1.01 and rotation 1 degree on a dense, non-saturated field.
+# (rows, cols): a square field, and the channel-half shape extract_movie passes the
+# estimator for a 512 x 512 side-by-side movie (#780 acceptance item 2).
+_RECOVERY_SHAPES = [(256, 256), (512, 256)]
 
-    This is the recovery ADR-0013 names. Today the estimate is scale 1.0 and
-    rotation 0 or 0.14 degree (#780), so the test is a strict expected failure:
-    it turns red when the estimator is corrected, and then the mark must go.
+
+@pytest.mark.parametrize("shape", _RECOVERY_SHAPES, ids=["square", "channel-half"])
+@pytest.mark.parametrize(("scale", "rot_deg"), [(1.01, 1.0), (0.99, -1.0), (1.0, 1.0), (1.01, 0.0)])
+@pytest.mark.parametrize("n_beads", [140, 400])
+def test_near_identity_rotation_and_scale_are_recovered(
+    shape: tuple[int, int], scale: float, rot_deg: float, n_beads: int
+) -> None:
+    """Recovery of scale 1.01 and rotation 1 degree on a non-saturated field (#780).
+
+    This is the recovery ADR-0013 names. Before #780 the estimate was scale 1.0
+    and rotation 0 or 0.14 degree: the spectrum grid was not square, too coarse,
+    and the band-pass removed the fine structure (ADR-0089). The sign variants
+    and the pure-rotation and pure-scale cases show the two axes are independent.
     """
     rng = np.random.default_rng(0)
-    reference, moving, _c_mov, _c_ref = _synthetic_pair(
-        1.01, 1.0, 0.0, 0.0, rng, (256, 256), n_beads=400
+    reference, moving, c_mov, c_ref = _synthetic_pair(
+        scale, rot_deg, 6.0, -3.0, rng, shape, n_beads=n_beads
     )
     est = estimate_similarity_prealign(reference, moving)
-    assert abs(est.scale - 1.01) < 0.003
-    assert abs(np.rad2deg(est.rotation) - 1.0) < 0.3
+    assert abs(est.scale - scale) < 0.003, f"scale {est.scale:.4f} vs {scale}"
+    assert abs(np.rad2deg(est.rotation) - rot_deg) < 0.3, f"rot {np.rad2deg(est.rotation):.3f}"
+    point_err = float(np.sqrt(((est.apply(c_mov) - c_ref) ** 2).sum(axis=1)).mean())
+    assert point_err < 0.5, f"{point_err:.3f} px"
 
 
 def test_prealign_seeds_pairing_end_to_end() -> None:

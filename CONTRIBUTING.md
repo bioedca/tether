@@ -198,6 +198,14 @@ without both, and runs again when you edit the body. Never edit a golden file by
 dependency update that moves a number fails here on purpose: the table and the cause are then
 the record of what the update changed.
 
+The full laboratory acquisitions of the maintainer have golden files too, in
+`tests/golden/workstation/`, with summary numbers only (#703). They are private, so they run only
+on the reference workstation, and only the maintainer or an agent session there can rewrite
+them, with `scripts/workstation/update_lab_golden.py`
+([Running the private-data checks](docs/maintainers/workstation-runner.md)). The same table and
+`Cause:` line apply. A change that moves one of these numbers fails only the weekly run on the
+workstation, not a pull request.
+
 ### Coverage floors
 
 The Linux leg of the required matrix runs the same tests under `coverage` with branch
@@ -327,6 +335,11 @@ modes are silent:
 
 Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
+
+If you use an AI tool to write or review documentation, also follow the
+[AI-use policy for documentation work](docs/maintainers/ai-use-policy.md). It adds the rules for
+the style guide, the validation by a person, the record of the tool and the safe and unsafe
+practices.
 
 ## PR self-review checklist (PRD §12.4)
 

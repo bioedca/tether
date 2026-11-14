@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     ProjectRef = Project | str | PathLike[str]
 
 __all__ = [
+    "FeatureCacheIncompleteError",
     "ScoredMolecules",
     "WeightedTrainingSet",
     "ranker_precision_at_k",
@@ -73,6 +74,64 @@ def _project_name(project: ProjectRef) -> str:
 def _to_str(value: object) -> str:
     """Decode an h5py variable-length string field (``bytes`` or ``str``)."""
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+class FeatureCacheIncompleteError(ValueError):
+    """A human-labelled molecule has no row in the project's ``/features`` cache (#880).
+
+    A fit trains on the feature rows only, while the cold-start decay counts ``n_human`` from
+    ``/molecules``. Such a label would leave the fit with no message and still lower the seed
+    weight, so every fit path stops instead. A ``compute_features`` call with ``molecule_keys=``
+    or ``include_rejected=False`` leaves such a partial cache; the default arguments do not.
+
+    Attributes
+    ----------
+    path:
+        The project file whose cache is incomplete.
+    molecule_ids:
+        The ``molecule_id`` of each human-labelled molecule with no feature row, in
+        ``/molecules`` order.
+    """
+
+    _SHOWN = 5
+
+    def __init__(self, path: Path, molecule_ids: tuple[str, ...]) -> None:
+        self.path = Path(path)
+        self.molecule_ids = tuple(molecule_ids)
+        shown = ", ".join(self.molecule_ids[: self._SHOWN])
+        more = len(self.molecule_ids) - self._SHOWN
+        if more > 0:
+            shown += f" and {more} more"
+        super().__init__(
+            f"{self.path}: {len(self.molecule_ids)} human-labelled molecule(s) have no feature "
+            f"row ({shown}), so a fit would leave their labels out; the fit did not run. "
+            "Run compute_features on this project again with its default arguments, then retry."
+        )
+
+
+def _require_featured_human_labels(
+    path: Path,
+    molecules: np.ndarray,
+    featured_keys: list[str],
+    condition_id: str | None = None,
+) -> None:
+    """Stop when a human label (of ``condition_id``, or of any condition) has no feature row."""
+    featured = set(featured_keys)
+    missing = tuple(
+        _to_str(mid)
+        for mid, key, cond, code in zip(
+            molecules["molecule_id"],
+            molecules["molecule_key"],
+            molecules["condition_id"],
+            molecules["curation_label"],
+            strict=True,
+        )
+        if int(code) != _UNCURATED
+        and (condition_id is None or _to_str(cond) == condition_id)
+        and _to_str(key) not in featured
+    )
+    if missing:
+        raise FeatureCacheIncompleteError(path, missing)
 
 
 def _latest_provisional_labels(labels_rows: np.ndarray) -> dict[str, int]:
@@ -184,6 +243,7 @@ def _prepare(project: ProjectRef, w0: float) -> tuple[WeightedTrainingSet, Ranki
     data = ranking_dataset(project)
     path = _project_path(project)
     molecules = read_molecules(path)
+    _require_featured_human_labels(path, molecules, data.molecule_keys)
     n_human_by_condition = human_counts_by_condition(
         molecules["condition_id"], molecules["curation_label"]
     )
@@ -244,6 +304,8 @@ def weighted_training_set(
     ------
     KeyError
         No ``/features/table`` has been written (run ``compute_features`` first).
+    FeatureCacheIncompleteError
+        A human-labelled molecule has no feature row (a partial cache).
     """
     return _prepare(project, w0)[0]
 
@@ -330,6 +392,9 @@ def train_ranker(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> Qua
     ------
     KeyError
         No ``/features/table`` has been written (run ``compute_features`` first).
+    FeatureCacheIncompleteError
+        A human-labelled molecule has no feature row (a partial cache). The ranking and
+        precision@k entry points stop the same way.
     ValueError
         The project has no labeled molecules (human or provisional), or only one class is labeled
         (needs both accepted and rejected examples — propagated from the model).
