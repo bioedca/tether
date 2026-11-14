@@ -7,7 +7,8 @@ reports the git-derived app version (NFR-REPRO: "the app version is derived from
 git"); ``tether extract`` runs the M1 native extraction pipeline (movie ->
 ``.tether``) — see :mod:`tether.project.extract`; ``tether batch`` runs the
 extract -> correct -> idealize pipeline over many movies — see
-:mod:`tether.project.batch`.
+:mod:`tether.project.batch`; ``tether info`` prints a read-only summary of what a
+project holds — see :mod:`tether.project.summary`.
 
 The CLI deliberately uses the standard-library :mod:`argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -21,8 +22,13 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from tether import __version__
+
+if TYPE_CHECKING:
+    # Annotation-only: the summary module pulls in h5py, which ``--version`` must not.
+    from tether.project.summary import CurationCounts, ProjectSummary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_extract_parser(subparsers)
     _add_batch_parser(subparsers)
+    _add_info_parser(subparsers)
     return parser
 
 
@@ -388,6 +395,133 @@ def _run_batch(args: argparse.Namespace) -> int:
     return 0 if summary.n_failed == 0 else 1
 
 
+def _add_info_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``info`` subcommand (a read-only project summary, #655)."""
+    info = subparsers.add_parser(
+        "info",
+        help="summarize what a .tether project holds, without opening it for writing",
+        description=(
+            "Print, for each project: the schema version, the movies, the conditions, the "
+            "molecule, curation and category counts, the correction state, the "
+            "idealization models, the ranker model reference and the lock holder. The "
+            "project is opened read-only and no lock is taken, so this works on a project "
+            "another user holds. Movie files are never read, and trace arrays are read "
+            "only for --stale."
+        ),
+    )
+    info.add_argument("projects", nargs="+", help="one or more .tether projects")
+    info.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON document (a documented, versioned layout) instead of text",
+    )
+    info.add_argument(
+        "--stale",
+        action="store_true",
+        help=(
+            "also count each idealization's stale molecules; this reads the trace arrays "
+            "the models were fit on, so it is slower on a large project"
+        ),
+    )
+
+
+def _format_curation(counts: CurationCounts) -> str:
+    """``3 accepted, 1 rejected, 1 undecided`` for a :class:`CurationCounts`."""
+    return f"{counts.accepted} accepted, {counts.rejected} rejected, {counts.undecided} undecided"
+
+
+def _format_summary(s: ProjectSummary) -> str:
+    """The text form of one :class:`~tether.project.summary.ProjectSummary`."""
+    lines = [s.path]
+    written = f", written by Tether {s.written_by}" if s.written_by else ""
+    lines.append(f"  schema version {s.schema_version}{written}")
+    lines.append(f"  movies: {len(s.movies)}")
+    for m in s.movies:
+        frame_time = f"{m.frame_time_s:g} s/frame" if m.frame_time_s else "frame time not recorded"
+        lines.append(f"    {m.name}: {m.n_frames} frames, {frame_time}, {m.n_molecules} molecules")
+        lines.append(f"      curation: {_format_curation(m.curation)}")
+    lines.append(f"  conditions: {len(s.conditions)}")
+    for c in s.conditions:
+        note = "" if c.materialized else " (not yet in /conditions)"
+        lines.append(f"    {c.condition_id}: {c.n_molecules} molecules{note}")
+    lines.append(f"  molecules: {s.n_molecules}")
+    lines.append(f"  curation: {_format_curation(s.curation)}")
+    if s.categories:
+        parts = [f"{name} {n}" for name, n in s.categories.items()]
+        lines.append(f"  categories: {', '.join(parts)}; {s.uncategorized} uncategorized")
+    else:
+        lines.append(f"  categories: none set ({s.uncategorized} uncategorized)")
+    corrections = s.corrections
+    if corrections.ran:
+        parts = [f"{method or 'none'} {n}" for method, n in corrections.methods.items()]
+        lines.append(f"  corrections: ran ({', '.join(parts)})")
+    else:
+        lines.append("  corrections: not run")
+    lines.append(f"  idealizations: {len(s.idealizations)}")
+    for i in s.idealizations:
+        states = "? states" if i.n_states is None else f"{i.n_states} states"
+        stale = "stale not checked (use --stale)" if i.stale is None else f"{i.stale} stale"
+        lines.append(
+            f"    {i.name}: method {i.method or 'unknown'}, {states}, "
+            f"{i.n_molecules} molecules, {stale}"
+        )
+    models = ", ".join(s.models) if s.models else "none"
+    lines.append(f"  ranker model: {models}")
+    lock = s.lock
+    if not lock.held:
+        lines.append("  lock: not held")
+    elif lock.corrupt:
+        lines.append("  lock: present but unreadable (owner unknown)")
+    else:
+        state = "stale" if lock.stale else "active"
+        lines.append(
+            f"  lock: held by {lock.user}@{lock.host} (pid {lock.pid}) since "
+            f"{lock.acquired_utc}, {state}"
+        )
+    return "\n".join(lines)
+
+
+def _run_info(args: argparse.Namespace) -> int:
+    """Handle ``tether info``; exit 1 if any project could not be read."""
+    # Lazy: keep the HDF5 stack off the ``--version`` path.
+    import json
+
+    from tether.project.summary import (
+        SUMMARY_FORMAT_VERSION,
+        ProjectSummaryError,
+        read_project_summary,
+    )
+
+    failed = False
+    documents: list[dict[str, object]] = []
+    texts: list[str] = []
+    for project in args.projects:
+        try:
+            summary = read_project_summary(project, check_stale=args.stale)
+        except ProjectSummaryError as exc:
+            failed = True
+            print(f"tether info: {exc}", file=sys.stderr)
+            documents.append({"path": project, "error": str(exc)})
+            continue
+        documents.append(summary.to_dict())
+        texts.append(_format_summary(summary))
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "format": "tether-info",
+                    "format_version": SUMMARY_FORMAT_VERSION,
+                    "tether_version": __version__,
+                    "projects": documents,
+                },
+                indent=2,
+            )
+        )
+    elif texts:
+        print("\n\n".join(texts))
+    return 1 if failed else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a process exit code (``0`` on success).
 
@@ -404,6 +538,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_extract(args)
     if command == "batch":
         return _run_batch(args)
+    if command == "info":
+        return _run_info(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 
