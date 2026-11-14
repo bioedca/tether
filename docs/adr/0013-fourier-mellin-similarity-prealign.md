@@ -113,9 +113,12 @@ to recover anyway. Therefore:
   known ground truth, *not* fabricated reference data;
 - **real-data behaviour** is locked by the committed `bead_prealign_oracle.npz`
   (two real 256×256 bead-channel crops + the `.tmap`-derived ground-truth
-  similarity): the estimator reproduces the real acceptor→donor map to **Δscale
-  0.0002, Δrotation 0.04°, Δtranslation 0.33 px** (a real ~7.6 px offset, so a
-  no-op estimator fails).
+  similarity): at the time of this decision the estimator reproduced the real
+  acceptor→donor map to Δscale 0.0002, Δrotation 0.04°, Δtranslation 0.33 px
+  (historical figures, a real ~7.6 px offset, so a no-op estimator fails). Since
+  ADR-0089 the estimator gives **Δscale 0.0033, Δrotation 0.25°, Δtranslation
+  0.77 px** on the same crop; ADR-0089 and `tests/fixtures/PROVENANCE.md` record
+  these values and the limits that lock them.
 
 This is *not* "synthetic-only" (ADR-0012's concern): real bead images validate the
 real behaviour; synthetic validates the recovery the saturated display image

@@ -388,6 +388,10 @@ def estimate_similarity_prealign(
     cos_term = np.cos(np.pi * freq)
     x_term = cos_term[:, None] * cos_term[None, :]
     emphasis = (1.0 - x_term) * (2.0 - x_term)  # Reddy & Chatterji (1996) high-pass
+    # Release the (side, side) float64 term now: it would otherwise stay alive until
+    # return (512 MiB for a 4096 x 2048 channel half). A working-resolution cap would
+    # change the estimator's output and is out of scope here (#889).
+    del x_term
 
     def _spectrum(image: np.ndarray) -> np.ndarray:
         filtered = difference_of_gaussians(image, low_sigma, high_sigma)
