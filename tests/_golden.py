@@ -369,12 +369,24 @@ def synthetic_traces_store(workdir: Path, q: dict[str, Any] | None = None) -> Pa
     return path
 
 
+def _histogram_edges(path: Path, q: dict[str, Any]) -> None:
+    """The apparent-E bin edges, which the GUI check compares with the drawn x values (#865).
+
+    Only ``synthetic_traces`` records them: it is the input the GUI check draws.
+    """
+    from tether.analysis.histogram import population_apparent_e_histogram  # noqa: PLC0415
+
+    h = population_apparent_e_histogram(path, density=False)
+    q["histogram.edges"] = _plain(np.asarray(h.bin_edges, dtype="float64"))
+
+
 def run_synthetic_traces(workdir: Path) -> dict[str, Any]:
     """Synthetic traces (:func:`correction_traces`) through correct, analyse, idealize, export."""
     q: dict[str, Any] = {}
     path = synthetic_traces_store(workdir, q)
     _molecule_quantities(path, q)
     _analysis_quantities(path, q)
+    _histogram_edges(path, q)
     q.update(_idealize_natively(path, "golden", 2))
     _idealized_quantities(path, "golden", q)
     _export_quantities(path, workdir, q)
