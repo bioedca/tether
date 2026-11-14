@@ -27,6 +27,8 @@ from pathlib import Path
 
 import yaml
 
+from _docs_source import split_front_matter
+
 _REPO = Path(__file__).resolve().parents[1]
 DOCS = _REPO / "docs"
 USER_GROUP = "Using Tether"
@@ -71,7 +73,7 @@ def _not_in_nav_patterns() -> list[str]:
 
 
 def _first_paragraph(page: str) -> str:
-    text = (DOCS / page).read_text(encoding="utf-8")
+    text = split_front_matter((DOCS / page).read_text(encoding="utf-8"))[1]
     body = text.split("\n", 1)[1] if text.startswith("# ") else text
     paragraphs = [p for p in re.split(r"\n\s*\n", body.strip()) if p.strip()]
     return " ".join(paragraphs[0].split()) if paragraphs else ""
@@ -79,7 +81,7 @@ def _first_paragraph(page: str) -> str:
 
 def _opening_lines(page: str) -> list[str]:
     """The first non-blank lines after the page's H1, skipping a leading SPDX comment block."""
-    lines = (DOCS / page).read_text(encoding="utf-8").splitlines()
+    lines = split_front_matter((DOCS / page).read_text(encoding="utf-8"))[1].splitlines()
     title = next((i for i, line in enumerate(lines) if line.startswith("# ")), None)
     assert title is not None, f"{page} has no H1 title"
     return [line for line in lines[title + 1 :] if line.strip()][:_STATEMENT_WINDOW]
