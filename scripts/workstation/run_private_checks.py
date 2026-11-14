@@ -180,9 +180,8 @@ def open_private(path: Path, *, append: bool = False):
         fd = os.open(path, flags | getattr(os, "O_BINARY", 0), 0o600)
     except OSError:
         if NOFOLLOW and os.path.islink(path):
-            raise RuntimeError(
-                f"refused to open {Path(path).name}: it is a symbolic link"
-            ) from None
+            # An OSError, so that every caller's handler for a failed open takes it.
+            raise OSError(f"refused to open {Path(path).name}: it is a symbolic link") from None
         raise
     if os.name != "nt":
         os.fchmod(fd, stat.S_IMODE(os.fstat(fd).st_mode) & ~GROUP_OTHER)

@@ -575,7 +575,7 @@ def test_a_symbolic_link_at_the_log_path_is_refused_and_its_target_is_kept(
     assert target.read_text(encoding="utf-8") == "keep me"
     link = tmp_path / "record.jsonl"
     link.symlink_to(target)
-    with pytest.raises(RuntimeError, match="it is a symbolic link"):
+    with pytest.raises(OSError, match="it is a symbolic link"):
         runner.append_record(link, {"kind": "open"})
     assert target.read_text(encoding="utf-8") == "keep me"
 
