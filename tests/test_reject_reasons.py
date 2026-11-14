@@ -143,6 +143,25 @@ def test_reject_without_reason_row_reads_none(tmp_path: Path) -> None:
     assert L.reject_record_of(path, "k1") is None
 
 
+def test_an_earlier_reason_is_never_given_to_a_later_reject(tmp_path: Path) -> None:
+    # Codex finding on PR #1050: reject with a reason, accept, then a REJECT with no reason
+    # row (a crash between the two writes, or a direct set_curation_label) must read None.
+    path = _seed(tmp_path, ["k1"])
+    L.reject(path, "k1", reason="artifact", timestamp="2026-11-14T12:00:00+00:00")
+    L.accept(path, "k1", timestamp="2026-11-14T12:01:00+00:00")
+    L.set_curation_label(path, "k1", L.CurationLabel.REJECT, timestamp="2026-11-14T12:02:00+00:00")
+    assert L.reject_record_of(path, "k1") is None
+
+
+def test_a_later_provisional_label_does_not_hide_the_human_reason(tmp_path: Path) -> None:
+    path = _seed(tmp_path, ["k1"])
+    L.reject(path, "k1", reason="low-signal")
+    L.accept(path, "k1", source=L.LABEL_SOURCE_CROSS_CONDITION, weight=0.5)
+    record = L.reject_record_of(path, "k1")
+    assert record is not None
+    assert L._to_str(record["reason"]) == "low-signal"
+
+
 def test_provisional_reject_writes_no_reason_row(tmp_path: Path) -> None:
     path = _seed(tmp_path, ["k1"])
     L.reject(path, "k1", source=L.LABEL_SOURCE_DEEPLASI, weight=0.5)

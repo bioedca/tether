@@ -416,13 +416,15 @@ so a crash leaves at worst an orphan label row, never an unaudited state change.
 ### `/labels/reject_log` — the reason of each reject
 
 A resizable 1-D compound dataset, **append-only**, created on the first human reject
-(`reject`, `src/tether/project/labels.py`), so a fresh store does not have it. Each
+(`reject`, `src/tether/project/labels.py`), so a fresh store does not have it
+([ADR-0104](../adr/0104-a-reject-reason-log-under-labels.md)). Each
 human reject appends a `reject` row and each un-reject appends a `restore` row. A
 rejected trace stays in the store: a reject sets `curation_label` to `-1` and deletes
 nothing. The log is a record only. The curation filter, the ranker and every analysis
 read `/molecules.curation_label` and not the reason. Provisional-source rejects write
-no row. `reject_record_of` returns the latest `reject` row of a molecule that is
-rejected now, or `None` (also for a store written before this log existed).
+no row. `reject_record_of` returns the `reject` row that joins the molecule's
+latest human `/labels` event when that event is a reject, or `None` (also for a store
+written before this log existed).
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|

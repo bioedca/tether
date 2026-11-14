@@ -40,7 +40,7 @@ label (its ``/labels`` row).
 append-only ``/labels/reject_log`` dataset: the reason (one code of the fixed list
 :data:`REJECT_REASONS`), an optional free-text note, the threshold value of a
 ``"threshold"`` reject, and who rejected and when (the same ``labeler`` and
-``timestamp`` as the reject's ``/labels`` row, so the two rows join exactly). An
+``timestamp`` as the reject's ``/labels`` row, so the two rows join exactly; ADR-0104). An
 :func:`unreject` appends a ``"restore"`` row. The log is created lazily on the first
 reject, under the frozen ``/labels`` group, so a fresh store and the ``schema-guard``
 manifest are unchanged. The log is a record only: the filter
@@ -418,7 +418,7 @@ def reject(
     ``"threshold"`` reject, refused for any other reason). The reason is checked before
     any write. The ``/labels`` row is written first, so a crash between the two writes
     leaves a reject with no reason row (:func:`reject_record_of` then returns ``None``),
-    never a reason for a trace that was not rejected. A provisional-source reject is a
+    never a reason for a trace that was not rejected (ADR-0104). A provisional-source reject is a
     ``/labels``-only prior and writes no reason row.
     """
     _check_reject_reason(reason, note, value)
@@ -484,20 +484,37 @@ def read_reject_log(path: str | Path) -> np.ndarray:
 def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     """The reason row of the molecule's current reject, or ``None``.
 
-    ``None`` when the molecule is not currently rejected, or when its reject has no
-    reason row (a store written before #932, or a crash between the two writes).
-    Otherwise the latest ``"reject"`` row for ``molecule_key``. Raises
+    The current reject is the molecule's latest **human** ``/labels`` event; its reason row
+    is the ``"reject"`` row of ``/labels/reject_log`` with the same ``molecule_key``,
+    ``labeler`` and ``timestamp``. ``None`` when the molecule is not currently rejected,
+    or when its current reject has no reason row (a store written before #932, a reject
+    written straight through :func:`set_curation_label`, or a crash between the two
+    writes) — an earlier reject's reason is never returned for a later decision. Raises
     :class:`KeyError` if ``molecule_key`` is absent.
     """
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None
+    events = read_labels(path)
+    current = None
+    for i in range(events.shape[0] - 1, -1, -1):
+        if _to_str(events["molecule_key"][i]) == molecule_key and (
+            _to_str(events["source"][i]) == LABEL_SOURCE_HUMAN
+        ):
+            current = events[i]
+            break
+    if current is None or int(current["label_value"]) != CurationLabel.REJECT:
+        return None
+    who, when = _to_str(current["labeler"]), _to_str(current["timestamp"])
     log = read_reject_log(path)
     for i in range(log.shape[0] - 1, -1, -1):
-        if _to_str(log["molecule_key"][i]) != molecule_key:
-            continue
-        if _to_str(log["event"][i]) == REJECT_EVENT:
-            return log[i].copy()
-        return None  # the latest event is a restore: this reject has no reason row
+        row = log[i]
+        if (
+            _to_str(row["molecule_key"]) == molecule_key
+            and _to_str(row["event"]) == REJECT_EVENT
+            and _to_str(row["labeler"]) == who
+            and _to_str(row["timestamp"]) == when
+        ):
+            return row.copy()
     return None
 
 
