@@ -25,15 +25,15 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4016
-max_skipped = 20
+max_skipped = 21
 
 [jobs."test (macos-latest)"]
 min_collected = 4016
-max_skipped = 33
+max_skipped = 34
 
 [jobs."test (windows-latest)"]
 min_collected = 4016
-max_skipped = 18
+max_skipped = 24
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -177,6 +177,50 @@ reason = "POSIX mode/umask semantics"
 jobs = ["test (windows-latest)"]
 why = """The test checks POSIX file modes and the umask, which Windows does not have; \
 test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_shares_a_group_writable_directory_under_umask_022"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_repairs_an_existing_owner_only_guard"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_does_not_widen_beyond_the_directory"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_steal_lock_runs_when_the_guard_is_not_writable_by_this_user"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_read_only_guard_on_a_filesystem_that_needs_write_names_the_remedy"
+reason = "POSIX flock semantics"
+jobs = ["test (windows-latest)"]
+why = """The test drives the POSIX flock path of the lock lifecycle guard (#257); Windows uses a \
+byte-range lock instead. test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_second_user_steals_a_stale_lock_in_a_shared_project"
+reason = "needs root to run two real POSIX users"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The end-to-end check of #257 starts processes as two different POSIX users, which only \
+root can do, and the CI runners do not run pytest as root (Windows has no POSIX users). The \
+behaviour it checks is covered on every POSIX leg by the five other #257 tests in \
+tests/test_lock.py; the root-run test is evidence for a local or container run as root."""
 
 [[skip]]
 test = "tests/test_lock.py::test_fork_child_does_not_prolong_parent_lifecycle_guard"
