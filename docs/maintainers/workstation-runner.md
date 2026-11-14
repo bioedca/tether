@@ -207,6 +207,12 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
    `test(workstation): the scheduled run failed on main`, so an open run-level issue gets its
    recovery comment the same way. A run completes when its checks ran, also when one of them
    failed: that check has its own issue. A result older than 192 hours does not count (step 2).
+5. When the result has the oracle (a) check
+   (`tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`), copy its entry,
+   the commit, the `finished` time and the result file name into
+   `docs/validation/oracle-a-last-run.json` (mode `scheduled`), change the *Newest recorded run*
+   paragraph of oracle (a) in `docs/validation.md` to agree, and open a pull request.
+   `tests/test_oracle_a_record.py` checks that the two agree.
 
 ## Add a check
 
