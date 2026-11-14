@@ -176,9 +176,14 @@ Data lives on OneDrive or a network share; there is no shared server.
 ### 3.2 North-star adoption test
 
 A scientist can: **open a real dataset → browse/curate with logged accept/reject → one-click vbFRET (verified
-tMAVEN parity) → export a per-condition FRET histogram with bootstrap CI ready for a figure.** This is the
-capability delivered by the **M2–M3** milestone set (§9); it is a non-binding adoption aspiration, deliberately not
-operationalized as a calendar gate (§9 is capability-sequenced, with no schedule commitment anywhere).
+tMAVEN parity) → export a per-condition FRET histogram with bootstrap CI ready for a figure.** The **M2–M3**
+milestone set built these steps as library capabilities, reachable from the Python API (§9 M2, M3). The shipped
+application does not yet do all of them: the project-wide one-click idealization
+([#625](https://github.com/bioedca/tether/issues/625)) and the histogram export
+([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) are carried by the
+milestones **M14–M17**, and per-trace vbFRET parity is a §9.6 row ([#545](https://github.com/bioedca/tether/issues/545)).
+The test is a non-binding adoption aspiration, deliberately not operationalized as a calendar gate (§9 is
+capability-sequenced, with no schedule commitment anywhere).
 
 ---
 
@@ -209,8 +214,8 @@ operationalized as a calendar gate (§9 is capability-sequenced, with no schedul
   (M8; ADR-0047, `deep/environment.yml` + `deep/conda-lock.yml`).
 - **Storage:** immutable source TIFF via `tifffile.memmap`; per-experiment project = a single self-describing
   **HDF5** file; an optional cached Zarr movie pyramid in local scratch (never synced).
-- **Packaging:** conda-forge + **constructor** installers; a guided sidecar-environment setup script for v1, full
-  bundling at M9.
+- **Packaging:** conda-forge + **constructor** installers that bundle the trimmed, pinned sidecar environment
+  (ADR-0049, ADR-0059); a source checkout builds the sidecar with the guided `scripts/setup_sidecar.py`.
 - **Repo/CI:** public from M0, GitHub Actions (pytest + ruff + 3-OS build), mkdocs documentation; full source-code governance (GitHub Flow + SemVer, signed commits, branch protection, CI-as-merge-gate, supply-chain scanning) is specified in §12.
 
 ### 4.2 Module breakdown
@@ -342,8 +347,9 @@ uses the three words only in these meanings:
   project that holds it (ADR-0068). They are additive *data* under the already-declared `/conditions` group, not new
   structure, so they do not require a schema-freeze exception.
 - **`/settings`** — effective extraction/detection/aperture/registration parameters per experiment, written at
-  extraction. A global default config seeds new experiments (per-experiment overrides global); the batch runner
-  reads a settings profile.
+  extraction. A global default config seeds new experiments (per-experiment overrides global); `tether batch`
+  takes its options (a shared `.tmap` or `.tdat`, the policy) from its command line and applies them to every movie
+  of a run.
 - **`/features`, `/labels`** — ML feature vectors + labels, scoped per condition. Every `/labels` row carries
   **provenance: the `molecule_key` (§5.1 `/molecules` — the stable cross-file join key), labeler identity,
   timestamp, source experiment file, `source ∈ {human, deeplasi-provisional, cross-condition-seed}`, and a
@@ -455,7 +461,7 @@ in `/calibration` provenance; a fit **≤** the gate (default ≤ 0.5 px, config
 registration` (**never silently dropped**). The action is mode-aware: in the **GUI**, a blocking confirm-dialog
 offers { accept-with-flag | import a `.tmap` | abort this movie } (default focus = import `.tmap`); in the
 **headless batch**, the default is **accept-with-flag + a structured warning** in the per-movie log and end-of-run
-summary (do not abort), with the batch policy (warn-and-flag vs. fail-movie) configurable in the settings profile.
+summary (do not abort), with the batch policy (warn-and-flag vs. fail-movie) set by `tether batch --policy`.
 
 **Donor-side check (advisory).** A wrong `--donor-side` raises no error and inverts every FRET efficiency, so at the
 end of extraction Tether **shall** check the side from the traces: among molecules with a complete single-step
@@ -504,7 +510,7 @@ Tether **shall** present a multi-movie round-trip browser:
 - A **trace dock** (pyqtgraph) as the primary, keyboard-driven surface (≈1–2 s/trace, hundreds per sitting):
   donor/acceptor/total + FRET + idealization step overlay; cross-correlation; histogram. This is tMAVEN's per-trace
   viewer (Appendix C, D1) reimagined as Tether's curation surface. At the MVP the FRET axis reads "apparent E"
-  (corrections land at M3).
+  (the corrections followed at M3; as a surface of the application they are a §9.6 row).
 - **Round-trip navigation:** select a trace → the camera jumps to its spot (resolving each molecule to its own
   movie), with synchronized scrubbing and a neighbor/overlap view (static patch + nearest-neighbour distance; movie
   scrub optional); click a spot → its trace.
@@ -636,8 +642,9 @@ Tether **shall** provide:
 
 ### 7.8 FR-LEGACY — Legacy import & Deep-LASI re-analysis
 
-Tether **shall** import Deep-LASI projects and tMAVEN SMD. A minimal read path lands at M0.5/M1 (for validation and
-bootstrap); a polished importer lands at M7.
+Tether **shall** import Deep-LASI projects and tMAVEN SMD. The importer reads a Deep-LASI acquisition (its `.tdat`,
+plus any of the `.mat` export, the `.txt` and a tMAVEN SMD), pairs it to its movie and rebuilds a round-trip project from it
+(the re-analysis workflow below); it imports a coordinate-less SMD or `.txt` as an analysis-only project.
 
 A **raw `.txt`-sourced tMAVEN SMD imported standalone** (no `.tdat`, no `.mat`, possibly no movie — e.g. the M6
 281-molecule parity fixture) carries neither coordinates nor patches, so it **shall** be accepted as an explicit
@@ -712,7 +719,8 @@ the batch **shall** supervise it: a per-IPC-call **wall-clock timeout + liveness
 idealization stage** failed under continue-on-error and proceed with the queue (its extraction + correction remain
 checkpointed). If the sidecar environment is **absent or corrupt at startup**, the batch **shall** proceed in an
 **idealization-deferred** mode — all movies extracted + corrected, idealization queued for a later run — rather
-than aborting. The batch policy (warn-and-flag vs. fail-movie) is configurable in the settings profile (§10).
+than aborting. The batch policy (warn-and-flag vs. fail-movie) is set by `tether batch --policy` (`warn` or `fail`)
+and recorded in `/settings/batch` (§10).
 
 ### 7.12 FR-UPDATE — In-app update
 
@@ -784,8 +792,8 @@ Linux `.desktop` ([ADR-0051](adr/0051-installed-app-launch-surface.md)).
   extraction and trace I/O **favor sequential/block access**; (2) a ~100-video condition is ≈ 90 GB of raw movies,
   which nearly fills the disk, so movies are expected to live on OneDrive (Files-On-Demand) rather than all hydrated
   locally, and the `.tether` + scratch footprint must stay modest. **Targets (verified from M3 — the trace dock
-  whose render+navigate latency is budgeted lands at M2, and the overnight extraction+correction+idealization
-  envelope is only end-to-end at M3, so M1 has nothing to measure; a light §9 gate, not
+  whose render+navigate latency is budgeted came at M2, and the overnight extraction+correction+idealization
+  envelope was end-to-end only from M3, so M1 had nothing to measure; a light §9 gate, not
   an SLA matrix):** per-trace render+navigate latency budget ≈ 100 ms (to sustain the 1–2 s/trace cadence); a
   ~100-movie condition completes extraction + correction + idealization overnight; a bounded `.tether` size envelope
   per condition.
@@ -814,8 +822,8 @@ Linux `.desktop` ([ADR-0051](adr/0051-installed-app-launch-surface.md)).
   `tmaven-model/model.hdf5` was idealized from) is committed as the population-model (consensus VB-HMM / ebFRET)
   parity fixture (§9 M6, Appendix D); the full ≈0.9 GB movie + kinSoftChallenge live in a large local/LFS/gated-CI
   tier.
-- **NFR-PKG — Packaging/CI.** 3-OS GitHub Actions build + test; guided sidecar setup for v1 → constructor
-  installers at M9, **unsigned**, with the SHA-256 manifests and the build-provenance attestation as the
+- **NFR-PKG — Packaging/CI.** 3-OS GitHub Actions build + test; constructor installers that bundle the trimmed,
+  pinned sidecar, **unsigned**, with the SHA-256 manifests and the build-provenance attestation as the
   integrity anchor (ADR-0059); mkdocs documentation. CI design (small committed fixtures in default CI; the large LFS/gated tier in a manual/gated workflow — NFR-FIXTURES) and the release pipeline are governed by §12.
 - **NFR-HEADLESS — Headless-first.** The GUI is a thin layer over a fully scriptable core (FR-BATCH).
 - **NFR-GOVERNANCE — Version control & supply chain.** Solo-developer GitHub Flow with CI-as-merge-gate: `main` is
