@@ -1,0 +1,1 @@
+MASH-FRET raised "Unknown property 'iconcolumnwidth'" in plotData>addleg2plot (the window redraw after the export step) on MATLAB 2023b. Every export file existed, so the run went on.
