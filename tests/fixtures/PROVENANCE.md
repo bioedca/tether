@@ -18,32 +18,36 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 
 | Fixture | Purpose | Source file | Source size | Fixture size | Source SHA-256 | Notes |
 |---|---|---|---|---|---|---|
-| `tests/fixtures/movie_be_64x64x50.tif` | big-endian movie crop (M0 open; M1/M2 smoke) | `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` | 891,955,083 B | 417,990 B | `c4293f00ed2ac72d…` | cropped |
-| `tests/fixtures/smd_4mol.hdf5` | 4-molecule tMAVEN SMD (M0.5/M2 parity) | `video10.hdf5` | 87,551 B | 87,551 B | `227930deeb3ca03d…` | verbatim copy |
-| `tests/fixtures/smd_2mol.hdf5` | 2-molecule tMAVEN SMD (import round-trip) | `video 25,26,27,28.hdf5` | 61,780 B | 61,780 B | `95439c4bc54063a9…` | verbatim copy |
-| `tests/fixtures/large/smd_281mol.hdf5` | 281-molecule population SMD (parity gate) | `model-source-smd-281mol.hdf5` | 3,925,718 B | 3,925,718 B | `286130c45a679263…` | verbatim · **LFS** |
-| `tests/fixtures/large/model_281mol.hdf5` | 4-state vbHMM model (parity gate) | `model.hdf5` | 2,621,011 B | 2,621,011 B | `8f78fa48ad0311fd…` | verbatim · **LFS** |
-| `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` | 6 donor crops + `don` oracle |
-| `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization + detection slice (M0.5 S6 / M1 S9 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 131,296 B | `b6a911d48bc27cd1…` | coloc table + `ParticleDetectionMode` + MCOS `Channel` blob (per-channel `DetectionThreshold`) |
-| `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
-| `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` + `7db0cf80d161847e…` | 6 acceptor crops + `acc` oracle |
-| `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 3,884,619 B + 792,946 B | 104,307 B | `a993036a53d1d492…` + `b538b539ee75add3…` | 2 bead-channel crops + `.tmap` ground truth |
-| `tests/fixtures/large/bead_prealign.tmap` | Deep-LASI `.tmap` decoder input (`read_tmap`, #733) | `…20250721…15-36.tmap` | 3,884,619 B | 3,853,675 B | `a993036a53d1d492…` | acquisition directory redacted (same length) · **LFS** |
-| `tests/fixtures/deeplasi_export_slice.mat` | Deep-LASI `.mat` reader slice (M1 S9 oracle) | `…010.mat` | 9,053,155 B | 8,127 B | `af1b5be33aa63f87…` | 4 mol × 80 frames: `fret_pairs` + 6 trace arrays; v5, real `movie_name` filename + redacted `movie_path` directory |
-| `tests/fixtures/deeplasi_traces_slice.txt` | Deep-LASI `…-donc-accc-w.txt` reader slice (M1 S9 oracle) | `…010-donc-accc-w.txt` | 7,739,364 B | 6,412 B | `0892ae965a947003…` | first 80 frames × 8 cols (4 mol, donor/acc interleaved) |
+| `tests/fixtures/movie_be_64x64x50.tif` | big-endian movie crop (M0 open; M1/M2 smoke) | `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` | 891,955,083 B | 417,990 B | `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448` | cropped |
+| `tests/fixtures/smd_4mol.hdf5` | 4-molecule tMAVEN SMD (M0.5/M2 parity) | `video10.hdf5` | 87,551 B | 87,551 B | `227930deeb3ca03d9ec437d37d72432944028f2bf2ceb07b00e2b7fd35301fe8` | verbatim copy |
+| `tests/fixtures/smd_2mol.hdf5` | 2-molecule tMAVEN SMD (import round-trip) | `video 25,26,27,28.hdf5` | 61,780 B | 61,780 B | `95439c4bc54063a9abb753148e8ac6393396b095c4011c16818592dc3b5114db` | verbatim copy |
+| `tests/fixtures/large/smd_281mol.hdf5` | 281-molecule population SMD (parity gate) | `model-source-smd-281mol.hdf5` | 3,925,718 B | 3,925,718 B | `286130c45a6792636689eb4e60d111439a5a3a7d1b0bb5dcfb5254e3f9e02263` | verbatim · **LFS** |
+| `tests/fixtures/large/model_281mol.hdf5` | 4-state vbHMM model (parity gate) | `model.hdf5` | 2,621,011 B | 2,621,011 B | `8f78fa48ad0311fd75cc97a9e042adcf8e46032e275bef453b633e1cbef022a2` | verbatim · **LFS** |
+| `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448` + `af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886` | 6 donor crops + `don` oracle |
+| `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization + detection slice (M0.5 S6 / M1 S9 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 131,296 B | `b6a911d48bc27cd1b5f43a4a4713c659c73b834cdbbc769e38176da24bfab47a` | coloc table + `ParticleDetectionMode` + MCOS `Channel` blob (per-channel `DetectionThreshold`) |
+| `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e620d820060dbbf856a3dca3dc3f1e5e8b8c44f9aa124f13f` | decoded degree-2 coeffs only |
+| `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448` + `af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886` + `7db0cf80d161847e620d820060dbbf856a3dca3dc3f1e5e8b8c44f9aa124f13f` | 6 acceptor crops + `acc` oracle |
+| `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 3,884,619 B + 792,946 B | 104,307 B | `a993036a53d1d4920fe2a1f8409a33889d0f72ca417162efc910845bc9c3f462` + `b538b539ee75add3509f2540c6182df80608b4f047c432588a5829eecf1d5d90` | 2 bead-channel crops + `.tmap` ground truth |
+| `tests/fixtures/large/bead_prealign.tmap` | Deep-LASI `.tmap` decoder input (`read_tmap`, #733) | `…20250721…15-36.tmap` | 3,884,619 B | 3,853,675 B | `a993036a53d1d4920fe2a1f8409a33889d0f72ca417162efc910845bc9c3f462` | acquisition directory redacted (same length) · **LFS** |
+| `tests/fixtures/deeplasi_export_slice.mat` | Deep-LASI `.mat` reader slice (M1 S9 oracle) | `…010.mat` | 9,053,155 B | 8,127 B | `af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886` | 4 mol × 80 frames: `fret_pairs` + 6 trace arrays; v5, real `movie_name` filename + redacted `movie_path` directory |
+| `tests/fixtures/deeplasi_traces_slice.txt` | Deep-LASI `…-donc-accc-w.txt` reader slice (M1 S9 oracle) | `…010-donc-accc-w.txt` | 7,739,364 B | 6,412 B | `0892ae965a947003b5a131a2172fbfeef0967f5a5aa579cf591e45cae59b43af` | first 80 frames × 8 cols (4 mol, donor/acc interleaved) |
 
 **Accessed:** 2026-06-22 (date `example-data/` was gathered onto this
-workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
+workstation; see its `README.md`). The full source SHA-256 values above were computed from the
+`example-data/` originals on 2026-11-14 (#552); every size and every earlier 16-hex prefix
+matched. **Origin:** Mondragón Lab (Northwestern)
 smFRET acquisitions — the project's own data, vendored here as test fixtures.
 **License:** `GPL-3.0-or-later`, with the rest of the repository (REUSE blanket).
 
 ## Movie crop
 
+<!-- make_fixtures.py: movie crop, begin -->
 `movie_be_64x64x50.tif` is the **brightest 64×64 window**
 (top-left pixel `(row=375, col=432)`) of the first
 50 frames of the source movie, kept **big-endian uint16**
 (shape `(50, 64, 64)`, axes `TYX`) so it exercises the M0 S7 big-endian reader and
 the napari open path, and contains real molecules for M1/M2 extraction smoke.
+<!-- make_fixtures.py: movie crop, end -->
 
 ## Aperture-integration oracle
 
@@ -178,7 +182,7 @@ Regenerate with `scripts/make_bead_prealign_fixture.py`.
 
 `tests/fixtures/large/bead_prealign.tmap` (3,853,675 B, sha256
 `8dc33e5c08ff765cf34940ec2e89b72cad3c19abecb7fa2f718f544a4aa46b9b`, Git LFS) is the bead
-`.tmap` of the section above (source sha256 `a993036a…`, verified when it was copied from the
+`.tmap` of the section above (source sha256 `a993036a53d1d4920fe2a1f8409a33889d0f72ca417162efc910845bc9c3f462`, verified when it was copied from the
 maintainer's workstation on 2026-11-11). It lets `read_tmap` run on a real file: the
 `large-fixtures` job decodes it and compares the result with `bead_prealign_oracle.npz`
 (`tests/test_register.py`), and runs one `tether extract --tmap` end to end
@@ -461,12 +465,12 @@ verifies it there with the archive checksum.
 
 The trace matrix is the smallest file of `smFRET_SourceData/`. Two members have that size,
 `intraFRET_WT+WT_13uM.txt` and `intraFRET_WT+WT_5uM.txt`, and they are byte-identical in the
-publisher's archive (both `0f4c8902…a58839`); the first in archive order is committed. A check that
+publisher's archive (both `0f4c89027159593e885e02cdc7800218aed540bc1b44ccdd29d4846064a58839`); the first in archive order is committed. A check that
 reads both files from the downloaded archive gets the same traces twice.
 
 **`Kmatrix/CalculateKbounds.py` does not parse** (`IndentationError` at line 51: five spaces where
 its block has four). The publisher's file and the copy that the audit of #695 read are
-byte-identical (`81d06b5b…3320`), so the fault is in the published file. The licence forbids a
+byte-identical (`81d06b5b1be8ef29558ff9e7c91c932d9fda871bdb28aab642398c62f77e3320`), so the fault is in the published file. The licence forbids a
 corrected copy, so tests use the `.txt` inputs and `.out` outputs and never import the script.
 
 Every file has an entry in `tests/reference_data/manifest.toml` (ids `campos2024-…`, with
@@ -535,8 +539,8 @@ gated UCKOPSB pair via `scripts/run_m1_oracle.py` (imported `.tmap` leg), record
 as the durable measurement (the movie is never committed — PRD §8 NFR-FIXTURES):
 
 - **Source:** `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` (1700×512×512, 891,955,083 B,
-  SHA-256 `c4293f00ed2ac72d…`) + `DeepLASI_MAP_…20250718…13-40.tmap`
-  (`7db0cf80d161847e…`) + `DeepLASI_MAT_export_…010.mat` (`af1b5be33aa63f87…`, 250 mol).
+  SHA-256 `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448`) + `DeepLASI_MAP_…20250718…13-40.tmap`
+  (`7db0cf80d161847e620d820060dbbf856a3dca3dc3f1e5e8b8c44f9aa124f13f`) + `DeepLASI_MAT_export_…010.mat` (`af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886`, 250 mol).
 - **Measured (raw integrated intensity, 1 px match):** recall **0.204** (51/250);
   donor Pearson r median 0.988, acceptor 0.876; coord RMS of the 51 matched 0.289 px.
 - **Verdict: §9 M1 acceptance NOT met.** Diagnosed to the **detection stage** (coordinate
@@ -573,6 +577,28 @@ python scripts/make_tutorial_movie.py --check
 
 `tests/test_docs_tutorial.py` runs the `--check` derivation on every OS in the
 required matrix.
+
+## Docs-site root snapshot (docs-site guard, #509)
+
+`tests/fixtures/docs_site/gh_pages_index.html` is not derived from `example-data/`. It is the
+root page of the published documentation site, copied verbatim so that
+`tests/test_docs_site_guard.py` tests `scripts/check_docs_site.py` against the real bytes and not
+a hand-typed stub (the real `location.replace` call is wrapped across lines). The test pins the
+same digest as `ROOT_STUB_SHA256`.
+
+| Fixture | Source | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/docs_site/gh_pages_index.html` | `index.html` at `gh-pages` commit `e080cf6175a7b40cdc33f91d12bc28ffa4dbcc04` (the redirect page that mike 2.2.0 writes; the live site root served the same bytes on 2026-08-13) | 374 B | `36a4bad7470e9a2ae9067a0d61bc99040f4d993c9319213812640ee0169136fd` |
+
+The file is text (`.gitattributes` `text=auto`), so its digest is taken over the LF form, as the
+test does. Regenerate, or verify, with:
+
+```sh
+git fetch origin e080cf6175a7b40cdc33f91d12bc28ffa4dbcc04
+git show e080cf6175a7b40cdc33f91d12bc28ffa4dbcc04:index.html > tests/fixtures/docs_site/gh_pages_index.html
+```
+
+**License:** the repository's REUSE blanket entry, `GPL-3.0-or-later`.
 
 ## MATLAB reference outputs (#700, ADR-0074)
 
