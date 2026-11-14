@@ -11,6 +11,7 @@ Mac shows (Launchpad, Spotlight, Gatekeeper) is the manual check the PR records.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import plistlib
 import shutil
@@ -243,7 +244,10 @@ def test_install_guide_names_the_bundle_for_launch_and_uninstall() -> None:
     doc = INSTALL_DOC.read_text(encoding="utf-8")
     uninstall = doc.split("## Uninstall", 1)[1].split("**Windows.**", 1)[0]
     macos = uninstall.split("**macOS**", 1)[1]
-    assert "rm -rf ~/Tether ~/Applications/Tether.app" in macos
+    assert (
+        "~/Tether/envs/tether/bin/python -m tether.gui.macos_app remove --prefix ~/Tether" in macos
+    )
+    assert macos.index("macos_app remove") < macos.index("rm -rf ~/Tether")
     assert "Launchpad" in doc.split("## 5. Check that Tether runs", 1)[1].split("\n## ", 1)[0]
 
 
@@ -269,3 +273,79 @@ def test_launcher_target_reads_the_exec_line(tmp_path) -> None:
     assert macos_app.launcher_target(macos_app.launcher_script(prefix)) == expected
     assert macos_app.launcher_target("#!/bin/sh\necho hi\n") is None
     assert macos_app.launcher_target("exec 'unterminated\n") is None
+
+
+def test_a_broken_xml_plist_is_left_alone(tmp_path) -> None:
+    """A plist that starts as XML and then breaks is not Tether's; the install goes on."""
+    apps = tmp_path / "Applications"
+    contents = apps / "Tether.app" / "Contents"
+    contents.mkdir(parents=True)
+    broken = b'<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>'
+    (contents / "Info.plist").write_bytes(broken)
+    assert not macos_app.is_tether_bundle(apps / "Tether.app")
+    assert macos_app.write_bundle(_prefix(tmp_path), apps, "1.0.0") is None
+    assert (contents / "Info.plist").read_bytes() == broken
+
+
+def test_remove_deletes_only_this_installs_bundle(tmp_path, monkeypatch) -> None:
+    """``remove`` deletes Tether's bundle for this prefix and nothing else."""
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+    other_prefix = _prefix(home, "Tether-2")
+    system = tmp_path / "system" / "Applications"
+    real_path = Path
+
+    def fake_path(*parts):
+        if parts == ("/Applications",):
+            return real_path(system)
+        return real_path(*parts)
+
+    monkeypatch.setattr(macos_app, "Path", fake_path)
+    mine = macos_app.write_bundle(prefix, home / "Applications", "1.0.0")
+    theirs = macos_app.write_bundle(other_prefix, system, "1.0.0")
+    removed, failed = macos_app.remove_bundles(prefix, home)
+    assert removed == [mine] and failed == []
+    assert not mine.exists()
+    assert theirs.is_dir(), "the launcher of another install stays"
+    assert macos_app.remove_bundles(prefix, home) == ([], [])
+
+
+def test_remove_leaves_another_programs_bundle(tmp_path, capsys) -> None:
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+    other = home / "Applications" / "Tether.app" / "Contents"
+    other.mkdir(parents=True)
+    with open(other / "Info.plist", "wb") as handle:
+        plistlib.dump({"CFBundleIdentifier": "org.example.tether"}, handle)
+    assert macos_app.main(["remove", "--prefix", str(prefix), "--home", str(home)]) == 0
+    assert "no Tether.app of this install" in capsys.readouterr().out
+    assert (other / "Info.plist").is_file()
+
+
+_HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("pyqtgraph", "PySide6"))
+
+
+@pytest.mark.gui
+@pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not installed")
+def test_running_application_has_the_name_and_icon_the_bundle_declares(qtbot, tmp_path) -> None:
+    """The bundle starts ``tether-gui``; the window it opens is the one the bundle names.
+
+    The menu bar and the Dock show the running application's name and icon, and Finder,
+    Launchpad and Spotlight show the bundle's. Built headless through the same entry point
+    the bundle starts (``create_shell``, behind ``tether-gui``), the application must carry
+    the ``CFBundleName`` of the plist and an icon from the same brand files as the bundle's
+    ``tether.icns``.
+    """
+    from tether.gui.app import create_shell
+
+    bundle = macos_app.write_bundle(_prefix(tmp_path), tmp_path / "Applications", "1.0.0")
+    data = _plist(bundle)
+    app, shell = create_shell([])
+    qtbot.addWidget(shell._window)
+    assert app.applicationName() == data["CFBundleName"] == data["CFBundleDisplayName"]
+    assert not app.windowIcon().isNull()
+    icns = bundle / "Contents" / "Resources" / data["CFBundleIconFile"]
+    assert icns.parent.parent.parent == bundle
+    assert icns.read_bytes() == (identity.app_icon_dir() / "tether.icns").read_bytes()
+    assert set(identity.icon_png_sizes()) <= {s.width() for s in app.windowIcon().availableSizes()}
+    shell.close()

@@ -81,8 +81,10 @@ Tether.app/Contents/Resources/tether.icns  the brand icon from the installed whe
   home folder, the bundle is given back to the user, as constructor does for the prefix.
 - **Uninstall.** constructor's `pre_uninstall` is Windows-only (constructor 3.17.3,
   `docs/source/construct-yaml.md`), and the macOS uninstall is the documented deletion of the
-  install folder. `docs/install.md` adds `~/Applications/Tether.app` (or `/Applications/Tether.app`)
-  to that command.
+  install folder. `docs/install.md` puts `python -m tether.gui.macos_app remove --prefix …`
+  before it. `remove` deletes a `Tether.app` only when its plist has Tether's identifier and its
+  launcher starts that install's `tether-gui`, so an unconditional `rm -rf` never deletes a
+  `Tether.app` that the install left alone.
 - **Signing.** None, as for the installer ([ADR-0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)).
   The bundle's only executable is a shell script, and the interpreter it starts is the conda one
   the shims already start. The installer writes the bundle on the Mac, so the bundle carries no
@@ -107,8 +109,8 @@ get the shims **and** this bundle.
 - **Bad / accepted.** Launchpad, Spotlight and the Gatekeeper behaviour of a downloaded install
   are not visible to CI; a real Mac check before merge covers them, and the install guide is
   corrected from what it shows.
-- **Bad / accepted.** The bundle is removed by the documented command, not by an uninstaller;
-  macOS `.pkg` installs have none.
+- **Bad / accepted.** The bundle is removed by the documented commands, not by an
+  uninstaller; macOS `.pkg` installs have none.
 - **Bad / accepted.** The bundle names the install folder in its launcher. Moving the install
   folder breaks the bundle; reinstalling writes it again.
 
@@ -116,8 +118,9 @@ get the shims **and** this bundle.
 
 - `src/tether/gui/macos_app.py` — the bundle writer and its `check`.
 - `tests/test_macos_app.py` — layout, plist keys, the launcher forwarding its arguments, the
-  reinstall and foreign-bundle rules, the `post_install.sh` macOS block, and the smoke and docs
-  contracts.
+  reinstall and foreign-bundle rules, `remove`, the `post_install.sh` macOS block, the smoke and
+  docs contracts, and a headless `pytest-qt` test that the running application has the name and
+  icon the bundle declares.
 - Out of scope, as #663 states: code signing and notarization (#244), a drag-to-install disk
   image, and a self-contained frozen application. #331 (the in-app updater) must keep this
   bundle pointing at the installed entry point.

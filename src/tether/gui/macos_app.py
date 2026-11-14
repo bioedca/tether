@@ -17,15 +17,16 @@ bundle that does:
 
 The bundle is a launcher only. It holds no copy of the environment, so the size of the
 installer and its offline property do not change. ``packaging/scripts/post_install.sh``
-runs :func:`main` with ``install`` from the installed environment, and the install smoke
-runs it with ``check``.
+runs :func:`main` with ``install`` from the installed environment, the install smoke
+runs it with ``check``, and the uninstall in ``docs/install.md`` runs it with ``remove``.
 
 The bundle goes in ``~/Applications`` when the install folder is in the user's home
 folder (the "install for me only" choice), and in ``/Applications`` for any other
 install folder. If ``/Applications`` cannot be written, it goes in ``~/Applications``.
 
 A ``Tether.app`` that this module did not write (its ``Info.plist`` names another
-bundle identifier, or there is none) is never replaced or removed.
+bundle identifier, or there is none) is never replaced or removed, and ``remove`` deletes
+only the bundle whose launcher starts the install it is given.
 
 Only the standard library is imported, so the step costs no Qt and no NumPy, and the
 tests run on every system.
@@ -44,6 +45,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from xml.parsers.expat import ExpatError
 
 from tether.gui.identity import APPLICATION_NAME, app_icon_dir
 
@@ -60,6 +62,7 @@ __all__ = [
     "launcher_script",
     "launcher_target",
     "main",
+    "remove_bundles",
     "write_bundle",
 ]
 
@@ -176,7 +179,8 @@ def _read_plist(bundle: Path) -> dict[str, Any] | None:
     try:
         with open(bundle / "Contents" / "Info.plist", "rb") as handle:
             data = plistlib.load(handle)
-    except (OSError, plistlib.InvalidFileException, ValueError):
+    except (OSError, plistlib.InvalidFileException, ValueError, ExpatError):
+        # ExpatError: a file that starts as XML and then breaks is not a ValueError.
         return None
     return data if isinstance(data, dict) else None
 
@@ -267,8 +271,40 @@ def check_bundle(bundle: Path, prefix: Path) -> list[str]:
     return problems
 
 
+def remove_bundles(prefix: Path, home: Path) -> tuple[list[Path], list[Path]]:
+    """Remove the ``Tether.app`` of the install in *prefix*; return (removed, failed).
+
+    Both ``~/Applications`` and ``/Applications`` are looked at. A bundle is removed only
+    when its ``Info.plist`` has Tether's identifier **and** its launcher starts the
+    ``tether-gui`` of *prefix*, so the uninstall never deletes another program's
+    ``Tether.app`` or the launcher of another Tether install. A bundle that cannot be
+    removed (``/Applications`` needs an administrator) is returned in *failed*.
+    """
+    removed: list[Path] = []
+    failed: list[Path] = []
+    for folder in (Path(home) / "Applications", Path("/Applications")):
+        bundle = folder / BUNDLE_NAME
+        if bundle.is_symlink() or not is_tether_bundle(bundle):
+            continue
+        data = _read_plist(bundle) or {}
+        exe = bundle / "Contents" / "MacOS" / str(data.get("CFBundleExecutable", ""))
+        try:
+            started = launcher_target(exe.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if started is None or not _same_file(started, _gui_entry_point(prefix)):
+            continue
+        try:
+            shutil.rmtree(bundle)
+        except OSError:
+            failed.append(bundle)
+        else:
+            removed.append(bundle)
+    return removed, failed
+
+
 def main(argv: list[str] | None = None) -> int:
-    """``python -m tether.gui.macos_app install|check`` (the installer and the smoke)."""
+    """``python -m tether.gui.macos_app install|check|remove`` (installer, smoke, uninstall)."""
     parser = argparse.ArgumentParser(prog="python -m tether.gui.macos_app")
     commands = parser.add_subparsers(dest="command", required=True)
     install = commands.add_parser("install", help="write Tether.app for an install")
@@ -277,7 +313,20 @@ def main(argv: list[str] | None = None) -> int:
     check = commands.add_parser("check", help="check a Tether.app against an install")
     check.add_argument("bundle", type=Path)
     check.add_argument("--prefix", type=Path, required=True)
+    remove = commands.add_parser("remove", help="remove the Tether.app of an install")
+    remove.add_argument("--prefix", type=Path, required=True)
+    remove.add_argument("--home", type=Path, default=Path.home())
     args = parser.parse_args(argv)
+
+    if args.command == "remove":
+        removed, failed = remove_bundles(args.prefix, args.home)
+        for bundle in removed:
+            print(f"removed {bundle}")
+        for bundle in failed:
+            print(f"could not remove {bundle}; run this command with sudo", file=sys.stderr)
+        if not removed and not failed:
+            print("no Tether.app of this install was found")
+        return 1 if failed else 0
 
     if args.command == "install":
         from tether import __version__

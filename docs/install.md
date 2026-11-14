@@ -330,11 +330,16 @@ Then delete the `export PATH=…/tether/bin` line from `~/.bashrc`.
 **macOS**
 
 ```bash
-rm -rf ~/Tether ~/Applications/Tether.app
+~/Tether/envs/tether/bin/python -m tether.gui.macos_app remove --prefix ~/Tether
+rm -rf ~/Tether
 ```
 
-If you installed into a folder outside your home folder, delete that folder instead, and the
-launcher is `/Applications/Tether.app`. Then delete the `export PATH=…/Tether/bin` line from
+The first line removes the **Tether** application (`Tether.app`) that this install added. It
+removes a `Tether.app` only when it is Tether's launcher for this install folder, so another
+program's `Tether.app` stays. With rc3 it says `No module named tether.gui.macos_app`: rc3 adds
+no `Tether.app`, so go on to the second line. If you installed into a folder outside your home
+folder, use that folder in both lines, and put `sudo` before the first line, because the
+launcher is then in `/Applications`. Then delete the `export PATH=…/Tether/bin` line from
 `~/.zshrc`.
 macOS keeps its package receipt for the install; it is a small record and does no harm left
 in place.
