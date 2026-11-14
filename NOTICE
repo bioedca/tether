@@ -28,7 +28,8 @@ Bundled reference data (redistributed under its own license)
 kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.,
   "A blind benchmark of analysis tools to infer kinetic rate constants from
   single-molecule FRET trajectories," Nature Communications 13:5402 (2022),
-  doi:10.1038/s41467-022-33023-3. Data: Götz M & Schmid S, Zenodo
+  doi:10.1038/s41467-022-33023-3. Data: Götz M & Schmid S, "Datasets and
+  Simulator of the kinSoftChallenge & related article," Zenodo
   doi:10.5281/zenodo.5701310 (CC-BY-4.0).
   Tether bundles a repacked slice of the three *simulated* datasets
   (sim_dataset_Fig2/3/4) as the gated-tier fixture

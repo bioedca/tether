@@ -471,7 +471,8 @@ references:
     doi: "10.1038/s41467-022-33023-3"
     notes: "kinSoftChallenge — kinetics-validation oracle."
   - type: data
-    title: "kinSoftChallenge simulated datasets"
+    # Title as the Zenodo record gives it (read 2026-11-14), less its closing full stop.
+    title: "Datasets and Simulator of the kinSoftChallenge & related article"
     authors:
       - family-names: "Götz"
         given-names: "Markus"
