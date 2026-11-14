@@ -61,13 +61,15 @@ def run(request: BatchRequest) -> BatchResult:
     """Run *request*.
 
     Raises :class:`~tether.services.base.RequestRefused` before any movie is read when
-    the supervision settings are invalid, when there is no movie, or when two movies
-    would write the same project. A failed stage is not an error: it is in the summary.
+    the policy or the supervision settings are invalid, when there is no movie, or when
+    two movies would write the same project. A failed stage is not an error: it is in the summary.
     """
-    from tether.project.batch import BatchLog, MovieJob, run_batch
+    from tether.project.batch import POLICIES, BatchLog, MovieJob, run_batch
 
     if not request.movies:
         raise RequestRefused("a batch needs at least one movie")
+    if request.policy not in POLICIES:
+        raise RequestRefused(f"policy must be one of {POLICIES}, got {request.policy!r}")
     # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
     # a startup liveness probe -> idealization-deferred mode when the sidecar env is
     # absent/corrupt, plus per-movie auto-restart on transient failures. Unset overrides

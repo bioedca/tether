@@ -248,6 +248,9 @@ def test_a_value_with_no_text_form_is_refused() -> None:
         )
     with pytest.raises(services.RequestError, match="finite"):
         services.request_from_text(_text(movie="m", output="o", pair_tol=1e999))
+    # Greptile finding on #1058: an integer too large for a float is a bad value too.
+    with pytest.raises(services.RequestError, match="finite"):
+        services.request_from_text(_text(movie="m", output="o", pair_tol=10**309))
     with pytest.raises(TypeError, match="not a request"):
         services.request_to_text("extract")  # type: ignore[arg-type]
 
@@ -274,6 +277,15 @@ def test_extract_refuses_a_detection_mode_with_a_tdat_as_a_failed_command(tmp_pa
     with pytest.raises(services.CommandFailed, match="cannot be combined with --tdat"):
         services.run(request)
     assert not (tmp_path / "o.tether").exists()
+
+
+def test_batch_refuses_an_unknown_policy_before_it_writes(tmp_path) -> None:
+    # Greptile finding on #1058: a recipe has no argparse `choices` to catch a typo.
+    out = tmp_path / "out"
+    request = services.BatchRequest(movies=("m.tif",), out_dir=str(out), policy="typo")
+    with pytest.raises(services.RequestRefused, match="policy must be one of"):
+        services.run(request)
+    assert not out.exists()
 
 
 def test_batch_refuses_an_empty_movie_list_before_it_writes(tmp_path) -> None:

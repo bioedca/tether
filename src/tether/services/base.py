@@ -106,8 +106,12 @@ def _check(name: str, value: Any, hint: Any) -> Any:
             return value
     elif not isinstance(value, bool):
         if base is float and isinstance(value, (int, float)):
-            if math.isfinite(value):
-                return float(value)
+            try:
+                number = float(value)
+            except OverflowError:  # an int too large for a float
+                number = math.inf
+            if math.isfinite(number):
+                return number
             raise RequestError(f"field {name!r} must be a finite number")
         if isinstance(value, base):
             return value
