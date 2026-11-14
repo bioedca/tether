@@ -328,6 +328,11 @@ modes are silent:
 Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
 
+If you use an AI tool to write or review documentation, also follow the
+[AI-use policy for documentation work](docs/maintainers/ai-use-policy.md). It adds the rules for
+the style guide, the validation by a person, the record of the tool and the safe and unsafe
+practices.
+
 ## PR self-review checklist (PRD §12.4)
 
 Before requesting review / merging, confirm:
