@@ -28,11 +28,11 @@ PROVENANCE = REPO / "tests" / "fixtures" / "PROVENANCE.md"
 SCRIPT = REPO / "scripts" / "make_fixtures.py"
 
 _CODE_SPAN = re.compile(r"`([^`\n]+)`")
-_FULL_SHA256 = re.compile(r"[0-9a-f]{64}")
 # A hex run cut short by an ellipsis on either side, e.g. `c4293f00ed2ac72d…` or `0f4c8902…a58839`.
 _ELLIPSIS = r"(?:…|\.\.\.)"
 _ABBREVIATED = re.compile(rf"(?:[0-9a-fA-F]{{4,}}{_ELLIPSIS}|{_ELLIPSIS}[0-9a-fA-F]{{4,}})")
 _HEX_AND_ELLIPSES = re.compile(r"[0-9a-fA-F….]+")
+_SHA256_CELL = re.compile(r"`[0-9a-f]{64}`(?: \+ `[0-9a-f]{64}`)*")
 
 # The rows of the inventory table that scripts/make_fixtures.py writes.
 _SCRIPT_ROWS = (
@@ -80,10 +80,10 @@ def shortened_digests(text: str) -> list[tuple[int, str]]:
             if _HEX_AND_ELLIPSES.fullmatch(span) and _ABBREVIATED.search(span):
                 bad.append((lineno, span))
     for lineno, cell in _sha256_cells(text):
-        spans = _CODE_SPAN.findall(cell)
-        if not spans:
+        # A cell is one or more full digests in code spans joined by ` + `, and nothing else:
+        # text outside the spans (an unquoted prefix, "not recorded") is refused as well.
+        if not _SHA256_CELL.fullmatch(cell):
             bad.append((lineno, cell))
-        bad.extend((lineno, span) for span in spans if not _FULL_SHA256.fullmatch(span))
     return sorted(set(bad))
 
 
@@ -109,6 +109,7 @@ def test_the_check_reads_the_inventory_tables() -> None:
         "| `a.tif` | `c4293f00ed2ac72d` |",  # a prefix with no ellipsis
         "| `a.tif` | `" + "a" * 63 + "` |",  # one hex digit short
         "| `a.tif` | not recorded |",  # no digest at all
+        "| `a.tif` | `" + "c" * 64 + "` + c4293f00ed2ac72d |",  # a full digest, then a bare prefix
     ],
 )
 def test_the_check_refuses_a_short_digest_in_a_sha256_column(bad: str) -> None:
