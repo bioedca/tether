@@ -990,7 +990,7 @@ A second data point from outside Tether, tMAVEN and kinSoft
 ([#720](https://github.com/bioedca/tether/issues/720)): the traces file of the PySMACKS tutorial,
 Zenodo [10.5281/zenodo.21793247](https://doi.org/10.5281/zenodo.21793247) (Molcrette and Schmid,
 2026, CC0-1.0), manifest id `pysmacks-tutorial-traces`. It holds 1,136 ALEX traces of a
-two-state Holliday junction in OpenFRET JSON; 52 of them carry a `FRET` label, a frame range.
+two-state Holliday junction in OpenFRET JSON; 52 of them carry the label "FRET", a frame range.
 PySMACKS is at a beta version, so it is a second data point and not a reference tool.
 
 **The PySMACKS side was made once, offline.** The record's README says the file holds the HMM
