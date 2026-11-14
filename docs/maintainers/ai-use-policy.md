@@ -54,11 +54,13 @@ If the sampled page fails, the pull request does not merge yet. Then do these st
 
 1. The author fixes the sampled page.
 2. The author reads each other changed page against each rule that failed, and fixes it.
-3. The maintainer reads the fixed page again. The maintainer also reads one more full page
-   that the pull request changes.
-4. The pull request description records each read and its result.
+3. The maintainer reads the fixed page again.
+4. If the pull request changes more than one page, the maintainer also reads one other full
+   page that it changes.
+5. The pull request description records each read and its result.
 
-The pull request can merge when the last two reads pass. A sample is not a full check. It shows
+The pull request can merge when each read of steps 3 and 4 passes. A pull request that changes
+only one page needs only the read of step 3. A sample is not a full check. It shows
 if the tool and the author obeyed the guide on that pull request.
 
 ### Rule 5. Automated checks are not proof
