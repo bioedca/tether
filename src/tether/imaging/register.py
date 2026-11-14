@@ -289,7 +289,7 @@ def estimate_similarity_prealign(
     moving: np.ndarray,
     *,
     upsample_factor: int = 10,
-    low_sigma: float = 3.0,
+    low_sigma: float = 1.0,
     high_sigma: float = 20.0,
 ) -> SimilarityTransform2D:
     """Estimate a 4-DOF similarity prealign (rotation + scale + translation), Stage 7.
@@ -304,30 +304,44 @@ def estimate_similarity_prealign(
     :func:`pair_control_points` as ``prealign``. ``reference`` defaults to the
     donor half (PRD §11.2).
 
-    Method (the canonical skimage log-polar recipe, version-matched to the base
-    ``conda-lock`` scikit-image 0.26):
+    Method (the skimage log-polar recipe, version-matched to the base
+    ``conda-lock`` scikit-image 0.26, with the sampling fixes of ADR-0089):
 
-    1. band-pass each image (``difference_of_gaussians``) to suppress DC/background
-       and high-frequency noise, then apply a Hann window (``filters.window``);
-    2. take the centred FFT magnitude (``scipy.fft.fftshift(fft2(...))``) -- which
-       is translation-invariant, so rotation+scale live here alone;
-    3. log-polar resample the magnitude (``transform.warp_polar(scaling='log')``)
-       and phase-correlate the two (``phase_cross_correlation``,
-       ``normalization=None``): the angular shift is rotation, the radial shift is
-       log-scale;
-    4. the FFT magnitude is centro-symmetric, so rotation is ambiguous mod 180°
+    1. band-pass each image (``difference_of_gaussians``) to suppress the
+       saturated background and pixel noise, remove its mean, and apply a Hann
+       window (``filters.window``);
+    2. zero-pad the windowed image into a **square** of twice its longer side and
+       take the centred FFT magnitude (``scipy.fft.fftshift(fft2(...))``) -- which is
+       translation-invariant, so rotation+scale live here alone. The square keeps
+       the frequency grid isotropic, so a rotation of a non-square image is a
+       rotation of its spectrum; the padding samples the spectrum twice as finely;
+    3. multiply the magnitude by the Reddy-Chatterji high-pass emphasis
+       ``(1 - X)(2 - X)``, ``X = cos(pi u) cos(pi v)``, so the rotation-invariant
+       low-frequency envelope (DC, window, bead profile) does not pin the result
+       to identity;
+    4. log-polar resample the magnitude out to the Nyquist radius
+       (``transform.warp_polar(scaling='log')``, cubic interpolation) and
+       phase-correlate the two (``phase_cross_correlation``,
+       ``normalization='phase'``): the angular shift is rotation, the radial shift
+       is log-scale;
+    5. the FFT magnitude is centro-symmetric, so rotation is ambiguous mod 180°
        and the scale direction is order-dependent -- so the four candidates
        (rotation ``{θ, θ-180}`` × scale ``{s, 1/s}``) are each materialised, the
        residual translation found by a windowed real-space phase correlation, and
        the candidate with the highest masked-overlap NCC is chosen (no fragile
        hand-derived sign convention).
 
-    **Reliable regime.** Validated for the physical split-sensor case -- the
-    near-identity regime of sub-degree rotation and sub-percent scale, which is all
-    dual-view channel registration ever needs (the committed calibration crop's
-    ``.tmap`` similarity is ≈ 0.04°, ≈ 0.1 % off unity). Larger warps are not
-    validated and grow unreliable on sparse fields; rotations approaching ±90° are
-    inherently ambiguous from a magnitude spectrum and are out of scope (ADR-0013).
+    **Reliable regime.** The near-identity regime of the physical split-sensor
+    case: rotations up to a few degrees and scales within about 2 % of unity. On
+    a non-saturated synthetic bead field (140 or 400 beads, 256 x 256 and the
+    512 x 256 channel-half shape) scale 1.01 and rotation 1° are recovered to
+    within 0.003 in scale and 0.3° in rotation (``tests/test_register_prealign.py``).
+    The log-polar correlation is upsampled 10 times, so one angular step is
+    ``360 / (2 * n) / 10`` degrees and one scale step about ``ln(n) / (2 * n) / 10``,
+    for ``n`` the longer image side (0.07° and 0.0011 for 256 px). On a saturated
+    ``uint8`` display export the scale is only as good as the image allows
+    (ADR-0089). Rotations approaching ±90° are inherently ambiguous from a
+    magnitude spectrum and are out of scope (ADR-0013).
 
     Parameters
     ----------
@@ -338,9 +352,9 @@ def estimate_similarity_prealign(
         Sub-pixel upsampling of the final translation phase correlation
         (PRD §11.2 default 10): translation resolved to ``1 / upsample_factor`` px.
     low_sigma, high_sigma:
-        Band-pass Gaussian std-devs in px (PRD §11.2 prealign row; defaults 3 / 20
-        suppress saturated background + pixel noise while keeping bead-scale
-        structure).
+        Band-pass Gaussian std-devs in px (PRD §11.2 prealign row; defaults 1 / 20
+        suppress pixel noise and the saturated background while keeping the bead
+        structure the rotation and scale estimate needs; ADR-0089).
     """
     reference = np.asarray(reference, dtype=np.float64)
     moving = np.asarray(moving, dtype=np.float64)
@@ -354,34 +368,49 @@ def estimate_similarity_prealign(
         raise ValueError(f"upsample_factor must be >= 1, got {upsample_factor}")
     if not (0 < low_sigma < high_sigma):
         raise ValueError(f"require 0 < low_sigma < high_sigma, got {low_sigma}, {high_sigma}")
-    # The low-frequency log-polar radius is shape[0]//8; require >= 16 px per axis so
-    # radius >= 2 keeps np.log(radius) > 0 (real bead detection images are >= 256 px).
+    # The log-polar radius is half the padded side; require >= 16 px per axis so the
+    # log-radius scale is well defined (real bead detection images are >= 256 px).
     if min(reference.shape) < 16:
         raise ValueError(f"images must be >= 16 px per axis, got {reference.shape}")
     if not (np.all(np.isfinite(reference)) and np.all(np.isfinite(moving))):
         raise ValueError("reference and moving must be finite (no NaN/inf)")
 
     # Heavy, GUI-stack-adjacent imports kept local (mirrors estimate_translation_prealign).
-    from scipy.fft import fft2, fftshift  # noqa: PLC0415
+    from scipy.fft import fft2, fftfreq, fftshift  # noqa: PLC0415
     from skimage.filters import difference_of_gaussians, window  # noqa: PLC0415
     from skimage.registration import phase_cross_correlation  # noqa: PLC0415
     from skimage.transform import SimilarityTransform, warp, warp_polar  # noqa: PLC0415
 
     han = window("hann", reference.shape)
-    ref_fs = np.abs(fftshift(fft2(difference_of_gaussians(reference, low_sigma, high_sigma) * han)))
-    mov_fs = np.abs(fftshift(fft2(difference_of_gaussians(moving, low_sigma, high_sigma) * han)))
+    rows, cols = reference.shape
+    side = 2 * max(rows, cols)  # square (isotropic frequency grid), 2x zero-padded
+    freq = fftshift(fftfreq(side))  # cycles / px, centred like the shifted spectrum
+    cos_term = np.cos(np.pi * freq)
+    x_term = cos_term[:, None] * cos_term[None, :]
+    emphasis = (1.0 - x_term) * (2.0 - x_term)  # Reddy & Chatterji (1996) high-pass
 
-    shape = ref_fs.shape
-    radius = shape[0] // 8  # restrict to low frequencies (where the bead structure lives)
-    warped_ref = warp_polar(ref_fs, radius=radius, output_shape=shape, scaling="log", order=0)
-    warped_mov = warp_polar(mov_fs, radius=radius, output_shape=shape, scaling="log", order=0)
+    def _spectrum(image: np.ndarray) -> np.ndarray:
+        filtered = difference_of_gaussians(image, low_sigma, high_sigma)
+        padded = np.zeros((side, side))
+        padded[:rows, :cols] = (filtered - filtered.mean()) * han
+        return np.abs(fftshift(fft2(padded))) * emphasis
+
+    radius = side // 2  # out to the Nyquist frequency along each axis
+    log_polar = {
+        "radius": radius,
+        "output_shape": (side, side),
+        "scaling": "log",
+        "order": 3,
+    }
+    warped_ref = warp_polar(_spectrum(reference), **log_polar)
+    warped_mov = warp_polar(_spectrum(moving), **log_polar)
     # The magnitude is centro-symmetric: only the [0, 180) angular half is unique.
-    half = shape[0] // 2
+    half = side // 2
     (shift_r, shift_c), _err, _pd = phase_cross_correlation(
-        warped_ref[:half], warped_mov[:half], upsample_factor=10, normalization=None
+        warped_ref[:half], warped_mov[:half], upsample_factor=10, normalization="phase"
     )
-    raw_angle = (360.0 / shape[0]) * shift_r
-    raw_scale = float(np.exp(shift_c / (shape[1] / np.log(radius))))
+    raw_angle = (360.0 / side) * shift_r
+    raw_scale = float(np.exp(shift_c / (side / np.log(radius))))
 
     cx, cy = moving.shape[1] / 2.0, moving.shape[0] / 2.0
 
