@@ -766,3 +766,34 @@ downloading the archive and copying the members above; every file has an entry i
 `tests/reference_data/manifest.toml` (ids `ha-sam-sah-fig1` for the archive and
 `ha-sam-sah-hel1` to `ha-sam-sah-hel53`, `ha-sam-sah-frets`, `ha-sam-sah-test3`,
 `ha-sam-sah-counts2`), and the weekly `reference-data` job compares each copy with its member.
+
+## Weninger laboratory hairpin movie (second `.traces` variant, #798) — **CC0-1.0**
+
+External third-party data under a different licence: the data of Xu *et al.*, J. Mol. Biol.
+435(10):168086 (2023), doi:10.1016/j.jmb.2023.168086, deposited by **Keith Weninger** and
+co-authors at Dryad **doi:10.5061/dryad.ht76hdrkc** and copied to Zenodo
+**doi:10.5281/zenodo.7853531** (published 2023-04-21) under **CC0-1.0**. It is annotated CC0-1.0
+in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+The record's one archive, `10072022_All_hairpin_traces.zip` (891,884,203 B, MD5
+`445a12cafcc4bf6f2a0ddf36516997c5` as the record states, SHA-256
+`f42a3b23f4912fa7e25fdf8904f6d4fba264d47bbec2ea23d2ed7f6f37189044`), holds 2,499 `.traces`
+movies at 10, 15 and 50 ms and the laboratory's MATLAB reader,
+`MATLAB_code_for_opening_dot_traces_files.pdf` (306,717 B, SHA-256 `357e3e0d193b647bb4b257b636e837d078a36517952dd43f80a95d81c06efd84`;
+not committed). The archive is larger than the download tier allows, so its manifest entry is a `workstation` record, and
+the one committed movie was read from it with HTTP range requests (no transformation):
+
+| Fixture | Source member | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/weninger_hairpin/cascade110.traces` | `10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces` | 47,094 B | `504226b25a5ff895a361b4739c2f55f4163ae00dfc0219f9b868a4be84d11513` |
+
+The movie has 872 frames and 13 molecules (the header says 26 channels; each frame holds one more
+value, the frame index). The second movie that #798 names, `10msec/(CAG)14/20220114/Evo31.traces`
+(1,146,478 B, SHA-256 `f1ae4ed5abdb5041042090bf9b4f01e3cf7b96bc54516c46dc9100edb862f8cd`, also
+checked), is **not** committed: it is larger than the 1,000,000 B limit of the git tier.
+
+**Accessed:** 2026-11-14 (members read from Zenodo by range requests; both SHA-256 values equal
+those of the survey of #721; the whole archive downloaded once to compute its SHA-256 and check
+its MD5). **License:** CC0-1.0 — **not** GPL-3.0. Regenerate by copying the member above out of
+the archive; manifest ids `weninger-hairpin-traces` (the archive) and
+`weninger-hairpin-cascade110`. The weekly `reference-data` job does not download the archive.

@@ -91,6 +91,15 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 Ting-Wei Liao, Ha Single-Molecule Lab (Zenodo 10.5281/zenodo.8088172)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# Weninger laboratory trinucleotide-repeat hairpin data (#798): a verbatim copy of one .traces
+# movie of the archive of Zenodo 10.5281/zenodo.7853531 (Dryad doi:10.5061/dryad.ht76hdrkc,
+# CC0-1.0). Attributed in NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/weninger_hairpin/*"]
+precedence = "override"
+SPDX-FileCopyrightText = "2023 Pengning Xu, Jiahui Zhang, Feng Pan, Chelsea Mahn, Christopher Roland, Celeste Sagui, Keith Weninger (Zenodo 10.5281/zenodo.7853531)"
+SPDX-License-Identifier = "CC0-1.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.
