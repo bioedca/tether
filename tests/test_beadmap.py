@@ -251,6 +251,58 @@ def test_from_file_video_and_image(bead_image: np.ndarray, tmp_path: Path) -> No
         bead_map_from_file(tmp_path / "missing.tif")
 
 
+@pytest.mark.parametrize("axes", ["CYX", "ZYX"])
+def test_from_file_refuses_channels_or_focus_planes_as_frames(
+    bead_image: np.ndarray, tmp_path: Path, axes: str
+) -> None:
+    """A multichannel (or focus) stack is not a video: its planes must never be
+    max-projected together as if they were frames."""
+    path = tmp_path / f"stack-{axes}.tif"
+    tifffile.imwrite(
+        path, np.stack([bead_image] * 3).astype(np.uint16), imagej=True, metadata={"axes": axes}
+    )
+    with pytest.raises(BeadMapError, match=f"axes '{axes}'"):
+        bead_map_from_file(path)
+
+
+def test_from_file_accepts_an_imagej_time_series_and_a_compressed_video(
+    bead_image: np.ndarray, tmp_path: Path
+) -> None:
+    timed = tmp_path / "beads-time.tif"
+    tifffile.imwrite(
+        timed, np.stack([bead_image] * 3).astype(np.uint16), imagej=True, metadata={"axes": "TYX"}
+    )
+    packed = tmp_path / "beads-zlib.tif"
+    tifffile.imwrite(
+        packed, np.stack([bead_image] * 3), photometric="minisblack", compression="zlib"
+    )
+    reference = _quiet_bead_map(bead_image, source_id="r")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OverGateRegistrationWarning)
+        for path in (timed, packed):
+            result = bead_map_from_file(path, frames=(0, 2))
+            assert result.source.kind == "video"
+            assert result.source.n_frames == 3
+            _assert_same_map(result.registration_map, reference.registration_map)
+
+
+def test_projection_in_blocks_equals_the_whole_stack_reduction(tmp_path: Path) -> None:
+    """The projection reduces a long video block by block; the result is the same
+    per-pixel max and mean as reducing the whole selection at once, also on a memmap."""
+    rng = np.random.default_rng(3)
+    video = rng.integers(0, 4096, size=(77, 6, 10), dtype=np.uint16)
+    selected = video[5:71].astype(np.float64)
+    assert np.array_equal(project_frames(video, frames=(5, 71)), selected.max(axis=0))
+    assert np.allclose(
+        project_frames(video, frames=(5, 71), projection="mean"), selected.mean(axis=0)
+    )
+    mapped = np.lib.format.open_memmap(
+        tmp_path / "video.npy", mode="w+", dtype=video.dtype, shape=video.shape
+    )
+    mapped[:] = video
+    assert np.array_equal(project_frames(mapped, frames=(5, 71)), selected.max(axis=0))
+
+
 def test_from_file_refuses_an_rgb_image(tmp_path: Path) -> None:
     rgb = tmp_path / "rgb.tif"
     tifffile.imwrite(rgb, np.zeros((32, 64, 3), dtype=np.uint8), photometric="rgb")

@@ -87,6 +87,16 @@ _ACCEPTOR_CHANNEL = 1
 
 _HASH_CHUNK = 1 << 20  # 1 MiB streaming read for the source content hash.
 
+#: Frames reduced at a time by :func:`project_frames` (bounds its working memory).
+_PROJECTION_BLOCK = 32
+
+#: TIFF series axes :func:`bead_map_from_file` accepts: one image, or a stack whose
+#: first axis is frames (tifffile's ``I`` = generic page stack, ``T`` = time,
+#: ``Q`` = unknown stack). A channel (``C``), sample (``S``), focus (``Z``) or any
+#: other axis is refused, so separate channels are never projected as frames.
+_IMAGE_AXES = "YX"
+_VIDEO_AXES: tuple[str, ...] = ("IYX", "TYX", "QYX")
+
 
 class BeadMapError(ValueError):
     """A bead source that cannot give a map (bad frames, too few spots or pairs)."""
@@ -206,8 +216,20 @@ def project_frames(
     start, stop = _frame_range(frames, video.shape[0])
     if projection not in BEAD_PROJECTIONS:
         raise BeadMapError(f"projection must be one of {BEAD_PROJECTIONS}, got {projection!r}")
-    block = video[start:stop].astype(np.float64, copy=False)
-    return block.max(axis=0) if projection == "max" else block.mean(axis=0)
+    # Reduce in blocks of frames, so a long (or memory-mapped) video never needs a
+    # float64 copy of the whole selection: memory is bounded by one block + one image.
+    acc: np.ndarray | None = None
+    for first in range(start, stop, _PROJECTION_BLOCK):
+        block = np.asarray(video[first : min(first + _PROJECTION_BLOCK, stop)], dtype=np.float64)
+        part = block.max(axis=0) if projection == "max" else block.sum(axis=0)
+        if acc is None:
+            acc = part
+        elif projection == "max":
+            np.maximum(acc, part, out=acc)
+        else:
+            acc += part
+    assert acc is not None  # _frame_range guarantees at least one frame
+    return acc if projection == "max" else acc / float(stop - start)
 
 
 def _frame_range(frames: tuple[int, int] | None, n_frames: int) -> tuple[int, int]:
@@ -366,7 +388,7 @@ def bead_map(
     if data.ndim == 2:
         if frames is not None or projection != "max":
             raise BeadMapError("frames and projection apply to a bead video, not to one image")
-        image = data.astype(np.float64, copy=False)
+        image = np.array(data, dtype=np.float64)  # a copy: data may be a memory map
         source = BeadMapSource(source_id=source_id, kind="image")
     elif data.ndim == 3:
         image = project_frames(data, frames=frames, projection=projection)
@@ -490,9 +512,11 @@ def bead_map_from_file(
     The source id is ``"sha256:<hex>"`` of the file's bytes, so it names the
     content and stays the same when the file moves; the file name is stamped as
     ``bead_file``. A one-page TIFF is an image (no frame range, no projection);
-    a multi-page TIFF is a video reduced with ``frames`` and ``projection``. A
-    TIFF of another layout (for example an RGB image) is refused. Other keyword
-    arguments go to :func:`bead_map`.
+    a multi-page TIFF is a video reduced with ``frames`` and ``projection``. The
+    file is memory-mapped and the video projected block by block, so a long video
+    need not fit in memory. A TIFF of another layout (an RGB image, a multichannel
+    or a focus stack: any series axes but ``YX``, ``IYX``, ``TYX`` or ``QYX``) is
+    refused. Other keyword arguments go to :func:`bead_map`.
     """
     import tifffile  # noqa: PLC0415
 
@@ -501,22 +525,31 @@ def bead_map_from_file(
         raise BeadMapError(f"bead file not found: {path}")
     source_id = f"sha256:{_sha256_file(path)}"
     try:
-        with tifffile.TiffFile(path) as tif:
-            series = tif.series[0]
-            axes = str(series.axes)
-            data = np.asarray(series.asarray())
-    except Exception as exc:  # not a TIFF, or unreadable
+        tif = tifffile.TiffFile(path)
+    except (OSError, ValueError, tifffile.TiffFileError) as exc:  # not a TIFF, or unreadable
         raise BeadMapError(f"could not read the bead file {path.name}: {exc}") from exc
-    if data.ndim == 3 and data.shape[0] == 1:
-        data = data[0]  # a one-frame stack is one image
-    if data.ndim not in (2, 3) or "S" in axes:  # "S" = colour samples, not frames
-        raise BeadMapError(
-            f"{path.name}: expected one image (height, width) or a video "
-            f"(frames, height, width), got shape {data.shape} (axes {axes!r})"
-        )
-    if data.ndim == 2 and (frames is not None or projection != "max"):
-        raise BeadMapError(f"{path.name} has one page; frames and projection apply to a video")
-    kwargs.setdefault("bead_file", path.name)
-    if data.ndim == 2:
-        return bead_map(data, source_id=source_id, **kwargs)
-    return bead_map(data, source_id=source_id, frames=frames, projection=projection, **kwargs)
+    with tif:
+        series = tif.series[0]
+        axes = str(series.axes)
+        shape = tuple(int(n) for n in series.shape)
+        if axes not in (_IMAGE_AXES, *_VIDEO_AXES):
+            raise BeadMapError(
+                f"{path.name}: expected one image (axes 'YX') or a video of frames "
+                f"(axes {' / '.join(repr(a) for a in _VIDEO_AXES)}), got shape {shape} "
+                f"(axes {axes!r}); channels, colour samples and focus planes are not frames"
+            )
+        try:
+            # Memory-map rather than load: a long bead video is reduced block by block
+            # (project_frames), so it never has to fit in memory. tifffile maps the
+            # file itself when it can, else it decodes into a temporary mapped file.
+            data = tif.asarray(series=0, out="memmap")
+        except (OSError, ValueError, tifffile.TiffFileError) as exc:
+            raise BeadMapError(f"could not read the bead file {path.name}: {exc}") from exc
+        if data.ndim == 3 and data.shape[0] == 1:
+            data = data[0]  # a one-frame stack is one image
+        if data.ndim == 2 and (frames is not None or projection != "max"):
+            raise BeadMapError(f"{path.name} has one page; frames and projection apply to a video")
+        kwargs.setdefault("bead_file", path.name)
+        if data.ndim == 2:
+            return bead_map(data, source_id=source_id, **kwargs)
+        return bead_map(data, source_id=source_id, frames=frames, projection=projection, **kwargs)
