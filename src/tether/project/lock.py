@@ -460,18 +460,34 @@ def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
     guard created ``0644`` under ``umask 022`` admits only its first creator to
     ``O_RDWR``. Bits are only added, never removed, and only the guard's owner can
     change them, so a guard an earlier release created is repaired the next time
-    its owner runs a lifecycle operation. Best effort: a filesystem that refuses
-    ``fchmod`` still has the read-only fallback in :func:`_open_guard`.
+    its owner runs a lifecycle operation. Where the directory is group-writable,
+    the guard also takes the directory's group: without a setgid directory Linux
+    gives a new file its creator's primary group, which need not be the group that
+    shares the project.
+
+    Nothing is changed unless the descriptor is a regular file with one link that
+    the guard path itself names. An entry another directory writer planted — a
+    hard link to a file the caller owns elsewhere — is left alone, so sharing the
+    guard can never widen access to an unrelated file. Best effort: a filesystem
+    that refuses ``fchmod`` still has the read-only fallback in :func:`_open_guard`.
     """
     try:
         current = os.fstat(fd)
         if current.st_uid != os.geteuid():
             return
-        directory_mode = os.stat(gp.parent).st_mode
+        if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1:
+            return
+        entry = os.lstat(gp)
+        if (entry.st_dev, entry.st_ino) != (current.st_dev, current.st_ino):
+            return
+        directory = os.stat(gp.parent)
         wanted = 0
-        if directory_mode & stat.S_IWGRP:
+        if directory.st_mode & stat.S_IWGRP:
             wanted |= stat.S_IRGRP | stat.S_IWGRP
-        if directory_mode & stat.S_IWOTH:
+            if current.st_gid != directory.st_gid:
+                with suppress(OSError):
+                    os.fchown(fd, -1, directory.st_gid)
+        if directory.st_mode & stat.S_IWOTH:
             wanted |= stat.S_IROTH | stat.S_IWOTH
         mode = stat.S_IMODE(current.st_mode)
         if mode & wanted != wanted:
@@ -483,18 +499,23 @@ def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
 def _open_guard(gp: Path) -> tuple[int, bool]:
     """Open (creating if needed) the lifecycle guard; return ``(fd, read_only)``.
 
+    The guard is never opened through a symbolic link (``O_NOFOLLOW``): a symlink
+    a directory writer planted at the guard path fails the operation closed
+    rather than locking, or changing the permissions of, the file it points to.
+
     On POSIX a guard another user created without group write (an earlier release,
     or a strict site umask) is opened read-only instead of failing: ``flock()``
     takes an exclusive lock regardless of the descriptor's access mode, so a
     second user can still serialize with the owner and run an explicit steal.
     """
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o666)
+        fd = os.open(gp, os.O_CREAT | os.O_RDWR | no_follow, 0o666)
     except PermissionError as exc:
         if os.name == "nt":
             raise
         try:
-            return os.open(gp, os.O_RDONLY), True
+            return os.open(gp, os.O_RDONLY | no_follow), True
         except OSError:
             raise exc from None
     if os.name != "nt":

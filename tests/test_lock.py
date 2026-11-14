@@ -383,6 +383,87 @@ def test_steal_lock_runs_when_the_guard_is_not_writable_by_this_user(
     assert lock.release(path, stolen)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode/umask semantics")
+def test_a_symlinked_guard_fails_closed_and_leaves_its_target_alone(tmp_path: Path) -> None:
+    """#257: a directory writer's symlink at the guard path must not widen its target."""
+    project_dir = tmp_path / "shared"
+    project_dir.mkdir()
+    project_dir.chmod(0o2770)
+    victim = tmp_path / "private.txt"
+    victim.write_text("secret", encoding="utf-8")
+    victim.chmod(0o600)
+    path = project_dir / "exp.tether"
+    lock._guard_path(lock.lock_path(path)).symlink_to(victim)
+
+    with pytest.raises(OSError):
+        lock.acquire(path, identity=HOST_A)
+
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o600
+    assert not lock.lock_path(path).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode/umask semantics")
+def test_a_hard_linked_guard_is_not_widened(tmp_path: Path) -> None:
+    """#257: a guard that is a second name for another file keeps that file's mode."""
+    project_dir = tmp_path / "shared"
+    project_dir.mkdir()
+    project_dir.chmod(0o2770)
+    victim = tmp_path / "private.txt"
+    victim.write_text("secret", encoding="utf-8")
+    victim.chmod(0o600)
+    path = project_dir / "exp.tether"
+    os.link(victim, lock._guard_path(lock.lock_path(path)))
+
+    info = lock.acquire(path, identity=HOST_A)
+    assert lock.release(path, info)
+
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode/umask semantics")
+def test_the_guard_takes_the_group_of_a_group_writable_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#257: without setgid, Linux gives a new guard its creator's primary group.
+
+    The guard must take the project directory's group, or a member of that group
+    still cannot open it. The directory below is not setgid, and its group is
+    reported as one the creator's guard does not have.
+    """
+    from types import SimpleNamespace
+
+    project_dir = tmp_path / "shared"
+    project_dir.mkdir()
+    project_dir.chmod(0o770)
+    path = project_dir / "exp.tether"
+    guard = lock._guard_path(lock.lock_path(path))
+    shared_group = os.getegid() + 4242
+    real_stat = os.stat
+    chowned: list[tuple[int, int]] = []
+
+    def stat_with_shared_group(target, *args, **kwargs):
+        result = real_stat(target, *args, **kwargs)
+        if not args and not kwargs and Path(target) == project_dir:
+            return SimpleNamespace(st_mode=result.st_mode, st_gid=shared_group)
+        return result
+
+    def record_fchown(fd, uid, gid):
+        chowned.append((uid, gid))
+
+    monkeypatch.setattr(lock.os, "stat", stat_with_shared_group)
+    monkeypatch.setattr(lock.os, "fchown", record_fchown)
+    previous_umask = os.umask(0o077)
+    try:
+        with lock._lifecycle_guard(lock.lock_path(path)):
+            pass
+    finally:
+        os.umask(previous_umask)
+    monkeypatch.undo()
+
+    assert chowned == [(-1, shared_group)]
+    assert stat.S_IMODE(guard.stat().st_mode) == 0o660
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX flock semantics")
 def test_read_only_guard_on_a_filesystem_that_needs_write_names_the_remedy(
     tmp_path: Path, monkeypatch
@@ -443,7 +524,12 @@ else:
     reason="needs root to run two real POSIX users",
 )
 def test_second_user_steals_a_stale_lock_in_a_shared_project(tmp_path: Path) -> None:
-    """#257 end to end: two real users sharing a group, both under ``umask 022``."""
+    """#257 end to end: two real users sharing only a supplementary group.
+
+    Both run under ``umask 022`` with their own primary groups, in a directory that
+    is group-writable but not setgid, so neither the umask nor the directory gives
+    the guard the shared group or its write bit.
+    """
     import shutil
     import tempfile
 
@@ -452,7 +538,9 @@ def test_second_user_steals_a_stale_lock_in_a_shared_project(tmp_path: Path) -> 
     shared = Path(tempfile.mkdtemp(prefix="tether-257-"))
     try:
         os.chown(shared, 0, group)
-        shared.chmod(0o2770)
+        # Not setgid: on Linux each user's guard would otherwise get its creator's
+        # primary group, which is not the group the project is shared with.
+        shared.chmod(0o770)
         project = shared / "exp.tether"
         cache = shared / "numba-cache"
         cache.mkdir()
@@ -471,7 +559,7 @@ def test_second_user_steals_a_stale_lock_in_a_shared_project(tmp_path: Path) -> 
             done = subprocess.run(
                 [os.path.realpath(sys.executable), "-c", _CROSS_USER_SCRIPT, action, str(project)],
                 user=user,
-                group=group,
+                group=user,
                 extra_groups=[group],
                 umask=0o022,
                 env={**env, "USER": f"u{user}", "LOGNAME": f"u{user}"},
@@ -486,6 +574,7 @@ def test_second_user_steals_a_stale_lock_in_a_shared_project(tmp_path: Path) -> 
         first = run(first_user, "acquire")
         guard = lock._guard_path(lock.lock_path(project))
         assert guard.stat().st_uid == first_user
+        assert guard.stat().st_gid == group
         assert stat.S_IMODE(guard.stat().st_mode) & 0o060 == 0o060
 
         result = run(second_user, "steal")

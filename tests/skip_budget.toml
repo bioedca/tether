@@ -33,7 +33,7 @@ max_skipped = 34
 
 [jobs."test (windows-latest)"]
 min_collected = 4016
-max_skipped = 24
+max_skipped = 27
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -201,6 +201,27 @@ does not have; test (ubuntu-latest) and test (macos-latest) run it."""
 
 [[skip]]
 test = "tests/test_lock.py::test_steal_lock_runs_when_the_guard_is_not_writable_by_this_user"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_symlinked_guard_fails_closed_and_leaves_its_target_alone"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_hard_linked_guard_is_not_widened"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_the_guard_takes_the_group_of_a_group_writable_directory"
 reason = "POSIX mode/umask semantics"
 jobs = ["test (windows-latest)"]
 why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \

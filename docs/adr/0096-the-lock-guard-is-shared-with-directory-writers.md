@@ -58,6 +58,14 @@ Chosen option: **2**.
   owner does this on every lifecycle operation, a `0644` guard left by an earlier release is
   repaired the next time its owner acquires, refreshes, steals or releases. `fchmod` is best
   effort — a filesystem that refuses it does not fail the lock.
+- Where the directory is group-writable, the owner also gives the guard the **directory's group**
+  (`fchown`, best effort). Without a setgid directory Linux gives a new file its creator's primary
+  group, which need not be the group the project is shared with, and the mode bits alone would
+  then admit nobody.
+- The guard is opened with `O_NOFOLLOW`, and its permissions or group change only when the
+  descriptor is a regular file with one link that the guard path itself names. A directory writer
+  can plant a symlink or a hard link at the guard path; a symlink now fails the operation closed,
+  and neither can make Tether widen access to an unrelated file the caller owns.
 - A user who is **not** the owner and cannot open the guard `O_RDWR` opens it read-only.
   `flock()` takes an exclusive lock whatever the descriptor's access mode, so that user still
   serializes with every other process and can run the explicit steal.
@@ -71,9 +79,13 @@ Chosen option: **2**.
 ### Consequences
 
 - Good: on a shared project under `umask 022`, a second user can open the guard and run the
-  documented stale-lock recovery; `tests/test_lock.py` covers creation, repair, the read-only
-  fallback, its `EBADF` message, and (when run as root) two real users end to end.
+  documented stale-lock recovery; `tests/test_lock.py` covers creation, repair, the directory's
+  group, symlinked and hard-linked guards, the read-only fallback, its `EBADF` message, and (when
+  run as root) two real users with different primary groups end to end.
 - Good: the guard never grants a class write access that the directory does not already grant.
+- Good: sharing the guard cannot change the mode or group of any file but the guard itself.
+- Neutral: a guard path that is a symlink — which no release of Tether creates — now fails every
+  lifecycle operation with `OSError` (`ELOOP`) until it is removed.
 - Neutral: in a world-writable directory (for example a sticky `/tmp`) the guard becomes `0666`.
   That grants nothing new — any user who can read the guard can already `flock()` it.
 - Bad: a guard owned by a user who never runs Tether again stays `0644`. On a local filesystem the
