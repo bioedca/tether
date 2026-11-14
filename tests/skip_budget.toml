@@ -33,7 +33,7 @@ max_skipped = 33
 
 [jobs."test (windows-latest)"]
 min_collected = 4016
-max_skipped = 18
+max_skipped = 19
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -183,6 +183,14 @@ test = "tests/test_lock.py::test_fork_child_does_not_prolong_parent_lifecycle_gu
 reason = "requires POSIX fork"
 jobs = ["test (windows-latest)"]
 why = """Windows has no os.fork; test (ubuntu-latest) and test (macos-latest) run the test."""
+
+[[skip]]
+test = "tests/test_benchmarks.py::test_a_timeout_also_stops_what_the_child_started"
+reason = "process groups are POSIX; the job is Linux"
+jobs = ["test (windows-latest)"]
+why = """The timeout kills the child's process group with os.killpg, which Windows lacks, and
+the benchmarks workflow runs only on ubuntu-latest (#875); test (ubuntu-latest) and
+test (macos-latest) run the test."""
 
 [[skip]]
 test = "tests/test_gui_theme.py::test_the_napari_viewer_follows_the_theme"
