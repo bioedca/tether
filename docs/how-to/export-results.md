@@ -31,7 +31,8 @@ Every one of them also writes a [provenance
 sidecar](../reference/exports.md#provenance-sidecar) beside the file, named after it with
 `.provenance.json` added. It records which Tether version, which project and which settings
 made the file. Keep it with the file when you move or share it: for the CSV and the trace
-matrix it is the only such record.
+matrix it is the only such record. To put these files in a public repository, follow
+[Share and deposit a dataset](share-a-dataset.md).
 
 ## Export the molecule table
 
