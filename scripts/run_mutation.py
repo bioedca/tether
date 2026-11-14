@@ -431,9 +431,21 @@ def module_name(path: str) -> str:
 def _module_file(src: Path, name: str) -> Path | None:
     base = src.joinpath(*name.split("."))
     for candidate in (base.with_suffix(".py"), base / "__init__.py"):
-        if candidate.is_file():
+        if candidate.is_file() and _exact_case(src, candidate):
             return candidate
     return None
+
+
+def _exact_case(root: Path, path: Path) -> bool:
+    """Whether each part of *path* below *root* is on disk with that case. Python's import
+    matches case even on a filesystem that does not (Windows, macOS), so ``pkg.C`` is no
+    module when only ``pkg/c.py`` exists."""
+    here = root
+    for part in path.relative_to(root).parts:
+        if part not in os.listdir(here):
+            return False
+        here = here / part
+    return True
 
 
 def _absolute(module: str, is_package: bool, node: ast.ImportFrom) -> str:
