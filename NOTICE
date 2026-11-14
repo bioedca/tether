@@ -267,6 +267,16 @@ Ha laboratory SAM/SAH riboswitch data  (CC-BY-4.0)  — Liao T-W, Huang L,
     tests/fixtures/ha_sam_sah/test3.dat
     tests/fixtures/ha_sam_sah/counts2.txt
 
+PySMACKS tutorial traces  (CC0-1.0)  — Molcrette B & Schmid S, "Dataset for the
+  PySMACKS tutorial" (v1.0.0), Zenodo doi:10.5281/zenodo.21793247 (CC0-1.0).
+  Tether does not bundle the traces: the weekly reference-data job downloads
+  them. It bundles tests/fixtures/pysmacks_tutorial_reference.json, the FRET
+  histogram and two-state HMM result that PySMACKS 1.0.0b4 (MIT, University of
+  Basel) gives on those traces, made once by scripts/make_pysmacks_reference.py
+  for a comparison test (issue #720). That file is CC0-1.0 (see
+  LICENSES/CC0-1.0.txt and the REUSE.toml annotation), NOT GPL-3.0. PySMACKS
+  itself is NOT vendored.
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------

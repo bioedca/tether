@@ -984,6 +984,55 @@ settings file numbers the same states differently; `settings_state_of` maps each
 row there, and the required-matrix test checks every rate, every zero and both blinking
 rates of both dyes against the file.
 
+## PySMACKS tutorial traces (exact histogram, rate report)
+
+A second data point from outside Tether, tMAVEN and kinSoft
+([#720](https://github.com/bioedca/tether/issues/720)): the traces file of the PySMACKS tutorial,
+Zenodo [10.5281/zenodo.21793247](https://doi.org/10.5281/zenodo.21793247) (Molcrette and Schmid,
+2026, CC0-1.0), manifest id `pysmacks-tutorial-traces`. It holds 1,136 ALEX traces of a
+two-state Holliday junction in OpenFRET JSON; 52 of them carry the label "FRET", a frame range.
+PySMACKS is at a beta version, so it is a second data point and not a reference tool.
+
+**The PySMACKS side was made once, offline.** The record's README says the file holds the HMM
+analysis, but it does not: no trace has the `HMM_param` entry that PySMACKS writes, no trace has
+FRET values, and the file names no PySMACKS version. So `scripts/make_pysmacks_reference.py` ran
+PySMACKS 1.0.0b4 on the 52 labelled traces on 2026-11-13 and wrote
+`tests/fixtures/pysmacks_tutorial_reference.json`, which records the versions that ran. PySMACKS
+never runs in CI (maintainer decision of 2026-11-13). The tests read the original downloaded zip
+with a test-only reader and use only the donor-excitation channels (PRD §2.2, rules 1 and 2).
+Both tests are in the weekly `reference-data` job.
+
+- **Histogram, exact.**
+  `tests/test_pysmacks_tutorial_download.py::test_tethers_apparent_e_histogram_equals_the_pysmacks_histogram`
+  bins Tether's apparent FRET of each labelled, background-subtracted frame (56,442 frames) in
+  151 bins over −0.5 to 1.5, and requires the count of every bin to equal the PySMACKS count.
+  It does.
+- **Rates, report only.**
+  `tests/test_pysmacks_tutorial_download.py::test_tethers_two_state_rates_report_their_difference_from_pysmacks`
+  fits the same frames with the base-environment two-state HMM of oracle (c) and prints its
+  numbers beside the PySMACKS ensemble HMM (a 2-D Gaussian HMM on the donor and acceptor
+  intensities, `TbT_HMM_pipeline` then `Ens_HMM`). It fails only when the fit does not converge.
+  No frozen limit exists; one needs the maintainer's sign-off. The record gives no frame time,
+  so the rates are per frame, and no published rates for this set were found (the PySMACKS
+  documentation site could not be reached from the build environment).
+
+Measured on 2026-11-13:
+
+| Quantity | PySMACKS 1.0.0b4 | Tether | Difference |
+|---|---|---|---|
+| State 1 apparent E | 0.2374 | 0.2140 | −0.0234 |
+| State 2 apparent E | 0.6734 | 0.5944 | −0.0790 |
+| p(1 → 2) per frame | 0.2711 | 0.2649 | −0.0062 |
+| p(2 → 1) per frame | 0.2861 | 0.1679 | −0.1182 |
+| k(1 → 2) per frame | 0.2711 | 0.2054 | −0.0657 |
+| k(2 → 1) per frame | 0.2861 | 0.1422 | −0.1439 |
+
+PySMACKS's state E is the E of its median state means in intensity, and its rate is the
+transition probability per frame, which its Kinetics tab divides by the frame time. Tether's rate
+is `1/⟨τ⟩` of the interior dwells of its Viterbi paths (4,687 and 4,664 dwells). The two fit
+different models (two intensity channels against one apparent-E signal), so this table is
+evidence about the size of the difference and not a tolerance.
+
 ## Scope and known limitations
 
 **Validation coverage.**
