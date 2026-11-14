@@ -73,8 +73,12 @@ def test_the_record_is_one_check_entry_of_a_workstation_result() -> None:
     assert set(check) == {"check", "outcome", "duration_s", "datasets"}
     assert check["check"] == CHECK
     assert check["outcome"] in {"passed", "failed", "skipped", "error"}
-    assert list(check["datasets"]) == [ORACLE_A], "the record names the neutral id only"
-    assert set(check["datasets"][ORACLE_A]) <= METRICS
+    # A run that stopped before it opened a file (a setup error, or a skip at an import) has no
+    # numbers; any other entry names the neutral id only.
+    datasets = check["datasets"]
+    if check["outcome"] == "passed" or datasets:
+        assert list(datasets) == [ORACLE_A], "the record names the neutral id only"
+        assert set(datasets[ORACLE_A]) <= METRICS
 
 
 def test_the_recorded_check_is_the_workstation_oracle_test() -> None:
@@ -88,12 +92,12 @@ def test_the_recorded_check_is_the_workstation_oracle_test() -> None:
 
 def test_the_outcome_agrees_with_the_numbers_and_the_frozen_gate() -> None:
     check = _record()["check"]
-    numbers = check["datasets"][ORACLE_A]
     if check["outcome"] != "passed":
         # A run that did not pass may stop before it records every number, and its numbers need
         # not meet the gate. Return, not skip: a skip on the required legs is outside the skip
         # budget, so a true record of a failed run would itself fail CI.
         return
+    numbers = check["datasets"][ORACLE_A]
     assert set(numbers) | {"position_rms_px", "precision"} >= METRICS
     assert numbers["matched_fraction"] >= RECALL_THRESHOLD
     assert numbers["donor_pearson_median"] >= PEARSON_THRESHOLD
