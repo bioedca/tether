@@ -583,6 +583,17 @@ verifies every committed record. `stand-in/selftest` is not a reference: the `ma
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
 
+`mash-fret/easy`, `mash-fret/low-snr`, `mash-fret/dense` and `mash-fret/uneven` (#714,
+ADR-0088) are four simulated two-channel videos with their truth, made by the `simulate` task of
+`scripts/reference/matlab/mash_fret.py` with the parameters and seeds of
+`scripts/reference/matlab/mash_fret_extraction_set.py`, on MASH-FRET v1.3.6 (`83fcadf`) and
+MATLAB R2023b on the maintainer's workstation (2026-11-13). Each directory holds the video
+(`<name>.sira.gz`, MASH-FRET's own format compressed with gzip), `coordinates/<name>.coord`,
+one `traces_ASCII/<name>_mol<n>of<N>.txt` for each molecule, MASH-FRET's `<name>_param.log`, the
+note `<name>_tether_note.txt` (the one accepted MATLAB R2023b error, ADR-0088) and
+`provenance.json`. They are simulated, so they hold no measured data; they are outputs of a
+GPL-3.0 program and carry the repository's licence.
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the

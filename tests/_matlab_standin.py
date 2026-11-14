@@ -27,15 +27,19 @@ def main(argv: list[str]) -> int:
         print("no tether_run_job call in the command", file=sys.stderr)
         return 2
     job = json.loads(Path(match.group(1).replace("''", "'")).read_text(encoding="utf-8"))
-    info = {"release": STANDIN_RELEASE, "version": "0.0.0 (stand-in)"}
-    Path(job["matlab_info"]).write_text(json.dumps(info), encoding="utf-8")
     if job["params"].get("fail"):
         return 1
+    if job["params"].get("return_early"):
+        # The Windows launcher that returns 0 before MATLAB has run the job (#714).
+        return 0
     for name in job["params"].get("touch_inputs", []):
         with open(job["inputs"][name], "a", encoding="utf-8") as fh:
             fh.write("changed while MATLAB ran\n")
     out = Path(job["output_dir"], f"{job['task']}.csv")
     out.write_text(f"entry,value\n{job['entry']},1\n", encoding="utf-8", newline="\n")
+    # As tether_run_job.m: the release is reported only after the task ended without an error.
+    info = {"release": STANDIN_RELEASE, "version": "0.0.0 (stand-in)"}
+    Path(job["matlab_info"]).write_text(json.dumps(info), encoding="utf-8")
     return 0
 
 

@@ -98,6 +98,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
+| Extraction vs MASH-FRET simulated truth | required matrix | yes |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -978,6 +979,38 @@ other figures (#796). The second `.traces` variant, with a frame-index row, is #
 `test_the_donor_is_the_first_channel_of_each_molecule`,
 `test_swapped_channels_miss_the_peaks_of_test3_dat` and
 `test_the_reader_opens_all_53_files_with_the_molecule_counts_of_the_lab`.
+
+## Extraction vs MASH-FRET simulated truth
+
+Oracle (a) compares Tether with another tool on a real movie, which has no truth. This check
+compares Tether's extraction with the truth of four simulated two-channel videos that the
+MASH-FRET simulator (v1.3.6, the pin of the MATLAB harness) made on the maintainer's
+workstation (#714, [ADR-0088](adr/0088-extraction-test-on-mash-fret-simulated-videos.md)). The
+scenarios are `easy` (bright, isolated molecules), `low-snr` (dim molecules on a brighter
+background), `dense` (60 molecules, so apertures overlap) and `uneven` (a TIRF-like Gaussian
+background), each 160 × 80 px, 40 frames, one excitation. The videos, the true coordinates and
+the noise-free intensities are frozen under `tests/fixtures/reference/mash-fret/` with a
+provenance record, and `tests/test_matlab_reference.py` checks their SHA-256 values.
+
+`tests/test_mash_fret_extraction.py` runs `extract_movie` with every default on each video and
+measures: how many of the molecules whose aperture fits in the channel Tether found (a donor
+position within 1.5 px of the truth), how many Tether molecules match no true one, the largest
+donor and acceptor position errors, and, in each channel, the median ratio of Tether's corrected
+intensity to the true image counts and the lowest Pearson correlation of the traces. The first
+measurement:
+
+| Scenario | Found / eligible | False | Largest error donor / acceptor (px) | Median ratio donor / acceptor | Lowest r donor / acceptor |
+| --- | --- | --- | --- | --- | --- |
+| `easy` | 4 / 6 | 0 | 0.477 / 0.416 | 0.917 / 0.913 | 0.895 / 0.827 |
+| `low-snr` | 6 / 8 | 0 | 0.969 / 3.075 | 0.875 / 0.934 | 0.348 / 0.381 |
+| `dense` | 7 / 35 | 1 | 0.984 / 2.067 | 1.078 / 0.731 | 0.432 / 0.467 |
+| `uneven` | 7 / 10 | 0 | 0.645 / 0.645 | 0.965 / 0.892 | 0.831 / 0.701 |
+
+The limits are these values with fixed margins (ADR-0088 gives them) and are frozen. Every
+molecule Tether missed in `easy` and `uneven` has another true molecule within 7.4 px. Two
+fault injections each break a limit: an aperture moved by 2 px lowers the donor ratio of `easy`
+to 0.689, and an acceptor position moved by 2 px after the channel mapping raises its largest
+acceptor error to 2.390 px.
 
 ## External benchmark
 

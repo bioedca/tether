@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Run a MATLAB reference tool at its pinned commit and freeze its outputs (#700, ADR-0074).
+r"""Run a MATLAB reference tool at its pinned commit and freeze its outputs (#700, ADR-0074).
 
 The drivers beside this file (``smfret_analysis2.py``, ``mash_fret.py``) name a tool and its
 tasks; this module does the rest:
@@ -18,7 +18,14 @@ No path outside the output directory goes into a record: inputs are named by fil
 because the inputs of a real run live on the maintainer's workstation.
 
 CI has no MATLAB. ``--matlab`` takes any executable; a ``.py`` file is run with this
-interpreter, which is how the tests use the stand-in ``tests/_matlab_standin.py``.
+interpreter, which is how the tests use the stand-in ``tests/_matlab_standin.py``. On Windows,
+``bin\matlab.exe`` is a launcher that starts MATLAB in another process and returns at once,
+before the run, so the harness also passes ``-wait``: the launcher then waits for MATLAB and
+returns its exit code (#714). On one workstation the launcher sometimes started a second copy
+of itself and returned 0 at once even with ``-wait``. ``tether_run_job.m`` therefore reports
+the MATLAB release only after the task ended without an error, and the harness writes no
+record without that report; a run that comes back early is refused, never recorded. Where it
+happens often, give ``--matlab`` a wrapper that waits for the MATLAB process itself.
 """
 
 from __future__ import annotations
@@ -167,7 +174,11 @@ def _write_record(out: Path, record: dict) -> Path:
 def _matlab_cmd(matlab: str) -> list[str]:
     # The run's working directory is a temporary one, so a relative path is resolved here.
     exe = str(Path(matlab).resolve()) if Path(matlab).is_file() else matlab
-    return [sys.executable, exe] if exe.endswith(".py") else [exe]
+    if exe.endswith(".py"):
+        return [sys.executable, exe]
+    # On Windows, -wait makes the bin\matlab.exe launcher block until MATLAB ends and return
+    # its exit code; without it, the launcher returns 0 before the run.
+    return [exe, "-wait"] if sys.platform == "win32" else [exe]
 
 
 def _quote(text: str) -> str:
@@ -219,7 +230,10 @@ def run(
         try:
             info = json.loads(Path(job["matlab_info"]).read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            raise HarnessError("the run did not report its MATLAB release") from exc
+            raise HarnessError(
+                "the run did not report its MATLAB release (MATLAB ended before the job, "
+                "or the executable returned before MATLAB ran)"
+            ) from exc
     # The record must name the bytes MATLAB read, so an input changed during the run is refused.
     if {name: _files(path) for name, path in sorted(inputs.items())} != input_part:
         raise HarnessError("an input changed while MATLAB ran; no record written")
