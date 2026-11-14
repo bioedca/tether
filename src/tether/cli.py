@@ -23,6 +23,7 @@ import sys
 from collections.abc import Sequence
 
 from tether import __version__
+from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,13 +65,15 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     extract.add_argument(
         "--donor-side",
         default="left",
-        metavar="{left,right}",
+        choices=DONOR_SIDES,
         help="which horizontal half is the donor channel (default: left)",
     )
     extract.add_argument(
         "--detection-mode",
+        # None, not "wavelet": an explicit choice must stay distinguishable from no
+        # flag, for the --tdat conflict check in _run_extract.
         default=None,
-        metavar="{wavelet,intensity,bandpass}",
+        choices=DETECTION_MODES,
         help=(
             "particle-detection method (Deep-LASI findPart mode; default: wavelet). "
             "'intensity'/'bandpass' also honor --detection-threshold. "
@@ -112,7 +115,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     extract.add_argument(
         "--prealign",
         default="translation",
-        metavar="{translation,similarity}",
+        choices=PREALIGN_MODES,
         help="registration prealign degrees of freedom (default: translation)",
     )
     extract.add_argument(

@@ -96,11 +96,10 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > which *horizontal half* of the dual-channel frame carries donor emission. The two halves
 > are simply swapped, so a backwards value produces a project in which every FRET
 > efficiency is inverted — and it raises no error, because both values are perfectly
-> legal. `{left,right}` in the help text above is a *metavar*, not an argparse `choices`
-> list: a value that is neither, such as `--donor-side sideways`, is not rejected at parse
-> time either. It is caught downstream by `ExtractOptions` and reported as a clean error
-> with exit code 1. A valid-but-wrong value is not an error, so the extraction itself
-> cannot refuse it.
+> legal. A value that is neither, such as `--donor-side sideways`, is a usage error:
+> argparse prints the usage line and `invalid choice: 'sideways' (choose from left, right)`
+> and exits with code 2 before any file is opened. A valid-but-wrong value is not an error,
+> so the extraction itself cannot refuse it.
 >
 > **The donor-side check.** After every extraction Tether reads the side back out of the
 > traces ([ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md)).
@@ -147,10 +146,11 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > `--tmap` run, and its warning then points at the map's channel order instead of at
 > `--donor-side`.
 
-`--detection-mode` and `--prealign` are metavars in the same way — an unrecognised value
-reaches `ExtractOptions` rather than argparse, and comes back as an error message on
-stderr with exit code 1, never a traceback. `--policy` on `tether batch` is the one flag
-in either subcommand with a real argparse `choices` list.
+`--detection-mode` and `--prealign` are refused in the same way: an unrecognised value
+gives the usage line, an `invalid choice` message that names the allowed values, and exit
+code 2. The three flags take their allowed values from the same constants that
+`ExtractOptions` checks (`tether.extract_choices`), so the command line and the library
+accept the same values.
 
 ### Detection settings: pick one source
 
