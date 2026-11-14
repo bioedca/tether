@@ -18,15 +18,19 @@ pull request can run code on that computer (ADR-0071). ``run`` does these steps 
    result that contains a mapped file name is withheld.
 5. Print a short summary that contains no mapped file name.
 
-``run --dry-run`` skips steps 1 and 2 and runs only the self-check, with this interpreter, against
-the data directory it gets. The required CI matrix tests the runner that way. ``latest`` prints, as
-JSON, the newest result and the issue titles an agent opens or updates for it
-(``docs/maintainers/workstation-runner.md``).
+After step 3 a scheduled run also runs the benchmark suite of #722 and appends one record to the
+speed history (``perf_history.py``, #723); the history adds two checks to the result file.
 
-On POSIX the state folder, its ``logs`` and ``results`` folders, the pytest log and the check
-record are owner-only: the log can name private files. A state folder with group or other
-permission bits is corrected, and the run says so. On Windows the runner relies on the ACL that
-the folder inherits; the maintainer page says what that gives.
+``run --dry-run`` skips steps 1 and 2 and runs only the self-check, with this interpreter, against
+the data directory it gets. ``run --dry-run --speed --history FILE`` also runs the speed test, the
+benchmarks and the history step on this checkout: the record it appends says ``on_main: false``.
+The required CI matrix tests the runner as a dry run. ``latest`` prints, as JSON, the newest result
+and the issue titles an agent opens or updates for it (``docs/maintainers/workstation-runner.md``).
+
+On POSIX the state folder, its ``logs`` and ``results`` folders, the pytest log, the check
+record and the speed history are owner-only: the log can name private files. A state folder with
+group or other permission bits is corrected, and the run says so. On Windows the runner relies on
+the ACL that the folder inherits; the maintainer page says what that gives.
 
 Exit status: 0 all checks passed, 1 a check did not pass, 2 error, 3 refused, 4 result withheld.
 A run that gets as far as reading the mapping file writes a result file whatever its status, so
@@ -64,8 +68,12 @@ CANONICAL_REMOTE = "https://github.com/bioedca/tether.git"
 MAIN_REFSPEC = "+refs/heads/main:refs/remotes/origin/main"
 DATA_ENV = "TETHER_PRIVATE_DATA"
 RECORD_ENV = "TETHER_WORKSTATION_RECORD"
+SIDECAR_ENV = "TETHER_SIDECAR_PYTHON"
 MAPPING_FILE = "tether-private-data.json"
 SELF_CHECK = "tests/test_workstation_selfcheck.py"
+SPEED_CHECK = "tests/test_workstation_perf.py"
+#: The benchmark groups of #722 that a run measures (``sidecar`` needs the sidecar environment).
+BENCH_GROUPS = ("default", "gui")
 RESULT_SCHEMA = "tether-workstation-result/1"
 #: The test tooling of the required matrix (ci.yml "Install test tooling"); a test keeps them equal.
 TEST_TOOLS = ("pytest==9.1.1", "pytest-qt==4.5.0")
@@ -88,8 +96,8 @@ STATUSES = ("passed", "failed", "error", "refused", "withheld")
 _RANK = {None: -1, "passed": 0, "skipped": 1, "failed": 2, "error": 3}
 OUTCOMES = tuple(k for k in _RANK if k)
 RUN_ISSUE_TITLE = "test(workstation): the scheduled run failed on main"
-#: A newest result older than this means that the weekly schedule did not run (a week and a day).
-STALE_HOURS = 192
+#: A newest result older than this means that the nightly schedule did not run (a day and a half).
+STALE_HOURS = 36
 #: The permission bits a folder or a file of the state folder may not have on POSIX.
 GROUP_OTHER = 0o077
 
@@ -578,6 +586,8 @@ def run(args: argparse.Namespace) -> int:
     # Absolute before anything else: pytest runs in another folder and gets these through $ENV.
     state, data = (Path(p).expanduser().resolve() for p in (args.state, args.data))
     results = Path(args.results).expanduser().resolve() if args.results else state / "results"
+    history = getattr(args, "history", None)
+    history = Path(history).expanduser().resolve() if history else state / "perf-history.jsonl"
     # Owner-only on POSIX: the log names files. A --results folder elsewhere holds only
     # sealed results, so it keeps the permissions that its owner gave it.
     # The note names the folder by its role: a path is printed only through say(), which
@@ -605,6 +615,8 @@ def run(args: argparse.Namespace) -> int:
     log_path = state / "logs" / f"{stamp}.log"
     record = state / f"{stamp}.record.jsonl"
     commit, lock_sha, code, checks, tools, status = None, None, None, [], {}, None
+    bench: list[dict] = []
+    speed = getattr(args, "speed", False) or not args.dry_run
     on_main = False  # true only once prepare_clone() has verified the commit
     with _run_lock(state), open_private(log_path) as log:
         try:
@@ -612,6 +624,7 @@ def run(args: argparse.Namespace) -> int:
                 proc = _git(REPO, "rev-parse", "HEAD")
                 commit = proc.stdout.strip() if proc.returncode == 0 else None
                 python, source, paths = Path(sys.executable), REPO, [SELF_CHECK]
+                paths += [SPEED_CHECK] if speed else []
             else:
                 commit = prepare_clone(state / "clone", CANONICAL_REMOTE, args.commit)
                 on_main = True
@@ -622,10 +635,17 @@ def run(args: argparse.Namespace) -> int:
             env.update(
                 {DATA_ENV: str(data), RECORD_ENV: str(record), "QT_QPA_PLATFORM": "offscreen"}
             )
+            if getattr(args, "sidecar_python", None):  # the idealization of the speed test
+                env[SIDECAR_ENV] = str(Path(args.sidecar_python).expanduser())
+            if args.dry_run and speed:  # the stage processes run this checkout's code
+                paths_before = [str(REPO / "src"), env.get("PYTHONPATH")]
+                env["PYTHONPATH"] = os.pathsep.join(p for p in paths_before if p)
             cmd = [str(python), "-m", "pytest", "-m", "workstation", "-p", "no:cacheprovider"]
             code = _run_logged([*cmd, "-rA", *paths], log, check=False, cwd=source, env=env)
             checks = collect_checks(record)
             tools = tool_versions(python, env)
+            if speed and code in (0, 1):
+                bench = run_benchmarks(python, source, env, log)
         except Refused as exc:
             say(f"refused: {exc}")
             status = "refused"
@@ -635,6 +655,11 @@ def run(args: argparse.Namespace) -> int:
         finally:
             record.unlink(missing_ok=True)
     finished = time.time()
+    if status is None and speed and code in (0, 1) and checks:
+        checks = checks + history_checks(
+            history, commit=commit, on_main=on_main, finished=finished, checks=checks,
+            bench=bench, data=data, tokens=tokens,
+        )  # fmt: skip
     if status is None:
         status = "error"
         if code in (0, 1) and checks:
@@ -666,6 +691,55 @@ def run(args: argparse.Namespace) -> int:
     say(f"the pytest log stays on this computer: {log_path}")
     exits = {"passed": EXIT_OK, "failed": EXIT_FAILED, "refused": EXIT_REFUSED}
     return {**exits, "withheld": EXIT_WITHHELD}.get(result["status"], EXIT_ERROR)
+
+
+def _perf_history():
+    """``perf_history.py`` next to this file (also when ``tests/conftest.py`` loads this one)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "perf_history", Path(__file__).with_name("perf_history.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_benchmarks(python: Path, source: Path, env: dict[str, str], log) -> list[dict]:
+    """The benchmark suite of #722 on *source*, one round. A group that does not run gives
+    ``{"group": ..., "error": ...}``, so the history records it and its check fails."""
+    out = []
+    for group in BENCH_GROUPS:
+        with tempfile.TemporaryDirectory(prefix="tether-bench-") as tmp:
+            result = Path(tmp) / "bench.json"
+            cmd = [str(python), str(source / "benchmarks" / "bench.py"), "run", "--group", group]
+            cmd += ["--side", f"main={source / 'src'}", "--rounds", "1", "--repeats", "3"]
+            code = _run_logged([*cmd, "--out", str(result)], log, check=False, env=env)
+            if code == 0 and result.is_file():
+                out.append(json.loads(result.read_text(encoding="utf-8")))
+            else:
+                out.append({"group": group, "error": f"exit {code}"})
+    return out
+
+
+def history_checks(
+    history: Path, *, commit, on_main: bool, finished: float, checks: list, bench: list,
+    data: Path, tokens: frozenset[str],
+) -> list[dict]:  # fmt: skip
+    """Append this run to the speed history and return its two checks (#723)."""
+    ph = _perf_history()
+    try:
+        hw = {**hardware(), "disk": ph.disk_type(data), "gpu": ph.gpu_name()}
+        record = ph.build_record(
+            commit=commit, on_main=on_main, date=_utc(finished), hardware=hw,
+            checks=checks, bench=bench,
+        )  # fmt: skip
+        found = ph.append(history, record, tokens, opener=lambda p: open_private(p, append=True))
+        return ph.checks_for(record, found)
+    except (ValueError, OSError) as exc:
+        print(f"error: speed history: {redact(str(exc), tokens)}", flush=True)
+        empty = {"duration_s": 0.0, "datasets": {}, "outcome": "error"}
+        return [{"check": ph.CHECK_ACQUISITIONS, **empty}, {"check": ph.CHECK_BENCHMARKS, **empty}]
 
 
 # --- latest: what an agent reads ---------------------------------------------------------------
@@ -719,6 +793,11 @@ def main(argv: list[str] | None = None) -> int:
     go.add_argument("--min-interval-hours", type=float, default=0.0,
                     help="do nothing when the newest result is younger than this")  # fmt: skip
     go.add_argument("--dry-run", action="store_true", help="the self-check only, with this Python")
+    go.add_argument("--speed", action="store_true",
+                    help="with --dry-run: also the speed test, benchmarks and history")  # fmt: skip
+    go.add_argument("--history", help="the speed history file (default: STATE/perf-history.jsonl)")
+    go.add_argument("--sidecar-python", default=os.environ.get(SIDECAR_ENV),
+                    help=f"the sidecar python (default: ${SIDECAR_ENV})")  # fmt: skip
     show = sub.add_parser("latest", help="print the newest result as JSON for an agent")
     show.add_argument("--results", required=True)
     args = parser.parse_args(argv)
@@ -729,6 +808,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"give --data or set ${DATA_ENV}")
     if args.dry_run and args.commit:
         parser.error("--commit needs a scheduled run; a dry run runs this checkout")
+    if args.speed and not (args.dry_run and args.history):
+        parser.error("--speed is for a dry run, and it needs --history: a copy, not the real file")
     try:
         return run(args)
     except (MappingError, RuntimeError, OSError, subprocess.CalledProcessError) as exc:
