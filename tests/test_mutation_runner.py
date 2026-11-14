@@ -217,6 +217,10 @@ def test_each_import_form_names_the_modules_the_test_file_loads(tmp_path: Path) 
             "src/pkg/deep/leaf.py": "VALUE = 1\n",
             "src/pkg/mod.py": "X = 1\n",
             "src/pkg/loop.py": "from pkg import loop\n",
+            "src/pkg/shadow.py": (
+                "try:\n    from pkg.mod import X\nexcept ImportError:\n    pass\n\n\n"
+                "def f():\n    from pkg.deep.leaf import VALUE as X\n"
+            ),
         },
     )
     of = rm._Imports(tmp_path / "src").of
@@ -228,6 +232,8 @@ def test_each_import_form_names_the_modules_the_test_file_loads(tmp_path: Path) 
     assert of("def t():\n    from pkg.deep import leaf\n") == {"pkg.deep", "pkg.deep.leaf"}
     assert of("from pkg import *\n") == {"pkg"}
     assert of("from pkg import loop\n") == {"pkg", "pkg.loop"}, "a cycle ends"
+    # A module-scope binding (here inside ``try``) counts; a function's local import does not.
+    assert of("from pkg.shadow import X\n") == {"pkg.shadow", "pkg.mod"}
     assert of("from . import x\nimport numpy\n") == {"numpy"}
     assert rm.module_name("src/pkg/deep/__init__.py") == "pkg.deep"
     assert rm.module_name("src/pkg/deep/leaf.py") == "pkg.deep.leaf"

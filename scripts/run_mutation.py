@@ -445,6 +445,18 @@ def _absolute(module: str, is_package: bool, node: ast.ImportFrom) -> str:
     return ".".join([*parts, *([node.module] if node.module else [])])
 
 
+def _module_scope(tree: ast.Module) -> Iterable[ast.AST]:
+    """The nodes that bind module names: ``if``/``try``/``with`` blocks are entered, a ``def``
+    or ``class`` body is not, so a local import never shadows what the module passes on."""
+    todo: list[ast.AST] = list(tree.body)
+    while todo:
+        node = todo.pop(0)
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            inner = (ast.stmt, ast.excepthandler)
+            todo[:0] = [c for c in ast.iter_child_nodes(node) if isinstance(c, inner)]
+
+
 class _Imports:
     """Which modules of ``src/`` a test file imports, re-exports followed.
 
@@ -469,7 +481,7 @@ class _Imports:
                     tree = ast.parse(path.read_text(encoding="utf-8"))
                 except (SyntaxError, UnicodeDecodeError):
                     tree = ast.Module(body=[], type_ignores=[])
-                for node in ast.walk(tree):
+                for node in _module_scope(tree):
                     if isinstance(node, ast.ImportFrom):
                         origin = _absolute(module, is_package, node)
                         for alias in node.names:
