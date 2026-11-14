@@ -290,6 +290,44 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
 
+## Service commands
+
+Each subcommand on this page is the command-line route of one *service command*
+([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
+command is the one implementation of an action. The command line uses it now; the
+desktop application and recipe files will use the same commands as their sections are
+moved onto them, so the three cannot do different things for the same input. The command
+line only reads your options into the command's *request*, runs the command, and prints
+the result.
+
+The table comes from the registry in `tether.services.registry`, and a test fails if the
+two differ:
+
+<!-- service-commands:begin (made from tether.services.registry; do not edit) -->
+| Command | Request | Result | What it does |
+|---|---|---|---|
+| `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
+| `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
+<!-- service-commands:end -->
+
+A request is plain data with one text form: a JSON object with the command name, the
+version of the request, and every field. For example, `tether extract movie.tif -o
+movie.tether` sends this request. The text form is one line; it is broken here to fit
+the page, and a break between two parts of JSON does not change it:
+
+```json
+{"command":"extract","fields":{"coloc_distance":3.0,"detection_block":50,
+"detection_mode":null,"detection_threshold":null,"donor_side":"left",
+"min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
+"pair_tol":2.0,"prealign":"translation","rms_gate":0.5,"tdat":null,"tmap":null,
+"window":21},"version":1}
+```
+
+The field names are the option names with `_` for `-`. Two `tether batch` flags are
+positive fields: `--no-idealize` is `"idealize": false` and `--no-defer` is
+`"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of
+these requests ([#899](https://github.com/bioedca/tether/issues/899)).
+
 ## Exit codes
 
 | Code | `tether extract` | `tether batch` |
