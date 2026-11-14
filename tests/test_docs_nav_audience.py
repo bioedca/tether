@@ -187,6 +187,15 @@ _TEST_OR_PRIVATE_RE = re.compile(
 )
 #: The page that shows evidence: it may name tests in its own text (#590's decision).
 _EVIDENCE_PAGE = "validation.md"
+_PRIVATE_RE = re.compile(r"_[A-Za-z]|tether(?:\.\w+)*\._[A-Za-z]")
+# A test or private name written as plain prose, outside a code span: a test module or test
+# path, a dotted private name, or a snake-case name with a leading underscore. The last needs
+# an inner underscore, so Markdown emphasis such as ``_word_`` is not a name.
+_PROSE_NAME_RE = re.compile(
+    r"(?<![\w/.`])(?:tests/[\w./-]*\w|test_\w+|tether(?:\.\w+)*\._\w+"
+    r"|_[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![\w*]))"
+)
+_URL_TARGET_RE = re.compile(r"\]\([^)\s]*\)")
 #: (page, fragment) pairs a milestone check reads past. Each fragment must still be on its
 #: page, so an entry cannot outlive the text it excuses.
 _MILESTONE_ALLOWED = (
@@ -243,15 +252,38 @@ def milestone_labels(text: str, allowed: tuple[str, ...] = ()) -> list[str]:
     return found
 
 
-def unlinked_names(text: str) -> list[str]:
-    """Each code span in ``text`` that names a test or a private name outside a link."""
+def _links_to_a_file(target: str) -> bool:
+    """A link target that opens a file: not empty, and not only an anchor on this page."""
+    return bool(target) and not target.startswith("#")
+
+
+def _outside(start: int, end: int, linked: list[tuple[int, int]]) -> bool:
+    return not any(a <= start and end <= b for a, b in linked)
+
+
+def unlinked_names(text: str, tests_allowed: bool = False) -> list[str]:
+    """Each test or private name in ``text`` outside a link to a file.
+
+    A name counts in a code span and in plain prose. With ``tests_allowed`` (the evidence
+    page), test names pass and private names are still reported.
+    """
+    names = _PRIVATE_RE if tests_allowed else _TEST_OR_PRIVATE_RE
     found = []
     for n, line in _prose_lines(text):
-        linked = [(m.start(1), m.end(1)) for m in _LINK_TEXT_RE.finditer(line)]
+        linked = [
+            (m.start(1), m.end(1))
+            for m in _LINK_TEXT_RE.finditer(line)
+            if _links_to_a_file(m.group(2))
+        ]
         for span in _CODE_SPAN_RE.finditer(line):
-            inside = any(a <= span.start() and span.end() <= b for a, b in linked)
-            if not inside and _TEST_OR_PRIVATE_RE.match(span.group(1).strip()):
+            name = span.group(1).strip()
+            if _outside(span.start(), span.end(), linked) and names.match(name):
                 found.append(f"{n}: {span.group(0)}")
+        prose = _CODE_SPAN_RE.sub(lambda m: " " * len(m.group(0)), line)
+        prose = _URL_TARGET_RE.sub(lambda m: "(" + " " * (len(m.group(0)) - 2) + ")", prose)
+        for word in _PROSE_NAME_RE.finditer(prose):
+            if _outside(word.start(), word.end(), linked) and names.match(word.group(0)):
+                found.append(f"{n}: {word.group(0)}")
     return found
 
 
@@ -287,7 +319,7 @@ def test_user_pages_name_tests_and_private_names_only_in_links() -> None:
     found = {
         page: hits
         for page, text in _user_page_texts().items()
-        if page != _EVIDENCE_PAGE and (hits := unlinked_names(text))
+        if (hits := unlinked_names(text, tests_allowed=page == _EVIDENCE_PAGE))
     }
     assert not found, f"test or private names on user pages without a link to their file: {found}"
 
@@ -310,3 +342,12 @@ def test_the_reference_checks_bite() -> None:
     assert not unlinked_names("see [`_str()`](https://example.org/src/tether/io/schema.py)")
     assert not unlinked_names("see [`tests/test_y.py`](https://example.org/tests/test_y.py)")
     assert not unlinked_names("the package's `__init__.py`")  # a dunder is not private
+    assert unlinked_names("asserted by test_x in the suite")
+    assert unlinked_names("run tests/test_y.py first")
+    assert unlinked_names("built by _private_helper here")
+    assert not unlinked_names("an _emphasised_ word")
+    assert unlinked_names("see [`_private_helper`]()")
+    assert unlinked_names("see [`_private_helper`](#helpers)")
+    assert not unlinked_names("see [test_y](https://example.org/tests/test_y.py)")
+    assert not unlinked_names("asserted by `test_x`", tests_allowed=True)
+    assert unlinked_names("built by `_private_helper`", tests_allowed=True)

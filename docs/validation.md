@@ -24,7 +24,7 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
 | Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
-| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate `_sidecar_gate.py` and the RF2-ArfA child `_rf2_arfa_child.py` in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
+| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate [`_sidecar_gate.py`](https://github.com/bioedca/tether/blob/main/tests/_sidecar_gate.py) and the RF2-ArfA child [`_rf2_arfa_child.py`](https://github.com/bioedca/tether/blob/main/tests/_rf2_arfa_child.py) in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
 | Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
 | Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check: it is manual and weekly, and an LFS outage must never block `main` |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
@@ -359,14 +359,14 @@ the literal numbers of the specification, and
 tolerance to carry the four bounds and to be satisfied by its own recorded evidence.
 
 Be precise about what that does and does not catch, because it is a validation claim.
-The core assertion in `_assert_spread_within` is `recorded value ≥ floor` /
+The core assertion in [`_assert_spread_within`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) is `recorded value ≥ floor` /
 `recorded value ≤ ceiling`, which on its own would let a pull request satisfy a bound by
 *deleting* the runs that stressed it, so the same helper additionally pins the evidence
 itself: the measured fixture set, and for each fixture the SMD path, the reference anchor,
-the fitted state count and the comparison count, are pinned to `_EXPECTED_EVIDENCE` (the
+the fitted state count and the comparison count, are pinned to [`_EXPECTED_EVIDENCE`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) (the
 run00-anchored `smd_4mol` spread at 2 states and 19 of 20 runs; `smd_281mol` at 4 states and
 20 runs against `tests/fixtures/large/model_281mol.hdf5`) and, for the per-method blocks, to
-`_EXPECTED_EVIDENCE_BY_METHOD` (ebFRET on `smd_281mol` at 4 states, run00-anchored, 19).
+[`_EXPECTED_EVIDENCE_BY_METHOD`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) (ebFRET on `smd_281mol` at 4 states, run00-anchored, 19).
 Each count is cross-checked against that block's `$.method.n_runs_per_fixture`, with the
 anchored-or-not mode taken from the pin, not read back from the artifact. Every fixture must
 carry all four metrics in their declared direction, and each summary's
@@ -661,7 +661,7 @@ The first three are locked by `tests/test_fret_leakage.py::test_defaults_match_p
 **What is compared.** α (leakage) against **synthetic known-α ground truth**, and γ against
 **synthetic known-γ recovery** (`test_recovers_known_gamma`, parametrized over γ ∈ {0.5,
 1.0, 2.0, 4.0}) plus a **reference-formula parity check** (`test_reference_formula_parity`)
-against an independent in-test transcription (`_reference_gamma`, deliberately computed a
+against an independent in-test transcription ([`_reference_gamma`](https://github.com/bioedca/tether/blob/main/tests/test_fret_gamma.py), deliberately computed a
 different way — explicit slices, no shared helper). That transcription is of the δ = 0,
 **bare-`I_D`** simplification of Deep-LASI's `deep_autocorrect_2color.m:118-130`, which is
 *Tether's own* convention, so the check proves self-consistency, not agreement with
@@ -760,11 +760,11 @@ acquisition-wide marker, not ground truth.
 **reference-formula parity** against a line-for-line transcription of tMAVEN's
 `photobleaching.py` formulas (`normal_ln_evidence`, `normal_mu_ln_evidence`,
 `ln_likelihood`, `get_point_pbtime`, `pb_ensemble`), kept in the test file itself as
-`_ref_*` helpers — plus recovery of a **synthesized known step** to the same ±2-frame
+[`_ref_*`](https://github.com/bioedca/tether/blob/main/tests/test_fret_photobleach.py) helpers — plus recovery of a **synthesized known step** to the same ±2-frame
 tolerance. Read the parity leg for what it is: these tests are unmarked, so they run on the
 required matrix, where tMAVEN is not installed and is never imported. What is proven is
 that the O(T) prefix-sum rewrite is faithful to the O(T²) reference *formulation*; a
-transcription error in the `_ref_*` helpers would not be caught, because tMAVEN itself does
+transcription error in the [`_ref_*`](https://github.com/bioedca/tether/blob/main/tests/test_fret_photobleach.py) helpers would not be caught, because tMAVEN itself does
 not execute here. The live leg below closes that gap.
 
 **Live leg against tMAVEN** (#706). `tests/test_fret_photobleach_sidecar.py` runs in the
@@ -774,12 +774,12 @@ its relevance filter. A child process in the sidecar environment calls tMAVEN's 
 `normal_ln_evidence`, `normal_mu_ln_evidence`, `ln_likelihood`, `get_point_pbtime` and
 `pb_ensemble`, with the priors from tMAVEN's own photobleach preferences. The inputs are
 the synthetic traces of the unmarked tests (same seeds, same draws) and the donor, acceptor
-and summed channels of the committed 4-molecule `smd_4mol.hdf5`. Tether and the `_ref_*`
+and summed channels of the committed 4-molecule `smd_4mol.hdf5`. Tether and the [`_ref_*`](https://github.com/bioedca/tether/blob/main/tests/test_fret_photobleach.py)
 helpers are both compared with that output. The algorithm is the same, so bleach frames and
 the ensemble rate must be equal. Log evidence must agree to a relative 1e-14 for the
 helpers (measured worst 7.1e-16, the same O(T²) sums) and 1e-12 for Tether (measured worst
 6.6e-14, from the O(T) prefix sums on a trace that never bleaches); measured 2026-11-11
-against tMAVEN `10f4230`. The same one-character error put into both a `_ref_*` helper and
+against tMAVEN `10f4230`. The same one-character error put into both a [`_ref_*`](https://github.com/bioedca/tether/blob/main/tests/test_fret_photobleach.py) helper and
 `tether.fret.photobleach` passes every unmarked photobleach test and fails this leg.
 
 **Frozen constants.** The ±2-frame tolerance is asserted inline; the priors are named in
