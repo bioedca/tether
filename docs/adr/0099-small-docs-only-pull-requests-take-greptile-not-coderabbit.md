@@ -85,7 +85,12 @@ How does a small documentation change finish its review without a turn in the Co
 6. **Greptile's clean result is a summary comment, not a review object.** On #996 (2026-11-14) a
    clean review left a comment whose last line links `Last reviewed commit` to the full 40-hex
    commit, and no entry under `pulls/996/reviews`. That link is the head the review read; the
-   pull-request template names this shape on its Greptile line.
+   pull-request template names this shape on its Greptile line. That comment is a *completed*
+   review for every rule in `AGENTS.md` §Review, the Codex close included, although it is not a
+   review object in state `COMMENTED` or `APPROVED`. So where a non-material push moves the head
+   after a clean Greptile review, a fresh Codex review of the final head closes the gate, as it
+   would after a completed CodeRabbit review; the cap still forbids a second Greptile review.
+   Greptile found this gap on #1036.
 
 ### Changes to the balance script
 

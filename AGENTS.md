@@ -213,7 +213,8 @@ validity turns on it being the right test — must satisfy both.
   no. Quote the refusal. The stand-in is held to everything asked of CodeRabbit's review, and
   CodeRabbit is not asked again. Codex never stands in.
 - **Small docs-only PRs take Greptile, not CodeRabbit**, while `greptile_usage.py
-  --fail-over-share` exits 0: one standard review, held to all asked of CodeRabbit's (ADR-0099).
+  --fail-over-share` exits 0: one standard review, held to all asked of CodeRabbit's. Its clean
+  summary comment is a completed review (ADR-0099).
 - **A spent cap closes on Codex rather than on a maintainer.** When a *completed* CodeRabbit
   review, or the stand-in for it, stands on this PR — **submitted**, in state `COMMENTED` or `APPROVED`, carrying a body or
   inline findings of its own; a throttle, quota refusal, failed run, `PENDING` or `DISMISSED`
