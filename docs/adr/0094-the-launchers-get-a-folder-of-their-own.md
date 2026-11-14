@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0096 — The two launchers get a folder of their own: `<prefix>/launchers`
+# 0094 — The two launchers get a folder of their own: `<prefix>/launchers`
 
 - **Status:** accepted; amends [ADR-0051](0051-installed-app-launch-surface.md) on the folder that holds the launchers
 - **Date:** 2026-11-14

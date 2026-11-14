@@ -34,7 +34,7 @@ required at install time.
   Installers up to and including 1.0.0-rc3 put the launchers in the install root's `bin`
   folder instead. On Linux and macOS that folder also holds the bootstrap's own `python`, `pip`
   and `conda`
-  ([ADR-0096](adr/0096-the-launchers-get-a-folder-of-their-own.md)).
+  ([ADR-0094](adr/0094-the-launchers-get-a-folder-of-their-own.md)).
 - Tether's **GPL-3.0 license** text, shown during installation and shipped beside the
   installer. The bundled sidecar also carries tMAVEN's own GPL-3.0 license.
 

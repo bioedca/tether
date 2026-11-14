@@ -3,7 +3,7 @@
 """Contract tests for the Windows launch environment the installer writes (issue #553).
 
 ``packaging/scripts/post_install.bat`` writes ``launchers\\tether.bat`` and
-``launchers\\tether-gui.bat`` and the Start Menu shortcut (ADR-0051, ADR-0096). They only
+``launchers\\tether-gui.bat`` and the Start Menu shortcut (ADR-0051, ADR-0094). They only
 run on a real Windows install, so the packaging install-smoke exercises them there; these
 tests pin what the script writes and what the smoke runs, on every platform the unit matrix
 covers.

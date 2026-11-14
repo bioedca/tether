@@ -64,7 +64,7 @@ EOF
 # rewriting a user's shell rc is equally invasive. Adding the directory is a
 # documented one-liner; breaking someone's PATH is not recoverable by documentation.
 #
-# The directory holds the two launchers and NOTHING else (issue #492, ADR-0096).
+# The directory holds the two launchers and NOTHING else (issue #492, ADR-0094).
 # $PREFIX/bin, where they went until rc3, is the bin of constructor's base env: the
 # python + conda bootstrap (ADR-0049), so a PATH entry for it also put that env's
 # python, pip, conda and about 120 other programs in front of, or behind, the user's
