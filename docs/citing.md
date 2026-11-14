@@ -50,9 +50,10 @@ other label, find the row that describes the same method and cite that.
 ### The rest of the pipeline
 
 Native extraction has three spot detectors, and they come from different papers. The one
-that ran is the `detection_mode` attribute of `/settings/extraction` in your `.tether`
-project (see [the parameter reference](reference/parameters.md#param-detection-mode)). It is
-`wavelet` unless you chose another mode or a Deep-LASI `.tdat` file supplied one.
+that ran is the `detection_mode` key of the JSON text in the `profile_json` attribute of
+`/settings/extraction` in your `.tether` project (see
+[the parameter reference](reference/parameters.md#param-detection-mode)). It is `wavelet`
+unless you chose another mode or a Deep-LASI `.tdat` file supplied one.
 
 | What you ran | Cite |
 |---|---|

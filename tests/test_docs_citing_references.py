@@ -26,8 +26,9 @@ CITATION = ROOT / "CITATION.cff"
 #: One References entry: ``- **Key Year.** ... [https://doi.org/DOI](https://doi.org/DOI)``.
 _ENTRY_RE = re.compile(r"^- \*\*(?P<key>[^*]+?)\.\*\*(?P<body>.*?)(?=^- \*\*|\Z)", re.M | re.S)
 _DOI_LINK_RE = re.compile(r"\]\(https://doi\.org/(?P<doi>[^)\s]+)\)")
-#: A short citation key as the tables write it: a name, then a four-digit year.
-_KEY_RE = re.compile(r"[A-Z][\w'\- ]*? \d{4}")
+#: A short citation key as the tables write it: a name, then a four-digit year. The name may
+#: start in lower case (``van de Meent 2014``), so a key is anything that ends in a year.
+_KEY_RE = re.compile(r"\S.*? \d{4}")
 
 
 def _section(text: str, heading: str) -> str:
@@ -60,7 +61,9 @@ def _cited_keys() -> set[str]:
 
 def test_tables_cite_something() -> None:
     """The parse finds the tables; an empty set would make the next test vacuous."""
-    assert {"Verma 2024", "Lee 2005", "Crocker 1996", "Zhang 2025"} <= _cited_keys()
+    assert {"Verma 2024", "Lee 2005", "Crocker 1996", "Zhang 2025", "van de Meent 2014"} <= (
+        _cited_keys()
+    )
 
 
 def test_every_cited_key_is_a_listed_reference() -> None:
