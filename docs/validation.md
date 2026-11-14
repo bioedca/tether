@@ -403,6 +403,65 @@ equally wrong fits cannot see.
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
 > measurement, and no committed test fits `model_type="vbfret"` against it.
 
+### Measured traces with a stored vbFRET path
+
+This part compares with the **original vbFRET_nov12** output on measured data, not with
+standalone tMAVEN, so it adds evidence and replaces none of the parity above
+([#797](https://github.com/bioedca/tether/issues/797),
+[ADR-0090](adr/0090-measured-vbfret-paths-are-a-dwell-reference.md)).
+
+**Measured data.** Two whole condition folders of measured two-colour traces by Marzano et
+al., CC-BY-4.0, each trace with the per-trace vbFRET_nov12 idealization the authors analysed:
+PPR-RNA `Validation_data/RNAanticognate` (114 traces, Zenodo 10.5281/zenodo.11323228;
+Nucleic Acids Res. 52:14154, 2024) and Hsp70/Hsp90 `KJG/KJG_231027` (68 traces, Zenodo
+10.5281/zenodo.17118152; Sci. Adv. 12:eaeg5464, 2026). The fixtures hold the original `.dat` bytes; a reader under
+`tests/` reads them (PRD §2.2, "What the tests can use"). Their manifest ids start with
+`marzano-`.
+
+**Deterministic part (required matrix, three operating systems).** The authors' own analysis
+code, `nmarzano/smFRET_module` v1.0.3 (MIT), ran once outside the product on the fixtures. Its
+dwell and transition tables are committed, and
+`tests/test_marzano_vbfret.py` asserts that Tether's dwell code and transition density, read
+from a `.tether` store that holds the stored paths, give the same state values, the same
+durations in frames and the same order: 640 PPR and 465 chaperone transitions. Four
+definitions differ, and the test goes through each one:
+
+- smFRET_module's dwell table keeps the last run of a molecule; Tether drops it, because it is
+  right-censored. smFRET_module's transition table is every run except the last, which is
+  Tether's `include_first=True` set exactly.
+- Tether drops the first run by default. So does smFRET_module's own
+  `cleanup_dwell(first_dwell="delete")` before its dwell fits.
+- smFRET_module drops each frame whose raw FRET is not inside (-0.5, 1.5) and joins what is
+  left. As `NO_STATE` frames, Tether's dwells agree. Tether's transition density counts no
+  transition across such a gap, smFRET_module does: 2 PPR transitions, no chaperone one.
+- A molecule with only one run gives no dwell and no transition in either program.
+
+A change of one frame in the dwell rule fails this test: each dwell one frame longer, or the
+run boundary one frame later, fails 6 of its 15 cases, and the transition density's initial
+point one frame earlier fails 2.
+
+**Live part (advisory, sidecar).** `tests/test_marzano_vbfret_sidecar.py` runs tMAVEN's own
+per-trace variational-Bayes HMM (`tracelevel_vbhmm_modelselection`: 1 to 5 states for each
+trace, the highest evidence kept) in the pinned sidecar, with the paper settings that tMAVEN
+has (at most 5 states, prior β = 0.5; vbFRET's μ = 1.5 has no tMAVEN counterpart), and
+compares each fitted path with the stored one. No tolerance is frozen; the maintainer accepts
+one first. Measured on tMAVEN `10f4230` (CPython 3.12.13), 2026-11-13, seed 797, with the
+range over seeds 1, 2 and 797 after it:
+
+| Measure | PPR (114 traces) | Chaperone (68 traces) |
+| --- | --- | --- |
+| Traces with the same number of occupied states | 9.6 % (9.6 to 14.0 %) | 19.1 % (16.2 to 20.6 %) |
+| Median state-mean difference, same-count traces | 0.0053 (0.0048 to 0.0098) | 0.0115 (0.0057 to 0.0115) |
+| Largest state-mean difference, same-count traces | 0.0141 (0.0141 to 0.2147) | 0.6243 (0.0586 to 0.6243) |
+| Frames at the nearest stored level (Viterbi agreement) | 0.9394 (0.9348 to 0.9394) | 0.9414 (0.9042 to 0.9414) |
+
+tMAVEN's per-trace fit selects more states than vbFRET_nov12 did. vbFRET kept 1 state in 86 of
+the 114 PPR traces; tMAVEN kept 1 state in 8. Where the two programs use the same number of
+states, the levels agree to about 0.01 FRET. Most frames sit at the nearest stored level, but
+that measure maps each fitted level onto a stored one, so it does not count the extra states.
+The difference in state number is the open finding of this comparison; a frozen tolerance needs
+the maintainer's decision first.
+
 ### ebFRET against stored ebFRET sessions (report only)
 
 The gate above checks Tether's ebFRET path only against itself. A **report** compares it with
@@ -1066,7 +1125,9 @@ evidence about the size of the difference and not a tolerance.
   (see above), and **not blind** — the ground truth is committed and the fit is
   retrospective. Levels 2 and 3 are reported, not band-checked, and the present method does
   not recover the level-2 rates.
-- (b) has no per-trace vbFRET measurement, (d) has no leave-one-video-out protocol and no
+- (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
+  comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
+  tolerance (see "Measured traces with a stored vbFRET path"). (d) has no leave-one-video-out protocol and no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section
   above with the ADR that deferred it.
