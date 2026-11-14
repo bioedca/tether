@@ -116,7 +116,7 @@ or "Not yet". Each open issue updates its row when it is merged.
 | Rules for data handling | Met | The contributor guide tells a contributor to check the group policy and the retention terms of a service before sending unpublished material. The agent contract forbids an agent to send sensitive or uncommitted material to an external service. |
 | Rules for model validation and quality assurance | Not yet | An AI-use policy for documentation work ([#651](https://github.com/bioedca/tether/issues/651)). |
 | Examples of safe practice and unsafe practice | Not yet | The same policy ([#651](https://github.com/bioedca/tether/issues/651)). |
-| Transparency and traceability | Partly | This page names the tools. A change does not yet record the tool that drafted it ([#652](https://github.com/bioedca/tether/issues/652)). |
+| Transparency and traceability | Met | This page names the tools. Each pull request records the tool that drafted the change on the `AI assistance:` line of the [pull-request template](https://github.com/bioedca/tether/blob/main/.github/pull_request_template.md). |
 | Accountability stays with people | Met | See [Who is accountable](#who-is-accountable). |
 | Data confidentiality | Met | See [Boundaries](#boundaries). |
 | The standard takes priority, and terminology stays under control | Not yet | The style guide ([#582](https://github.com/bioedca/tether/issues/582)), its term list ([#589](https://github.com/bioedca/tether/issues/589)), and the rule that both win over the wording of a tool ([#651](https://github.com/bioedca/tether/issues/651)). |

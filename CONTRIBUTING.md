@@ -333,6 +333,9 @@ modes are silent:
   service's data-retention terms. This repository is public, but not everything in your
   working tree is.
 
+Fill the `AI assistance:` line of the pull-request template: write `none`, or the tool that
+drafted the change and its model where the tool reports it.
+
 Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
 
