@@ -8,17 +8,12 @@ respective contract governs.
 ## Development model — solo + CI and review gates (scales up cleanly)
 
 Tether is currently maintained **solo (account `bioedca`) with CI and a fixed
-review lane as merge gates**: branch protection on `main` requires
-green required CI plus a self-review checklist on every PR, while `AGENTS.md`
-requires a substantive final-head review on one fixed lane, cheapest provider first:
-**Codex on the green diff until nothing blocking remains, then optionally one metered
-Greptile review, then CodeRabbit with no actionable comments before merge — or, when
-CodeRabbit's one-review cap is spent and every finding is disposed of, a fresh Codex
-review of the final head closing the gate in its place.**
-Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
-reviews; load-bearing changes additionally need any qualified human/domain judgment
-specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
-contributors join (PRD §12.3).
+review lane as merge gates**. Branch protection on `main` requires green required CI and a
+self-review checklist on every PR. The review lane and its rules are in
+[`AGENTS.md`, section "Review"](AGENTS.md#review). The ruleset requires zero GitHub approval
+reviews. Load-bearing changes also need the qualified human or domain judgment that `AGENTS.md`
+names. If contributors join, this model scales to required human reviews and `CODEOWNERS`
+(PRD §12.3).
 
 `main` is **always releasable and protected**. Never push to `main` directly;
 never merge, release, or declare a PR ready while required checks are red or pending.
@@ -389,242 +384,42 @@ Before requesting review / merging, confirm:
 
 ## Merging (PRD §12.2, §12.6)
 
-Merge **squash-only** (linear history, delete-branch-on-merge) once the review is
-addressed **and all required CI checks are green** — wait for in-progress checks;
-**never merge over a red or pending check**.
+This section tells you how a pull request (PR) reaches `main`. The full review and merge rules
+are in [`AGENTS.md`, section "Review"](AGENTS.md#review). Where the two differ, `AGENTS.md`
+governs.
 
-Automated agents are peers, not a hierarchy: each claims one issue, opens one **draft**
-PR, gets it reviewed, and **hands off or merges** rather than sitting and polling. There is no coordinator. Auto-merge is armed at the **end** of the lane, and
-completing the lane is **not by itself authority to arm it** — `AGENTS.md` requires
-explicit per-PR merge authority, which is a separate grant that no amount of green
-checks confers. Arming it on a draft would merge the PR past the mandatory review
-gate, since that gate is not a required check. The merge is bound to the head the review evidence covers with
-`gh pr merge N --auto --squash --match-head-commit <SHA>` — that guard is what stands in
-for the merge queue, which needs an organization-owned repository and so is unavailable
-here. **`<SHA>` is the 40-hex head the clean review read, never the head re-read while
-arming** — `AGENTS.md` §Review is the rule, including why re-reading it makes the guard
-always pass.
+1. Open the PR as a draft.
+2. Wait until every required check is green. Do not merge over a red or pending check.
+3. Ask Codex for a review with an `@codex review` comment.
+4. Mark the PR ready for review.
+5. Ask CodeRabbit with an `@coderabbitai full review` comment. The incremental command reviews
+   nothing on this repository.
+6. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
+7. Resolve each review thread. An unresolved thread blocks the merge, even when every check is
+   green.
 
-The `main-baseline` ruleset requires these **11** status checks:
+No provider reviews a PR automatically here, so a review that was not asked for does not come.
+A review usually posts within an hour of the request. A provider can refuse for a quota or a
+rate limit, and that can hold a PR for hours. A refusal is a wait, not a pass.
 
-`lint` · `test (ubuntu-latest)` · `test (macos-latest)` · `test (windows-latest)` ·
-`pre-commit` · `commitlint` · `secret-scan` · `conda-lock-verify` · `schema-guard` ·
-`docs-build` · `sidecar / parity`
+The `main-baseline` ruleset requires these **11** status checks: `lint` · `test (ubuntu-latest)` ·
+`test (macos-latest)` · `test (windows-latest)` · `pre-commit` · `commitlint` · `secret-scan` ·
+`conda-lock-verify` · `schema-guard` · `docs-build` · `sidecar / parity`. CodeQL is also
+enforced, but not as a status check. It runs through code-scanning **default setup** and a
+separate `code_scanning` rule, so `.github/workflows/` has no `codeql.yml`.
 
-**CodeQL is enforced, but it is not one of them.** It runs through GitHub code-scanning
-**default setup** — which is why there is no `codeql.yml` in `.github/workflows/`, and
-is what PRD §12.8 recommends for a solo maintainer — and is gated by a separate
-`code_scanning` rule on the same ruleset (`alerts: errors`,
-`security_alerts: high_or_higher`). Do not go looking for a missing workflow.
-
-**Reviews.** The ruleset requires **0 approving reviews** but does require
-**conversation resolution**: an unresolved review thread blocks the merge even when
-every check is green. Classify the final diff before merge and follow `AGENTS.md`:
-Copilot is optional, while every PR needs substantive independent review requested once
-checks are green and the diff is declared final. **Every PR walks the same lane,
-cheapest provider first: Codex on the green diff, uncapped — the draft by default, or the
-ready PR whose reason is recorded; then optionally one metered Greptile **review** if the
-seat has budget, a review being one credit as a standard and three as a TREX; then
-CodeRabbit with no actionable comments, which is the last metered gate before merge — and
-when its one-review cap is spent with every finding disposed of, a fresh posted Codex review of the final head
-closes the gate in its place rather than a maintainer doing it — under conditions `AGENTS.md`
-§Review sets and this summary does not restate.** **Open as a draft and get it green there** — every
-required check runs on a draft, so the diff reaches fully green before anyone is asked to
-read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
-Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
-seen; the old rationale for allowing it turned on the round counter ADR-0064 retires, so
-what remains is simply that it costs more for nothing. Record the reason in the PR. Author-side
-review and status-only output do not satisfy it — and *author-side* is about whose judgement it
-is, not which machine ran it. The verdict has to be the provider's and **posted on the pull
-request**, so GitHub attests that it said so and the artifact names the head the merge
-binds; a local run quoted by its author is not that, however faithfully it is quoted. What has to
-hold is that **every substantive change reaching the merge was externally reviewed**,
-which `AGENTS.md` §Review states operatively and which its last shutting condition is what enforces on
-the cap-spent path. **Exhaustion is not incapacity** — a provider with no budget
-left has not reviewed: Greptile out of credits is skippable and never blocks, while
-CodeRabbit unavailable freezes the PR.
-
-**No provider auto-reviews this repository; you have to ask.** CodeRabbit replies
-to an unrequested PR with *"Auto reviews are disabled on this repository"*. A provider
-that was never asked has not declined — so if you are waiting on a review, check that a
-request was actually posted.
-
-**Codex has two delivery paths and they are not interchangeable.** The GitHub bot triggers
-on opening a PR for review, marking a draft ready, or an `@codex review` comment, and posts an
-artifact naming the head it read — a review object, or a comment when the run is clean (§Review). The CLI runs locally and posts nothing. **The Codex leg is the posted review**, asked with an `@codex review` comment, because
-`AGENTS.md` §Review requires a posted artifact naming the head, which no local run produces and says in the same breath
-that local output satisfies nothing.
-
-**A quota refusal is a wait** (`AGENTS.md` §Review), and it is not a review. The bot replies *"You
-have reached your Codex usage limits for code reviews"* and names no retry time. On record: refusals
-on #427 and #428 (2026-08-07), then a review on #431 three days later; 21 refusals on #462 across
-nine hours from 2026-10-03, then a read. Re-ask on a spaced interval, never in a loop. The refusal
-offers credits; buying them is the maintainer's decision, and #450 records it: none are bought.
-
-The CLI is still worth running and satisfies **no leg**: it is an author-side tool for finding
-your own defects before a provider is asked, in the same category as running the tests. Use it
-freely — it costs nothing and it is uncapped — and do not record it as the Codex leg.
-
-**Do not run it on a diff that touches `AGENTS.md`, `AGENTS.override.md` (anywhere), `CLAUDE.md`,
-`.agents/skills/**` or `.codex/` at any depth** — the three observed routes: discovered files,
-injected skills and project settings. This section used to give an isolated command for those
-diffs, `--strict-config -c project_doc_max_bytes=0 -c skills.include_instructions=false`. On
-codex-cli 0.147.0 it keeps the branch's instruction files and skill descriptions out of the prompt
-the CLI composes, but not out of what the reviewer reads: the review prompt itself tells the model
-to find and apply the instruction files, and ADR-0065's 2026-10-06 amendment records the model
-doing so. A branch's project settings can also do more than instruct the model, and no switch was
-shown to turn them off as a whole. So no procedure was shown to keep a branch's rules from its own
-CLI reader, and such a diff gets no CLI read; the posted reviews still read it. ADR-0065's
-amendments record what **#451** and **#486** observed; the trigger over-fires deliberately, the
-cheaper mistake.
-
-One exception, and it has already cost money: `.greptile/config.json` is read from
-the pull request's **source branch**, so a branch cut before that file landed still
-auto-fires Greptile on open. Answer that review like any other and record the optional
-Greptile step as spent — the credit is gone either way. Rebasing onto a base that
-carries the config prevents the next one.
-
-Ask CodeRabbit with **`@coderabbitai full review`**. The bare `@coderabbitai review`
-is the *incremental* command and applies only where automatic reviews are **paused**;
-they are **disabled** here, so it reviews nothing and replies *"CodeRabbit is an
-incremental review system and does not re-review already reviewed commits"* — which
-reads a great deal like a review that found nothing.
-
-CodeRabbit's fair-use limit is **adaptive**: several reviews in one sitting drop the
-seat to a per-interval allowance, and the refusal names when the next included review
-is due. The allowance belongs to the whole CodeRabbit account, so every pull request here
-and in the account's other repositories draws on the same one (ADR-0069 records the
-measurement). That is a **wait**, not unavailability — wait it out and ask again, which
-spends nothing against the one-completed-review cap, since a request that
-produced no review is not a completed one. It also offers to proceed through usage-based
-billing; that is the maintainer's spending decision, never a worker's. Pace review
-requests rather than batching them.
-
-**A long refusal has one other exit.** Where the posted refusal names **more than 30
-minutes**, `AGENTS.md` §Review lets one standard Greptile review stand in as the metered
-gate: the one already on the pull request, or else a new one, asked only when
-`<py> .agents/bin/greptile_usage.py` — read at that moment — shows credits left on the seat and
-Tether under its share of 15 a month. Count each TREX review as three when you read it: the
-script counts a submission as one credit. A balance the script cannot read is a no, and the
-refusal is then the wait it always was. The stand-in is held to everything asked of
-CodeRabbit's review, CodeRabbit is not asked again on that pull request, and Codex never
-stands in — a refusal still opens no Codex close.
-
-**Before any re-request, check that a review is not already running.** The `CodeRabbit`
-commit status reads `pending` / *"Review in progress"* while one is in flight, and a
-second request **aborts it** — spending the window on nothing and triggering the limit
-above. The elapsed interval is not on its own a licence to ask:
+The maintainer merges, **squash-only** (linear history, branch deleted on merge). An agent merges
+only with explicit merge authority for that one PR. A green lane does not give that authority.
+Arm auto-merge only after the review lane is complete. The lane is not a required check, so GitHub
+can merge as soon as the checks are green. Arm it with this command:
 
 ```bash
-gh pr checks <PR> --json name,state,description --jq '.[] | select(.name == "CodeRabbit")'
+gh pr merge <PR> --auto --squash --match-head-commit <SHA>
 ```
 
-**Do not write a provider's handle in a comment you do not mean as a request.** The
-mention fires the bot even inside backticks — a code span is not an escape — so
-quoting a trigger while describing it spends a real review. Break the handle, or say
-"the full-review command" instead.
-
-Review evidence **survives a non-material push**, so addressing findings does not
-restart the gate — merging `main` in cleanly, formatting, comment and docstring edits, and ADR
-renumbering (renumber-only — touching a word of the decision is not) are all non-material, and
-that exception list WINS over the material paths below, while executable code, scientific claims, data,
-schema, locks, CI/release config and the governance text itself (`AGENTS.md` anywhere,
-`CLAUDE.md`, this file, `docs/PRD.md`, `docs/adr/**`, `.agents/**`, `docs/agents/**`,
-`.claude/**`, `.github/pull_request_template.md`, `.greptile/**`, and `AGENTS.override.md`
-and `.codex/` anywhere) are material — the
-list is *every file that states a rule*, because a push changing what the gate requires
-must not keep evidence gathered under the old requirement. A material push
-re-arms the review but raises no ceiling: there is **at most one completed review per
-metered provider** however many pushes precede it (Codex, being unmetered, is uncapped — see below).
-
-Fix blocking findings. Blocking is decided on the **severity axis only**: CodeRabbit
-`Critical`/`Major`, Codex `P1`, **Greptile `P1`** — its badges use the same P-scale as
-Codex, so they map straight across, and a review the seat paid a credit for must not be
-answerable entirely by deferral — plus anything touching secrets, unlicensed data, a
-frozen oracle, the §5 skeleton, or a CodeQL alert — and anything that falsifies a claim
-the PR itself introduces.
-
-CodeRabbit renders three independent things on a finding and only one of them is the
-severity: a **domain** (`🎯 Functional Correctness`, `📐 Maintainability & Code Quality`,
-…), a **severity** (`🔴 Critical`, `🟠 Major`, `🟡 Minor`), and a machine marker
-(`<!-- cr-indicator-types:potential_issue -->`). The marker is a *category*, not a level —
-it appears on `🟡 Minor` and `🟠 Major` alike — so it never makes a `Minor` blocking. An
-earlier revision of this list read `Critical`/`Major`/`Potential issue`, which mixed the
-two axes and left every `Minor` ambiguous.
-
-Defer everything else to **one** follow-up issue per PR and resolve the thread with a
-link; do not fix non-blocking findings in the same PR, and never point a deferral at an
-issue that does not exist. On agent-layer paths that rule inverts and the finding is
-dropped rather than tracked, which is stated in full below; **those same paths are also
-feature-complete** (ADR-0064) — they take bug and safety fixes only, so a capability
-change needs a maintainer-opened issue and may never originate in a review finding.
-Dropping the sub-floor finding without that second rule would still leave a reviewer able
-to commission new agent machinery through the deferral above. If a **selected** provider reports nothing to review at the
-head it read — a deletion, a pure rename, or Codex's clean result, which its own documentation
-calls a 👍 reaction and which on this repository is a posted **comment** reading
-`Codex Review: Didn't find any major issues.` with `Reviewed commit: <short-sha>` on its own line
-(measured, 2026-08-12). Either way it is its documented
-"no suggestions" — that satisfies its leg; quote it. A statement from the author, or from
-any other commenter, never does. **Exhaustion is not incapacity**: a provider with nothing
-to say has reviewed, a provider with no budget left has not. Greptile out of credits is
-skippable and never blocks; **CodeRabbit unavailable freezes the PR**, because it is the
-metered gate and an unavailable provider is not a spent cap — nothing reviewed, so nothing
-opens the Codex close. Record which and why — and a quota refusal means the provider **did not review**, and never counts as a pass.
-
-**One completed review per metered provider, then stop** (ADR-0069). The cap bounds how many times a
-provider whose reads cost money or quota is made to *read the diff*, so **Codex
-is uncapped** — it is unmetered, which is the whole reason it goes first. Otherwise a request that produced nothing (a throttle, a quota refusal,
-a failed run) is not that one — counting those would make the gate unsatisfiable
-exactly when the provider is rate-limiting. It does **not** license a second review — the
-Codex close is what confirms the fixes — and it
-does not license hammering: honour the retry interval the refusal names, and never
-re-request while the status check reads `pending`. **A Greptile review is not always one
-credit** — a standard review costs one, a TREX review three — and Tether's share of the seat is
-15 a month, the optional review and the stand-in together. **A spent cap
-is not a stuck PR**: when **no finding that review raised is left outstanding** — cleared by
-being fixed, deferred-and-tracked, dropped sub-floor, or **withdrawn by the provider that raised
-it**, that last quoted on the thread like any other disposition — and every thread resolved, a fresh posted Codex review of the final head closes the gate in its place, so the
-PR finishes on an unmetered read rather than on a maintainer. **`AGENTS.md` §Review sets three
-conditions on that and is the operative statement of all of them**; two of them are above —
-a provider that refused reviewed nothing, so a spent cap is not what an unavailable CodeRabbit
-leaves behind, and a review that came back clean with its evidence still standing **and that
-read the head being merged** is already the gate. That last qualifier is not decoration: where
-a permitted non-material push has since moved the head, no metered provider has named the
-commit `--match-head-commit` binds, so the case takes the ordinary Codex close rather than
-resting on the earlier review. The two restated here are the two a summary most easily drops, and dropping either
-would authorise the close in a case the contract shuts, which a contributor reading the two
-documents together would have to stop over. **And nothing but disposal may land after the cap is spent**:
-every hunk added after the commit the last completed review actually read — its
-`commit_id`, never its `submitted_at`, since a material push landing while that review is
-still running is a push it never saw — must answer a finding **already recorded on the pull
-request that you were required to address** (a review finding from any provider, a CodeQL or
-`secret-scan` alert, a condition a human sign-off attached, the closing review's own finding —
-illustrations, not the rule, which is a test on the change and not on its source), or be one
-of the non-material exceptions above, **or be the resolution of a
-conflict in the `main` merge the contract requires** — that merge is non-material only when
-it is *clean*, so a conflicted one is a material push you were ordered to make, and shutting
-the close on it would strand any PR that `main` happened to touch. Only the reconciliation is
-admitted; a resolution carrying new logic of its own is new scope like any other. The
-provider-neutral wording is load-bearing rather than loose: whoever raised a serious finding,
-you are obliged to fix it, so any list of *whose* findings count shuts the close against the
-fix it just required — and every list drafted here has omitted somebody, first the closing
-read and then Greptile. What follows such a fix is another stamped read of the head it
-produced. New scope pushed past that point is scope no metered provider will ever read, and
-the close is a further opinion on a diff every substantive part of which **some external provider**
-has already read — never a first opinion on an unread one. Not *twice*-read, and not all of it
-*metered*: a fix answering the review lands after that review's `commit_id` by design, as do a
-permitted conflict resolution and anything the closing review raises, and the closing review is the
-only provider that reads those. Metered up to that review's commit, the closing review after
-it, external throughout — which is what `AGENTS.md` §Review's first bullet asks for and no more.
-Nothing counts this for you; the
-merged history is auditable and you are trusted with it. On agent-layer paths
-(`.agents/`, `docs/agents/`, `AGENTS.md` and `AGENTS.override.md` and `.codex/` anywhere, `CLAUDE.md` and the agent test modules) a
-finding below the severity floor is **dropped rather than tracked**, because there the
-follow-up issue becomes another agent-layer pull request and the loop feeds itself
-(ADR-0064). Dropped is not silent: reply on the thread in the wording `AGENTS.md`
-§Review gives, and resolve it — untracked and unanswered are different things, and only
-the reply leaves the decision on the record. Human sign-off is required only for releases, tags, signing, and any new
-scientific claim **or citation**.
+`<SHA>` is the 40-hex head that the clean review read. Take it from that review, not from the PR.
+Releases, tags, signing and each new scientific claim or citation also need the maintainer's
+sign-off.
 
 ## Reporting bugs & security issues
 
