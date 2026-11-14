@@ -201,6 +201,9 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       NAPARI_ASYNC: "0"
+      # A shell keyboard-shortcut test that cannot activate its window fails here instead of
+      # skipping, so this gate never goes green without the key path (#855).
+      TETHER_REQUIRE_WINDOW_ACTIVATION: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
