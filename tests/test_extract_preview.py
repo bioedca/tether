@@ -13,6 +13,7 @@ nothing and imports no Qt.
 from __future__ import annotations
 
 import builtins
+import dataclasses
 import subprocess
 import sys
 import warnings
@@ -271,3 +272,16 @@ def test_preview_imports_no_qt() -> None:
         "assert not bad, bad\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603
+
+
+def test_an_over_gate_supplied_map_is_reported_with_its_own_gate() -> None:
+    # A supplied map can carry a measured residual over its own gate (a .tmap with
+    # control points); the preview reports it and still extracts, it does not raise.
+    imported = registration_map_from_tmap(_tmap_channels(), app_version=__version__)
+    over = dataclasses.replace(imported, rms_residual=0.9, gate_px=0.4)
+    preview = preview_extraction(_movie_array(), registration=over)
+    register = preview.stage("register")
+    assert register.outcome == OUTCOME_OVER_GATE
+    assert "0.900 px exceeds the 0.4 px gate" in register.message
+    assert register.outputs["molecule_tags"] == (LOW_CONFIDENCE_TAG,)
+    assert preview.completed and preview.molecules.n_molecules == 3

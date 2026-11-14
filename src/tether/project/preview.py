@@ -138,6 +138,15 @@ def _run(name: str, params: dict[str, Any], body: Callable[[], dict[str, Any]]) 
         return StageResult(name, OUTCOME_FAILED, params, message=f"{type(exc).__name__}: {exc}")
 
 
+def _registered(reg_map: RegistrationMap) -> dict[str, Any]:
+    """The ``register`` outputs, the same for a native fit and a supplied map."""
+    return {
+        "registration": reg_map,
+        "rms_residual": float(reg_map.rms_residual),
+        "molecule_tags": reg_map.molecule_tags,
+    }
+
+
 def _crop(geometry: ChannelGeometry) -> list[int] | None:
     return None if geometry.crop is None else [int(v) for v in geometry.crop]
 
@@ -264,11 +273,7 @@ def iter_extraction_stages(
                 on_over_gate="warn",
                 app_version=__version__,
             )
-        return {
-            "registration": reg_map,
-            "rms_residual": float(reg_map.rms_residual),
-            "molecule_tags": reg_map.molecule_tags,
-        }
+        return _registered(reg_map)
 
     def coloc() -> dict[str, Any]:
         molecules = colocalize(
@@ -311,7 +316,7 @@ def iter_extraction_stages(
         plan += [
             ("prealign", {}, None),
             ("pair", {}, None),
-            ("register", imported, lambda: {"registration": registration}),
+            ("register", imported, lambda: _registered(registration)),
         ]
     plan += [
         (
@@ -343,11 +348,12 @@ def iter_extraction_stages(
             and result.outcome == OUTCOME_OK
             and out["registration"].low_confidence
         ):
+            reg = out["registration"]  # native or supplied: read the map's own gate
             result = replace(
                 result,
                 outcome=OUTCOME_OVER_GATE,
                 message=(
-                    f"residual {out['rms_residual']:.3f} px exceeds the {opts.rms_gate} px gate; "
+                    f"residual {reg.rms_residual:.3f} px exceeds the {reg.gate_px} px gate; "
                     "the molecules are flagged, not dropped"
                 ),
             )
