@@ -29,11 +29,11 @@ Three pieces:
   :func:`evaluate_kinsoft_level` — load the frozen ground-truth + reported
   inter-tool spread (``schema/kinsoft_reference.json``) and check a fitted level
   against the **advisory** band. Only the archetypal 2-state level (Fig. 2) has an
-  active oracle: its well-separated FRET states are what a FRET-only idealizer can
-  faithfully recover. The 3-state non-equilibrium (Fig. 3) and 4-state
-  kinetic-heterogeneity (Fig. 4) levels have overlapping / directional structure
-  the benchmark itself only compares via cumulative dwell-time distributions
-  [Götz2022]; their ground truth is recorded for a future multi-state extension.
+  active, band-checked oracle: its well-separated FRET states are what a FRET-only
+  idealizer can faithfully recover. The 3-state non-equilibrium (Fig. 3) and 4-state
+  kinetic-heterogeneity (Fig. 4) levels are fitted and reported by
+  ``tests/test_kinsoft_levels.py`` against the simulator settings files, never
+  band-checked (ADR-0081), and this function refuses them.
 
 All headless (no Qt, no sidecar) → runs in the base CI matrix; the fixture-backed
 oracle is gated behind ``@pytest.mark.large`` (the LFS ``kinsoft_sim.hdf5``).

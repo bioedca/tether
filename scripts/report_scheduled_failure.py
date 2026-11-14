@@ -11,7 +11,8 @@ What it does, by the watched job's result:
 * **failure** -- it looks for an open issue with the workflow's fixed title. If there is none, it
   opens one with the run URL, the commit, the failed step and the last log lines: an oracle job
   gets the fields of the ``validation-oracle-failure`` form, the others get ``type:ci``. If the
-  issue is open, it adds one comment with the new run URL.
+  issue is open, it adds one comment with the new run URL, the failed step and the same log
+  excerpt (#852): a repeat failure can have a new cause, such as a new upstream commit.
 * **success** -- if the issue is open and its last report is a failure, it adds one comment that
   says so. It never closes the issue: the person or agent who finds the cause closes it.
 * **the limit** -- one new failure comment and one new pass comment each day (UTC), so a gate
@@ -275,7 +276,7 @@ def _failed(items: list[dict]) -> dict | None:
 
 
 def facts(run: Run, api: Api, *, with_log: bool) -> str:
-    """The run URL, event, commit, failed job and step, and (for a new issue) the log tail."""
+    """The run URL, event, commit, failed job and step, and (``with_log``) the log tail."""
     try:
         jobs = api.pages(f"/actions/runs/{run.run_id}/attempts/{run.attempt}/jobs?per_page=100")
     except (ApiError, OSError, ValueError):
@@ -381,7 +382,8 @@ def report(run: Run, api: Api, now: dt.datetime) -> str:
 
 def _comment_body(run: Run, api: Api, state: str, kind: str, *, updated: bool = False) -> str:
     if state == "failed":
-        text = f"Failed again.\n\n{facts(run, api, with_log=False)}"
+        # The same excerpt as a new issue (#852): the cause can change while the commit does not.
+        text = f"Failed again.\n\n{facts(run, api, with_log=True)}"
     else:
         text = (
             f"The next run passed: {run.url} on commit {run.server}/{run.repo}/commit/{run.sha}. "

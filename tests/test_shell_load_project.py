@@ -297,7 +297,7 @@ def test_second_shell_in_process_cannot_share_writable_project(qapp, qtbot, tmp_
     try:
         assert first.load_project(project.path) is not None
         assert second.load_project(project.path) is not None
-        assert second._curation_project is None
+        assert second.curation_project is None
         assert "another Tether window" in second.status_message
 
         qtbot.keyClick(second.molecule_list, QtCore.Qt.Key.Key_Space)
@@ -306,7 +306,7 @@ def test_second_shell_in_process_cannot_share_writable_project(qapp, qtbot, tmp_
 
         first.close()
         assert second.load_project(project.path) is not None
-        assert second._curation_project is not None
+        assert second.curation_project is not None
     finally:
         first.close()
         second.close()
@@ -327,14 +327,14 @@ def test_hard_link_alias_cannot_create_a_second_writable_gui_claim(qapp, qtbot, 
         assert first.load_project(project.path) is not None
         assert second.load_project(alias) is not None
 
-        assert second._curation_project is None
+        assert second.curation_project is None
         assert "another Tether window" in second.status_message
         assert not lock.lock_path(alias).exists()
         assert not lock._guard_path(lock.lock_path(alias)).exists()
 
         first.close()
         assert second.load_project(alias) is not None
-        assert second._curation_project is not None
+        assert second.curation_project is not None
     finally:
         first.close()
         second.close()
@@ -380,10 +380,86 @@ def test_project_file_must_open_writable_before_gui_enables_mutations(
 
     assert shell.load_project(project.path) is not None
 
-    assert shell._curation_project is None
+    assert shell.curation_project is None
     assert project.lock_owner() is None
     assert "project file is not writable" in shell.status_message
     assert "project file is read-only" in shell.status_message
+
+
+_SESSION_LOCK_ACCESSORS = (
+    "curation_project",
+    "session_project",
+    "holds_project_claim",
+    "rollback_session_project",
+    "holds_rollback_claim",
+    "read_only_reason",
+    "lock_refresh_active",
+    "lock_refresh_interval_ms",
+    "lock_release_pending",
+)
+
+
+def test_session_lock_accessors_track_open_and_close(shell, tmp_path) -> None:
+    from tether.project.lock import DEFAULT_STALENESS_TIMEOUT_S
+
+    # No project yet: nothing is held, nothing is writable, no timer runs.
+    assert shell.curation_project is None
+    assert shell.session_project is None
+    assert not shell.holds_project_claim
+    assert shell.rollback_session_project is None
+    assert not shell.holds_rollback_claim
+    assert shell.read_only_reason is None
+    assert not shell.lock_refresh_active
+    assert not shell.lock_release_pending
+    assert 0 < shell.lock_refresh_interval_ms < DEFAULT_STALENESS_TIMEOUT_S * 1000
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    opened = shell.load_project(project.path)
+    assert opened is not None
+    assert shell.curation_project is opened
+    assert shell.session_project is opened
+    assert shell.holds_project_claim
+    assert shell.read_only_reason is None
+    assert shell.lock_refresh_active
+    assert not shell.lock_release_pending
+
+    shell.close()
+    assert shell.curation_project is None
+    assert shell.session_project is None
+    assert not shell.holds_project_claim
+    assert not shell.lock_refresh_active
+    assert not shell.lock_release_pending
+    assert project.lock_owner() is None
+
+
+def test_read_only_reason_matches_banner_for_foreign_lock(shell, tmp_path) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    held = lock.acquire(
+        project.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999)
+    )
+    try:
+        assert shell.load_project(project.path) is not None
+        assert shell.curation_project is None
+        assert not shell.lock_refresh_active
+        assert shell.read_only_reason is not None
+        assert shell.read_only_banner.text() == f"Read-only project: {shell.read_only_reason}"
+    finally:
+        assert lock.release(project.path, held)
+
+
+@pytest.mark.parametrize("name", _SESSION_LOCK_ACCESSORS)
+def test_session_lock_accessors_have_no_setter(shell, name) -> None:
+    from tether.gui.shell import TetherShell
+
+    accessor = getattr(TetherShell, name)
+    assert isinstance(accessor, property)
+    assert accessor.fset is None
+    assert accessor.__doc__
+    with pytest.raises(AttributeError):
+        setattr(shell, name, None)
 
 
 def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path, monkeypatch) -> None:
@@ -403,8 +479,8 @@ def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path, monkey
     assert shell.load_project(project.path) is not None
     before = project.lock_owner()
     assert before is not None
-    assert shell._lock_refresh_timer.isActive()
-    assert shell._lock_refresh_timer.interval() < DEFAULT_STALENESS_TIMEOUT_S * 1000
+    assert shell.lock_refresh_active
+    assert shell.lock_refresh_interval_ms < DEFAULT_STALENESS_TIMEOUT_S * 1000
 
     assert datetime.fromisoformat(before.timestamp) == t0
     clock["now"] = t0 + timedelta(seconds=1)
@@ -416,7 +492,7 @@ def test_gui_session_lock_refreshes_before_stale_timeout(shell, tmp_path, monkey
     assert after.nonce == before.nonce
     assert datetime.fromisoformat(after.timestamp) == t0 + timedelta(seconds=1)
     shell.close()
-    assert not shell._lock_refresh_timer.isActive()
+    assert not shell.lock_refresh_active
     assert project.lock_owner() is None
 
 
@@ -431,11 +507,11 @@ def test_reopening_loaded_project_preserves_session_epoch(shell, tmp_path) -> No
 
     after = project.lock_owner()
     assert reopened is retained
-    assert shell._session_project is retained
-    assert shell._curation_project is retained
+    assert shell.session_project is retained
+    assert shell.curation_project is retained
     assert after is not None
     assert after.nonce == before.nonce
-    assert not shell._lock_release_timer.isActive()
+    assert not shell.lock_release_pending
 
 
 def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
@@ -484,8 +560,8 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
         # fail closed instead of silently establishing a successor session.
         shell._refresh_project_lock()
         assert project.lock_owner() is None
-        assert shell._curation_project is None
-        assert shell._curation_read_only_reason is not None
+        assert shell.curation_project is None
+        assert shell.read_only_reason is not None
     finally:
         gate.set()
         qtbot.waitUntil(lambda: not shell.is_idealizing, timeout=5000)
@@ -493,7 +569,7 @@ def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot,
     assert list_idealizations(project) == []
     assert "Idealize failed" in shell.status_message
     assert project.lock_owner() is None
-    assert shell._curation_project is None
+    assert shell.curation_project is None
     assert project.curation_label(keys[0]) == 0
 
 
@@ -554,9 +630,9 @@ def test_lost_session_lock_disables_gui_writes_and_refresh(shell, tmp_path) -> N
     try:
         shell._refresh_project_lock()
 
-        assert shell._curation_project is None
+        assert shell.curation_project is None
         assert shell._idealizer is None
-        assert not shell._lock_refresh_timer.isActive()
+        assert not shell.lock_refresh_active
         assert "became read-only" in shell.status_message
         assert "locked" in shell.status_message
     finally:
@@ -581,11 +657,11 @@ def test_definitive_lock_loss_drops_session_claim_without_retry(
 
     shell._refresh_project_lock()
 
-    assert shell._curation_project is None
-    assert shell._session_project is None
-    assert shell._claimed_project_key is None
+    assert shell.curation_project is None
+    assert shell.session_project is None
+    assert not shell.holds_project_claim
     assert retained._held_lock is None
-    assert not shell._lock_release_timer.isActive()
+    assert not shell.lock_release_pending
 
     assert lock.release(project.path, foreign)
     successor = TetherShell()
@@ -593,7 +669,7 @@ def test_definitive_lock_loss_drops_session_claim_without_retry(
     try:
         opened = successor.load_project(project.path)
         assert opened is not None
-        assert successor._curation_project is opened
+        assert successor.curation_project is opened
     finally:
         successor.close()
 
@@ -650,7 +726,7 @@ def test_lock_loss_closes_open_conditions_dialog_before_unlocked_write(
     assert StealThenReleaseDialog.instance is not None
     assert StealThenReleaseDialog.instance.rejected
     assert sync_calls == []
-    assert shell._curation_project is None
+    assert shell.curation_project is None
     assert project.lock_owner() is None
     assert "became read-only" in shell.status_message
     assert "Conditions validation closed" not in shell.status_message
@@ -708,7 +784,7 @@ def test_conditions_dialog_guard_detects_steal_release_between_heartbeats(
     assert BetweenHeartbeatDialog.instance is not None
     assert BetweenHeartbeatDialog.instance.rejected
     assert sync_calls == []
-    assert shell._curation_project is None
+    assert shell.curation_project is None
     assert project.lock_owner() is None
     assert "became read-only" in shell.status_message
     assert "Conditions validation closed" not in shell.status_message
@@ -739,18 +815,17 @@ def test_refresh_io_failure_retries_nonce_safe_session_release(
 
     shell._refresh_project_lock()
 
-    assert shell._curation_project is None
-    assert shell._session_project is not None
+    assert shell.curation_project is None
+    assert shell.session_project is not None
     assert project.lock_owner() is not None
     assert release_calls == 1
-    assert shell._lock_release_timer.isActive()
+    assert shell.lock_release_pending
 
     shell._retry_session_release()
 
-    assert release_calls == 2
-    assert shell._session_project is None
+    assert shell.session_project is None
     assert project.lock_owner() is None
-    assert not shell._lock_release_timer.isActive()
+    assert not shell.lock_release_pending
 
 
 def test_close_retries_transient_nonce_safe_session_release(shell, tmp_path, monkeypatch) -> None:
@@ -773,18 +848,17 @@ def test_close_retries_transient_nonce_safe_session_release(shell, tmp_path, mon
     shell.close()
 
     assert release_calls == 1
-    assert shell._session_project is not None
-    assert shell._claimed_project_key is not None
+    assert shell.session_project is not None
+    assert shell.holds_project_claim
     assert project.lock_owner() is not None
-    assert shell._lock_release_timer.isActive()
+    assert shell.lock_release_pending
 
     shell._retry_session_release()
 
-    assert release_calls == 2
-    assert shell._session_project is None
-    assert shell._claimed_project_key is None
+    assert shell.session_project is None
+    assert not shell.holds_project_claim
     assert project.lock_owner() is None
-    assert not shell._lock_release_timer.isActive()
+    assert not shell.lock_release_pending
 
 
 def test_close_retries_indeterminate_false_session_release(shell, tmp_path, monkeypatch) -> None:
@@ -807,19 +881,18 @@ def test_close_retries_indeterminate_false_session_release(shell, tmp_path, monk
     shell.close()
 
     assert release_calls == 1
-    assert shell._session_project is not None
-    assert shell._session_project._held_lock is not None
-    assert shell._claimed_project_key is not None
+    assert shell.session_project is not None
+    assert shell.session_project._held_lock is not None
+    assert shell.holds_project_claim
     assert project.lock_owner() is not None
-    assert shell._lock_release_timer.isActive()
+    assert shell.lock_release_pending
 
     shell._retry_session_release()
 
-    assert release_calls == 2
-    assert shell._session_project is None
-    assert shell._claimed_project_key is None
+    assert shell.session_project is None
+    assert not shell.holds_project_claim
     assert project.lock_owner() is None
-    assert not shell._lock_release_timer.isActive()
+    assert not shell.lock_release_pending
 
 
 def test_project_switch_retains_new_lock_when_both_releases_fail(
@@ -844,23 +917,23 @@ def test_project_switch_retains_new_lock_when_both_releases_fail(
 
     assert shell.load_project(second.path) is None
 
-    assert shell._curation_project is not None
-    assert shell._curation_project.path == first.path
-    assert shell._session_project is not None
-    assert shell._session_project.path == first.path
-    assert shell._rollback_session_project is not None
-    assert shell._rollback_session_project.path == second.path
-    assert shell._rollback_claimed_project_key is not None
+    assert shell.curation_project is not None
+    assert shell.curation_project.path == first.path
+    assert shell.session_project is not None
+    assert shell.session_project.path == first.path
+    assert shell.rollback_session_project is not None
+    assert shell.rollback_session_project.path == second.path
+    assert shell.holds_rollback_claim
     assert second.lock_owner() is not None
-    assert shell._lock_release_timer.isActive()
+    assert shell.lock_release_pending
 
     shell._retry_session_release()
 
-    assert shell._rollback_session_project is None
-    assert shell._rollback_claimed_project_key is None
+    assert shell.rollback_session_project is None
+    assert not shell.holds_rollback_claim
     assert second.lock_owner() is None
     assert first.lock_owner() is not None
-    assert not shell._lock_release_timer.isActive()
+    assert not shell.lock_release_pending
 
 
 def test_project_switch_fails_closed_when_prior_session_epoch_was_lost(
@@ -887,12 +960,12 @@ def test_project_switch_fails_closed_when_prior_session_epoch_was_lost(
     assert shell.load_project(second.path) is None
 
     assert retained._held_lock is None
-    assert shell._curation_project is None
-    assert shell._session_project is None
-    assert shell._claimed_project_key is None
-    assert shell._curation_read_only_reason is not None
-    assert "session lock lost" in shell._curation_read_only_reason
-    assert not shell._lock_refresh_timer.isActive()
+    assert shell.curation_project is None
+    assert shell.session_project is None
+    assert not shell.holds_project_claim
+    assert shell.read_only_reason is not None
+    assert "session lock lost" in shell.read_only_reason
+    assert not shell.lock_refresh_active
     assert first.lock_owner() is None
     assert second.lock_owner() is None
 
@@ -989,7 +1062,7 @@ def test_one_click_idealize_skips_rejected_selection(shell, qtbot, tmp_path) -> 
     project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
     assert shell.load_project(project.path) is not None
     shell.molecule_list.setCurrentRow(1)
-    shell._curation_project.reject(keys[1])
+    shell.curation_project.reject(keys[1])
     calls: list[str] = []
 
     def idealize(molecule_key):
@@ -1272,17 +1345,16 @@ def test_close_retries_release_after_background_idealization(
     qtbot.waitUntil(lambda: release_calls == 1, timeout=2000)
 
     assert release_calls == 1
-    assert shell._session_project is not None
-    assert shell._claimed_project_key is not None
+    assert shell.session_project is not None
+    assert shell.holds_project_claim
     assert project.lock_owner() is not None
 
     shell._retry_session_release()
 
-    assert release_calls == 2
-    assert shell._session_project is None
-    assert shell._claimed_project_key is None
+    assert shell.session_project is None
+    assert not shell.holds_project_claim
     assert project.lock_owner() is None
-    assert not shell._lock_release_timer.isActive()
+    assert not shell.lock_release_pending
 
 
 def test_return_leg_revalidates_writer_ownership_after_modal_dialog(
@@ -1325,7 +1397,7 @@ def test_return_leg_revalidates_writer_ownership_after_modal_dialog(
     try:
         assert shell.import_return_leg(returning) is None
         assert apply_calls == []
-        assert shell._curation_project is None
+        assert shell.curation_project is None
         assert "read-only" in shell.status_message
     finally:
         if foreign is not None:
@@ -1343,8 +1415,8 @@ def test_main_window_close_releases_session_state_while_application_lives(
         shell.window.show()
         shell.window.close()
         qtbot.waitUntil(lambda: not project.lock_path.exists(), timeout=2000)
-        assert shell._event_filter._app is None
-        assert not shell._lock_refresh_timer.isActive()
+        assert shell.event_filter._app is None
+        assert not shell.lock_refresh_active
     finally:
         qapp.setQuitOnLastWindowClosed(old_quit_policy)
 

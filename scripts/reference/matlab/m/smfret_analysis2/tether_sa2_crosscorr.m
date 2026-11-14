@@ -11,8 +11,10 @@ for k = 1:numel(files)
     data = load(files{k}, '-ascii');
     d_X_a = calculate_cross_corr(data(:, 2)', data(:, 3)');
     [~, name, ext] = fileparts(files{k});
+    % RFC 4180 rule 7: a double quote inside a quoted field is written twice (#840).
+    trace_name = strrep([name ext], '"', '""');
     for lag = 0:size(data, 1) - 1
-        fprintf(fid, '"%s",%d,%.17g\n', [name ext], lag, d_X_a(lag + 1));
+        fprintf(fid, '"%s",%d,%.17g\n', trace_name, lag, d_X_a(lag + 1));
     end
 end
 fclose(fid);

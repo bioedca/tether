@@ -478,10 +478,16 @@ def test_run_vbfret_without_seed_keeps_the_old_argv(monkeypatch, tmp_path):
     assert cmd[2] == str(tmp_path / "smd.hdf5")
 
 
-@pytest.mark.parametrize("bad", [-1, 1.5, True, "3"])
+@pytest.mark.parametrize("bad", [-1, 1.5, 3.0, np.float64(3.0), True, np.bool_(True), "3"])
 def test_run_vbfret_rejects_a_bad_seed_before_launch(tmp_path, bad):
-    with pytest.raises((ValueError, TypeError)):
+    # ``3.0`` equals an integer but is not an integer type, so it is refused (issue #839).
+    with pytest.raises(ValueError, match="seed must be a non-negative integer"):
         run_vbfret(tmp_path / "absent.hdf5", sidecar_python=sys.executable, seed=bad)
+
+
+def test_run_vbfret_accepts_a_numpy_integer_seed(monkeypatch, tmp_path):
+    cmd = _capture_sidecar_cmd(monkeypatch, tmp_path, seed=np.int64(3))
+    assert cmd[2:4] == ["--seed", "3"]
 
 
 def _draws_after_seeding(seed):
