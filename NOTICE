@@ -267,6 +267,19 @@ Ha laboratory SAM/SAH riboswitch data  (CC-BY-4.0)  — Liao T-W, Huang L,
     tests/fixtures/ha_sam_sah/test3.dat
     tests/fixtures/ha_sam_sah/counts2.txt
 
+Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
+  Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
+  preferred states of complementary trinucleotide repeat DNA hairpins
+  anticorrelates with expansion disease propensity," Journal of Molecular
+  Biology 435(10):168086 (2023), doi:10.1016/j.jmb.2023.168086. Data: Zenodo
+  doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc
+  (CC0-1.0).
+  Tether bundles a verbatim copy of one .traces movie of the record's archive,
+  used only as a test reference for the second .traces variant (#798). It is
+  dedicated to the public domain under CC0-1.0 (see LICENSES/CC0-1.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; Tether names the authors as a courtesy:
+    tests/fixtures/weninger_hairpin/cascade110.traces
+
 PySMACKS tutorial traces  (CC0-1.0)  — Molcrette B & Schmid S, "Dataset for the
   PySMACKS tutorial" (v1.0.0), Zenodo doi:10.5281/zenodo.21793247 (CC0-1.0).
   Tether does not bundle the traces: the weekly reference-data job downloads

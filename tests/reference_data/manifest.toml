@@ -2457,3 +2457,33 @@ sha256 = "1062b5f56f52bd2aed741ea7646c97339afc8187f0e4e4871d60388ffed27d03"
 tier = "workstation"
 env = "TETHER_PRIVATE_DATA"
 citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem C-B, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9"
+
+# --- Weninger laboratory, trinucleotide-repeat hairpins: Zenodo 10.5281/zenodo.7853531 (a copy of
+# Dryad doi:10.5061/dryad.ht76hdrkc), CC0-1.0 (#798). The archive is too large for the download
+# tier, so it is a workstation record at its path below the data folder; no workstation check
+# reads it yet. One .traces movie of it, read by HTTP range requests, is committed verbatim. ----
+
+[[dataset]]
+id = "weninger-hairpin-traces"
+source = "doi:10.5281/zenodo.7853531"
+record_url = "https://zenodo.org/records/7853531"
+license = "CC0-1.0"
+file = "zenodo-7853531/10072022_All_hairpin_traces.zip"
+size = 891884203
+sha256 = "f42a3b23f4912fa7e25fdf8904f6d4fba264d47bbec2ea23d2ed7f6f37189044"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"
+
+[[dataset]]
+id = "weninger-hairpin-cascade110"
+source = "doi:10.5281/zenodo.7853531"
+record_url = "https://zenodo.org/records/7853531"
+license = "CC0-1.0"
+file = "tests/fixtures/weninger_hairpin/cascade110.traces"
+size = 47094
+sha256 = "504226b25a5ff895a361b4739c2f55f4163ae00dfc0219f9b868a4be84d11513"
+tier = "git"
+extract_of = ["weninger-hairpin-traces"]
+extract_member = "10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces"
+citation = "Xu P, Zhang J, Pan F, Mahn C, Roland C, Sagui C, Weninger K. Frustration between preferred states of complementary trinucleotide repeat DNA hairpins anticorrelates with expansion disease propensity. J Mol Biol 435(10):168086 (2023). doi:10.1016/j.jmb.2023.168086. Data: Zenodo (2023), doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc"

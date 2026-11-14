@@ -908,7 +908,8 @@ was tried), so the traces are compared by their peaks only:
 
 **Out of scope.** The three long movies of the folder (their 2,854 values are in `frets.dat` but
 their files are not committed), extraction from the raw `.pma` movies, the dwell times, and the
-other figures (#796). The second `.traces` variant, with a frame-index row, is #798.
+other figures (#796). The second `.traces` variant, with a frame-index row, is the next section
+(#798).
 
 **Enforcing tests** (all unmarked — required 3-OS matrix):
 `tests/test_ha_sam_sah_reference.py::test_tether_histogram_of_frets_dat_equals_test3_dat`,
@@ -916,6 +917,56 @@ other figures (#796). The second `.traces` variant, with a frame-index row, is #
 `test_the_donor_is_the_first_channel_of_each_molecule`,
 `test_swapped_channels_miss_the_peaks_of_test3_dat` and
 `test_the_reader_opens_all_53_files_with_the_molecule_counts_of_the_lab`.
+
+## Weninger-laboratory hairpin `.traces` variant
+
+**What is read.** One movie of the trinucleotide-repeat hairpin data of Xu *et al.*, *Journal of
+Molecular Biology* **435**:168086 (2023), doi:10.1016/j.jmb.2023.168086: the CTG 14-repeat movie
+`cascade110.traces` at 15 ms (872 frames, 13 molecules) from Zenodo 10.5281/zenodo.7853531, a copy
+of Dryad doi:10.5061/dryad.ht76hdrkc (CC0-1.0). It is committed verbatim under
+`tests/fixtures/weninger_hairpin/` (tier `git`, one manifest entry with its SHA-256 and its member
+of the archive). The second movie that #798 names, `Evo31.traces`, is not committed: at
+1,146,478 B it is larger than the git tier allows.
+
+**How this variant differs.** It is the second variant of the binary `.traces` format that the
+tests read; the Ha-laboratory files of the previous section are the first. Each frame starts
+with a frame index (1 to 872) that the header does not count, so the file holds 27 values per
+frame for 26 channels. Each molecule's pair is acceptor first: the record's README says
+"acceptor and donor pairs in series", and the laboratory's MATLAB reader takes row 1 as time,
+then the acceptor and the donor of each molecule. The test reader finds the variant from the
+file size and takes the channel order as a stated parameter; the product has no importer for
+`.traces` files (PRD N4).
+
+**Checks** (all in the required 3-OS matrix):
+
+- The reader returns the frame index 1 to 872, and the header and the file size agree
+  (6 + 2 × 872 × 27 = 47,094 B). A Ha-laboratory file reads with no frame index.
+- The reader agrees value for value with a line-by-line copy of the laboratory's MATLAB reader,
+  and Tether's leakage-corrected FRET (α = 0.06, the reader's leakage; γ = 1) equals the reader's
+  FRET on every frame where its donor + corrected acceptor is positive. The MATLAB reader reads
+  only 26 × 872 values, so it fills the first 839 frames; the comparison uses those frames.
+- Two demonstrations: a reader that ignores the frame index, and a reader that takes the donor
+  first, each no longer follow the MATLAB reader (donor first gives E → 1 − E exactly when
+  α = 0).
+
+**Advisory peak check.** The paper reports that the CTG hairpin switches between E 0.74 and
+0.53, from its own methods (a Chung-Kennedy filter with edge detection, K-means and SPARTAN) on
+many movies. The test reports Tether's histogram of this one movie beside those two values and
+never fails on them. Measured 2026-11-14: of the 4,895 frames whose donor + corrected acceptor is
+above 300 counts, the highest bin above E = 0.3 is at 0.7125, 28.2 % of the frames lie within
+0.05 of 0.74 and 3.2 % within 0.05 of 0.53. One movie of 13 molecules shows the high state but
+no separate peak near 0.53.
+
+**Out of scope.** The kinetic schemes and rates of the paper, the 50 ms data, the rest of the
+archive and any request to the authors (#798).
+
+**Enforcing tests** (all unmarked — required 3-OS matrix):
+`tests/test_weninger_hairpin_traces.py::test_the_reader_returns_the_frame_index_and_the_header_counts`,
+`test_the_reader_finds_each_variant_from_the_file_size`,
+`test_the_reader_and_tether_fret_follow_the_laboratory_matlab_reader`,
+`test_reading_the_file_as_the_variant_without_a_frame_index_fails` and
+`test_the_swapped_channel_order_fails`. The advisory report is
+`test_advisory_tether_histogram_beside_the_papers_ctg_values`.
 
 ## External benchmark
 
