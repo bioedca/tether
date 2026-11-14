@@ -3,8 +3,10 @@
 **Who this page is for:** anyone deciding whether an analysis produced with Tether is
 defensible enough to publish — and what, specifically, has and has not been measured.
 
-Tether's acceptance criteria are seven validation oracles, (a)–(g), specified in PRD §8
-(NFR-VALID) with their numeric bars in PRD §11.2. This page transcribes each one: what is
+Tether's acceptance criteria are seven validation oracles, (a)–(g), specified in Tether's
+[product specification](https://github.com/bioedca/tether/blob/main/docs/PRD.md) (the
+requirements document kept in the repository; below, "the specification") with their numeric
+bars in its table of tunables. This page transcribes each one: what is
 compared, against which reference data, where the frozen tolerance lives, what was
 measured, and which committed test enforces it. Every number below names the file,
 constant or test it comes from, so any claim can be spot-checked with `grep`.
@@ -109,8 +111,8 @@ the same movie. The scorers are in `src/tether/project/oracle.py`: `match_coordi
 **Reference data.** The UCKOPSB movie plus its `.tdat`, `.tmap` and Deep-LASI `.mat`
 export. The ≈0.9 GB movie is **not in the repository** — the reason is size, not
 licensing: `.github/workflows/large-fixtures.yml` records that it "is NOT committed (not
-even to LFS; it is too large to host on the repo's LFS budget)", while PRD §8
-(NFR-FIXTURES) states the lab *does* hold redistribution rights, which is why the cropped
+even to LFS; it is too large to host on the repo's LFS budget)", while the specification
+states the lab *does* hold redistribution rights, which is why the cropped
 slice below could be committed at all. The gated test locates the full movie via
 `TETHER_UCKOPSB_DIR` and skips when it is absent. A committed 4-molecule slice
 (`tests/fixtures/deeplasi_export_slice.mat`, `tests/fixtures/deeplasi_traces_slice.txt`)
@@ -125,8 +127,8 @@ covers the readers on every matrix run.
 | `PEARSON_THRESHOLD` | 0.95 | gated — **donor channel only** |
 | `RMS_THRESHOLD_PX` | 0.5 | gated when registration is fit natively |
 
-These are the M1 bars as reframed by [ADR-0022](adr/0022-m1-acceptance-reframe-and-close.md);
-the original PRD §9 M1 gate asked for 1 px recall and r ≥ 0.99 on both channels.
+These are the extraction bars as reframed by [ADR-0022](adr/0022-m1-acceptance-reframe-and-close.md);
+the specification's original extraction gate asked for 1 px recall and r ≥ 0.99 on both channels.
 
 **Measured result** (ADR-0022, from a **local** run on the maintainer's workstation — see
 "Enforcing tests" below — on the full UCKOPSB pair with imported `.tmap` registration and
@@ -202,7 +204,7 @@ separately at `$.tolerance_by_method.ebhmm`
 | `relative_elbo_max` | ceiling | 0.01 | 0.01 |
 
 The freeze rule is recorded in the file at `$.freeze_policy`: the frozen bound is the more
-permissive of the provisional PRD §11.2 default and the measured worst case with a 0.5
+permissive of the specification's provisional default and the measured worst case with a 0.5
 margin. `$.provisional` holds the same four numbers as `$.tolerance` — the measured spread
 confirmed the defaults rather than widening them
 ([ADR-0009](adr/0009-parity-metrics-and-freeze.md)).
@@ -273,10 +275,10 @@ means the same tMAVEN commit on the same CPython, not an identical dependency se
 > produced by the same tMAVEN build**. The ebFRET block has no such gap. The mitigating
 > facts, also on the record: the M0.5 worst cases (`$.pooled_worst`, table above) are 1.0 on
 > both floors and 8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01, and the freeze
-> *confirmed* the provisional PRD §11.2 defaults rather than widening them — `$.tolerance`
+> *confirmed* the specification's provisional defaults rather than widening them — `$.tolerance`
 > holds exactly `$.provisional` — so no bound was derived from the older build's numbers.
 > Closing the gap means re-measuring in the pinned sidecar build, which is a deliberate
-> re-freeze and needs an ADR (PRD §11.2). `sidecar-measure.yml` cannot do it as written: its
+> re-freeze and needs an ADR. `sidecar-measure.yml` cannot do it as written: its
 > measurement step always passes `--cross-seed`, which forces `reference=None` for every
 > fixture in `scripts/measure_parity.py`, so it would anchor `smd_281mol` on its own first run
 > rather than on the committed `model_281mol.hdf5` that the default row was measured against
@@ -328,7 +330,7 @@ pull request touching an idealization path, and reports a "not applicable" pass 
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
 value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
 constant in `src/tether/idealize/parity.py` — a *drift* check between the two, not a pin to
-the literal §11.2 numbers, and
+the literal numbers of the specification, and
 `test_per_method_tolerances_cover_their_own_measured_evidence` requires every per-method
 tolerance to carry the four bounds and to be satisfied by its own recorded evidence.
 
@@ -378,7 +380,7 @@ than the magnitude of any bound inside it, plus one ordering between two blocks:
 Widening any of the eight bounds to some *other* finite value is caught by nothing — including
 all eight widened at once, as long as the default state-count floor stays above `0.5249`. In
 that region the freeze is protected in the loosening direction by review plus the deliberate
-re-freeze rule (`$.freeze_policy`, PRD §11.2, ADR-0009), not by a test.
+re-freeze rule (`$.freeze_policy`, ADR-0009), not by a test.
 
 **Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
 also assert a second bound, much tighter than the frozen default row: a state-mean difference of
@@ -397,7 +399,7 @@ selection changes from seed to seed (ADR-0043). The live tests also check that e
 requested model type with the requested state count, which a cross-seed comparison of two
 equally wrong fits cannot see.
 
-> Gap, stated plainly. PRD §8 asks for per-trace **vbFRET** parity on the small fixtures as
+> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small fixtures as
 > well as the consensus fit. `$.coverage.measured_methods` records only
 > `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
@@ -537,7 +539,7 @@ per-condition ranker against the file-order baseline, per video, aggregated as t
 **Frozen tolerance.** `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py` — a
 Python constant, not a JSON artifact. Asserted exactly by
 `tests/test_ml_prequential.py::test_default_ship_bar_is_ten_points`, which pins
-`DEFAULT_SHIP_BAR_PTS == 10.0` as the PRD §11.2 value. The rationale that apparent
+`DEFAULT_SHIP_BAR_PTS == 10.0` as the specification's value. The rationale that apparent
 precision@k is *not* the gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
 
 **Measured result.** None on real data. Both enforcing tests build synthetic or
@@ -555,13 +557,13 @@ single-movie project raises rather than inventing a held-out video.
 `test_gate_uplift_is_held_out_not_apparent`, `test_custom_ship_bar_can_withhold_a_ship`,
 `test_single_movie_project_has_no_held_out_video`).
 
-> Gap, stated plainly. PRD §8 says "prequential / leave-one-video-out". Only the
+> Gap, stated plainly. The specification says "prequential / leave-one-video-out". Only the
 > **prequential** protocol exists — a repository-wide search for `leave_one_video_out`
 > returns nothing in `src/` or `tests/`.
 
 ## (e) α / γ estimator edge cases
 
-**Frozen constants** (PRD §11.2 rows), all in code:
+**Frozen constants** (rows of the specification's table of tunables), all in code:
 
 | Constant | Value | Module |
 | --- | --- | --- |
@@ -583,7 +585,7 @@ different way — explicit slices, no shared helper). That transcription is of t
 Deep-LASI: ADR-0028 deliberately chose bare `I_D` over Deep-LASI's `(1+α)`-scaled donor and
 records that "Tether's γ is systematically ≈ `(1 + α)` times Deep-LASI's on the same step"
 — ≈ 9 % at α ≈ 0.09. The actual Deep-LASI-median comparison is deferred (below). The edge
-cases the PRD names are
+cases the specification names are
 each a test: too-short tail, no tail when the acceptor outlives the donor, above-ceiling
 and negative rejection, degenerate donor, median over qualifying traces only, and
 withholding below the minimum qualifying count rather than emitting a factor from too
@@ -591,7 +593,7 @@ little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_m
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
 
 **Total failure → apparent E, never NaN.** `tests/test_project_correct.py` covers the path
-that PRD §8 singles out: `test_total_failure_falls_to_apparent_never_nan`,
+that the specification singles out: `test_total_failure_falls_to_apparent_never_nan`,
 `test_fresh_store_nan_factors_is_total_failure`, `test_zero_gamma_boundary_is_total_failure`,
 `test_negative_gamma_is_total_failure`, `test_manual_override_rescues_total_failure`,
 `test_partial_alpha_override_without_gamma_stays_apparent`, and
@@ -601,7 +603,7 @@ the required matrix.
 
 > Not implemented — the two deferred legs of this oracle.
 >
-> 1. The **conjunctive two-estimator α agreement** band of PRD §11.2 (relative-median
+> 1. The **conjunctive two-estimator α agreement** band of the specification (relative-median
 >    difference ≤ 20 % *and* both medians within 0.05–0.2) has no code and no test. The
 >    donor-only-sample estimator it needs cannot be built from the committed
 >    `cy3-donor-only-calibration` `.tdat`, whose traces sit in an undecoded MCOS
@@ -609,7 +611,7 @@ the required matrix.
 >    [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md) gated on an MCOS trace decoder.
 >    Until then the tail α is the applied factor and the band is not gated against a
 >    fabricated value.
-> 2. The **γ within ±10 % of the Deep-LASI median** oracle of PRD §11.2 is deferred: the
+> 2. The **γ within ±10 % of the Deep-LASI median** oracle of the specification is deferred: the
 >    vendored export carries no per-frame classification, so the shared-frame,
 >    estimator-isolated comparison cannot be constructed
 >    ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
@@ -617,7 +619,7 @@ the required matrix.
 ## (f) Round-trip integrity and schema migration
 
 **What is compared.** Three things: the `.tether` HDF5 structure declared by the code
-against the committed golden manifest; a fresh project reopened with every M0-frozen field
+against the committed golden manifest; a fresh project reopened with every frozen field
 intact; and the SMD interchange write → read superset round-trip.
 
 **Frozen artifact.** `schema/schema_frozen.json`, the golden manifest read by
@@ -629,7 +631,7 @@ renames, dtype changes, field reordering, mid-group insertions and a decremented
 renamed, or its dtype or shape changed; a field reordered or inserted before the end; a
 frozen group or dataset removed; a dataset's dtype or `maxshape` changed; a frozen
 attribute removed or its dtype changed; the root `format` changed; and `schema_version`
-missing, decreased, or raised without a regenerated golden. This is the M0 freeze,
+missing, decreased, or raised without a regenerated golden. This is the schema freeze,
 [ADR-0005](adr/0005-m0-schema-freeze.md).
 
 **Enforcing tests** (all unmarked — required matrix): `tests/test_schema.py`
@@ -662,9 +664,9 @@ required `sidecar / parity` job under its path filter rather than on the 3-OS ma
 
 ## (g) Photobleaching detector
 
-**What PRD §8 asks for, and why it changed.** The PRD specifies comparing per-channel
-first-bleach frames against the `.mat` `pacc`/`pdon` fields within the PRD §11.2 tolerance
-of ±2 frames. [ADR-0026](adr/0026-photobleach-detection-and-window-default.md) found this
+**What the specification asks for, and why it changed.** The specification asks for a
+comparison of per-channel first-bleach frames against the `.mat` `pacc`/`pdon` fields within
+its tolerance of ±2 frames. [ADR-0026](adr/0026-photobleach-detection-and-window-default.md) found this
 field is not a per-molecule oracle: in `DeepLASI_MAT_export_…010.mat`, `pacc` and `pdon`
 are `uint8` arrays of shape 250×1 whose value is the **constant 60 for all 250 molecules**,
 while the corrected traces bleach at ≈97, ≈644 and ≈1693. Gating on it would require the
@@ -720,7 +722,7 @@ and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
 
 ## (h) Histogram and cross-correlation vs smfret-analysis2
 
-**What is compared.** PRD §1 makes two model-free lenses first-class: the apparent-E histogram
+**What is compared.** The specification makes two model-free lenses first-class: the apparent-E histogram
 and the donor–acceptor cross-correlation. Both come from the laboratory's MATLAB scripts,
 smfret-analysis2. The public repository `vafabakhsh-lab/smfret-analysis2` at the commit that
 `scripts/reference/matlab/pins.toml` pins (`121634e9`, 2022-05-20, GPL-3.0) carries 76 trace
@@ -732,7 +734,8 @@ records this as a reference.
 (tier `git`, GPL-3.0-only, one manifest entry each with its SHA-256; the PROVENANCE table of the
 fixtures lists each file with its upstream path). The commit's own scripts reproduce both
 outputs from the traces, so no MATLAB run is needed. A reader that lives only in the tests
-reads the trace files; the product has no importer for them (PRD N4).
+reads the trace files; the product has no importer for them (the specification leaves this
+legacy format out of scope).
 
 **Two exact conversions, no tolerance.** Tether and the script use different conventions in
 two places, and the tests convert each one exactly before they compare:
@@ -743,7 +746,7 @@ two places, and the tests convert each one exactly before they compare:
   0.375. The test moves each such sample one bin down and requires that there is exactly one.
 - *Cross-correlation normalization.* The script divides the sum at lag k by N − k and by
   MATLAB's `std`, which divides by N − 1. Tether divides every lag by N and uses the population
-  σ (§7.7, kept by the maintainer). The exact factor from Tether's value to the script's is
+  σ (kept by the maintainer). The exact factor from Tether's value to the script's is
   (N − 1) / (N − k), at Tether's lag −k (the script correlates donor(t) with acceptor(t + k)).
 
 With the conversions, Tether's histogram equals the `raw` column of `total_FRET.csv` and
@@ -830,7 +833,7 @@ reference.
 **Reference data.** The 56 files are committed verbatim under `tests/fixtures/ha_sam_sah/` (tier
 `git`, CC-BY-4.0, one manifest entry each with its SHA-256 and its member of the Fig. 1 archive).
 A reader that lives only in the tests reads the `.traces` files; the product has no importer for
-them (PRD N4). The donor is the first channel of each molecule: the IDL extraction script stores
+them (the specification leaves this legacy format out of scope). The donor is the first channel of each molecule: the IDL extraction script stores
 it first, and in every file that channel falls to its background under red excitation while the
 second keeps the acceptor's direct-excitation signal.
 
@@ -918,7 +921,7 @@ contribute more than 500 pooled dwells.
 and 3 is read, not transcribed: the record's `MATLAB_simulator.zip` holds the settings file
 the simulator read for each level, the three files are committed verbatim under
 `tests/fixtures/kinsoft_simulator/`, and a parser in the test suite reads them (the simulator
-itself is not vendored, PRD N2). Both levels raise `ValueError` in the band check
+itself is not vendored: the specification introduces no data simulator). Both levels raise `ValueError` in the band check
 (`test_evaluate_rejects_the_reported_levels`). Their errors are printed by the `large`-tier
 tests and frozen in the file to catch drift. No band applies to them, so a large error passes,
 but a change of a frozen value fails its test:
@@ -999,7 +1002,8 @@ FRET values, and the file names no PySMACKS version. So `scripts/make_pysmacks_r
 PySMACKS 1.0.0b4 on the 52 labelled traces on 2026-11-13 and wrote
 `tests/fixtures/pysmacks_tutorial_reference.json`, which records the versions that ran. PySMACKS
 never runs in CI (maintainer decision of 2026-11-13). The tests read the original downloaded zip
-with a test-only reader and use only the donor-excitation channels (PRD §2.2, rules 1 and 2).
+with a test-only reader and use only the donor-excitation channels (rules 1 and 2 of the specification's rules for test
+data).
 Both tests are in the weekly `reference-data` job.
 
 - **Histogram, exact.**
@@ -1053,7 +1057,7 @@ evidence about the size of the difference and not a tolerance.
   actually run, with idealizer-path files changed in between. The frozen bound and the gate
   that asserts it were not produced by the same tMAVEN build; the ebFRET block has no such
   gap. Nothing was widened as a result (the measured spread was ≈1e-9 and only confirmed the
-  PRD §11.2 provisional defaults), and closing it needs a re-measure plus a re-freeze ADR.
+  specification's provisional defaults), and closing it needs a re-measure plus a re-freeze ADR.
 - Nothing in CI fails on a **loosened** `$.tolerance`: the artifact self-checks assert
   recorded values *within* the bounds, so widening a bound keeps them passing. Only
   tightening below the evidence, or removing the evidence, is caught (see §(b)).
@@ -1070,7 +1074,7 @@ evidence about the size of the difference and not a tolerance.
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section
   above with the ADR that deferred it.
-- PRD §8 states that no synthetic-data simulator is introduced. In practice (e) and (g) are
+- The specification states that no synthetic-data simulator is introduced. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
   synthetic separable multi-video store, because the real fixtures do not carry the required
   ground-truth field. Two of those substitutions were ratified in an ADR and two were not:
@@ -1088,14 +1092,16 @@ evidence about the size of the difference and not a tolerance.
   donor-excitation channels only** — the donor and acceptor intensities under donor
   excitation. It does not check direct excitation (δ), stoichiometry or any other quantity
   that needs the acceptor-excitation frames, and so it does not validate them. Tether is
-  single-laser only (PRD N1); the PRD's "What the tests can use" rules (§2.2) allow the
+  single-laser only (the specification excludes ALEX); the specification's "What the tests
+  can use" rules allow the
   ALEX sets at trace level and add no ALEX feature.
 
 **Accepted diagnostics that are not gates.**
 
-- M1 acceptor per-molecule Pearson median **0.854** and donor precision **0.34** are
-  reported, never gated (ADR-0022). Acceptor intensity fidelity and the ≈1.3 px acceptor
-  read-position scatter were carried forward as M3 diagnostics rather than re-opening M1.
+- The extraction oracle's acceptor per-molecule Pearson median **0.854** and donor precision
+  **0.34** are reported, never gated (ADR-0022). Acceptor intensity fidelity and the ≈1.3 px
+  acceptor read-position scatter were carried forward as diagnostics rather than re-opening
+  the extraction gate.
 - `pacc`/`pdon` is a constant acquisition marker, not a per-molecule bleach oracle
   (ADR-0026).
 

@@ -8,7 +8,7 @@ picking states by eye, or reading plots, you want the desktop application instea
 page only tells you how to start it.
 
 Everything below was transcribed from the live argparse parser in `src/tether/cli.py` —
-the same parser `--help` prints from — and a guard test (`tests/test_cli_reference.py`)
+the same parser `--help` prints from — and a guard test ([`tests/test_cli_reference.py`](https://github.com/bioedca/tether/blob/main/tests/test_cli_reference.py))
 fails if that parser gains, loses or renames an option without a matching edit here. Where
 a default is quoted, it is the string argparse prints, not a value read out of the source.
 

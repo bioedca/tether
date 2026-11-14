@@ -20,8 +20,8 @@ traces, fits one trace at a time and draws a population histogram. Extraction ru
 molecule. From Python you can run the corrections and whole-project fits with your own
 settings, and make the other plots and the exports, as each [how-to guide](#using-tether)
 shows. The installer also includes
-[napari](https://napari.org) for the movie panel, which reaches the application with the
-[trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
+[napari](https://napari.org) for the movie panel, which reaches the application with the planned
+[trace curation section](https://github.com/bioedca/tether/milestone/18).
 
 **New here?** Start with [Does Tether fit my data?](compatibility.md) — it describes the
 acquisition geometry and file formats Tether reads, what it deliberately does not do, and
@@ -91,7 +91,7 @@ paper.
 - [Standalone-tMAVEN cross-OS record](maintainers/standalone-tmaven-cross-os-record.md) —
   for maintainers recording the manual tMAVEN GUI check on each operating system.
 
-## Modules (PRD §4.2)
+## Modules
 
 Each package below owns one responsibility. The table lists them by package; for the order a
 movie actually passes through them, and what each leaves in the project file, see

@@ -64,7 +64,7 @@ The reference acquisition the performance envelope is written against is a
 
 Tether splits each frame into a left half and a right half and treats one as donor and the
 other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
-`left`); the split itself is `tether.project.extract._half_split_geometry`, which crops
+`left`); the split itself is [`tether.project.extract._half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py), which crops
 both halves from the frame *width* — there is no top/bottom split.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
@@ -78,11 +78,11 @@ With `--tmap`, the split instead comes from an imported Deep-LASI map's own per-
 crops, and `--donor-side` is ignored — donor is the map's reference channel. **Crop is the
 only geometry imported.** Deep-LASI's `processImage` rotates and flips *before* cropping,
 and the imported path does not apply either yet, so
-`tether.project.extract._imported_registration_map` refuses a `.tmap` whose channels carry
+[`tether.project.extract._imported_registration_map`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) refuses a `.tmap` whose channels carry
 a non-identity `Rotation` or `Flip` rather than splitting at the wrong frame — the
 `ExtractionError` names the channels and says the imported path "does not yet apply (only
 crop geometry is honored); re-run without `--tmap` to use a native fit"
-(`tests/test_extract_cli.py::test_extract_imported_tmap_nonidentity_geometry_refused`
+([`tests/test_extract_cli.py::test_extract_imported_tmap_nonidentity_geometry_refused`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
 covers both axes). Empty or all-zero `Rotation`/`Flip` — what the reference UCKOPSB map
 stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 `tether.imaging.register`).
@@ -134,8 +134,8 @@ a legacy import happens *without* re-extraction, so it needs the pre-integrated 
 traces, and those live only in the `.mat`. The `.tdat` carries coordinates and correction
 factors but **no traces**. A movie + `.tdat` set therefore has coordinates and still cannot
 be reconstructed: the import wizard classifies it as skipped, naming the missing `.mat`
-(`_can_reconstruct` in `tether.gui.deeplasi_wizard`, locked by
-`tests/test_deeplasi_wizard.py::test_movie_and_tdat_without_mat_cannot_reconstruct`). If
+([`_can_reconstruct`](https://github.com/bioedca/tether/blob/main/src/tether/gui/deeplasi_wizard.py) in `tether.gui.deeplasi_wizard`, locked by
+[`tests/test_deeplasi_wizard.py::test_movie_and_tdat_without_mat_cannot_reconstruct`](https://github.com/bioedca/tether/blob/main/tests/test_deeplasi_wizard.py)). If
 you have movies and `.tdat` files but no `.mat` export, plan on native re-extraction rather
 than reconstruction.
 
@@ -161,10 +161,10 @@ These are deliberate scope boundaries, not gaps waiting to be filled.
   and `bandpass` (`tether.imaging.detect.ParticleDetectionMode`). The refusal is on
   *decoding* that file: `tether extract --tdat` re-extraction and the `.tdat`'s correction
   factors are unavailable. A bundle that also has the `.mat` still reconstructs — the
-  import wizard's `_read_tdat_best_effort` (`tether.gui.deeplasi_executor`) catches the
+  import wizard's [`_read_tdat_best_effort`](https://github.com/bioedca/tether/blob/main/src/tether/gui/deeplasi_executor.py) (`tether.gui.deeplasi_executor`) catches the
   failure and rebuilds from the `.mat` without corrections, degraded to apparent-E and
   carrying a warning that "the .tdat could not be decoded"
-  (`tests/test_deeplasi_executor.py::test_undecodable_tdat_degrades_to_mat_apparent_e`).
+  ([`tests/test_deeplasi_executor.py::test_undecodable_tdat_degrades_to_mat_apparent_e`](https://github.com/bioedca/tether/blob/main/tests/test_deeplasi_executor.py)).
 - **Older `.dat` and vbFRET `.mat` formats are out of scope.**
 - **No data simulator.** Validation runs against real labelled traces and a published
   benchmark dataset, not synthesised data.
@@ -176,7 +176,7 @@ These are deliberate scope boundaries, not gaps waiting to be filled.
 Every figure below is a named constant in `tether.project.perf`, decided in
 [ADR-0032](adr/0032-nfr-perf-budget-verification.md). Read them as **engineering budgets
 and derived envelopes, not measurements or a service guarantee**:
-`tests/test_project_perf.py` runs a real extraction and holds the projections under them,
+[`tests/test_project_perf.py`](https://github.com/bioedca/tether/blob/main/tests/test_project_perf.py) runs a real extraction and holds the projections under them,
 which is what keeps them honest.
 
 These budgets cannot see a regression that stays inside them. The `benchmarks` workflow
