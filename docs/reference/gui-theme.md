@@ -1,3 +1,7 @@
+---
+description: "How to select the light or dark theme of the Tether window, and the trace colors with the checks they passed."
+---
+
 <!--
 SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later

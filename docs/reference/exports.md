@@ -1,3 +1,7 @@
+---
+description: "The files that Tether writes out: each column, its order, its unit and what a blank cell means, for tables, trace files, subsets and figures."
+---
+
 # Exports — what Tether writes out
 
 **Who this page is for.** Anyone who has a file Tether produced — a molecule-table CSV
