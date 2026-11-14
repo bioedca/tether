@@ -277,6 +277,63 @@ PySMACKS tutorial traces  (CC0-1.0)  — Molcrette B & Schmid S, "Dataset for th
   LICENSES/CC0-1.0.txt and the REUSE.toml annotation), NOT GPL-3.0. PySMACKS
   itself is NOT vendored.
 
+Measured PPR-RNA and Hsp70/Hsp90 smFRET traces  (CC-BY-4.0)  — Marzano N, et al.,
+  Nucleic Acids Research 52(22):14154-14170 (2024), doi:10.1093/nar/gkae984;
+  data: Zenodo doi:10.5281/zenodo.11323228 (Figure_2.zip). Marzano NR, et al.,
+  Science Advances 12(31):eaeg5464 (2026), doi:10.1126/sciadv.aeg5464; data:
+  Zenodo doi:10.5281/zenodo.17118152 (Fig1_FigS1_FigS2.7z). Both CC-BY-4.0.
+  Tether bundles one condition folder of each, byte for byte, as the test
+  fixtures tests/fixtures/marzano_ppr_rnaanticognate.tar.xz (Figure_2/
+  Validation_data/RNAanticognate, 114 traces) and
+  tests/fixtures/marzano_chaperone_kjg_231027.tar.xz (Fig1_FigS1_FigS2/
+  single-molecule/KJG/KJG_231027, 68 traces), used only as a dwell, transition
+  and idealization reference (#797, ADR-0090). The dwell and transition tables
+  tests/fixtures/reference/marzano/ppr_dwells.csv,
+  tests/fixtures/reference/marzano/ppr_transitions.csv,
+  tests/fixtures/reference/marzano/chaperone_dwells.csv and
+  tests/fixtures/reference/marzano/chaperone_transitions.csv were computed from
+  those fixtures by nmarzano/smFRET_module v1.0.3 (Zenodo
+  doi:10.5281/zenodo.16791519), which carries this notice:
+
+    MIT License
+
+    Copyright (c) 2024 Nicholas Marzano
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+  The module itself is NOT vendored; it ran once, outside the product
+  (scripts/make_marzano_fixture.py). The tables, like the traces, are
+  CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
+  GPL-3.0; attribution to Marzano et al. travels with them.
+
+Group IIB intron smFRET data  (CC-BY-4.0)  — Zelger-Paulus S, Hadzic MCAS,
+  Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S & Sigel R, Zenodo
+  doi:10.5281/zenodo.24104528 (2026), the data of "Cis-exons shape the
+  conformational landscape and Mg2+ response of a group IIB intron."
+  Tether bundles an extract of one MASH-FRET project file of the record,
+  tests/fixtures/mashfret_ed135e_30mm_extract.mat (scripts/make_mashfret_fixture.py
+  keeps 18 of its 119 molecules and leaves out the raw intensities and the
+  project's paths; it changes no value), used only as a MASH-FRET reference for
+  Tether's leakage and gamma-corrected FRET (#711, ADR-0087). This file is licensed
+  CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
+  GPL-3.0; attribution to the authors travels with it.
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------
