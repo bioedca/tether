@@ -1,3 +1,7 @@
+---
+description: "Train the optional deep-learning trace classifier on your own curation labels, or use it to score traces. A GPU is optional."
+---
+
 # Deep trace classifier (optional GPU add-on)
 
 **Who this page is for.** Anyone who wants to train a deep-learning model on their own
