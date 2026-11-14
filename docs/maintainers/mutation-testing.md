@@ -50,8 +50,14 @@ submodule). It then also imports the parent packages `tether` and `tether.a`, be
 their `__init__.py` first. When a package only passes a name on, as `tether.analysis` passes on
 `DEFAULT_STATE_NUMBER_LOW` from `tether.analysis.state_number`, `from tether.analysis import
 DEFAULT_STATE_NUMBER_LOW` imports `tether.analysis.state_number` too. When the package takes the
-name from one of two modules (`if` and `else`, or `try` and `except`), both count. An import in a
-helper module that the test file imports does not count.
+name from one of two modules (`if` and `else`, or `try` and `except`), both count. A wildcard,
+`from tether.a import *`, imports the module of each public name of `tether.a`: the names in
+`__all__` when `tether.a` sets it as a list or tuple of strings, else each name it binds that does
+not start with `_`. A wildcard in a source module, such as `from .c import *` in
+`tether/a/__init__.py`, passes the public names of `tether.a.c` on in the same way. A module
+alias, `import tether.a.c as backend` in `tether/a/__init__.py`, passes the module on, so
+`from tether.a import backend` imports `tether.a.c` (#1007). An import in a helper module that
+the test file imports does not count.
 
 ## How to read the report
 

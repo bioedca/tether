@@ -235,7 +235,8 @@ def test_each_import_form_names_the_modules_the_test_file_loads(tmp_path: Path) 
     # A name passed on through two modules, relative and renamed on the way.
     assert of("from pkg import NAME\n") == {"pkg", "pkg.sub", "pkg.deep", "pkg.deep.leaf"}
     assert of("def t():\n    from pkg.deep import leaf\n") == {"pkg", "pkg.deep", "pkg.deep.leaf"}
-    assert of("from pkg import *\n") == {"pkg"}
+    # A wildcard binds the public names of ``pkg`` (no ``__all__`` here), so it follows them.
+    assert of("from pkg import *\n") == {"pkg", "pkg.sub", "pkg.deep", "pkg.deep.leaf", "pkg.loop"}
     assert of("from pkg import loop\n") == {"pkg", "pkg.loop"}, "a cycle ends"
     # A module-scope binding (here inside ``try``) counts; a function's local import does not.
     assert of("from pkg.shadow import X\n") == {"pkg", "pkg.shadow", "pkg.mod"}
@@ -250,6 +251,56 @@ def test_each_import_form_names_the_modules_the_test_file_loads(tmp_path: Path) 
     assert of("from . import x\nimport numpy\n") == {"numpy"}
     assert rm.module_name("src/pkg/deep/__init__.py") == "pkg.deep"
     assert rm.module_name("src/pkg/deep/leaf.py") == "pkg.deep.leaf"
+
+
+def test_wildcard_imports_and_module_aliases_name_the_modules_that_made_the_value(
+    tmp_path: Path,
+) -> None:
+    # #1007: ``from pkg import *`` and ``from pkg import backend`` (``import pkg.mod as backend``
+    # in the package) read values that submodules made.
+    _tree(
+        tmp_path,
+        {
+            # No ``__all__``: the public names it binds, a wildcard of its own followed.
+            "src/wa/__init__.py": "from .c import *\nfrom wa._priv import _X\n",
+            "src/wa/c.py": "import wd.impl as eng\nA = 1\n_HIDDEN = 2\n",
+            "src/wa/_priv.py": "_X = 1\n",
+            # ``__all__`` decides, and a submodule it names is loaded.
+            "src/wb/__init__.py": (
+                "from wb.c import C\nfrom wb.d import D\nfrom wb.sub import *\n"
+                "__all__ = ['C']\n__all__ += ('part',)\n"
+            ),
+            "src/wb/c.py": "C = 1\n",
+            "src/wb/d.py": "D = 1\n",
+            "src/wb/part.py": "P = 1\n",
+            "src/wb/sub.py": "S = 1\n",
+            # A module alias, in a package and in a plain module.
+            "src/wd/__init__.py": "import wd.impl as backend\n",
+            "src/wd/front.py": "import wd.impl as engine\n",
+            "src/wd/impl.py": "X = 1\n",
+            # Wildcards that import each other end.
+            "src/we/__init__.py": "from we.b import *\nE = 1\n",
+            "src/we/b.py": "from we import *\n",
+        },
+    )
+    of = rm._Imports(tmp_path / "src").of
+    assert of("from wa import *\n") == {"wa", "wa.c", "wd", "wd.impl"}
+    assert of("from wa import A\n") == {"wa", "wa.c"}, "a wildcard in a source module"
+    assert of("from wa import eng\n") == {"wa", "wa.c", "wd", "wd.impl"}
+    assert of("from wb import *\n") == {"wb", "wb.c", "wb.part"}
+    assert of("from wb import S\n") == {"wb", "wb.sub"}
+    assert of("from wd import backend\n") == {"wd", "wd.impl"}
+    assert of("from wd.front import engine\n") == {"wd", "wd.front", "wd.impl"}
+    assert of("from we import *\n") == {"we", "we.b"}, "a cycle of wildcards ends"
+    # The selection of #883 then reaches the test that only reads such a value.
+    _tree(
+        tmp_path,
+        {"tests/test_w.py": "from wd import backend\n\n\ndef test_x():\n    assert backend.X\n"},
+    )
+    mutant = next(m for m in rm.mutants_of("X = 1\n", "src/wd/impl.py") if not m.test_lines)
+    imports = rm.imports_of_tests(tmp_path, ["tests/test_w.py"])
+    passed = {"tests/test_w.py::test_x"}
+    assert rm.covering_tests(mutant, {}, passed, None, imports) == ["tests/test_w.py::test_x"]
 
 
 def test_identical_changes_on_one_line_have_different_occurrences() -> None:
