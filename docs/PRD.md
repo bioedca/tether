@@ -120,8 +120,20 @@ both — Appendices B and E), HDF5 for self-describing files, and the SMD format
   channel that only ALEX provides [Lee2005][Hohlbein2014] (Appendix B).
 - **N2 — No data simulator in v1.** Validation uses real labeled traces and the kinSoftChallenge benchmark
   [Götz2022]; a simulator is deferred.
-- **N3 — Bounded plot parity.** The native analysis surface reproduces exactly the seven tMAVEN plot types
-  (Appendix C); any other tMAVEN plot is reachable via the standalone hand-off, not reimplemented.
+- **N3 — Bounded plot parity.** The tMAVEN **parity** commitment is the seven tMAVEN plot types of Appendix C and
+  only those; any other tMAVEN plot is reachable via the standalone hand-off, not reimplemented. The **native
+  catalogue** is not capped at seven: it is every result type that `tether.analysis` computes (Appendix C), and a
+  result type with no tMAVEN counterpart has no parity claim. What N3 still forbids is chasing tMAVEN's full plot
+  inventory.
+  - *Amended.* N3 used to bound the native analysis surface itself to "exactly the seven tMAVEN plot types". The
+    maintainer widened the native catalogue on 2026-08-02, in the planning restructure that set the acceptance
+    criteria of milestone *M17 - Analysis & plot composition*;
+    [#368](https://github.com/bioedca/tether/issues/368) writes the amendment here. The parity bound did not change.
+  - *What the widening inherits.* Two §7.7 *shall* clauses were already unmet under the old bound, because the
+    library computes each result but no renderer draws it: the **per-condition overlays** of the FRET histogram, and
+    the **alpha-shape** and **k-vs-RMSE elbow** half of the raw FRET cloud. They are a backlog that §7.7 already
+    required under the old bound, not new scope that the widening adds. Their renderers, and those of the other
+    result types with none today (Appendix C), are carried by [#370](https://github.com/bioedca/tether/issues/370) (§9.6).
 - **N4 — Out-of-scope legacy formats.** Supported legacy inputs are Deep-LASI (`.tdat` + `.tmap` + `.txt` + `.mat`)
   and tMAVEN SMD (`.hdf5`). Older `.dat` and vbFRET `.mat` formats are out of scope.
 - **N5 — No central server.** Each lab member runs on their own machine; data lives on OneDrive / a network share.
@@ -241,8 +253,8 @@ capability-sequenced, with no schedule commitment anywhere).
   quality, never auto-drop) [Chen2016]; similarity search; active-learning loop; model load / warm-start-retrain /
   save as a portable artifact; deep models later [Thomsen2020].
 - **`tether.analysis`** — histograms with CI [König2013], transition density plots [McKinney2006], the raw FRET
-  cloud, the anticorrelation-event finder, per-condition population statistics, and the seven tMAVEN plot types
-  (Appendix C).
+  cloud, the anticorrelation-event finder, per-condition population statistics, and the native plot catalogue of
+  Appendix C: every result type this package computes, the seven tMAVEN plot types among them (N3).
 - **`tether.gui`** — the PySide6 shell + embedded napari panel, the multi-movie round-trip browser,
   curation/labeling, annotation, and plot docks.
 - **`tether.project`** — the experiment/session model plus the batch runner and headless API; the GUI is a thin
@@ -751,8 +763,9 @@ Tether **shall** provide:
   [Hyndman1996] + alpha-shape + k-vs-RMSE elbow).
 - **Real TDP**: a 2-D before/after idealized-state density (fresh idealizations only) [McKinney2006][Hadzic2018];
   dwell distributions with exponential/rate fits and CIs.
-- Native reproduction of the **seven tMAVEN plot types** (Appendix C); any other tMAVEN plot stays reachable via
-  the hand-off.
+- A native **plot catalogue** that is every result type `tether.analysis` computes (Appendix C, N3), including a
+  native reproduction of the **seven tMAVEN plot types** at parity; any other tMAVEN plot stays reachable via the
+  hand-off.
 
 **Analysis sets (diagram G04; [#934](https://github.com/bioedca/tether/issues/934)).** The input of an analysis
 **shall** be a version of an *analysis set*: a named selection of molecules from one or more projects, grouped by
@@ -786,9 +799,9 @@ or the nested form (molecules in movies in biological replicates), and each plot
 versioned *result snapshot* with its lineage to the exact analysis-set version and the active fit (§7.4). A later
 change makes a new snapshot; a historical result keeps the inputs that it was made from.
 
-**Related changes of this section.** [#368](https://github.com/bioedca/tether/issues/368) amends non-goal N3 and the
-seven-plot-type sentences of this section and §7.9; [#378](https://github.com/bioedca/tether/issues/378) adds
-FR-PLOT, the composed and exportable plot. Neither is changed here. A version of an analysis set is the data input
+**Related changes of this section.** [#368](https://github.com/bioedca/tether/issues/368) amended non-goal N3 and the
+plot-catalogue sentences of this section and §7.9; [#378](https://github.com/bioedca/tether/issues/378) adds
+FR-PLOT, the composed and exportable plot, which is not changed here. A version of an analysis set is the data input
 of a composed plot ([#373](https://github.com/bioedca/tether/issues/373)).
 
 ### 7.8 FR-LEGACY — Legacy import & Deep-LASI re-analysis
@@ -837,8 +850,9 @@ Misattributing β would silently drop a real leakage correction and shift every 
 
 Tether **shall** export: CSV and Deep-LASI-style `.txt` per-molecule/per-condition tables; a **subset `.tether`**
 (movie-less; embeds patches/coordinates/corrected traces/idealization/provenance, raw optional); SMD-HDF5 for
-tMAVEN hand-off [Greenfeld2015]; and every plot as vector PDF/SVG + PNG. The seven tMAVEN plot types are reproduced
-natively (Appendix C); all exports are stamped with provenance and parameters.
+tMAVEN hand-off [Greenfeld2015]; and every plot as vector PDF/SVG + PNG. Every plot of the native catalogue exports
+this way, the seven tMAVEN plot types among them (Appendix C, N3); all exports are stamped with provenance and
+parameters.
 
 An export of figures and tables **shall** also write a result snapshot (§7.7) and the plot recipe with its
 provenance, so that an exported figure traces back to its analysis-set version and its active fit. An exported
@@ -1251,6 +1265,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Annotation & conditions** (FR-ANNOTATE) | A condition aggregates molecules across ≥ 2 files; category edits persist (*not yet met* from the application, §9.6); provisional `condition_id` values are confirmed or corrected via the validation UI; a mis-parsed `condition_id` re-keys all affected molecules transactionally with an audit entry, and merges are keep-separate-by-default + human-confirmed (§5.1). | M4 |
 | **Curation ranking** (FR-ML) | Reloading the saved model on a held-out (prequential) new video improves **precision@k** (k ≈ 20–50) over the file-order baseline by ≥ the agreed ship-bar (default ≥ 10 pts, §11.2), holding on the median across the condition's videos (evidenced on synthetic stores only: the uplift on real labelled videos and the §8 NFR-VALID (d) leave-one-video-out protocol are *not yet met*, §9.6); never-auto-drop is verified as a permutation invariant; active learning surfaces informative traces; the model file is portable across experiment files; a **weight-decay test** confirms a provisional label's effective weight drops below a stated fraction (e.g. < 0.2·w₀) after K human labels (decay law §7.5/§11.2); a **drift-flag test** confirms a deliberately mismatched source/target condition raises the advisory while a matched pair does not; and a **two-curator split-and-merge test** confirms split-file labels merge back on `molecule_key` with weights recomputed centrally and human-vs-human conflicts surfaced (§7.10). | M5 |
 | **Analysis suite** (FR-ANALYZE, Appendix C) | Each of the seven plot types renders from real data and visually matches its tMAVEN counterpart (D1, the per-trace viewer, has no visual oracle and matches by layout and convention, as [the parity gallery](analysis/parity-gallery.md) records) — and is reachable from the application (*not yet met*, §9.6); TDP uses only fresh idealizations; all exports carry provenance stamps. | M6 |
+| **Analysis catalogue** (FR-ANALYZE, N3, Appendix C) | Every result type that `tether.analysis` computes (the native catalogue of Appendix C) renders to a figure that exports as vector PDF/SVG + PNG with its provenance stamp, and is reachable from the application (*not yet met*, §9.6). That includes a renderer for each of the five result types with none: the per-condition overlay, the post-synchronized A2 heatmap (A2b), the alpha shape, the k-vs-RMSE elbow and the anticorrelation events. The tMAVEN parity claim stays with the seven Appendix C types of the *Analysis suite* bar; no other result type carries one. | M17 |
 | **Legacy import** (FR-LEGACY) | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; the intensity-match cross-check passes on the SMD subset. | M7 |
 | **Deep add-on** (FR-ML) | A deep classifier trains on the shared label store and is optional: the CPU base app is unaffected (§9.1 item 5). | M8 |
 | **Kinetics** (§8 NFR-VALID (c)) | Kinetics on the named kinSoftChallenge dataset fall within that dataset's reported inter-tool spread (§11.2) — **advisory**, never a gate (§9.5). | M8 |
@@ -1331,6 +1346,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | Corrections as a surface of the application: the correction pass over the open project, the §7.2 total-failure banner with both recovery actions, and an apparent/corrected toggle | M3 | [#360](https://github.com/bioedca/tether/issues/360), [#361](https://github.com/bioedca/tether/issues/361), [#362](https://github.com/bioedca/tether/issues/362) |
 | Category (and analysis-window) edits made in the application persist to the project | M4 | [#359](https://github.com/bioedca/tether/issues/359) (the setters it writes through: [#358](https://github.com/bioedca/tether/issues/358)) |
 | Every plot renders from the application — each Appendix C type reachable from the GUI, not only from the API | M6 | [#374](https://github.com/bioedca/tether/issues/374) |
+| Every result type of the native catalogue renders and is reachable from the application (N3 as amended). Two of the renderers it lacks are §7.7 clauses that were unmet before the amendment: the per-condition overlays of the FRET histogram, and the alpha-shape and k-vs-RMSE-elbow half of the raw FRET cloud | §7.7; M17 | [#370](https://github.com/bioedca/tether/issues/370) (the five renderers), [#374](https://github.com/bioedca/tether/issues/374) (the route from the application) |
 | The multi-movie project: a second movie appends into an existing `.tether` | M2 | [#347](https://github.com/bioedca/tether/issues/347) |
 | The ranker pre-sorts a movie's traces when the movie opens in the application, and the application shows each trace's feature values next to it. The M5 *Curation ranking* bar was met on library evidence alone; no bar named the feature values | M5; §7.5 | [#639](https://github.com/bioedca/tether/issues/639) |
 | The per-condition model in the application's UC3 loop: loaded when a video opens, warm-start-retrained at the video boundary and saved. The M5 bar's reload and portability legs were met on library evidence alone | M5 | [#640](https://github.com/bioedca/tether/issues/640) (the model's `/models` reference and owner-curator lock: [#561](https://github.com/bioedca/tether/issues/561)) |
@@ -1453,7 +1469,8 @@ this section.
   timeout + liveness, auto-restart ≤ N, fail-only-that-movie's-idealization on persistent failure, an
   **idealization-deferred** mode if the sidecar is absent/corrupt at startup) so a sidecar hang or crash cannot
   stall the whole run (§7.11).
-- **Scope creep.** Mitigation: MVP-first; "all tMAVEN plots" bounded to seven (Appendix C) + hand-off; simulator
+- **Scope creep.** Mitigation: MVP-first; tMAVEN parity bounded to seven plot types (Appendix C) + hand-off, and
+  the native catalogue bounded to what `tether.analysis` computes, never tMAVEN's full inventory (N3); simulator
   deferred.
 
 ---
@@ -2265,7 +2282,14 @@ formula, the gates, and median aggregation) are detailed in Appendix E, Stages 1
 
 ## Appendix C — tMAVEN plot inventory (M6 native-reproduction scope)
 
-Enumerated from tMAVEN source at the pinned commit. There are **exactly seven distinct plot types**: six
+This appendix holds the **native plot catalogue** of N3 in two parts. The first part is the tMAVEN inventory: the
+seven plot types that Tether reproduces at **parity** with tMAVEN, and the only ones it makes a parity claim for. The
+second part is the rest of the catalogue: the result types that `tether.analysis` computes beyond those seven, which
+Tether plots as its own results with no tMAVEN counterpart. Before the amendment of N3 the catalogue was the first
+part only (N3, *Amended*).
+
+**The tMAVEN inventory (parity).** Enumerated from tMAVEN source at the pinned commit. There are **exactly seven
+distinct plot types**: six
 `controller_base_analysisplot` subclasses (registered in
 `tmaven/tmaven/controllers/analysis_plots/analysisplots.py`) plus the per-trace viewer in
 `tmaven/tmaven/trace_plot/`. The smFRET / ND-Normalized / ND-Raw modes and post-synchronization are *variants*, not
@@ -2292,6 +2316,24 @@ separate plots. Groups B/C are idealization-gated; A/D work without a model.
   and marginal probability histograms (right); three alpha-graded segments split at pre-truncation + photobleach;
   the Viterbi/idealized path overlaid on the FRET panel; mode-switchable. This *is* Tether's curation trace dock
   (FR-ROUNDTRIP). `tmaven/tmaven/trace_plot/multi_plot.py`.
+
+**Tether's own results (no parity claim).** The other result types that `tether.analysis` computes for a population.
+A result type that has no renderer is in the catalogue all the same: N3 makes it a plot to draw, and its renderer is
+carried by [#370](https://github.com/bioedca/tether/issues/370) (§9.6).
+
+| Result | Computed by (`tether.analysis.…`) | Renderer (`plot_export`) |
+|---|---|---|
+| Per-condition overlay: each condition's FRET histogram on one shared A1 axis, with its N (§7.7) | `histogram.per_condition_apparent_e_histograms` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Donor–acceptor cross-correlation: the population curve and its lag-1 magnitude (§7.7) | `crosscorr.population_cross_correlation` | `render_cross_correlation` |
+| Raw FRET cloud: KDE + highest-density-region contours (§7.7) | `cloud.population_raw_fret_cloud` | `render_raw_fret_cloud` |
+| Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+
+A2's post-synchronized heatmap (A2b, `histogram.population_transition_sync_histogram2d`) is a variant of a tMAVEN type
+and so belongs to the first part; it is the fifth result type with no renderer today, also carried by #370. Two parts
+of `tether.analysis` are not plots and are outside the catalogue: the condition query (`query`) selects molecules,
+and the kinSoftChallenge kinetics check (`kinetics`) is a validation oracle (§9.5).
 
 ---
 

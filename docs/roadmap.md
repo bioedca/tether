@@ -47,8 +47,9 @@ These boundaries apply to v1.0 and are deliberate:
   single-laser acquisitions.
 - **No built-in data simulator.** Validation uses real labeled traces and named benchmark
   data instead.
-- **No attempt to clone every tMAVEN plot.** Seven plot types are native; other tMAVEN
-  views remain available through the standalone hand-off.
+- **No attempt to clone every tMAVEN plot.** Parity with tMAVEN covers seven plot types;
+  other tMAVEN views remain available through the standalone hand-off. Tether also plots
+  its own results that tMAVEN does not have, such as the raw FRET cloud.
 - **No open-ended legacy-format support.** Deep-LASI inputs and tMAVEN SMD are supported;
   older `.dat` and vbFRET `.mat` formats are not.
 - **No central Tether service.** The application runs on each user's workstation and

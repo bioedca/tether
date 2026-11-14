@@ -10,11 +10,15 @@ they correspond — **not** numerical accuracy. For the accuracy evidence (the s
 NFR-VALID oracles, the frozen tolerances and the external benchmark) see
 [Validation & benchmarks](../validation.md).
 
-Tether reproduces **exactly seven tMAVEN plot types** natively (PRD Appendix C; the
-*bounded plot parity* non-goal, N3). Any other tMAVEN plot stays reachable through the
-standalone-tMAVEN hand-off — it is **not** reimplemented. This gallery is the single
-cross-reference that ties each native plot to its tMAVEN counterpart, its Tether
-implementation, and the committed test that establishes the correspondence.
+Tether's parity with tMAVEN covers **exactly seven tMAVEN plot types** (PRD Appendix C;
+the *bounded plot parity* non-goal, N3). Any other tMAVEN plot stays reachable through the
+standalone-tMAVEN hand-off — it is **not** reimplemented. Tether's own plot catalogue is
+wider than these seven: it is every result type that `tether.analysis` computes, such as
+the raw FRET cloud and the donor–acceptor cross-correlation. Those other results have no
+tMAVEN counterpart, so they make no parity claim and are not on this page. This gallery
+is the single cross-reference that ties each of the seven plots to its tMAVEN
+counterpart, its Tether implementation, and the committed test that establishes the
+correspondence.
 
 The seven types are enumerated from tMAVEN source at its pinned commit: six
 `controller_base_analysisplot` subclasses registered in
