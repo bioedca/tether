@@ -36,6 +36,17 @@ histograms/idealization through the **toggleable filter** :func:`curation_filter
 (``include_rejected=False`` by default). The reject also lives on as an ML training
 label (its ``/labels`` row).
 
+**Reject reasons (#932, PRD §7.2/§7.5).** A human reject also appends one row to the
+append-only ``/labels/reject_log`` dataset: the reason (one code of the fixed list
+:data:`REJECT_REASONS`), an optional free-text note, the threshold value of a
+``"threshold"`` reject, and who rejected and when (the same ``labeler`` and
+``timestamp`` as the reject's ``/labels`` row, so the two rows join exactly). An
+:func:`unreject` appends a ``"restore"`` row. The log is created lazily on the first
+reject, under the frozen ``/labels`` group, so a fresh store and the ``schema-guard``
+manifest are unchanged. The log is a record only: the filter
+(:func:`curation_filter_mask`), the ranker and every analysis read ``curation_label``
+and never the reason.
+
 Scope (M2 S5). This logs **accept / reject / un-reject** — the ML training signal
 the M5 ranker consumes. Logging a *category* assignment to ``/labels`` is deferred
 to **M4**: category is independent of accept/reject (§7.6), its authoritative home
@@ -55,6 +66,7 @@ import math
 from datetime import UTC, datetime
 from enum import IntEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from tether.io.schema import LABELS_DTYPE, TABLE
@@ -69,6 +81,13 @@ __all__ = [
     "LABEL_SOURCE_DEEPLASI",
     "LABEL_SOURCE_HUMAN",
     "PROVISIONAL_LABEL_SOURCES",
+    "REJECT_EVENT",
+    "REJECT_LOG",
+    "REJECT_REASONS",
+    "REJECT_REASON_OTHER",
+    "REJECT_REASON_THRESHOLD",
+    "REJECT_REASON_UNSPECIFIED",
+    "RESTORE_EVENT",
     "CurationLabel",
     "accept",
     "curation_filter_mask",
@@ -76,7 +95,9 @@ __all__ = [
     "curation_labels",
     "default_labeler",
     "read_labels",
+    "read_reject_log",
     "reject",
+    "reject_record_of",
     "rejected_molecule_keys",
     "set_curation_label",
     "unreject",
@@ -115,6 +136,31 @@ LABEL_SOURCES = frozenset({LABEL_SOURCE_HUMAN}) | PROVISIONAL_LABEL_SOURCES
 #: full weight (1.0)"). Not a §11.2 tunable — it is the fixed 1.0 reference the
 #: decay law normalizes provisional-source weights against.
 HUMAN_WEIGHT = 1.0
+
+#: Name of the append-only reject-reason dataset under ``/labels`` (created lazily).
+REJECT_LOG = "reject_log"
+#: ``/labels/reject_log.event`` values: a reject, or the restore of a rejected trace.
+REJECT_EVENT = "reject"
+RESTORE_EVENT = "restore"
+
+REJECT_REASON_UNSPECIFIED = "unspecified"
+REJECT_REASON_THRESHOLD = "threshold"
+REJECT_REASON_OTHER = "other"
+#: The fixed list of reject reasons (#932), the one place they are defined: code -> meaning.
+#: A ``"threshold"`` reject must carry its threshold value; an ``"other"`` reject must carry
+#: a note. A reason is a record for a later reader and never changes which molecules an
+#: analysis keeps (that is ``curation_label``).
+REJECT_REASONS = MappingProxyType(
+    {
+        REJECT_REASON_UNSPECIFIED: "No reason was given.",
+        "no-anticorrelation": "Donor and acceptor do not anti-correlate.",
+        "multiple-molecules": "More than one donor or acceptor in the spot.",
+        "artifact": "A blink, spike, drift or other artifact makes the trace unusable.",
+        "low-signal": "The signal is too low or too noisy to use.",
+        REJECT_REASON_THRESHOLD: "Rejected by a score threshold; the record keeps the value.",
+        REJECT_REASON_OTHER: "Another reason; the note says which.",
+    }
+)
 
 
 def default_labeler() -> str:
@@ -292,29 +338,120 @@ def accept(path: str | Path, molecule_key: str, **provenance: object) -> np.ndar
     return set_curation_label(path, molecule_key, CurationLabel.ACCEPT, **provenance)  # type: ignore[arg-type]
 
 
-def reject(path: str | Path, molecule_key: str, **provenance: object) -> np.ndarray:
-    """Reject a molecule: ``curation_label = REJECT`` + an ``/labels`` row.
+def _reject_log_dtype() -> np.dtype:
+    """The ``/labels/reject_log`` compound dtype (additive data, created lazily)."""
+    import h5py  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    s = h5py.string_dtype(encoding="utf-8")
+    return np.dtype(
+        [
+            ("molecule_key", s),
+            ("event", s),  # REJECT_EVENT | RESTORE_EVENT
+            ("reason", s),  # a REJECT_REASONS code; "" on a restore
+            ("note", s),  # optional free text
+            ("value", "<f8"),  # the threshold of a "threshold" reject, else NaN
+            ("labeler", s),
+            ("timestamp", s),
+            ("condition_id", s),
+        ]
+    )
+
+
+def _check_reject_reason(reason: str, note: str, value: float | None) -> None:
+    """Refuse a reason outside :data:`REJECT_REASONS` or a reason missing its detail."""
+    if reason not in REJECT_REASONS:
+        raise ValueError(f"reason must be one of {sorted(REJECT_REASONS)}, got {reason!r}")
+    if not isinstance(note, str):
+        raise ValueError(f"note must be a string, got {type(note).__name__}")
+    if reason == REJECT_REASON_THRESHOLD:
+        if value is None or not math.isfinite(float(value)):
+            raise ValueError("a 'threshold' reject must carry its finite threshold value")
+    elif value is not None:
+        raise ValueError(f"only a 'threshold' reject carries a value, not {reason!r}")
+    if reason == REJECT_REASON_OTHER and not note.strip():
+        raise ValueError("an 'other' reject must carry a note that says the reason")
+
+
+def _append_reject_log(
+    path: Path, label_row: np.ndarray, *, event: str, reason: str, note: str, value: float | None
+) -> None:
+    """Append one row to ``/labels/reject_log``, joined to ``label_row`` by key + who + when."""
+    import h5py  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    dtype = _reject_log_dtype()
+    row = np.zeros(1, dtype=dtype)
+    row["molecule_key"] = _to_str(label_row["molecule_key"])
+    row["event"] = event
+    row["reason"] = reason
+    row["note"] = note
+    row["value"] = math.nan if value is None else float(value)
+    row["labeler"] = _to_str(label_row["labeler"])
+    row["timestamp"] = _to_str(label_row["timestamp"])
+    row["condition_id"] = _to_str(label_row["condition_id"])
+    with h5py.File(path, "r+") as f:
+        group = f[_LABELS]
+        if REJECT_LOG not in group:
+            group.create_dataset(REJECT_LOG, shape=(0,), maxshape=(None,), dtype=dtype)
+        log = group[REJECT_LOG]
+        n0 = log.shape[0]
+        log.resize((n0 + 1,))
+        log[n0:] = row
+
+
+def reject(
+    path: str | Path,
+    molecule_key: str,
+    *,
+    reason: str = REJECT_REASON_UNSPECIFIED,
+    note: str = "",
+    value: float | None = None,
+    **provenance: object,
+) -> np.ndarray:
+    """Reject a molecule: ``curation_label = REJECT`` + an ``/labels`` row + its reason.
 
     A reject is a reversible sticky tag (§7.5) — see :func:`unreject` and
-    :func:`curation_filter_mask` for the reversal and the exclusion filter.
+    :func:`curation_filter_mask` for the reversal and the exclusion filter. A human
+    reject also appends a ``/labels/reject_log`` row with ``reason`` (a code of
+    :data:`REJECT_REASONS`), the optional ``note``, and ``value`` (required for a
+    ``"threshold"`` reject, refused for any other reason). The reason is checked before
+    any write. The ``/labels`` row is written first, so a crash between the two writes
+    leaves a reject with no reason row (:func:`reject_record_of` then returns ``None``),
+    never a reason for a trace that was not rejected. A provisional-source reject is a
+    ``/labels``-only prior and writes no reason row.
     """
-    return set_curation_label(path, molecule_key, CurationLabel.REJECT, **provenance)  # type: ignore[arg-type]
+    _check_reject_reason(reason, note, value)
+    row = set_curation_label(path, molecule_key, CurationLabel.REJECT, **provenance)  # type: ignore[arg-type]
+    if _to_str(row["source"]) == LABEL_SOURCE_HUMAN:
+        _append_reject_log(
+            Path(path), row, event=REJECT_EVENT, reason=reason, note=note, value=value
+        )
+    return row
 
 
-def unreject(path: str | Path, molecule_key: str, **provenance: object) -> np.ndarray | None:
+def unreject(
+    path: str | Path, molecule_key: str, *, note: str = "", **provenance: object
+) -> np.ndarray | None:
     """Reverse a reject, restoring the uncurated state (§7.5, "one-click un-rejectable").
 
     Acts **only** when the molecule is currently ``REJECT``: it clears
     ``curation_label`` back to ``UNCURATED`` and logs the reversal as its own
     append-only ``/labels`` event (``label_value = UNCURATED``), preserving the
-    audit trail rather than erasing the prior reject. On any other current state it
+    audit trail rather than erasing the prior reject, and appends a ``"restore"`` row
+    with the optional ``note`` to ``/labels/reject_log``. On any other current state it
     is a **no-op returning ``None``** (nothing written) — so it never clobbers an
     accept (§7.5 "never silently drop") and never pollutes the append-only ML log
     with spurious clear rows. Raises :class:`KeyError` if ``molecule_key`` is absent.
     """
+    if not isinstance(note, str):
+        raise ValueError(f"note must be a string, got {type(note).__name__}")
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None
-    return set_curation_label(path, molecule_key, CurationLabel.UNCURATED, **provenance)  # type: ignore[arg-type]
+    row = set_curation_label(path, molecule_key, CurationLabel.UNCURATED, **provenance)  # type: ignore[arg-type]
+    if _to_str(row["source"]) == LABEL_SOURCE_HUMAN:
+        _append_reject_log(Path(path), row, event=RESTORE_EVENT, reason="", note=note, value=None)
+    return row
 
 
 # --- readers / queries -------------------------------------------------------
@@ -326,6 +463,42 @@ def read_labels(path: str | Path) -> np.ndarray:
 
     with h5py.File(Path(path), "r") as f:
         return f[_LABELS][TABLE][:]
+
+
+def read_reject_log(path: str | Path) -> np.ndarray:
+    """Read ``/labels/reject_log`` as a structured array (a copy, append order).
+
+    Returns a length-0 array of the log dtype when no reject has been logged yet (the
+    dataset is created lazily on the first human :func:`reject`).
+    """
+    import h5py  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    with h5py.File(Path(path), "r") as f:
+        group = f[_LABELS]
+        if REJECT_LOG not in group:
+            return np.zeros(0, dtype=_reject_log_dtype())
+        return group[REJECT_LOG][:]
+
+
+def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
+    """The reason row of the molecule's current reject, or ``None``.
+
+    ``None`` when the molecule is not currently rejected, or when its reject has no
+    reason row (a store written before #932, or a crash between the two writes).
+    Otherwise the latest ``"reject"`` row for ``molecule_key``. Raises
+    :class:`KeyError` if ``molecule_key`` is absent.
+    """
+    if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
+        return None
+    log = read_reject_log(path)
+    for i in range(log.shape[0] - 1, -1, -1):
+        if _to_str(log["molecule_key"][i]) != molecule_key:
+            continue
+        if _to_str(log["event"][i]) == REJECT_EVENT:
+            return log[i].copy()
+        return None  # the latest event is a restore: this reject has no reason row
+    return None
 
 
 def curation_labels(path: str | Path) -> dict[str, int]:
