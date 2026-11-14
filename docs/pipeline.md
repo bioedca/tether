@@ -103,7 +103,7 @@ not applied. A `.tmap` that also rotates or flips a channel is refused for now
 ### Colocalize
 
 `tether.imaging.coloc` pairs each donor spot with the acceptor position the registration map
-predicts for it. The donor is the anchor: every donor spot whose extraction window fits
+predicts for it. The donor is the anchor: every donor spot whose aperture window fits
 inside both channels becomes a molecule, whether or not a separate acceptor spot was detected
 there; the ADR records why Tether chose the donor as the anchor
 ([donor-anchored colocalization](glossary.md#donor-anchored-colocalization);
@@ -147,7 +147,7 @@ acceptor, and `tether.project.photobleach` writes the result and proposes the an
 ([photobleach frames](glossary.md#photobleach-frames-first-bleach-frame);
 [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)).
 
-- **Writes:** `bleach_frames` and, where the window is still the extraction default,
+- **Writes:** `bleach_frames` and, where the analysis window is still the extraction default,
   `analysis_window` on each molecule.
 - **Read more:** [Analysis parameters](reference/parameters.md#photobleaching-and-the-analysis-window)
 
@@ -260,7 +260,7 @@ cross-tool γ comparison has to divide it out
 ([`tether.fret.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/fret/gamma.py);
 [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
 
-### Why bleach frames come first, and why your window wins
+### Why bleach frames come first, and why your analysis window wins
 
 Both correction factors are read off photobleaching. α comes from the stretch after the
 acceptor has bleached but the donor has not; the estimator assumes that the acceptor-channel
@@ -279,14 +279,14 @@ molecule's full trace and its bleach frames
 ([`tether.project.leakage`](https://github.com/bioedca/tether/blob/main/src/tether/project/leakage.py),
 [`tether.project.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/project/gamma.py)). Photobleach detection
 proposes one, from the start of the trace to the first bleach of the summed donor and acceptor
-signal, but it writes that proposal only where the window is still the untouched extraction
-default. A later detection pass leaves any other window alone, whether you narrowed it by hand or an
+signal, but it writes that proposal only where the analysis window is still the untouched extraction
+default. A later detection pass leaves any other analysis window alone, whether you narrowed it by hand or an
 earlier pass proposed it: manual bounds win over the automatic one, and re-detected bleach
-frames do not move a window that is already set
+frames do not move an analysis window that is already set
 ([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py);
 [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)). The bleach frames
-themselves are re-detected each time the correction stage runs. Changing a window is still a
-change to the inputs, so any idealization fitted on the old window becomes stale (next
+themselves are re-detected each time the correction stage runs. Changing an analysis window is still a
+change to the inputs, so any idealization fitted on the old analysis window becomes stale (next
 section).
 
 ### What provenance-first storage lets you claim
@@ -296,11 +296,11 @@ coordinates and its content-derived identity, the correction factors and the met
 produced them, and the parameters and Tether version of the extraction, leakage, γ and
 correction passes ([ADR-0001](adr/0001-provenance-first-data-model.md);
 [`/settings`](reference/tether-format.md#settings-provenance-of-each-pipeline-stage)).
-Photobleach detection is the exception: it records the bleach frames and window it found, but
+Photobleach detection is the exception: it records the bleach frames and analysis window it found, but
 not the detector settings it used
 ([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py)). The two table exports carry only part
 of it. The Deep-LASI `.txt` trace matrix holds intensities alone; the molecule-table CSV adds
-each molecule's window, α, γ and correction method. The provenance file beside each export
+each molecule's analysis window, α, γ and correction method. The provenance file beside each export
 records the export's own parameters, the Tether version that wrote it and the project it came
 from, but not the parameters of the passes that produced the factors, so only a `.tether`
 file, the project or a subset exported from it (which copies `/settings`), answers all of
@@ -312,7 +312,7 @@ background-subtracted donor and acceptor intensities, with no α or γ applied; 
 asked to use the `raw` layer instead, and the stored model records which in its
 `intensity_quantity`
 ([`tether.project.idealize`](https://github.com/bioedca/tether/blob/main/src/tether/project/idealize.py)), but each fitted molecule carries a
-fingerprint of that trace, its window, and the α and γ in force for it when it was fitted.
+fingerprint of that trace, its analysis window, and the α and γ in force for it when it was fitted.
 Change any of those and the fingerprint no longer matches, the molecule is marked stale, and
 the four staleness-gated analyses above leave it out by default until it is re-fitted. A change in α marks
 every molecule whose E uses the correction stale, because one α applies to all of them; a
@@ -322,7 +322,7 @@ Re-running the estimate and getting the same α changes nothing. A shift in the 
 only the corrected molecules that took that median
 ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md);
 [staleness](glossary.md#staleness-stale-fresh-live)). That is what lets you say that a dwell
-time or a transition rate came from exactly the trace, window and correction state
+time or a transition rate came from exactly the trace, analysis window and correction state
 recorded with it, and not from an older version of them. When the result leaves Tether, the
 [provenance file](reference/exports.md#provenance-file) beside each export names the
 project it came from, which is where the rest of that record stays.

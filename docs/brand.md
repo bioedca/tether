@@ -76,7 +76,7 @@ The brand is monochrome. It has no accent color.
 
 The colors of data in plots are not brand colors. The application keeps them separate. For
 the light and dark themes of the window and the trace colors, see
-[Window themes and trace colors](reference/gui-theme.md).
+[Application window themes and trace colors](reference/gui-theme.md).
 
 ## Type
 

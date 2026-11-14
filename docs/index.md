@@ -58,7 +58,7 @@ paper.
 - [Legacy Deep-LASI import](io/legacy-import.md) — for re-analyzing an existing
   Deep-LASI acquisition without re-extracting the movie.
 - [Standalone-tMAVEN hand-off](idealize/standalone-tmaven-handoff.md) — for idealizing
-  in tMAVEN's own window and bringing the result back.
+  in tMAVEN's own application window and bringing the result back.
 - [Seven-plot parity gallery](analysis/parity-gallery.md) — for the seven analysis
   plots and how each corresponds to its tMAVEN counterpart.
 - [Validation & benchmarks](validation.md) — for deciding whether a Tether analysis is

@@ -261,9 +261,9 @@ rewrites `condition_id`.
 | `movie_id` | `str:utf-8` | scalar | Foreign key into `/movies/table`. `""` in an analysis-only import, and **dangling** in a subset export (which carries no `/movies` rows) — resolve it defensively. |
 | `donor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` donor (reference-channel) centroid, in **movie pixels** of the donor sub-image. |
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
-| `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard window); no per-aperture registry exists yet. |
+| `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard aperture window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
-| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed window wins. |
+| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
 | `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — resetting processed α rows and their downstream γ rows to `NaN` — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` on every analysable molecule (one whose `frame_range` is non-empty) and leaves the factor `NaN` — unless `apparent_e_only` forces `apparent-E (user toggle)` instead, or a manual `alpha_override`/`gamma_override` completes a usable pair (both effective factors finite, γ > 0), which stamps `manual` and **persists the override into this cell**. So read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
 | `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. Same `NaN` convention as `alpha` — `compute_gamma` withholds the dataset γ below `min_qualifying_traces` (`src/tether/project/gamma.py`) and resets processed rows to `NaN`; a withheld leakage recomputation also resets those rows because γ was derived from the prior α. A γ pass stamps `/settings/gamma` with `withheld = True`, so read `correction_method` / `/settings/gamma` rather than this cell. |
@@ -279,19 +279,19 @@ rewrites `condition_id`.
 | `tags` | `str:utf-8` | scalar | Comma-joined tag string; `""` when none. The pipeline emits two tags — see below. |
 
 > **A narrowed `analysis_window` is not a provenance signal.** In a natively extracted
-> store the window starts equal to `frame_range`, so a narrower one does mean
+> store the analysis window starts equal to `frame_range`, so a narrower one does mean
 > photobleach detection or a curator edit. That inference breaks on an **analysis-only
 > import**: `_normalize_source` reads the SMD's tMAVEN `pre_list`/`post_list` and
 > `_build_molecule_rows` writes them straight into `analysis_window`
 > (`src/tether/project/analysis_import.py`), so a *freshly imported* row can already be
 > narrower than `frame_range` with `bleach_frames` still `-1` and `curation_label`
-> still `0`. And because the auto-refine fires only on a window that still equals
-> `frame_range`, a later `compute_photobleach` leaves those imported windows alone. On
+> still `0`. And because the auto-refine fires only on an analysis window that still equals
+> `frame_range`, a later `compute_photobleach` leaves those imported analysis windows alone. On
 > a real 2-molecule import with `pre_list = [3, 0]` / `post_list = [30, 40]` over 40
 > frames, the rows read `analysis_window` `[3, 30]` and `[0, 40]` against `frame_range`
 > `[0, 40]`, and `compute_photobleach` reported `n_windows_autoset=1` — it refined only
 > the second row. To tell the cases apart, read `/settings/analysis_only` or the
-> `round-trip-unavailable` tag, not the window.
+> `round-trip-unavailable` tag, not the analysis window.
 
 ### Two sentinels and two derivations worth reading twice
 
@@ -299,7 +299,7 @@ rewrites `condition_id`.
 what extraction and analysis-only import write *before anyone has looked*: it means
 the photobleach detector has not run for that row, not that it ran and found nothing.
 After `compute_photobleach` (`src/tether/project/photobleach.py`) a channel that does
-**not** bleach within the trace is recorded as `frame_range[1]` — the window end — so
+**not** bleach within the trace is recorded as `frame_range[1]` — the analysis-window end — so
 the comparison you want is against `frame_range`, never against `-1`. (`-1` also
 survives on a row with no valid native frames, which the detector skips.) On a real
 40-frame store, one bleaching and two non-bleaching molecules read
@@ -477,10 +477,10 @@ aperture window is fixed per project and validated on every later append.
 In a **natively extracted** store each entry is the **temporal mean** image crop for
 that molecule and channel, in `(row, col)` image order, centered on the molecule's
 rounded coordinate. `_mean_patches` (`src/tether/imaging/extract.py`) zero-fills a
-molecule whose window falls outside the frame, but no such molecule reaches disk:
-`colocalize` keeps only molecules whose window fits in **both** channels, and
+molecule whose aperture window falls outside the frame, but no such molecule reaches disk:
+`colocalize` keeps only molecules whose aperture window fits in **both** channels, and
 `write_extraction` refuses the whole write if any integrated trace is invalid
-(`_validate_alignment` — "refusing to write an all-zero trace"). The default window is 21 px
+(`_validate_alignment` — "refusing to write an all-zero trace"). The default aperture window is 21 px
 (`extract_molecules(..., window=21)`); the value actually used is recorded as
 `/settings/extraction@window`. Row order matches `/molecules/table`. A subset export
 carries both stacks, row-subset to the exported molecules; **analysis-only imports
@@ -547,7 +547,7 @@ Empty until an idealization runs. Each fit lands in `/idealization/{model_name}`
 first as `{model_name}.__writing__` and then swapped in by **delete-then-rename**.
 The staged group is complete before the swap, so a real model name never holds a
 half-written fit — but the swap itself is **not fully atomic**: HDF5 has no atomic
-in-file rename-over, so a crash in the window between removing the old model and
+in-file rename-over, so a crash in the interval between removing the old model and
 renaming the staged one can leave *only* the `.__writing__` group and no model at all
 (`write_idealization_model`, `src/tether/project/idealize.py`). Re-running the write
 repairs it. A reader should normally skip a name ending in `.__writing__` — but must
@@ -567,7 +567,7 @@ store's molecule count and *not* the store's row order — see the note under th
 | `frac` | `(nstates,)` | float64 | optional — the normalized populations; **use this for plots and exports**, not `pi` |
 | `priors/<name>` | `(nstates,)` or `(nstates, nstates)` | float64 | optional subgroup — the variational prior hyperparameters |
 | `idealized` | `(n_fitted, n_frames)` | float64, gzip | always — per-frame idealized FRET level, `NaN` outside each molecule's analysis window |
-| `state_path` | `(n_fitted, n_frames)` | int64, gzip | always — state index, `-1` (`tether.idealize.NO_STATE`) outside the window |
+| `state_path` | `(n_fitted, n_frames)` | int64, gzip | always — state index, `-1` (`tether.idealize.NO_STATE`) outside the analysis window |
 | `molecule_key` | `(n_fitted,)` | vlen UTF-8 | always |
 | `molecule_id` | `(n_fitted,)` | vlen UTF-8 | always — the **unique** join key for staleness and export |
 | `input_hash` | `(n_fitted,)` | vlen UTF-8 | always — see below |

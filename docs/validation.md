@@ -910,7 +910,7 @@ files name no tMAVEN build and are dated 2022-11-29):
 | 1. Import | Every SMD file and model reads, writes back and stores with no loss. The one loss is the float32 `/traces` layers: in 3 of the 11 SMD files some intensities round, by at most 2^-24 relative |
 | 2. Idealization | A fresh two-state fit with the authors' priors and bleed-through 0.035, seed 1: state-count agreement 1.0, per-state \|ΔE\| 7.2e-5, Viterbi agreement 0.99954, all inside the frozen row. **Relative ΔELBO 0.0194 is outside the frozen 0.01.** The whole gap is the Gaussian-Wishart term, which tMAVEN adds once per trace; the other three ELBO terms agree to 2.0e-5 relative and the rates to 4.3e-4. The frozen row does not change; the test pins the measured difference |
 | 3. Kinetics | The stored rates are the authors' rule `-ln(1 - p) / τ` on the stored transition matrix. With the paper's photobleaching correction, 16 of the 21 numbers of Table 1 fall inside the stated SD |
-| 4. 2-D histogram | Start-synchronized: Tether's counts equal tMAVEN's cell for cell. Post-synchronized on the window frames: the same 38 transitions in 29 molecules and the same 1608 counts, cell for cell (since #806; before it Tether lacked 2, the last frame of a dwell that runs to the window end). tMAVEN's app also counts 2 jumps at a window border (#707) |
+| 4. 2-D histogram | Start-synchronized: Tether's counts equal tMAVEN's cell for cell. Post-synchronized on the analysis-window frames: the same 38 transitions in 29 molecules and the same 1608 counts, cell for cell (since #806; before it Tether lacked 2, the last frame of a dwell that runs to the analysis-window end). tMAVEN's app also counts 2 jumps at a window border (#707) |
 
 **Table 1 numbers that do not agree** (1/s; paper value ± SD against the value from the archived
 model). They are measured differences, pinned in `TABLE_1_DIFFERENCES`, not tolerances:
@@ -1123,7 +1123,7 @@ probability `φ_A exp(Q_AA t) 1` — the dwell-time distribution of an aggregate
 | `low_fret` | 600 | 6.4653 | 9.0538 | 0.286 | 0.0781 |
 | `high_fret` | 667 | 3.0459 | 4.3897 | 0.306 | 0.1471 |
 
-The observed dwells are shorter than predicted. Most of that is the window: the traces are
+The observed dwells are shorter than predicted. Most of that is the observation time: the traces are
 short against the dwells (median 35.7 s against a predicted mean low-FRET dwell of 9.1 s),
 and a dwell that a trace end cuts is never counted, so long dwells are under-sampled.
 Blinking and noise also split dwells. The comparison therefore measures Tether's fit and

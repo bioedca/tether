@@ -63,7 +63,7 @@ the message (see
 
 Donor emission detected in the acceptor channel, applied **additively to the acceptor only**
 (`tether.fret.leakage`). Tether estimates it from each trace's own **post-acceptor-bleach
-tail** as `mean(I_DA) / mean(I_DD)` — a ratio of window means, not a mean of per-frame
+tail** as `mean(I_DA) / mean(I_DD)` — a ratio of estimator-window means, not a mean of per-frame
 ratios. Gates: tail ≥ `DEFAULT_MIN_WINDOW_FRAMES = 20` frames; per-trace α outside
 `[0, LEAKAGE_CEILING = 0.3]` dropped; the dataset value is the **median** of qualifying
 traces and is **withheld** below `DEFAULT_MIN_QUALIFYING_TRACES = 10` rather than fabricated
@@ -147,7 +147,7 @@ from the `-1` [undetected sentinel](#photobleach-frames-first-bleach-frame) and 
 
 ---
 
-## Photobleaching, windows and curation
+## Photobleaching, analysis windows and curation
 
 ### photobleach frames (first-bleach frame)
 
@@ -174,17 +174,25 @@ each falling back to `frame_range` when it is unset.
 
 The **auto** default is trace start → first bleach of the **summed** donor+acceptor
 intensity — not per-channel (ADR-0026).
-**Manual wins**: the auto value is written only where the window still equals the extraction
-default, so a curator-narrowed window is never overwritten.
+**Manual wins**: the auto value is written only where the analysis window still equals the extraction
+default, so a curator-narrowed analysis window is never overwritten.
 
-### window (overloaded — four meanings)
+### window (always with a qualifier)
 
-1. **analysis window** — frames, above.
-2. **aperture window** — the `21 × 21` **pixel** crop side length (`tether.imaging.aperture`,
-   `tether.project.extract`); must be a positive **odd** integer.
-3. **estimator windows** — the leakage tail window and γ's 3-frame half-window, in frames.
-4. **deep-model `window_length`** — 500 frames, the ML classifier's input length
-   ([Deep trace classifier](ml/deep-classifier.md)).
+These pages never write a bare "window". Each use names one of these kinds:
+
+1. **analysis window**: frames, above.
+2. **aperture window**: the `21 × 21` **pixel** crop side length (`tether.imaging.aperture`,
+   `tether.project.extract`). It must be a positive **odd** integer. The CLI flag and the
+   stored setting keep the name `window`.
+3. **estimator windows**: the leakage tail window and γ's 3-frame half-window, in frames.
+4. **model window**: the deep model's `window_length`, 500 frames, the input length of the ML
+   classifier ([Deep trace classifier](ml/deep-classifier.md)).
+5. **application window**: the Tether desktop window, or tMAVEN's own window. Its parts
+   keep their own names: the main window and the splash window.
+6. **post-synchronization window**: the frames that a post-synchronized heatmap bins around
+   each transition (`single_dwell`, `sync_preframe`; see
+   [post-synchronization](#post-synchronization)).
 
 ### curation label / category / quality class
 
@@ -443,11 +451,11 @@ of stitching them (identical first/last handling; a comparison, not a mode Tethe
 with the sentinel `-1`, which *is* `NO_STATE`.
 
 - `population_dwell_times` reads its paths through `tether.analysis._store.windowed_states`,
-  which cuts each molecule's window between its first and last non-sentinel frame but keeps
+  which cuts each molecule's analysis window between its first and last non-sentinel frame but keeps
   any interior gap — so it **merges**.
 - `pooled_exit_rates`' only caller in Tether's source is `two_state_rate_constants`, whose
   paths come from `viterbi_paths` — an `argmax` over the model's states that never emits the
-  sentinel, so nothing merges there. But `pooled_exit_rates` is public API: hand it a store
+  sentinel, so nothing merges there. But `pooled_exit_rates` is public API: hand it a stored analysis
   window and it merges identically.
 
 A gap between two *different* states is not merged: the strip makes the runs either side of it
@@ -464,7 +472,7 @@ to tMAVEN's `generate_dwells`, the **first and last dwell of every molecule are 
 last always; the first unless `include_first`), so at the default only interior dwells are
 measured. The two are dropped for different reasons. The **last** dwell is right-censored: the
 trace ends before the molecule is seen to leave that state. The **first** is a different case: its start was
-not observed, because the molecule was already in that state when the window opened, while its
+not observed, because the molecule was already in that state when the analysis window opened, while its
 end is a recorded transition. That exit is observed only when no interior `NO_STATE` gap
 separates the first dwell from the next state; across such a gap the exit happened somewhere
 inside it. How an interior gap joins two runs into one dwell, or leaves a transition untimed, is

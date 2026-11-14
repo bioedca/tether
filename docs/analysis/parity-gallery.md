@@ -146,7 +146,7 @@ bins deliberately differ from A1's 151.
 apparent E. Out-of-trace frame indices are dropped, never wrapped.
 
 **Variants.** Raw/start-sync vs post-sync; within post-sync, `single_dwell=True`
-(single dwell before/after) vs `False` (fixed ± window), and `from_state`/`to_state`
+(single dwell before/after) vs `False` (fixed ± post-synchronization window), and `from_state`/`to_state`
 transition selection (`-1` = any).
 
 ```python
@@ -162,11 +162,11 @@ sync = population_transition_sync_histogram2d(project, "vbconhmm",      # any �
 
 **Parity evidence.**
 
-- `tests/test_analysis_histogram_postsync.py` — the definitive A2b parity test embeds `_tmaven_postsync` (`gen_sync_list_single` / `gen_sync_list_fixed` + `histogram_sync_list` ported verbatim) and asserts `np.testing.assert_array_equal(h.counts, ref)` plus `n_molecules == nmol` and `n_transitions == npoints` across `single_dwell ∈ {True, False}` and five `(from, to)` state pairs, and for `single_dwell=True` also with 20- and 40-column windows whose `sync_preframe` is longer than every dwell, so the left limit of the single-dwell window (the frame after the previous transition) decides the result (the oracle's rows run one NaN frame past every window, so no trailing window reaches the movie end, the one frame where the two differ; see the movie-end item below); a hand-made trace pins that a trailing dwell keeps the window's final frame and a dwell that ends at a jump does not (#806); also checks that `time_dt` scales the time axis and leaves the counts unchanged, `xbins+1` columns with the transition at `sync_preframe`, right-open signal interval, out-of-range-still-counts, `NO_STATE` borders are not jumps, and density integrates to 1.
+- `tests/test_analysis_histogram_postsync.py` — the definitive A2b parity test embeds `_tmaven_postsync` (`gen_sync_list_single` / `gen_sync_list_fixed` + `histogram_sync_list` ported verbatim) and asserts `np.testing.assert_array_equal(h.counts, ref)` plus `n_molecules == nmol` and `n_transitions == npoints` across `single_dwell ∈ {True, False}` and five `(from, to)` state pairs, and for `single_dwell=True` also with 20- and 40-column post-synchronization windows whose `sync_preframe` is longer than every dwell, so the left limit of the single-dwell window (the frame after the previous transition) decides the result (the oracle's rows run one NaN frame past every analysis window, so no trailing single-dwell window reaches the movie end, the one frame where the two differ; see the movie-end item below); a hand-made trace pins that a trailing dwell keeps the analysis window's final frame and a dwell that ends at a jump does not (#806); also checks that `time_dt` scales the time axis and leaves the counts unchanged, `xbins+1` columns with the transition at `sync_preframe`, right-open signal interval, out-of-range-still-counts, `NO_STATE` borders are not jumps, and density integrates to 1.
 - `tests/test_analysis_histogram2d.py` — A2 raw-mode faithfulness to `histogram_raw`-after-`sync_start`; `test_population_defaults_match_tmaven_a2` pins the 100×61 grid over `[-0.2, 1.2]` with `time_dt=1`, and `test_population_start_synchronization_via_analysis_window` confirms per-molecule start-synchronization.
-- `tests/test_analysis_plots_sidecar.py` (live) — `data_hist2d.get_data`: the raw / start-synchronized heatmap is equal (tMAVEN allocates one more, always-empty time row). Post-sync: given tMAVEN's own rectangular rows, Tether's heatmap is equal for every selection and both window shapes, both to `gen_sync_list_*` + `histogram_sync_list` and to what the app plots. On Tether's windowed rows it is equal to the routine too (#806): a trailing single-dwell window keeps the final frame of the analysis window, as tMAVEN does on a trace whose window photobleaching ended early, and a dwell that ends at a jump still stops before the jump's frame in both. One deliberate difference remains against the app, measured and frozen in `schema/plot_parity_limits.json` (largest total-variation distance 0.068):
-    - **Window borders (deliberate).** The model the tMAVEN app holds pads its integer state path with 0 outside each window, so the app synchronizes on window borders as if they were jumps, and it also drops the final window frame of a trailing dwell because it sees the window end as a jump. Tether keeps its rule: a window border is not a state change, and the 0-padding is a property of how the app stores the model, not of the method. Tether's `NO_STATE` border is never a jump.
-    - **Movie end (deliberate).** tMAVEN ends a trailing single-dwell window at the movie's last frame index, exclusive, so when a window runs to the movie end it drops that window's final frame. Tether keeps it, by the same rule as above. The two differ by that one frame only when it lands inside the time columns; on the committed 281-molecule fixture it never does, and `test_single_dwell_trailing_frame_differs_from_tmaven_only_at_movie_end` pins the case. [ADR-0085](../adr/0085-a-trailing-dwell-keeps-the-last-window-frame.md) records both choices.
+- `tests/test_analysis_plots_sidecar.py` (live) — `data_hist2d.get_data`: the raw / start-synchronized heatmap is equal (tMAVEN allocates one more, always-empty time row). Post-sync: given tMAVEN's own rectangular rows, Tether's heatmap is equal for every selection and both post-synchronization window shapes, both to `gen_sync_list_*` + `histogram_sync_list` and to what the app plots. On Tether's windowed rows it is equal to the routine too (#806): a trailing single-dwell window keeps the final frame of the analysis window, as tMAVEN does on a trace whose analysis window photobleaching ended early, and a dwell that ends at a jump still stops before the jump's frame in both. One deliberate difference remains against the app, measured and frozen in `schema/plot_parity_limits.json` (largest total-variation distance 0.068):
+    - **Analysis-window borders (deliberate).** The model the tMAVEN app holds pads its integer state path with 0 outside each analysis window, so the app synchronizes on analysis-window borders as if they were jumps, and it also drops the final analysis-window frame of a trailing dwell because it sees the analysis-window end as a jump. Tether keeps its rule: an analysis-window border is not a state change, and the 0-padding is a property of how the app stores the model, not of the method. Tether's `NO_STATE` border is never a jump.
+    - **Movie end (deliberate).** tMAVEN ends a trailing single-dwell window at the movie's last frame index, exclusive, so when an analysis window runs to the movie end it drops that analysis window's final frame. Tether keeps it, by the same rule as above. The two differ by that one frame only when it lands inside the time columns; on the committed 281-molecule fixture it never does, and `test_single_dwell_trailing_frame_differs_from_tmaven_only_at_movie_end` pins the case. [ADR-0085](../adr/0085-a-trailing-dwell-keeps-the-last-window-frame.md) records both choices.
 
 ---
 
@@ -228,7 +228,7 @@ markers OR density histogram, model overlay, residual subplot via `make_axes_loc
 **Tether reimplementation** — `tether.analysis.dwell` (the three-stage pipeline ported as
 headless array code):
 
-- `state_dwells(state_chunks, *, no_state=None, include_first=False) -> StateDwells` — reimplements `generate_dwells`: strip the `NO_STATE` frames first (tMAVEN's NaN strip), so same-state segments either side of an interior gap merge into one run whose length is the sum of their observed frames, the gap frames discarded ([`NO_STATE`](../glossary.md#no_state)); then `np.split` on `np.diff != 0`; drop the last run always — right-censored, its exit never observed — and the first unless `include_first` — its start was not observed, the molecule already being in that state when the window opened, and its exit is observed only when no `NO_STATE` gap separates it from the next state.
+- `state_dwells(state_chunks, *, no_state=None, include_first=False) -> StateDwells` — reimplements `generate_dwells`: strip the `NO_STATE` frames first (tMAVEN's NaN strip), so same-state segments either side of an interior gap merge into one run whose length is the sum of their observed frames, the gap frames discarded ([`NO_STATE`](../glossary.md#no_state)); then `np.split` on `np.diff != 0`; drop the last run always — right-censored, its exit never observed — and the first unless `include_first` — its start was not observed, the molecule already being in that state when the analysis window opened, and its exit is observed only when no `NO_STATE` gap separates it from the next state.
 - `survival_curve(dwell_lengths) -> (tau, survival)` — reimplements `survival()` with the same `S(0)=1` normalization and identical degenerate empty return.
 - `fit_survival(tau, survival, *, model="single", ci_level=…) -> DwellFit` — reimplements `optimize_*_surv`'s fit: the same `scipy.optimize.curve_fit` (`trf`, bounded), `sqrt(diag(pcov))` standard errors, and R². On top of the ported SE it adds two-sided Student-*t* CIs and a residual array (tMAVEN forms residuals later, in the plotter, not in `optimize_*_surv`). It **grace-fails** (`success=False`, NaN params) instead of raising.
 - `single_exp_survival` / `double_exp_survival` / `triple_exp_survival` / `stretched_exp_survival` — **verbatim copies** of `exponentials.py`.
@@ -241,9 +241,9 @@ each with a residuals subplot; single/double/triple/stretched fits (tMAVEN also 
 transition-matrix-derived decay in the plotter); a toggle to keep each molecule's first dwell,
 whose start was not observed (`include_first`); the last dwell, right-censored, is always
 dropped. Interior `NO_STATE` gaps merge only where the caller passes them in:
-`population_dwell_times` reads store windows (`windowed_states`), which keep interior gaps, so
+`population_dwell_times` reads stored analysis windows (`windowed_states`), which keep interior gaps, so
 its dwells merge; `pooled_exit_rates`' only in-tree caller, `two_state_rate_constants`, feeds
-it `viterbi_paths` output, which never carries the sentinel — but handed a store window it
+it `viterbi_paths` output, which never carries the sentinel — but handed a stored analysis window it
 merges identically ([`NO_STATE`](../glossary.md#no_state)).
 
 ```python
@@ -398,7 +398,7 @@ matplotlib/PyQt5 → pyqtgraph):
 
 **Deliberate MVP divergences.** The FRET panel plots apparent E instead of tMAVEN's
 `calc_relative`; marginals use a fixed 40-bin count instead of `int(√(pbtime−pretime))`;
-tMAVEN's three alpha-graded pre/window/post segments and its Relative/Normalized/ND-Raw mode
+tMAVEN's three alpha-graded pre/analysis-window/post segments and its Relative/Normalized/ND-Raw mode
 switch are **not yet** in the M2 dock (photobleach segmentation lands at M3). Tether adds a
 total-intensity curve and a seconds/frames x-axis toggle.
 
@@ -407,7 +407,7 @@ total-intensity curve and a seconds/frames x-axis toggle.
 left and marginals right; donor green, acceptor red, FRET blue, total neutral gray; the FRET
 axis labeled "apparent E" and pinned to 0–1; the FRET curve `== A/(D+A)` on finite frames
 with a `connect="finite"` gap at zero-total frames; the idealization overlay is
-`stepMode="center"`, drawn only over the finite window, re-laid on the seconds/frames toggle,
+`stepMode="center"`, drawn only over the finite frames of the analysis window, re-laid on the seconds/frames toggle,
 hidden before `set_idealization`, and cleared when the trace changes.
 `tests/test_fret_efficiency.py` locks the FRET-panel value function
 (`apparent_fret == corrected_fret` at `α=0, γ=1`). Live, in `tests/test_analysis_plots_sidecar.py`: for all 281

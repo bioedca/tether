@@ -51,7 +51,7 @@ Tether performed.
 
 | Attribute | Meaning |
 |---|---|
-| `window` | Aperture and patch window edge, pixels. |
+| `window` | Aperture window edge (also the patch edge), pixels. |
 | `disk_radius` | Signal disk radius, pixels. |
 | `ring_inner`, `ring_outer` | Background annulus radii, pixels. |
 | `bg_window` | Background moving-average length, frames. |
@@ -446,7 +446,7 @@ not run. The citations are the ones [Citing Tether](citing.md) gives for each st
 
 > Single-molecule FRET movies were processed with Tether version 1.0.0rc3.dev28+gdfadf1f74
 > (https://doi.org/10.5281/zenodo.23306397). Donor and acceptor intensities were integrated
-> over a 3.0-pixel-radius disk inside a 21-pixel window, with the local background taken from
+> over a 3.0-pixel-radius disk inside a 21-pixel aperture window, with the local background taken from
 > an annulus between 6.0 and 8.0 pixels and averaged over 10 frames (Wanninger et al., 2023).
 > Correction factors were estimated as described by McCann et al. (2010) and Hellenkamp et
 > al. (2018): donor-to-acceptor leakage α = 0.079, from 25 of 25 molecules after acceptor

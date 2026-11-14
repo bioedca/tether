@@ -41,7 +41,7 @@ dwell-time analyses read.
 - **For per-molecule state selection under a shared prior:** fit the whole project with
   **ebFRET** instead. It learns a shared prior across the molecules while choosing states
   molecule by molecule, and it varies more from run to run than the consensus model.
-- **To fit by hand in tMAVEN's own window:** use **Hand-off → Hand to tMAVEN…**, fit and edit
+- **To fit by hand in tMAVEN's own application window:** use **Hand-off → Hand to tMAVEN…**, fit and edit
   there, then bring the result back with **Hand-off → Import return leg…**.
   [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) covers it.
 
@@ -50,11 +50,11 @@ dwell-time analyses read.
 1. Open the project with `tether-gui movie.tether` and select a molecule that is not
    rejected.
 2. Press **I**. The status bar reads `Idealizing` followed by the molecule's ID.
-3. Wait. The first fit after Tether starts is much slower than later ones, and the window stays
+3. Wait. The first fit after Tether starts is much slower than later ones, and the application window stays
    usable meanwhile.
 4. When the status bar reads `Idealized` and the ID, a stepped line is drawn over the
    blue efficiency trace. The line is black in the light theme and white in the dark theme
-   ([Window themes and trace colors](../reference/gui-theme.md#trace-colors)).
+   ([Application window themes and trace colors](../reference/gui-theme.md#trace-colors)).
 
 Each press stores its fit as the project's `vbfret` model and replaces whatever that model held
 before, so it never builds up a population fit.

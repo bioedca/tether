@@ -29,7 +29,7 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
   `$env:USERPROFILE\Tether\envs\tether\python.exe` on Windows, at the default install
   locations. Only the histogram has a menu item; the other two plots are made from Python.
 
-## 1. Look at the histogram in the window
+## 1. Look at the histogram in the application window
 
 Open the project with `tether-gui movie.tether` and choose **Analysis → Population
 histogram…**. A panel opens with the histogram, and the status bar names how many molecules

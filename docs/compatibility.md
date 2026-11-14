@@ -190,7 +190,7 @@ operation becomes more than 1.5 times slower or larger. The job summary shows th
 | Reference movie | 512 × 512, 1700 frames | `REFERENCE_MOVIE_*` |
 | Movies per condition | 100 | `REFERENCE_CONDITION_MOVIES` |
 | Molecules per movie | 250 | `REFERENCE_MOLECULES_PER_MOVIE` |
-| Unattended batch window | 12 h ("overnight") | `OVERNIGHT_WINDOW_HOURS` |
+| Unattended batch run time | 12 h ("overnight") | `OVERNIGHT_WINDOW_HOURS` |
 | Per-trace UI latency budget | 100 ms | `PER_TRACE_LATENCY_BUDGET_S` |
 | Trace bytes per molecule per frame | 24 B (six `float32` layers) | `TRACE_BYTES_PER_MOLECULE_FRAME` |
 | Fixed bytes per molecule | 5 kB | `FIXED_STORAGE_BYTES_PER_MOLECULE` |
@@ -221,7 +221,7 @@ placeholder to hydrate just to check whether something changed.
 
 The one thing a **natively extracted** store caches from the pixels is a `window × window`
 temporal-mean patch per molecule per channel (`/patches/{donor,acceptor}`), so curation and
-the static overlap view still work with the movies offline. At the default 21-pixel window
+the static overlap view still work with the movies offline. At the default 21-pixel aperture window
 that is about 3.5 kB per molecule, already inside the 5 kB fixed-per-molecule figure above.
 A project reconstructed from a Deep-LASI export is the exception: that path never reads the
 movie pixels, so its patches are written zero-filled. Curation, the overlap distance and the

@@ -1,6 +1,6 @@
 # Command line
 
-**Who this page is for.** Anyone driving Tether without the window: scripting the
+**Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
 extraction from recorded settings. `tether extract` and `tether batch` are the whole
 headless surface — there is no third subcommand. If you are curating traces by hand,
@@ -25,7 +25,7 @@ The installer deliberately does **not** edit your `PATH` (see
 is a bare word you can type. It writes both launchers into one directory — `bin/` under
 the install root you chose during installation:
 
-| Platform | Command-line launcher | Window launcher |
+| Platform | Command-line launcher | Application-window launcher |
 |---|---|---|
 | Windows | `<install-root>\bin\tether.bat` | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |

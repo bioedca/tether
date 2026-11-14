@@ -90,12 +90,12 @@ scores = predict_proba(trained, dataset)       # per-molecule accept probability
 `build_deep_dataset` builds the framework-free substrate (base env); `train_classifier` and
 `predict_proba` are the torch consumers (deep env). The returned `TrainedDeepClassifier` is a
 frozen record carrying the trained model, the per-epoch weighted-loss `history`, the full
-hyperparameter set, and the **preprocessing provenance** (channels, channel count, window
+hyperparameter set, and the **preprocessing provenance** (channels, channel count, model window
 length, normalization, intensity quantity) — the reproducibility stamp (NFR-REPRO).
 
 That provenance is also a **safety contract**: `predict_proba` rejects an inference dataset
 whose preprocessing differs from what the model was trained on across **all five** recorded
-fields — channel order, channel count, window length, normalization, and intensity quantity —
+fields — channel order, channel count, model window length, normalization, and intensity quantity —
 because a mismatch keeps a compatible tensor *shape* yet would produce silently invalid scores.
 Pass a bare `nn.Module` to opt out and own the contract yourself.
 

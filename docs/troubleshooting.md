@@ -687,7 +687,7 @@ CorruptLockError: unparseable lock file: <path>.tether.lock
 
 **Cause and remedy — the three cases differ, and the message tells you which one you have.**
 
-- **No `; stale` suffix** — a live writer. Close the other Tether window, or ask the named
+- **No `; stale` suffix** — a live writer. Close the other Tether application window, or ask the named
   host's user to. Do not steal.
 - **`; stale`** — the holder has been idle longer than the ≈30-minute staleness timeout.
   Liveness is judged by wall clock, not by probing the PID, because a remote PID cannot be
@@ -766,7 +766,7 @@ Then, per platform:
   Security**, scroll to **Security**, and use the **Open Anyway** button, then authenticate as
   an administrator. Two things catch people out: the button only appears *after* you have
   tried to open the file and been blocked, and it is available for **about an hour** after
-  that — miss the window and you must trigger the block again.
+  that — miss that hour and you must trigger the block again.
 - **Linux.** The `.sh` installer is not gated by an OS trust prompt; verify it and run it.
 
 #### If macOS will not open the `.pkg`

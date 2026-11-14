@@ -1,7 +1,7 @@
 # Standalone-tMAVEN hand-off
 
 **Who this page is for.** Anyone who wants to open Tether's traces in the standalone tMAVEN
-window, edit the fit by hand and bring the result back. It is also for anyone who must set up
+application window, edit the fit by hand and bring the result back. It is also for anyone who must set up
 the tMAVEN sidecar. It assumes you have used tMAVEN. The setup section also assumes you can
 run a Python script from a source checkout.
 
@@ -135,13 +135,13 @@ pytest -m sidecar tests/test_handoff_sidecar.py
 A second sidecar test, `tests/test_tmaven_gui_sidecar.py`, builds tMAVEN's main window
 on the offscreen Qt platform the way `python -m tmaven` does and runs its first plot draw.
 It exists because headless tests never draw: the sidecar lock once resolved
-`matplotlib-base` 3.11, which breaks the canvas tMAVEN draws on, and the window crashed at
+`matplotlib-base` 3.11, which breaks the canvas tMAVEN draws on, and the main window crashed at
 startup while every other check stayed green (#566). The lock now bounds `matplotlib-base`
 below 3.11, and this test fails if a GUI-breaking dependency comes back.
 
 ### Manual GUI leg
 
-The scripted checks drive tMAVEN's loader and build its window offscreen, but nobody looks
+The scripted checks drive tMAVEN's loader and build its main window offscreen, but nobody looks
 at the result. Once per operating
 system, a human confirms the file opens in the actual GUI:
 

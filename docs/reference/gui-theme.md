@@ -3,44 +3,44 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# Window themes and trace colors
+# Application window themes and trace colors
 
-**Who this page is for.** Anyone who uses the Tether window and wants to change its theme, or
+**Who this page is for.** Anyone who uses the Tether application window and wants to change its theme, or
 who wants to know the trace colors and how they were checked. It assumes you can open the
-Tether window. It does not assume you know Qt or color science.
+Tether application window. It does not assume you know Qt or color science.
 
-The Tether window has a light theme and a dark theme. This page tells you how to select a
+The Tether application window has a light theme and a dark theme. This page tells you how to select a
 theme, and it records the colors of the traces and how they were checked.
 
 ## Select a theme
 
 At the start, Tether uses the light or dark scheme of your operating system. When the
-operating system changes its scheme, the window changes too.
+operating system changes its scheme, the application window changes too.
 
 To select a theme yourself, use **View → Theme**:
 
 | Item | Result |
 |---|---|
-| System | The window follows the operating system. This is the default. |
-| Light | The window is always light. |
-| Dark | The window is always dark. |
+| System | The application window follows the operating system. This is the default. |
+| Light | The application window is always light. |
+| Dark | The application window is always dark. |
 
-The window, the plots and the movie viewer change immediately. You do not have to start
+The application window, the plots and the movie viewer change immediately. You do not have to start
 Tether again. Tether keeps your selection until you close it. A later version keeps it
 for the next session ([#330](https://github.com/bioedca/tether/issues/330)).
 
 If the operating system does not report a scheme, the System item gives the light theme.
 
-![The Tether window in the light theme, with a synthetic demonstration trace](../assets/gui/theme-light.png)
+![The Tether application window in the light theme, with a synthetic demonstration trace](../assets/gui/theme-light.png)
 
-![The Tether window in the dark theme, with the same synthetic demonstration trace](../assets/gui/theme-dark.png)
+![The Tether application window in the dark theme, with the same synthetic demonstration trace](../assets/gui/theme-dark.png)
 
 The two pictures show a synthetic trace, not measured data. They were made on Linux with
 the offscreen Qt platform.
 
 ## What the theme changes
 
-- **The window.** Tether uses the Qt Fusion style on all operating systems, with the colors
+- **The application window.** Tether uses the Qt Fusion style on all operating systems, with the colors
   of the theme. The selected item is ink on light, or chalk on dark. The brand has no
   accent color.
 - **The plots.** The background, the axes, the grid and the labels of each plot take the
@@ -53,7 +53,7 @@ the offscreen Qt platform.
 The theme does not change the figures that Tether exports. Exported figures are made
 with Matplotlib and have no brand element ([ADR-0044](../adr/0044-matplotlib-base-plot-export-backend.md)).
 
-The window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
+The application-window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
 (see [Brand](../brand.md)). The module `tether.gui.theme` is the only module in
 `src/tether/gui` that contains a color value. A test makes sure of this.
 
@@ -98,8 +98,8 @@ move.
 **Progress row.** The progress row is a row of beam dots for a task that gives a
 percentage. The dots fill from left to right, and the percentage is beside the row.
 Assistive technology reads the row as a progress bar with its value. In this version, no
-task gives a percentage, so the window does not show the row. The task service and the
-progress panel of a later version put the row in the window
+task gives a percentage, so the application window does not show the row. The task service and the
+progress panel of a later version put the row in the application window
 ([#343](https://github.com/bioedca/tether/issues/343),
 [#627](https://github.com/bioedca/tether/issues/627)).
 
@@ -131,7 +131,7 @@ has one value for each theme.
 
 The ratio is the WCAG 2.x contrast against the plot background of the theme (`#fbfbfa`
 light, `#0d0f12` dark). Each trace color has a contrast of 3 : 1 or more. Each text
-color of the window has a contrast of 4.5 : 1 or more.
+color of the application window has a contrast of 4.5 : 1 or more.
 
 ### Sources of the safe set
 

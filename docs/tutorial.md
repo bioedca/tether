@@ -72,7 +72,7 @@ tether-gui tutorial.tether
 You can also start Tether from your Start menu or applications menu and choose
 **File → Open project…**, then pick `tutorial.tether`.
 
-The status bar at the bottom of the window reads:
+The status bar at the bottom of the application window reads:
 
 ```text
 Opened tutorial.tether — 3 molecule(s)
@@ -140,7 +140,7 @@ Idealizing 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one
 ```
 
 The first fit after starting Tether takes longer than later ones while the fitting engine warms up;
-the window stays usable meanwhile. When it is done the status bar reads:
+the application window stays usable meanwhile. When it is done the status bar reads:
 
 ```text
 Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-click vbFRET)
@@ -148,7 +148,7 @@ Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-
 
 and a stepped line is drawn over the blue trace, jumping between a low level near 0.25
 and a high level near 0.75 at the same places the blue trace does. The line is black in the
-light theme and white in the dark theme ([Window themes and trace colors](reference/gui-theme.md#trace-colors)).
+light theme and white in the dark theme ([Application window themes and trace colors](reference/gui-theme.md#trace-colors)).
 
 This step uses the separate tMAVEN environment the installer sets up for you. If you run
 Tether from a source checkout instead of an installer, set that environment up first as
@@ -170,7 +170,7 @@ you saw in the traces.
 
 ## 9. Export the molecule table
 
-Close the Tether window. Then start the Python that came with Tether, from the same
+Close the Tether application window. Then start the Python that came with Tether, from the same
 `tether-tutorial` folder, with the line for your system:
 
 ```bash

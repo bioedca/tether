@@ -141,7 +141,7 @@ disk's pixel count `n_psf = int(disk.sum())`.
 > `bg_window=10` — `tether.project.extract.ExtractOptions`, mirrored by
 > `tether.imaging.aperture.integrate_traces`) the disk is **29 px**, and that count is set
 > by **`disk_radius` alone**. `aperture_masks` builds the disk as `dist <= disk_radius`
-> about the window center, so `n_psf` is 29 for *every* legal `window` — the window only
+> about the aperture-window center, so `n_psf` is 29 for *every* legal `window` — the aperture window only
 > has to be odd and wide enough for the ring (`2 * ring_outer <= window`). Changing
 > `disk_radius` is what re-scales an intensity: `3.0 → 29 px`, `4.0 → 49 px`, `5.0 → 81 px`.
 > The `tether extract --window` flag changes the crop-box side length and leaves `n_psf`
@@ -233,8 +233,8 @@ underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 | `window_start` | integer | **Frames**, zero-based, **inclusive** — the *resolved* analysis window actually used for `n_finite_frames`, `mean_apparent_e` and `median_apparent_e`: `analysis_window[0]`, falling back to `frame_range[0]` when the window is unset (`hi <= lo`), per `_window` | Never |
 | `window_end` | integer | **Frames**, zero-based, **exclusive** — the resolved upper bound, with the same fallback | Never |
 | `tags` | string | Free text, **comma-joined** in the store (`tether.analysis.query` splits on `,`). Emitted verbatim, so a multi-tag cell is CSV-quoted. Analysis-only imports carry `round-trip-unavailable` | The molecule has no tags |
-| `n_finite_frames` | integer | **Frames** — how many frames inside the resolved window have a finite apparent E. `0` when every frame in the window has `D + A == 0` exactly | Never |
-| `mean_apparent_e` | float | **Dimensionless — apparent E** (the proximity ratio `A/(D+A)`), arithmetic mean over the finite frames of the resolved window. **Not** γ-corrected. **Not** clipped to `[0, 1]`: `apparent_fret` deliberately leaves a noisy out-of-range value alone | `n_finite_frames == 0` |
+| `n_finite_frames` | integer | **Frames** — how many frames inside the resolved analysis window have a finite apparent E. `0` when every frame in the analysis window has `D + A == 0` exactly | Never |
+| `mean_apparent_e` | float | **Dimensionless — apparent E** (the proximity ratio `A/(D+A)`), arithmetic mean over the finite frames of the resolved analysis window. **Not** γ-corrected. **Not** clipped to `[0, 1]`: `apparent_fret` deliberately leaves a noisy out-of-range value alone | `n_finite_frames == 0` |
 | `median_apparent_e` | float | **Dimensionless — apparent E**, `numpy.median` of the same finite values. Same no-clipping rule | `n_finite_frames == 0` |
 
 > **Three kinds of store write these columns, and only one of them came from a movie.**
@@ -258,8 +258,8 @@ underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 > **`window_start`/`window_end` may equal `frame_start`/`frame_end` by *fallback*, not by
 > curation.** `_window` substitutes the frame range whenever `analysis_window` is unset
 > (`hi <= lo`), and extraction also *initializes* `analysis_window` to `[0, n_frames]`. So
-> "window == frame range" tells you nothing about whether a curator ever looked at the
-> molecule. The columns exist so the reported window always matches the range the
+> "analysis window == frame range" tells you nothing about whether a curator ever looked at the
+> molecule. The columns exist so the reported analysis window always matches the range the
 > three trailing summary columns actually cover.
 
 **How the E summary is computed.** For each row, `apparent_fret(donor[i, lo:hi],
@@ -340,7 +340,7 @@ row counts consistent, both patch channels present) **before** anything is writt
 |---|---|
 | `/molecules` | The selected rows only |
 | `/traces` | `donor_corrected`, `acceptor_corrected` always; `donor_raw`, `acceptor_raw`, `donor_background`, `acceptor_background` only when `include_raw=True` |
-| `/patches` | Every channel (`donor`, `acceptor`), row-subset, patch window unchanged |
+| `/patches` | Every channel (`donor`, `acceptor`), row-subset, aperture window unchanged |
 | `/idealization/{model}` | Per-model, filtered on **`molecule_id`** (the unique UUID, not the non-unique `molecule_key`). The row-aligned members `idealized`, `state_path`, `molecule_key`, `molecule_id`, `input_hash` are subset; every other member (`mean`, `var`, `frac`, `tmatrix`, `norm_tmatrix`, `rates`, `pi`, the `priors` group) is a global consensus array and is copied verbatim. The group's `n_molecules` attribute is rewritten to the kept count |
 | `/labels` | Rows whose `molecule_key` is in the selection |
 | `/conditions`, `/settings`, `/calibration`, `/models` | Copied verbatim |
