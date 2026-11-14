@@ -1,3 +1,7 @@
+---
+description: "The NumPy docstring standard for the Tether package: the summary line, the sections, the units, the examples and the cross-reference form."
+---
+
 # Writing docstrings
 
 **Who this page is for.** Anyone who writes or reviews Python code in `src/tether`. You want to
