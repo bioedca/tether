@@ -79,13 +79,66 @@
  },
  "accuracy": {
   "metric": "roc_auc",
-  "floor": null,
-  "margin_rule": null,
-  "measured": null
+  "floor": 0.95,
+  "margin_rule": "the lowest of the ten seed scores minus three sample standard deviations of them, rounded down to two decimals",
+  "measured": {
+   "run": "deep-measure workflow run 43609708676 (pull request #1026), one GitHub ubuntu-latest runner per seed",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "roc_auc": [
+    0.9849137931034483,
+    0.9741379310344828,
+    0.9806034482758621,
+    0.9892241379310345,
+    0.9913793103448276,
+    0.9892241379310345,
+    0.9870689655172413,
+    0.9978448275862069,
+    0.9892241379310345,
+    0.9913793103448276
+   ],
+   "balanced_accuracy": [
+    0.9827586206896552,
+    0.9482758620689655,
+    0.9482758620689655,
+    0.9515086206896552,
+    0.9827586206896552,
+    0.9827586206896552,
+    0.9515086206896552,
+    0.9827586206896552,
+    0.9515086206896552,
+    0.9655172413793103
+   ],
+   "mean": 0.9875,
+   "standard_deviation": 0.006489419419905862,
+   "margin": 0.019468
+  }
  },
  "self_drift": {
   "golden": "tests/golden/deep/pysmacks_classifier.json",
-  "rtol": null,
-  "measured": null
+  "rtol": 5e-05,
+  "limit_rule": "ten times the largest relative difference between the ten runs, rounded up to one significant digit",
+  "measured": {
+   "run": "deep-measure workflow run 43609708676 (pull request #1026), the reference seed on each of ten GitHub ubuntu-latest runners",
+   "runs": 10,
+   "cpus": [
+    "AMD EPYC 7763 64-Core Processor",
+    "AMD EPYC 9V74 80-Core Processor",
+    "INTEL(R) XEON(R) PLATINUM 8573C",
+    "Intel(R) Xeon(R) 6975P-C"
+   ],
+   "largest_relative_difference": 4.555170155203122e-06,
+   "golden_from": "run 2 (AMD EPYC 7763, the CPU of five of the ten runs)"
+  }
  }
 }

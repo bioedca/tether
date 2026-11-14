@@ -17,9 +17,9 @@ the same molecule), and a split by range would put one molecule on both sides.
 
 This module needs NumPy and the base-importable ``tether.ml`` modules only, so both the deep env
 (``tests/test_pysmacks_classifier_deep.py``, ``scripts/update_deep_golden.py``) and the base env
-(``scripts/compare_deep_with_ranker.py``, ``tests/test_deep_reference.py``) import it. It never imports torch or scikit-learn.
-Like ``_golden`` and ``_openfret``, it is a plain helper module imported as the top-level
-``_deep_reference``.
+(``scripts/compare_deep_with_ranker.py``, ``tests/test_deep_reference.py``) import it. It never
+imports torch or scikit-learn. Like ``_golden`` and ``_openfret``, it is a plain helper module
+imported as the top-level ``_deep_reference``.
 """
 
 from __future__ import annotations

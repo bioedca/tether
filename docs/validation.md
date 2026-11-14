@@ -1293,3 +1293,7 @@ without a CUDA device, and `.github/workflows/deep-gpu.yml` is `workflow_dispatc
 by construction it never reports a pull-request status and can never become a required
 check. Treat deep-classifier output as an assistive ranking signal, not a validated
 measurement.
+The nightly CPU job also trains the default model on the public PySMACKS tutorial labels and
+checks frozen training numbers and a floor on the area under the ROC curve of a held-out part
+([ADR-0098](adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md)). That floor is a
+regression check on one labelled set; it does not make the add-on part of the validated core.

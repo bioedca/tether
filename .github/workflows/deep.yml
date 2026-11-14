@@ -19,6 +19,12 @@
 # (`-m "not large and not sidecar and not deep"`); tests/test_marker_contract.py
 # keeps the `tests/test_*_deep.py` collection glob below in lockstep with the
 # marker so a new deep test cannot silently escape this job.
+#
+# The PySMACKS reference (#759, ADR-0098): the smoke also trains the default model on the public
+# PySMACKS tutorial labels (downloaded, checked against the manifest SHA-256, cached by it) and
+# checks the frozen numbers of tests/golden/deep/ and the floor of
+# schema/deep_classifier_reference.json. `deep / ranker` then scores the quality ranker on the
+# same split in the base env and writes both to the job summary.
 name: deep
 
 on:
