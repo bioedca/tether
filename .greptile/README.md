@@ -40,7 +40,9 @@ config to land in each. Note the comparison is **exceeding** — a pull request 
 file is still reviewed automatically, so the limit is a broad net, not a seal.
 
 **It does not enforce a budget.** Tether's share of the seat is **15 credits a month**
-(ADR-0069), and nothing stops a sixteenth `@greptileai` except not typing it.
+(ADR-0069), and nothing stops a sixteenth `@greptileai` except not typing it. The small docs-only
+route of ADR-0099 draws on the same share and asks only while
+`.agents/bin/greptile_usage.py --fail-over-share` exits 0.
 
 ## Once this has merged, this repository no longer needs the account-level limit
 

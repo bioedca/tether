@@ -35,32 +35,57 @@ _spec.loader.exec_module(usage)
 
 
 def _pr(number: int, author: str = "bioedca", updated: str = "2026-08-02T00:00:00Z") -> dict:
-    return {"number": number, "author": {"login": author}, "updatedAt": updated}
+    """One item of GitHub's REST search for pull requests (`search/issues`)."""
+    return {"number": number, "user": {"login": author}, "updated_at": updated}
 
 
 def _review(bot: str = "greptile-apps[bot]", when: str = "2026-08-02T00:00:00Z") -> dict:
     return {"user": {"login": bot}, "submitted_at": when}
 
 
-def _fake_gh(prs: dict[str, list], reviews: dict[int, list], fail: set[str] | None = None):
+def _summary(reviews: int | None = 1, when: str = "2026-08-02T00:00:00Z") -> dict:
+    """Greptile's summary comment, the only trace a clean review leaves (#996)."""
+    counter = f"Reviews ({reviews}) · " if reviews is not None else ""
+    body = (
+        "<!-- greptile_summary -->\nConfidence Score: 5/5\nNo actionable issues were found.\n"
+        f"{counter}Last reviewed commit: [docs](https://github.com/bioedca/tether/commit/"
+        f"{'a' * 40})"
+    )
+    return {"user": {"login": "greptile-apps[bot]"}, "updated_at": when, "body": body}
+
+
+def _query_repo(args: tuple[str, ...]) -> str:
+    query = next(arg for arg in args if arg.startswith("q="))
+    return next(term for term in query[2:].split() if term.startswith("repo:"))[5:]
+
+
+def _fake_gh(
+    prs: dict[str, list],
+    reviews: dict[int, Any],
+    fail: set[str] | None = None,
+    comments: dict[int, Any] | None = None,
+):
     """Stand in for `_gh`.
 
-    Branches on the subcommand rather than substring-matching the whole argv: a repository name
+    Branches on the endpoint rather than substring-matching the whole argv: a repository name
     appears inside the review path too, so a single lookup table would answer the review call with
     the pull-request list.
     """
 
     def call(*args: str) -> Any:
-        if args and args[0] == "pr":  # `pr list --repo <owner/name> ...`
-            repo = args[args.index("--repo") + 1]
+        if "search/issues" in args:  # the REST search that lists one repository's pull requests
+            repo = _query_repo(args)
             if repo in (fail or set()):
                 raise subprocess.CalledProcessError(1, args, stderr=b"rate limit exceeded")
-            return prs.get(repo, [])
-        # `api --paginate repos/<owner>/<name>/pulls/<n>/reviews` — a bare list, because
-        # `--paginate` concatenates the pages of an array endpoint itself. It used to carry
-        # `--slurp`, which wrapped the pages in an outer list the caller flattened straight back
-        # out; dropping it (#417) is what makes this readable on gh 2.45.0 in the WSL lane.
+            items = prs.get(repo, [])
+            return {"total_count": len(items), "incomplete_results": False, "items": items}
+        # `api --paginate repos/<owner>/<name>/pulls/<n>/reviews` or `.../issues/<n>/comments` - a
+        # bare list, because `--paginate` concatenates the pages of an array endpoint itself. It
+        # used to carry `--slurp`, which wrapped the pages in an outer list the caller flattened
+        # straight back out; dropping it (#417) is what makes this readable on gh 2.45.0 in WSL.
         path = args[-1]
+        if path.endswith("/comments"):
+            return (comments or {}).get(int(path.rsplit("/issues/", 1)[1].split("/")[0]), [])
         return reviews.get(int(path.rsplit("/pulls/", 1)[1].split("/")[0]), [])
 
     return call
@@ -283,27 +308,221 @@ def test_a_malformed_month_fails_closed_rather_than_reporting_a_full_balance(
 def test_the_month_is_queried_server_side_not_filtered_after_a_capped_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`--limit` is a maximum fetched, so post-filtering cannot detect truncation.
+    """A capped newest-N fetch cannot detect truncation, so the month is part of the query.
 
-    An older PR that Greptile reviewed this month would drop out of a capped newest-N fetch, and an
-    omitted PR reads as unspent credits.
+    An older PR that Greptile reviewed this month would drop out of a capped fetch, and an omitted
+    PR reads as unspent credits. The listing is the REST search, not `gh pr list`, which reads
+    GraphQL - refused by the proxy of a cloud session (#1035).
     """
     seen: list[tuple[str, ...]] = []
 
-    def spy(*args: str):
+    def spy(*args: str) -> Any:
         seen.append(args)
-        return [] if args and args[0] == "pr" else []
+        if "search/issues" in args:
+            return {"total_count": 0, "incomplete_results": False, "items": []}
+        return []
 
     monkeypatch.setattr(usage, "_gh", spy)
     monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
     assert usage.main() == 0
-    listings = [a for a in seen if a and a[0] == "pr"]
+    listings = [a for a in seen if "search/issues" in a]
     assert listings, "the repositories must actually be listed"
+    assert not [a for a in seen if a and a[0] == "pr"], "`gh pr list` reads GraphQL"
     for call in listings:
-        assert "--search" in call, "the month must be part of the query, not a post-filter"
-        assert "updated:>=2026-08-01 sort:updated-asc" in call, (
+        query = next(arg for arg in call if arg.startswith("q="))
+        assert "updated:>=2026-08-01" in query, "the month must be part of the query"
+        assert "updated:<" not in query and ".." not in query, (
             "lower bound only - an upper bound drops a PR reviewed in the month but touched later"
         )
+        assert "sort=updated" in call and "order=asc" in call
+
+
+def test_a_clean_review_that_left_only_a_summary_is_a_credit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A clean Greptile review posts a summary comment and NO review object (#996, 2026-11-14).
+
+    Counting review objects alone read that credit as unspent - a balance read high.
+    """
+    monkeypatch.setattr(
+        usage, "_gh", _fake_gh({"bioedca/tether": [_pr(1)]}, {1: []}, comments={1: [_summary()]})
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    assert f"used 1 of {usage.INCLUDED_CREDITS}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("submitted", "counter", "expected"),
+    [(1, 1, 1), (1, 2, 2), (2, 1, 2), (0, None, 1)],
+)
+def test_a_review_object_and_its_summary_are_one_credit_not_two(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    submitted: int,
+    counter: int | None,
+    expected: int,
+) -> None:
+    """A review with findings leaves BOTH a review object and the summary, so take the larger."""
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(1)]},
+            {1: [_review() for _ in range(submitted)]},
+            comments={1: [_summary(counter)]},
+        ),
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    assert f"used {expected} of {usage.INCLUDED_CREDITS}" in capsys.readouterr().out
+
+
+def test_a_summary_written_in_another_month_is_not_this_months_spend(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(1)]},
+            {1: []},
+            comments={1: [_summary(when="2026-07-30T00:00:00Z")]},
+        ),
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    assert "used 0 of" in capsys.readouterr().out
+
+
+def test_an_unreadable_comment_list_is_unknown(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh({"bioedca/tether": [_pr(1)]}, {1: []}, comments={1: {"message": "Not Found"}}),
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    assert "remaining" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        {"total_count": 1, "incomplete_results": True, "items": [_pr(1)]},
+        {"total_count": 1001, "incomplete_results": False, "items": [_pr(1)]},
+        {"message": "Validation Failed"},
+        {"total_count": 1, "incomplete_results": False, "items": [None]},
+    ],
+    ids=["incomplete", "over-the-search-cap", "error-envelope", "non-object-item"],
+)
+def test_a_search_that_cannot_be_trusted_is_unknown(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], page: dict
+) -> None:
+    """A short or marked-incomplete search would read as unspent credits."""
+
+    def call(*args: str) -> Any:
+        return page if "search/issues" in args else []
+
+    monkeypatch.setattr(usage, "_gh", call)
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == usage.EXIT_UNKNOWN
+    assert "remaining" not in capsys.readouterr().out
+
+
+def test_every_page_of_the_search_is_read(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A full page means there may be another, and a page left unread is unspent credit."""
+    pages = {
+        "1": [_pr(n) for n in range(1, usage.PER_PAGE + 1)],
+        "2": [_pr(usage.PER_PAGE + 1)],
+    }
+
+    def call(*args: str) -> Any:
+        if "search/issues" in args:
+            if "repo:bioedca/tether" not in next(a for a in args if a.startswith("q=")):
+                return {"total_count": 0, "incomplete_results": False, "items": []}
+            page = next(a for a in args if a.startswith("page="))[5:]
+            items = pages.get(page, [])
+            return {"total_count": usage.PER_PAGE + 1, "incomplete_results": False, "items": items}
+        if args[-1].endswith("/comments"):
+            return []
+        return [_review()]
+
+    monkeypatch.setattr(usage, "_gh", call)
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--month", "2026-08"])
+    assert usage.main() == 0
+    assert f"used {usage.PER_PAGE + 1} of" in capsys.readouterr().out
+
+
+def test_repo_counts_tether_alone_and_prints_no_seat_balance(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A cloud session can read only Tether (#1035). Its count must not pose as the seat's.
+
+    The other repositories are never queried, so their unreadability cannot make the answer
+    UNKNOWN - and no "remaining" figure is printed, because a balance from part of the seat reads
+    high by exactly what the unread repositories spent.
+    """
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(1), _pr(2)]},
+            {1: [_review()], 2: [_review()]},
+            fail={"bioedca/Yeliztli", "bioedca/tbox-finder"},
+        ),
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["greptile_usage.py", "--month", "2026-08", "--repo", "bioedca/tether"]
+    )
+    assert usage.main() == 0
+    out = capsys.readouterr().out
+    assert f"(Tether share: 2/{usage.REPO_SHARE})" in out
+    assert "remaining;" not in out and "remaining\n" not in out, "no seat balance from part of it"
+    assert "NOT READ" in out
+
+
+@pytest.mark.parametrize(("spent", "code"), [(14, 0), (15, 1), (16, 1)])
+def test_fail_over_share_stops_at_tethers_fifteen(
+    monkeypatch: pytest.MonkeyPatch, spent: int, code: int
+) -> None:
+    """The docs-only route asks only while a credit is left in Tether's share (ADR-0099)."""
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(n) for n in range(1, spent + 1)]},
+            {n: [_review()] for n in range(1, spent + 1)},
+        ),
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "greptile_usage.py",
+            "--month",
+            "2026-08",
+            "--repo",
+            "bioedca/tether",
+            "--fail-over-share",
+        ],
+    )
+    assert usage.main() == (usage.EXIT_OVER_BUDGET if code else 0)
+
+
+def test_the_seat_verdict_is_never_given_from_part_of_the_seat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--fail-over-budget` is a statement about all 50, so a partial count cannot answer it."""
+    monkeypatch.setattr(usage, "_gh", _fake_gh({}, {}))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["greptile_usage.py", "--repo", "bioedca/tether", "--fail-over-budget"],
+    )
+    assert usage.main() == usage.EXIT_UNKNOWN
 
 
 def test_tethers_own_spend_is_printed_against_its_share_of_the_seat(

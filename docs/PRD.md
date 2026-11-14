@@ -1682,7 +1682,8 @@ which is the last metered gate before merge — and when that one-review cap is 
 of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
 than on a maintainer (ADR-0065, as ADR-0069 amends it)**. Where CodeRabbit posts a refusal that names more than 30 minutes,
 one standard Greptile review **may** stand in as that gate within Tether's share of 15 credits a month, and Codex
-**shall not** stand in (ADR-0069). **`AGENTS.md` §Review is the operative statement of the conditions
+**shall not** stand in (ADR-0069). A small docs-only pull request takes one standard Greptile review in CodeRabbit's
+place, within the same share (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
 and the pull-request template do carry working copies, as detail and as evidence fields, and both
 defer to §Review where they differ. Four drafts of this
