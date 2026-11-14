@@ -11,13 +11,14 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      # Frozen reference outputs (#700, ADR-0074) and the kinSoft simulator settings (#717)
-      # are checked byte for byte against their SHA-256; a hook that rewrote their
-      # whitespace would break the record.
+      # Frozen reference outputs (#700, ADR-0074), the kinSoft simulator settings (#717), the
+      # smfret-analysis2 test data (#709) and the unchanged CC BY-NC-ND copies of the paper's
+      # Source Data (#755, ADR-0083) are checked byte for byte against their SHA-256; a hook
+      # that rewrote their whitespace would break the record.
       - id: trailing-whitespace
-        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2)/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2|campos_chavez_2024|large/campos_chavez_2024|ha_sam_sah)/
       - id: end-of-file-fixer
-        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2)/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2|campos_chavez_2024|large/campos_chavez_2024|ha_sam_sah)/
       - id: check-yaml
         # packaging/construct.yaml is a `constructor` recipe, not plain YAML: it
         # uses conda-build line selectors (`# [win]`) and Jinja, so the same key
@@ -29,13 +30,20 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ["--maxkb=512"]
+        # The laboratory's frets.dat (#796, ADR-0086) is 845,100 B, a verbatim reference file
+        # inside the manifest's 1 MB limit for its git tier (ADR-0073).
+        exclude: ^tests/fixtures/ha_sam_sah/frets\.dat$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.19
     hooks:
+      # The two published scripts of the Source Data (#755, ADR-0083) are third-party files that
+      # may not be changed; one of them does not parse. Neither hook may touch them.
       - id: ruff-check
         args: ["--fix"]
+        exclude: ^tests/fixtures/campos_chavez_2024/
       - id: ruff-format
+        exclude: ^tests/fixtures/campos_chavez_2024/
 
   - repo: https://github.com/fsfe/reuse-tool
     rev: v6.2.0
