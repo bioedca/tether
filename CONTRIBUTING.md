@@ -219,7 +219,7 @@ request. To see the numbers locally:
 
 ```bash
 python -m pip install "coverage==7.17.2"
-QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep"
+QT_QPA_PLATFORM=offscreen coverage run -m pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
 coverage json -o coverage.json && python scripts/check_coverage_floors.py coverage.json
 ```
 

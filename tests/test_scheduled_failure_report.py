@@ -182,7 +182,74 @@ def test_a_second_failure_comments_on_the_same_issue_and_opens_no_second_one() -
     (comment,) = gh.comments[1]
     assert "actions/runs/101/attempts/1" in comment["body"]
     assert "`Assert parity`" in comment["body"]
-    assert "##[error]" not in comment["body"], "a comment carries the facts, not the log again"
+    excerpt = rsf.fenced(rsf.log_tail(FAILED_LOG))
+    assert excerpt in gh.issues[0]["body"]
+    assert excerpt in comment["body"], "a repeat failure carries the same excerpt (#852)"
+
+
+#: The end of a failed ``sidecar-upstream.yml`` job log (#704): its last step names the upstream
+#: commit under test and the first failing comparison as the last two error lines.
+UPSTREAM_SHA = "10f4230e8d6c1b5a9f2e7d3c4b1a0f9e8d7c6b5a"
+
+
+def _upstream_log(sha: str, comparison: str) -> str:
+    stamp = "2026-11-16T08:40:00.0000000Z"
+    return "\n".join(
+        [f"{stamp} tests/test_sidecar_parity.py F" for _ in range(10)]
+        + [f"{stamp} ##[error]Process completed with exit code 1."]
+        + [f'{stamp} ##[group]Run echo "::error::Upstream tMAVEN commit under test: $SHA"']
+        + [f"{stamp} ##[error]Upstream tMAVEN commit under test: {sha}"]
+        + [f"{stamp} ##[error]First failing comparison: FAILED {comparison}"]
+        + [f"{stamp} Post job cleanup." for _ in range(5)]
+    )
+
+
+def test_a_repeat_upstream_failure_names_its_own_commit_and_comparison() -> None:
+    """The Tether commit stays the same while the upstream one moves (#852, CodeRabbit on #802)."""
+    first = "tests/test_sidecar_parity.py::test_vbconhmm_elbo - relative ELBO 2.78 > 0.01"
+    gh = FakeGitHub(log=_upstream_log("a" * 40, first))
+    assert report(gh, job_name="sidecar / upstream tMAVEN") == "opened #1"
+    second = "tests/test_sidecar_parity.py::test_ebfret_rates - rate 0.42 outside 0.05"
+    gh.log = _upstream_log(UPSTREAM_SHA, second)
+    when = NOW + dt.timedelta(days=7)
+    assert report(gh, when, run_id="101", job_name="sidecar / upstream tMAVEN") == (
+        "commented on #1 (failed)"
+    )
+    (comment,) = gh.comments[1]
+    body = comment["body"]
+    assert body.startswith(
+        "<!-- tether-scheduled-failure:failed run=101/1 as=failed -->\nFailed again."
+    )
+    assert f"commit/{SHA}" in body, "the Tether commit is the same as in the issue"
+    tail = body.rsplit("```text\n", 1)[1].split("\n```", 1)[0].splitlines()
+    assert tail[-2:] == [
+        f"##[error]Upstream tMAVEN commit under test: {UPSTREAM_SHA}",
+        f"##[error]First failing comparison: FAILED {second}",
+    ]
+    assert "a" * 40 not in body, "the excerpt is this run's log, not the first one"
+
+
+def test_an_edited_failure_comment_carries_the_excerpt_and_a_pass_comment_none() -> None:
+    gh = FakeGitHub()
+    report(gh)  # opened
+    assert report(gh, run_id="101", result="success") == "commented on #1 (passed)"
+    assert "```" not in gh.comments[1][0]["body"], "a pass comment has no log"
+    assert report(gh, run_id="102") == "commented on #1 (failed)"
+    assert report(gh, run_id="103", result="success") == "updated a comment on #1 (passed)"
+    assert "```" not in gh.comments[1][-1]["body"], "an edit to passed drops the log"
+    assert report(gh, run_id="104") == "updated a comment on #1 (failed)"
+    latest = gh.comments[1][-1]["body"]
+    assert "runs/104/attempts/1" in latest
+    assert rsf.fenced(rsf.log_tail(FAILED_LOG)) in latest
+    assert "This comment was edited to show the latest run" in latest
+
+
+def test_a_repeat_failure_still_comments_when_its_log_cannot_be_read() -> None:
+    gh = FakeGitHub()
+    report(gh)
+    gh.log = None
+    assert report(gh, NOW + dt.timedelta(days=1), run_id="101") == "commented on #1 (failed)"
+    assert "The job log could not be read" in gh.comments[1][0]["body"]
 
 
 def test_failure_comments_are_at_most_one_each_day() -> None:
