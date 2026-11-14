@@ -1228,7 +1228,7 @@ _A_SECTION = "(a) Extraction vs Deep-LASI"
 _A_REQUIRED_MATRIX_ANCHOR = "tests/test_oracle.py::test_real_slice_txt_correlates_with_mat"
 #: §Scope's "Accepted diagnostics" list, which restates the acceptor median and precision.
 #: It carries no pointer, so it is selected by lead-in.
-_DIAGNOSTICS_ANCHOR = "- M1 acceptor per-molecule Pearson median"
+_DIAGNOSTICS_ANCHOR = "- The extraction oracle's acceptor per-molecule Pearson median"
 #: (b)'s paragraphs that restate the freeze margin, the fixtures' state counts and the
 #: evidence counts. The first two name no pointer of their own, so they use the lead-in.
 _FREEZE_RULE_ANCHOR = "The freeze rule is recorded"

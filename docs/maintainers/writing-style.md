@@ -100,6 +100,28 @@ names the access to `bioedca/tether` that the reader needs. The reader statement
 - Do not use a semicolon to join two statements. Write two sentences.
 - Do not use an em dash to join two statements. Write two sentences.
 
+## Rule 10. References on user pages
+
+A page in the "Using Tether" group refers only to things that its reader can open. Do not
+write these on a user page:
+
+- a section of the product specification, such as "PRD §7.8" or "§11.2",
+- a milestone label, such as "M3", as a time,
+- an issue number,
+- the name of a test,
+- a name that starts with an underscore.
+
+For each one, do one of these four things:
+
+1. Delete it, if the sentence is complete without it.
+2. Write the fact that it stands for. "Since M3" becomes "since version 1.0".
+3. Link it to its file in the repository, if the reader can use that file as evidence.
+4. Move it to a section for contributors, if only a contributor needs it.
+
+The [Validation & benchmarks](../validation.md) page shows evidence, so it can name tests.
+A test in `tests/test_docs_nav_audience.py` checks each item of the list above except the issue
+numbers.
+
 ## Term list
 
 This list holds the approved names of project terms. It starts with the terms that have more

@@ -39,7 +39,7 @@ tether extract: donor_side must be 'left' or 'right', got 'middle'
 ```
 
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
-crop tuple is returned by `_half_split_geometry` in `tether.project.extract`, and detection
+crop tuple is returned by [`_half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) in `tether.project.extract`, and detection
 is [donor-anchored](glossary.md#donor-anchored-colocalization) — so the swapped run still
 colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the two channels
 gives exactly `1 − E`.
@@ -56,7 +56,7 @@ Two related traps:
 - With `--tmap`, `--donor-side` is **ignored**: the split comes from the `.tmap`'s own crop
   geometry. No warning is emitted when both flags are passed.
 - The `tether batch` **CLI cannot set it at all.** `run_batch()` *does* take an
-  `extract_options=` argument and forwards it, but `tether.cli._run_batch` never builds one —
+  `extract_options=` argument and forwards it, but [`tether.cli._run_batch`](https://github.com/bioedca/tether/blob/main/src/tether/cli.py) never builds one —
   so every batch run takes the `ExtractOptions` defaults. Dumped from a real batch run's
   `/settings/extraction.attrs["profile_json"]`: `"donor_side": "left"`,
   `"detection_mode": "wavelet"`, `"pair_tol": 2.0`, `"rms_gate": 0.5`.
@@ -216,9 +216,9 @@ re-export (`tether.analysis.histogram`, `.cloud`, `tether.gui.trace_dock`,
 
 The results are the old ones, reported as `ok`, exit `0`.
 
-**Cause.** For a normal completed extraction, `_do_extract` in
+**Cause.** For a normal completed extraction, [`_do_extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py) in
 `tether.project.batch` finds the `/settings/extraction` checkpoint and returns `skipped`;
-`--overwrite` is not a general "recompute completed work" switch. `_do_correct` likewise
+`--overwrite` is not a general "recompute completed work" switch. [`_do_correct`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py) likewise
 skips a completed `/settings/correction`.
 
 There is one deliberate extraction exception. Under `--policy fail`, the runner reads the
@@ -258,8 +258,8 @@ and `low_confidence: False`, on a movie you know is not perfectly registered.
 
 **Cause.** The gate is **vacuous whenever the control points exactly determine the fit** — the
 residual of an exactly-determined least-squares fit is zero by construction, so it measures
-nothing about the mapping. `_fit_both` in `tether.imaging.calibrate` uses a degree-2
-polynomial at `_MIN_POLY_POINTS = 6` pairs or more and a 4-DOF similarity below that, which
+nothing about the mapping. [`_fit_both`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/calibrate.py) in `tether.imaging.calibrate` uses a degree-2
+polynomial at [`_MIN_POLY_POINTS = 6`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/calibrate.py) pairs or more and a 4-DOF similarity below that, which
 gives the condition two arms:
 
 - **2 pairs, `degree: 1`** — 4 unknowns, 4 equations.
