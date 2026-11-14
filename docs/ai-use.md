@@ -112,11 +112,11 @@ or "Not yet". Each open issue updates its row when it is merged.
 | AI assists, and human oversight stays | Partly | The maintainer approves every merge and signs every release. No rule yet makes a person read the user pages before a release ([#650](https://github.com/bioedca/tether/issues/650)). |
 | A statement of AI use, with its scope and its limits | Met | This page, the footer of each page of this site, and the README. |
 | Rules for data handling | Met | The contributor guide tells a contributor to check the group policy and the retention terms of a service before sending unpublished material. The agent contract forbids an agent to send sensitive or uncommitted material to an external service. |
-| Rules for model validation and quality assurance | Not yet | An AI-use policy for documentation work ([#651](https://github.com/bioedca/tether/issues/651)). |
-| Examples of safe practice and unsafe practice | Not yet | The same policy ([#651](https://github.com/bioedca/tether/issues/651)). |
+| Rules for model validation and quality assurance | Met | The [AI-use policy for documentation work](maintainers/ai-use-policy.md#rule-4-validation-by-a-person). The maintainer reads one full page of each style rewrite against the style guide, and the pull request records the result. |
+| Examples of safe practice and unsafe practice | Met | The table of [safe practice and unsafe practice](maintainers/ai-use-policy.md#safe-practice-and-unsafe-practice) in the AI-use policy. |
 | Transparency and traceability | Partly | This page names the tools. A change does not yet record the tool that drafted it ([#652](https://github.com/bioedca/tether/issues/652)). |
 | Accountability stays with people | Met | See [Who is accountable](#who-is-accountable). |
 | Data confidentiality | Met | See [Boundaries](#boundaries). |
-| The standard takes priority, and terminology stays under control | Not yet | The style guide ([#582](https://github.com/bioedca/tether/issues/582)), its term list ([#589](https://github.com/bioedca/tether/issues/589)), and the rule that both win over the wording of a tool ([#651](https://github.com/bioedca/tether/issues/651)). |
-| An automated check of the style is not proof | Not yet | The policy ([#651](https://github.com/bioedca/tether/issues/651)) and the style test ([#592](https://github.com/bioedca/tether/issues/592)). |
+| The standard takes priority, and terminology stays under control | Partly | The [style guide](maintainers/writing-style.md) and its term list win over the wording of a tool ([AI-use policy for documentation work](maintainers/ai-use-policy.md#rule-2-the-style-guide-wins)). The existing pages do not use the term list yet ([#589](https://github.com/bioedca/tether/issues/589)). |
+| An automated check of the style is not proof | Met | A pass from an automated check or an AI reviewer is not proof ([AI-use policy for documentation work](maintainers/ai-use-policy.md#rule-5-automated-checks-are-not-proof)). Only a read by a person is evidence. |
 | No endorsement is claimed | Met | The three statements above this table. |

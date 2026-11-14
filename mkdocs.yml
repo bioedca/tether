@@ -108,6 +108,7 @@ nav:
       - Running the private-data checks: maintainers/workstation-runner.md
       - Reading the mutation report: maintainers/mutation-testing.md
       - Writing style for documentation: maintainers/writing-style.md
+      - AI-use policy for documentation: maintainers/ai-use-policy.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
 # out of the rendered site. The MADR log under adr/ IS wired in: the index page
