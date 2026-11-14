@@ -267,6 +267,11 @@ words, terms, warnings and page shape, and the files that the rules apply to. A 
 cite a rule by its number. To build the site and run its checks, see
 [Building the docs locally](#building-the-docs-locally).
 
+Write each docstring in `src/tether` to the
+[docstring standard](docs/maintainers/docstring-style.md): NumPy style, a one-line imperative
+summary, the unit of each physical quantity, and Markdown cross-references in the form of
+mkdocstrings. Ruff checks the shape in the `lint` job (ADR-0093).
+
 ## Licensing — SPDX / REUSE (PRD §12.1)
 
 Tether is `GPL-3.0-or-later`. **Every source file carries** an
