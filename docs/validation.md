@@ -24,7 +24,7 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
 | Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate `_sidecar_gate.py` and the RF2-ArfA child `_rf2_arfa_child.py` in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
 | Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
-| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
+| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check: it is manual and weekly, and an LFS outage must never block `main` |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
 | Reference downloads | `@pytest.mark.reference_download` | `.github/workflows/reference-data.yml` — weekly cron + manual dispatch; downloads the `download` tier of `tests/reference_data/manifest.toml` into a cache and verifies each SHA-256 | No — the required matrix makes no network call |
@@ -87,7 +87,7 @@ Which tier each oracle's *headline* assertion lives in:
 
 | Oracle | Headline assertion runs in | Also covered on the required matrix |
 | --- | --- | --- |
-| (a) Extraction vs Deep-LASI | `large` — but it **skips even there**, because the ≈0.9 GB movie is on no runner; the numbers come from a local run | scorer unit tests, the committed 4-molecule slice, the registration RMS gate |
+| (a) Extraction vs Deep-LASI | `workstation` — the ≈0.9 GB movie is private data on no CI runner, so the scheduled task on the maintainer's workstation runs it and records its numbers | scorer unit tests, the committed 4-molecule slice, the registration RMS gate |
 | (b) Idealization parity vs tMAVEN | `sidecar` — required, but only actually fits when a pull request touches an idealization path | the frozen artifact is checked against its own recorded evidence |
 | (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery; the level-2 and level-3 truth against the simulator settings files |
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
@@ -95,6 +95,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
+| (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
 
@@ -111,8 +112,9 @@ export. The ≈0.9 GB movie is **not in the repository** — the reason is size,
 licensing: `.github/workflows/large-fixtures.yml` records that it "is NOT committed (not
 even to LFS; it is too large to host on the repo's LFS budget)", while PRD §8
 (NFR-FIXTURES) states the lab *does* hold redistribution rights, which is why the cropped
-slice below could be committed at all. The gated test locates the full movie via
-`TETHER_UCKOPSB_DIR` and skips when it is absent. A committed 4-molecule slice
+slice below could be committed at all. The enforcing test is a `workstation` test: it finds
+the movie and its files through the name table of the workstation runner, under the neutral id
+`lab-01`, and no CI job runs it. A committed 4-molecule slice
 (`tests/fixtures/deeplasi_export_slice.mat`, `tests/fixtures/deeplasi_traces_slice.txt`)
 covers the readers on every matrix run.
 
@@ -149,19 +151,41 @@ mapped donor position and its Pearson carries the map's molecule-domain scatter;
 bidirectional colocalization filter was measured to collapse recall to ≈0.66.
 
 **Enforcing tests.** `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`
-— `@pytest.mark.large`, so it is never on the required matrix. It *is* collected by the
-weekly `large-fixtures` job, but it **skips there every time**: the movie is absent from
-every GitHub-hosted runner, so this assertion has never executed in CI. (The weekly run of
-2026-07-20 reports `test_extraction_meets_m1_acceptance_on_uckopsb SKIPPED`, summary
-`7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run of
-this enforcing test with `TETHER_UCKOPSB_DIR` pointing at a staged copy of the movie, which
-supplies the `.tdat` detector settings and the 2 px gate; that run is recorded in ADR-0022.
+— `@pytest.mark.workstation`, so no CI job collects it
+([ADR-0071](adr/0071-private-data-checks-run-from-a-workstation-task.md)). Until
+[#699](https://github.com/bioedca/tether/issues/699) it was
+a `large` test that **skipped every time** in the weekly `large-fixtures` job, because the
+movie is absent from every GitHub-hosted runner (the weekly run of 2026-07-20 reports
+`test_extraction_meets_m1_acceptance_on_uckopsb SKIPPED`, summary `7 passed, 4 skipped`), and
+the numbers in the table above come from the local run recorded in ADR-0022. Now the weekly
+scheduled task on the maintainer's workstation runs it
+(`scripts/workstation/run_private_checks.py`, [Running the private-data
+checks](maintainers/workstation-runner.md)), with the `.tdat` detector settings and the 2 px
+gate, and writes its outcome and summary numbers (matched fraction, position RMS, both Pearson
+medians, precision and the molecule counts) to the run's result file. The same run executes
+the two intake tests and the five reader tests on the same bundle
+(`tests/test_intake.py`, `tests/test_deeplasi.py`, `tests/test_register.py`,
+`tests/test_tdat.py`), which are `workstation` tests too.
 `scripts/run_m1_oracle.py --data-dir <staged copy>` reproduces the same configuration
 as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
 the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
 and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
 it as not applicable). Its own behaviour is pinned without the movie by
 `tests/test_run_m1_oracle.py`.
+
+**Newest recorded run.** On the maintainer's workstation on 2026-11-13, at commit `3697f80`
+(a run by hand of the pull request of [#699](https://github.com/bioedca/tether/issues/699),
+before the weekly task had a `main` commit that holds this check): **passed**, matched fraction
+0.984 (246 of 250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854.
+The numbers agree with ADR-0022. The record is
+[`docs/validation/oracle-a-last-run.json`](validation/oracle-a-last-run.json), one check entry of
+a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
+step. Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
+reads one stops when the file is not the pinned one; the pins were measured on the workstation
+on 2026-11-13 after this run, and their first 16 hex digits agree with the fixture provenance
+table. A deliberate regression (the donor traces reversed in time) made the same check fail at the
+donor Pearson gate; the demonstration is recorded on
+[#699](https://github.com/bioedca/tether/issues/699).
 
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
@@ -823,6 +847,44 @@ reproduce them.
 `test_the_lag_factor_alone_does_not_reach_the_file` and
 `test_the_fixtures_are_the_pinned_commit_of_smfret_analysis2`.
 
+## (i) Corrected FRET vs MASH-FRET
+
+**What it checks.** Tether's leakage correction and γ-corrected FRET against MASH-FRET's own
+results, in the MASH-FRET project files that authors of MASH-FRET published with their group IIB
+intron study (Zenodo doi `10.5281/zenodo.24104528`, CC-BY-4.0). MASH-FRET at commit `1a1f465`
+wrote the smallest file, which is the source of the committed extract; the other files name commits
+`89deb70`, `e0bc2229` and `5ab2aff0`, and one file in the 1.3.4 layout (`240b0d99`) is not read.
+[ADR-0087](adr/0087-mash-fret-is-a-reference-for-corrected-fret.md) records the
+reference, the convention mapping and the ALEX rule; `tests/test_mashfret_reference.py` holds the
+tests.
+
+- **Leakage.** From MASH-FRET's background-corrected intensities and its leakage coefficient,
+  Tether's corrected acceptor equals MASH-FRET's cross-talk-corrected acceptor on both lasers, and
+  the donor is unchanged (relative limit 1e-15; the difference is exactly 0).
+- **Corrected FRET.** The files hold no FRET value for each frame, only the value of each frame's
+  state, and MASH-FRET sets that value to the mean of its γ-corrected FRET over the frames of the
+  state. With MASH-FRET's γ, the mean of Tether's corrected FRET over the same frames equals each
+  state value (relative limit 1e-13; worst 1.4e-15 on the 34 states of the committed extract and
+  6.3e-14 on the 4442 states of the eight readable files of the archive). MASH-FRET's
+  `1 / (1 + γ·I_D/I_A)` is Tether's `I_A / (I_A + γ·I_D)` with the same γ; no conversion factor is
+  needed.
+- **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail.
+
+**What it does not check.** Every file of the record has a leakage coefficient of 0, so the
+leakage test cannot catch a sign error in the correction;
+[#870](https://github.com/bioedca/tether/issues/870) asks for a MASH-FRET reference with a non-zero
+coefficient. The comparison is per state, not per frame. Background
+subtraction is not compared, because the files hold no video. The leakage comparison uses both
+lasers; the FRET comparison uses only the donor and acceptor channels under the donor's laser.
+MASH-FRET's direct-excitation coefficient (an ALEX-only correction that Tether does not make) must
+be 0.
+
+**Where it runs.** The required matrix reads a committed extract of the smallest project file (18
+molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a
+`workstation` entry of the manifest: the weekly workstation run verifies it, makes the extract again
+and compares it byte for byte, and runs both checks on every file of the archive that has the
+layout of that MASH-FRET generation.
+
 ## RF2-ArfA data set of the tMAVEN authors
 
 Every other tMAVEN check compares Tether with fits that Tether's own sidecar made. This one uses an
@@ -1096,16 +1158,16 @@ evidence about the size of the difference and not a tolerance.
 
 **Validation coverage.**
 
-- Oracles (a) and (c) have their headline assertions on the `large` tier, which is manual
-  or weekly and is deliberately **not** a required check. Oracle (b)'s live fits are in the
+- Oracle (a) has its headline assertion on the `workstation` tier and oracle (c) on the
+  `large` tier; neither is a required check. Oracle (b)'s live fits are in the
   required `sidecar / parity` job, but that job only actually fits when the pull request
   touches an idealization path. A green required 3-OS matrix run on its own therefore proves
   the scorers, the frozen artifacts and the pure primitives — not a fresh fit against real
   reference data.
 - Oracle (a) is stronger than that: its headline assertion depends on the ≈0.9 GB UCKOPSB
-  movie, which exceeds the repo's Git-LFS budget and so is on **no** runner. The weekly
-  `large-fixtures` job collects it and skips it, every time — the assertion has never run in
-  CI, and its numbers come from a local run recorded in ADR-0022.
+  movie, which exceeds the repo's Git-LFS budget and so is on **no** CI runner. No CI job
+  collects it; the weekly scheduled task on the maintainer's workstation runs it
+  ([#699](https://github.com/bioedca/tether/issues/699)), and a CI run says nothing about it.
 - The frozen **default** parity tolerance for (b) was measured against tMAVEN `71cfa1af`
   (2025-05-06) on CPython 3.9.23 — 13 upstream commits behind the pinned `10f4230b`
   (2025-10-05) on CPython 3.12.13 that CI, the installers and every live sidecar assertion
