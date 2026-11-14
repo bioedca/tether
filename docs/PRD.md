@@ -1976,6 +1976,10 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
   | `perf:` | patch | patch | Performance |
   | `docs/test/ci/build/chore/refactor:` | no release bump (changelog "Internal") | same | — |
 
+  *Superseded by [ADR-0067](adr/0067-github-releases-are-the-only-change-record.md) for the changelog grouping:
+  Documentation, Refactoring, Build & packaging and CI have their own sections; Internal holds `test` and `chore`.
+  The bump columns are unaffected.*
+
 - **Milestone → tag.** Each release checkpoint is cut as an **annotated, SSH-signed** tag `vMAJOR.MINOR.PATCH`
   (e.g. `v0.3.0` at M3, `v1.0.0` at the stable release). A GitHub milestone that is not a release checkpoint cuts no
   tag, because any `v*` tag triggers `release.yml` and publishes a Release. The **base, sidecar, and deep locks are
