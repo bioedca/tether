@@ -784,9 +784,12 @@ The record's one archive, `10072022_All_hairpin_traces.zip` (891,884,203 B, MD5
 `445a12cafcc4bf6f2a0ddf36516997c5` as the record states, SHA-256
 `f42a3b23f4912fa7e25fdf8904f6d4fba264d47bbec2ea23d2ed7f6f37189044`), holds 2,499 `.traces`
 movies at 10, 15 and 50 ms and the laboratory's MATLAB reader,
-`MATLAB_code_for_opening_dot_traces_files.pdf` (306,717 B, SHA-256 `357e3e0d193b647bb4b257b636e837d078a36517952dd43f80a95d81c06efd84`;
-not committed). The archive is larger than the download tier allows, so its manifest entry is a `workstation` record, and
-the one committed movie was read from it with HTTP range requests (no transformation):
+`MATLAB_code_for_opening_dot_traces_files.pdf` (306,717 B, SHA-256
+`357e3e0d193b647bb4b257b636e837d078a36517952dd43f80a95d81c06efd84`; not committed). The archive
+is larger than the download tier allows, so its manifest entry is a `workstation` record (path
+`zenodo-7853531/10072022_All_hairpin_traces.zip` below the data folder; no workstation check
+reads it yet), and the one committed movie was read from it with HTTP range requests (no
+transformation):
 
 | Fixture | Source member | Size | SHA-256 |
 |---|---|---|---|
