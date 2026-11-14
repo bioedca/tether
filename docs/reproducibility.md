@@ -67,7 +67,8 @@ acceptor channel after the acceptor bleaches (`source` = `post-acceptor-bleach-t
 that decision: `n_qualifying`, `n_molecules`, `min_window_frames`, `ceiling`,
 `min_qualifying_traces` and `intensity_quantity`, plus `app_version` and `created_utc`.
 
-**`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass. The
+**`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass, and removed
+by a leakage pass that withholds α, because that pass clears the processed `gamma` rows. The
 detection-efficiency and quantum-yield ratio γ is estimated **per molecule** at its acceptor
 bleach step (`source` = `acceptor-bleach-step`), and each molecule that passes the gates
 stores its own value in the `gamma` column of `/molecules`, unless the population value

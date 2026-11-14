@@ -170,7 +170,8 @@ end-of-run report does not print.
 >
 > `total_failure=True` **with** `apparent_e_only=False` is the unambiguous "correction
 > failed" signature; `total_failure=True` with `apparent_e_only=True` is the deliberate
-> user toggle. The absence of `/settings/gamma` is itself diagnostic — γ never ran.
+> user toggle. The absence of `/settings/gamma` is itself diagnostic — no current γ pass: γ
+> never ran, or a later withheld leakage pass removed it.
 > `/molecules.correction_method` reads `apparent-E (corrections unavailable)` with
 > `correction_confidence = 0.0`. The stage detail string spells it out. The line below is
 > copied byte-for-byte from a real `batch-log.jsonl`, so the `α` that `run_correct_stage`
