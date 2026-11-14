@@ -149,7 +149,8 @@ def test_the_reader_and_tether_fret_follow_the_laboratory_matlab_reader(raw):
     np.testing.assert_array_equal(matlab["donor"][:, :n], t.donor[:, :n])
     np.testing.assert_array_equal(matlab["acceptor"][:, :n], t.acceptor[:, :n])
     assert _agrees_with_matlab(t.donor, t.acceptor, matlab)
-    # Where the sum is not positive the script writes 0.01; Tether gives no value there.
+    # Where the sum is not positive the script writes 0.01. Tether gives NaN only where it is
+    # exactly zero and keeps the ratio where it is negative, so those frames are left out above.
     empty = matlab["total"][:, :n] <= 0
     assert empty.any()
     np.testing.assert_array_equal(matlab["fret"][:, :n][empty], MATLAB_EMPTY_FRAME)
