@@ -5,27 +5,27 @@
 Three things tell a desktop which program a window belongs to and which picture to show
 for it. This module sets all three, once, before the first window opens:
 
-* **The application icon.** :func:`application_icon` builds one ``QIcon`` from the
+* **The application icon.** [`application_icon`][] builds one ``QIcon`` from the
   PNG sizes of the brand kit's dark tile (#671). Set on the ``QApplication``, it is the
   default icon of every window and dialog, the taskbar button on Windows and the Dock
   icon on macOS while Tether runs. Each size is its own drawing: the tiny mark at 16 px,
   the small mark at 24 and 32 px, the mark without the pixel grid at 48 px and the mark
   with the grid from 64 px (docs/brand.md, "Small sizes"). Qt picks the nearest size, so
   a 16 px title bar gets the drawing made for 16 px instead of a shrunken large one. The
-  sizes stop at 256 px, except on macOS (:data:`MACOS_EXTRA_PNG_SIZES`).
+  sizes stop at 256 px, except on macOS ([`MACOS_EXTRA_PNG_SIZES`][]).
 * **The Windows application identity.** A Python program's windows belong to
   ``pythonw.exe``, so without an identity of its own the taskbar groups Tether with every
-  other Python program and shows Python's icon. :func:`set_windows_app_id` gives the
+  other Python program and shows Python's icon. [`set_windows_app_id`][] gives the
   process an explicit AppUserModelID. The Start Menu shortcut must carry the same ID,
   or a shortcut pinned to the taskbar and the window it opens show as two buttons:
-  ``post_install.bat`` writes it with :func:`set_shortcut_app_id`, and the install
-  smoke reads it back with :func:`shortcut_app_id`.
+  ``post_install.bat`` writes it with [`set_shortcut_app_id`][], and the install
+  smoke reads it back with [`shortcut_app_id`][].
 * **The Linux desktop entry.** ``setDesktopFileName`` names ``tether.desktop`` (written
   by ``packaging/scripts/post_install.sh``), so a Wayland compositor matches the window
   to the menu entry and its ``Icon=tether``. On X11 the entry's ``StartupWMClass`` does
   the same job against the window class, which Qt takes from the application name.
 
-Like the rest of :mod:`tether.gui`, importing this module costs no Qt: the Qt imports
+Like the rest of [`tether.gui`][], importing this module costs no Qt: the Qt imports
 are inside the functions. ``post_install.sh`` imports it to find the icon files, and the
 install smoke reads the same paths. The Qt import is PySide6 itself, not
 ``pyqtgraph.Qt``: ``create_shell`` applies the identity before the startup splash
@@ -100,7 +100,7 @@ def windows_icon_path() -> Path:
 
 
 def icon_png_sizes(platform: str | None = None) -> tuple[int, ...]:
-    """The PNG sizes :func:`application_icon` uses on *platform* (default: this one)."""
+    """The PNG sizes [`application_icon`][] uses on *platform* (default: this one)."""
     platform = sys.platform if platform is None else platform
     if platform == "darwin":
         return ICON_PNG_SIZES + MACOS_EXTRA_PNG_SIZES
@@ -128,7 +128,7 @@ def set_windows_app_id(app_id: str = WINDOWS_APP_ID) -> bool:
     """Give this process an explicit Windows AppUserModelID; ``True`` if it took.
 
     Microsoft requires the call during startup, before the process shows any window, so
-    :func:`apply_application_identity` makes it before it touches the application. It
+    [`apply_application_identity`][] makes it before it touches the application. It
     does nothing on other systems. A failure returns ``False`` and never raises: the
     identity only changes how the taskbar groups and draws the windows, and starting
     Tether must not depend on it.
@@ -154,7 +154,7 @@ def set_shortcut_app_id(shortcut: str | os.PathLike[str], app_id: str = WINDOWS_
     Tether do not become two buttons. ``WScript.Shell``, which creates the shortcut in
     ``post_install.bat``, cannot write this property, so the installer calls this
     function with the environment's own Python. It does nothing on other systems and,
-    like :func:`set_windows_app_id`, returns ``False`` instead of raising.
+    like [`set_windows_app_id`][], returns ``False`` instead of raising.
     """
     if sys.platform != "win32":
         return False
@@ -169,7 +169,7 @@ def shortcut_app_id(shortcut: str | os.PathLike[str]) -> str | None:
     """The AppUserModelID a Windows shortcut carries, or ``None`` if it has none.
 
     Also ``None`` on other systems and on any error, so a check that compares the
-    result with :data:`WINDOWS_APP_ID` fails instead of crashing.
+    result with [`WINDOWS_APP_ID`][] fails instead of crashing.
     """
     if sys.platform != "win32":
         return None

@@ -2,23 +2,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """pyqtgraph population apparent-E histogram dock (PRD §7.7, Appendix C plot A1).
 
-:class:`HistogramDock` renders a :class:`~tether.analysis.histogram.Histogram1D`
+[`HistogramDock`][] renders a [`Histogram1D`][tether.analysis.histogram.Histogram1D]
 — the pooled per-frame apparent-E of the accepted molecule population — as the
 familiar tMAVEN A1 histogram. It is the *GUI* half of M2 S8: the headless
-:func:`~tether.analysis.histogram.population_apparent_e_histogram` is the source
+[`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram] is
+the source
 of truth (it reproduces the MVP histogram from the API, PRD §9 M2); this dock only
 draws what that function returns, so no binning/science logic lives here.
 
 At the MVP the x-axis reads **"apparent E"** — the uncorrected proximity ratio
-``A / (D + A)`` (:func:`tether.fret.apparent_fret`); leakage/gamma corrections land
+``A / (D + A)`` ([`tether.fret.apparent_fret`][]); leakage/gamma corrections land
 at M3, and the default range keeps the ratio's excursions beyond ``[0, 1]`` visible
 rather than clipped (matching the headless core). The histogram is drawn as a
 filled centred step over the frozen bin edges, with the pooled molecule/frame
 counts shown in the plot title so the view is self-describing (NFR-REPRO).
 
-**Lazy Qt import.** As in :mod:`tether.gui.trace_dock`, pyqtgraph and its Qt
-binding are imported lazily inside :meth:`HistogramDock.__init__`, so importing
-this module costs no Qt. Constructing a :class:`HistogramDock` needs a live
+**Lazy Qt import.** As in [`tether.gui.trace_dock`][], pyqtgraph and its Qt
+binding are imported lazily inside [`HistogramDock.__init__`][], so importing
+this module costs no Qt. Constructing a [`HistogramDock`][] needs a live
 ``QApplication`` (the embedding shell, ``qtbot``, or ``pyqtgraph.mkQApp``).
 """
 
@@ -62,14 +63,14 @@ def _summary(histogram: Histogram1D) -> str:
 class HistogramDock:
     """A pyqtgraph dock rendering the population apparent-E histogram.
 
-    Construct (needs a ``QApplication``), then :meth:`set_histogram` a
-    :class:`~tether.analysis.histogram.Histogram1D`. Embed :attr:`widget` (a
+    Construct (needs a ``QApplication``), then [`set_histogram`][] a
+    [`Histogram1D`][tether.analysis.histogram.Histogram1D]. Embed [`widget`][] (a
     ``QWidget``) into the Tether shell, or drive it in a ``qtbot`` test. Use as a
-    context manager or call :meth:`close`.
+    context manager or call [`close`][].
 
     The dock is purely presentational: it takes an already-binned
-    :class:`Histogram1D` and draws it. The x-axis is pinned to the histogram's
-    ``value_range`` (default :data:`~tether.analysis.histogram.DEFAULT_RANGE`);
+    [`Histogram1D`][] and draws it. The x-axis is pinned to the histogram's
+    ``value_range`` (default [`DEFAULT_RANGE`][tether.analysis.histogram.DEFAULT_RANGE]);
     the y-axis auto-ranges to the (density or count) peak.
     """
 
@@ -136,7 +137,7 @@ class HistogramDock:
 
     @property
     def histogram(self) -> Histogram1D | None:
-        """The currently displayed :class:`Histogram1D`, or ``None``."""
+        """The currently displayed [`Histogram1D`][], or ``None``."""
         return self._histogram
 
     # --- display -------------------------------------------------------------
@@ -144,8 +145,9 @@ class HistogramDock:
     def set_histogram(self, histogram: Histogram1D) -> None:
         """Draw ``histogram``, replacing any previous one.
 
-        ``histogram`` is a :class:`~tether.analysis.histogram.Histogram1D` (the
-        row :func:`~tether.analysis.histogram.population_apparent_e_histogram`
+        ``histogram`` is a [`Histogram1D`][tether.analysis.histogram.Histogram1D] (the
+        row
+        [`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram]
         returns). Its ``bin_edges`` must be one longer than ``counts`` (the
         ``stepMode="center"`` contract); a mismatch raises rather than letting
         pyqtgraph fail opaquely. An empty/all-zero histogram is a valid input (it

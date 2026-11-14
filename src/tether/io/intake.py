@@ -19,7 +19,7 @@ index), so it is surfaced as a **shared map** offered to every acquisition of th
 same condition (only needed for optional native re-extraction; recovered
 coordinates already come pre-registered from the ``.tdat``/``.mat``).
 
-Grouping reuses :func:`tether.io.filename.parse_filename` — the four core roles of
+Grouping reuses [`tether.io.filename.parse_filename`][] — the four core roles of
 one acquisition (``.tif`` / ``.tdat`` / ``.mat`` / ``.txt``) all canonicalize to the
 **same stem** (Deep-LASI glues ``DeepLASI_DATA_`` / ``DeepLASI_MAT_export_``
 prefixes, a mid-name source ``.tif<timestamp>``, and a ``-donc-accc-w`` suffix onto
@@ -29,14 +29,14 @@ movie references (``.tdat`` ``LastPath``/source and ``.mat`` ``movie_path`` /
 
 **Scope.** Filename discovery + stem grouping + the embedded movie-reference
 cross-check from **either** export: the ``.mat`` ``movie_name`` / ``movie_path``
-(:func:`read_mat_movie_reference`, over :func:`tether.io.deeplasi.read_deeplasi_mat`)
+([`read_mat_movie_reference`][], over [`tether.io.deeplasi.read_deeplasi_mat`][])
 and the ``.tdat`` ``TIRFdata`` ``Channel.FilePath``
-(:func:`read_tdat_movie_reference`, over :func:`tether.io.tdat.read_movie_reference`)
-both lift into the one :class:`MovieReference` that :func:`verify_movie_reference`
+([`read_tdat_movie_reference`][], over [`tether.io.tdat.read_movie_reference`][])
+both lift into the one [`MovieReference`][] that [`verify_movie_reference`][]
 consumes. Per-molecule coordinate recovery and the intensity-trace cross-check on
-the SMD index live in the sibling :mod:`tether.io.recover`
-(:func:`~tether.io.recover.recover_coordinates` /
-:func:`~tether.io.recover.match_smd_to_coordinates`); this module stops at
+the SMD index live in the sibling [`tether.io.recover`][]
+([`recover_coordinates`][tether.io.recover.recover_coordinates] /
+[`match_smd_to_coordinates`][tether.io.recover.match_smd_to_coordinates]); this module stops at
 discovery + pairing.
 
 Coordinate availability (PRD §7.8 "Coordinate sources"): only the ``.tdat`` and the
@@ -91,12 +91,12 @@ _ROLE_BY_EXT: dict[str, FileRole] = {
 
 
 def classify_file(path: str | PurePath) -> FileRole:
-    """Classify one file into its :data:`FileRole` by extension (PRD §7.8).
+    """Classify one file into its [`FileRole`][] by extension (PRD §7.8).
 
     Deep-LASI glues a source ``.tif`` *into* ``.tdat`` names
     (``..._010.tif2025-07-21_00-00.tdat``), so classification keys on the **final**
     suffix (``PurePath.suffix``), never a mid-name extension. An unrecognized
-    extension is ``"unknown"`` (collected into :attr:`DiscoveryResult.ignored`,
+    extension is ``"unknown"`` (collected into [`DiscoveryResult.ignored`][],
     never silently dropped).
     """
     return _ROLE_BY_EXT.get(PurePath(path).suffix.lower(), "unknown")
@@ -128,7 +128,7 @@ MovieRefStatus = Literal["confirmed", "mismatch", "movie_absent", "no_reference"
 
 @dataclass(frozen=True)
 class MovieRefCheck:
-    """Result of :func:`verify_movie_reference` (PRD §7.8 movie-pairing cross-check)."""
+    """Result of [`verify_movie_reference`][] (PRD §7.8 movie-pairing cross-check)."""
 
     status: MovieRefStatus
     #: The movie filename the embedded reference points at (``""`` if none).
@@ -143,7 +143,7 @@ class MovieRefCheck:
 class AcquisitionFileSet:
     """One Deep-LASI acquisition's paired files (PRD §7.8).
 
-    Built by :func:`discover_acquisitions`. ``key`` is the shared filename stem the
+    Built by [`discover_acquisitions`][]. ``key`` is the shared filename stem the
     files were grouped on (a readable acquisition name, e.g.
     ``Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010``); ``condition_id`` /``video_index``
     are the parsed metadata that also match session-shared ``.tmap`` maps and any
@@ -206,7 +206,7 @@ class AcquisitionFileSet:
 class DiscoveryResult:
     """The outcome of scanning a folder for Deep-LASI acquisitions (PRD §7.8)."""
 
-    #: Grouped acquisitions, sorted by :attr:`AcquisitionFileSet.key`.
+    #: Grouped acquisitions, sorted by `AcquisitionFileSet.key`.
     acquisitions: tuple[AcquisitionFileSet, ...] = ()
     #: All ``.tmap`` registration maps found (session/day-scoped, not per-acquisition).
     shared_maps: tuple[Path, ...] = ()
@@ -251,7 +251,7 @@ def _iter_files(directory: Path, *, recursive: bool) -> list[Path]:
 
 
 def _finalize(group: _Group) -> AcquisitionFileSet:
-    """Collapse a scanned :class:`_Group` into an immutable :class:`AcquisitionFileSet`.
+    """Collapse a scanned `_Group` into an immutable [`AcquisitionFileSet`][].
 
     Picks the single path per role (first by sorted order) and records a warning
     for any role that appeared more than once (an ambiguous set the user resolves).
@@ -297,12 +297,12 @@ def discover_acquisitions(directory: str | PurePath, *, recursive: bool = False)
     """Scan ``directory`` for Deep-LASI acquisitions and pair each to its movie (PRD §7.8).
 
     Groups ``.tif`` / ``.tdat`` / ``.mat`` / ``.txt`` files by their shared
-    :func:`~tether.io.filename.parse_filename` stem — the pairing key PRD §7.8
+    [`parse_filename`][tether.io.filename.parse_filename] stem — the pairing key PRD §7.8
     specifies. ``.tmap`` maps are surfaced as session-shared and attached to every
     acquisition of the same condition. An SMD ``.hdf5`` is attached to the
     acquisition it names — by exact stem first, else by an *unambiguous*
     ``video_index`` (exactly one acquisition carries that index) — or listed
-    in :attr:`DiscoveryResult.unpaired` when its filename gives no confident match
+    in [`DiscoveryResult.unpaired`][] when its filename gives no confident match
     (SMD↔movie pairing is ultimately by molecule index + intensity match, a later
     M7 concern). Purely filename-based: no file contents are read.
 
@@ -470,14 +470,14 @@ def verify_movie_reference(
 def read_mat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | None:
     """Read the ``.mat`` export's embedded movie reference, if the set has one (PRD §7.8).
 
-    A thin wrapper over :func:`tether.io.deeplasi.read_deeplasi_mat` that lifts the
+    A thin wrapper over [`tether.io.deeplasi.read_deeplasi_mat`][] that lifts the
     already-parsed ``movie_name`` / ``movie_path`` provenance into a
-    :class:`MovieReference` for :func:`verify_movie_reference`. Best-effort like its
-    :func:`read_tdat_movie_reference` sibling: returns ``None`` when the set carries no
+    [`MovieReference`][] for [`verify_movie_reference`][]. Best-effort like its
+    [`read_tdat_movie_reference`][] sibling: returns ``None`` when the set carries no
     ``.mat``, the export recorded no movie name, or the ``.mat`` cannot be read as a
-    Deep-LASI export (a renamed or corrupted file makes :func:`read_deeplasi_mat` raise
-    :class:`ValueError`) — this advisory cross-check degrades cleanly, and the
-    authoritative :func:`read_deeplasi_mat` load still surfaces the error when the
+    Deep-LASI export (a renamed or corrupted file makes [`read_deeplasi_mat`][] raise
+    [`ValueError`][]) — this advisory cross-check degrades cleanly, and the
+    authoritative [`read_deeplasi_mat`][] load still surfaces the error when the
     acquisition is actually opened.
     """
     if fileset.mat is None:
@@ -494,17 +494,17 @@ def read_mat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | No
 def read_tdat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | None:
     """Read the ``.tdat`` ``TIRFdata``'s embedded movie reference, if any (PRD §7.8).
 
-    The ``.tdat`` counterpart to :func:`read_mat_movie_reference`, closing the M7 S1
+    The ``.tdat`` counterpart to [`read_mat_movie_reference`][], closing the M7 S1
     seam: it lifts the ``Channel.FilePath`` movie name/directory decoded by
-    :func:`tether.io.tdat.read_movie_reference` into the same :class:`MovieReference`
-    that :func:`verify_movie_reference` consumes, so a set with a ``.tdat`` but no
+    [`tether.io.tdat.read_movie_reference`][] into the same [`MovieReference`][]
+    that [`verify_movie_reference`][] consumes, so a set with a ``.tdat`` but no
     ``.mat`` still cross-checks its grouped movie. Best-effort like the ``.mat``
     sibling: returns ``None`` when the set carries no ``.tdat``, the ``TIRFdata``
     records no usable file path (a slimmed or movie-less ``.tdat``), or the ``.tdat``
     is not a readable ``TIRFdata`` container (a renamed or corrupted file makes
-    :func:`~tether.io.tdat.read_movie_reference` raise :class:`ValueError`) — this
+    [`read_movie_reference`][tether.io.tdat.read_movie_reference] raise [`ValueError`][]) — this
     advisory cross-check degrades cleanly, and the authoritative
-    :func:`~tether.io.tdat.read_tdat` load still surfaces the error when the
+    [`read_tdat`][tether.io.tdat.read_tdat] load still surfaces the error when the
     acquisition is actually opened.
     """
     if fileset.tdat is None:

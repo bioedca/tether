@@ -5,9 +5,9 @@
 The kinSoftChallenge [Götz2022] is a blind community benchmark of smFRET
 kinetic-rate analysis tools. Two readers:
 
-* :func:`read_kinsoft_trace` parses one raw challenge trace text file — an ALEX
+* [`read_kinsoft_trace`][] parses one raw challenge trace text file — an ALEX
   table with columns ``%t (s)  Idd  Ida  Iaa  FRET E`` (tab-separated).
-* :func:`read_kinsoft_fixture` reads the packed, gated-tier
+* [`read_kinsoft_fixture`][] reads the packed, gated-tier
   ``tests/fixtures/large/kinsoft_sim.hdf5`` (staged by
   ``scripts/make_kinsoft_fixture.py``) — the three simulated levels
   (Fig2/3/4 = level 1/2/3) as zero-padded arrays plus per-trace lengths.
@@ -57,8 +57,8 @@ class KinsoftLevel:
     """One packed challenge level (a difficulty tier / paper figure).
 
     ``idd``/``ida``/``iaa``/``fret_e`` are ``(n_traces, max_frames)`` arrays,
-    zero-padded past each trace's ``length[i]``. Use :meth:`trace` to get an
-    unpadded :class:`KinsoftTrace`.
+    zero-padded past each trace's ``length[i]``. Use [`trace`][] to get an
+    unpadded [`KinsoftTrace`][].
     """
 
     figure: str
@@ -89,7 +89,7 @@ class KinsoftLevel:
 
 
 def read_kinsoft_trace(path: str | Path) -> KinsoftTrace:
-    """Parse one raw kinSoftChallenge trace text file into a :class:`KinsoftTrace`.
+    """Parse one raw kinSoftChallenge trace text file into a [`KinsoftTrace`][].
 
     The file is a tab-separated ALEX table whose header line begins with ``%``
     (``%t (s)\tIdd (a.u.)\tIda (a.u.)\tIaa (a.u.)\tFRET E``); values may carry an
@@ -116,7 +116,7 @@ def read_kinsoft_fixture(path: str | Path) -> dict[str, KinsoftLevel]:
     """Read the packed kinSoft fixture into ``{group_name: KinsoftLevel}``.
 
     ``path`` is the gated-tier ``kinsoft_sim.hdf5``. h5py is imported lazily so
-    ``import tether.io`` and :func:`read_kinsoft_trace` work without it.
+    ``import tether.io`` and [`read_kinsoft_trace`][] work without it.
     """
     import h5py  # noqa: PLC0415  (lazy: keep h5py off the base import path)
 

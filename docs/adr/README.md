@@ -134,6 +134,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0087](0087-mash-fret-is-a-reference-for-corrected-fret.md) | MASH-FRET's published project files are a reference for leakage and corrected FRET | accepted | §7.2 (corrections), §7.4 (FRET efficiency), §2.2 (what the tests can use), §8 NFR-VALID |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
 | [0090](0090-measured-vbfret-paths-are-a-dwell-reference.md) | Measured traces with a stored vbFRET path are a dwell and transition reference | accepted | §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP) |
+| [0093](0093-numpy-docstrings-and-mkdocstrings-cross-references.md) | NumPy docstrings, with cross-references in the form of mkdocstrings | accepted | §12.4 (definition of done), §12.6 (the `lint` gate), §12.9 (pre-commit) |
 
 <!-- gen:adr-index end -->
 

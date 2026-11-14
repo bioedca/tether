@@ -4,40 +4,40 @@
 
 The M7 "New project from Deep-LASI data" re-analysis workflow reconstructs a
 round-trip-ready project *without re-extraction* (PRD §7.8, goal G8). After
-:mod:`tether.io.intake` groups a folder into acquisitions and pairs each to its
+[`tether.io.intake`][] groups a folder into acquisitions and pairs each to its
 raw movie, this module answers the next question: **where is each molecule?**
 
 Two Deep-LASI artifacts carry per-molecule pixel coordinates (PRD §7.8
 "Coordinate sources", Appendix A):
 
-* the ``.tdat`` ``ParticlesColocalized`` table (:func:`tether.io.read_tdat` →
-  :class:`~tether.io.tdat.TdatColocalization`), which stores one ``(x, y)`` per
+* the ``.tdat`` ``ParticlesColocalized`` table ([`tether.io.read_tdat`][] →
+  [`TdatColocalization`][tether.io.tdat.TdatColocalization]), which stores one ``(x, y)`` per
   channel keyed by channel index; and
-* the ``.mat`` ``fret_pairs`` (:func:`tether.io.read_deeplasi_mat` →
-  :class:`~tether.io.deeplasi.DeepLasiExport`), already split into donor / acceptor
+* the ``.mat`` ``fret_pairs`` ([`tether.io.read_deeplasi_mat`][] →
+  [`DeepLasiExport`][tether.io.deeplasi.DeepLasiExport]), already split into donor / acceptor
   ``(N, 2)`` arrays.
 
-:func:`recover_coordinates` **unifies** these two into one donor/acceptor
+[`recover_coordinates`][] **unifies** these two into one donor/acceptor
 representation, so a downstream reconstruction sees a single coordinate model
 regardless of which artifact survived. The channel→role mapping for the ``.tdat``
 is faithful, not assumed: the mapping/trace **reference channel**
-(:attr:`~tether.io.tdat.Tdat.reference_channel`) is the donor and the single
+([`reference_channel`][tether.io.tdat.Tdat.reference_channel]) is the donor and the single
 remaining colocalized channel is the acceptor — the same donor/acceptor split the
 ``.mat`` records, locked equal on real UCKOPSB data by ``tests/test_recover.py``.
 
 The ``.txt`` and the tMAVEN SMD carry **intensities only, no coordinates**
 (Appendix A), and tMAVEN may subset / reorder molecules by the GUI selection mask
 (Appendix D.1), so a returning SMD's row order is *not trusted*. To attach recovered
-coordinates to an SMD's traces, :func:`match_smd_to_coordinates` re-resolves each
+coordinates to an SMD's traces, [`match_smd_to_coordinates`][] re-resolves each
 SMD trace to its acquisition molecule by **exact intensity-trace matching** against
 the acquisition's index-aligned reference traces — the same identity test the
-tMAVEN return leg uses (:func:`tether.idealize.match_return_leg`, PRD §5.3/§7.4),
+tMAVEN return leg uses ([`tether.idealize.match_return_leg`][], PRD §5.3/§7.4),
 reused here rather than reimplemented. The resulting per-SMD-row acquisition index
 is the "index-pairing key" PRD §7.8 calls for; SMD molecules absent from the
 reference are reported unmatched, never guessed.
 
-Layering: the intensity matcher lives in the sibling :mod:`tether.idealize` package
-and is imported lazily inside :func:`match_smd_to_coordinates` — ``tether.idealize``
+Layering: the intensity matcher lives in the sibling [`tether.idealize`][] package
+and is imported lazily inside [`match_smd_to_coordinates`][] — ``tether.idealize``
 never imports ``tether.io``, so there is no import cycle, and ``tether.io`` stays
 free of the idealize (sidecar) import graph at load time.
 """
@@ -73,7 +73,7 @@ class RecoveredCoordinates:
     detected molecule ``i``), the index-pairing key downstream import keys on.
     ``source`` records which artifact supplied them (``"tdat"`` or ``"mat"``).
     ``eq=False`` because the ndarray fields make a generated ``__eq__`` ambiguous
-    (cf. :class:`~tether.io.deeplasi.DeepLasiExport`).
+    (cf. [`DeepLasiExport`][tether.io.deeplasi.DeepLasiExport]).
     """
 
     donor_xy: np.ndarray
@@ -97,7 +97,7 @@ class SmdCoordinateMatch:
     unmatched. The match is **one-to-one** (each acquisition molecule is claimed by
     at most one SMD row) and unmatched rows are reported, never guessed. ``eq=False``
     because the ndarray fields make a generated ``__eq__`` ambiguous (identity
-    equality is the sensible default here, as for :class:`RecoveredCoordinates`).
+    equality is the sensible default here, as for [`RecoveredCoordinates`][]).
     """
 
     mapping: np.ndarray
@@ -164,11 +164,11 @@ def recover_coordinates(
     Parameters
     ----------
     tdat:
-        A decoded :class:`~tether.io.tdat.Tdat` (its ``colocalization`` supplies the
+        A decoded [`Tdat`][tether.io.tdat.Tdat] (its ``colocalization`` supplies the
         per-channel coordinates). Donor = the reference channel, acceptor = the one
         other colocalized channel.
     mat:
-        A parsed :class:`~tether.io.deeplasi.DeepLasiExport` (its ``donor_xy`` /
+        A parsed [`DeepLasiExport`][tether.io.deeplasi.DeepLasiExport] (its ``donor_xy`` /
         ``acceptor_xy`` are used directly).
     prefer:
         Which source to use when **both** are provided (``"tdat"`` or ``"mat"``).
@@ -222,7 +222,7 @@ def match_smd_to_coordinates(
     (Appendix A/D.1), so each SMD trace is re-resolved to its acquisition molecule
     by exact intensity-trace matching against ``reference_traces`` — the
     acquisition's traces in the same order as ``recovered`` (row ``i`` is molecule
-    ``i``). The match delegates to :func:`tether.idealize.match_return_leg` (the
+    ``i``). The match delegates to [`tether.idealize.match_return_leg`][] (the
     tMAVEN return-leg matcher, PRD §5.3/§7.4); the returned per-SMD-row acquisition
     index is the index-pairing key, and each row's recovered coordinates are taken
     from that index (``nan`` when unmatched).
@@ -236,16 +236,17 @@ def match_smd_to_coordinates(
     ----------
     smd_raw:
         ``(M, T_s, 2)`` SMD trace array (donor, acceptor), e.g.
-        :attr:`tether.idealize.SMDData.raw`.
+        [`tether.idealize.SMDData.raw`][].
     reference_traces:
         ``(N, T_r, 2)`` acquisition traces (donor, acceptor) index-aligned with
         ``recovered`` — ``N`` must equal ``recovered.n_molecules``.
     recovered:
-        The :class:`RecoveredCoordinates` whose molecule order the reference traces
+        The [`RecoveredCoordinates`][] whose molecule order the reference traces
         follow.
     atol, rtol:
         Absolute / relative intensity-match tolerance passed through to
-        :func:`~tether.idealize.match_return_leg` (default a tight absolute match,
+        [`match_return_leg`][tether.idealize.matcher.match_return_leg] (default a tight absolute
+        match,
         since a Deep-LASI SMD reproduces the exported trace exactly).
     id_hint:
         Optional length-``M`` candidate acquisition indices (e.g. an SMD source /

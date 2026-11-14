@@ -4,16 +4,16 @@
 condition (PRD §7.5, UC3; ADR-0035, ADR-0068, ADR-0077).
 
 One project holds one experiment, and a condition can span several projects (ADR-0068). The
-portable model of :mod:`tether.ml.persistence` refits on the accumulated label set at each video
+portable model of [`tether.ml.persistence`][] refits on the accumulated label set at each video
 boundary (ADR-0035), so this module collects that set from all the condition's projects:
 
-1. The model records the project files it was trained on (:class:`tether.ml.SourceProject`).
+1. The model records the project files it was trained on ([`tether.ml.SourceProject`][]).
 2. A retrain reads ``/features`` ⋈ ``/labels`` for the model's condition from each recorded
    project, **read-only and without their locks**, and adds the rows of the open project.
-3. ``n_human`` for the cold-start decay ``w = w₀ / (1 + n_human)`` (:mod:`tether.ml.weighting`)
+3. ``n_human`` for the cold-start decay ``w = w₀ / (1 + n_human)`` ([`tether.ml.weighting`][])
    counts the human labels of the condition in **all** those projects.
 4. A recorded project that is missing, or offline (a cloud placeholder whose data is not on the
-   disk), stops the retrain with :class:`SourceProjectUnavailableError`, which names the file.
+   disk), stops the retrain with [`SourceProjectUnavailableError`][], which names the file.
    Every project is checked before any is read, and a placeholder is never opened, so nothing is
    hydrated automatically (PRD §5.4) and a partial label set is never used.
 
@@ -116,7 +116,7 @@ class SourceProjectUnavailableError(RuntimeError):
 class ConditionTrainingSet:
     """The training rows of one condition, collected from several projects (PRD §7.5).
 
-    Row order is project order (the order of :attr:`sources`), then the stored feature-row order
+    Row order is project order (the order of [`sources`][]), then the stored feature-row order
     inside each project, so the same projects give the same set every time.
 
     Attributes
@@ -128,7 +128,7 @@ class ConditionTrainingSet:
     molecule_ids:
         The ``molecule_id`` of each row, unique inside its project only.
     feature_names:
-        The feature-column order (:data:`tether.ml.features.FEATURE_NAMES`).
+        The feature-column order ([`tether.ml.features.FEATURE_NAMES`][]).
     X:
         ``(n_train, n_features)`` ``float64`` feature matrix (``NaN`` allowed).
     y:
@@ -139,7 +139,7 @@ class ConditionTrainingSet:
     n_human:
         The human labels of the condition in all the projects (the decay's ``n_human``).
     sources:
-        One :class:`tether.ml.SourceProject` for each project read, in row order.
+        One [`tether.ml.SourceProject`][] for each project read, in row order.
     """
 
     condition_id: str
@@ -198,7 +198,7 @@ def _to_str(value: object) -> str:
 def _file_attributes(path: Path) -> int:
     """The Windows file attributes of ``path`` (``0`` elsewhere). Metadata only: no byte read.
 
-    Raises :class:`FileNotFoundError` when the file does not exist.
+    Raises [`FileNotFoundError`][] when the file does not exist.
     """
     return int(getattr(os.stat(path), "st_file_attributes", 0))
 
@@ -222,7 +222,7 @@ def _read_rows(path: Path, condition_id: str) -> _ProjectRows:
 
     Opens the file only through the path-based readers, which open it with ``h5py`` mode ``"r"``.
     A human accept/reject supersedes a provisional prior on the same molecule (the
-    :mod:`tether.project.gbranking` rule).
+    [`tether.project.gbranking`][] rule).
     """
     from tether.imaging.extract import read_molecules  # noqa: PLC0415
     from tether.project.gbranking import _latest_provisional_labels  # noqa: PLC0415
@@ -305,7 +305,7 @@ def condition_training_set(
     Parameters
     ----------
     projects:
-        The project files (or open :class:`~tether.project.core.Project` handles) to read, in the
+        The project files (or open [`Project`][tether.project.core.Project] handles) to read, in the
         row order wanted. A file named twice is a caller error.
     condition_id:
         The condition whose rows are collected; other conditions' molecules are left out.
@@ -373,7 +373,7 @@ def condition_training_set(
 
 def _fit_weights(training: ConditionTrainingSet) -> np.ndarray | None:
     """``None`` when every row is at unit weight, so a human-only set fits the unweighted model
-    (the :func:`tether.project.gbranking.train_ranker` rule)."""
+    (the [`tether.project.gbranking.train_ranker`][] rule)."""
     if training.n_train == 0:
         raise ValueError(
             f"condition {training.condition_id!r} has no labeled molecules (human or provisional "
@@ -405,14 +405,14 @@ def train_condition_model(
     """Fit a condition's first portable model from one project, and record the project.
 
     The start of the UC3 loop (PRD §7.5): the rows of ``condition_id`` in ``project``
-    (:func:`condition_training_set`) train a fresh model
-    (:func:`tether.ml.persistence.train_portable_model`) whose ``source_projects`` names the
-    project, so a later :func:`retrain_condition_model` from another project reads it again.
+    ([`condition_training_set`][]) train a fresh model
+    ([`tether.ml.persistence.train_portable_model`][]) whose ``source_projects`` names the
+    project, so a later [`retrain_condition_model`][] from another project reads it again.
 
     Raises
     ------
     SourceProjectUnavailableError, KeyError
-        As :func:`condition_training_set`.
+        As [`condition_training_set`][].
     ValueError
         ``project`` holds no molecule of the condition, no labeled molecule, or only one class.
     """
@@ -446,19 +446,19 @@ def retrain_condition_model(
     """Retrain the model on its condition's labels from every recorded project plus ``project``.
 
     Reads ``model.source_projects`` in their recorded order, then ``project`` if the model has not
-    recorded it yet, all read-only and without locks (:func:`condition_training_set`), and refits
-    with :func:`tether.ml.persistence.warm_start_retrain`. The new model records every project it
+    recorded it yet, all read-only and without locks ([`condition_training_set`][]), and refits
+    with [`tether.ml.persistence.warm_start_retrain`][]. The new model records every project it
     read, with fresh row digests. The input model is not changed, and nothing is saved: a refused
     retrain therefore leaves a saved model as it was.
 
     Parameters
     ----------
     model:
-        The condition's model, as :func:`tether.ml.persistence.load_model` returns it.
+        The condition's model, as [`tether.ml.persistence.load_model`][] returns it.
     project:
         The open project (the one being curated). It must hold the model's condition.
     w0, hyperparams, video_id, now:
-        As :func:`tether.ml.persistence.warm_start_retrain`; ``w0`` is the seed weight.
+        As [`tether.ml.persistence.warm_start_retrain`][]; ``w0`` is the seed weight.
 
     Raises
     ------

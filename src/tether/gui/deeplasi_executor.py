@@ -3,37 +3,37 @@
 """Deep-LASI re-analysis wizard — the executor (PRD §7.8, M7).
 
 The M7 "New project from Deep-LASI data" workflow (PRD §7.8, goal G8) reconstructs a
-round-trip-ready project *without re-extraction*. :mod:`tether.io.intake` discovers the
-acquisitions, :mod:`tether.gui.deeplasi_wizard` turns that discovery into a reviewed,
-user-confirmed :class:`~tether.gui.deeplasi_wizard.WizardPlan`, and **this module runs
+round-trip-ready project *without re-extraction*. [`tether.io.intake`][] discovers the
+acquisitions, [`tether.gui.deeplasi_wizard`][] turns that discovery into a reviewed,
+user-confirmed [`WizardPlan`][tether.gui.deeplasi_wizard.WizardPlan], and **this module runs
 it**: for each runnable acquisition it decodes the Deep-LASI files and drives the
 already-frozen importers.
 
-* :class:`~tether.gui.deeplasi_wizard.WizardMode` ``reconstruct`` →
-  :func:`tether.project.reconstruct.reconstruct_project` — movie *provenance* (hashed
+* [`WizardMode`][tether.gui.deeplasi_wizard.WizardMode] ``reconstruct`` →
+  [`tether.project.reconstruct.reconstruct_project`][] — movie *provenance* (hashed
   from the raw ``.tif``, never re-extracted), the ``.mat`` pre-integrated traces, the
   recovered donor/acceptor coordinates (``.tdat`` or ``.mat`` per the plan), the ``.tdat``
   correction factors, and the SMD-curated selection.
-* ``analysis_only`` → :func:`tether.project.analysis_import.import_analysis_only_project`
+* ``analysis_only`` → [`tether.project.analysis_import.import_analysis_only_project`][]
   — a movie-less, coordinate-less degraded import of the SMD or bare ``.txt``.
 
-Like the controller (and :mod:`tether.gui.roundtrip`), the executor is **Qt-free**: it
+Like the controller (and [`tether.gui.roundtrip`][]), the executor is **Qt-free**: it
 touches only the plan dataclasses, the reader/importer modules, and NumPy, so it runs in
 the default test matrix without a display. The QWizard widget and the shell "Import
 Deep-LASI bundle…" action are a follow-up M7 PR that drive this executor through
-:func:`execute_plan`.
+[`execute_plan`][].
 
 **Coordinate source (the one place the plan's choice can degrade).** The ``.mat``
 coordinates are aligned to the export's traced molecules by construction. The ``.tdat``
 ``ParticlesColocalized`` may span *more* molecules than the export traces (the export is
-a colocalized subset), and :func:`tether.io.recover.recover_coordinates` deliberately does
+a colocalized subset), and [`tether.io.recover.recover_coordinates`][] deliberately does
 not align the two. So a plan's ``"tdat"`` choice is honoured only when the ``.tdat``
 molecule count already matches the export (an identity alignment — the real-bundle case
 where the export covers the full colocalized set); otherwise the executor falls back to
 the export-aligned ``.mat`` coordinates and records a warning, rather than fabricate a
 ``.tdat``→traced join. On validated UCKOPSB data the two sources are coordinate-identical
 (``tests/test_recover.py``), so the fallback is faithful; a general ``.tdat``→traced
-alignment is future work in :mod:`tether.io.recover`.
+alignment is future work in [`tether.io.recover`][].
 """
 
 from __future__ import annotations
@@ -83,13 +83,13 @@ _HASH_CHUNK = 1 << 20
 class ExecutedAcquisition:
     """The outcome of importing one runnable acquisition (PRD §7.8).
 
-    Exactly one of :attr:`reconstruct` / :attr:`analysis_only` is set on success; on
-    failure both are ``None`` and :attr:`error` carries the ``"Type: message"`` reason.
+    Exactly one of [`reconstruct`][] / [`analysis_only`][] is set on success; on
+    failure both are ``None`` and [`error`][] carries the ``"Type: message"`` reason.
     """
 
     #: The acquisition's grouping key (its identity in the wizard/plan).
     key: str
-    #: The mode that was run (:class:`~tether.gui.deeplasi_wizard.WizardMode`).
+    #: The mode that was run (`WizardMode`).
     mode: WizardMode
     #: Where the ``.tether`` was (or would have been) written.
     output_path: Path
@@ -102,7 +102,7 @@ class ExecutedAcquisition:
     reconstruct: ReconstructionSummary | None = None
     #: The analysis-only import summary (analysis-only mode, success).
     analysis_only: AnalysisOnlyImportSummary | None = None
-    #: A ``"Type: message"`` reason when :attr:`ok` is ``False``; ``""`` otherwise.
+    #: A ``"Type: message"`` reason when `ok` is ``False``; ``""`` otherwise.
     error: str = ""
     #: Non-fatal advisories raised during the import (e.g. a coordinate-source fallback).
     warnings: tuple[str, ...] = ()
@@ -115,7 +115,7 @@ class ExecutedAcquisition:
 
 @dataclass(frozen=True)
 class ExecutionReport:
-    """The result of executing a whole :class:`~tether.gui.deeplasi_wizard.WizardPlan`."""
+    """The result of executing a whole [`WizardPlan`][tether.gui.deeplasi_wizard.WizardPlan]."""
 
     #: The directory the projects were written into.
     output_dir: Path
@@ -169,13 +169,13 @@ def _hash_file(path: Path) -> tuple[str, int, float]:
 
 
 def _movie_metadata(path: Path) -> MovieMetadata:
-    """Build a :class:`~tether.imaging.extract.MovieMetadata` from a raw ``.tif``.
+    """Build a [`MovieMetadata`][tether.imaging.extract.MovieMetadata] from a raw ``.tif``.
 
     Reconstruction imports the Deep-LASI *pre-integrated* traces and never re-opens the
     movie for pixels, so only its provenance is recovered: the content hash, frame count
     (must equal ``export.n_frames``), and on-disk geometry/dtype for the ``/movies`` row.
     This replicates the ``MovieMetadata`` assembly in
-    :func:`tether.project.extract.extract_movie` without running the extraction, and
+    [`tether.project.extract.extract_movie`][] without running the extraction, and
     leaves the channel geometry / calibration unset (reconstruction re-uses the legacy
     traces, so no split calibration is needed).
     """
@@ -267,7 +267,7 @@ def _curated_match(
     """Align a curated SMD selection to the recovered coordinates by intensity match.
 
     Re-resolves each SMD row to its acquisition molecule (§7.8 index-pairing key) against
-    the exact-match reference traces (:func:`_match_reference`); frames are clipped to the
+    the exact-match reference traces (`_match_reference`); frames are clipped to the
     common extent so the two trace sets align. Unmatched SMD rows are reported by the
     matcher, never guessed.
     """
@@ -281,7 +281,7 @@ def _curated_match(
 def _read_tdat_best_effort(path: Path | None) -> tuple[Tdat | None, tuple[str, ...]]:
     """Decode a ``.tdat`` for its corrections / coordinates, degrading on an unreadable one.
 
-    :func:`~tether.io.tdat.read_tdat` eagerly validates the detection mode (raising on the
+    [`read_tdat`][tether.io.tdat.read_tdat] eagerly validates the detection mode (raising on the
     unported Deep-LASI ``findPart`` modes 4/5) and the MCOS leaves, yet a reconstruction
     from the ``.mat`` needs the ``.tdat`` only for its correction factors (and, when the
     plan chose it, coordinates — themselves ``.mat``-backed when the ``.tdat`` can't supply
@@ -369,7 +369,7 @@ def execute_plan(
     detect_photobleach: bool = True,
     raise_on_error: bool = False,
 ) -> ExecutionReport:
-    """Execute a finalized :class:`~tether.gui.deeplasi_wizard.WizardPlan` (PRD §7.8).
+    """Execute a finalized [`WizardPlan`][tether.gui.deeplasi_wizard.WizardPlan] (PRD §7.8).
 
     Writes one ``.tether`` per runnable acquisition into ``output_dir`` (named by each
     plan entry's ``output_name``), decoding its Deep-LASI files and driving the frozen
@@ -389,14 +389,14 @@ def execute_plan(
     overwrite:
         Passed through to each importer; ``False`` refuses to clobber an existing file.
     detect_photobleach:
-        Passed through to :func:`~tether.project.reconstruct.reconstruct_project`.
+        Passed through to [`reconstruct_project`][tether.project.reconstruct.reconstruct_project].
     raise_on_error:
         Re-raise the first import failure instead of recording it and continuing.
 
     Returns
     -------
     ExecutionReport
-        One :class:`ExecutedAcquisition` per runnable acquisition, plus roll-ups.
+        One [`ExecutedAcquisition`][] per runnable acquisition, plus roll-ups.
     """
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

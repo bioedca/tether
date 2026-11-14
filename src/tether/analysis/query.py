@@ -7,12 +7,12 @@ selects the molecules that make up a condition — or any slice of one — **acr
 all** those movies/files, filtered by the condition **key fields**, the per-trace
 **category**, and per-molecule **tags**. It is the headless query seam behind the
 M4 annotation/analysis views (the GUI condition browser is a later layer):
-read-only, Qt-free, and — like the rest of :mod:`tether.analysis` — a standalone
-function taking a project reference (not a :class:`~tether.project.core.Project`
+read-only, Qt-free, and — like the rest of [`tether.analysis`][] — a standalone
+function taking a project reference (not a [`Project`][tether.project.core.Project]
 method).
 
-The result is inherently cross-file: each :class:`MoleculeMatch` carries its
-``movie_id`` and ``source_filename``, and :class:`ConditionQueryResult` groups the
+The result is inherently cross-file: each [`MoleculeMatch`][] carries its
+``movie_id`` and ``source_filename``, and [`ConditionQueryResult`][] groups the
 matched molecules by condition, by movie, and by source file — so "a query
 aggregates the right molecule set across files" (§9 M4) is a direct read-off.
 
@@ -24,10 +24,10 @@ empty (so ``query_molecules(project)`` returns the whole conditioned population 
 
 * ``condition_ids`` — keep only molecules already carrying one of these ids.
 * ``key`` — keep only molecules whose **condition** matches the given
-  :class:`~tether.io.filename.ConditionKey` field constraints (a *partial* mapping,
+  [`ConditionKey`][tether.io.filename.ConditionKey] field constraints (a *partial* mapping,
   e.g. ``{"ligand": "tRNA"}``). Resolving a molecule's key needs its ``/conditions``
   row, so key filtering only sees **materialized** conditions
-  (:func:`tether.project.conditions.sync_conditions`); a molecule whose condition
+  ([`tether.project.conditions.sync_conditions`][]); a molecule whose condition
   row is absent (a not-yet-synced or drifted id) is not key-matchable and is
   excluded by a ``key`` filter. An unknown field name is a hard error, never
   silently ignored (a silently-dropped constraint would return a wrong set).
@@ -39,7 +39,7 @@ empty (so ``query_molecules(project)`` returns the whole conditioned population 
 
 Molecules with **no condition** (empty ``condition_id``) are never returned: this
 is a *condition* query, mirroring
-:func:`tether.project.conditions.aggregate_molecules_by_condition`.
+[`tether.project.conditions.aggregate_molecules_by_condition`][].
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = ["ConditionQueryResult", "MoleculeMatch", "query_molecules"]
 
 #: The identity key fields a ``key`` filter may constrain — exactly the
-#: :class:`~tether.io.filename.ConditionKey` fields, so a typo raises instead of
+#: `ConditionKey` fields, so a typo raises instead of
 #: silently dropping a constraint.
 _KEY_FIELDS: frozenset[str] = frozenset(ConditionKey.__dataclass_fields__)
 
@@ -74,7 +74,7 @@ def _split_tags(raw: str) -> tuple[str, ...]:
     """Split a ``/molecules.tags`` cell into its tags.
 
     Extraction stores tags comma-joined (``",".join(...)``,
-    :attr:`tether.imaging.calibrate.RegistrationMap.molecule_tags`); this is the
+    [`tether.imaging.calibrate.RegistrationMap.molecule_tags`][]); this is the
     inverse — each tag stripped, empties dropped.
     """
     return tuple(t for t in (part.strip() for part in raw.split(",")) if t)
@@ -105,7 +105,7 @@ def _as_filter_set(values: Iterable[str] | None) -> frozenset[str] | None:
     (the never-silent contract; see the module docstring's filter semantics). Returns
     ``None`` for both ``None`` and an empty collection.
 
-    A bare ``str``/``bytes`` is rejected with :class:`TypeError`: it *is* iterable, so
+    A bare ``str``/``bytes`` is rejected with [`TypeError`][]: it *is* iterable, so
     ``tags="blink"`` would otherwise iterate characters and silently match nothing —
     the same never-silent trap the emptiness handling avoids.
     """
@@ -121,7 +121,7 @@ def _as_filter_set(values: Iterable[str] | None) -> frozenset[str] | None:
 
 @dataclass(frozen=True)
 class MoleculeMatch:
-    """One molecule returned by :func:`query_molecules`, with its cross-file locus.
+    """One molecule returned by [`query_molecules`][], with its cross-file locus.
 
     Carries the condition it belongs to plus the movie / source file it was
     extracted from, so the caller can see the same condition span many movies.
@@ -144,9 +144,9 @@ class MoleculeMatch:
 
 @dataclass(frozen=True)
 class ConditionQueryResult:
-    """The molecules matching a :func:`query_molecules` call, with cross-file rollups.
+    """The molecules matching a [`query_molecules`][] call, with cross-file rollups.
 
-    :attr:`matches` is in ``/molecules`` store order; the aggregations preserve
+    [`matches`][] is in ``/molecules`` store order; the aggregations preserve
     first-seen order so the result is deterministic.
     """
 
@@ -234,9 +234,9 @@ def query_molecules(
     """Query/filter a condition's molecules across its movies (PRD §5.1, §7.7).
 
     Selects ``/molecules`` rows matching the ANDed filters (see the module docstring
-    for the full semantics) and returns them as a :class:`ConditionQueryResult` whose
+    for the full semantics) and returns them as a [`ConditionQueryResult`][] whose
     rollups make the cross-file aggregation explicit. Read-only; ``project`` may be a
-    :class:`~tether.project.core.Project` or a path to one.
+    [`Project`][tether.project.core.Project] or a path to one.
 
     Parameters
     ----------
@@ -245,10 +245,10 @@ def query_molecules(
     condition_ids:
         Keep only molecules on one of these condition ids (inactive if ``None``/empty).
     key:
-        Partial :class:`~tether.io.filename.ConditionKey` field constraints selecting
+        Partial [`ConditionKey`][tether.io.filename.ConditionKey] field constraints selecting
         which *conditions* to include (inactive if ``None``/empty). Needs the
         ``/conditions`` rows materialized first
-        (:func:`~tether.project.conditions.sync_conditions`).
+        ([`sync_conditions`][tether.project.conditions.sync_conditions]).
     categories:
         Keep only molecules whose ``category`` is one of these (inactive if ``None``/empty).
     tags:
@@ -264,7 +264,7 @@ def query_molecules(
     Raises
     ------
     ValueError
-        If ``key`` names a field that is not a :class:`ConditionKey` field.
+        If ``key`` names a field that is not a [`ConditionKey`][] field.
     TypeError
         If ``condition_ids``, ``categories``, or ``tags`` is a bare ``str``/``bytes``
         instead of an iterable of strings (wrap a single value in a list).

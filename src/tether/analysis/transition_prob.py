@@ -8,10 +8,10 @@ vbFRET model it reads ``norm_tmatrix[init, fin]`` (the state pair matched to the
 composite model by Gaussian nearest-mean) and bins those per-trace probabilities,
 optionally overlaying a Gaussian-KDE. That plot reads a per-trace transition matrix
 Tether does not persist — Tether fits a **consensus / global** model with one shared
-``norm_tmatrix`` (:class:`tether.project.idealize.StoredIdealization`), which gives a
+``norm_tmatrix`` ([`tether.project.idealize.StoredIdealization`][]), which gives a
 single number per pair, not a distribution.
 
-So, exactly as the B1 real TDP (:mod:`tether.analysis.tdp`) rebuilds a model-plot
+So, exactly as the B1 real TDP ([`tether.analysis.tdp`][]) rebuilds a model-plot
 from persisted Viterbi paths, Tether's B3 is the **empirical** analogue: each
 molecule's transition probability is estimated from its own Viterbi state path as the
 maximum-likelihood one-step rate
@@ -22,14 +22,14 @@ maximum-likelihood one-step rate
 the per-trace estimate of ``norm_tmatrix[init, fin]``. A molecule that never occupies
 ``init`` (with an observed successor) has no defined probability and is dropped — the
 analogue of tMAVEN's non-finite filter. Frames whose successor is
-:data:`~tether.idealize.NO_STATE` (a window edge or interior gap) are excluded from
+[`NO_STATE`][tether.idealize.driver.NO_STATE] (a window edge or interior gap) are excluded from
 the denominator: a transition across a gap is unobserved, never assumed. Pooled over
 molecules, the probabilities are binned like tMAVEN (``[-0.05, 1.05]``, 25 bins,
 density) with an optional Gaussian-KDE curve [McKinney2006][vandeMeent2014].
 
-:func:`empirical_transition_probability` is the per-molecule scalar;
-:func:`transition_prob_histogram` is the pure-array core (per-molecule paths → a
-:class:`TransitionProbHistogram`); :func:`population_transition_prob_histogram` is the
+[`empirical_transition_probability`][] is the per-molecule scalar;
+[`transition_prob_histogram`][] is the pure-array core (per-molecule paths → a
+[`TransitionProbHistogram`][]); [`population_transition_prob_histogram`][] is the
 ``.tether`` store entry point (fresh + curation filters, model-range validation).
 
 References
@@ -92,11 +92,11 @@ class TransitionProbHistogram:
     """A binned population of per-molecule transition probabilities (self-describing).
 
     ``counts[i]`` is the (density-normalized unless ``not density``) histogram height
-    over probability bin ``i`` for the ordered state pair (:attr:`init_state` →
-    :attr:`final_state`). :attr:`probabilities` keeps the raw per-molecule values so
+    over probability bin ``i`` for the ordered state pair ([`init_state`][] →
+    [`final_state`][]). [`probabilities`][] keeps the raw per-molecule values so
     the count and any statistic are reproducible (NFR-REPRO), and
-    :attr:`n_molecules` (= ``probabilities.size``) is the number of molecules that
-    ever occupy ``init_state`` — tMAVEN's ``N``. :attr:`kde_x` / :attr:`kde_y` carry
+    [`n_molecules`][] (= ``probabilities.size``) is the number of molecules that
+    ever occupy ``init_state`` — tMAVEN's ``N``. [`kde_x`][] / [`kde_y`][] carry
     the optional Gaussian-KDE curve, both ``None`` when a KDE was not requested or
     could not be formed (fewer than two probabilities, or all identical — a singular
     covariance); the render then shows the histogram alone, never a fabricated curve.
@@ -132,7 +132,7 @@ def empirical_transition_probability(
 
     Counts consecutive frame pairs ``(state[t], state[t + 1])``: the denominator is the
     number of frames in ``init_state`` that have an **observed** successor (successor
-    not :data:`~tether.idealize.NO_STATE`), the numerator the subset whose successor is
+    not [`NO_STATE`][tether.idealize.driver.NO_STATE]), the numerator the subset whose successor is
     ``final_state``. Returns ``None`` when ``init_state`` is never occupied with an
     observed successor (an undefined probability — never ``0/0``). Self-pairs
     (``init_state == final_state``) are counted like any row-normalized transition
@@ -189,10 +189,10 @@ def transition_prob_histogram(
     kde_bandwidth: float = DEFAULT_TPROB_KDE_BANDWIDTH,
     kde_points: int = DEFAULT_TPROB_KDE_POINTS,
 ) -> TransitionProbHistogram:
-    """Bin per-molecule ``P(init -> fin)`` into a :class:`TransitionProbHistogram`.
+    """Bin per-molecule ``P(init -> fin)`` into a [`TransitionProbHistogram`][].
 
     Each element of ``state_chunks`` is one molecule's integer Viterbi path. Its
-    :func:`empirical_transition_probability` is computed; molecules with no defined
+    [`empirical_transition_probability`][] is computed; molecules with no defined
     probability (never in ``init_state``) are dropped, and the rest are pooled and
     histogrammed over ``prob_range``. When ``kde`` and at least two probabilities are
     available, a Gaussian-KDE curve is attached (``None`` otherwise).
@@ -209,7 +209,7 @@ def transition_prob_histogram(
     prob_range
         ``(lo, hi)`` probability range for the histogram (``hi > lo``).
     density
-        If ``True``, normalize like :func:`numpy.histogram` ``density`` (integral over
+        If ``True``, normalize like [`numpy.histogram`][] ``density`` (integral over
         the range is 1); else raw counts.
     kde
         Attach a Gaussian-KDE overlay curve when computable.
@@ -305,16 +305,16 @@ def population_transition_prob_histogram(
     """Transition-prob histogram from a ``.tether`` store (§10 B3; Appendix C B3; PRD §7.7).
 
     Reads each accepted, **fresh** molecule's Viterbi state path from
-    ``/idealization/{model_name}`` and feeds them to :func:`transition_prob_histogram`
+    ``/idealization/{model_name}`` and feeds them to [`transition_prob_histogram`][]
     for the ordered pair (``init_state`` → ``final_state``). STALE molecules are
     excluded (PRD §5.1) unless ``include_stale``; rejected molecules are excluded
     unless ``include_rejected`` (§7.5) — the B1 TDP selection contract
-    (:func:`tether.analysis.tdp.population_transition_density`).
+    ([`tether.analysis.tdp.population_transition_density`][]).
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths + state count.
     init_state, final_state
@@ -324,7 +324,7 @@ def population_transition_prob_histogram(
         Restrict to these ``molecule_key`` values (``None`` = all), intersected with
         the fresh + curation filters.
     prob_bins, prob_range, density, kde, kde_bandwidth, kde_points
-        Passed through to :func:`transition_prob_histogram`.
+        Passed through to [`transition_prob_histogram`][].
     include_rejected
         Keep rejected molecules (default excludes them, §7.5).
     include_stale

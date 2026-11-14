@@ -2,20 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Store-integrated gradient-boosting quality ranker (PRD §7.5; FR-ML).
 
-Wires the trained scorer (:mod:`tether.ml.gbranker`) to a ``.tether``: it trains on the project's
+Wires the trained scorer ([`tether.ml.gbranker`][]) to a ``.tether``: it trains on the project's
 human accept/reject labels **plus** the down-weighted provisional ``/labels`` priors (the §7.5
 cold-start seeding seam), and ranks **every** molecule (labeled and uncurated alike) by predicted
 quality. It reuses the read-only human-only supervised view
-(:func:`tether.project.ranking.ranking_dataset`) for ranking + evaluation and adds the weighted
-training view (:func:`weighted_training_set`) for the fit. Read-only over the M0-frozen
+([`tether.project.ranking.ranking_dataset`][]) for ranking + evaluation and adds the weighted
+training view ([`weighted_training_set`][]) for the fit. Read-only over the M0-frozen
 ``/features`` + ``/molecules`` + ``/labels``: no group, dataset, dtype or field change, so the
 ``schema-guard`` freeze holds.
 
 Scope. Train + rank + **apparent** precision@k. The ranker trains on the project's human
 accept/reject labels **plus** any provisional ``/labels`` priors (Deep-LASI / cross-condition seeds)
 folded in at their §7.5 cold-start-decayed ``sample_weight`` — ``w = w₀/(1 + n_human)``,
-:mod:`tether.ml.weighting` — with a human label superseding a provisional prior on the same
-molecule; the **apparent** precision@k :func:`ranker_precision_at_k` reports is still measured over
+[`tether.ml.weighting`][] — with a human label superseding a provisional prior on the same
+molecule; the **apparent** precision@k [`ranker_precision_at_k`][] reports is still measured over
 the **human** labels only (the seeds train the model but are never scored as ground truth) — an
 in-sample diagnostic, deliberately **not** the ship gate. The honest held-out **prequential**
 median-across-videos uplift (PRD §7.5; oracle (d)) and the model's persistence as a portable
@@ -79,13 +79,13 @@ def _latest_provisional_labels(labels_rows: np.ndarray) -> dict[str, int]:
     """``molecule_key -> latest provisional accept/reject`` over the ``/labels`` log (PRD §7.5).
 
     Scans the append-only ``/labels`` history in order and, **only** for the two provisional seed
-    sources (:data:`tether.project.labels.PROVISIONAL_LABEL_SOURCES` — ``deeplasi-provisional`` /
+    sources ([`tether.project.labels.PROVISIONAL_LABEL_SOURCES`][] — ``deeplasi-provisional`` /
     ``cross-condition-seed``), keeps each ``molecule_key``'s *most recent* ``label_value`` — a later
     provisional event supersedes an earlier one (a re-seed, or a provisional clear to
     ``UNCURATED``). Keys whose latest provisional state is ``UNCURATED`` are dropped, so the result
     is exactly the keys currently carrying a provisional accept/reject prior. A ``human`` row (its
     decision lives on ``/molecules.curation_label`` and takes priority in
-    :func:`weighted_training_set`) — and any future non-seed source — is ignored, so only the two
+    [`weighted_training_set`][]) — and any future non-seed source — is ignored, so only the two
     seed sources ever enter training.
     """
     state: dict[str, int] = {}
@@ -104,8 +104,8 @@ class WeightedTrainingSet:
 
     The supervised set the gradient-boosting ranker fits on — a superset of the human labels that
     also folds in the two provisional ``/labels`` priors (Deep-LASI / cross-condition seeds), each
-    at its cold-start-decayed weight (:mod:`tether.ml.weighting`). Distinct from the human-only
-    :class:`tether.project.ranking.RankingDataset`, which stays the **evaluation** ground truth:
+    at its cold-start-decayed weight ([`tether.ml.weighting`][]). Distinct from the human-only
+    [`tether.project.ranking.RankingDataset`][], which stays the **evaluation** ground truth:
     apparent/prequential precision@k score against the human labels alone, never the provisional
     priors (the seeds train the model but are never counted as truth).
 
@@ -115,14 +115,14 @@ class WeightedTrainingSet:
         The ``molecule_id`` of each training row (a labeled molecule). An uncurated molecule with no
         prior is not a training row, though it is still *ranked* (never dropped, PRD §7.5).
     feature_names:
-        The feature-column order (:data:`tether.ml.features.FEATURE_NAMES`).
+        The feature-column order ([`tether.ml.features.FEATURE_NAMES`][]).
     X:
         ``(n_train, n_features)`` ``float64`` feature matrix of the training rows (``NaN`` allowed).
     y:
         ``(n_train,)`` boolean accept (``True`` = good) / reject label.
     sample_weight:
         ``(n_train,)`` ``float64`` per-row training weight — ``1.0`` for a human label, the decayed
-        ``w₀/(1 + n_human)`` for a provisional prior (:mod:`tether.ml.weighting`).
+        ``w₀/(1 + n_human)`` for a provisional prior ([`tether.ml.weighting`][]).
     """
 
     molecule_ids: list[str]
@@ -149,22 +149,24 @@ class WeightedTrainingSet:
 class ScoredMolecules:
     """A trained ranker's ``P(good)`` scores over **every** molecule + the fixed quality sweep.
 
-    The shared output of one train+score pass (:func:`score_molecules`): the substrate both the
-    quality ranking (:func:`ranker_ranking`) and the active-learning "recommended next" badge
-    (:func:`tether.project.active.next_recommendation`) read.
+    The shared output of one train+score pass ([`score_molecules`][]): the substrate both the
+    quality ranking ([`ranker_ranking`][]) and the active-learning "recommended next" badge
+    ([`tether.project.active.next_recommendation`][]) read.
 
     Attributes
     ----------
     dataset:
-        The human-only supervised view (:class:`~tether.project.ranking.RankingDataset`) — the
+        The human-only supervised view ([`RankingDataset`][tether.project.ranking.RankingDataset]) —
+        the
         molecule ids/keys, the feature matrix, and each molecule's ``curation_label`` (so a
         caller can tell which molecules are still uncurated, via ``labeled_mask``).
     scores:
         ``(n_molecules,)`` ``float64`` ``P(good)`` quality score of each molecule, aligned to
         ``dataset.molecule_ids``.
     sweep:
-        The fixed, never-auto-drop quality ranking (:class:`~tether.ml.ranking.RankedTraces`) —
-        every molecule ordered highest ``P(good)`` first. Identical to :func:`ranker_ranking`.
+        The fixed, never-auto-drop quality ranking
+        ([`RankedTraces`][tether.ml.ranking.RankedTraces]) —
+        every molecule ordered highest ``P(good)`` first. Identical to [`ranker_ranking`][].
     """
 
     dataset: RankingDataset
@@ -175,7 +177,7 @@ class ScoredMolecules:
 def _prepare(project: ProjectRef, w0: float) -> tuple[WeightedTrainingSet, RankingDataset]:
     """Build the weighted training set + the human-only ranking dataset from one project read.
 
-    Returns both so a caller that also ranks/evaluates (:func:`_train_and_rank`) reuses the single
+    Returns both so a caller that also ranks/evaluates (`_train_and_rank`) reuses the single
     ``/features`` read rather than assembling it twice. Read-only.
     """
     from tether.imaging.extract import read_molecules  # noqa: PLC0415
@@ -235,9 +237,9 @@ def weighted_training_set(
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     w0:
-        The cold-start seed weight ``w₀`` (default :data:`tether.ml.weighting.DEFAULT_SEED_WEIGHT`,
+        The cold-start seed weight ``w₀`` (default [`tether.ml.weighting.DEFAULT_SEED_WEIGHT`][],
         the PRD §11.2 tunable) provisional priors decay from.
 
     Raises
@@ -273,12 +275,13 @@ def score_molecules(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> 
     Builds the weighted training set (human + decayed provisional priors), fits the model
     **once**, and scores every molecule (labeled *and* uncurated), returning the per-molecule
     ``P(good)`` scores, the fixed never-auto-drop quality **sweep** (highest quality first), and
-    the human-only :class:`~tether.project.ranking.RankingDataset` (its ``curation_label`` marks
+    the human-only [`RankingDataset`][tether.project.ranking.RankingDataset] (its ``curation_label``
+    marks
     which molecules are still uncurated). The shared train+score seam behind
-    :func:`ranker_ranking` and the active-learning badge
-    (:func:`tether.project.active.next_recommendation`), so neither re-reads or re-fits. Because
+    [`ranker_ranking`][] and the active-learning badge
+    ([`tether.project.active.next_recommendation`][]), so neither re-reads or re-fits. Because
     ``QualityRanker.rank`` is exactly ``rank_by_score(ids, score(X))``, the ``sweep`` here is
-    identical to :func:`ranker_ranking` while scoring only once. Read-only.
+    identical to [`ranker_ranking`][] while scoring only once. Read-only.
 
     Raises
     ------
@@ -302,9 +305,9 @@ def _train_and_rank(
 ) -> tuple[RankedTraces, RankingDataset]:
     """Train the ranker once and rank every molecule — shared by the ranking entry points.
 
-    Delegates to :func:`score_molecules` (one project read, one fit), returning its fixed quality
+    Delegates to [`score_molecules`][] (one project read, one fit), returning its fixed quality
     sweep and the human-only dataset so a caller that also needs the evaluation labels
-    (:func:`ranker_precision_at_k`) reuses this single fit.
+    ([`ranker_precision_at_k`][]) reuses this single fit.
     """
     scored = score_molecules(project, w0=w0)
     return scored.sweep, scored.dataset
@@ -313,7 +316,7 @@ def _train_and_rank(
 def train_ranker(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> QualityRanker:
     """Train the gradient-boosting quality ranker on a project's ``/features`` + ``/labels``.
 
-    Fits :func:`tether.ml.gbranker.train_quality_ranker` on the molecules a human has
+    Fits [`tether.ml.gbranker.train_quality_ranker`][] on the molecules a human has
     accepted/rejected (full weight, accept = good) **plus** any provisional ``/labels`` priors
     (Deep-LASI / cross-condition seeds) folded in at their §7.5 cold-start-decayed weight
     (``w = w₀/(1 + n_human)``); a human label supersedes a provisional prior on the same molecule.
@@ -322,7 +325,7 @@ def train_ranker(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> Qua
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     w0:
         The seed weight ``w₀`` provisional priors decay from (PRD §11.2).
 
@@ -364,7 +367,7 @@ def ranker_precision_at_k(project: ProjectRef, k: int, *, w0: float = DEFAULT_SE
     **human**-labeled molecules only — the provisional seeds train the model but are never scored as
     ground truth. Optimistically biased, so **not** the M5 ship gate — the honest held-out
     **prequential** median-across-videos uplift lands in its own later PR (oracle (d)). Compare it
-    against :func:`tether.project.ranking.baseline_precision_at_k` for a same-project, same-``k``
+    against [`tether.project.ranking.baseline_precision_at_k`][] for a same-project, same-``k``
     before/after read. Read-only.
 
     Raises
@@ -374,7 +377,7 @@ def ranker_precision_at_k(project: ProjectRef, k: int, *, w0: float = DEFAULT_SE
     ValueError
         No human-labeled molecules (precision@k is undefined), no labeled molecules to train on,
         only one class is labeled, or ``k`` is not a positive integer (propagated from
-        :func:`tether.ml.ranking.precision_at_k`).
+        [`tether.ml.ranking.precision_at_k`][]).
     """
     from tether.ml.ranking import precision_at_k  # noqa: PLC0415
 

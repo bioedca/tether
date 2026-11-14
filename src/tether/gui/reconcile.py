@@ -2,15 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The per-trace tMAVEN return-leg reconcile prompt (PRD §7.4/§5.3, FR-IDEALIZE).
 
-:class:`ReconcileDialog` is the GUI surface for the return leg of the standalone
+[`ReconcileDialog`][] is the GUI surface for the return leg of the standalone
 tMAVEN hand-off (M2 S7 PR-B). Its headless core landed in
-:mod:`tether.project.handoff` (PR-A): :func:`~tether.project.handoff.read_return_leg`
+[`tether.project.handoff`][] (PR-A): [`read_return_leg`][tether.project.handoff.read_return_leg]
 intensity-matches a returning SMD to the store and produces a
-:class:`~tether.project.handoff.ReconcileReport` — the per-trace diff of
+[`ReconcileReport`][tether.project.handoff.ReconcileReport] — the per-trace diff of
 analysis-window edits and tMAVEN integer-class changes plus the unmatched report —
-and :func:`~tether.project.handoff.apply_reconcile` commits the accepted subset
+and [`apply_reconcile`][tether.project.handoff.apply_reconcile] commits the accepted subset
 non-destructively. This dialog renders that report as a per-trace **accept/reject**
-prompt and hands back a :class:`ReconcileDecision` the shell feeds straight to
+prompt and hands back a [`ReconcileDecision`][] the shell feeds straight to
 ``apply_reconcile``.
 
 Design notes:
@@ -26,7 +26,7 @@ Design notes:
 * **Unmatched traces** are shown read-only (reported, never guessed — §5.3).
 * **Composition wrapper.** Like the other ``tether.gui`` dialogs it *holds* a
   ``QDialog`` rather than subclassing one, and imports Qt lazily inside ``__init__``
-  so importing this module (and the Qt-free :class:`ReconcileDecision`) costs no Qt.
+  so importing this module (and the Qt-free [`ReconcileDecision`][]) costs no Qt.
   Constructing a dialog needs a live ``QApplication`` (the shell / ``qtbot`` provide
   one).
 """
@@ -48,7 +48,7 @@ __all__ = ["ReconcileDecision", "ReconcileDialog"]
 class ReconcileDecision:
     """The accepted subset of a return-leg reconcile, keyed by ``molecule_id``.
 
-    Maps one-to-one onto :func:`tether.project.handoff.apply_reconcile`'s
+    Maps one-to-one onto [`tether.project.handoff.apply_reconcile`][]'s
     ``accept_windows`` / ``accept_classes`` / ``import_idealization`` arguments (the
     empty tuple is a valid "accept none" spec).
     """
@@ -84,7 +84,7 @@ def _class_text(trace: TraceReconcile) -> str:
 
 
 class ReconcileDialog:
-    """A per-trace accept/reject prompt for a return-leg :class:`ReconcileReport`."""
+    """A per-trace accept/reject prompt for a return-leg [`ReconcileReport`][]."""
 
     #: Table column headers (the two "Accept" columns are the per-facet toggles).
     _COLUMNS = ("Molecule", "Analysis-window change", "Accept", "tMAVEN class change", "Accept")
@@ -181,7 +181,7 @@ class ReconcileDialog:
 
     @property
     def report(self) -> ReconcileReport:
-        """The return-leg :class:`ReconcileReport` this prompt renders."""
+        """The return-leg [`ReconcileReport`][] this prompt renders."""
         return self._report
 
     @property
@@ -231,7 +231,7 @@ class ReconcileDialog:
         )
 
     def exec(self) -> ReconcileDecision | None:
-        """Show modally; return the :class:`ReconcileDecision` on OK, ``None`` on Cancel."""
+        """Show modally; return the [`ReconcileDecision`][] on OK, ``None`` on Cancel."""
         from pyqtgraph.Qt import QtWidgets
 
         accepted = self._dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted

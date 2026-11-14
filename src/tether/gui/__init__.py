@@ -5,7 +5,7 @@
 The PySide6 application shell with an embedded napari movie panel, the
 multi-movie round-trip browser, curation/labeling, annotation, and the
 pyqtgraph plot docks. This layer is a thin presentation shell over
-:mod:`tether.project`.
+[`tether.project`][].
 """
 
 from __future__ import annotations

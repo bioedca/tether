@@ -11,19 +11,19 @@ a **vector SVG**, and a **raster PNG**, each carrying a provenance stamp.
 Design
 ------
 - **Headless, Qt-free.** Rendering uses Matplotlib's object-oriented
-  :class:`matplotlib.figure.Figure` API directly (never ``pyplot``), so no GUI
+  [`matplotlib.figure.Figure`][] API directly (never ``pyplot``), so no GUI
   backend is ever selected — this keeps the base environment free of PyQt5/Tk
   (the §4.1 no-PyQt5 base invariant that motivated shipping ``matplotlib-base``,
   ADR-0044). ``Figure.savefig`` attaches the format-appropriate canvas (Agg for
   PNG, ``backend_pdf`` for PDF, ``backend_svg`` for SVG) on demand.
 - **Rendering is separate from IO.** Each ``render_*`` returns a bare
-  :class:`~matplotlib.figure.Figure` (no stamp, no file); :func:`export_figure`
+  [`Figure`][matplotlib.figure.Figure] (no stamp, no file); [`export_figure`][]
   adds the visible provenance footer and writes the three files + the sidecar.
   A caller can therefore embed the same figure in the GUI and export it
   identically.
 - **Provenance travels three ways** (§8 NFR-REPRO, invariant §1.3(4)): a
   ``<stem>.provenance.json`` sidecar (reusing
-  :func:`tether.project.export.write_provenance_sidecar`, the single stamping
+  [`tether.project.export.write_provenance_sidecar`][], the single stamping
   convention shared with the table/subset exports); a **visible on-figure footer**
   (``Tether <version> · <utc> · <kind>``) so the stamp travels *on the plot* a
   reader sees; and **embedded file metadata** (PDF/SVG/PNG document metadata).
@@ -306,7 +306,7 @@ def export_figure(
 
 
 def _new_figure(figsize: tuple[float, float] | None) -> Figure:
-    """A constrained-layout :class:`Figure` (no pyplot, so no GUI backend)."""
+    """A constrained-layout [`Figure`][] (no pyplot, so no GUI backend)."""
     return Figure(figsize=figsize or DEFAULT_FIGSIZE, layout="constrained")
 
 
@@ -324,10 +324,10 @@ def render_histogram1d(
 ) -> Figure:
     """Render the A1 1-D population apparent-E histogram (Appendix C A1).
 
-    Accepts a bare :class:`~tether.analysis.histogram.Histogram1D` or a
-    :class:`~tether.analysis.histogram.HistogramBootstrapCI` (whose per-bin
+    Accepts a bare [`Histogram1D`][tether.analysis.histogram.Histogram1D] or a
+    [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI] (whose per-bin
     percentile band is drawn as a shaded region). An optional
-    :class:`~tether.analysis.histogram.ModelGaussianOverlay` draws the idealized
+    [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] draws the idealized
     model's per-state Gaussians and their sum.
     """
     if isinstance(hist, HistogramBootstrapCI):
@@ -606,7 +606,7 @@ def render_raw_fret_cloud(
 
     ``max_points`` caps the scatter overlay for a manageable vector file; the density
     surface (when computed) is unaffected by that cap — but it was fit by
-    :func:`tether.analysis.cloud.raw_fret_cloud` on the in-range points only
+    [`tether.analysis.cloud.raw_fret_cloud`][] on the in-range points only
     (``n_out_of_range`` counts the rest).
     """
     points = np.asarray(cloud.points, dtype="float64")

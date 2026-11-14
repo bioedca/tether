@@ -29,11 +29,11 @@ max_skipped = 15
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 28
+max_skipped = 29
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 13
+max_skipped = 14
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -56,6 +56,14 @@ jobs = ["test (macos-latest)", "test (windows-latest)"]
 why = """The coverage-floor ratchet (#724, ADR-0072) compares the floors with the copy on main. \
 Only the Linux leg fetches main and sets TETHER_COVERAGE_BASE_REF, which makes the test fail \
 instead of skip there; the macOS and Windows legs do not change, so they have no main to read."""
+
+[[skip]]
+test = "tests/test_docstring_standard.py::test_allowlist_never_grows"
+reason = "no origin/main in this checkout (CI's Linux leg fetches it and sets TETHER_DOCSTRING_BASE_REF)"
+jobs = ["test (macos-latest)", "test (windows-latest)"]
+why = """The docstring-allowlist ratchet (#611, ADR-0093) compares the allowlist with the copy on \
+main, like the coverage-floor ratchet above. Only the Linux leg fetches main and sets \
+TETHER_DOCSTRING_BASE_REF, which makes the test fail instead of skip there."""
 
 [[skip]]
 test = "tests/test_deep_gpu_deep.py"

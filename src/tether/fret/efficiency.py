@@ -15,7 +15,7 @@ with **apparent E** = the same formula at ``α = δ = 0, γ = 1`` — i.e. the r
 proximity ratio ``A / (D + A)`` shown before any correction is available
 [McCann2010][Hellenkamp2018]. Keeping both in one module means the dock, the
 corrections pipeline, and analysis all compute E exactly one way: apparent E is
-literally :func:`corrected_fret` with the identity factors, so there is no second
+literally [`corrected_fret`][] with the identity factors, so there is no second
 definition to drift.
 
 The uncorrected proximity ratio is "internally consistent only if the photophysical
@@ -23,20 +23,20 @@ properties and instrument remain unchanged" and is *not* an absolute distance me
 [McCann2010]; the multi-laboratory smFRET benchmark [Hellenkamp2018] formalises the
 correction procedure implemented here. Per-molecule γ from single-molecule
 photobleaching is the most effective route to an absolute efficiency [McCann2010]
-(estimated in :mod:`tether.fret.gamma`).
+(estimated in [`tether.fret.gamma`][]).
 
 Donor convention (why bare ``I_D``, not ``I_D·(1+α)``)
 ------------------------------------------------------
 Tether's additive scheme (PRD Appendix B.2) defines the corrected donor as the *bare*
 background-subtracted donor ``I_D,corr = I_D``: the leakage subtraction only removes
 donor-leaked photons *from the acceptor* (``I_A,corr = I_A − α·I_D``) and does not add
-them back to the donor. γ (:mod:`tether.fret.gamma`) is defined consistently with this
+them back to the donor. γ ([`tether.fret.gamma`][]) is defined consistently with this
 ``I_D,corr`` (it divides by the bare ``ΔI_D``), so the pair is internally
 self-consistent — the ``(1+α)`` cancels between a group's γ definition and its ``E``.
 Deep-LASI scales the donor by ``(1+α)`` instead; each convention is self-consistent,
 so a cross-tool γ comparison must control for it (ADR-0028).
 
-Kept in :mod:`tether.fret` (headless, Qt-free) so the GUI, the corrections pipeline,
+Kept in [`tether.fret`][] (headless, Qt-free) so the GUI, the corrections pipeline,
 and analysis all share one definition.
 
 References
@@ -74,12 +74,12 @@ def corrected_fret(
         Per-frame background-subtracted donor and acceptor intensities. Broadcast
         against each other, so scalars or matching-shape arrays are both accepted.
     alpha
-        Donor→acceptor leakage factor α (from :mod:`tether.fret.leakage`). ``0``
+        Donor→acceptor leakage factor α (from [`tether.fret.leakage`][]). ``0``
         disables the leakage correction.
     gamma
-        Detection-correction factor γ (from :mod:`tether.fret.gamma`). ``1`` leaves
+        Detection-correction factor γ (from [`tether.fret.gamma`][]). ``1`` leaves
         the donor/acceptor balance unchanged; with ``alpha=0`` this yields apparent E
-        (see :func:`apparent_fret`).
+        (see [`apparent_fret`][]).
 
     Returns
     -------
@@ -104,7 +104,7 @@ def apparent_fret(donor: np.ndarray, acceptor: np.ndarray) -> np.ndarray:
     """Return the apparent FRET efficiency (proximity ratio) ``A / (D + A)``.
 
     The uncorrected efficiency shown before leakage/γ corrections are available —
-    exactly :func:`corrected_fret` at the identity factors ``alpha=0, gamma=1``
+    exactly [`corrected_fret`][] at the identity factors ``alpha=0, gamma=1``
     (PRD §7.4). Tether labels the FRET axis "apparent E" until M3 supplies the
     correction factors [McCann2010][Hellenkamp2018].
 

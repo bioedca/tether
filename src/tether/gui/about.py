@@ -23,12 +23,12 @@ The documentation link points at the installed version's docs: a final release
 build (a release candidate, a development build) opens ``latest``.
 
 Above the build rows the box shows the brand (#689): the tile at
-:data:`TILE_SIZE` px, the name and the tagline. Below them it gives the two licences
-(:data:`LICENSE_LINE`), the citation with the concept DOI of ``CITATION.cff``
-(:data:`CONCEPT_DOI`), and links to the documentation and the repository. **Copy**
+[`TILE_SIZE`][] px, the name and the tagline. Below them it gives the two licences
+([`LICENSE_LINE`][]), the citation with the concept DOI of ``CITATION.cff``
+([`CONCEPT_DOI`][]), and links to the documentation and the repository. **Copy**
 copies all of that text and never the picture.
 
-Like the other ``tether.gui`` dialogs, :class:`AboutDialog` *holds* a ``QDialog``
+Like the other ``tether.gui`` dialogs, [`AboutDialog`][] *holds* a ``QDialog``
 rather than subclassing one, and Qt is imported lazily.
 """
 
@@ -316,7 +316,7 @@ class AboutDialog:
 
     @property
     def tile(self) -> QtWidgets.QLabel:
-        """The tile picture (:data:`TILE_SIZE` px); **Copy** never copies it."""
+        """The tile picture ([`TILE_SIZE`][] px); **Copy** never copies it."""
         return self._tile
 
     @property
@@ -329,7 +329,7 @@ class AboutDialog:
         return about_text(self._rows)
 
     def copy(self) -> str:
-        """Put :meth:`text` on the system clipboard and return it."""
+        """Put [`text`][] on the system clipboard and return it."""
         from pyqtgraph.Qt import QtWidgets
 
         text = self.text()

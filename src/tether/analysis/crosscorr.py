@@ -169,8 +169,10 @@ def population_cross_correlation(
     (``< 2`` frames), non-finite, or constant (undefined correlation) are skipped —
     ``n_molecules`` reports how many actually contributed.
 
-    Parameters mirror :func:`population_apparent_e_histogram`; ``max_lag``,
-    ``normalize`` mirror :func:`cross_correlation`.
+    Parameters mirror
+    [`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram];
+    ``max_lag``,
+    ``normalize`` mirror [`cross_correlation`][].
 
     Raises
     ------

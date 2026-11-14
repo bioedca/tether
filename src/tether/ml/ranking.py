@@ -6,28 +6,28 @@ The evaluation substrate the per-condition quality ranker (PRD §7.5) is
 measured on, and the invariant it must obey — both defined *independently of which model
 produces the scores*:
 
-* **precision@k** (:func:`precision_at_k`) — the M5 success metric (PRD §7.5): the
+* **precision@k** ([`precision_at_k`][]) — the M5 success metric (PRD §7.5): the
   fraction of *good* (human-accepted) traces among the first ``k`` reviewed, where ``k``
   is a curation sitting's budget (≈ 20–50 traces at ~1–2 s each). It is the standard
   information-retrieval ranking-quality metric [Manzhos2025][Divekar2026]; the M5 §9 gate
   is a precision@k **uplift over the file-/extraction-order baseline**
-  (:func:`precision_at_k_uplift`), whose prequential median-across-videos protocol lands
+  ([`precision_at_k_uplift`][]), whose prequential median-across-videos protocol lands
   in its own later PR.
-* the **never-auto-drop** contract (:class:`RankedTraces`, :func:`rank_by_score`) — PRD §7.5
+* the **never-auto-drop** contract ([`RankedTraces`][], [`rank_by_score`][]) — PRD §7.5
   "the model **shall only re-order / pre-sort — never auto-drop**". A ranking is a
   *permutation* of the molecule set: every molecule appears exactly once and none is
   removed. A molecule the model cannot score (a ``NaN`` quality score, never a fabricated
   ``0``) is ranked **last** (least-confident) and **kept**, not dropped — the ranking
-  analogue of :mod:`tether.ml.similarity`'s "reported, not dropped" discipline.
+  analogue of [`tether.ml.similarity`][]'s "reported, not dropped" discipline.
 
 This module is deliberately **model-free and dependency-free**: it fixes the metric and the
 ordering contract in pure NumPy so the gradient-boosting ranker (PRD §7.5 [Chen2016], a
 later PR that adds the scikit-learn/XGBoost dependency) plugs its scores into
-:func:`rank_by_score` and is scored by :func:`precision_at_k` without either concern
+[`rank_by_score`][] and is scored by [`precision_at_k`][] without either concern
 importing the other.
 
 Determinism. Every ordering breaks ties on the stable ``molecule_id`` (the
-:mod:`tether.ml.similarity` precedent), so a ranking is reproducible across platforms
+[`tether.ml.similarity`][] precedent), so a ranking is reproducible across platforms
 regardless of a scorer's or a sort's internal ordering.
 
 References
@@ -132,18 +132,18 @@ class RankedTraces:
     """A ranking of a molecule set — a *permutation*, never a filter (PRD §7.5).
 
     ``molecule_ids`` is the ranked order (index ``0`` = best / most likely good), coerced to
-    ``str`` at construction so a directly-built ranking matches what :func:`rank_by_score` /
-    :func:`file_order_ranking` store; ``scores[i]`` is the quality score of
+    ``str`` at construction so a directly-built ranking matches what [`rank_by_score`][] /
+    [`file_order_ranking`][] store; ``scores[i]`` is the quality score of
     ``molecule_ids[i]`` (higher = better for a ``descending`` ranking; ``NaN`` marks an
     unscored molecule ranked last). The never-auto-drop invariant is a *construction
     guarantee*: the ids are unique and no molecule is ever removed, so a
-    :class:`RankedTraces` always ranks **every** molecule it was built from.
+    [`RankedTraces`][] always ranks **every** molecule it was built from.
     """
 
     molecule_ids: tuple[str, ...]
     scores: tuple[float, ...]
-    #: Derived ``molecule_id -> 1-based rank`` lookup, built once so :meth:`rank_of` is O(1)
-    #: (the :mod:`tether.ml.similarity` ``_row_of`` precedent). Excluded from eq/hash/repr so
+    #: Derived ``molecule_id -> 1-based rank`` lookup, built once so `rank_of` is O(1)
+    #: (the `tether.ml.similarity` ``_row_of`` precedent). Excluded from eq/hash/repr so
     #: the value's identity stays its ``(molecule_ids, scores)`` content.
     _rank_by_id: dict[str, int] = field(init=False, compare=False, repr=False)
 
@@ -182,7 +182,7 @@ class RankedTraces:
         Walks the ranking and, for every molecule that carries a ground-truth label in
         ``is_good`` (a human accept/reject; unlabeled molecules are skipped), records
         ``True`` where accepted. The result is the ranked-order relevance array
-        :func:`precision_at_k` consumes.
+        [`precision_at_k`][] consumes.
         """
         return np.array(
             [bool(is_good[mid]) for mid in self.molecule_ids if mid in is_good],
@@ -248,7 +248,7 @@ def file_order_ranking(molecule_ids: Sequence[str]) -> RankedTraces:
     The precision@k **baseline** the ranker's uplift is measured against (PRD §7.5):
     curation in the order traces come out of the file, with no quality model. Preserves the
     given order *exactly* (it is not re-sorted); ``scores`` are the descending rank position
-    purely so the object is a well-formed :class:`RankedTraces`.
+    purely so the object is a well-formed [`RankedTraces`][].
 
     Raises
     ------
@@ -268,7 +268,7 @@ def precision_at_k_uplift(
     """precision@k of ``candidate`` minus that of ``baseline`` (PRD §7.5, oracle (d)).
 
     The M5 success signal: how much a quality ranking improves the fraction of good traces
-    in the first ``k`` reviewed over the file-order (:func:`file_order_ranking`) baseline.
+    in the first ``k`` reviewed over the file-order ([`file_order_ranking`][]) baseline.
     Returned as a **fraction** — multiply by 100 for the PRD §11.2 "percentage-point"
     ship-bar. Both rankings must cover the same labeled population so the two precisions are
     comparable; the prequential, median-across-videos gate that *consumes* this uplift lands
@@ -278,7 +278,7 @@ def precision_at_k_uplift(
     ------
     ValueError
         The two rankings do not label the same molecule set, or ``k``/relevance is invalid
-        (propagated from :func:`precision_at_k`).
+        (propagated from [`precision_at_k`][]).
     """
     candidate_labeled = [mid for mid in candidate.molecule_ids if mid in is_good]
     baseline_labeled = [mid for mid in baseline.molecule_ids if mid in is_good]

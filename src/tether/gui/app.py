@@ -3,20 +3,20 @@
 """The ``tether-gui`` desktop entry point (PRD §7.8, §9 M9).
 
 The front door a shortcut or a shell command opens. It builds the
-:class:`~tether.gui.shell.TetherShell` against a **real** store — either the
+[`TetherShell`][tether.gui.shell.TetherShell] against a **real** store — either the
 ``.tether`` named on the command line, or none, in which case the shell opens empty
 and the curator picks one through ``&File -> &Open project...``.
 
-This is deliberately *not* :func:`tether.gui.shell.launch`, which fabricates six
+This is deliberately *not* [`tether.gui.shell.launch`][], which fabricates six
 synthetic traces and a demo project as a hand-driven live-smoke helper. Wiring a
 desktop shortcut to that entry would ship a demo rather than the application.
 
-The Qt import is deferred into :func:`create_shell`, after the arguments are parsed,
+The Qt import is deferred into [`create_shell`][], after the arguments are parsed,
 so that ``--version`` and ``--help`` answer without paying for PySide6/pyqtgraph,
-matching the lazy-import discipline :mod:`tether.cli` uses for the imaging stack.
+matching the lazy-import discipline [`tether.cli`][] uses for the imaging stack.
 
-Between the ``QApplication`` and the slow import of the shell, :func:`create_shell`
-shows the startup splash (:mod:`tether.gui.splash`, #676) on a platform with a screen.
+Between the ``QApplication`` and the slow import of the shell, [`create_shell`][]
+shows the startup splash ([`tether.gui.splash`][], #676) on a platform with a screen.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def create_shell(
 ) -> tuple[Any, TetherShell]:
     """Build the ``QApplication`` and shell **without** entering the event loop.
 
-    Split out from :func:`main` so the startup path is exercisable headlessly: a test
+    Split out from [`main`][] so the startup path is exercisable headlessly: a test
     can assert that a named project is opened, or that a bad path leaves a usable empty
     shell, without blocking on ``app.exec()``.
 
@@ -74,16 +74,16 @@ def create_shell(
     one under test), since Qt permits only a single instance per process.
 
     A project that fails to open is reported on the status bar by
-    :meth:`~tether.gui.shell.TetherShell.load_project` and leaves the shell empty
+    [`load_project`][tether.gui.shell.TetherShell.load_project] and leaves the shell empty
     rather than raising — starting the application must not be fatal just because the
     path on the command line was wrong.
 
     The arguments are parsed first, so ``--version`` and ``--help`` exit before any Qt
     import and before any window. Then the application identity — the Tether icon, the
     Windows AppUserModelID and the Linux desktop file name (issue #673,
-    :mod:`tether.gui.identity`) — is set, before the splash: Windows reads the identity
+    [`tether.gui.identity`][]) — is set, before the splash: Windows reads the identity
     only before the first window, and the splash is a window. Then the startup splash
-    shows, before the import of :mod:`tether.gui.shell`, which is the slow part; it
+    shows, before the import of [`tether.gui.shell`][], which is the slow part; it
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
     ``False`` decides it explicitly.
@@ -125,7 +125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Open the Tether shell and run until the window closes.
 
     First, on Windows, it puts the env's own DLL folders at the front of ``PATH``
-    (:func:`tether.gui.env_path.put_env_folders_first`, issue #579), before PySide6 or
+    ([`tether.gui.env_path.put_env_folders_first`][], issue #579), before PySide6 or
     NumPy loads. That is the step ``bin\\tether-gui.bat`` used to be needed for (issue
     #553), so the Start Menu shortcut can start the console-less ``tether-gui.exe``
     directly and no console window flashes (ADR-0076).

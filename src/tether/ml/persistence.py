@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Persistent portable quality-ranker artifact — save / load / warm-start-retrain (PRD §7.5; FR-ML).
 
-The per-condition quality ranker (:mod:`tether.ml.gbranker`) is required to be **persistent and
+The per-condition quality ranker ([`tether.ml.gbranker`][]) is required to be **persistent and
 portable**: a standalone file that travels with a *condition* (≈100 videos across many days and
 experiment files), reloaded and retrained video-by-video, *not* trapped inside one ``.tether``
 (PRD §7.5, §5.1 ``/models``, UC3). This module is that artifact — the load / warm-start-retrain /
-save primitives — kept Qt-free and **store-free** (pure :mod:`tether.ml`): it moves a fitted
-:class:`~tether.ml.gbranker.QualityRanker` plus its provenance to and from a portable file and
+save primitives — kept Qt-free and **store-free** (pure [`tether.ml`][]): it moves a fitted
+[`QualityRanker`][tether.ml.gbranker.QualityRanker] plus its provenance to and from a portable file
+and
 refits it at the video boundary. Wiring the artifact to a project's ``/models`` reference and its
 own single-writer owner-curator lock (PRD §5.1 ``/models``, §7.10) is the store-integration layer
 and lands in a later PR; nothing here touches a ``.tether``.
@@ -20,7 +21,7 @@ The UC3 loop (PRD §7.5) is::
     save_model(model, path)                      # persist for the next video
 
 On the first video there is no file yet, so the loop opens with
-:func:`train_portable_model` instead of :func:`load_model`.
+[`train_portable_model`][] instead of [`load_model`][].
 
 **"Warm-start" here is the loop, not scikit-learn's** ``warm_start``. A histogram
 gradient-boosting model has no exact online update on *new data* (sklearn's ``warm_start`` only
@@ -29,15 +30,15 @@ accumulated label set** — every human label seen in the condition so far, whic
 incremental trace selector is expected to sharpen as labels accrue and adapt to a new lab's
 preferences [Li2020]. The caller supplies the accumulated ``(X, y)`` (from the project's
 ``/features`` ⋈ ``/labels``); this module owns only the fit + persistence + provenance, so the
-never-fabricate and never-auto-drop disciplines of :mod:`tether.ml.gbranker` carry through
+never-fabricate and never-auto-drop disciplines of [`tether.ml.gbranker`][] carry through
 unchanged.
 
-On-disk format (:data:`MODEL_FORMAT_VERSION`). The artifact is a zip container with a **plaintext
+On-disk format ([`MODEL_FORMAT_VERSION`][]). The artifact is a zip container with a **plaintext
 ``manifest.json``** (format version, tether/scikit-learn versions, condition id, feature-name
 order, hyperparameters, and the video/retrain provenance) plus a pickled model member. The
 manifest is validated **before** the model member is unpickled, so an artifact of an unknown
 format version is rejected without ever executing its pickle — pickle/joblib deserialization runs
-arbitrary code, so :func:`load_model` is for **Tether-owned** artifacts only, never an untrusted
+arbitrary code, so [`load_model`][] is for **Tether-owned** artifacts only, never an untrusted
 file [sklearn-persistence]. The pickle uses protocol 5 (efficient for the model's NumPy arrays).
 A scikit-learn version mismatch between the saved and running environments is surfaced as a
 warning (scikit-learn's own ``InconsistentVersionWarning``), not a hard failure, so a model still
@@ -96,7 +97,7 @@ __all__ = [
 ]
 
 #: The on-disk container format version. Bump **only** on a breaking change to the zip layout
-#: (member names, manifest keys/types); :func:`load_model` refuses any other version rather than
+#: (member names, manifest keys/types); `load_model` refuses any other version rather than
 #: silently misreading it.
 MODEL_FORMAT_VERSION = 1
 
@@ -116,7 +117,7 @@ class PortableModelError(Exception):
 
 
 class UnsupportedModelFormatError(PortableModelError):
-    """The artifact's :data:`MODEL_FORMAT_VERSION` is not one this build can read."""
+    """The artifact's [`MODEL_FORMAT_VERSION`][] is not one this build can read."""
 
 
 class CorruptModelError(PortableModelError):
@@ -170,17 +171,17 @@ def _sklearn_version() -> str:
     return str(sklearn.__version__)
 
 
-# ``eq=False`` -> identity equality/hash, mirroring :class:`~tether.ml.gbranker.QualityRanker`:
+# ``eq=False`` -> identity equality/hash, mirroring `QualityRanker`:
 # this wraps a fitted estimator (no meaningful ``==``) plus provenance, and identity is the right
 # contract for a handle-like object.
 @dataclass(frozen=True, eq=False)
 class PortableRankerModel:
-    """A fitted :class:`~tether.ml.gbranker.QualityRanker` plus the provenance that makes it a
+    """A fitted `QualityRanker` plus the provenance that makes it a
     portable per-condition artifact (PRD §7.5).
 
-    Built by :func:`train_portable_model` (fresh) or :func:`warm_start_retrain` (at a video
-    boundary); moved to/from disk by :func:`save_model` / :func:`load_model`. :meth:`score` and
-    :meth:`rank` delegate to the wrapped ranker so a loaded model is used exactly like a freshly
+    Built by [`train_portable_model`][] (fresh) or [`warm_start_retrain`][] (at a video
+    boundary); moved to/from disk by [`save_model`][] / [`load_model`][]. [`score`][] and
+    [`rank`][] delegate to the wrapped ranker so a loaded model is used exactly like a freshly
     trained one — a reload is behaviourally identical to the model that was saved.
 
     Attributes
@@ -189,24 +190,25 @@ class PortableRankerModel:
         The fitted gradient-boosting scorer.
     condition_id:
         The condition the model belongs to (its identity across the ≈100 videos it spans); carried
-        forward unchanged by :func:`warm_start_retrain`.
+        forward unchanged by [`warm_start_retrain`][].
     tether_version, sklearn_version:
         The Tether and scikit-learn versions the model was last fit/saved under (provenance;
         NFR-REPRO). Stamped at construction time from the running environment.
     hyperparams:
-        The :class:`~tether.ml.gbranker.RankerHyperparams` the current fit used — the default for
-        the next :func:`warm_start_retrain` so the loop is stable.
+        The [`RankerHyperparams`][tether.ml.gbranker.RankerHyperparams] the current fit used — the
+        default for
+        the next [`warm_start_retrain`][] so the loop is stable.
     videos_seen:
         The distinct ``video_id`` s whose labels have folded into the model, in first-seen order —
         the provenance of *what the model has learned from*. Empty when no ``video_id`` was passed.
     n_retrains:
-        How many times the model has been retrained (0 for a fresh :func:`train_portable_model`,
-        incremented by each :func:`warm_start_retrain`).
+        How many times the model has been retrained (0 for a fresh [`train_portable_model`][],
+        incremented by each [`warm_start_retrain`][]).
     created_utc, updated_utc:
         ISO-8601 UTC timestamps of the first fit and the most recent (re)fit.
     source_projects:
         The project files the current fit read its labels from, in training-row order
-        (:class:`SourceProject`; ADR-0077). Empty for a model fitted on caller-supplied arrays
+        ([`SourceProject`][]; ADR-0077). Empty for a model fitted on caller-supplied arrays
         with no project record, and for an artifact saved before the field existed.
     """
 
@@ -237,11 +239,11 @@ class PortableRankerModel:
         return self.ranker.n_good
 
     def score(self, X: object) -> object:
-        """``P(good)`` per row — delegates to :meth:`tether.ml.gbranker.QualityRanker.score`."""
+        """``P(good)`` per row — delegates to [`tether.ml.gbranker.QualityRanker.score`][]."""
         return self.ranker.score(X)
 
     def rank(self, molecule_ids: Sequence[str], X: object) -> RankedTraces:
-        """Never-auto-drop ranking — delegates to :meth:`tether.ml.gbranker.QualityRanker.rank`."""
+        """Never-auto-drop ranking — delegates to [`tether.ml.gbranker.QualityRanker.rank`][]."""
         return self.ranker.rank(molecule_ids, X)
 
 
@@ -259,26 +261,26 @@ def train_portable_model(
 ) -> PortableRankerModel:
     """Fit a fresh portable model for a condition — the start of the UC3 loop (PRD §7.5).
 
-    Trains the gradient-boosting ranker (:func:`tether.ml.gbranker.train_quality_ranker`) on the
+    Trains the gradient-boosting ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on the
     condition's first batch of human accept/reject labels and wraps it with provenance so it can be
     saved and reloaded on the next video.
 
     Parameters
     ----------
     X, y, feature_names:
-        As :func:`tether.ml.gbranker.train_quality_ranker` — the labeled feature matrix, the
+        As [`tether.ml.gbranker.train_quality_ranker`][] — the labeled feature matrix, the
         boolean accept (good) / reject labels, and the feature-column order.
     condition_id:
         The condition this model belongs to (its identity across videos/files).
     hyperparams:
-        Override :data:`tether.ml.gbranker.DEFAULT_HYPERPARAMS`.
+        Override [`tether.ml.gbranker.DEFAULT_HYPERPARAMS`][].
     sample_weight:
         Optional per-row training weights (the §7.5 cold-start label weighting) forwarded to
-        :func:`tether.ml.gbranker.train_quality_ranker`; ``None`` fits at unit weight.
+        [`tether.ml.gbranker.train_quality_ranker`][]; ``None`` fits at unit weight.
     video_id:
         The video whose labels seed this first fit; recorded in ``videos_seen`` when given.
     source_projects:
-        The project files the rows of ``X`` came from (:class:`SourceProject`), recorded on the
+        The project files the rows of ``X`` came from ([`SourceProject`][]), recorded on the
         model; empty when the caller does not track them.
     now:
         Injectable timestamp (defaults to the current UTC time); for reproducible tests.
@@ -327,7 +329,7 @@ def warm_start_retrain(
 
     Refits the ranker on the **full accumulated** ``(X, y)`` the caller supplies — every human
     label the condition has seen so far, not just the new video's — and returns a **new**
-    :class:`PortableRankerModel` that carries ``condition_id`` and ``created_utc`` forward,
+    [`PortableRankerModel`][] that carries ``condition_id`` and ``created_utc`` forward,
     appends ``video_id`` to ``videos_seen`` (deduplicated, so re-curating a video does not
     double-count it), increments ``n_retrains``, and refreshes ``updated_utc`` and the
     tether/scikit-learn version stamps. The input model is left unchanged (frozen).
@@ -337,10 +339,10 @@ def warm_start_retrain(
     extended to new features mid-life). ``hyperparams`` defaults to the model's current
     hyperparameters so the loop is stable unless deliberately changed. ``sample_weight`` (the §7.5
     cold-start label weighting, recomputed each retrain) is forwarded to the fit; ``None`` fits at
-    unit weight. ``source_projects`` is the project record (:class:`SourceProject`) of the rows in
+    unit weight. ``source_projects`` is the project record ([`SourceProject`][]) of the rows in
     ``(X, y)``. When ``None``, the new model records **no** projects: this function cannot know
     that the arrays came from the old record, and a stale record would make
-    :func:`tether.project.condition_model.retrain_condition_model` silently leave out labels. A
+    [`tether.project.condition_model.retrain_condition_model`][] silently leave out labels. A
     model with an empty record is refused there, with a message that names the migration
     (ADR-0077).
 
@@ -377,7 +379,7 @@ def warm_start_retrain(
 
 
 def _source_tuple(sources: Sequence[SourceProject]) -> tuple[SourceProject, ...]:
-    """Validate a project record: :class:`SourceProject` items, no path twice."""
+    """Validate a project record: [`SourceProject`][] items, no path twice."""
     out = tuple(sources)
     for item in out:
         if not isinstance(item, SourceProject):
@@ -421,7 +423,7 @@ def save_model(model: PortableRankerModel, path: PathRef) -> None:
     """Write the portable model to ``path`` atomically (PRD §7.5).
 
     Writes a zip container (``manifest.json`` + the pickled ranker) to a temporary file in the
-    destination directory, then :func:`os.replace` s it into place, so a reader never sees a
+    destination directory, then [`os.replace`][] s it into place, so a reader never sees a
     half-written artifact and a crash mid-write leaves the previous model intact. The
     ``.tethermodel`` extension is the convention, but any ``path`` is accepted.
     """
@@ -475,11 +477,11 @@ def _require(manifest: dict[str, object], key: str, typ: type | tuple[type, ...]
 
 
 def load_model(path: PathRef) -> PortableRankerModel:
-    """Load a portable model saved by :func:`save_model` (PRD §7.5).
+    """Load a portable model saved by [`save_model`][] (PRD §7.5).
 
-    Validates the plaintext manifest — a supported :data:`MODEL_FORMAT_VERSION` and well-typed
+    Validates the plaintext manifest — a supported [`MODEL_FORMAT_VERSION`][] and well-typed
     provenance fields — **before** unpickling the model member, then reconstructs the
-    :class:`PortableRankerModel`. The loaded model scores and ranks **identically** to the one
+    [`PortableRankerModel`][]. The loaded model scores and ranks **identically** to the one
     saved (a faithful round-trip).
 
     Security: unpickling executes arbitrary code, so this is for **Tether-owned** artifacts only,
@@ -526,12 +528,12 @@ def load_model(path: PathRef) -> PortableRankerModel:
 
 
 def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
-    """Type-check and coerce every :class:`PortableRankerModel` constructor field except
+    """Type-check and coerce every [`PortableRankerModel`][] constructor field except
     ``ranker``.
 
     Runs entirely on the plaintext manifest so it can be called **before** the model member is
-    unpickled; a missing or wrong-typed field raises :class:`CorruptModelError`. ``feature_names``
-    is excluded — it is a property of the ranker, cross-checked separately in :func:`load_model`.
+    unpickled; a missing or wrong-typed field raises [`CorruptModelError`][]. ``feature_names``
+    is excluded — it is a property of the ranker, cross-checked separately in [`load_model`][].
     """
     return {
         "condition_id": str(_require(manifest, "condition_id", str)),
@@ -549,7 +551,7 @@ def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
 def _sources_from_manifest(manifest: dict[str, object]) -> tuple[SourceProject, ...]:
     """Rebuild the project record; an artifact saved before ADR-0077 has none (``()``).
 
-    The key is additive and optional, so :data:`MODEL_FORMAT_VERSION` stays 1: an older build
+    The key is additive and optional, so [`MODEL_FORMAT_VERSION`][] stays 1: an older build
     ignores it, and this build reads an older artifact as one with no project record.
     """
     if "source_projects" not in manifest:
@@ -576,7 +578,8 @@ def _sources_from_manifest(manifest: dict[str, object]) -> tuple[SourceProject, 
 def _unpickle_ranker(payload: bytes) -> QualityRanker:
     """Unpickle the model member, re-surfacing a scikit-learn version mismatch as a warning.
 
-    scikit-learn raises :class:`~sklearn.exceptions.InconsistentVersionWarning` when an estimator
+    scikit-learn raises
+    [`InconsistentVersionWarning`][sklearn.exceptions.InconsistentVersionWarning] when an estimator
     is unpickled under a different scikit-learn version ([sklearn-persistence]); we let the model
     load but re-emit a Tether-scoped warning so the mismatch is visible, not silent.
     """
@@ -615,7 +618,7 @@ def _unpickle_ranker(payload: bytes) -> QualityRanker:
 
 
 def _hyperparams_from_manifest(raw: dict[str, object]) -> RankerHyperparams:
-    """Rebuild :class:`RankerHyperparams` from the manifest's hyperparameter mapping."""
+    """Rebuild [`RankerHyperparams`][] from the manifest's hyperparameter mapping."""
     try:
         return RankerHyperparams(**{name: raw[name] for name in _HP_FIELD_NAMES})
     except (KeyError, TypeError) as exc:

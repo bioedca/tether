@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Estimate + store a project's detection-correction factor γ (M3, FR-CORRECT).
 
-Runs the acceptor-bleach-step γ estimator (:mod:`tether.fret.gamma`) over a
+Runs the acceptor-bleach-step γ estimator ([`tether.fret.gamma`][]) over a
 project's stored intensity traces and writes:
 
 * ``/molecules.gamma`` — the applied γ, into the **already-frozen** ``/molecules``
@@ -19,10 +19,10 @@ project's stored intensity traces and writes:
 both prerequisites in place:
 
 * the per-channel first-bleach frames from
-  :func:`tether.project.photobleach.compute_photobleach` (the acceptor step γ is
+  [`tether.project.photobleach.compute_photobleach`][] (the acceptor step γ is
   measured across); and
 * the leakage factor ``/molecules.alpha`` from
-  :func:`tether.project.leakage.compute_leakage_alpha` (γ is measured on
+  [`tether.project.leakage.compute_leakage_alpha`][] (γ is measured on
   leakage-corrected intensities).
 
 Both are enforced with a clear prerequisite error rather than silently proceeding on
@@ -37,8 +37,8 @@ step — the typical pure-FRET case lacking clean steps (PRD §7.2 total-failure
 attempt is auditable.
 
 The single-writer ``.lock`` is the caller's responsibility, mirroring
-:func:`tether.project.leakage.compute_leakage_alpha` (a low-level ``r+`` writer; the
-:class:`~tether.project.core.Project` facade / batch runner holds the lock).
+[`tether.project.leakage.compute_leakage_alpha`][] (a low-level ``r+`` writer; the
+[`Project`][tether.project.core.Project] facade / batch runner holds the lock).
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ GAMMA_SOURCE_ACCEPTOR_BLEACH_STEP = "acceptor-bleach-step"
 
 @dataclass(frozen=True)
 class GammaSummary:
-    """Outcome of a :func:`compute_gamma` pass.
+    """Outcome of a [`compute_gamma`][] pass.
 
     Attributes
     ----------
@@ -132,9 +132,10 @@ def compute_gamma(
     ----------
     project_path
         The ``.tether`` project to update (opened ``r+``). Requires per-channel
-        ``bleach_frames`` (run :func:`~tether.project.photobleach.compute_photobleach`)
+        ``bleach_frames`` (run
+        [`compute_photobleach`][tether.project.photobleach.compute_photobleach])
         and ``/molecules.alpha`` (run
-        :func:`~tether.project.leakage.compute_leakage_alpha`) first.
+        [`compute_leakage_alpha`][tether.project.leakage.compute_leakage_alpha]) first.
     intensity_quantity
         Which ``/traces`` layer to estimate on — ``"corrected"`` (default,
         background-subtracted) or ``"raw"``.
@@ -163,9 +164,9 @@ def compute_gamma(
     ValueError
         If ``intensity_quantity`` is not a known ``/traces`` layer, or if a molecule's
         ``bleach_frames`` are still the undetected sentinel (run
-        :func:`~tether.project.photobleach.compute_photobleach` first), or if its
+        [`compute_photobleach`][tether.project.photobleach.compute_photobleach] first), or if its
         ``alpha`` is the ``NaN`` "not computed" sentinel (run
-        :func:`~tether.project.leakage.compute_leakage_alpha` first).
+        [`compute_leakage_alpha`][tether.project.leakage.compute_leakage_alpha] first).
     KeyError
         If the project lacks the selected donor/acceptor trace layer.
     """

@@ -4,7 +4,7 @@
 
 The **honest, held-out** evaluation of the per-condition quality ranker (PRD §7.5), as
 opposed to the optimistic in-sample "apparent" precision@k
-(:func:`tether.project.gbranking.ranker_precision_at_k`). It answers the M5 question the
+([`tether.project.gbranking.ranker_precision_at_k`][]). It answers the M5 question the
 apparent number cannot: *does the ranker, reloaded onto a video it has never seen, actually
 surface good traces earlier than plain file order?*
 
@@ -14,12 +14,12 @@ curated** scores that video's traces (the *test*), then the video's own labels f
 training set (the *train*) before the next video — exactly the reloaded-model, video-by-video
 warm-start of PRD §7.5 / UC3. Each video therefore contributes a precision@k **uplift** — the
 ranker's precision@k on that video minus the file-/extraction-order baseline's
-(:func:`tether.ml.ranking.file_order_ranking`) — measured on data the model had not yet seen.
+([`tether.ml.ranking.file_order_ranking`][]) — measured on data the model had not yet seen.
 The **first** curated video has no prior model and so cannot be a held-out test; it is
 *reported as skipped*, never scored against nothing (never a fabricated ``0`` uplift).
 
 Ship-bar. The M5 gate (PRD §9 M5, §11.2) is the **median** per-video uplift across the
-held-out videos: ship when it clears :data:`DEFAULT_SHIP_BAR_PTS` percentage points. The
+held-out videos: ship when it clears [`DEFAULT_SHIP_BAR_PTS`][] percentage points. The
 median (not the mean) is the robust aggregate PRD §11.2 specifies — one pathological video
 cannot sink or inflate the verdict.
 
@@ -31,14 +31,14 @@ is fixed), so the prior is the **expanding window** of all previously-curated vi
 "Basic Window" prequential variant [GonzalezHidalgo2019]) — mirroring the warm-start model that
 only ever accumulates labels.
 
-The harness is **model-free**: it takes an ordered list of :class:`VideoFold` and a
+The harness is **model-free**: it takes an ordered list of [`VideoFold`][] and a
 ``train_score_fn`` callback that fits a scorer on a prior's ``(X, y)`` and returns a
 ``X -> scores`` callable, so the metric and the interleaving never import scikit-learn. The
 store-integrated entry point that wires the gradient-boosting ranker is
-:func:`tether.project.prequential.ranker_prequential_uplift`.
+[`tether.project.prequential.ranker_prequential_uplift`][].
 
 Never-auto-drop (PRD §7.5). Every per-video ranking is a
-:func:`tether.ml.ranking.rank_by_score` permutation — no molecule is dropped; precision@k is
+[`tether.ml.ranking.rank_by_score`][] permutation — no molecule is dropped; precision@k is
 read off the labeled molecules' positions, exactly as the file-order baseline is.
 
 References
@@ -85,14 +85,14 @@ if TYPE_CHECKING:
 def _is_positive_int(k: object) -> bool:
     """Whether ``k`` is a positive integer and not a ``bool``.
 
-    The positive-cutoff rule of :mod:`tether.ml.ranking`, re-checked so a bad ``k`` fails fast.
+    The positive-cutoff rule of [`tether.ml.ranking`][], re-checked so a bad ``k`` fails fast.
     """
     return isinstance(k, (int, np.integer)) and not isinstance(k, bool) and int(k) > 0
 
 
 # ``eq=False`` -> identity equality/hash: this value object holds a numpy ``X`` whose dataclass
 # ``==`` would be elementwise (ambiguous truth) and whose ``__hash__`` would hash an unhashable
-# array (the :mod:`tether.project.ranking` precedent). Tests compare the fields directly.
+# array (the `tether.project.ranking` precedent). Tests compare the fields directly.
 @dataclass(frozen=True, eq=False)
 class VideoFold:
     """One video's held-out evaluation unit: its **labeled** molecules, features, and truth.
@@ -140,8 +140,8 @@ class PrequentialResult:
     ``per_video`` are the uplifts of the videos that *could* be held-out tested (a prior model
     existed and was trainable); ``skipped_movie_ids`` are the videos that could not be — the
     first curated video, and any whose only prior labels were a single class — reported so the
-    coverage is never silently narrowed. The gate ships when :attr:`median_uplift_pts` clears
-    :attr:`ship_bar_pts`.
+    coverage is never silently narrowed. The gate ships when [`median_uplift_pts`][] clears
+    [`ship_bar_pts`][].
     """
 
     k: int
@@ -178,14 +178,14 @@ def prequential_uplift(
     trainable prior (a non-empty ``(X, y)`` with **both** accepted and rejected labels), fits a
     scorer on that prior via ``train_score_fn``, scores the current video, and records the
     precision@k uplift of the ranker's ordering over the file-order baseline
-    (:func:`tether.ml.ranking.file_order_ranking`) — a *held-out* measurement, taken before the
+    ([`tether.ml.ranking.file_order_ranking`][]) — a *held-out* measurement, taken before the
     video's labels join the prior. A video with no trainable prior is reported in
     ``skipped_movie_ids`` (never fabricated as a ``0`` uplift). See the module docstring.
 
     Parameters
     ----------
     folds:
-        The condition's videos in curation order (:func:`VideoFold`), each carrying its labeled
+        The condition's videos in curation order ([`VideoFold`][]), each carrying its labeled
         molecules, features, and accept/reject truth.
     train_score_fn:
         ``(X_prior, y_prior) -> (X -> scores)``: fits a quality scorer on the accumulated prior
@@ -195,7 +195,7 @@ def prequential_uplift(
         The review-budget cutoff for precision@k (a positive integer; PRD §7.5 ``k`` ≈ 20–50).
     ship_bar_pts:
         The percentage-point median-uplift threshold to ship (default
-        :data:`DEFAULT_SHIP_BAR_PTS`, the PRD §11.2 value).
+        [`DEFAULT_SHIP_BAR_PTS`][], the PRD §11.2 value).
 
     Returns
     -------

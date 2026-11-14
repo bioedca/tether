@@ -4,7 +4,7 @@
 
 The interpreter-relative way to start the shell, which is what the installer's
 per-OS launcher invokes when a console-script shim is not on ``PATH``. Delegates to
-:func:`tether.gui.app.main` so both spellings share one startup path.
+[`tether.gui.app.main`][] so both spellings share one startup path.
 """
 
 from __future__ import annotations

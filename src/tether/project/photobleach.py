@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Populate per-molecule photobleach frames + auto analysis window (PRD §7.2).
 
-Runs the native single-step detector (:mod:`tether.fret.photobleach`) over a
+Runs the native single-step detector ([`tether.fret.photobleach`][]) over a
 project's stored intensity traces and writes, into the **already-frozen**
 ``/molecules`` fields (schema-guard stays green — no structural change):
 
@@ -23,8 +23,8 @@ consumes via ``analysis_window`` (histograms, cross-correlation, idealization),
 so no read path changes.
 
 The single-writer ``.lock`` is the caller's responsibility, mirroring
-:func:`tether.project.labels.set_curation_label` (this is a low-level ``r+``
-writer; the :class:`~tether.project.core.Project` facade / batch runner holds the
+[`tether.project.labels.set_curation_label`][] (this is a low-level ``r+``
+writer; the [`Project`][tether.project.core.Project] facade / batch runner holds the
 lock).
 """
 
@@ -54,7 +54,7 @@ _TRACES = "traces"
 
 @dataclass(frozen=True)
 class PhotobleachSummary:
-    """Outcome of a :func:`compute_photobleach` pass.
+    """Outcome of a [`compute_photobleach`][] pass.
 
     Attributes
     ----------

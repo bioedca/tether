@@ -3,8 +3,8 @@
 """Trace↔movie round-trip navigation — the per-movie KDTree resolver + navigator.
 
 This is the M2 S4 core of the FR-ROUNDTRIP browser (PRD §7.3, §5.2): the two-way
-link between a molecule's :mod:`~tether.gui.trace_dock` trace and its spot in the
-:mod:`~tether.gui.movie_panel` napari movie.
+link between a molecule's [`trace_dock`][tether.gui.trace_dock] trace and its spot in the
+[`movie_panel`][tether.gui.movie_panel] napari movie.
 
 * **trace → movie** (``Enter`` / list selection): resolve the molecule to *its own*
   movie and centre the camera on its spot. PRD §5.2 makes this ``O(1)`` — the
@@ -18,17 +18,17 @@ The module is split like the rest of ``tether.gui``: the resolver and the
 navigator are **Qt-free** (they touch only NumPy + SciPy and a duck-typed panel),
 so the round-trip logic runs in the default test matrix without a display. The
 only Qt-bound pieces — centring the camera and receiving canvas clicks — live on
-:class:`~tether.gui.movie_panel.NapariMoviePanel` (``center_on`` /
+[`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel] (``center_on`` /
 ``connect_spot_click``); this navigator drives them through that thin seam.
 
 **Coordinate conventions (the one place the two frames meet).** Molecule
 coordinates are stored ``[x, y] = [column, row]`` (the ``detect_spots`` /
 ``/molecules`` ``donor_xy`` convention, §5.1), matching
-:class:`~tether.gui.movie_panel.MovieOverlay`. napari, however, works in
+[`MovieOverlay`][tether.gui.movie_panel.MovieOverlay]. napari, however, works in
 ``[row, col] = [y, x]`` world coordinates — both ``camera.center`` and a mouse
 event's ``position``. The resolver therefore builds its KDTree and returns its
 camera targets in **napari ``[row, col]``**, converting the stored ``[x, y]`` at
-the boundary (:func:`_xy_to_rowcol`), so a click ``position`` and a camera
+the boundary (`_xy_to_rowcol`), so a click ``position`` and a camera
 ``center`` flow through without any per-call transposing at the call sites.
 
 **Which spot.** A molecule is one emitter imaged in two channels, so it owns a
@@ -55,7 +55,7 @@ __all__ = ["MoleculeSite", "MoviePanelLike", "RoundTripIndex", "RoundTripNavigat
 def _validate_spot(xy: object, name: str) -> np.ndarray:
     """Validate + freeze a single ``(2,)`` ``[x, y]`` spot coordinate.
 
-    Returns a read-only ``float64`` copy so a :class:`MoleculeSite` never aliases
+    Returns a read-only ``float64`` copy so a [`MoleculeSite`][] never aliases
     the caller's buffer. Rejects a non-``(2,)`` shape and any non-finite value —
     a NaN spot would silently poison the KDTree (every query would return it or
     skip it, depending on SciPy's handling) rather than failing loudly here.
@@ -81,9 +81,9 @@ class MoleculeSite:
 
     A thin, immutable value object decoupling the resolver from the ``/molecules``
     store: a caller reads each molecule's ``movie_id`` and per-channel coordinates
-    (§5.1) and hands over a :class:`MoleculeSite`. Coordinates are ``[x, y] =
+    (§5.1) and hands over a [`MoleculeSite`][]. Coordinates are ``[x, y] =
     [column, row]`` in the displayed movie frame, the same convention as
-    :class:`~tether.gui.movie_panel.MovieOverlay`.
+    [`MovieOverlay`][tether.gui.movie_panel.MovieOverlay].
 
     Parameters
     ----------
@@ -107,12 +107,12 @@ class MoleculeSite:
 class RoundTripIndex:
     """Per-movie KDTree over molecule spots — the round-trip resolver (§5.2, Qt-free).
 
-    Built once from the experiment's :class:`MoleculeSite` list; it answers the two
+    Built once from the experiment's [`MoleculeSite`][] list; it answers the two
     legs of the round-trip:
 
-    * :meth:`camera_target` — ``molecule index → (movie_id, (row, col))``: the
+    * [`camera_target`][] — ``molecule index → (movie_id, (row, col))``: the
       donor-spot napari camera centre for the **trace → movie** jump (``O(1)``).
-    * :meth:`nearest_molecule` — ``(movie_id, (row, col)) → molecule index`` via the
+    * [`nearest_molecule`][] — ``(movie_id, (row, col)) → molecule index`` via the
       movie's KDTree over **both** channels' spots, for the **movie → trace** click.
       A click only ever resolves within the passed ``movie_id`` (per-movie trees),
       and an optional ``max_distance`` ignores clicks that land far from any spot.
@@ -155,7 +155,7 @@ class RoundTripIndex:
         return list(self._trees)
 
     def site(self, mol_index: int) -> MoleculeSite:
-        """The :class:`MoleculeSite` at ``mol_index``."""
+        """The [`MoleculeSite`][] at ``mol_index``."""
         return self._sites[mol_index]
 
     # --- the two round-trip legs ---------------------------------------------
@@ -164,7 +164,8 @@ class RoundTripIndex:
         """``molecule → (movie_id, (row, col))`` — the trace→movie camera centre.
 
         Returns the molecule's movie and its **donor** spot as a napari
-        ``(row, col)`` world coordinate for :meth:`NapariMoviePanel.center_on`.
+        ``(row, col)`` world coordinate for
+        [`NapariMoviePanel.center_on`][tether.gui.movie_panel.NapariMoviePanel.center_on].
         Raises ``IndexError`` for an out-of-range molecule.
         """
         site = self._sites[mol_index]
@@ -206,9 +207,9 @@ class RoundTripIndex:
 
 
 class MoviePanelLike(Protocol):
-    """The slice of :class:`~tether.gui.movie_panel.NapariMoviePanel` the navigator drives.
+    """The slice of `NapariMoviePanel` the navigator drives.
 
-    Declared as a :class:`~typing.Protocol` so :class:`RoundTripNavigator` stays
+    Declared as a [`Protocol`][typing.Protocol] so [`RoundTripNavigator`][] stays
     Qt-free and testable with a lightweight fake, while the real napari panel
     satisfies it structurally.
     """
@@ -226,25 +227,25 @@ class MoviePanelLike(Protocol):
 
 
 class RoundTripNavigator:
-    """Binds a :class:`RoundTripIndex` to a movie panel + list/dock callbacks (§7.3).
+    """Binds a [`RoundTripIndex`][] to a movie panel + list/dock callbacks (§7.3).
 
     The coordinator that turns the resolver into live navigation. It is Qt-free —
-    the panel is duck-typed (:class:`MoviePanelLike`) and the list/dock updates are
+    the panel is duck-typed ([`MoviePanelLike`][]) and the list/dock updates are
     injected callbacks — so the full round-trip is exercised headlessly.
 
-    * **trace → movie:** :meth:`focus_molecule` switches the panel to the molecule's
+    * **trace → movie:** [`focus_molecule`][] switches the panel to the molecule's
       own movie, centres the camera on its donor spot, and fires ``on_focus`` (the
       shell refocuses the trace dock after the jump, mirroring tMAVEN, §7.3).
-    * **movie → trace:** :meth:`connect` wires the panel's spot-click to
-      :meth:`handle_spot_click`, which resolves the click to the nearest molecule
+    * **movie → trace:** [`connect`][] wires the panel's spot-click to
+      [`handle_spot_click`][], which resolves the click to the nearest molecule
       and fires ``on_select`` (the shell selects that molecule's list row + trace).
 
     Parameters
     ----------
     index
-        The :class:`RoundTripIndex` resolver.
+        The [`RoundTripIndex`][] resolver.
     panel
-        The movie panel to drive (:class:`MoviePanelLike`).
+        The movie panel to drive ([`MoviePanelLike`][]).
     movie_ids
         The ``movie_id`` of each registered movie, in the panel's registration
         order, so a molecule's ``movie_id`` maps to the panel index to switch to.
@@ -286,7 +287,7 @@ class RoundTripNavigator:
 
     @property
     def index(self) -> RoundTripIndex:
-        """The :class:`RoundTripIndex` resolver driving both round-trip legs."""
+        """The [`RoundTripIndex`][] resolver driving both round-trip legs."""
         return self._index
 
     @property
@@ -321,7 +322,7 @@ class RoundTripNavigator:
     # --- movie → trace -------------------------------------------------------
 
     def connect(self) -> None:
-        """Wire the panel's spot-click to :meth:`handle_spot_click` (idempotent).
+        """Wire the panel's spot-click to [`handle_spot_click`][] (idempotent).
 
         A second call is a no-op, so re-binding the navigator never registers a
         duplicate callback that would fire ``on_select`` twice per click.

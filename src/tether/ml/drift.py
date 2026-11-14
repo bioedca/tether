@@ -9,18 +9,18 @@ driven by a simple feature-distribution / FRET-range / SNR drift signal between 
 target conditions``. This module is that signal, kept pure (NumPy + one SciPy test) and
 **store-free**: it turns two engineered-feature matrices (the source and the target condition)
 into a per-feature drift verdict plus one overall advisory flag, with no knowledge of the
-``.tether`` store (the ``condition_id`` grouping lives in :mod:`tether.project.drift`).
+``.tether`` store (the ``condition_id`` grouping lives in [`tether.project.drift`][]).
 
 The signal (PRD §7.5's three named axes)
 ----------------------------------------
-For each engineered feature (:data:`tether.ml.features.FEATURE_NAMES`) the source- and
+For each engineered feature ([`tether.ml.features.FEATURE_NAMES`][]) the source- and
 target-condition columns are compared with the **two-sample Kolmogorov–Smirnov test** — the
 standard non-parametric, label-free test of whether two samples are drawn from the same
 distribution, and the field-standard covariate-drift detector [Porwik2022, Cardoso2023]. Because
 the monitored columns include ``fret_mean``/``fret_var`` and ``snr``, the single per-feature sweep
 covers all three axes PRD §7.5 names at once — the **feature-distribution** drift is the whole
 sweep, the **FRET-range** drift is the ``fret_mean``/``fret_var`` columns, and the **SNR** drift is
-the ``snr`` column; :attr:`DriftReport.drifted_features` names which axis moved.
+the ``snr`` column; [`DriftReport.drifted_features`][] names which axis moved.
 
 Combining the per-feature tests (why Bonferroni)
 ------------------------------------------------
@@ -36,11 +36,11 @@ an *advisory* flag.
 Never fabricate, never over-claim
 ---------------------------------
 * A feature whose column has ``< 2`` finite values in **either** condition is **untestable**
-  (:attr:`FeatureDrift.tested` is ``False``, statistic/p-value ``NaN``) — never a fabricated
+  ([`FeatureDrift.tested`][] is ``False``, statistic/p-value ``NaN``) — never a fabricated
   "no drift"; it is excluded from the Bonferroni denominator and from the flag (mirrors the
-  ``< 2``-samples-undefined convention in :mod:`tether.ml.features`).
+  ``< 2``-samples-undefined convention in [`tether.ml.features`][]).
 * If **no** feature is testable (both conditions too small/empty), drift is undefined and
-  :func:`condition_drift` **raises** rather than return a fabricated "not drifted".
+  [`condition_drift`][] **raises** rather than return a fabricated "not drifted".
 
 The flag is **advisory and overridable** (PRD §7.5): a caller (the seeding path) surfaces it but a
 curator may seed anyway. The test uses the sample-size-consistent asymptotic KS distribution
@@ -76,7 +76,7 @@ DEFAULT_DRIFT_ALPHA = 0.05
 
 #: The definedness floor: a feature needs at least this many finite values in **each** condition to
 #: be testable (a KS test on fewer is degenerate). Below it the feature is reported untested, never
-#: fabricated as "no drift" — the ``< 2``-samples-undefined convention of :mod:`tether.ml.features`.
+#: fabricated as "no drift" — the ``< 2``-samples-undefined convention of `tether.ml.features`.
 _MIN_SAMPLES = 2
 
 
@@ -87,7 +87,7 @@ class FeatureDrift:
     ``statistic`` is the two-sample Kolmogorov–Smirnov statistic ``D ∈ [0, 1]`` (the maximum gap
     between the two empirical CDFs) and ``pvalue`` its asymptotic two-sided p-value; both are
     ``NaN`` when the feature was **untestable** (``tested`` is ``False`` — fewer than
-    :data:`_MIN_SAMPLES` finite values in a condition). ``drifted`` is the Bonferroni-corrected
+    `_MIN_SAMPLES` finite values in a condition). ``drifted`` is the Bonferroni-corrected
     verdict (``pvalue < α / n_tested``), always ``False`` for an untested feature.
     """
 
@@ -104,10 +104,10 @@ class FeatureDrift:
 class DriftReport:
     """The per-feature drift verdicts plus the one overall advisory flag (PRD §7.5).
 
-    :attr:`drifted` is the advisory the seeding path surfaces (overridable);
-    :attr:`drifted_features` names which axes moved (``fret_mean``/``fret_var`` = FRET-range,
+    [`drifted`][] is the advisory the seeding path surfaces (overridable);
+    [`drifted_features`][] names which axes moved (``fret_mean``/``fret_var`` = FRET-range,
     ``snr`` = SNR, any = the feature-distribution). ``alpha`` is the overall family-wise level;
-    :attr:`corrected_alpha` is the per-feature Bonferroni threshold actually applied.
+    [`corrected_alpha`][] is the per-feature Bonferroni threshold actually applied.
     """
 
     features: tuple[FeatureDrift, ...]
@@ -115,7 +115,7 @@ class DriftReport:
 
     @property
     def n_tested(self) -> int:
-        """How many features could be tested (had ≥ :data:`_MIN_SAMPLES` finite values each)."""
+        """How many features could be tested (had ≥ `_MIN_SAMPLES` finite values each)."""
         return sum(1 for f in self.features if f.tested)
 
     @property
@@ -146,7 +146,7 @@ def condition_drift(
 
     Compares each engineered feature's source- vs target-condition distribution with the two-sample
     Kolmogorov–Smirnov test and combines the per-feature verdicts into one **advisory, overridable**
-    flag via a Bonferroni family-wise correction (:attr:`DriftReport.drifted`).
+    flag via a Bonferroni family-wise correction ([`DriftReport.drifted`][]).
 
     Parameters
     ----------
@@ -157,11 +157,11 @@ def condition_drift(
         so the two conditions need not have the same number of molecules or the same missing-value
         pattern.
     feature_names:
-        The ``n_features`` column names (e.g. :data:`tether.ml.features.FEATURE_NAMES`); labels the
+        The ``n_features`` column names (e.g. [`tether.ml.features.FEATURE_NAMES`][]); labels the
         per-feature verdicts.
     alpha:
         The overall (family-wise) significance level of the advisory (default
-        :data:`DEFAULT_DRIFT_ALPHA`, the PRD §11.2 tunable); each feature is judged at
+        [`DEFAULT_DRIFT_ALPHA`][], the PRD §11.2 tunable); each feature is judged at
         ``alpha / n_tested``.
 
     Returns
