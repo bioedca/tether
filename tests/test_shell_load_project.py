@@ -1029,6 +1029,56 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
     assert reopened.curation_label(keys[1]) == expected_label
 
 
+#: Every curation key whose command is deferred (#345): the key, and the feature its
+#: status line names. Jump becomes real in #357 and the grid in #364; category and
+#: analysis-window persistence land in #359. Each of those removes its rows here.
+_DEFERRED_KEYS = [
+    ("Key_Return", "Jump to movie spot"),
+    ("Key_Enter", "Jump to movie spot"),
+    ("Key_G", "Grid toggle"),
+    ("Key_1", "Category 1"),
+    ("Key_0", "Category clearing"),
+    ("Key_Minus", "Analysis-window editing"),
+    ("Key_Equal", "Analysis-window editing"),
+    ("Key_BracketLeft", "Analysis-window editing"),
+    ("Key_BracketRight", "Analysis-window editing"),
+    ("Key_R", "Analysis-window reset"),
+    ("Key_P", "Photobleach detection"),
+]
+
+
+@pytest.mark.parametrize(("key_name", "feature"), _DEFERRED_KEYS)
+def test_deferred_curation_keys_report_unavailable_and_write_nothing(
+    shell, qtbot, tmp_path, key_name, feature
+) -> None:
+    # #345: on a writable project with a molecule selected, a deferred command must
+    # say it is unavailable and must leave the .tether bytes exactly as they were.
+    # Before the fix Enter reported "Jump to movie spot" and G "Grid toggled",
+    # which read as done.
+    import hashlib
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.labels import read_labels
+
+    def digest() -> str:
+        return hashlib.sha256(project.path.read_bytes()).hexdigest()
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    assert shell.curation_project is not None  # writable: the honest path is not read-only
+    shell.molecule_list.setCurrentRow(1)
+    before = digest()
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert feature in shell.status_message
+    assert "unavailable" in shell.status_message
+    assert digest() == before
+    assert read_labels(project.path).shape == (0,)
+    assert project.curation_label(keys[1]) == 0
+
+
 def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     shell, qtbot, tmp_path
 ) -> None:
