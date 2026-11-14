@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
@@ -3005,17 +3006,62 @@ SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
 #: Bump here first, then every call site -- the guard below requires them to agree.
 MICROMAMBA_PIN = "2.8.1-0"
 
-#: The trailing `# v<X.Y.Z>` tag comment on a `uses: mamba-org/setup-micromamba@<sha>` line,
-#: quoted or not. Read from TEXT because a YAML parse discards comments; counted against the
-#: PARSED call sites per file, so a spelling this misses fails instead of vanishing (#510).
-#: Horizontal whitespace only around the ``#``: ``\s`` would cross the newline and accept a
-#: tag sitting on the NEXT line as this ``uses:`` line's trailing comment.
-_SETUP_MICROMAMBA_TAG = re.compile(
-    r"^\s*(?:-\s*)?uses:\s*[\"']?"
-    + re.escape(SETUP_MICROMAMBA)
-    + r"[^\s\"'#]*[\"']?[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b",
-    re.M,
-)
+#: The trailing `# v<X.Y.Z>` tag comment, matched against the text that FOLLOWS one parsed
+#: call site's `uses:` scalar on its own source line (see :func:`_trailing_tag`). Read from text
+#: because a YAML parse discards comments, but anchored at the scalar's end mark rather than
+#: searched for across the file: a file-wide count let a tagged example inside a ``run: |``
+#: block stand in for an untagged real call site (#510). Horizontal whitespace only around the
+#: ``#``: ``\s`` would cross the newline and accept a tag on the NEXT line as this one's.
+_SETUP_MICROMAMBA_TAG = re.compile(r"[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b")
+
+
+class _MarkedMapping(dict):
+    """A parsed mapping that also remembers where its ``uses:`` value ENDS in the source text.
+
+    ``uses_end`` is the character index just past the ``uses:`` scalar (after its closing
+    quote, if quoted), or None when the mapping has no ``uses:`` key.
+    """
+
+    uses_end: int | None = None
+
+
+class _UsesMarkLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` whose mappings carry the end mark of their ``uses:`` scalar.
+
+    Everything else is the safe loader unchanged, so a step parses to the same values as under
+    ``yaml.safe_load``; only the mark is added, and it comes from the SAME parse that produced
+    the step, so a tag can never be paired with some other node's line.
+    """
+
+
+def _construct_marked_mapping(
+    loader: _UsesMarkLoader, node: yaml.MappingNode
+) -> Iterator[_MarkedMapping]:
+    data = _MarkedMapping()
+    yield data
+    data.update(loader.construct_mapping(node))
+    # After construct_mapping, node.value is flattened (merge keys resolved); the LAST `uses`
+    # key wins, matching the dict the safe loader builds from duplicate keys.
+    for key, value in node.value:
+        if isinstance(key, yaml.ScalarNode) and key.value == "uses":
+            data.uses_end = value.end_mark.index
+
+
+_UsesMarkLoader.add_constructor("tag:yaml.org,2002:map", _construct_marked_mapping)
+
+
+def _trailing_tag(text: str, step: dict) -> str | None:
+    """The ``# v<X.Y.Z>`` comment trailing *step*'s own ``uses:`` scalar, None if it has none.
+
+    Only the rest of that scalar's source line is read, so neither a tag on the next line nor a
+    tagged line anywhere else in the file can count for this call site.
+    """
+    end = getattr(step, "uses_end", None)
+    if end is None:
+        return None
+    rest = text[end:].split("\n", 1)[0]
+    match = _SETUP_MICROMAMBA_TAG.match(rest)
+    return match.group(1) if match else None
 
 
 def _yaml_load(path: Path) -> object:
@@ -3053,7 +3099,7 @@ def _setup_micromamba_steps(text: str) -> list[dict]:
     """
     return [
         step
-        for step in _workflow_or_action_steps(yaml.safe_load(text))
+        for step in _workflow_or_action_steps(yaml.load(text, Loader=_UsesMarkLoader))
         if isinstance(step.get("uses"), str) and step["uses"].startswith(SETUP_MICROMAMBA)
     ]
 
@@ -3072,7 +3118,7 @@ class _MicromambaCallSites(NamedTuple):
 
     uses: list[str]  # parsed `uses:` values, one per call site
     pins: list[str | None]  # each call site's OWN `with: micromamba-version`, None if unset
-    tags: list[str]  # trailing `# v<X.Y.Z>` comments on the `uses:` lines (text)
+    tags: list[str | None]  # each call site's OWN trailing `# v<X.Y.Z>`, None if untagged
 
     @property
     def shas(self) -> list[str]:
@@ -3080,11 +3126,13 @@ class _MicromambaCallSites(NamedTuple):
 
 
 def _micromamba_call_sites_in(text: str) -> _MicromambaCallSites:
-    """One document's call sites, each pin read from that step's own ``with:`` mapping.
+    """One document's call sites, each pin and tag read from that call site alone.
 
-    Never from pin-shaped lines anywhere in the file: a call site with no
-    ``micromamba-version`` floats to ``latest``, and a matching line in some other step's
-    ``run:`` block must not stand in for it.
+    The pin comes from the step's own ``with:`` mapping and the tag from the rest of its own
+    ``uses:`` line, never from pin- or tag-shaped lines anywhere in the file: a call site with
+    no ``micromamba-version`` floats to ``latest``, an untagged one leaves the reviewer guessing
+    which release the SHA is, and a matching line in some other step's ``run:`` block must not
+    stand in for either (#502, #510).
     """
     steps = _setup_micromamba_steps(text)
     pins: list[str | None] = []
@@ -3093,7 +3141,7 @@ def _micromamba_call_sites_in(text: str) -> _MicromambaCallSites:
         value = inputs.get("micromamba-version") if isinstance(inputs, dict) else None
         pins.append(None if value is None else str(value))
     return _MicromambaCallSites(
-        [step["uses"] for step in steps], pins, _SETUP_MICROMAMBA_TAG.findall(text)
+        [step["uses"] for step in steps], pins, [_trailing_tag(text, step) for step in steps]
     )
 
 
@@ -3206,7 +3254,37 @@ def test_the_version_tag_must_trail_its_own_uses_line() -> None:
         f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha}\n        # v1.2.3\n"
     )
     assert _micromamba_call_sites_in(trailing).tags == ["v1.2.3"]
-    assert _micromamba_call_sites_in(next_line).tags == []
+    assert _micromamba_call_sites_in(next_line).tags == [None]
+
+
+def test_a_call_site_tag_is_read_from_its_own_uses_line() -> None:
+    """A tagged ``uses:`` line inside a ``run:`` block is not the real call site's tag (#510).
+
+    The file below has one real call site with no tag, and a ``run: |`` block that prints a
+    tagged example. A file-wide count found one tag for one call site and passed; reading each
+    call site's own line finds none. The quoted and composite spellings are read the same way.
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    call = f"{SETUP_MICROMAMBA}{sha}"
+    untagged_plus_example = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {call}\n"
+        "      - run: |\n"
+        f"          uses: {call} # v1.2.3\n"
+    )
+    quoted = f'jobs:\n  build:\n    steps:\n      - uses: "{call}" # v1.2.3\n'
+    composite = (
+        f"name: setup-env\nruns:\n  using: composite\n  steps:\n    - uses: {call} # v1.2.3\n"
+    )
+    two_sites = (
+        f"jobs:\n  build:\n    steps:\n      - uses: {call} # v1.2.3\n      - uses: {call}\n"
+    )
+    assert _micromamba_call_sites_in(untagged_plus_example).tags == [None]
+    assert _micromamba_call_sites_in(quoted).tags == ["v1.2.3"]
+    assert _micromamba_call_sites_in(composite).tags == ["v1.2.3"]
+    assert _micromamba_call_sites_in(two_sites).tags == ["v1.2.3", None]
 
 
 def test_a_mutable_action_ref_is_not_a_pin() -> None:
@@ -3275,11 +3353,10 @@ def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None
     check green, which is precisely the state #446 would have produced without #445.
 
     The trailing tag comment is asserted too: a parse discards comments, so it is read from the
-    text, and the file must carry as many tags as it has PARSED call sites -- an unannotated
-    ``uses:`` line fails here rather than being silently skipped. The count is per file, so it
-    does not tie each tag to its own call site's line; #510 tracks that. Every ref must be a
-    full 40-hex commit SHA before agreement is checked: call sites that all moved to ``@main``
-    would otherwise agree on a mutable ref.
+    text, but from each PARSED call site's own ``uses:`` line -- an unannotated ``uses:`` line
+    fails here, and a tagged line elsewhere in the file cannot stand in for it (#510). Every
+    ref must be a full 40-hex commit SHA before agreement is checked: call sites that all moved
+    to ``@main`` would otherwise agree on a mutable ref.
     """
     call_sites = _setup_micromamba_call_sites()
     assert len(call_sites) >= 3, (
@@ -3294,9 +3371,9 @@ def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None
     )
 
     untagged = sorted(
-        f"{name} ({len(site.tags)} `# v<X.Y.Z>` comment(s) for {len(site.uses)} call site(s))"
+        f"{name} ({site.tags.count(None)} of {len(site.uses)} call site(s) untagged)"
         for name, site in call_sites.items()
-        if len(site.tags) != len(site.uses)
+        if None in site.tags
     )
     assert not untagged, (
         "every `uses: mamba-org/setup-micromamba@<sha>` line needs its own trailing "
