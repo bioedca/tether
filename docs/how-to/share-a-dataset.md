@@ -54,6 +54,12 @@ keeps the raw and background trace layers for this reason.
 
 ## 2. Make the deposit files
 
+A project imported from a Deep-LASI `.txt` file or a tMAVEN SMD file has no image crops. Tether
+cannot export a subset of such a project, so the subset step below stops with an error. For
+such a project, deposit the full project file. Export the molecule table and the traces from it,
+as [Export results](export-results.md) shows. Then run the check in step 3 on the full project
+file only.
+
 ```python
 from pathlib import Path
 
@@ -76,9 +82,6 @@ and a provenance file beside each one. The table comes from the subset, so its r
 molecules of the subset. `include_raw=True` keeps the raw and background trace layers in the
 subset. [Export results](export-results.md) gives the other options and the Deep-LASI trace
 export.
-
-A project imported from a Deep-LASI `.txt` file or a tMAVEN SMD file has no image crops. Tether
-cannot export a subset of such a project. Deposit the full project file in its place.
 
 ## 3. Check what the files reveal
 
