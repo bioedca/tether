@@ -28,6 +28,7 @@ tests/golden/*.json text eol=lf
 *.pdf   binary
 *.gz    binary
 *.zip   binary
+*.xz    binary
 # Brand kit (#671): icon containers and the bundled font files.
 *.ico   binary
 *.icns  binary

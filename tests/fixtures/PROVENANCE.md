@@ -263,6 +263,53 @@ ADR-0073). The weekly `reference-data` job downloads the zips, verifies the chec
 compares `kinsoft_trace_sample.txt` with its member of `sim_dataset_Fig4.zip` (verified again on
 2026-11-11).
 
+### Measured traces with a per-trace vbFRET path (Marzano et al., #797)
+
+Two condition folders of measured two-colour smFRET traces by **Nicholas Marzano et al.**, each
+trace with the per-trace vbFRET_nov12 idealization the authors analysed, under **CC-BY-4.0**
+(annotated in `REUSE.toml`, attributed in `NOTICE`; ADR-0090). Each `.dat` member has five
+columns: frame, donor, acceptor, FRET (= A / (D + A)), idealized FRET.
+
+- `tests/fixtures/marzano_ppr_rnaanticognate.tar.xz` (482,520 B · plain git) — every `.dat`
+  file of `Figure_2/Validation_data/RNAanticognate` in `Figure_2.zip` (114 traces), byte for
+  byte. Marzano N, et al., Nucleic Acids Res 52(22):14154-14170 (2024),
+  doi:10.1093/nar/gkae984 (PMC11662938). One 532 nm laser, 200 ms frames, MASH-FRET v1.2.2 with
+  cross-talk correction, vbFRET_nov12 (hyperparameters 1.5 and 0.5).
+- `tests/fixtures/marzano_chaperone_kjg_231027.tar.xz` (465,640 B · plain git) — every `.dat`
+  file of `Fig1_FigS1_FigS2/single-molecule/KJG/KJG_231027` in `Fig1_FigS1_FigS2.7z` (68
+  traces), byte for byte. Marzano NR, et al., Sci Adv 12(31):eaeg5464 (2026),
+  doi:10.1126/sciadv.aeg5464 (PMC13418734). vbFRET_nov12 with at most 5 states, mu 1.5,
+  beta 0.5. #797 names `KJE/KJE_231212` first; that folder is 925 kB even as `.tar.xz`, over
+  the 512 KiB plain-git limit, so the smaller whole folder is used.
+- `tests/fixtures/reference/marzano/ppr_dwells.csv`,
+  `tests/fixtures/reference/marzano/ppr_transitions.csv`,
+  `tests/fixtures/reference/marzano/chaperone_dwells.csv` and
+  `tests/fixtures/reference/marzano/chaperone_transitions.csv` — the dwell and transition tables of `nmarzano/smFRET_module` v1.0.3 (MIT, Zenodo doi:10.5281/zenodo.16791519,
+  archive SHA-256 `54f17fe4e0bd7bccaca172856cbe58fc4107034e378ea0b99cc01cb4ed2ab8a6`), run once
+  outside the product on the two fixtures. `smfret_module_run.json` beside them (Tether's own
+  record) names the functions, the Python 3.12.13 and pandas 3.0.3 versions, and the SHA-256 of
+  every input and output.
+
+| Source (in the Zenodo record) | Size | MD5 | SHA-256 |
+|---|---|---|---|
+| `Figure_2.zip` (doi:10.5281/zenodo.11323228) | 21,570,519 B | `79369fb2c4928eada9faaab0e7a79d3e` | `f6f8beffac601d933d6e897ce808c1fcb45f27dc226ab6f11de6118bb50fcd10` |
+| `Fig1_FigS1_FigS2.7z` (doi:10.5281/zenodo.17118152) | 44,432,881 B | `ddd668077b669fffc5f15551ec9ed184` | `92f94bbd6373edab7875b4dc21e6e2cfa00efaf39a8a45e5bbc74573abd2aac7` |
+
+**Accessed:** 2026-11-13 (downloaded from Zenodo; checksums verified). **License:** CC-BY-4.0
+(Marzano et al.) — **not** GPL-3.0. Regenerate by downloading both archives and the
+smFRET_module v1.0.3 archive, then:
+
+```sh
+uv run --no-project --with py7zr python scripts/make_marzano_fixture.py fixtures \
+    --source <dir with Figure_2.zip and Fig1_FigS1_FigS2.7z>
+uv run --no-project --with pandas python scripts/make_marzano_fixture.py tables \
+    --module <nmarzano-smFRET_module-v1.0.3.zip from Zenodo 16791519>
+```
+
+The member bytes are the reference; the `.tar.xz` bytes can differ with another liblzma build.
+All six files and the two archives have entries in `tests/reference_data/manifest.toml` (ids
+starting with `marzano-`).
+
 ### kinSoftChallenge ground-truth kinetic models (M8 kinetics oracle)
 
 The **blind-challenge** trace files above carry no ground truth. The M8 within-spread
@@ -771,3 +818,40 @@ downloading the archive and copying the members above; every file has an entry i
 `tests/reference_data/manifest.toml` (ids `ha-sam-sah-fig1` for the archive and
 `ha-sam-sah-hel1` to `ha-sam-sah-hel53`, `ha-sam-sah-frets`, `ha-sam-sah-test3`,
 `ha-sam-sah-counts2`), and the weekly `reference-data` job compares each copy with its member.
+
+## MASH-FRET project extract (#711, ADR-0087) — **CC-BY-4.0**
+
+External third-party data under a different licence: the smFRET data of the group IIB intron study
+of **Zelger-Paulus, Hadzic, Lindner, Börner, Steffen, Fazliji, Johannsen & Sigel**, deposited at
+Zenodo **doi:10.5281/zenodo.24104528** (published 2026-11-10) under **CC-BY-4.0**. The record's
+`02_smFRET.zip` holds nine MASH-FRET project files (`.mash`). The extract is annotated CC-BY-4.0
+in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
+
+- `tests/fixtures/mashfret_ed135e_30mm_extract.mat` (498,472 B · plain git) — made by
+  `scripts/make_mashfret_fixture.py` from `02_smFRET/eD135e_encapsulated_30mMMg_25C.mash`
+  (4,872,042 B, SHA-256 `ee448ffddad370d0ae1530a838aeca66b380d3e0f35e677d368d98583f17be42`,
+  written by MASH-FRET "1.1.2 (prev. commit: 1a1f465)"). It keeps the first 18 of the 119
+  molecules with every frame and both lasers: their background-corrected, cross-talk-corrected and
+  denoised intensities, `FRET_DTA`, `bool_intensities` and `prmTT`, and the project fields
+  `MASH_version`, `nb_channel`, `nb_excitations`, `excitations`, `chanExc`, `labels`, `FRET` and
+  `fix`, all unchanged. It leaves out the raw intensities and every path and free-text field
+  (`proj_file`, `exp_parameters`). The 116-byte MATLAB header text is fixed, so the same source
+  gives the same bytes. `tests/test_mashfret_reference.py` reads it through `tests/_mashfret.py`.
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `02_smFRET.zip` | 236,278,098 B | `0a30d78ab7c67a3bc716afc760fa5f5b7bf54bc60cce5bde8ccac5a41c4605c7` |
+
+The record also gives MD5 `48096e03a7fbef53614f7148da328281` for the archive, which the download
+matched. **Accessed:** 2026-11-13 (downloaded from Zenodo). **License:** CC-BY-4.0 — **not**
+GPL-3.0. Regenerate with:
+
+```sh
+python scripts/make_mashfret_fixture.py <path>/02_smFRET.zip
+```
+
+Both files have entries in `tests/reference_data/manifest.toml` (ids
+`mashfret-group-iib-intron-archive`, `mashfret-ed135e-30mm-extract`; ADR-0073). The archive is
+larger than the 200 MB download limit, so it is a `workstation` entry: the weekly workstation run
+reads it from `$TETHER_PRIVATE_DATA`, verifies the checksum above, makes the extract again and
+compares it byte for byte with the committed file.

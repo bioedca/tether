@@ -10,8 +10,8 @@ Locks the registration half of the M0.5(b) acceptance:
   ``.tdat`` colocalized molecule pairs reproduces Deep-LASI's imported ``.tmap``
   registration to RMS <= 0.5 px (and within 1 px for >= 95% of molecules), using
   the small committed decoded-coefficient fixture; and
-* (data-present only) the ``.tmap`` MCOS decoder itself, checked against that
-  fixture when the external ``.tmap`` is available; and
+* (workstation only, ADR-0071) the ``.tmap`` MCOS decoder itself, checked against that
+  fixture on the real ``.tmap`` of video 010; and
 * (large tier) the decoder on the committed bead map, checked against the bead
   prealign oracle (#733).
 """
@@ -27,6 +27,7 @@ pytest.importorskip("scipy")  # tether.imaging.register imports scipy.io
 
 import numpy as np  # noqa: E402
 
+from _oracle_a import oracle_a_file  # noqa: E402
 from tether.imaging.register import (  # noqa: E402
     PairedControlPoints,
     PolyTransform2D,
@@ -199,28 +200,12 @@ def test_native_fit_reproduces_tmap_within_tolerance() -> None:
     assert checked >= 1
 
 
-# --- the MCOS decoder (data-present only) -------------------------------------
+# --- the MCOS decoder on the real .tmap of video 010 (workstation only; #699) --
 
 
-def _find_example_tmap() -> Path | None:
-    for parent in Path(__file__).resolve().parents:
-        candidate = (
-            parent
-            / "example-data"
-            / "bla-uckopsb-tbox-video10"
-            / "DeepLASI_MAP_Bla_UCKOPSB_T-box_35pM_tRNA_600nM_20250718_2025-07-18_13-40.tmap"
-        )
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-_EXAMPLE_TMAP = _find_example_tmap()
-
-
-@pytest.mark.skipif(_EXAMPLE_TMAP is None, reason="external .tmap not present (default checkout)")
-def test_read_tmap_matches_committed_fixture() -> None:
-    decoded = read_tmap(_EXAMPLE_TMAP)
+@pytest.mark.workstation
+def test_read_tmap_matches_committed_fixture(private_data) -> None:
+    decoded = read_tmap(oracle_a_file(private_data, "tmap"))
     _reference, fixture = _load_tmap_fixture()
     assert sorted(decoded) == sorted(fixture)
     for cid, expected in fixture.items():

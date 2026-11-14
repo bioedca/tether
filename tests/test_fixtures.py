@@ -36,8 +36,11 @@ PLAIN_FIXTURES = [
     FIXTURES / "kinsoft_trace_sample.txt",
     FIXTURES / "deeplasi_export_slice.mat",
     FIXTURES / "deeplasi_traces_slice.txt",
+    FIXTURES / "marzano_ppr_rnaanticognate.tar.xz",
+    FIXTURES / "marzano_chaperone_kjg_231027.tar.xz",
     FIXTURES / "rf2_core_wtprensec_smd.hdf5",
     FIXTURES / "rf2_core_wtprensec_model.hdf5",
+    FIXTURES / "mashfret_ed135e_30mm_extract.mat",
 ]
 
 # The SHA-256 of each plain fixture's content. A fixture that a script regenerates on
@@ -55,11 +58,20 @@ PLAIN_FIXTURE_SHA256 = {
     "kinsoft_trace_sample.txt": "5eab80bc4a11b711712d78e898d9b79b3bc2997ce48a8fa2d0170ba883a23a05",
     "deeplasi_export_slice.mat": "5f164212d004801765de56da46677ccc0174c3f1ff22960ee88a2f332227cdcf",
     "deeplasi_traces_slice.txt": "6d5a88226e2f189449acb5a213bd38cf9b2fd0ff6d3f4f5b8232e3a9a8d3ddd8",
+    "marzano_ppr_rnaanticognate.tar.xz": (
+        "439ebd0af7b5102363b05eef1b24fbeae17d2c315512bcd26164620dd18e7df3"
+    ),
+    "marzano_chaperone_kjg_231027.tar.xz": (
+        "116822250071f16330de19e069da41458fe1fbd12d026dde50dc60048263df60"
+    ),
     "rf2_core_wtprensec_smd.hdf5": (
         "caef96af49c02a2c16729c5ddf32dcf8cb221e4d2c76841c9c9e08818da17926"
     ),
     "rf2_core_wtprensec_model.hdf5": (
         "edeaa298604895a842c3ab7692370d555b05b2e779d7bcb8b2f81b5d01d0be7a"
+    ),
+    "mashfret_ed135e_30mm_extract.mat": (
+        "80f72fd03980bc618c98a8098f48f648f2f33da7ffbf886a86760e12a062a55e"
     ),
 }
 
