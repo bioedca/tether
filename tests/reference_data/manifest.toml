@@ -2319,3 +2319,33 @@ tier = "git"
 extract_of = ["ha-sam-sah-fig1"]
 extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/counts2.txt"
 citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+# --- Deep-LASI DNA-origami data: Zenodo record 7561162, CC-BY-4.0 ------------------------------
+# The record has no Zenodo DOI of its own: the DOI it names is the bioRxiv preprint of the
+# paper, so `source` is that DOI and `record_url` the record. Two archives are checked on the
+# workstation (#716, tests/test_deeplasi_public_tdat.py); each is larger than a download entry
+# may be. The data folder of the workstation runner holds them below `zenodo-7561162/`.
+
+[[dataset]]
+id = "deeplasi-zenodo-fig2"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "zenodo-7561162/Figure_2.zip"
+size = 487933185
+sha256 = "fccd230c630272503bcf7d3dbe1c7953c10adb9a6d87ba9570d7d1153ec570ee"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem C-B, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9"
+
+[[dataset]]
+id = "deeplasi-zenodo-fig3"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "zenodo-7561162/Figure_3.zip"
+size = 987751037
+sha256 = "1062b5f56f52bd2aed741ea7646c97339afc8187f0e4e4871d60388ffed27d03"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem C-B, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9"
