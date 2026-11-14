@@ -324,9 +324,194 @@ datasets' ground-truth rate constants and the reported inter-tool spread; both a
   finite-dataset floor — the advisory acceptance band.
 
 `schema/kinsoft_reference.json` is Tether's own (GPL-3.0) compilation of these
-values with full source provenance; only `level1` has an active oracle (a FRET-only
-idealizer cannot resolve the overlapping-FRET 4-state case — the paper itself uses
-cumulative dwell-time distributions there).
+values with full source provenance; only `level1` has an active, band-checked oracle.
+Levels 2 and 3 are fitted and reported, never band-checked (#717, ADR-0081).
+
+### kinSoftChallenge simulator settings (the ground truth of levels 2 and 3, #717)
+
+Since #717 the ground truth of levels 2 and 3 is read, not transcribed: the record's
+`MATLAB_simulator.zip` holds the settings file the simulator read for each level, and
+`tests/_kinsoft_config.py` parses it. The three files are copied **verbatim** (byte for
+byte, `-text` in `.gitattributes`, outside the whitespace hooks):
+
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_1.cfg` (2,942 B)
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_2.cfg` (3,074 B)
+- `tests/fixtures/kinsoft_simulator/Config_simulation_round_1_level_3.cfg` (3,034 B)
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `MATLAB_simulator.zip` | 26,527 B | `0a3c65403782fb1378b600fad9a26da8d99b5f955127f6ddb884afcaa3ed20b4` |
+
+The members are `MATLAB_simulator/Config_simulation_round_1_level_N.cfg`; their own
+checksums are in `tests/reference_data/manifest.toml` (ids `kinsoft-simulator` and
+`kinsoft-settings-level1` to `kinsoft-settings-level3`), and the weekly `reference-data`
+job compares each committed file with its member. **Accessed:** 2026-11-12 (downloaded
+from Zenodo; the record's MD5 `49ef3a860a2e05d01233466ccbd06169` also matched).
+**License:** CC-BY-4.0, the licence of the record. The zip also holds a `license.txt` that
+grants MIT terms to Markus Götz's simulator code; Tether copies none of that code (PRD N2).
+
+The files changed two recorded values. The level-2 entry had read the 1↔2 rates from the
+Suppl. Table 5 diagram as k₁₂ = 0.05 and k₂₁ = 0.30 s⁻¹; the settings file gives
+q₁₂ = 0.30 (low→mid) and q₂₁ = 0.05 s⁻¹ (mid→low), and Tether's 3-state fit agrees with
+the file on which direction is faster. The level-3 rates of Suppl. Table 1 equal the
+file's under a renumbering of the states (`settings_state_of` in the JSON).
+
+## MreC-MreD ebFRET sessions (report-only ebFRET comparison, #719) — **CC-BY-4.0**
+
+Single-molecule FRET data of the MreC-MreD study, deposited by **Gilman, Shlosman, Samé Guerra,
+Domecillo, Fivenson, Bourrett, Bernhardt, Polizzi, Loparo and Kruse** at Zenodo
+**doi:10.5281/zenodo.13910538** (2024) under **CC-BY-4.0**. Annotated CC-BY-4.0 in `REUSE.toml`
+and attributed in `NOTICE`. The record's MATLAB code and its `smFRET histograms.xlsx` are **not**
+vendored.
+
+- `tests/fixtures/large/ebfret_mrec_sessions.hdf5` (11,729,129 B · **LFS**) — the 11 ebFRET
+  session files (`Data/ebFRET outputs/<figure>/<condition>/<condition>-ebFRET.mat`) repacked, one
+  group per `<figure>/<condition>`: the fitted traces (`donor`, `acceptor`, NaN-padded float64,
+  with `length` and the 0-based crop `crop_min`/`crop_max`) and the stored result for the
+  number of states the session shows (`@nstates`): the empirical-Bayes prior state means
+  `prior_mu` and the expected-occupancy fractions `population`. Each group records its member
+  name, the member's SHA-256 and the MAT-file header. One series of one frame
+  (`Figure 2/A29C-T201C+MreD`) is left out (`@n_left_out`). It backs the report-only comparison
+  in `tests/test_ebfret_sessions_sidecar.py`.
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `Data.zip` | 46,017,564 B | `175ebcca622dd2e5e56d5ced2e610e236723da93570946e58d5a64f67ed9f932` |
+
+Zenodo states MD5 `a021a0ff561013d483f220adeb1d1c91` for the zip, which the download matched.
+**Accessed:** 2026-11-12. **License:** CC-BY-4.0 — **not** GPL-3.0.
+
+The fixture reads only the session files, because each holds both the traces ebFRET fitted and the
+result. In the record five `traces.dat` exports do not belong to the session beside them: the
+`A29C-T201C` and `A33C-T201C` files are exchanged, so are the two `+MreD` files, and
+`MreC-F36R-MreD-traces.dat` is a byte copy of `MreC-L39E-MreD-traces.dat` (their row and
+molecule counts against the sessions show it). Regenerate with:
+
+```sh
+python scripts/make_ebfret_sessions_fixture.py --source <dir-with-Data.zip>
+```
+
+Both files have entries in `tests/reference_data/manifest.toml` (ids `ebfret-mrec-data`,
+`ebfret-mrec-sessions`; ADR-0073). The weekly `reference-data` job downloads the zip, verifies
+its checksum and compares every array of the committed fixture with a fresh extraction.
+
+## Source Data of Campos-Chavez et al. 2024 (paper reference data) — **CC-BY-NC-ND-4.0**
+
+**External data under a licence that permits no shared Adapted Material.** The Source Data of the maintainer's
+study (Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A,
+*Nature Communications* 15:6592 (2024), **doi:10.1038/s41467-024-50885-x**) is published by Springer
+Nature under **CC BY-NC-ND 4.0**. The files below are **unchanged** members of the archive
+`41467_2024_50885_MOESM4_ESM.zip`, byte for byte; nothing was converted, cropped, corrected or
+re-encoded, and under the project rule of ADR-0083 none may be. That rule is stricter than the
+licence, which permits sharing the material in whole or in part and technical format modifications
+(§2(a)(1)(A), §2(a)(4)), but not sharing Adapted Material (§1(a)) such as a corrected copy. They are for non-commercial use only. They are annotated
+`CC-BY-NC-ND-4.0` in `REUSE.toml` and attributed in `NOTICE`; the hooks that rewrite whitespace and
+ruff skip their directories, and `.gitattributes` keeps their bytes (`-text`) on every OS.
+
+| Source archive | Size | SHA-256 |
+|---|---|---|
+| `41467_2024_50885_MOESM4_ESM.zip` | 94,911,677 B | `83141ce0dc63db35aae2a3f17d793df003de7460651a68b13cd3f2e6f9376c71` |
+
+**Download URL:**
+`https://static-content.springer.com/esm/art%3A10.1038%2Fs41467-024-50885-x/MediaObjects/41467_2024_50885_MOESM4_ESM.zip`
+(the Source Data link of the article page; Python `urllib` with default headers answered HTTP 200).
+**Retrieved:** 2026-11-12. The archive has 154 files and no top-level folder, so each committed path
+below the fixture directory is the member path.
+
+| Committed file | Archive member | Size | SHA-256 | Tier |
+|---|---|---|---|---|
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/CalculateDoubleExponentialErrors.py` | 1,520 B | `0780f46cffa547b7a58a5bd8271639b78a7e4be14b7460f67c6b0b7d215b0523` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.out` | 144 B | `bb5ef7d3f8c2de204a7f6c546e3a3ad270e73c33e8c815f4bcabbab48619fd12` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-0.txt` | 72 B | `653e64a5f8a6290f8d1791674979900334c43a4ef402971c2df1f1cefea5b461` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.out` | 144 B | `c1d30c7438f4bf239dbcb5a4fb8cb74f39a318daa2f6bb3f72e94aaf001800cf` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-RAG-4.txt` | 72 B | `7749cb8b610e085d0e2498debbefa346ac350bf87bd5f5b2abf79917600049e7` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.out` | 145 B | `a3cee5cdb477d364849ce8629dc2ace7051e65097062241d69f9cf15ad97481c` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-2State-0.txt` | 74 B | `d5518bb602c4cebb40cb313c179c765d87789b4ec6129c2f3a1c6ca9dece58d9` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.out` | 144 B | `6d89cc6cf888bb7797bd4439b17e2c99b7c7718da0f1d908c679d292f3ea7f4e` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+NCCA-5.txt` | 70 B | `80b0acb9f3abe12ac30776cce6f7bd8319fffc9f2c17f3b339c4317695658ed6` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.out` | 145 B | `6b114de98635bd9660de84c99001705cce8f33fdb3dc0f7aae92a163ab120002` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-0.txt` | 72 B | `84847b6caa0e99da38cb6df70e7a5cd97f7bf8825436bc22eccf9c1a172b0462` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.out` | 142 B | `15d413040cec187d01d40b6e90a9c642d54db326593e83865f89ec8269c387da` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt` | `ErrorCalculations_CodeAndSourceData/ErrorsDoubleExponential/Double-Wt+Wt-4.txt` | 70 B | `ba2ff1aa1320b87ec1c723e413b41f77253bea3c414281b578e0b8bd7fbc2886` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py` | `ErrorCalculations_CodeAndSourceData/Kmatrix/CalculateKbounds.py` | 3,995 B | `81d06b5b1be8ef29558ff9e7c91c932d9fda871bdb28aab642398c62f77e3320` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.out` | 569 B | `69757bbaa36d1840bcaa2fc88e9cf7453fc2756a30930d7c54ad69626a189825` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaDiscriminator.txt` | 58 B | `176ef1d7ac986dc96756322fb539db59eee2cfc247ef4895c03d3011b65355ef` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.out` | 560 B | `b73bb640abc6fa9dd299a493f34be3d845c63785868f8cb5ff0b95a6404bb1eb` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/DeltaNCCA.txt` | 64 B | `630ba34cffaf35051091dd8cbe0357d81f4a427040c7e238dd846252e27d3523` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.out` | 958 B | `cacf2aa7aac53a750f534e26b0605711d8f7c8355357f668674cee42d368ca5e` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/LinkerMutant.txt` | 137 B | `36987a7fcd37d9acb6f5ae61492d3a181411287ae15f0442e7e604be818abb13` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.out` | 1,497 B | `1e820cf6eed492e6602609ab44b7751203721e3e7f37b01fe17b33e77b226a1c` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/RAGmutant.txt` | 241 B | `ce380d66829cf948aada4f617e2453f4613b0c43d9c053c26642cd939e78f790` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out` | `ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.out` | 954 B | `295844a39d61fa2572e47f6c1f13fcbe1b787f7f6cfb56b05693aa7225b71bc2` | git |
+| `tests/fixtures/campos_chavez_2024/ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt` | `ErrorCalculations_CodeAndSourceData/Kmatrix/Wt-Wt.txt` | 135 B | `d35a52f44cdcd4ff8157c045eeca5083412ba28751a159ece27b36c156f4f481` | git |
+| `tests/fixtures/campos_chavez_2024/checkTDP.py` | `checkTDP.py` | 2,174 B | `5cd40c12d8f6bcc7caf611639fc63249368cfde0a1cf1647f460b87b5d7002ee` | git |
+| `tests/fixtures/large/campos_chavez_2024/smFRET_SourceData/intraFRET_WT+WT_13uM.txt` | `smFRET_SourceData/intraFRET_WT+WT_13uM.txt` | 6,723,000 B | `0f4c89027159593e885e02cdc7800218aed540bc1b44ccdd29d4846064a58839` | **LFS** |
+
+**One member is not committed:**
+`ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb`
+(508,299 B, `50c413e49720c4fbec076cc442c3f3a2fe8d203846e2494b9661e05297dde8c0`). Its saved cells
+hold absolute paths of a personal computer, and this repository holds no private path. The
+licence forbids a redacted copy, so the notebook stays in the archive only; the weekly job
+verifies it there with the archive checksum.
+
+The trace matrix is the smallest file of `smFRET_SourceData/`. Two members have that size,
+`intraFRET_WT+WT_13uM.txt` and `intraFRET_WT+WT_5uM.txt`, and they are byte-identical in the
+publisher's archive (both `0f4c8902…a58839`); the first in archive order is committed. A check that
+reads both files from the downloaded archive gets the same traces twice.
+
+**`Kmatrix/CalculateKbounds.py` does not parse** (`IndentationError` at line 51: five spaces where
+its block has four). The publisher's file and the copy that the audit of #695 read are
+byte-identical (`81d06b5b…3320`), so the fault is in the published file. The licence forbids a
+corrected copy, so tests use the `.txt` inputs and `.out` outputs and never import the script.
+
+Every file has an entry in `tests/reference_data/manifest.toml` (ids `campos2024-…`, with
+`extract_member`), and the archive has the `download` entry `campos2024-source-data`. The weekly
+`reference-data` job downloads the archive, verifies the checksum above, and compares each committed
+file with its member (`tests/test_reference_data_download.py`).
+
+## PySMACKS tutorial reference (PySMACKS comparison, #720) — **CC0-1.0**
+
+The PySMACKS tutorial record of **Bastien Molcrette & Sonja Schmid** (University of Basel),
+Zenodo **doi:10.5281/zenodo.21793247**, version 1.0.0, published 2026-08-05 under **CC0-1.0**:
+smFRET data of a two-state Holliday junction (Cy3 and ATTO647N, ALEX). Only its traces file is
+used. Tether does **not** commit it; the weekly `reference-data` job downloads it (manifest id
+`pysmacks-tutorial-traces`).
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `PySMACKS_tutorial_traces_dataset.json.zip` | 28,009,862 B | `2c19091c55326b1eadda42b0e99c8a8c6123f92f9ecccafae176db7fbcb3da59` |
+
+The record states MD5 `365ef8e808ed3f1ff1a2467c8f528a35` for the zip, which the download matched.
+**Accessed:** 2026-11-13. The zip holds one member, `HJ_classic_FOV1_raw_traces_traces_dataset.json`
+(OpenFRET JSON, 96,022,960 B): 1,136 traces of 2,100 frames with the channels `DD`, `DA`, `AA`,
+`back_DD`, `back_DA`, `back_AA`; 52 traces carry a `FRET` label, 71 a `DO` label and 26 an `AO`
+label, each an `{indmin, indmax}` frame range. The record's README says the file also holds the
+HMM kinetic analysis. **It does not**: no trace has the `HMM_param` entry that PySMACKS writes,
+there are no FRET values, and nothing names the PySMACKS version that wrote the file.
+
+So the PySMACKS side was made once, offline, and committed:
+
+- `tests/fixtures/pysmacks_tutorial_reference.json` (6,438 B · plain git, **CC0-1.0**) — written
+  by `scripts/make_pysmacks_reference.py` on 2026-11-13 with **PySMACKS 1.0.0b4** (MIT, PyPI;
+  sdist SHA-256 `ad8d3d4a36416e493f5455291f71aff1e0d055c3a92b36f7b237c58a374e9ff1`), openfret
+  0.1.3, hmmlearn 0.3.3, NumPy 2.5.4, SciPy 1.18.1 and scikit-learn 1.9.1 on CPython 3.12.13
+  (Linux x86-64); the file records these versions itself. For the 52 `FRET` traces, cut to their
+  labelled frames and background-subtracted by PySMACKS's `extract_labelled_traces`, it holds
+  the per-frame apparent-FRET histogram (151 bins over −0.5 to 1.5; 56,442 frames, 27 outside the
+  range) and the two-state ensemble HMM (`TbT_HMM_pipeline`, then `Ens_HMM`; all 52 per-trace
+  fits valid): the per-frame transition matrix and the apparent E of each state. Two runs gave
+  the same numbers. Maintainer decision of 2026-11-13 on #720: PySMACKS runs once and never in
+  CI. The weekly job checks that the file names the downloaded zip's checksum; it cannot run
+  PySMACKS again. Regenerate with:
+
+```sh
+python -m venv .venv-pysmacks
+.venv-pysmacks/bin/python -m pip install "PySMACKS==1.0.0b4"
+QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg .venv-pysmacks/bin/python \
+    scripts/make_pysmacks_reference.py --source <dir-with-the-zip>
+```
+
+A new run changes `generator.run_at`, and so the file's checksum in the manifest.
 
 ## Git-LFS gated tier (`tests/fixtures/large/`)
 
@@ -392,3 +577,239 @@ output SHA-256 values and the method (`scripts/reference/matlab/`). `tests/test_
 verifies every committed record. `stand-in/selftest` is not a reference: the `matlab` stand-in of
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
+
+## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
+
+External third-party data under a different license, as the kinSoftChallenge sets above: the
+"RF2-ArfA smFRET data and analysis" record of **Nina Michael, Bridget Huang, Korak Kumar Ray,
+Colin Kinz-Thompson and Ruben Gonzalez**, Zenodo **doi:10.5281/zenodo.17246323**, **CC-BY-4.0**.
+It holds the tMAVEN SMD files and the "vb Consensus HMM" models behind [Michael2025]
+(Proc. Natl. Acad. Sci. USA 122(46):e2509408122, doi:10.1073/pnas.2509408122). Both files are
+annotated CC-BY-4.0 in `REUSE.toml` and attributed in `NOTICE`.
+
+| Fixture | Archive member (below `Data/Single molecule data/`) | Member size | Member SHA-256 | Fixture size | Transformation |
+|---|---|---|---|---|---|
+| `tests/fixtures/rf2_core_wtprensec_model.hdf5` | `RF2_core/Steady state/HMMs/RF2_core_wtprensEC_smd_HMM.hdf5` | 499,405 B | `edeaa298604895a842c3ab7692370d555b05b2e779d7bcb8b2f81b5d01d0be7a` | 499,405 B | verbatim copy |
+| `tests/fixtures/rf2_core_wtprensec_smd.hdf5` | `RF2_core/Steady state/RF2_core_wtprensEC_smd.hdf5` | 1,163,720 B | `d1025b31777317aefbf0da58c58cdc360f83fc6292f9d1b5557736c45f6683b9` | 313,247 B | windowed extract (below) |
+
+- **Archive:** `ArfA_RF2_data.zip`, 127,792,051 B, SHA-256
+  `1ae523076f89a1e28db2f2035b76ecabd3b4c24e649083158a08ca1ef975c9b8`. **Accessed:** 2026-11-12
+  (downloaded from Zenodo). The record's `Data/Single molecule data/tMAVEN parameters.docx`
+  (15,913 B, SHA-256 `d5df228a303c4a58be5f155ded06384ae1064f5733f7bc06a199146de5ac2e86`) gives
+  the settings the checks use: bleed-through 0.035, and the 2-D histogram settings in
+  `tests/_rf2_arfa_child.py`. It is not committed.
+- **Build:** the files name no tMAVEN build. The SMD file is dated 2022-11-29 15:53 and the
+  model 2022-11-29 16:08 (their own `date_created` and `time_made` attributes). Tether's live
+  checks run the pinned tMAVEN `10f4230` (`.github/workflows/sidecar.yml`), which is a later
+  build; ADR-0079 records what that difference does to the fit.
+- **Windowed extract.** The SMD member is larger than the 512 KiB plain-git gate, so
+  `scripts/make_rf2_arfa_fixture.py` keeps every frame inside a molecule's analysis window
+  `[pre_list, post_list)` bit for bit and sets every frame outside it to `0.0`; tMAVEN and Tether
+  fit and plot only the frames inside. It also replaces the authors' local path in
+  `source_list`/`source_name` with the archive member name, copies every other array and
+  attribute unchanged, and writes gzip level 9 with the shuffle filter. A tMAVEN fit of the
+  extract equals the fit of the original file (measured 2026-11-12).
+
+Regenerate with:
+
+```sh
+python scripts/make_rf2_arfa_fixture.py --archive /path/to/ArfA_RF2_data.zip \
+    --out tests/fixtures/rf2_core_wtprensec_smd.hdf5
+```
+
+The archive and both files have entries in `tests/reference_data/manifest.toml` (ids
+`rf2-arfa-archive`, `rf2-core-wtprensec-model`, `rf2-core-wtprensec-smd`; ADR-0073). The weekly
+`reference-data` job downloads the archive, compares the model with its member byte for byte,
+checks the SMD extract against its member as described above, and runs the import and Table 1
+checks of `tests/test_rf2_arfa.py` on all 11 SMD files and 9 models.
+
+## smfret-analysis2 test data (#709, ADR-0084) — **GPL-3.0-only**
+
+Verbatim copies of 78 files of the `test-data/traces/` folder of
+[vafabakhsh-lab/smfret-analysis2](https://github.com/vafabakhsh-lab/smfret-analysis2) at commit
+`121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4` (2022-05-20, the pin of `scripts/reference/matlab/pins.toml`).
+**Retrieved:** 2026-11-12, `git clone` over HTTPS. **Licence:** the repository gives the GPL
+version 3 text and no "or later" statement, so `GPL-3.0-only` (REUSE override). The README names
+the source acquisition `20201210MRS_mCaSR_D451TAG`.
+
+- The 76 `1 tr<N>.dat` files are the trace files: whitespace-separated columns, of which
+  column 1 is time, column 2 donor and column 3 acceptor intensity. `tests/_sa2_traces.py` reads
+  them; the product has no importer for them (PRD N4).
+- `total_FRET.csv` and `total_XC.csv` are the outputs that this commit's `create_histogram.m`
+  wrote from the 76 files with every trace included (its `skipped-traces.csv` is empty). The
+  pinned commit's own scripts reproduce both, so no MATLAB run is recorded for them.
+- Not copied: `test-data/ground-truth/`. Its files have no header line, a four-column
+  cross-correlation and a different `raw` column; the scripts of this commit do not reproduce
+  them, so they are from an older script version. The `.dat` copies of the two outputs, the
+  movie (`film1.*`) and `skipped-traces.csv` are not needed.
+
+| Fixture | Upstream path | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/smfret_analysis2/total_FRET.csv` | `test-data/traces/total_FRET.csv` | 5,160 B | `cdffc7420060aa3db09336a9e3d8110d42e8fd8b1403f57811467070ed8a94d4` |
+| `tests/fixtures/smfret_analysis2/total_XC.csv` | `test-data/traces/total_XC.csv` | 1,517 B | `81c3c616823dac1d760185d7c5441725ea57d760d0bae04e392aa810ca17fa0f` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr20.dat` | `test-data/traces/1 tr20.dat` | 46,075 B | `37fda8ff0e566f941dae98bcf3b48fd2fd6cef2e550dfed44a00543eca9118c0` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr34.dat` | `test-data/traces/1 tr34.dat` | 54,514 B | `9dad2086786b1b87dfdd2318403f8147c0e101616d5cc13d46fbb730ba749fe2` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr38.dat` | `test-data/traces/1 tr38.dat` | 193,612 B | `680e623c632404d2897f7c3b0471550b232c184b7ccb4e9c1a3a69dbe20b427c` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr40.dat` | `test-data/traces/1 tr40.dat` | 38,218 B | `50446304eab726db3998b85438e43b0cd0ad571d369050e4d9e050e28a822f4c` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr42.dat` | `test-data/traces/1 tr42.dat` | 26,578 B | `47ce21a389ad6ed35c5fc7c51b7eb7fdd81f50aeb149bdb043393bb274ca4757` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr48.dat` | `test-data/traces/1 tr48.dat` | 16,393 B | `638858170b1fb3eb2c5fb30c31b5222d30e2d880f922c035d230397ffc99032b` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr52.dat` | `test-data/traces/1 tr52.dat` | 39,964 B | `b80ca437020ac66531db8c3e09a711159ad3a969430113d717850423c8798736` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr57.dat` | `test-data/traces/1 tr57.dat` | 46,657 B | `0810019e3ed90d6c68739ee6330bb47dfe5685fe4598337ca5347d807ce15959` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr60.dat` | `test-data/traces/1 tr60.dat` | 72,847 B | `de4cc98ea96a7d2a34b03018f1c3a595e6dcd54a2c34ec097c166e6fc2dd8b33` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr61.dat` | `test-data/traces/1 tr61.dat` | 9,118 B | `be53d2540fd8aefd67c2be1a74b54cb036c38e515016dbc20e9b72861c6b34ce` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr67.dat` | `test-data/traces/1 tr67.dat` | 41,710 B | `fe1632ffb91c133ffcf40d1d827b58bcbd79b869ef0b462ff7fda13237735298` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr70.dat` | `test-data/traces/1 tr70.dat` | 40,837 B | `38c90bea853f1ab35377743771d3e866513fac91b6f32b7f95e2cca5a14be8cc` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr76.dat` | `test-data/traces/1 tr76.dat` | 13,192 B | `a31f9240caefd1a934dccd8456bde289153e4936b67038102afe2c185d4e1dca` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr77.dat` | `test-data/traces/1 tr77.dat` | 34,726 B | `a287650092d0f2fb6947330f49eab5f9ad7b1ea90ff401fe1994cc9c29bcfbcf` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr78.dat` | `test-data/traces/1 tr78.dat` | 34,726 B | `573ebc5e524f36c15a334320693ac92363d3428e9120eafd27ac933b7f137c53` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr87.dat` | `test-data/traces/1 tr87.dat` | 90,016 B | `33d11e8ed8f8b8cd59be28eaf296d6ce8928f1a4f8f294cb55e23235902cd5b9` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr88.dat` | `test-data/traces/1 tr88.dat` | 29,488 B | `3572329f3b2b20032bebaeb7ee8582d13c8033dd3ddeff0461ffa801c938a319` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr89.dat` | `test-data/traces/1 tr89.dat` | 35,308 B | `12523d67bd989f44bb18d55b34bf09646361ab37bf29fa02e45f7e20c14edff2` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr98.dat` | `test-data/traces/1 tr98.dat` | 111,550 B | `149af6703815ed234671a7d31a9f37ea25379289a1cd394426206522156ff754` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr100.dat` | `test-data/traces/1 tr100.dat` | 46,657 B | `060bb75f1bd364a789088ddbb23dd4469212978ba4a5afaf8662d7d20f0a1ee9` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr101.dat` | `test-data/traces/1 tr101.dat` | 48,112 B | `64fab3cc277dea4f542f627ac5f98b322ef15ee8e4d3395a62bf1d984036e116` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr106.dat` | `test-data/traces/1 tr106.dat` | 237,553 B | `a005d2aa227a5073aac5e55613ad981374a03527b591da538fcd537cf642744a` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr110.dat` | `test-data/traces/1 tr110.dat` | 54,514 B | `c1a7af43287fd087e0b6bcee16870d9006208601f80a71fb1f2e8e76ca6b20aa` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr114.dat` | `test-data/traces/1 tr114.dat` | 115,042 B | `c7c3b807d371d11293481647b31556f915565c15018efbea6af8d9b12cece43d` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr115.dat` | `test-data/traces/1 tr115.dat` | 37,054 B | `433ee6fdf595462041ab4496b9839e631990a7892813e3c7cf9bde6dca2bd03a` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr118.dat` | `test-data/traces/1 tr118.dat` | 116,497 B | `921a7324b1c509612ddba06a35687c0bf6a6eed59cc53c58e228882082127378` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr122.dat` | `test-data/traces/1 tr122.dat` | 190,120 B | `33a023566aad2a4afd3ec18fa72376875c683067bbe1b3c54520decda82377ba` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr123.dat` | `test-data/traces/1 tr123.dat` | 76,921 B | `3cf47f06eab66a3c299f3334f849935eacf2ba813d45bb9f6b9b9089120f7b9c` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr127.dat` | `test-data/traces/1 tr127.dat` | 37,054 B | `5ebecdbc9937df9d5a339180fb08e427312e3d499e9f19f484463c435b3a7a74` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr128.dat` | `test-data/traces/1 tr128.dat` | 78,958 B | `a8a0373d573559f68b69632dbc95681f9ee902766dd482547f467552a1ec2d4c` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr132.dat` | `test-data/traces/1 tr132.dat` | 28,615 B | `86e62c0ba79f0e0d9003e52471e9b2063b41d7d8841f2d05ec0dca7654924268` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr134.dat` | `test-data/traces/1 tr134.dat` | 63,535 B | `7620923d550deb75c59b426e1efda8156c537cd70e63932f4b54ca6f0c258cec` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr135.dat` | `test-data/traces/1 tr135.dat` | 109,804 B | `2672bc44959c10bc6b4b19d2e4db2a1e1649f7829a7b6956d8a5137f1e5d79c5` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr138.dat` | `test-data/traces/1 tr138.dat` | 103,402 B | `1fb6fe2610204d1317e41f5327fbb165bc2f470459ed2a97a43c50926963f663` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr140.dat` | `test-data/traces/1 tr140.dat` | 30,943 B | `2c963099ec48f566f4c825a281f34e2a89738a4c91b7537960592e53b7ead64d` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr145.dat` | `test-data/traces/1 tr145.dat` | 241,627 B | `37838c2667d9d1a28ab09c950cfc3d6980aebad69a07d995be4abc710d4042f6` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr148.dat` | `test-data/traces/1 tr148.dat` | 193,612 B | `e5934f06c7162418bad803146c724048dba62b508b212695bb78ae567e6f3dc4` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr151.dat` | `test-data/traces/1 tr151.dat` | 194,776 B | `751a439146b8404f72412115dafb56b5bead3fe72a4693dfd990e404b35e9053` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr152.dat` | `test-data/traces/1 tr152.dat` | 223,585 B | `102af41605a4faccb0399fe097a9ff709b4073b322eab826ac99a15d0a61979b` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr154.dat` | `test-data/traces/1 tr154.dat` | 58,006 B | `25700f63bc9c804ec8dba7a483291140b9e1f478623755298ad801c9cc32948f` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr155.dat` | `test-data/traces/1 tr155.dat` | 109,513 B | `9385784db988edcc640110e4a3a6827180c55b0bce08b31d2e0257f920ab43f5` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr162.dat` | `test-data/traces/1 tr162.dat` | 94,963 B | `7cfc1587255450283dca5ec2510e30f1aca853beade8f9ac8286329fa9fdb8f7` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr166.dat` | `test-data/traces/1 tr166.dat` | 39,382 B | `ce34ab51b779d2f7e65fb0d1b71294f9c822a0ba6d50c8fd76d69bcf4ddddaf2` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr168.dat` | `test-data/traces/1 tr168.dat` | 181,099 B | `883fa062bb017372eac5e9a17179710fa65dfc28d2e8eae1f50b7bcabdf35c05` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr170.dat` | `test-data/traces/1 tr170.dat` | 61,498 B | `e97ffe82a09a9d556f4af841d8c2aab4630eec33947f338e7032ed7f64033e9e` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr172.dat` | `test-data/traces/1 tr172.dat` | 67,318 B | `0b1773b349d2e3cdf38393a3829263169dc20966e6280574e6ebb2350182ccd6` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr174.dat` | `test-data/traces/1 tr174.dat` | 113,878 B | `9ec38c9ef76c50f354c0b11f1034c9dd0e0bd9a7ff0365d5e139d2bed91fc4e9` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr175.dat` | `test-data/traces/1 tr175.dat` | 12,319 B | `b5df8ea6a06151806b785cd7ada3ab4cfd069ccf2a499f501512e3bc9f39d132` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr176.dat` | `test-data/traces/1 tr176.dat` | 153,745 B | `67ba7c41a17c877bc3aeaf577b735864594e6469c97b72b6ecf7bff8b68bab4a` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr179.dat` | `test-data/traces/1 tr179.dat` | 25,996 B | `2f3e8a1ebf0fe12fa76df9b7525af78788237a3d59242a7be311af5fa4ed4dba` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr181.dat` | `test-data/traces/1 tr181.dat` | 148,798 B | `ba58f8b9929e683095e83c4981a41f0a63ef677bcfa61114fff599f594233151` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr184.dat` | `test-data/traces/1 tr184.dat` | 34,435 B | `a94f9996cba5e5d2c65e85b1a29d24bc5550643c622f71b64bf801fa912f2fb3` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr185.dat` | `test-data/traces/1 tr185.dat` | 93,508 B | `34f882434029dca1298d34052352f1c03ef336201496607683beea19006f6a07` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr188.dat` | `test-data/traces/1 tr188.dat` | 195,649 B | `9f2a7c14f9dba907b99eca2210be77c182ffee8088de431e21b1cb7192693ff6` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr190.dat` | `test-data/traces/1 tr190.dat` | 14,938 B | `9f8db4ce64b64f8176edd546e0e878cc4b19e6e319988117fbdf8429a7cc6ad0` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr191.dat` | `test-data/traces/1 tr191.dat` | 199,141 B | `e169ad485cd3f8b531ff3a32180ed07213edad1dec15cfced0d0cf608b3d2d44` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr194.dat` | `test-data/traces/1 tr194.dat` | 199,141 B | `9a7a16796d83eabfdbea6459c5ea8960dfcb0b8ea0191f2bed4ce079fa800947` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr195.dat` | `test-data/traces/1 tr195.dat` | 114,751 B | `4ce6759ec576d085ce69536037f4af16a1c0a476265dab49da857affb348c80f` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr200.dat` | `test-data/traces/1 tr200.dat` | 71,101 B | `023a4b018e597f31cfd8e1f3e169b618ed43ea62950095af74a2a523ba5c1b9f` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr201.dat` | `test-data/traces/1 tr201.dat` | 107,476 B | `a231fb39466cb91bc59486ff0a5bc651543a50385d264d32458c1b3482c3e042` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr202.dat` | `test-data/traces/1 tr202.dat` | 126,391 B | `957201a8cfcb22d1ec8c2a1409ca364dfda1c4acbccb0c2db0095f73dada7989` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr205.dat` | `test-data/traces/1 tr205.dat` | 190,993 B | `ca03fc1362ac40729a53ce8300396b892e12e406855421931a41c98f7954f2db` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr206.dat` | `test-data/traces/1 tr206.dat` | 135,703 B | `5f55a19377b37d7b114b715f0c7719db469806b88f269530c7918257971ba950` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr207.dat` | `test-data/traces/1 tr207.dat` | 169,168 B | `e2a36b004b6595fe763b73aae873663b04f8eadfbb43f2767c318d330dcc9eea` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr208.dat` | `test-data/traces/1 tr208.dat` | 220,384 B | `1c17047c84e0b541a0d74bddc84012c980727a70feae57832483fb42e3273209` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr209.dat` | `test-data/traces/1 tr209.dat` | 145,306 B | `cd3ba308267180c16b6bb4cc03a391ea2575a6db891073f2c8147a8519a0c50f` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr210.dat` | `test-data/traces/1 tr210.dat` | 204,670 B | `f8eaf9fba8e223c70f86c106acbc6a804b6775d02574f51fc976a3646b8876ca` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr215.dat` | `test-data/traces/1 tr215.dat` | 182,845 B | `ceedc236574f6727b22baa35270036bfbe094c7282f6299619fdd4c7f2489548` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr218.dat` | `test-data/traces/1 tr218.dat` | 39,382 B | `162b6fe4b7e31be30f28d39fb0e8b04cfed8914fc357f48a413b1bef5188e7bd` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr221.dat` | `test-data/traces/1 tr221.dat` | 161,020 B | `28e7cfcecd4fb0327378fd7e02b234bcc3266e03cf0822f3a5d9e17271230fab` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr228.dat` | `test-data/traces/1 tr228.dat` | 60,916 B | `9775deeb4fe0de88df5929620c7608e0682e26fc26498c74949921155bd99e7f` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr229.dat` | `test-data/traces/1 tr229.dat` | 145,597 B | `5b7ee35c7612f47c77b3aa31932aea28356b01b2662d608985d0e58c3f8750f3` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr233.dat` | `test-data/traces/1 tr233.dat` | 44,329 B | `27ff65fe654851e28d8021fe331f0140aa98af9a4f59a823e846d394ce920b69` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr238.dat` | `test-data/traces/1 tr238.dat` | 90,598 B | `afcc8495875b781b3ed7a6f4a8ea1dc838f067e0caec5c51ccbd344b69160b11` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr242.dat` | `test-data/traces/1 tr242.dat` | 105,148 B | `e484f5e197d85f09fca33c438781a767799e54e606c9ee3223f351a30a57d7a8` |
+| `tests/fixtures/smfret_analysis2/traces/1 tr245.dat` | `test-data/traces/1 tr245.dat` | 239,299 B | `75f55b77fada48722bf39a3f042f26ba52e20e31b076b3078d5fb5f2a1bc250c` |
+
+## Ha laboratory SAM/SAH riboswitch snapshots (#796, ADR-0086) — **CC-BY-4.0**
+
+External third-party data under a different licence: the data of Liao et al., Nucleic Acids Res.
+51:8957 (2023), doi:10.1093/nar/gkad633, deposited by **Ting-Wei Liao** (Ha Single-Molecule Lab)
+at Zenodo **doi:10.5281/zenodo.8088172** (version 1.1, 2023-06-27) under **CC-BY-4.0**. They are
+annotated CC-BY-4.0 in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
+
+The 56 files are verbatim copies (no transformation) of members of the record's Fig. 1 archive,
+`Fig 1 Studies of ligand-free conformations.zip` (75,685,670 B, MD5
+`c5929e9679142e85fa9ae3156e3440b2`, SHA-256
+`a8c0e41a9c080b39048bcee22503d86bb58d99824aa82c564d08535dbf5422f3`), folder
+`20200129 RNA only condition/RNA only/` (shortened to `…/RNA only/` below):
+
+- the 53 short binary snapshots `hel1.traces` to `hel53.traces` (20 frames each, 361 to 467
+  molecules; the format is in `_ha_traces.py` under `tests/`). The three long movies
+  `hel54.traces` to `hel56.traces` (about 5 MB each) and every `.pks`, `.smt`, `.smt2`, `.tif`,
+  `.tlog` and `.log` file of the folder are not copied;
+- `frets.dat`, the laboratory's 46,950 FRET values, one on each line;
+- `test3.dat`, its normalised histogram (centre and fraction; bin width 0.015, centres -0.4 to
+  1.4);
+- `counts2.txt`, the record that the laboratory's script wrote of its parameters (leakage 0.12,
+  intensity cutoffs 100 and 1000, FRET split 0.5, green-excitation frames 1 to 10,
+  red-excitation frames 11 to 20) and of its counts for each of the 56 movies.
+
+| Fixture | Source member | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/ha_sam_sah/hel1.traces` | `…/RNA only/hel1.traces` | 34,966 B | `0ce42e85fd2d41f0ebeeaf4f2697dc5bc573673eced6efc6d3cab12c7a479df3` |
+| `tests/fixtures/ha_sam_sah/hel2.traces` | `…/RNA only/hel2.traces` | 33,766 B | `45781c2bd17808f5946a897d4c0c55464e8bf152f29be2b3e5b96eb652fde40c` |
+| `tests/fixtures/ha_sam_sah/hel3.traces` | `…/RNA only/hel3.traces` | 34,246 B | `88b26c09e89f48bd86038df15cb9ace18ccf1afff6fb94a0c3edec6671317405` |
+| `tests/fixtures/ha_sam_sah/hel4.traces` | `…/RNA only/hel4.traces` | 33,686 B | `a729f934994ca3842f7c62649c2b9ac3c199cfc3bfc5930422f216c66fcdb67f` |
+| `tests/fixtures/ha_sam_sah/hel5.traces` | `…/RNA only/hel5.traces` | 32,726 B | `8606c9d59b608683b8806ab6dc03f736c7a5164caae46ad9000d457d3dc773cd` |
+| `tests/fixtures/ha_sam_sah/hel6.traces` | `…/RNA only/hel6.traces` | 36,006 B | `869d5100552cffd2257eae0498905ed348bd7c3f6bc4fe0b335124e080ff81ab` |
+| `tests/fixtures/ha_sam_sah/hel7.traces` | `…/RNA only/hel7.traces` | 34,966 B | `a6e3cc581785c30c8ac23229fb960758f8fca1e7f116b430a5f2adba888b451c` |
+| `tests/fixtures/ha_sam_sah/hel8.traces` | `…/RNA only/hel8.traces` | 35,126 B | `2a0ad48e35e84f88f5422b3961a2e8bc2e4935a68a417ed475cc7d59e87bcecb` |
+| `tests/fixtures/ha_sam_sah/hel9.traces` | `…/RNA only/hel9.traces` | 35,366 B | `a3959c95e0099d5af7a3c4c6e9598b279c64ea6ded2e743d8e7ec21de52b8305` |
+| `tests/fixtures/ha_sam_sah/hel10.traces` | `…/RNA only/hel10.traces` | 34,966 B | `3cf678464d671693ee9f788ba8cceaeebefffc5be2aeeee80e9a77171ae720c7` |
+| `tests/fixtures/ha_sam_sah/hel11.traces` | `…/RNA only/hel11.traces` | 33,846 B | `11a31ece602904eb5874d5606eb3d7de8c54b87079d31398fe8d93bbf02b8263` |
+| `tests/fixtures/ha_sam_sah/hel12.traces` | `…/RNA only/hel12.traces` | 34,646 B | `9e210a4e169bf7bd7d3a5d89234002e9146ca624e5b0e49076f035499c4dc87c` |
+| `tests/fixtures/ha_sam_sah/hel13.traces` | `…/RNA only/hel13.traces` | 33,286 B | `e921c3579fd76fc687ea1ddda5208e3895d96f002d243b836ff60babdef57cda` |
+| `tests/fixtures/ha_sam_sah/hel14.traces` | `…/RNA only/hel14.traces` | 36,006 B | `f003b0c477b084d8160b8eb4b29a3d32ec8d9c6030099413661f4c056a37fccf` |
+| `tests/fixtures/ha_sam_sah/hel15.traces` | `…/RNA only/hel15.traces` | 35,046 B | `2a200eb4896fb261f9b9d2431d8aec81e5869c1a4e5b454ac5227c6c6ea389d9` |
+| `tests/fixtures/ha_sam_sah/hel16.traces` | `…/RNA only/hel16.traces` | 35,446 B | `ed0232e600c23d80057184e3b3d7b6cb3183329cd43d8423123bbb94a5947781` |
+| `tests/fixtures/ha_sam_sah/hel17.traces` | `…/RNA only/hel17.traces` | 34,406 B | `6845b97e09bea414e2811203855f509366fc65dcf3a83a42ebbe9f3f4e81df5c` |
+| `tests/fixtures/ha_sam_sah/hel18.traces` | `…/RNA only/hel18.traces` | 34,966 B | `f8092792877fa0f2b251973402244e7ca61d74b72a0e07b291006cb30fdcb90f` |
+| `tests/fixtures/ha_sam_sah/hel19.traces` | `…/RNA only/hel19.traces` | 33,126 B | `321dd25dcb0337fa92eee0245bd4f53c17995a7afceb97eb7c11eda289b3334c` |
+| `tests/fixtures/ha_sam_sah/hel20.traces` | `…/RNA only/hel20.traces` | 34,726 B | `09ec0505e50543452ece639734502babd9f6e4b7ee65f3c9e2f02128befc444d` |
+| `tests/fixtures/ha_sam_sah/hel21.traces` | `…/RNA only/hel21.traces` | 32,966 B | `06be429d05dd97a6c54118161939d48488b0901ee927e88e8d6b5096c94be51b` |
+| `tests/fixtures/ha_sam_sah/hel22.traces` | `…/RNA only/hel22.traces` | 34,646 B | `2b8221c6fc94d4b0518f46a25d5b9d6a87f3c10ffa917140e7d64365684eb6a8` |
+| `tests/fixtures/ha_sam_sah/hel23.traces` | `…/RNA only/hel23.traces` | 36,086 B | `798ff04f5be85f6de625d58f5c878a4f6036cdadfdad97368ea2526fcd930d53` |
+| `tests/fixtures/ha_sam_sah/hel24.traces` | `…/RNA only/hel24.traces` | 33,766 B | `dad5d8eca2dab5887310c27336040ec214947e311187bb5d04c86c6f61f41249` |
+| `tests/fixtures/ha_sam_sah/hel25.traces` | `…/RNA only/hel25.traces` | 32,806 B | `04c62648fed6eaa8a8d961c8245bc29ac9f0af2dabfb9969251a9d5379b2deeb` |
+| `tests/fixtures/ha_sam_sah/hel26.traces` | `…/RNA only/hel26.traces` | 36,566 B | `33b6fb375fbc8a8c64afdd6ff4825c0a2c38071ab2cb7daec7260fcc8e2c33c0` |
+| `tests/fixtures/ha_sam_sah/hel27.traces` | `…/RNA only/hel27.traces` | 33,926 B | `1f5015e1c464cd2f5903f1e9195665c8b14f2360a619aa6d31e2b31ccb1cec09` |
+| `tests/fixtures/ha_sam_sah/hel28.traces` | `…/RNA only/hel28.traces` | 34,326 B | `fd9634fb0ca447d30b2c0c6bd072102548ba550b28da765a743e96b4cc8f3d2d` |
+| `tests/fixtures/ha_sam_sah/hel29.traces` | `…/RNA only/hel29.traces` | 33,686 B | `a6409f7db0f061150df44f4488805a5feb3ec47830ea7209d86c7710ecbff16f` |
+| `tests/fixtures/ha_sam_sah/hel30.traces` | `…/RNA only/hel30.traces` | 34,486 B | `72c7d95e018052d920d0861ae1b8262fc6760cb990eccba42a9dc839c16d8f09` |
+| `tests/fixtures/ha_sam_sah/hel31.traces` | `…/RNA only/hel31.traces` | 28,886 B | `ec49f2f6b2d31046e3f7913436c3eee46a7d00effa19fa53015b6c1bf900e3ea` |
+| `tests/fixtures/ha_sam_sah/hel32.traces` | `…/RNA only/hel32.traces` | 33,686 B | `905cdfcec85539567a0f937ecd673664170fee067f79890bed3af29f333f0691` |
+| `tests/fixtures/ha_sam_sah/hel33.traces` | `…/RNA only/hel33.traces` | 31,926 B | `b00c7151d865da1444365539b03cadc9e9f869f7a5386fa179d9e16592d8d599` |
+| `tests/fixtures/ha_sam_sah/hel34.traces` | `…/RNA only/hel34.traces` | 32,486 B | `0b2550cb78b1f1f5eb02dec4a9239921ce0e6a443d128dd0b5f2821863a6eb71` |
+| `tests/fixtures/ha_sam_sah/hel35.traces` | `…/RNA only/hel35.traces` | 34,006 B | `cd3a052fb327d35ca77afbd905b56a61ab091c092cf26d6119a82e5f11021b03` |
+| `tests/fixtures/ha_sam_sah/hel36.traces` | `…/RNA only/hel36.traces` | 33,046 B | `23f75459d20974df6d07474cab57c875c55873593cda71459c5bf39fa917cadd` |
+| `tests/fixtures/ha_sam_sah/hel37.traces` | `…/RNA only/hel37.traces` | 37,366 B | `5fec7b056eafdf917d9acb19e47f5497074ca17578b82fce1185ce4a69a42634` |
+| `tests/fixtures/ha_sam_sah/hel38.traces` | `…/RNA only/hel38.traces` | 34,406 B | `1d01c8d3e365a2189b725dbd2603951b54a0323541e047ec9e1f53b7acc62334` |
+| `tests/fixtures/ha_sam_sah/hel39.traces` | `…/RNA only/hel39.traces` | 36,166 B | `1c45ed2deec8341d7eb7d6fdfe40af88ea3383dd03bd70cf0b018f15ea44a8cf` |
+| `tests/fixtures/ha_sam_sah/hel40.traces` | `…/RNA only/hel40.traces` | 34,966 B | `cf7f51cda154aa0608c5643b370579d8f4cfce7d26389823bf6d756ca02d902e` |
+| `tests/fixtures/ha_sam_sah/hel41.traces` | `…/RNA only/hel41.traces` | 36,486 B | `c721253ab239199387a24ee0e47998bdc7a117fa16bbf25522dd6b1b119dc757` |
+| `tests/fixtures/ha_sam_sah/hel42.traces` | `…/RNA only/hel42.traces` | 32,886 B | `5f03d8a0c8b7253211afaff969557cc0a88f7d93720f587912187792862dfced` |
+| `tests/fixtures/ha_sam_sah/hel43.traces` | `…/RNA only/hel43.traces` | 33,446 B | `fce90bd1f66d67a00040ae9031c2214866af83d91cc7874cf8cca94ba6f97044` |
+| `tests/fixtures/ha_sam_sah/hel44.traces` | `…/RNA only/hel44.traces` | 33,686 B | `35a0c27a31625917b450f5c04f45788972858f278820036cccbb3e1dc22e2d56` |
+| `tests/fixtures/ha_sam_sah/hel45.traces` | `…/RNA only/hel45.traces` | 35,366 B | `a3c1ea1f76b7640d627e00bc12deb4def90389b3218fb577169529a9ca8e257c` |
+| `tests/fixtures/ha_sam_sah/hel46.traces` | `…/RNA only/hel46.traces` | 32,326 B | `e9f35208ccd871ab32c1cefbe0c413c97a76420939e57ab348526c220dd9ed2c` |
+| `tests/fixtures/ha_sam_sah/hel47.traces` | `…/RNA only/hel47.traces` | 33,606 B | `6b6442c80f860455ab622b51ae0678babab7350187e84d66d195cef26a316e1d` |
+| `tests/fixtures/ha_sam_sah/hel48.traces` | `…/RNA only/hel48.traces` | 34,246 B | `c9f291f3a344be104b3709efac1cbce6635834e33917bafb0225279d50c87cc5` |
+| `tests/fixtures/ha_sam_sah/hel49.traces` | `…/RNA only/hel49.traces` | 33,206 B | `1ffc607c41f6609a97db6423399862e9fadf0b337536f9075a4a84c3050d9622` |
+| `tests/fixtures/ha_sam_sah/hel50.traces` | `…/RNA only/hel50.traces` | 34,246 B | `5cb01df666816b24f796cd5ea21f3cf1be4ce2be6b3b8d52784dbe8200737385` |
+| `tests/fixtures/ha_sam_sah/hel51.traces` | `…/RNA only/hel51.traces` | 33,206 B | `97848ddd5ec85127f86b1f14241adcf56c5e0555d6de63bb69761479e9c0ae92` |
+| `tests/fixtures/ha_sam_sah/hel52.traces` | `…/RNA only/hel52.traces` | 33,846 B | `bfb791f196702be6b1118d8437167d70554c50133c07297d324b04f5db090743` |
+| `tests/fixtures/ha_sam_sah/hel53.traces` | `…/RNA only/hel53.traces` | 33,526 B | `e5aa2f59582d0fbdd3e7ffe32cb8dbe4a434570528846cc6b62688e05f2349ca` |
+| `tests/fixtures/ha_sam_sah/frets.dat` | `…/RNA only/frets.dat` | 845,100 B | `a21913a8517488a8d08eaa1e62bd015df8e543457960ed185fe35463957c2ccb` |
+| `tests/fixtures/ha_sam_sah/test3.dat` | `…/RNA only/test3.dat` | 4,114 B | `3c24f94f3064f12be130571a25038ff6bd1398c20b86508633384b7df0bd1a65` |
+| `tests/fixtures/ha_sam_sah/counts2.txt` | `…/RNA only/counts2.txt` | 11,219 B | `f837ccac4a18bd2555adf7c3e85cf993c64395b2f7433a978ca7d84d5486f08a` |
+
+**Accessed:** 2026-11-13 (downloaded from Zenodo; MD5 and SHA-256 of the archive checked).
+**License:** CC-BY-4.0 (Liao, Ha Single-Molecule Lab) — **not** GPL-3.0. Regenerate by
+downloading the archive and copying the members above; every file has an entry in
+`tests/reference_data/manifest.toml` (ids `ha-sam-sah-fig1` for the archive and
+`ha-sam-sah-hel1` to `ha-sam-sah-hel53`, `ha-sam-sah-frets`, `ha-sam-sah-test3`,
+`ha-sam-sah-counts2`), and the weekly `reference-data` job compares each copy with its member.

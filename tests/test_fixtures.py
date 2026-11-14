@@ -38,6 +38,8 @@ PLAIN_FIXTURES = [
     FIXTURES / "deeplasi_traces_slice.txt",
     FIXTURES / "marzano_ppr_rnaanticognate.tar.xz",
     FIXTURES / "marzano_chaperone_kjg_231027.tar.xz",
+    FIXTURES / "rf2_core_wtprensec_smd.hdf5",
+    FIXTURES / "rf2_core_wtprensec_model.hdf5",
 ]
 
 # The SHA-256 of each plain fixture's content. A fixture that a script regenerates on
@@ -60,6 +62,12 @@ PLAIN_FIXTURE_SHA256 = {
     ),
     "marzano_chaperone_kjg_231027.tar.xz": (
         "116822250071f16330de19e069da41458fe1fbd12d026dde50dc60048263df60"
+    ),
+    "rf2_core_wtprensec_smd.hdf5": (
+        "caef96af49c02a2c16729c5ddf32dcf8cb221e4d2c76841c9c9e08818da17926"
+    ),
+    "rf2_core_wtprensec_model.hdf5": (
+        "edeaa298604895a842c3ab7692370d555b05b2e779d7bcb8b2f81b5d01d0be7a"
     ),
 }
 

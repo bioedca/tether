@@ -16,10 +16,14 @@ SPDX-License-Identifier = "GPL-3.0-or-later"
 # (Götz & Schmid, Zenodo 10.5281/zenodo.5701310), aggregated as gated-tier test
 # fixtures. `override` beats the blanket GPL entry above for these specific data
 # files (they carry no SPDX header of their own). Attributed in NOTICE and the
-# fixture PROVENANCE; the MATLAB simulator from the same record is NOT vendored
-# (PRD N2). See PRD §8 NFR-VALID(c) / §9 M8.
+# fixture PROVENANCE. The three simulator settings files (#717) are copied verbatim
+# from MATLAB_simulator.zip; the MATLAB simulator itself is NOT vendored (PRD N2). See PRD §8 NFR-VALID(c) / §9 M8.
 [[annotations]]
-path = ["tests/fixtures/large/kinsoft_sim.hdf5", "tests/fixtures/kinsoft_trace_sample.txt"]
+path = [
+    "tests/fixtures/large/kinsoft_sim.hdf5",
+    "tests/fixtures/kinsoft_trace_sample.txt",
+    "tests/fixtures/kinsoft_simulator/*.cfg",
+]
 precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
@@ -37,6 +41,69 @@ path = [
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2024-2026 Nicholas Marzano et al."
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# PySMACKS tutorial reference (#720): the histogram and HMM result that PySMACKS 1.0.0b4 gives
+# on the CC0-1.0 traces of Zenodo 10.5281/zenodo.21793247 (Molcrette & Schmid), made once by
+# scripts/make_pysmacks_reference.py. Kept under the record's CC0-1.0, so it can travel with the
+# data it describes. Attributed in NOTICE and the fixture PROVENANCE.
+[[annotations]]
+path = ["tests/fixtures/pysmacks_tutorial_reference.json"]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2026 Bastien Molcrette and Sonja Schmid (the data)",
+  "2026 The Tether Authors <bioedca@u.northwestern.edu> (the reference run)",
+]
+SPDX-License-Identifier = "CC0-1.0"
+
+# RF2-ArfA smFRET data and tMAVEN analysis (#708, ADR-0079): the authors' model file for the
+# RF2 core signal on ArfA-pre-incubated non-stop complexes, verbatim, and an extract of its SMD
+# file (scripts/make_rf2_arfa_fixture.py). Michael, Huang, Ray, Kinz-Thompson & Gonzalez, Zenodo
+# doi:10.5281/zenodo.17246323, CC-BY-4.0. See NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/rf2_core_wtprensec_model.hdf5", "tests/fixtures/rf2_core_wtprensec_smd.hdf5"]
+precedence = "override"
+SPDX-FileCopyrightText = "2025 Nina Michael, Bridget Huang, Korak Kumar Ray, Colin Kinz-Thompson and Ruben Gonzalez"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# MreC-MreD ebFRET sessions — third-party reference data, CC-BY-4.0 (Gilman, Shlosman, Samé
+# Guerra, et al., Zenodo 10.5281/zenodo.13910538), repacked by scripts/make_ebfret_sessions_fixture.py
+# into one LFS fixture for the report-only ebFRET comparison (#719). Attributed in NOTICE and the
+# fixture PROVENANCE. `override` beats the blanket GPL entry above.
+[[annotations]]
+path = ["tests/fixtures/large/ebfret_mrec_sessions.hdf5"]
+precedence = "override"
+SPDX-FileCopyrightText = "2024 Morgan S. A. Gilman, Irina Shlosman, Daniel Samé Guerra, Masy Domecillo, Elayne Fivenson, Claire Bourrett, Thomas Bernhardt, Nicholas Polizzi, Joseph Loparo and Andrew Kruse"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# smfret-analysis2 test data (#709, ADR-0084): verbatim copies of 78 files of test-data/traces/ of
+# github.com/vafabakhsh-lab/smfret-analysis2 at commit 121634e. The repository gives the GPL
+# version 3 text with no "or later" statement, so GPL-3.0-only, not the project's -or-later.
+# Attributed in NOTICE and tests/fixtures/PROVENANCE.md; the MATLAB scripts are not vendored.
+[[annotations]]
+path = ["tests/fixtures/smfret_analysis2/*.csv", "tests/fixtures/smfret_analysis2/traces/*.dat"]
+precedence = "override"
+SPDX-FileCopyrightText = "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2)"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# Source Data of Campos-Chavez et al., Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x
+# (#755, ADR-0083): unchanged copies of members of the publisher's archive
+# 41467_2024_50885_MOESM4_ESM.zip, under CC BY-NC-ND 4.0 as published, NOT GPL-3.0. Non-commercial
+# use only, and no adapted copy may be shared. `override` beats the blanket GPL entry above.
+# Attributed in NOTICE, docs/validation.md and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/campos_chavez_2024/**", "tests/fixtures/large/campos_chavez_2024/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2024 The Author(s): Eduardo Campos-Chavez, Sneha Paul, Zunwu Zhou, Dulce Alonso, Anjali R. Verma, Jingyi Fei, Alfonso Mondragón"
+SPDX-License-Identifier = "CC-BY-NC-ND-4.0"
+
+# Ha laboratory SAM/SAH riboswitch data (#796, ADR-0086): verbatim copies of 56 files of the Fig. 1
+# archive of Zenodo 10.5281/zenodo.8088172 (CC-BY-4.0): 53 .traces snapshots, frets.dat, test3.dat
+# and counts2.txt. Attributed in NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/ha_sam_sah/*"]
+precedence = "override"
+SPDX-FileCopyrightText = "2023 Ting-Wei Liao, Ha Single-Molecule Lab (Zenodo 10.5281/zenodo.8088172)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,

@@ -26,7 +26,9 @@ def _round_up_2sig(value: float) -> float:
 def test_every_limit_is_its_measurement_rounded_up() -> None:
     doc = json.loads(LIMITS.read_text("utf-8"))
     entries = [(b, k, e) for b, blk in doc["limits"].items() for k, e in blk["values"].items()]
-    assert len(entries) == 33  # 2 x 10 A2b selections, 2 x 6 B3 pairs, 1 C1
+    # 10 A2b selections against the app, 2 x 6 B3 pairs, 1 C1. A2b against the tMAVEN
+    # routine is an exact assertion since #806 and needs no limit.
+    assert len(entries) == 23
     for block, key, entry in entries:
         measured, limit = entry["measured"], entry["limit"]
         assert math.isfinite(measured) and 0.0 <= measured <= 1.0, (block, key)

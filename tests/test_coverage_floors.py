@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -45,8 +46,9 @@ def _file(lines: int, covered: int, branches: int = 0, covered_branches: int = 0
     }
 
 
-def _report(**packages: tuple[int, int]) -> dict:
-    return {"files": {f"src/tether/{n}/m.py": _file(*v) for n, v in packages.items()}}
+def _report(**packages: tuple[int, ...]) -> dict:
+    files = {f"src/tether/{n}/m.py": _file(*v) for n, v in packages.items()}
+    return {"meta": {"branch_coverage": True}, "files": files}
 
 
 def test_package_of_maps_paths_to_subpackages():
@@ -89,7 +91,7 @@ def test_a_package_without_a_floor_and_a_floor_without_a_package_are_errors():
 
 
 def test_branch_coverage_is_reported_in_the_table():
-    report = {"files": {"src/tether/io/m.py": _file(10, 10, 4, 1)}}
+    report = _report(io=(10, 10, 4, 1))
     table, *_ = cf.check(cf.measure(report), {"total": 0, "io": 0})
     assert "| io | 10/10 | 100.00 | 1/4 | 25.00 | 0 | ok |" in table
 
@@ -112,6 +114,35 @@ def test_main_writes_the_summary_and_exits_by_result(tmp_path, monkeypatch, caps
 
     report.write_text(json.dumps(_report(io=(1, 1), ml=(1, 1))), encoding="utf-8")
     assert cf.main(["x", str(report)]) == 2
+
+
+@pytest.mark.parametrize("meta", [None, {}, {"branch_coverage": False}])
+def test_a_report_without_branch_data_exits_2(tmp_path, monkeypatch, capsys, meta):
+    """Issue #848: a report made without branch measurement would show 100 % branch coverage."""
+    floors = tmp_path / "floors.toml"
+    floors.write_text("[floors]\ntotal = 0\nio = 0\n", encoding="utf-8")
+    monkeypatch.setattr(cf, "FLOORS", floors)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    report = _report(io=(10, 10))
+    if meta is None:
+        del report["meta"]
+    else:
+        report["meta"] = meta
+    path = tmp_path / "coverage.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert cf.main(["x", str(path)]) == 2
+    assert "meta.branch_coverage" in capsys.readouterr().out
+
+
+def test_a_file_with_no_branches_passes_in_a_branch_report(tmp_path, monkeypatch):
+    floors = tmp_path / "floors.toml"
+    floors.write_text("[floors]\ntotal = 90\nio = 90\n", encoding="utf-8")
+    monkeypatch.setattr(cf, "FLOORS", floors)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    # coverage writes num_branches = 0 for a file without branches when the flag is true.
+    path = tmp_path / "coverage.json"
+    path.write_text(json.dumps(_report(io=(10, 10, 0, 0))), encoding="utf-8")
+    assert cf.main(["x", str(path)]) == 0
 
 
 def test_lowered_floors_finds_lowered_and_removed_values():
@@ -176,3 +207,12 @@ def test_only_the_linux_leg_measures_coverage():
     assert all(s.get("if", "").startswith("runner.os == 'Linux'") for s in linux_only)
     assert any("check_coverage_floors.py" in s.get("run", "") for s in linux_only)
     assert any(str(s.get("uses", "")).startswith("actions/upload-artifact@") for s in linux_only)
+
+
+def test_the_documented_coverage_command_selects_the_ci_tests():
+    """Issue #848: CONTRIBUTING.md's coverage command uses the CI Linux leg's marker expression."""
+    pattern = re.compile(r'coverage run -m pytest (?:-v )?-m "([^"]+)"')
+    ci = pattern.findall((_REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    docs = pattern.findall((_REPO / "CONTRIBUTING.md").read_text(encoding="utf-8"))
+    assert len(ci) == 1 and len(docs) == 1
+    assert docs == ci

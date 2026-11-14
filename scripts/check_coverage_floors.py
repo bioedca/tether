@@ -12,7 +12,10 @@ measurement and writes ``coverage json``. This script reads that report and
 * prints a ``::notice::`` when a measured value is more than one point above its floor, so the
   floor can be raised;
 * fails (exit 2) when a package has no floor or a floor names no package, so a new or renamed
-  package can never leave the gate by accident.
+  package can never leave the gate by accident;
+* fails (exit 2) when the report was made without branch measurement (its
+  ``meta.branch_coverage`` flag is absent or false), because such a report carries no branch
+  counters and the table would show every branch value as 100 % (issue #848).
 
 The floors can only go up. ``lowered_floors`` compares two floor tables, and
 ``tests/test_coverage_floors.py`` holds the committed table to the one on ``main`` with it.
@@ -65,6 +68,12 @@ def measure(report: Mapping) -> dict[str, dict[str, int]]:
             for key in keys:
                 row[key] += int(data["summary"].get(key, 0))
     return sums
+
+
+def branch_measured(report: Mapping) -> bool:
+    """Tell whether *report* was made with branch measurement (``meta.branch_coverage``)."""
+    meta = report.get("meta")
+    return isinstance(meta, Mapping) and meta.get("branch_coverage") is True
 
 
 def _pct(covered: int, total: int) -> float:
@@ -121,7 +130,15 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: check_coverage_floors.py COVERAGE_JSON", file=sys.stderr)
         return 2
-    sums = measure(json.loads(Path(argv[1]).read_text(encoding="utf-8")))
+    report = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+    if not branch_measured(report):
+        print(
+            "::error title=Coverage floor::the report has no branch data: its "
+            "meta.branch_coverage flag is absent or false; make it with branch measurement "
+            "(coverage run --branch, or [tool.coverage.run] branch = true)"
+        )
+        return 2
+    sums = measure(report)
     table, failures, notices, errors = check(sums, load_floors(FLOORS.read_text(encoding="utf-8")))
     text = "## Test coverage (Linux leg)\n\nFloors hold line coverage.\n\n" + "\n".join(table)
     print(text)

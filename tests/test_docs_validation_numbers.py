@@ -1624,7 +1624,7 @@ def _registry() -> list[Pin]:
         pins.append(
             Cell(
                 _KINSOFT_SECTION,
-                "Why deferred (`$.levels.*.deferred_reason`)",
+                "Leg (`$.levels.*.report_reason`)",
                 level,
                 "States",
                 f"$.levels.{level}.nstates",
@@ -1634,13 +1634,45 @@ def _registry() -> list[Pin]:
         pins.append(
             Cell(
                 _KINSOFT_SECTION,
-                "Why deferred (`$.levels.*.deferred_reason`)",
+                "Leg (`$.levels.*.report_reason`)",
                 level,
                 "Traces",
                 f"$.levels.{level}.n_traces",
                 at(KINSOFT, f"$.levels.{level}.n_traces"),
             )
         )
+    # External benchmark — the two reported levels (#717): level 2's six rates and level 3's
+    # dwell-time comparison, each read live from the artifact.
+    level2 = "$.levels.level2"
+    for rate in at(KINSOFT, f"{level2}.ground_truth.rates_s_inv"):
+        for column, pointer in (
+            ("Ground truth (s⁻¹)", f"{level2}.ground_truth.rates_s_inv.{rate}"),
+            ("Tether (s⁻¹)", f"{level2}.tether_measured.rates_s_inv.{rate}"),
+            ("Relative deviation, no band", f"{level2}.tether_measured.rel_dev.{rate}"),
+        ):
+            pins.append(
+                Cell(
+                    _KINSOFT_SECTION,
+                    "Relative deviation, no band",
+                    rate,
+                    column,
+                    pointer,
+                    at(KINSOFT, pointer),
+                )
+            )
+    level3 = "$.levels.level3.tether_measured"
+    for row in ("low_fret", "high_fret"):
+        for column, key in (
+            ("Dwells", "n_dwells"),
+            ("Mean dwell (s)", "mean_dwell_s"),
+            ("Predicted mean dwell (s)", "predicted_mean_dwell_s"),
+            ("Relative deviation", "mean_rel_dev"),
+            ("KS distance", "ks_distance"),
+        ):
+            pointer = f"{level3}.{row}.{key}"
+            pins.append(
+                Cell(_KINSOFT_SECTION, "KS distance", row, column, pointer, at(KINSOFT, pointer))
+            )
     rates3 = _LEVEL3_RATES_POINTER
     pins += [
         Prose(_KINSOFT_SECTION, rates3, rate, f"{rates3}.{rate}", at(KINSOFT, f"{rates3}.{rate}"))
@@ -3218,10 +3250,14 @@ def defined_tests(root: Path) -> dict[str, set[str]]:
     """Each test function under ``root`` mapped to the modules that define it.
 
     What pytest collects: module-level ``test_*`` functions and the ``test_*`` methods of
-    module-level classes. Read with :mod:`ast`, so no test module is imported.
+    module-level classes. Read with :mod:`ast`, so no test module is imported. A ``.py`` file
+    below ``fixtures/`` is test data, not a test module: the unchanged third-party scripts there
+    (#755, ADR-0083) need not even parse.
     """
     out: dict[str, set[str]] = {}
     for path in sorted(root.rglob("*.py")):
+        if "fixtures" in path.relative_to(root).parts:
+            continue
         module = path.relative_to(ROOT).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=module)
         nodes = list(tree.body)
