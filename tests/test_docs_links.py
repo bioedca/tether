@@ -30,8 +30,8 @@ walk is ``docs/**/*.md`` minus ``docs/PRD.md``, which ``mkdocs.yml`` excludes fr
 stdlib only (``re``, ``html.parser``, ``pathlib``), like ``tests/test_adr_index.py``:
 ``python-markdown`` is not in the base conda-lock, so it cannot be imported on the 3-OS
 ``test`` matrix. ``mkdocs.yml`` leaves Markdown at mkdocs' default extensions (``toc``,
-``tables``, ``fenced_code``). What this module promises is narrower than "the renderer's
-verdict on any page". It promises this:
+``tables``, ``fenced_code``), and a test below fails if it names any. What this module
+promises is narrower than "the renderer's verdict on any page". It promises this:
 
 * the forms listed below are modelled, most of them with Python-Markdown's own regular
   expressions and procedures, copied and named. Each is pinned here by a test whose page
@@ -44,7 +44,7 @@ verdict on any page". It promises this:
   extending the model with a test checked against a real render — never by guessing;
 * any other form is not guaranteed. The checker may misread it either way.
 
-Known gaps are tracked in #515. A form not listed here is out of scope until it is listed.
+Known gaps are tracked in #1013. A form not listed here is out of scope until it is listed.
 
 The modelled forms:
 
@@ -74,7 +74,10 @@ The modelled forms:
 * heading slugs, by ``toc.slugify`` with its ``_1``/``_2`` de-duplication, over the
   heading's text as rendered. Its links, images and references are read by the same
   passes, in the renderer's pattern order. A link or a defined reference gives its text,
-  an image gives none, and an undefined reference stays as written.
+  an image gives none, and an undefined reference stays as written. The de-duplication
+  starts empty. ``toc`` seeds it only from ids that are already elements when it runs,
+  and with mkdocs' default extensions no element has one: raw HTML, ``<a id>`` included,
+  is stashed before ``toc`` runs (#515).
 
 These forms are refused, because how the renderer reads them depends on context that the
 model does not track:
@@ -110,6 +113,7 @@ from pathlib import Path
 import pytest
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
+_MKDOCS_YML = DOCS.parent / "mkdocs.yml"
 
 # `mkdocs.yml` `exclude_docs:` — not part of the site, so neither walked nor linkable.
 _EXCLUDED = {DOCS / "PRD.md"}
@@ -1448,3 +1452,51 @@ def test_a_defined_reference_takes_its_span_before_the_link_pass(
         "docs/a.md:3: link to 'missing.md': no such file",
         "docs/a.md:3: link to 'gone.md': no such file",
     ], out
+
+
+# --- heading-id de-duplication is not seeded (#515) -------------------------------------
+# Python-Markdown's ``toc`` seeds its ``used_ids`` from the ids of elements already in the
+# tree. Raw HTML is stashed before ``toc`` runs, so an ``<a id>`` never seeds it. Only an
+# extension such as ``attr_list`` (``{#foo}``) or ``md_in_html`` could, and ``mkdocs.yml``
+# enables neither.
+
+
+def test_raw_html_ids_do_not_seed_heading_deduplication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``<a id="foo">`` plus two ``## Foo`` gives ``foo`` and ``foo_1``, as the site does.
+
+    Checked with a real ``mkdocs build`` of this repository's ``mkdocs.yml`` (mkdocs 1.6.1,
+    mkdocs-material 9.8.1, Python-Markdown 3.11.3): the page rendered ``<h2 id="foo">``,
+    ``<h2 id="foo_1">``, ``<h2 id="bar">`` and ``<h2 id="baz-baz">``. Seeded ids would have
+    made the headings ``foo_1``, ``foo_2`` and ``bar_1``. With ``attr_list`` off, ``{#baz}``
+    is heading text.
+    """
+    body = (
+        "# A\n\n"
+        '<a id="foo"></a>\n\n'
+        "## Foo\n\n## Foo\n\n"
+        'Inline <span id="bar">x</span>.\n\n'
+        "## Bar\n\n"
+        "## Baz {#baz}\n\n"
+        "[ok](#foo) [ok](#foo_1) [ok](#bar) [ok](#baz-baz)\n"
+        "[bad](#foo_2)\n[bad](#bar_1)\n[bad](#baz)\n"
+    )
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert [o.split(":", 2)[1] for o in out] == ["16", "17", "18"], out
+    assert "'#foo_2'" in out[0] and "'#bar_1'" in out[1] and "'#baz'" in out[2]
+
+
+def test_mkdocs_yml_names_no_markdown_extension() -> None:
+    """The model above assumes mkdocs' default extensions; adding one must re-check it."""
+    named = [
+        line
+        for line in _MKDOCS_YML.read_text(encoding="utf-8").splitlines()
+        if re.match(r"""^["']?markdown_extensions["']?\s*:""", line)
+    ]
+    assert not named, (
+        "mkdocs.yml now sets markdown_extensions. An extension such as attr_list or "
+        "md_in_html puts ids in the tree before toc runs, so they seed the heading "
+        "de-duplication that _anchors() models as empty (#515). Check _anchors() against "
+        "a real mkdocs build before enabling one."
+    )

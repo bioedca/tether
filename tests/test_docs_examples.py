@@ -38,7 +38,7 @@ or not, so a line that reads as a tether import (``from tether…``, or ``import
 covers an untagged fence, a statement the parse cannot read, and a fence-shaped block the
 renderer does not treat as a fence. Anything else is not guaranteed — an import spelled
 another way (``importlib.import_module("tether…")``, say), or one in a fence the renderer
-does not show as Python. Known gaps are tracked in #515.
+does not show as Python. Known gaps are tracked in #1013.
 """
 
 from __future__ import annotations
