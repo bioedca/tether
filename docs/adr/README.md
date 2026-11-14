@@ -59,7 +59,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0010](0010-defer-cross-os-gui-handoff.md) | Defer the 2-OS standalone-tMAVEN GUI hand-off check to M9 | accepted | §9 M0.5(a), §9 M9 |
 | [0011](0011-home-extraction-recall-at-m1.md) | Home the M0.5 ≥95% extraction-recall acceptance at M1 | accepted | §9 M0.5(b), §9 M1 |
 | [0012](0012-registration-pairing-mutual-nn.md) | Registration pairing: mutual NN, fit on original coords; translation prealign first | accepted | App E §7–8, §11.2 |
-| [0013](0013-fourier-mellin-similarity-prealign.md) | 4-DOF Fourier-Mellin similarity prealign: log-polar recovery, masked-NCC disambiguation, real-data oracle | accepted | App E §7, §11.2 |
+| [0013](0013-fourier-mellin-similarity-prealign.md) | 4-DOF Fourier-Mellin similarity prealign: log-polar recovery, masked-NCC disambiguation, real-data oracle | accepted; amended by [ADR-0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) on the spectrum sampling, the band-pass default and the regime | App E §7, §11.2 |
 | [0014](0014-registration-map-rms-gate-and-over-gate.md) | Registration map: numeric RMS gate, over-gate flag-don't-drop, and a unified native/imported calibration | accepted | §7.1, App E §9–10, §11.2 |
 | [0015](0015-donor-anchored-colocalization.md) | Donor-anchored colocalization: keep dark/low-FRET acceptors, apply the map in the coordinate domain | accepted | §7.1, App E §11–13, §11.2 |
 | [0016](0016-extraction-trace-store-layout.md) | Extraction trace-store layout: zero-pad-to-max-T traces, cached patches, and the molecule_key content hash | accepted | §5.1, §7.10, App E §14–15, §11.2 |
@@ -132,6 +132,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12) | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
 | [0086](0086-ha-laboratory-snapshot-histogram-is-a-reference.md) | The Ha-laboratory SAM/SAH snapshot histogram is a reference, compared by its peaks | accepted | §1 (the apparent-E histogram), §2.2 (N4), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0087](0087-mash-fret-is-a-reference-for-corrected-fret.md) | MASH-FRET's published project files are a reference for leakage and corrected FRET | accepted | §7.2 (corrections), §7.4 (FRET efficiency), §2.2 (what the tests can use), §8 NFR-VALID |
+| [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
 
 <!-- gen:adr-index end -->
 
