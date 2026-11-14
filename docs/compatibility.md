@@ -11,12 +11,13 @@ site will change that.
 Tether reads **uncompressed multi-page TIFF movies from a single camera whose frame is
 split side by side, down the vertical midline, into a left and a right half** — one donor
 channel, one acceptor channel — recorded with **one excitation laser** and **two colours**.
-That is the dual-view TIRF geometry the whole pipeline is built around. A top/bottom
-(stacked) dual-view export does not fit native extraction: the built-in splitter cuts on
-width only, so it would slice each channel in two rather than separating them. (If you have
-a Deep-LASI `.tmap` whose per-channel crops describe the stacked tiles, extracting with
-`--tmap` splits at those crops instead — but that combination is untested, so treat it as
-unsupported.)
+That is the dual-view TIRF geometry the whole pipeline is built around, and the only one
+the `tether extract` and `tether batch` commands split by. Other single-camera layouts — a
+top/bottom (stacked) export, or two channels at two free rectangles of the frame — are
+extracted from Python with a channel layout; see [Acquisition
+geometry](#acquisition-geometry). (A Deep-LASI `.tmap` whose per-channel crops describe the
+stacked tiles also splits at those crops with `--tmap`, but that combination is untested, so
+treat it as unsupported.)
 
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
 *three-colour*, or *confocal point detectors* describes your setup, it does not — see
@@ -32,7 +33,7 @@ read them.
 | Compression | **none** — the movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Pixel type | not constrained by the reader; the reference acquisition is 16-bit unsigned big-endian, and byte order is preserved end to end |
-| Geometry | one frame containing both channels side by side, split down the vertical midline |
+| Geometry | one frame containing both channels; side by side, split down the vertical midline, from the command line; side by side, top and bottom, or two equal rectangles from Python (`ExtractOptions(channel_layout=…)`) |
 
 The reader is `tether.io.movie.MovieReader`, and it refuses rather than guesses. It raises
 `ValueError` when the TIFF series is not 3-D, when the file is not memory-mappable — which
