@@ -217,6 +217,53 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
    paragraph of oracle (a) in `docs/validation.md` to agree, and open a pull request.
    `tests/test_oracle_a_record.py` checks that the two agree.
 
+## Golden numbers of the laboratory acquisitions
+
+The weekly run also checks the data acquisitions for self-drift (#703): `lab-01` to `lab-10`,
+`lab-12` and `lab-13`.
+For each one it runs the movie from end to end with the default settings and the map file of
+its series: `tether batch --no-idealize --tmap`, then the two-state HMM of the self-drift suite
+(ADR-0080). Then it compares the summary numbers with `tests/golden/workstation/<id>.json`,
+with the tolerance of that suite. The result file has one check for each id, with `passed` or
+`failed`, and the numbers `n_molecules`, `n_accepted`, `n_moved` and `max_relative_change`.
+
+A golden file holds only these numbers: the molecule count, the accepted count, the median
+intensities, the histogram counts and the state means. It holds no trace, no image and no file
+name. A test on the required matrix fails if a golden file holds a string that is not a
+neutral id.
+
+Each id needs two roles in the mapping file:
+
+| Role | File |
+|---|---|
+| `movie` | the movie (an id with one file name has the role `file`, which then names the movie) |
+| `tmap` | the Deep-LASI map file of the acquisition series |
+
+One movie has two export routes, and each route has its own id: `lab-12` is the TIFF
+exported from the vendor format and `lab-11` is the direct TIFF. They are one acquisition, so
+only `lab-12` has a golden file. The check of the two export routes is a separate check. The
+vendor export is the direct TIFF turned 90° clockwise (#887), so the check first turns its
+frames back. Then it extracts both files with the map file of `lab-11`. It passes when both
+give the same molecules, the same number of frames and the same raw traces. It records the
+counts and the largest difference.
+
+The numbers in a golden file are what Tether computed when the file was written. They are not
+reference values. #887 tracks the three vendor-route acquisitions of the series of `lab-12`,
+which share a map file with the direct-route `lab-13` and are probably registered with a map
+turned against their frames.
+
+To write or update the golden files, run this on the workstation, in the environment of the
+state folder, from a clone of the commit to freeze:
+
+```sh
+python scripts/workstation/update_lab_golden.py --data <data folder> --check
+python scripts/workstation/update_lab_golden.py --data <data folder>
+```
+
+The first command writes nothing and lists what moved. The second command writes the files
+and prints the old/new table. Put the table and a `Cause:` line in the pull request, as for the
+other golden files. The script prints neutral ids and numbers only.
+
 ## Add a check
 
 1. Mark the test `@pytest.mark.workstation`, and give it no other tier marker (`large`,
