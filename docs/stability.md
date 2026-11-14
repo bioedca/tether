@@ -34,10 +34,10 @@ launcher (`[project.gui-scripts]` → `tether.gui.app:main`).
 
 | Covered | Detail |
 |---|---|
-| Subcommand names | `tether extract` and `tether batch` — the only two (`tether.cli`). No others exist to promise. |
+| Subcommand names | `tether extract`, `tether batch` and `tether export` with its three forms `table`, `traces` and `subset` (`tether.cli`). No others exist to promise. |
 | `tether --version` | Prints the version and exits `0`. |
 | `tether-gui` | Exists as a launcher and starts the application. Nothing about the window layout or its behaviour is covered. |
-| Flag names and meanings | Every option listed by `tether extract --help` and `tether batch --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
+| Flag names and meanings | Every option listed by `tether extract --help`, `tether batch --help` and `tether export <form> --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
 | Documented defaults | The default values printed in `--help` — e.g. `--donor-side left`, `--window 21`, `--coloc-distance 3`, `--rms-gate 0.5` — do not change within `1.x`. A default that changes silently changes a scientific result, so it is treated as a breaking change, not a tweak. |
 | Exit status | `0` on success, non-zero on failure. |
 
@@ -54,8 +54,9 @@ not treat those two numbers as frozen.
 Not covered on this surface: the wording and layout of anything printed to stdout or
 stderr, the field set of the `batch` JSONL structured log, and the *specific* non-zero exit
 values. For the record, `tether.cli` currently returns `1` when the work itself failed
-(an `ExtractionError`, or at least one movie failed in a batch) and `2` for a usage or
-configuration error — but only "non-zero" is promised. Do not branch on `1` vs `2`.
+(an `ExtractionError`, at least one movie failed in a batch, or at least one export
+failed) and `2` for a usage or configuration error — but only "non-zero" is promised. Do
+not branch on `1` vs `2`.
 
 New optional flags and new subcommands may appear in a minor release. Nothing that exists
 today disappears before `2.0.0`.

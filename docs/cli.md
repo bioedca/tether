@@ -320,8 +320,8 @@ These rules apply to all three forms:
 - **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
   makes the folder if necessary and names each export after its project: `<project>.csv`,
   `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
-  name would write the same export, so that command stops with exit code `2` before it writes
-  a file. A project that fails does not stop the others; the command then exits `1`.
+  name would write the same export (names that differ only in upper and lower case count as the
+  same), so that command stops with exit code `2` before it writes a file. A project that fails does not stop the others; the command then exits `1`.
 - **Each export prints one line,** the number of molecules and the path:
   `Exported 412 molecule(s) -> molecules.csv`.
 
@@ -423,7 +423,7 @@ tether export subset movie.tether -o accepted.tether
 | Code | `tether extract` | `tether batch` | `tether export` |
 |---|---|---|---|
 | `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every export was written |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, the output is the source project, or the function refused the selection |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, the output is the source project, or the function refused the selection; or the output folder could not be made |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line

@@ -202,16 +202,17 @@ def _targets(form: str, projects: list[Path], output: Path) -> list[tuple[Path, 
             f"-o {output} looks like a file name; for traces, -o names a folder and the "
             f"file in it is named <project>{TRACES_SUFFIX}"
         )
+    # Case-folded: on Windows and macOS, Exp.csv and exp.csv are one file.
     seen: dict[str, Path] = {}
     pairs = []
     for project in projects:
         name = _file_name(form, project)
-        if name in seen:
+        if name.casefold() in seen:
             raise _UsageError(
-                f"projects {str(seen[name])!r} and {str(project)!r} both map to "
+                f"projects {str(seen[name.casefold()])!r} and {str(project)!r} both map to "
                 f"{(output / name).as_posix()!r}; rename one or export them separately"
             )
-        seen[name] = project
+        seen[name.casefold()] = project
         pairs.append((project, output / name))
     output.mkdir(parents=True, exist_ok=True)
     return pairs
@@ -283,6 +284,9 @@ def run_export(args: argparse.Namespace) -> int:
     except _UsageError as exc:
         print(f"{prog}: {exc}", file=sys.stderr)
         return 2
+    except OSError as exc:  # the output folder could not be made
+        print(f"{prog}: {exc}", file=sys.stderr)
+        return 1
 
     failed = 0
     for source, out in targets:

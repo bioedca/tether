@@ -387,6 +387,23 @@ def test_projects_with_the_same_name_are_refused_with_code_2(source, tmp_path, c
     assert "both map to" in capsys.readouterr().err
 
 
+def test_names_that_differ_only_in_case_are_refused_with_code_2(source, tmp_path) -> None:
+    """``EXP.csv`` and ``exp.csv`` are one file on Windows and macOS."""
+    path, _ = source
+    twin = _second(tmp_path, name="EXP.tether")
+
+    assert main(["export", "table", str(path), str(twin), "-o", str(tmp_path / "out")]) == 2
+
+
+def test_an_output_folder_that_cannot_be_made_fails_with_code_1(source, tmp_path, capsys) -> None:
+    path, _ = source
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a folder", encoding="utf-8")
+
+    assert main(["export", "traces", str(path), "-o", str(blocker / "traces")]) == 1
+    assert capsys.readouterr().err.startswith("tether export traces: ")
+
+
 def test_several_projects_and_an_output_file_is_refused_with_code_2(source, tmp_path) -> None:
     path, _ = source
     other = _second(tmp_path)
