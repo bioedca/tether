@@ -85,8 +85,8 @@ python3 .agents/bin/greptile_usage.py
 It reports credits used this month across **all three** repositories on the seat, because credits are
 billed per seat and a per-repository number cannot say what is left.
 
-It is a proxy, not an invoice, and it can err in **both** directions: a TREX review costs 3 credits
-and is counted as 1, while a re-triggered review is counted twice on the undocumented assumption that
+It is a proxy, not an invoice, and it can err in **both** directions: a TREX run that an
+account rule started costs 3 credits it does not see (a run asked on demand is counted at 3), while a re-triggered review is counted twice on the undocumented assumption that
 it bills twice. Reconcile against Settings → Usage before treating the remaining figure as
 authoritative. What it will not do is read *low by accident* — a repository or a pull request it
 cannot read makes the total **unknown** rather than silently small.
@@ -107,9 +107,9 @@ conditions on that, and this page states none of them.
 **The stand-in makes Greptile the metered gate** (ADR-0069). Where CodeRabbit posts a refusal that
 names more than 30 minutes, §Review lets one **standard** Greptile review stand in for it — the one
 already on the pull request, or else a new one asked only while the seat has credits left and Tether
-is under its share of 45 for the cycle, both read from the script above at that moment. Count a TREX
-review as three in that reading, because the script counts it as one (see "Reading the balance before
-spending"). An unreadable balance is a no. §Review carries the conditions, and this page states none
+is under its share of 45 for the cycle, both read from the script above at that moment. The script counts
+a TREX run asked on demand at three; add three for any TREX run an account rule started (see
+"Reading the balance before spending"). An unreadable balance is a no. §Review carries the conditions, and this page states none
 beyond these.
 
 **The load-bearing route makes Greptile the metered gate as well** (ADR-0099). A pull request that

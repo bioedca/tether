@@ -379,6 +379,73 @@ def test_a_review_object_and_its_summary_are_one_credit_not_two(
     assert f"used {expected} of {usage.INCLUDED_CREDITS}" in capsys.readouterr().out
 
 
+def _asks_trex(when: str = "2026-08-18T00:00:00Z") -> dict:
+    """A comment that asks Greptile for a TREX run on demand (its handle, then ``trex``)."""
+    return {"user": {"login": "bioedca"}, "created_at": when, "body": "@greptileai trex"}
+
+
+@pytest.mark.parametrize(
+    ("asks", "expected"),
+    [
+        ([], 1),
+        ([_asks_trex()], 1 + usage.TREX_CREDITS),
+        ([_asks_trex(), _asks_trex()], 1 + 2 * usage.TREX_CREDITS),
+        ([_asks_trex(when="2026-08-16T23:59:59Z")], 1),
+    ],
+)
+def test_a_trex_run_asked_in_the_cycle_costs_three_on_top_of_its_review(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    asks: list[dict],
+    expected: int,
+) -> None:
+    """A TREX run costs 3 credits on top of the review (CodeRabbit `Major` on #1038).
+
+    Counted as one review, fifteen TREX runs read as 15 of a 45 share that was already spent.
+    """
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": [_pr(1)]},
+            {1: [_review()]},
+            comments={1: [_summary(1), *asks]},
+        ),
+    )
+    monkeypatch.setattr("sys.argv", ["greptile_usage.py", "--cycle", "2026-08"])
+    assert usage.main() == 0
+    assert f"used {expected} of {usage.INCLUDED_CREDITS}" in capsys.readouterr().out
+
+
+def test_trex_runs_count_against_the_share(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fifteen reviews that each asked a TREX run spend 60, past the share, not 15 under it."""
+    prs = [_pr(n) for n in range(1, 16)]
+    monkeypatch.setattr(
+        usage,
+        "_gh",
+        _fake_gh(
+            {"bioedca/tether": prs},
+            {n: [_review()] for n in range(1, 16)},
+            comments={n: [_asks_trex()] for n in range(1, 16)},
+        ),
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "greptile_usage.py",
+            "--cycle",
+            "2026-08",
+            "--repo",
+            "bioedca/tether",
+            "--fail-over-share",
+        ],
+    )
+    assert usage.main() == usage.EXIT_OVER_BUDGET
+    assert "Tether share: 60/45" in capsys.readouterr().out
+
+
 def test_a_summary_written_in_another_cycle_is_not_this_cycles_spend(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

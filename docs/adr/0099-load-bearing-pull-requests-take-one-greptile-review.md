@@ -84,8 +84,10 @@ a pull request whose Greptile review had findings close its gate?
 4. **Tether may use 45 credits in each cycle** (maintainer, 19:16Z, and decision card, 19:17Z:
    "Tether alone"). This replaces the share of 15 a month of ADR-0069, and it covers every Greptile
    review on Tether: the route, the optional review and the stand-in. A standard review costs 1
-   credit and a TREX review 3. A worker asks only while `.agents/bin/greptile_usage.py
-   --fail-over-share` exits 0, counting a TREX review as three. Any other exit — the share used, the
+   credit, and a TREX run 3 on top of its review. A worker asks only while
+   `.agents/bin/greptile_usage.py --fail-over-share` exits 0. The script counts each TREX run asked
+   on demand in the cycle at 3; a run that an account rule starts leaves no request, so a worker
+   that knows of one adds 3 (CodeRabbit on #1038). Any other exit — the share used, the
    whole seat read and empty, or the count unreadable — sends the pull request to the CodeRabbit
    queue.
 5. **A cycle starts on the 17th** of a month at 00:00 UTC and ends when the 17th of the next month
@@ -118,6 +120,10 @@ a pull request whose Greptile review had findings close its gate?
   whole seat was read and is empty: the share is a ceiling inside the seat, never a credit of its
   own. `--fail-over-budget` refuses a narrowed count, because a seat balance from part of the seat
   reads high.
+- It counted a TREX run as nothing beyond its review, so fifteen reviews that each asked one read
+  15 of a share that was spent. It now adds 3 for each comment in the cycle that asks Greptile for a
+  TREX run on demand, billed or not (CodeRabbit on #1038). A run that an account rule starts leaves
+  no such comment and is not seen.
 
 The first cloud run of the REST script, 2026-11-14, read Tether at 1 credit for November: the clean
 review of #996, which the old script counted as zero.

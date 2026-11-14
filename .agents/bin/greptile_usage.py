@@ -24,8 +24,10 @@ that starts on 2026-11-17; the default is the cycle running now.
 **This is a proxy, not an invoice**, and it is written to fail toward over-counting rather than
 under-counting, because the expensive mistake is believing there is budget left when there is not:
 
-- A **TREX** review costs 3 credits, not 1. This counts submissions, so a TREX review is
-  under-counted by 2, and the dashboard must settle it.
+- A **TREX** run costs 3 credits on top of its review. A run asked on demand leaves the request
+  comment that asks Greptile for one, and each such request in the cycle is counted at 3 (CodeRabbit
+  `Major` on #1038), whether or not the run was billed - the safe direction. A run that an
+  account-level rule starts leaves no request, so it is not seen, and the dashboard must settle it.
 - Whether re-triggering on the same PR bills twice is **undocumented**. Every submission is counted,
   which assumes it does. If it does not, that assumption reads *high* - the only way this number
   errs on the safe side, and the reason the two cannot be netted into a single direction.
@@ -168,6 +170,13 @@ SUMMARY = re.compile(r"Last reviewed commit", re.IGNORECASE)
 #: The counter Greptile keeps in that comment: "Reviews (1)", edited in place on each re-review.
 REVIEWS_SO_FAR = re.compile(r"Reviews \((\d+)\)")
 
+#: A comment that asks Greptile for a TREX run on demand. Greptile documents the command as its
+#: handle followed by `trex` (docs/trex/overview, read 2026-11-14 through Context7).
+TREX_ASK = re.compile(r"@greptileai\s+trex\b", re.IGNORECASE)
+
+#: What a TREX run costs on top of its review (Greptile, docs/account/billing-seats).
+TREX_CREDITS = 3
+
 
 def _cycle(start_month: str) -> tuple[str, str]:
     """The first day of the cycle that starts in ``start_month`` and of the next one, ISO dates.
@@ -283,12 +292,12 @@ def _by_bot(entry: dict) -> bool:
 def _credits(repo: str, start: str, end: str) -> tuple[int, int, list[tuple[int, int, str]]]:
     """Credits, PRs and per-PR detail for one repository in the cycle ``[start, end)``.
 
-    A pull request's credits are the larger of two readings, never their sum, because one review can
-    leave both: the review objects Greptile submitted in the cycle, and the "Reviews (N)" counter of
-    its summary comment when that comment was written in the cycle. The summary is the only trace a
-    clean review leaves. Its counter covers the pull request's whole life, so a pull request
-    reviewed in two cycles reads its earlier reviews into the later one - an over-count, the safe
-    direction.
+    A pull request's review credits are the larger of two readings, never their sum, because one
+    review can leave both: the review objects Greptile submitted in the cycle, and the "Reviews (N)"
+    counter of its summary comment when that comment was written in the cycle. The summary is the
+    only trace a clean review leaves. Its counter covers the pull request's whole life, so a pull
+    request reviewed in two cycles reads its earlier reviews into the later one - an over-count, the
+    safe direction. Each TREX run asked on demand in the cycle adds ``TREX_CREDITS`` on top.
 
     Raises :class:`Unreadable` if anything cannot be read. Never returns zero to mean "could not
     tell".
@@ -316,7 +325,13 @@ def _credits(repo: str, start: str, end: str) -> tuple[int, int, list[tuple[int,
                 counter = REVIEWS_SO_FAR.search(body)
                 summary = max(summary, int(counter.group(1)) if counter else 1)
                 summary_at = max(summary_at, when)
-        spent = max(len(hits), summary)
+        asked_trex = sum(
+            1
+            for comment in comments
+            if TREX_ASK.search(comment.get("body") or "")
+            and start <= (comment.get("created_at") or "") < end
+        )
+        spent = max(len(hits), summary) + TREX_CREDITS * asked_trex
         if spent:
             credits += spent
             prs_seen += 1
@@ -419,13 +434,13 @@ def main() -> int:
         print("\n  spent on:")
         for repo, number, count, when in sorted(detail, key=lambda row: row[3], reverse=True):
             plural = "s" if count != 1 else ""
-            print(f"    {when}  {repo}#{number}  {count} review{plural}")
+            print(f"    {when}  {repo}#{number}  {count} credit{plural}")
 
     print(
-        "\n  A proxy, not an invoice, and it can err BOTH ways: a TREX review costs 3 credits and"
-        "\n  is counted here as 1, while a re-triggered review is counted twice on the assumption"
-        "\n  - undocumented - that it bills twice. Reconcile against Settings -> Usage before"
-        "\n  relying on the remaining figure."
+        "\n  A proxy, not an invoice, and it can err BOTH ways: a TREX run that a rule started,"
+        "\n  not a request, costs 3 credits that are not seen here, while a re-triggered review is"
+        "\n  counted twice on the assumption - undocumented - that it bills twice. Reconcile"
+        "\n  against Settings -> Usage before relying on the remaining figure."
     )
     if args.fail_over_budget and left <= 0:
         print("\nerror: the seat has no included credits left this cycle", file=sys.stderr)
