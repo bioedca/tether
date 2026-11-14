@@ -1,0 +1,58 @@
+digraph Tether {
+graph [layout=neato, rankdir=TB, overlap=true, compound=true, newrank=true, bgcolor="white", fontname="Arial", nodesep=0.65, ranksep=0.85, pad=0.20, splines=ortho, outputorder=edgesfirst];
+node [fontname="Arial", fontsize=13, color="#263D4C", fontcolor="#122937", penwidth=1.2, margin="0.16,0.11", width=2.45, height=0.58];
+edge [fontname="Arial", fontsize=10, color="#364D5C", fontcolor="#263F4E", penwidth=1.25, arrowsize=0.7];
+shell [label="Workspace shell\nNavigation + wizard + resume\n[P/N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="0.0,0.0!", pin=true];
+prepui [label="Preparation / mapping / extraction UI\n[P/N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="0.0,-1.9!", pin=true];
+curateui [label="Curation + correction review UI\n[A/P/N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="0.0,-3.8!", pin=true];
+analysisui [label="Analysis sets + model/plot UI\n[P/N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="0.0,-5.699999999999999!", pin=true];
+depositui [label="Deposition review UI\n[N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="0.0,-7.6!", pin=true];
+coordinator [label="Job + dependency coordinator\nProgress, cancellation, staleness\n[C/N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="5.8,0.0!", pin=true];
+extractsvc [label="Import / map / extract service\n[C/P]", shape=component, style=filled, fillcolor="#F1F5F8", pos="5.8,-1.9!", pin=true];
+correctsvc [label="Curation / calibration service\n[C/N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="5.8,-3.8!", pin=true];
+modelsvc [label="Model-run / capability / plot service\n[C/N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="5.8,-5.699999999999999!", pin=true];
+depositsvc [label="Package / upload / publish service\n[N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="5.8,-7.6!", pin=true];
+project [label=".tether project store\nIDs, labels, windows, sets, provenance\n[A/C/N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="11.6,0.0!", pin=true];
+sources [label="Raw / prepared movies\nImmutable files referenced by identity\n[C]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="11.6,-1.9!", pin=true];
+calibration [label="Map files + calibration sources\nFactor versions + contributor evidence\n[C/N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="11.6,-3.8!", pin=true];
+results [label="Fits, plots and package snapshots\nInput versions + manifest + DOI\n[C/N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="11.6,-5.699999999999999!", pin=true];
+credentials [label="OS credential store\nAccount secrets never in\nproject/export\n[N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="11.6,-7.6!", pin=true];
+converter [label="Format adapters\nImageJ / Bio-Formats if required\n[N]", shape=component, style=filled, fillcolor="#F1F5F8", pos="17.4,0.0!", pin=true];
+tmaven [label="Isolated tMAVEN engine\nOptional standalone round-trip\n[C/A]", shape=component, style=filled, fillcolor="#F1F5F8", pos="17.4,-1.9!", pin=true];
+zenodo [label="Zenodo API\nDrafts / files / publication / records", shape=component, style=filled, fillcolor="#F5EFEA", penwidth=2, pos="17.4,-3.8!", pin=true];
+subgraph cluster_0 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_0 [label="DESKTOP UI", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="0.0,1.15!", pin=true];
+shell;prepui;curateui;analysisui;depositui;
+}
+subgraph cluster_1 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_1 [label="APPLICATION SERVICES", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="5.8,1.15!", pin=true];
+coordinator;extractsvc;correctsvc;modelsvc;depositsvc;
+}
+subgraph cluster_2 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_2 [label="PERSISTENT ASSETS", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="11.6,1.15!", pin=true];
+project;sources;calibration;results;credentials;
+}
+subgraph cluster_3 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_3 [label="ADAPTERS / EXTERNAL SYSTEMS", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="17.4,1.15!", pin=true];
+converter;tmaven;zenodo;
+}
+shell -> coordinator [tooltip="Schedule / observe", xlabel="Schedule / observe"];
+prepui -> extractsvc [tooltip="Commands", xlabel="Commands"];
+curateui -> correctsvc [tooltip="Decisions / approval", xlabel="Decisions / approval"];
+analysisui -> modelsvc [tooltip="Fit / compare / plot", xlabel="Fit / compare / plot"];
+depositui -> depositsvc [tooltip="Review / publish", xlabel="Review / publish"];
+coordinator -> project [tooltip="Checkpoints + dependency versions", xlabel="Checkpoints + dependency\nversions", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+extractsvc -> sources [tooltip="Read source pixels", xlabel="Read source pixels", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+extractsvc -> calibration [tooltip="Read / write maps", xlabel="Read / write maps", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+extractsvc -> project [tooltip="Write trace generation", xlabel="Write trace generation", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+correctsvc -> project [tooltip="Labels / windows / corrections", xlabel="Labels / windows /\ncorrections", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+correctsvc -> calibration [tooltip="Source and version factors", xlabel="Source and version factors", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+modelsvc -> project [tooltip="Read approved snapshot", xlabel="Read approved snapshot", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+modelsvc -> results [tooltip="Write fits + plot recipes", xlabel="Write fits + plot recipes", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+depositsvc -> results [tooltip="Read package / write record ID", xlabel="Read package / write\nrecord ID", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+depositsvc -> sources [tooltip="Collect originals", xlabel="Collect originals", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+depositsvc -> credentials [tooltip="Acquire account authorization", xlabel="Acquire account\nauthorization", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+extractsvc -> converter [tooltip="Decode / normalize", xlabel="Decode / normalize"];
+modelsvc -> tmaven [tooltip="Versioned model request / result", xlabel="Versioned model request /\nresult"];
+depositsvc -> zenodo [tooltip="Authenticated upload / publish", xlabel="Authenticated upload /\npublish"];
+}

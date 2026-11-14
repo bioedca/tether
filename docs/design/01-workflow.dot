@@ -1,0 +1,68 @@
+digraph Tether {
+graph [layout=neato, rankdir=TB, overlap=true, compound=true, newrank=true, bgcolor="white", fontname="Arial", nodesep=0.65, ranksep=0.85, pad=0.20, splines=ortho, outputorder=edgesfirst];
+node [fontname="Arial", fontsize=13, color="#263D4C", fontcolor="#122937", penwidth=1.2, margin="0.16,0.11", width=2.45, height=0.58];
+edge [fontname="Arial", fontsize=10, color="#364D5C", fontcolor="#263F4E", penwidth=1.25, arrowsize=0.7];
+entry [label="New / resume project\n[P/N]", shape=oval, style=filled, fillcolor="#263D4C", fontcolor=white, pos="0.0,0.0!", pin=true];
+prepare [label="Import + normalize movies\n[G02]\n[N]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="0.0,-1.9!", pin=true, URL="02-preparation.svg", target="_blank"];
+mapgate [label="Compatible map\navailable?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="0.0,-3.8!", pin=true];
+mapping [label="Create + validate daily map\n[G02]\n[C/P]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="0.0,-5.699999999999999!", pin=true, URL="02-preparation.svg", target="_blank"];
+extract [label="Detect + colocalize + integrate\n[G02]\n[C/P]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="0.0,-7.6!", pin=true, URL="02-preparation.svg", target="_blank"];
+apparent [label="Curate apparent E_FRET\nConfirm optional ML proposals\n[A/N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,0.0!", pin=true];
+factors [label="Bleedthrough + gamma\napproved and current?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="5.8,-1.9!", pin=true];
+calibrate [label="Source bleedthrough; estimate gamma\nReview contributors [G03]\n[C/N]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="5.8,-3.8!", pin=true, URL="03-correction-state-machine.svg", target="_blank"];
+review [label="Review corrected E_FRET\nBleach bounds + analysis windows\n[P/N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-5.699999999999999!", pin=true];
+ready [label="Review complete;\ninputs current?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="5.8,-7.6!", pin=true];
+cohort [label="Saved analysis-set snapshot\nTrace IDs + condition / replicate\n[N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="11.6,0.0!", pin=true];
+needmodel [label="Model required\nfor selected analysis?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="11.6,-1.9!", pin=true];
+scan [label="Fit model families x K\nPer-movie / pooled [G04]\n[C/N]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="11.6,-3.8!", pin=true, URL="04-analysis.svg", target="_blank"];
+select [label="Compare valid score contexts\nSelect active fit\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-5.699999999999999!", pin=true];
+plots [label="Generate eligible plots + rates\nSave results snapshot [G04]\n[C/P]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="11.6,-7.6!", pin=true, URL="04-analysis.svg", target="_blank"];
+package [label="Assemble full data package\nRaw movies + dependencies [G06]\n[N]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="17.4,0.0!", pin=true, URL="06-deposition.svg", target="_blank"];
+complete [label="Sources complete;\ncapacity sufficient?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="17.4,-1.9!", pin=true];
+upload [label="Upload + verify Zenodo draft\nCheckpoint / retry files [G06]\n[N]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="17.4,-3.8!", pin=true, URL="06-deposition.svg", target="_blank"];
+publish [label="User chooses\nPublish?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="17.4,-5.699999999999999!", pin=true];
+doi [label="Published record\nDOI + manifest saved to project\n[N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="17.4,-7.6!", pin=true];
+subgraph cluster_0 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_0 [label="A  PREPARE", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="0.0,1.15!", pin=true];
+entry;prepare;mapgate;mapping;extract;
+}
+subgraph cluster_1 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_1 [label="B  CURATE & CORRECT", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="5.8,1.15!", pin=true];
+apparent;factors;calibrate;review;ready;
+}
+subgraph cluster_2 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_2 [label="C  ANALYZE", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="11.6,1.15!", pin=true];
+cohort;needmodel;scan;select;plots;
+}
+subgraph cluster_3 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_3 [label="D  DEPOSIT", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="17.4,1.15!", pin=true];
+package;complete;upload;publish;doi;
+}
+entry -> prepare [];
+prepare -> mapgate [];
+mapgate -> mapping [tooltip="No", xlabel="No"];
+mapping -> extract [tooltip="Approved", xlabel="Approved"];
+mapgate -> extract [tooltip="Yes", xlabel="Yes"];
+extract -> apparent [tooltip="Trace generation", xlabel="Trace generation", constraint=false, penwidth=1.9];
+apparent -> factors [];
+factors -> calibrate [tooltip="No", xlabel="No"];
+calibrate -> factors [tooltip="Recheck", xlabel="Recheck", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+factors -> review [tooltip="Yes", xlabel="Yes"];
+review -> ready [];
+ready -> review [tooltip="No: review", xlabel="No: review", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+review -> calibrate [tooltip="Calibration changed", xlabel="Calibration changed", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+ready -> cohort [tooltip="Yes", xlabel="Yes", constraint=false, penwidth=1.9];
+cohort -> needmodel [];
+needmodel -> scan [tooltip="Yes", xlabel="Yes"];
+scan -> select [];
+select -> plots [];
+needmodel -> plots [tooltip="No: population plots", xlabel="No: population plots"];
+plots -> cohort [tooltip="Selection changed", xlabel="Selection changed", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+plots -> package [tooltip="Deposit requested", xlabel="Deposit requested", constraint=false, penwidth=1.9];
+package -> complete [];
+complete -> package [tooltip="No: resolve", xlabel="No: resolve", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+complete -> upload [tooltip="Yes", xlabel="Yes"];
+upload -> publish [];
+publish -> doi [tooltip="Yes", xlabel="Yes"];
+publish -> upload [tooltip="No: retain draft", xlabel="No: retain draft", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+}

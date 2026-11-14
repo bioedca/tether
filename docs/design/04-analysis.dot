@@ -1,0 +1,68 @@
+digraph Tether {
+graph [layout=neato, rankdir=TB, overlap=true, compound=true, newrank=true, bgcolor="white", fontname="Arial", nodesep=0.65, ranksep=0.85, pad=0.20, splines=ortho, outputorder=edgesfirst];
+node [fontname="Arial", fontsize=13, color="#263D4C", fontcolor="#122937", penwidth=1.2, margin="0.16,0.11", width=2.45, height=0.58];
+edge [fontname="Arial", fontsize=10, color="#364D5C", fontcolor="#263F4E", penwidth=1.25, arrowsize=0.7];
+edit [label="Add/remove data; group conditions\nPreserve replicate and source identity\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="0.0,0.0!", pin=true];
+inputs [label="Corrections + review\ncurrent for selection?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="0.0,-1.9!", pin=true];
+scope [label="Choose pooled or per-movie scope\nValidate compatibility and duplicate\nIDs\n[P/N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="0.0,-3.8!", pin=true];
+snapshot [label="Frozen analysis-set version\nTrace IDs + windows + corrections\n[N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="0.0,-5.699999999999999!", pin=true];
+correction [label="Complete correction + review\nReturn when approved [G03]\n[P/N]", shape=box, style=filled, peripheries=2, fillcolor="#EAF1F6", pos="0.0,-7.6!", pin=true, URL="03-correction-state-machine.svg", target="_blank"];
+required [label="Model needed?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="5.8,0.0!", pin=true];
+configure [label="Select model families x K\nPriors / clipping / restarts /\nconvergence\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-1.9!", pin=true];
+execute [label="Run model jobs in background\nKeep completed fits; retry failures\n[C/N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-3.8!", pin=true];
+validfit [label="Fit completed and\ndiagnostics acceptable?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="5.8,-5.699999999999999!", pin=true];
+choose [label="Compare within valid score contexts\nSelect active fit; keep alternatives\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-7.6!", pin=true];
+population [label="Population / signal plots\nNo idealization required\n[A/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,0.0!", pin=true];
+path [label="Ordered state path\navailable?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="11.6,-1.9!", pin=true];
+matrix [label="Supported transition\noutput available?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="11.6,-3.8!", pin=true];
+time [label="Frame interval\nverified?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="11.6,-5.699999999999999!", pin=true];
+kinetics [label="Eligible TDP / dwell survival / rates\nExpose model and timing requirements\n[C/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-7.6!", pin=true];
+disabled [label="Disable affected output control\nExplain missing prerequisite\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="17.4,0.0!", pin=true];
+plots [label="Compose comparison panels\nCondition / replicate / model overlays\n[P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="17.4,-1.9!", pin=true];
+inspect [label="Inspect residuals + uncertainty\nDrill down to contributing traces\n[P/N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="17.4,-3.8!", pin=true];
+export [label="Export figures + tables\nPersist plot recipe and provenance\n[C/P]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="17.4,-5.699999999999999!", pin=true];
+history [label="Versioned result snapshot\nLineage to exact data and active fit\n[N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="17.4,-7.6!", pin=true];
+subgraph cluster_0 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_0 [label="INPUT SNAPSHOT", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="0.0,1.15!", pin=true];
+edit;inputs;scope;snapshot;correction;
+}
+subgraph cluster_1 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_1 [label="MODEL SCAN", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="5.8,1.15!", pin=true];
+required;configure;execute;validfit;choose;
+}
+subgraph cluster_2 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_2 [label="CAPABILITY ROUTING", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="11.6,1.15!", pin=true];
+population;path;matrix;time;kinetics;
+}
+subgraph cluster_3 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_3 [label="RESULTS", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="17.4,1.15!", pin=true];
+disabled;plots;inspect;export;history;
+}
+edit -> inputs [];
+inputs -> scope [tooltip="Yes", xlabel="Yes"];
+inputs -> correction [tooltip="No", xlabel="No", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+correction -> inputs [tooltip="Approved: recheck", xlabel="Approved: recheck", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+scope -> snapshot [tooltip="Freeze", xlabel="Freeze", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+snapshot -> required [];
+required -> configure [tooltip="Yes", xlabel="Yes"];
+required -> population [tooltip="No", xlabel="No"];
+configure -> execute [];
+execute -> validfit [];
+validfit -> configure [tooltip="No: revise / retry", xlabel="No: revise / retry", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+validfit -> choose [tooltip="Yes", xlabel="Yes"];
+choose -> population [tooltip="Fitted overlays", xlabel="Fitted overlays"];
+choose -> path [tooltip="Inspect capabilities", xlabel="Inspect capabilities"];
+choose -> matrix [tooltip="Inspect capabilities", xlabel="Inspect capabilities"];
+path -> kinetics [tooltip="Yes: dwell / TDP", xlabel="Yes: dwell / TDP"];
+matrix -> time [tooltip="Yes: candidate rates", xlabel="Yes: candidate rates"];
+time -> kinetics [tooltip="Yes: rates in s^-1", xlabel="Yes: rates in s^-1"];
+path -> disabled [tooltip="No", xlabel="No"];
+matrix -> disabled [tooltip="No", xlabel="No"];
+time -> disabled [tooltip="No", xlabel="No"];
+population -> plots [];
+kinetics -> plots [];
+plots -> inspect [];
+inspect -> export [];
+export -> history [tooltip="Save", xlabel="Save", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+history -> edit [tooltip="Membership changed", xlabel="Membership changed", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+}

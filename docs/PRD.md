@@ -125,6 +125,9 @@ both — Appendices B and E), HDF5 for self-describing files, and the SMD format
 - **N4 — Out-of-scope legacy formats.** Supported legacy inputs are Deep-LASI (`.tdat` + `.tmap` + `.txt` + `.mat`)
   and tMAVEN SMD (`.hdf5`). Older `.dat` and vbFRET `.mat` formats are out of scope.
 - **N5 — No central server.** Each lab member runs on their own machine; data lives on OneDrive / a network share.
+  Tether runs no server and has no Tether account. A deposit on Zenodo (FR-DEPOSIT, §7.14) does not change this:
+  it is an upload that the user starts, from the user's own Zenodo account, to a public archive that Tether does not
+  operate. No account secret is stored in a project or in an export (FR-DEPOSIT-3). The deposit is not in `v1.0.0`.
 
 #### What the tests can use
 
@@ -467,6 +470,25 @@ advisory: it never changes data and never blocks. With too few events it reports
 check" and stays out of the batch summary. Thresholds and the measured false-alarm rates are in §11.2 and
 [ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md).
 
+**Colocalization rule: the recorded change (maintainer decision 2026-11-14, card C1, option A).** For a new
+extraction the default rule **shall** become *a partner in both channels*: a molecule is kept when a spot is detected
+in the donor channel and in the acceptor channel at the mapped position (Deep-LASI's rule). Donor-anchored, the rule
+of the paragraph above, **shall** stay available as an option for weak-acceptor and low-FRET candidates, and the
+extraction page **shall** show the molecule count of each rule. The donor-anchored sentence above and the §11.2
+*Colocalization distance* row change in the pull request of
+[#920](https://github.com/bioedca/tether/issues/920), with the ADR that replaces ADR-0015. Until then the
+donor-anchored rule is the implemented default, and §9.6 carries the change.
+
+**Re-extraction makes a new trace generation (maintainer decision 2026-11-14, card C5, option A).** A new extraction
+of a movie **shall not** overwrite a reviewed extraction: it writes a new *trace generation*, and the old generation
+stays readable. Labels, categories and analysis windows **shall** move to the molecules of the new generation that
+have the same `molecule_key` (§5.1) and get the mark **"carried"**; fits and corrections that depend on the old
+generation become stale (FR-WORKFLOW-6). The user reconciles the labels and the fits after a new generation. The
+generation is additive store data (§5, §9.1), with its ADR in
+[#921](https://github.com/bioedca/tether/issues/921); the reconcile page is
+[#923](https://github.com/bioedca/tether/issues/923). The steps of the Prepare section around extraction (import,
+channel geometry, the map) are FR-WORKFLOW-8 to FR-WORKFLOW-10 (§7.13).
+
 ### 7.2 FR-CORRECT — Corrections & FRET computation
 
 Tether **shall** compute corrected FRET following the order **background → leakage α → direct-excitation δ (= 0)
@@ -494,6 +516,63 @@ E** (α = δ = 0, γ = 1), stamp provenance `method = "apparent-E (corrections u
 banner**, and offer two recovery actions: load a donor-only sample, or enter manual per-condition α/γ (which stamps
 `method = "manual"`). If the user declines, the project stays in apparent-E. A NaN factor or NaN corrected-E is
 never written (§9 M3, §10).
+
+**Two analysis modes (maintainer decision 2026-11-14, card C2, option B).** An analysis **shall** run in one of two
+named modes. **Apparent E** (α = δ = 0, γ = 1) stays possible as a separate named mode in every correction state.
+**Corrected E** needs an approved correction: the corrected view is available only from the state
+CALIBRATION_APPROVED on, a corrected analysis reads the frozen factor version that was applied, and a corrected
+analysis set can be frozen only when the correction and the review of each member are current (ANALYSIS_READY,
+§7.7). An analysis set never mixes the two modes.
+The maintainer's note on the card gives three duties, and each is a requirement
+([#933](https://github.com/bioedca/tether/issues/933), [#604](https://github.com/bioedca/tether/issues/604)):
+
+1. The application **shall** strongly encourage the user to apply the corrections: when a project has curated traces
+   and no approved correction, the section *Curate and correct* proposes the correction steps, and the guided mode
+   goes there.
+2. Each analysis of apparent E **shall** show a warning that stays visible, with an action that opens the
+   corrections. The command line prints the same warning and writes the mode into its output. Each figure, table,
+   result snapshot and deposit of an apparent-E analysis carries the words "apparent E".
+3. The documentation **shall** say clearly how to correct: a procedure *from apparent E to corrected E*, which the
+   warning links to, and what an apparent-E result can and cannot be used for.
+
+**Correction states (diagram G03; [#925](https://github.com/bioedca/tether/issues/925)).** The readiness of the
+corrections **shall** be a state machine that is stored in the project and is Qt-free, so that the application, the
+command line and a recipe see the same state. The states are scientific readiness states, not screens. Labels in
+G03 use `event [guard] / action`.
+
+| State | Meaning | Ways out |
+|---|---|---|
+| APPARENT_REVIEW | Manual curation and confirmed ML labels (apparent E) | *finish initial curation* → BLEEDTHROUGH_REQUIRED |
+| BLEEDTHROUGH_REQUIRED | Source and confirm the condition's leakage factor α | *confirm alpha [valid + sourced] / estimate gamma* → GAMMA_REVIEW |
+| GAMMA_REVIEW | Inspect the curated bleach-step contributors of γ | *approve [gamma valid]* → CALIBRATION_APPROVED; *insufficient evidence* → CALIBRATION_BLOCKED |
+| CALIBRATION_BLOCKED | No usable steps, or a factor that is not valid | *new evidence / valid sourced override* → GAMMA_REVIEW |
+| CALIBRATION_APPROVED | The factors and the contributor evidence are frozen | *apply correction version* → CORRECTED_REVIEW |
+| CORRECTED_REVIEW | Review the bleach boundaries, the analysis windows and the traces in corrected E | *finish review [all dependencies current]* → ANALYSIS_READY; *calibration evidence changes* → CALIBRATION_STALE |
+| ANALYSIS_READY | An approved correction and a review snapshot | *edit analysis windows / curation* → CORRECTED_REVIEW; *factor / contributor evidence changes* → CALIBRATION_STALE |
+| CALIBRATION_STALE | Downstream corrected analysis is disabled | *alpha missing / invalid* → BLEEDTHROUGH_REQUIRED; *alpha valid / recalculate* → GAMMA_REVIEW |
+
+A missing α or an unapproved γ blocks corrected review and corrected analysis; apparent-E curation stays available.
+The total-correction-failure banner above is the view of CALIBRATION_BLOCKED, and its two recovery actions are that
+state's two ways out ([#361](https://github.com/bioedca/tether/issues/361)). The records behind the states:
+
+- **The leakage factor α** of a condition **shall** be a record with a source and a version
+  ([#926](https://github.com/bioedca/tether/issues/926)).
+- **The γ evidence table** **shall** list each contributor: its `molecule_key`, its step window, its intensities
+  before and after the step, its γ, the source of the step (the detector, or a window that a person set), and
+  whether it is included, with the reason for an exclusion
+  ([#927](https://github.com/bioedca/tether/issues/927)). The estimator does not change: γ is estimated from
+  leakage-corrected intensities, trace-wise with the population-median fallback of
+  [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md), over the included rows.
+- **Calibration windows** **shall** be separate from analysis windows, so that post-acceptor-bleach evidence stays
+  available for calibration. An analysis-window edit stales the dependent fits, and stales γ only if the
+  estimator's inputs changed ([#928](https://github.com/bioedca/tether/issues/928)).
+- **Frozen factor versions.** Approval freezes the factors with their evidence; *apply correction version* applies
+  one frozen version, and a result keeps the version that it was made from
+  ([#929](https://github.com/bioedca/tether/issues/929)). The review pages are
+  [#930](https://github.com/bioedca/tether/issues/930) (α and γ: approve, block, override with a source) and
+  [#931](https://github.com/bioedca/tether/issues/931) (corrected review and the *finish review* snapshot).
+- **A reject has a reason**, and a rejected trace stays recoverable (§7.5;
+  [#932](https://github.com/bioedca/tether/issues/932)).
 
 ### 7.3 FR-ROUNDTRIP — Provenance & round-trip browser (the MVP centerpiece)
 
@@ -563,6 +642,37 @@ and let the user accept or reject each change rather than silently overwriting; 
 re-stales that molecule's dependent corrections/idealizations (§5.1). tMAVEN's integer classes map to Tether's
 free-text per-condition categories through the stored **integer↔category lookup table** (class 0 ↔ uncategorized;
 otherwise lossy — §7.3).
+
+**Model scan (diagram G04; maintainer decision 2026-11-14, card C3, option C).** Idealization **shall** be offered as
+a *model scan*: the user selects model families × state counts K, with their priors, clipping, restarts and
+convergence settings; each fit is one background job (FR-WORKFLOW-5), and every candidate fit is stored with its
+effective settings ([#937](https://github.com/bioedca/tether/issues/937); the page is
+[#940](https://github.com/bioedca/tether/issues/940)). The reference for the scan is the maintainer's script
+`tmaven_state_scan.py` (one family × K, which the scan extends to many families × K).
+
+- **Families.** The scan **shall** offer all modelers of the pinned tMAVEN. A family that has no parity check against
+  standalone tMAVEN carries the mark **"no parity evidence"** in the page, in each result and in the figure footer
+  (§7.7). The goal is full parity: the maintainer's note on the card reads *"We should work to achieve full model
+  parity with tMAVEN."* This replaces the answer D4 of 2026-11-10 on
+  [#622](https://github.com/bioedca/tether/issues/622), which offered only consensus VB-HMM and ebFRET. In `v1.0.0`
+  the scan offers the present families (vbFRET, consensus VB-HMM, ebFRET), and their mark follows the parity
+  record of §9.2 and §9.6 (per-trace vbFRET parity is not yet met, [#545](https://github.com/bioedca/tether/issues/545)); the
+  other modelers are [#936](https://github.com/bioedca/tether/issues/936), and their parity evidence is
+  [#948](https://github.com/bioedca/tether/issues/948) to [#950](https://github.com/bioedca/tether/issues/950).
+- **Comparison.** Fits **shall** be compared only inside one score context: the same data and the same score
+  ([#939](https://github.com/bioedca/tether/issues/939)). The ELBO stages and the likelihood types are labelled.
+  K-means has no likelihood, and a raw maximum-likelihood value alone does not select K; a selection criterion is
+  offered only where it is valid. The max-ELBO auto selection above stays the rule for the VB families.
+- **Active fit.** The user selects one active fit and the alternatives stay stored. The active fit drives the plots,
+  and a stale fit never supplies a current result.
+- **Capabilities.** Each fit **shall** state what it supports ([#938](https://github.com/bioedca/tether/issues/938)).
+  With no ordered state path, the dwell and TDP controls stay unavailable; with no supported transition output, the
+  HMM rate controls stay unavailable; a mixture fit does not get HMM capabilities by finishing. Rates in s⁻¹ need a
+  verified frame interval; with an unknown interval, frame-based views stay available and rates in s⁻¹ are disabled
+  ([#941](https://github.com/bioedca/tether/issues/941)). Residuals, event counts, boundary dwells and the
+  uncertainty of a fit are explicit views ([#942](https://github.com/bioedca/tether/issues/942)).
+- **Scope.** A FRET-state lifetime is the dwell time of a FRET state. Fluorescence-lifetime, FLIM and TCSPC analysis
+  are not in scope. The optional standalone-tMAVEN hand-off above keeps trace identity and uses the reconcile prompt.
 
 ### 7.5 FR-ML — Curation & per-condition ML
 
@@ -634,6 +744,43 @@ Tether **shall** provide:
 - Native reproduction of the **seven tMAVEN plot types** (Appendix C); any other tMAVEN plot stays reachable via
   the hand-off.
 
+**Analysis sets (diagram G04; [#934](https://github.com/bioedca/tether/issues/934)).** The input of an analysis
+**shall** be a version of an *analysis set*: a named selection of molecules from one or more projects, grouped by
+condition. One experiment stays one project (ADR-0068): a set is stored by an owning project and refers to the
+other projects by stable project and trace ids. A **version** of a set is frozen: the trace ids, the analysis
+windows, the correction version of each project (or the mode *apparent E*, §7.2), the molecule filter (§7.11), the
+scope (pooled or per movie), and the replicate of each movie. A membership change makes a new version, and an old
+version stays readable. The freeze checks that the members are compatible and finds a molecule that comes twice
+from two copies of a project. Removing a member never deletes its data, and a membership change stales only that
+set's fits and plots, never the calibration (FR-WORKFLOW-6). The editor is
+[#935](https://github.com/bioedca/tether/issues/935). Pooling one condition across projects (§7.6) is done through a
+set.
+
+**Two replicate levels (maintainer decision 2026-11-14, card C4, option A, with the note that governs).** A movie
+**shall** be a technical replicate by default. A *biological replicate* is a group of movies that the user makes,
+above the movies, across projects and directories, in an editor made for that
+([#945](https://github.com/bioedca/tether/issues/945)). An analysis **shall** use either technical replicates only
+or the nested form (molecules in movies in biological replicates), and each plot **shall** say which.
+
+- **The interval rule.** Error bars and confidence intervals **shall** follow the level that the plot names. With
+  technical replicates only, the interval shows technical variation and its label says so. In the nested form the
+  biological replicate is the unit of replication. The method and its literature are decided in the ADR of
+  [#947](https://github.com/bioedca/tether/issues/947).
+- **The figure footer.** Each plot **shall** have a default footer that is ready for publication
+  ([#946](https://github.com/bioedca/tether/issues/946)): the mode (apparent E, or corrected E with its correction
+  version); the replicate level, with the counts of biological replicates, movies and molecules; what the error bars
+  show and the method; the model family and K when a fit is drawn, with "no parity evidence" where it applies
+  (§7.4); the analysis set and its version; and the Tether version. The user can edit the footer or turn it off.
+
+**Result snapshots ([#943](https://github.com/bioedca/tether/issues/943)).** Saving a result **shall** write a
+versioned *result snapshot* with its lineage to the exact analysis-set version and the active fit (§7.4). A later
+change makes a new snapshot; a historical result keeps the inputs that it was made from.
+
+**Related changes of this section.** [#368](https://github.com/bioedca/tether/issues/368) amends non-goal N3 and the
+seven-plot-type sentences of this section and §7.9; [#378](https://github.com/bioedca/tether/issues/378) adds
+FR-PLOT, the composed and exportable plot. Neither is changed here. A version of an analysis set is the data input
+of a composed plot ([#373](https://github.com/bioedca/tether/issues/373)).
+
 ### 7.8 FR-LEGACY — Legacy import & Deep-LASI re-analysis
 
 Tether **shall** import Deep-LASI projects and tMAVEN SMD. A minimal read path lands at M0.5/M1 (for validation and
@@ -682,6 +829,12 @@ Tether **shall** export: CSV and Deep-LASI-style `.txt` per-molecule/per-conditi
 tMAVEN hand-off [Greenfeld2015]; and every plot as vector PDF/SVG + PNG. The seven tMAVEN plot types are reproduced
 natively (Appendix C); all exports are stamped with provenance and parameters.
 
+An export of figures and tables **shall** also write a result snapshot (§7.7) and the plot recipe with its
+provenance, so that an exported figure traces back to its analysis-set version and its active fit. An exported
+figure carries the footer of §7.7, and the file with the numbers behind it always holds the full footer text, also
+when the footer is turned off in the figure ([#661](https://github.com/bioedca/tether/issues/661),
+[#946](https://github.com/bioedca/tether/issues/946)). Every exported figure and table names its mode (§7.2).
+
 ### 7.10 FR-CONCURRENCY — File lifecycle on shared storage
 
 Tether **shall** enforce single-writer access to an experiment file via `<file>.lock` (host/user/PID/timestamp), a
@@ -713,6 +866,32 @@ idealization stage** failed under continue-on-error and proceed with the queue (
 checkpointed). If the sidecar environment is **absent or corrupt at startup**, the batch **shall** proceed in an
 **idealization-deferred** mode — all movies extracted + corrected, idealization queued for a later run — rather
 than aborting. The batch policy (warn-and-flag vs. fail-movie) is configurable in the settings profile (§10).
+
+**The parity rule ([#892](https://github.com/bioedca/tether/issues/892)).** Each action of the application **shall**
+have a command-line route and a recipe step. The application calls only Qt-free *service commands*; each command
+takes a request that has a text form, and the command line and a recipe file send the same requests
+(`tether run`, [#899](https://github.com/bioedca/tether/issues/899)). The application can save what the user did as
+a recipe. A test **shall** fail when a service command has no command-line route, and the same recipe run from the
+application and from the command line **shall** give equal stores
+([#900](https://github.com/bioedca/tether/issues/900)). `tether status`
+([#896](https://github.com/bioedca/tether/issues/896)) prints the readiness of each stage of a project as text or
+JSON, from the same function that the application reads to resume (FR-WORKFLOW-3). **The one exception is the
+publication of a deposit**, which is never a recipe step (below).
+
+- **A step that needs a person (maintainer decision 2026-11-14, card B1, option C;
+  [#894](https://github.com/bioedca/tether/issues/894)).** At a step that needs approval, a batch run **shall** stop
+  with a special exit code, and a command then approves the step; or the recipe names a policy for the step, and the
+  store records "approved by policy" with the policy. The run stops if the recipe has no policy for the step. The
+  ADR of #894 fixes the exit code and says how the present settings-profile policies (the over-gate registration of
+  §7.1, warn-and-flag vs. fail-movie above) map onto it.
+- **The molecule filter (card B2, option B).** Curation is not such a step. The recipe names the molecule filter;
+  the default is *all molecules that are not rejected*; each result records the filter. A recipe never applies
+  ranker proposals as labels (§7.5).
+- **Reports (card B4, option A).** Each review page **shall** have a report: one JSON file with its numbers and PNG
+  images of the same views, made by the same code for the application and the command line. A report is the
+  evidence of an approval.
+- **Publication (card B3, option A).** `tether deposit publish` is a separate command that needs the deposit id. A
+  recipe can make and upload a draft deposit, but it can never publish (FR-DEPOSIT-6).
 
 ### 7.12 FR-UPDATE — In-app update
 
@@ -754,7 +933,8 @@ verification failure; the verifier could not tell the two apart on its own, sinc
 exit code. A failure that still cannot be classified **shall** be treated as *ran and failed* — refusing loudly when
 unsure is the safe error.
 
-**This is the only sanctioned exception to "no outbound network".** Today the application makes none — the promise
+**This is the only sanctioned exception to "no outbound network"** in `v1.0.0`; the user-started deposit upload of
+FR-DEPOSIT (§7.14), which comes after `v1.0.0`, is the second, with its own bounds (FR-DEPOSIT-7). Today the application makes none — the promise
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
 bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
@@ -772,6 +952,131 @@ the PR that adds the request, never before and never after.
 
 An update **shall not** orphan the installed launch surface — the prefix shims, the Windows Start Menu entry, the
 Linux `.desktop` ([ADR-0051](adr/0051-installed-app-launch-surface.md)).
+
+### 7.13 FR-WORKFLOW — Application workflow, jobs and staleness
+
+Introduced by the maintainer's workflow design of 2026-11-14 (tracking issue
+[#890](https://github.com/bioedca/tether/issues/890)). The diagrams are committed under `docs/design/` (diagrams 01
+and G02 to G06); a requirement here that cites a diagram block names it as the diagram does. The design is a future
+state: §9.6 lists each requirement that the code does not meet yet. The whole workflow is driven from the
+application and has full command-line and batch parity (§7.11).
+
+- **FR-WORKFLOW-1 — Four sections.** The application **shall** have four sections: **Prepare** (import, mapping and
+  extraction; G02), **Curate and correct** (curation and the correction states of §7.2; G03), **Analyze** (analysis
+  sets, model scan and results; G04) and **Deposit** (G06). New movies follow Prepare → Curate and correct →
+  Analyze → Deposit. Imported traces (§7.8) enter *Curate and correct*; verified corrected traces enter corrected
+  review. The deposit is optional: a result snapshot (§7.7) is a valid end point
+  ([#897](https://github.com/bioedca/tether/issues/897)).
+- **FR-WORKFLOW-2 — Guided mode and direct navigation.** The application **shall** offer a guided mode, which takes
+  a new user through the steps in order, and direct navigation to any section. Compatibility and dependency checks
+  govern the re-entry to any section ([#897](https://github.com/bioedca/tether/issues/897)).
+- **FR-WORKFLOW-3 — Resume at the saved stage.** Opening a project **shall** return to its saved stage after the
+  dependency checks. The readiness of each stage comes from one Qt-free function that `tether status` also prints
+  ([#896](https://github.com/bioedca/tether/issues/896), [#628](https://github.com/bioedca/tether/issues/628)).
+- **FR-WORKFLOW-4 — A disabled control says what is missing.** A control that is not available **shall** be shown
+  disabled with the missing prerequisite named, for example "rates in s⁻¹ need a verified frame interval"
+  ([#898](https://github.com/bioedca/tether/issues/898)).
+- **FR-WORKFLOW-5 — Background jobs.** Each long step (an extraction, a fit of a model scan, an upload) **shall** run
+  as a background job with progress and cancel. A job is checkpointed: completed work is kept, and a retry re-runs
+  only the failed items (a failed movie, a failed fit, an incomplete file). A Qt-free job and dependency coordinator
+  covers every stage, not only extraction ([#895](https://github.com/bioedca/tether/issues/895); its Qt adapter is
+  [#343](https://github.com/bioedca/tether/issues/343)).
+- **FR-WORKFLOW-6 — The stale rules.** An edit **shall** make stale exactly the results that depend on it, and a
+  stale result **shall** never supply a current result (G05 note 03, G03 notes 03 and 04):
+  - a channel-geometry or map edit stales the extraction and every result that descends from it;
+  - a factor or calibration-window edit stales the affected corrected data and its descendants;
+  - an analysis-window edit stales the dependent fits and plots, and stales γ only if the estimator's inputs changed;
+  - a membership edit of an analysis set stales only that set's fits and plots, never the calibration;
+  - a new trace generation stales the fits and corrections of the old one (§7.1).
+
+  Historical results keep their original inputs. The dependency graph and the rules are the ADR of
+  [#893](https://github.com/bioedca/tether/issues/893); the stored marks are part of #895. All new store data is
+  additive (§5, §9.1).
+- **FR-WORKFLOW-7 — Service layer and parity.** User-interface components expose the workflow, and application
+  services do the work (G05). Every action follows the parity rule of §7.11: one Qt-free service command, one
+  command-line route, one recipe step, and one report for a review page
+  ([#892](https://github.com/bioedca/tether/issues/892)).
+- **FR-WORKFLOW-8 — Import (G02, lane IMPORT).** The Prepare section **shall** import movies, pair the channels and
+  assign donor and acceptor, and apply a geometry recipe for each channel (convert, crop, rotate, flip, translate;
+  [#910](https://github.com/bioedca/tether/issues/910)). The channel layouts are side by side, top and bottom, free
+  crop rectangles ([#908](https://github.com/bioedca/tether/issues/908)), and donor and acceptor in two files
+  ([#909](https://github.com/bioedca/tether/issues/909)). A validation gate checks the geometry, the pixels and the
+  channel pairing; when it fails, the user repairs the input, chooses another adapter, or supplies the missing
+  metadata (frame time, pixel size, channel roles; [#911](https://github.com/bioedca/tether/issues/911)). A lossy
+  codec or a pixel representation that is not valid is flagged, because a conversion cannot recover lost
+  quantitative information. An immutable source registry records the originals, the derived files and the recipe
+  between them ([#912](https://github.com/bioedca/tether/issues/912)). The page is
+  [#913](https://github.com/bioedca/tether/issues/913) and the command line is
+  [#914](https://github.com/bioedca/tether/issues/914). The input containers are in Appendix A.
+- **FR-WORKFLOW-9 — Mapping (G02, lane MAPPING).** A saved map **shall** be reused only when it matches the channel
+  geometry and the optics, not on its date alone ([#916](https://github.com/bioedca/tether/issues/916)). A map is
+  made from a calibration source: one image, or a daily bead-slide video from which the user chooses frames for a
+  maximum projection ([#915](https://github.com/bioedca/tether/issues/915)). Tether detects the calibration spots,
+  pairs them and fits the map; the user reviews the overlay and the residuals and accepts the map, with its QC
+  recorded, or revises the fit ([#917](https://github.com/bioedca/tether/issues/917); the command line is
+  [#918](https://github.com/bioedca/tether/issues/918)). The map file is a separate asset from its calibration source
+  and keeps the source ids, the geometry, the transform, the projection settings and the quality record. Standard
+  mapping follows Deep-LASI (Appendix E); other registration methods on an advanced tab come after `v1.0.0`
+  ([#919](https://github.com/bioedca/tether/issues/919)).
+- **FR-WORKFLOW-10 — Extraction (G02, lanes EXTRACTION and PERSISTENCE).** Before the run the user **shall** see the
+  detection image and method with a contrast and threshold preview, choose the colocalization rule (§7.1), and set
+  the apertures and the background with a view of overlap, edges and a trace preview
+  ([#922](https://github.com/bioedca/tether/issues/922)). The run integrates the selected movies by applying the
+  map to the source coordinates, as a checkpointed job (FR-WORKFLOW-5), and writes a new trace generation (§7.1).
+  The detector modes of today are wavelet, intensity and bandpass; broader parity with the detector modes of
+  Deep-LASI comes after `v1.0.0` ([#924](https://github.com/bioedca/tether/issues/924)).
+
+**What is in `v1.0.0` (maintainer decision 2026-11-14, card A1, option B).** In `v1.0.0`: the service layer and the
+recipe, the channel layouts and the map file, the colocalization rule and the trace generations, the correction
+states, analysis sets, model scan with the present families, and result snapshots — FR-WORKFLOW-1 to FR-WORKFLOW-10
+and the changes of §7.1, §7.2, §7.4, §7.7, §7.9 and §7.11, except the parts named next. After `v1.0.0`: the vendor
+containers of Appendix A, more model families (§7.4), other registration methods (#919), more detector modes (#924)
+and the deposit (FR-DEPOSIT). The index of #890 gives the issue of each part.
+
+### 7.14 FR-DEPOSIT — Data deposit on Zenodo
+
+Introduced by the workflow design of 2026-11-14 (diagram G06; #890). **Not in `v1.0.0`.** The user **shall** be
+able to deposit the full data package of an analysis on Zenodo from the user's own account, and the publication
+boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) still holds: Tether runs no server.
+
+- **FR-DEPOSIT-1 — The package.** The user selects a frozen analysis snapshot (§7.7) and the experiments that take
+  part. Tether **shall** collect the full dependency set: the original raw movies, the mapping images or videos as
+  separate map files, portable projects, the trace and model data, and the figures, under a portable manifest with
+  relative paths, checksums and lineage ([#951](https://github.com/bioedca/tether/issues/951)). A project that holds
+  local paths alone is not a complete deposit.
+- **FR-DEPOSIT-2 — The package check.** Before an upload Tether **shall** check that all sources are present and
+  verified, and that the package fits the limits that Zenodo documents at the time of the check (storage and file
+  count per record); the design read 50 GB and 100 files per record on 2026-11-13, and #952 records the source
+  instead of freezing a number here. When the package does not fit, the user requests more quota or plans complete
+  linked records. Raw data **shall** never be left out silently to fit a limit
+  ([#952](https://github.com/bioedca/tether/issues/952)).
+- **FR-DEPOSIT-3 — The account secret (card D3, option A).** The user connects a Zenodo account with a personal
+  access token, which Tether keeps in the credential store of the operating system; the command line reads the same
+  store or the variable `ZENODO_TOKEN`. The secret **shall** never be written to a project, an export, a log or a
+  report ([#954](https://github.com/bioedca/tether/issues/954)).
+- **FR-DEPOSIT-4 — The metadata record.** The user reviews the authors, title, licence, funding, file access or
+  embargo, and related records ([#955](https://github.com/bioedca/tether/issues/955)). A file-access restriction
+  does not make the published metadata private.
+- **FR-DEPOSIT-5 — Transfer.** Tether **shall** create or resume a draft, bind the deposit id to the manifest,
+  upload the pending files and verify the checksum of each completed file. A retry is a file-level reconciliation
+  with the server state: verified files are kept and incomplete or failed files are sent again; no byte-offset resume
+  is assumed. Cancel, reconnect and retry keep the draft
+  ([#953](https://github.com/bioedca/tether/issues/953); the page is
+  [#956](https://github.com/bioedca/tether/issues/956), the command line
+  [#958](https://github.com/bioedca/tether/issues/958)).
+- **FR-DEPOSIT-6 — Publication.** Publication **shall** need an explicit action of the user after a final review
+  that shows the exact files and metadata to be published. On the command line it is `tether deposit publish`, a
+  separate command that needs the deposit id; it is never a recipe step (§7.11, card B3). After Tether verifies the
+  publication, it saves the DOI, the record version and the manifest in the project
+  ([#957](https://github.com/bioedca/tether/issues/957)). A later scientific change makes a new snapshot and a new
+  record version; the earlier published lineage stays readable.
+- **FR-DEPOSIT-7 — Network and tests.** The deposit is the second exception to "no outbound network" (§7.12): its
+  requests go to Zenodo only, and only in a deposit that the user starts; nothing is sent in the background.
+  `docs/privacy.md` is amended in the pull request that adds the requests
+  ([#959](https://github.com/bioedca/tether/issues/959)), and the deposit guide gives the procedure in the
+  application first ([#598](https://github.com/bioedca/tether/issues/598)). CI tests the client on recorded
+  responses only; before a release the maintainer makes one deposit on the Zenodo sandbox by hand from a checklist,
+  and the result is recorded (card D4, option A).
 
 ---
 
@@ -1020,6 +1325,43 @@ is retracted and no closed milestone is reopened; each is carried by the open is
 | Oracle (f)'s schema-migration leg: §8 NFR-VALID (f) and §5.4 name migration tests that the additive-only freeze has never needed | M0, §8 | [#547](https://github.com/bioedca/tether/issues/547) |
 | The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
 | γ agreement with the Deep-LASI median on a shared frame set — withheld: the vendored export carries no per-frame classification (ADR-0028) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
+
+**Requirements of the workflow design of 2026-11-14, not yet met.** These are new requirements (§7.1, §7.2, §7.4,
+§7.7, §7.9, §7.11, §7.13, §7.14 and Appendix A; tracking issue [#890](https://github.com/bioedca/tether/issues/890)), not criteria that a closed milestone
+missed. Each row leaves this table in the pull request that meets it. *In `v1.0.0`* is the maintainer's decision of
+2026-11-14 (card A1, option B).
+
+| Requirement | In `v1.0.0` | Carried by |
+|---|---|---|
+| FR-WORKFLOW-1, -2: four sections, guided mode and direct navigation | yes | [#897](https://github.com/bioedca/tether/issues/897) |
+| FR-WORKFLOW-3: resume at the saved stage; `tether status` | yes | [#896](https://github.com/bioedca/tether/issues/896), [#628](https://github.com/bioedca/tether/issues/628) |
+| FR-WORKFLOW-4: a disabled control names the missing prerequisite | yes | [#898](https://github.com/bioedca/tether/issues/898) |
+| FR-WORKFLOW-5: checkpointed background jobs for every stage | yes | [#895](https://github.com/bioedca/tether/issues/895), [#343](https://github.com/bioedca/tether/issues/343) |
+| FR-WORKFLOW-6: the dependency graph and the stale rules | yes | [#893](https://github.com/bioedca/tether/issues/893), [#895](https://github.com/bioedca/tether/issues/895) |
+| FR-WORKFLOW-7 and §7.11: Qt-free service commands, the parity rule and the parity test | yes | [#892](https://github.com/bioedca/tether/issues/892) |
+| §7.11: `tether run` recipes, and the application saves a recipe | yes | [#899](https://github.com/bioedca/tether/issues/899) |
+| §7.11: the same recipe from the application and the command line gives equal stores | yes | [#900](https://github.com/bioedca/tether/issues/900) |
+| §7.11: a step that needs a person stops a batch run, or a recipe policy approves it (card B1) | yes | [#894](https://github.com/bioedca/tether/issues/894) |
+| FR-WORKFLOW-8: channel layouts, two-file acquisitions, the geometry recipe, missing metadata, the source registry | yes | [#908](https://github.com/bioedca/tether/issues/908), [#909](https://github.com/bioedca/tether/issues/909), [#910](https://github.com/bioedca/tether/issues/910), [#911](https://github.com/bioedca/tether/issues/911), [#912](https://github.com/bioedca/tether/issues/912) |
+| FR-WORKFLOW-8: the import page and `tether import` | yes | [#913](https://github.com/bioedca/tether/issues/913), [#914](https://github.com/bioedca/tether/issues/914) |
+| FR-WORKFLOW-9: the map from a bead-slide video or one image, the map file asset, the mapping page, `tether map` | yes | [#915](https://github.com/bioedca/tether/issues/915), [#916](https://github.com/bioedca/tether/issues/916), [#917](https://github.com/bioedca/tether/issues/917), [#918](https://github.com/bioedca/tether/issues/918) |
+| FR-WORKFLOW-10: the aperture and background page with a trace preview | yes | [#922](https://github.com/bioedca/tether/issues/922) |
+| §7.1: the colocalization default becomes a partner in both channels (card C1) | yes | [#920](https://github.com/bioedca/tether/issues/920) |
+| §7.1: trace generations and the carried labels (card C5) | yes | [#921](https://github.com/bioedca/tether/issues/921), [#923](https://github.com/bioedca/tether/issues/923) |
+| §7.2: the correction states of G03 | yes | [#925](https://github.com/bioedca/tether/issues/925) |
+| §7.2: the α record, the γ evidence table, calibration windows, frozen factor versions | yes | [#926](https://github.com/bioedca/tether/issues/926), [#927](https://github.com/bioedca/tether/issues/927), [#928](https://github.com/bioedca/tether/issues/928), [#929](https://github.com/bioedca/tether/issues/929) |
+| §7.2: the review pages and the *finish review* snapshot | yes | [#930](https://github.com/bioedca/tether/issues/930), [#931](https://github.com/bioedca/tether/issues/931) |
+| §7.2: a reason for each reject | yes | [#932](https://github.com/bioedca/tether/issues/932) |
+| §7.2: the apparent-E warning and the lead to the corrections (card C2) | yes | [#933](https://github.com/bioedca/tether/issues/933), [#604](https://github.com/bioedca/tether/issues/604) |
+| §7.4: model scan, the active fit, comparison in one score context, capabilities | yes | [#937](https://github.com/bioedca/tether/issues/937), [#938](https://github.com/bioedca/tether/issues/938), [#939](https://github.com/bioedca/tether/issues/939), [#940](https://github.com/bioedca/tether/issues/940) |
+| §7.4: rates in s⁻¹ only from a verified frame interval; residuals and uncertainty | yes | [#941](https://github.com/bioedca/tether/issues/941), [#942](https://github.com/bioedca/tether/issues/942) |
+| §7.7: analysis sets and their editor | yes | [#934](https://github.com/bioedca/tether/issues/934), [#935](https://github.com/bioedca/tether/issues/935) |
+| §7.7: biological replicates, the figure footer, the interval rule (card C4) | yes | [#945](https://github.com/bioedca/tether/issues/945), [#946](https://github.com/bioedca/tether/issues/946), [#947](https://github.com/bioedca/tether/issues/947) |
+| §7.7, §7.9: result snapshots; `tether set`, `tether scan`, `tether results` | yes | [#943](https://github.com/bioedca/tether/issues/943), [#944](https://github.com/bioedca/tether/issues/944) |
+| §7.4: the other tMAVEN modelers, with the mark "no parity evidence", and their parity evidence (card C3) | no | [#936](https://github.com/bioedca/tether/issues/936), [#948](https://github.com/bioedca/tether/issues/948), [#949](https://github.com/bioedca/tether/issues/949), [#950](https://github.com/bioedca/tether/issues/950) |
+| FR-WORKFLOW-9, -10: other registration methods; more detector modes | no | [#919](https://github.com/bioedca/tether/issues/919), [#924](https://github.com/bioedca/tether/issues/924) |
+| Appendix A: the vendor containers (card D1) | no | [#901](https://github.com/bioedca/tether/issues/901), [#902](https://github.com/bioedca/tether/issues/902), [#903](https://github.com/bioedca/tether/issues/903), [#904](https://github.com/bioedca/tether/issues/904), [#905](https://github.com/bioedca/tether/issues/905), [#906](https://github.com/bioedca/tether/issues/906), [#907](https://github.com/bioedca/tether/issues/907) |
+| FR-DEPOSIT-1 to -7: the deposit on Zenodo | no | [#951](https://github.com/bioedca/tether/issues/951), [#952](https://github.com/bioedca/tether/issues/952), [#953](https://github.com/bioedca/tether/issues/953), [#954](https://github.com/bioedca/tether/issues/954), [#955](https://github.com/bioedca/tether/issues/955), [#956](https://github.com/bioedca/tether/issues/956), [#957](https://github.com/bioedca/tether/issues/957), [#958](https://github.com/bioedca/tether/issues/958), [#959](https://github.com/bioedca/tether/issues/959) |
 
 ### 9.7 Milestone-label map
 
@@ -1792,6 +2134,26 @@ comes from the file. Native extraction mirrors Deep-LASI's aperture model (21×2
 background) as its reference (all radii configurable). A **donor-only calibration sample** (e.g. a Cy3-only
 `.tdat`, geometry 512×256, channels G/R) is a recognized input used to set the per-condition global leakage α
 (Appendix B).
+
+**Movie containers and channel layouts (FR-WORKFLOW-8; maintainer decision 2026-11-14, card D1, option B).** The
+file extensions below are adapter targets, not a claim that the readers exist today. Each adapter sits behind one
+movie-reader interface and registry ([#901](https://github.com/bioedca/tether/issues/901)), which refuses a lossy codec and records the pixel type.
+
+| Container | Route | In `v1.0.0` | Carried by |
+|---|---|---|---|
+| Multi-page TIFF | base environment (`tifffile`), as today | yes (implemented) | — |
+| ND2 | Python reader in the base environment | no | [#902](https://github.com/bioedca/tether/issues/902) |
+| CZI | Python reader in the base environment | no | [#903](https://github.com/bioedca/tether/issues/903) |
+| SIF | Python reader in the base environment | no | [#904](https://github.com/bioedca/tether/issues/904) |
+| SIRA | Python reader in the base environment, after the three above | no | [#905](https://github.com/bioedca/tether/issues/905) |
+| AVI, lossless files only | Python reader in the base environment, after the three above | no | [#906](https://github.com/bioedca/tether/issues/906) |
+| `.vsi` and other containers | an optional isolated stack with Bio-Formats and Java | no | [#907](https://github.com/bioedca/tether/issues/907) |
+
+The test file of each format is a public sample file whose licence permits redistribution; for a format with no such
+file, a small laboratory file stays on the workstation and its test runs in the weekly workstation task (card D2,
+option B; [ADR-0071](adr/0071-private-data-checks-run-from-a-workstation-task.md)). The channel layouts are in
+`v1.0.0`: one frame split side by side (the only layout today), top and bottom, or by free crop rectangles
+([#908](https://github.com/bioedca/tether/issues/908)), and donor and acceptor in two files that are paired as one acquisition ([#909](https://github.com/bioedca/tether/issues/909)).
 
 ---
 
