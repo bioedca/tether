@@ -1,0 +1,29 @@
+{
+  "command": "python scripts/make_marzano_fixture.py tables --module <smFRET_module-v1.0.3.zip>",
+  "inputs": {
+    "marzano_chaperone_kjg_231027.tar.xz": "116822250071f16330de19e069da41458fe1fbd12d026dde50dc60048263df60",
+    "marzano_ppr_rnaanticognate.tar.xz": "439ebd0af7b5102363b05eef1b24fbeae17d2c315512bcd26164620dd18e7df3"
+  },
+  "os": "Linux-6.18.44-fc-v445-x86_64-with-glibc2.39",
+  "outputs": {
+    "chaperone_dwells.csv": "9362755e352273affe984d09f55c3d5a22328c93ac19a05b19c3b8b29ee92674",
+    "chaperone_transitions.csv": "90cde4107271d08dc8d753f2fa93d7dce44e70c151d774b7d5f44d4608250b90",
+    "ppr_dwells.csv": "26aa5db0eb5d429c61a18b58827f1d88306c05f81c5808394219653732d9a4ae",
+    "ppr_transitions.csv": "8e1d2032db583d6cfead8fc42c2b828142c4e1aa7d98e9b7e9221010788dd2cb"
+  },
+  "pandas": "3.0.3",
+  "python": "3.12.13",
+  "record_version": 1,
+  "tool": {
+    "archive_sha256": "54f17fe4e0bd7bccaca172856cbe58fc4107034e378ea0b99cc01cb4ed2ab8a6",
+    "functions": [
+      "Utilities.Data_analysis.remove_outliers(df, 'hist')",
+      "processing_scripts.TDP_processing.calculate_dwell_time",
+      "processing_scripts.TDP_processing.generate_transitions",
+      "processing_scripts.TDP_processing.remove_outliers_tdp"
+    ],
+    "name": "nmarzano/smFRET_module",
+    "source": "doi:10.5281/zenodo.16791519",
+    "version": "1.0.3"
+  }
+}

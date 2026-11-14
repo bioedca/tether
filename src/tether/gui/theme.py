@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyqtgraph.Qt import QtGui
 
 __all__ = [
+    "BRAND_ART",
     "DEFAULT_TRACE_PALETTE",
     "ICON_NAMES",
     "MODES",
@@ -56,6 +57,7 @@ __all__ = [
     "TRACE_TOKENS",
     "TRANSPARENT",
     "Theme",
+    "brand_pixmap",
     "contrast_ratio",
     "current",
     "heading_font",
@@ -524,3 +526,50 @@ def missing_icons() -> list[str]:
         for icon_name in ICON_NAMES
         if not icon_renders(icon(icon_name, theme(theme_name)))
     ]
+
+
+#: The brand drawings a window may show, one SVG per theme (``<name>-<theme>.svg``).
+BRAND_ART = ("start-art", "tile")
+_BRAND_DIR = resources.files("tether.gui") / "assets" / "brand"
+
+
+def brand_pixmap(
+    name: str,
+    width: int,
+    active: Theme | None = None,
+    *,
+    device_pixel_ratio: float = 1.0,
+) -> QtGui.QPixmap:
+    """The brand drawing ``name`` (:data:`BRAND_ART`) of ``active``, ``width`` px wide (#689).
+
+    The height follows the drawing's view box. The pixmap is drawn at
+    ``device_pixel_ratio`` times the size and carries that ratio, so it stays sharp on
+    a high-density screen. Like :func:`icon`, it does not follow a later change of
+    theme by itself. An unreadable drawing gives a null pixmap, never an exception.
+    """
+    from pyqtgraph.Qt import QtCore, QtGui, QtSvg
+
+    if name not in BRAND_ART:
+        raise ValueError(f"brand art must be one of {BRAND_ART}, got {name!r}")
+    active = active or current()
+    try:
+        data = (_BRAND_DIR / f"{name}-{active.name}.svg").read_bytes()
+    except OSError:
+        return QtGui.QPixmap()
+    renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(data))
+    view = renderer.viewBoxF()
+    if not renderer.isValid() or view.width() <= 0 or width <= 0:
+        return QtGui.QPixmap()
+    height = width * view.height() / view.width()
+    pixmap = QtGui.QPixmap(
+        max(1, round(width * device_pixel_ratio)), max(1, round(height * device_pixel_ratio))
+    )
+    pixmap.fill(QtGui.QColor(TRANSPARENT))
+    painter = QtGui.QPainter(pixmap)
+    try:
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        renderer.render(painter)
+    finally:
+        painter.end()
+    pixmap.setDevicePixelRatio(device_pixel_ratio)
+    return pixmap
