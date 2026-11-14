@@ -54,7 +54,8 @@ jobs:
           - { os: macos-15-intel, platform: osx-64 }
           - { os: windows-latest, platform: win-64 }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # 90, not 60: the upgrade smoke (#330) installs three more times per platform.
+    timeout-minutes: 90
     defaults:
       run:
         # micromamba-activated login shell on every OS (git-bash on Windows).
@@ -215,6 +216,15 @@ jobs:
         # `bash <path>`, not `./<path>`: the script is committed mode 100644 and a
         # Windows checkout does not reliably carry an executable bit.
         run: bash packaging/scripts/install_smoke.sh
+
+      - name: Upgrade smoke — the settings store survives a re-install
+        # Issue #330, ADR-0095: measures what running the installer again does to the
+        # install folder, and proves the update-check answer the INSTALLED app wrote is
+        # still what it reads after an over-install and after remove-then-install. The
+        # measurements go to the step summary. packaging.yml only: three more installs
+        # per platform do not belong in the release pipeline's critical path, and the
+        # store lives outside the prefix, so the release bytes add nothing it measures.
+        run: bash packaging/scripts/upgrade_smoke.sh
 
       - name: Upload the installer artifact
         if: always()
