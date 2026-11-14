@@ -12,7 +12,7 @@ Third-party software interoperation & attribution
 ================================================================================
 
 tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
-  Biophysical Journal 123(14):2179–2193, doi:10.1016/j.bpj.2024.01.022.
+  Biophysical Journal 123(17):2765–2780, doi:10.1016/j.bpj.2024.01.022.
   Upstream: https://github.com/GonzalezBiophysicsLab/tmaven  (pinned commit
   10f4230b6d13c6d2ad67b05d801696b4a40eff4a).
   Tether DOES NOT vendor tMAVEN. It runs an *isolated tMAVEN sidecar* in its own
