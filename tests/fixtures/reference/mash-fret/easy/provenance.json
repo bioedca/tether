@@ -1,0 +1,114 @@
+{
+  "date": "2026-11-13T17:26:45+00:00",
+  "driver": {
+    "clean": true,
+    "commit": "72ace90afec39d6c35414773b2e4b03e150fde86"
+  },
+  "inputs": {},
+  "manual_steps": [],
+  "matlab": {
+    "release": "2023b",
+    "version": "23.2.0.2859533 (R2023b) Update 10"
+  },
+  "method": "matlab-batch",
+  "os": "Windows-11-10.0.26300-SP0",
+  "outputs": {
+    "coordinates/easy.coord": "2d88b56b18c70b9f07c575451c992f6d6fd80e7c85ccab4eef93085ebf4ecba4",
+    "easy.sira.gz": "0d12d4bd1518a187e546b69a1920a81aa0f3fea778cb0238d15a1334d08e5ffb",
+    "easy_param.log": "f4652a967131da1fe901d8ef83cee30c59a02ddc894e510ca283179e130ff1b6",
+    "easy_tether_note.txt": "67d2afd9012bfe1d11c4eac5f70ed8e9c44333f24e26c3ceb37192e18e3cc4f7",
+    "traces_ASCII/easy_mol10of15.txt": "0197657ebb07ea121443fa93d2cc01f4b770e94807de893d21b0711cf5f48615",
+    "traces_ASCII/easy_mol11of15.txt": "77cb0710053f37a58e733145e856100702d2d724e8830fbe5db1b0e3d179cc8d",
+    "traces_ASCII/easy_mol12of15.txt": "5b2db04b43570f46fd0484a38b0f37f1357cf10304346aeeaacfe5311e1b493a",
+    "traces_ASCII/easy_mol13of15.txt": "59fb2677020fb161bfd4691c9d3ce225238bde795e759bde950c018268d72774",
+    "traces_ASCII/easy_mol14of15.txt": "bc491cc401b5651ec25238e8d8b1f2fd959b5eacdcfc7da6bc85f379e53b8794",
+    "traces_ASCII/easy_mol15of15.txt": "a6995123e76c95508eca094f90117f2ce6fe4c77545d65e3dbc9e31bbbdf93f9",
+    "traces_ASCII/easy_mol1of15.txt": "d00b06c26f3b54cfee6bf79d6aa84889dda009d7b08201f63de840929863ba04",
+    "traces_ASCII/easy_mol2of15.txt": "15bd38a60d298a387805c13b291d85cbbf06d94541aba12c059243206c09f129",
+    "traces_ASCII/easy_mol3of15.txt": "696fdd008c5b0148fc048abb33353e53a6615e1e56517679d74cd7cc6b63df39",
+    "traces_ASCII/easy_mol4of15.txt": "a8a62f5d41113e25b9ed79053c80e7ee2f6350a2e1532878167633d2031784c4",
+    "traces_ASCII/easy_mol5of15.txt": "c7162af0ab76887531c580585e10fada34f952042216fa3cca0f9ccf1334e912",
+    "traces_ASCII/easy_mol6of15.txt": "19f8379e6d1fbbd745dc8b58ba2a0a6f282eb6336854209af75e8414a7aa995b",
+    "traces_ASCII/easy_mol7of15.txt": "eeb4e645cb5e68ad334f30752761abf307be4974f734c4f9a2d004414a7cf89d",
+    "traces_ASCII/easy_mol8of15.txt": "43c61a644d222ce7e79e2410afaabe92de1fca6691c0e6508e8e508dffcb818f",
+    "traces_ASCII/easy_mol9of15.txt": "a9779ab7e0cd21de59f86846d9fbf87650e9a5d8dac4aa5688f4d0cccaecbcbf"
+  },
+  "params": {
+    "export": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true
+    ],
+    "gzip_video": true,
+    "name": "easy",
+    "overrides": {
+      "Bt": [
+        0,
+        0
+      ],
+      "FRET": [
+        0.3,
+        0.7
+      ],
+      "Itot": 400,
+      "J": 2,
+      "L": 40,
+      "N": 15,
+      "bg": 1,
+      "bgDec": false,
+      "bgI": [
+        3,
+        3
+      ],
+      "bleach": false,
+      "camnoise": 1,
+      "dE": [
+        0,
+        0
+      ],
+      "defocus": false,
+      "gamma": 1,
+      "k": [
+        [
+          0,
+          2
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "pc_in": true,
+      "pixdim": 0.25,
+      "psf": true,
+      "psfW": [
+        0.32,
+        0.35
+      ],
+      "rate": 10,
+      "viddim": [
+        160,
+        80
+      ],
+      "wFRET": [
+        0,
+        0
+      ],
+      "wGamma": 0,
+      "wItot": 0
+    },
+    "seed": 714001,
+    "units": 2
+  },
+  "record_version": 1,
+  "task": "simulate",
+  "tool": {
+    "commit": "83fcadf3b7274f2eeb22591429202dda0328c05b",
+    "name": "mash-fret",
+    "url": "https://github.com/RNA-FRETools/MASH-FRET"
+  }
+}

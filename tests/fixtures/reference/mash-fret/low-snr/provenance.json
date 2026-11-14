@@ -1,0 +1,114 @@
+{
+  "date": "2026-11-13T17:28:13+00:00",
+  "driver": {
+    "clean": true,
+    "commit": "72ace90afec39d6c35414773b2e4b03e150fde86"
+  },
+  "inputs": {},
+  "manual_steps": [],
+  "matlab": {
+    "release": "2023b",
+    "version": "23.2.0.2859533 (R2023b) Update 10"
+  },
+  "method": "matlab-batch",
+  "os": "Windows-11-10.0.26300-SP0",
+  "outputs": {
+    "coordinates/low-snr.coord": "80d7a24b70b05779cac5a588135dcc5a4dcffdda258ee3e9b13f8415ab1eb6f9",
+    "low-snr.sira.gz": "c99b5b3ca66f1ea45a164c656cdfe621bc7356ff0e09daf7b0f64fa059939741",
+    "low-snr_param.log": "a6fc65a0f1dbac19fb644e12dc663eb811ece7dbd5c06b349b362396cf071fe4",
+    "low-snr_tether_note.txt": "67d2afd9012bfe1d11c4eac5f70ed8e9c44333f24e26c3ceb37192e18e3cc4f7",
+    "traces_ASCII/low-snr_mol10of15.txt": "68bb65c3db776cae2048d1ca1880c72dbb40bea70d9f011111f3dc4089125859",
+    "traces_ASCII/low-snr_mol11of15.txt": "c2ee0d62b2c1c9446d581f89332f0ffe165479072c39820dd7c93bbc67ed34ed",
+    "traces_ASCII/low-snr_mol12of15.txt": "fbffd0679c401a0b78e4f968405766fe42a8a7273959ab2bffe1f5ba4c0e0152",
+    "traces_ASCII/low-snr_mol13of15.txt": "573b54a8fa7cb37739744369369ec5af2d19b4e8da29b9e21b2cf5107aa52a25",
+    "traces_ASCII/low-snr_mol14of15.txt": "fcb23251997bac1856f572f081b726dac9e514902c20cacc5f7872b5f66bfe33",
+    "traces_ASCII/low-snr_mol15of15.txt": "a97730213c6a24a393fabdad2bb44a1a14f2b5bdff631ecbc0b47dd54d43edb7",
+    "traces_ASCII/low-snr_mol1of15.txt": "6de9a1c0dc9e42e507903528aaccd80a92b92f3c97603fa400c28367a479f9b7",
+    "traces_ASCII/low-snr_mol2of15.txt": "2a777d7839da8ee23d7ed455318a92eecf12f871275f9608f3fa53908faa3936",
+    "traces_ASCII/low-snr_mol3of15.txt": "b5b5885aec136a54246c22843fbecb54bdb1d951f04769cc4b0a24e7821880ac",
+    "traces_ASCII/low-snr_mol4of15.txt": "8c732ab4280307bede4f2b157e3bf49453510c3e09f7563b5405381bf1ce6052",
+    "traces_ASCII/low-snr_mol5of15.txt": "49872862ceb00f1fdecf0631145d93fb9ffa6d26548884e24ae50c43d1583cb2",
+    "traces_ASCII/low-snr_mol6of15.txt": "75cff1f8c1b556b8213d9e732658cb3cb01d076b26f2e167bc0dee2e4326102f",
+    "traces_ASCII/low-snr_mol7of15.txt": "5758eb1f08a36dea457d78ae84a15a80ce06ec7b6fc021d925920130c06d3ca0",
+    "traces_ASCII/low-snr_mol8of15.txt": "b54fec5b43dd0b1febd86348b941403c0a2875bdb817f3a1c4a0b442a8ede4fb",
+    "traces_ASCII/low-snr_mol9of15.txt": "79f16ea0fd90993c05de09346f294043fbfa981fcac8809a09dc6965c1dfe7db"
+  },
+  "params": {
+    "export": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true
+    ],
+    "gzip_video": true,
+    "name": "low-snr",
+    "overrides": {
+      "Bt": [
+        0,
+        0
+      ],
+      "FRET": [
+        0.3,
+        0.7
+      ],
+      "Itot": 80,
+      "J": 2,
+      "L": 40,
+      "N": 15,
+      "bg": 1,
+      "bgDec": false,
+      "bgI": [
+        8,
+        8
+      ],
+      "bleach": false,
+      "camnoise": 1,
+      "dE": [
+        0,
+        0
+      ],
+      "defocus": false,
+      "gamma": 1,
+      "k": [
+        [
+          0,
+          2
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "pc_in": true,
+      "pixdim": 0.25,
+      "psf": true,
+      "psfW": [
+        0.32,
+        0.35
+      ],
+      "rate": 10,
+      "viddim": [
+        160,
+        80
+      ],
+      "wFRET": [
+        0,
+        0
+      ],
+      "wGamma": 0,
+      "wItot": 0
+    },
+    "seed": 714002,
+    "units": 2
+  },
+  "record_version": 1,
+  "task": "simulate",
+  "tool": {
+    "commit": "83fcadf3b7274f2eeb22591429202dda0328c05b",
+    "name": "mash-fret",
+    "url": "https://github.com/RNA-FRETools/MASH-FRET"
+  }
+}

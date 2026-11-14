@@ -680,6 +680,34 @@ def _local_imports(tree: ast.AST) -> set[str]:
     return names
 
 
+def _tests_package_inputs(tree: ast.AST) -> set[Path]:
+    """Modules of a package under ``tests/`` that *tree* imports, and the files they name.
+
+    ``from reference_data.fetch import path_for`` makes ``tests/reference_data/fetch.py`` an
+    input, and so is every sibling that module opens with ``Path(__file__).with_name(...)`` --
+    the manifest it takes each fixture's path and checksum from (#881).
+    """
+    found: set[Path] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ImportFrom) and node.module and not node.level):
+            continue
+        module = TESTS_DIR.joinpath(*node.module.split(".")).with_suffix(".py")
+        if "." not in node.module or not module.is_file():
+            continue
+        found.add(module)
+        for call in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "with_name"
+                and call.args
+                and isinstance(call.args[0], ast.Constant)
+                and isinstance(call.args[0].value, str)
+            ):
+                found.add(module.with_name(call.args[0].value))
+    return found
+
+
 def _sidecar_inputs() -> set[str]:
     """Repository paths whose change can change a live sidecar result, as POSIX strings."""
 
@@ -712,8 +740,11 @@ def _sidecar_inputs() -> set[str]:
             for name in _local_imports(tree)
             if (TESTS_DIR / f"{name}.py").is_file()
         }
+        inputs |= _tests_package_inputs(tree)
     # Anchor against a scan that finds nothing: the parity tests read the 4-molecule SMD.
     assert TESTS_DIR / "fixtures" / "smd_4mol.hdf5" in named, sorted(named)
+    # ...and the ebFRET-session report reads its fixture's path and checksum from the manifest.
+    assert TESTS_DIR / "reference_data" / "manifest.toml" in inputs, sorted(inputs)
     inputs |= named
     return {path.relative_to(REPO_ROOT).as_posix() for path in inputs}
 
