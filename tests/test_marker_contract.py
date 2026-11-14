@@ -1882,6 +1882,14 @@ TAG_ACCEPT = (
     "v1.0.0",
     "v10.2.30",
     "v1.0.0-rc.2",
+    # Tags cut after #380 was groomed (`git tag --list 'v*'`, 2026-11-14).
+    "v1.0.0-rc2",
+    "v1.0.0-rc3",
+    # SemVer 2.0.0 §9 prerelease identifiers the grammar must keep admitting (issue #498):
+    # a numeric identifier after a dot, a lone `0`, and a hyphen inside an identifier.
+    "v1.0.0-rc.1",
+    "v1.0.0-0",
+    "v1.0.0-alpha-1",
 )
 #: `v1.0.0\n` is here because Python's `$` also matches before a trailing newline while bash's
 #: `[[ =~ ]]` does not; it is what makes a test built on `re.match` a red test, not a footnote.
@@ -1898,8 +1906,23 @@ TAG_REJECT = (
     "V1.0.0",
     "refs/heads/main",
     "v1.0.0\n",
+    # SemVer 2.0.0 §9 (issue #498): a numeric prerelease identifier has no leading zero, and no
+    # identifier is empty -- not between two dots, not first, not last.
+    "v1.0.0-01",
+    "v1.0.0-rc.01",
+    "v1.0.0-rc..1",
+    "v1.0.0-.rc1",
+    "v1.0.0-rc1.",
 )
-TAG_PRERELEASE = ("v1.0.0-rc1", "v1.0.0-rc.2")
+TAG_PRERELEASE = (
+    "v1.0.0-rc1",
+    "v1.0.0-rc.2",
+    "v1.0.0-rc2",
+    "v1.0.0-rc3",
+    "v1.0.0-rc.1",
+    "v1.0.0-0",
+    "v1.0.0-alpha-1",
+)
 TAG_STABLE = ("v1.0.0", "v0.8.0")
 
 
@@ -1988,6 +2011,11 @@ def test_release_tag_grammar_accepts_the_stated_form_only() -> None:
         match = grammar.fullmatch(tag)
         if match is not None and prerelease_of(match) is not prerelease:
             wrong.append(f"classified {tag!r} as prerelease={not prerelease}")
+        # Group 4 is the WHOLE prerelease component, not its first identifier (issue #498).
+        if match is not None and prerelease and grammar.groups >= 4:
+            component = tag[tag.index("-") :]
+            if match.group(4) != component:
+                wrong.append(f"group 4 of {tag!r} is {match.group(4)!r}, not {component!r}")
     if grammar.groups < 4:
         wrong.append("lost group 4, the prerelease component the workflow reads")
     assert not wrong, f"release.yml's TAG_ERE {ere!r} " + "; ".join(wrong)

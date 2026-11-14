@@ -72,7 +72,11 @@ release**, not the binaries, and it is unaffected by any of the above.
     The tag must have the form `vMAJOR.MINOR.PATCH` (PRD §12.7): three numeric components
     with no leading zeros, optionally followed by a `-<prerelease>` component such as
     `-rc1`, and nothing else — no build metadata (`+…`), and no fourth component, so
-    `v1.0.0.0` is rejected. A tag with a `-<prerelease>` component publishes as a GitHub
+    `v1.0.0.0` is rejected. The `-<prerelease>` component follows SemVer 2.0.0 §9: one or
+    more identifiers separated by dots, none of them empty, each either a number with no
+    leading zero or a run of letters, digits and hyphens that holds at least one letter or
+    hyphen. So `-rc1`, `-rc.1`, `-0` and `-alpha-1` are accepted, and `-01`, `-rc.01`,
+    `-rc..1`, `-.rc1` and `-rc1.` are rejected. A tag with a `-<prerelease>` component publishes as a GitHub
     **prerelease** and does not repoint the documentation site; that verdict is read from
     the parsed tag's prerelease component, not from a search for a hyphen. The tag must also
     be **annotated** and its signature **verified by GitHub** (your SSH signing key
