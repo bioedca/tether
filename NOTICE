@@ -21,6 +21,17 @@ tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
   own GPL-3.0 license text alongside Tether's, and the SBOM lists the sidecar as a
   distinct, attributed component (PRD §12.1, §12.8, §9 M9).
 
+GitHub CLI (`gh`)  (MIT)  — Copyright (c) 2019 GitHub Inc.
+  Upstream: https://github.com/cli/cli . The desktop installers BUNDLE the unmodified
+  upstream release binary for each platform as the in-app updater's verifier
+  (`gh attestation verify --bundle`, ADR-0060; issue #332). It is installed to
+  <prefix>/verifier/gh/ and is never put on PATH. The version and the SHA-256 of each
+  upstream archive are pinned in packaging/gh-verifier.toml. Beside the binary the
+  installer ships gh's own MIT LICENSE and THIRD-PARTY-LICENSES.txt, the license
+  notices of the Go modules compiled into it, as `gh licenses` prints them at build
+  time. gh is not part of Tether's source tree, and nothing of it is in this
+  repository.
+
 --------------------------------------------------------------------------------
 Bundled reference data (redistributed under its own license)
 --------------------------------------------------------------------------------
