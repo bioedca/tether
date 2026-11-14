@@ -14,7 +14,8 @@
     "environment": "sidecar/conda-lock.yml: CPython 3.12.13, NumPy 1.26.4, SciPy 1.17.1, Numba 0.60.0; Linux x86-64",
     "fixture_sha256": "8efa0e919c36f0503e300c17385fd4c36fa19be5a206bda5594fd113ac905c79",
     "tether_input": "SMD of gamma*I_D and I_A (MASH-FRET denoise intensities at the 532 nm laser, included frames), so tMAVEN's A/(A+D) is MASH-FRET's gamma-corrected FRET; vbconhmm_modelselection chose 3 states (means 0.074, 0.201, 0.374).",
-    "repeat": "Two runs of the same build gave identical values."
+    "repeat": "Two runs of the same build gave identical values.",
+    "accepted": "bioedca, 2026-11-14, on #712: the two state limits are gates; populations and rates are a report."
   },
   "gates": {
     "frame_agreement": {

@@ -5,12 +5,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0101 — MASH-FRET's stored analyses are an exact histogram reference and a measured state reference
 
-- **Status:** proposed (the maintainer's sign-off of the frozen limits is pending on #712)
+- **Status:** accepted
 - **Date:** 2026-11-14
 - **Deciders:** bioedca (histogram and populations, state sequences and number of states with a
   measured limit, and transition rates, R3 B C D; a different algorithm gets a measured, frozen
   limit, Q7 A; a reference check becomes an oracle with a limit in a schema file, an ADR and a row
-  in `docs/validation.md`, Q36 A — interview of 2026-11-11)
+  in `docs/validation.md`, Q36 A — interview of 2026-11-11; the two state limits frozen and
+  populations and rates reported, decision of 2026-11-14 on #712)
 - **PRD anchor:** §7.7 FR-ANALYZE, §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2
 - **Milestone:** M19
 - **Issue:** [#712](https://github.com/bioedca/tether/issues/712)
@@ -47,8 +48,8 @@ can test Tether, and how. Reading the eight files of the generation that `tests/
 
 ## Considered options
 
-1. **Exact histogram gate; measured, frozen state gates; populations and rates reported (chosen,
-   pending sign-off).**
+1. **Exact histogram gate; measured, frozen state gates; populations and rates reported (chosen by
+   the maintainer, 2026-11-14).**
 2. **Report everything but the histogram.** Safe, but it leaves the state comparison, which is a
    real comparison of two idealizations of the same traces, without teeth.
 3. **Also freeze the rate ratio.** Rejected as a proposal: the files hold MASH-FRET's dwell times,
@@ -61,7 +62,7 @@ can test Tether, and how. Reading the eight files of the generation that `tests/
 
 ## Decision outcome
 
-Chosen option 1.
+Chosen option 1; the maintainer signed off the two frozen limits on 2026-11-14.
 
 - **The data.** A second committed extract of the smallest project,
   `tests/fixtures/mashfret_ed135e_30mm_path_a.mat` (204,676 B, `scripts/make_mashfret_fixture.py`,
