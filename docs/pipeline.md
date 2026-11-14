@@ -96,6 +96,16 @@ not applied. A `.tmap` that also rotates or flips a channel is refused for now
 ([acquisition geometry](compatibility.md#acquisition-geometry);
 [`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
 
+A map can also come from a bead slide. `tether.imaging.beadmap` takes one bead image, or a
+bead video reduced to one image over the frames you choose with a `max` or `mean`
+projection, and runs the same detection, prealign, pairing and fit on it. With one image it
+gives the same map as the steps above. It stores the source id, the frame range and the
+projection with the map, and a quality record: the RMS residual, the number of pairs, the
+residual of each pair, and the fraction of the field the pairs cover. A source with fewer
+than six bead spots in either half is refused
+([`min_bead_spots`](reference/parameters.md#registration-and-colocalization)). This is a
+Python entry point only for now: `tether extract` has no option to use such a map yet.
+
 - **Writes:** the registration map under `/calibration`, with its residual and source.
 - **Read more:** [registration](glossary.md#registration-tmap),
   [Analysis parameters](reference/parameters.md#registration-and-colocalization)
