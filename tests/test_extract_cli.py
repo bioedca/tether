@@ -33,7 +33,9 @@ import numpy as np  # noqa: E402
 import tifffile  # noqa: E402
 
 from tether.cli import build_parser, main  # noqa: E402
+from tether.extract_choices import DETECTION_MODES  # noqa: E402
 from tether.imaging.calibrate import LOW_CONFIDENCE_TAG  # noqa: E402
+from tether.imaging.detect import ParticleDetectionMode  # noqa: E402
 from tether.imaging.extract import read_molecules, read_patches, read_traces  # noqa: E402
 from tether.imaging.register import PolyTransform2D, TmapChannel  # noqa: E402
 from tether.io.schema import assert_is_compatible_project  # noqa: E402
@@ -253,14 +255,23 @@ def test_extract_rejects_unreadable_movie(tmp_path, capsys) -> None:
 
 
 def test_extract_rejects_bad_donor_side(tmp_path, capsys) -> None:
-    # Bad --donor-side routes through ExtractOptions -> ExtractionError -> exit 1
-    # (not argparse's usage exit 2), the documented operator-actionable contract.
+    # A bad --donor-side is refused by argparse (usage exit 2, #654) before any file is
+    # opened; the library check still refuses it for a programmatic caller.
+    with pytest.raises(ExtractionError, match="donor_side"):
+        ExtractOptions(donor_side="upside")
     movie = _make_movie(tmp_path)
     out = tmp_path / "out.tether"
-    rc = main(["extract", str(movie), "-o", str(out), "--donor-side", "upside"])
-    assert rc == 1
-    assert "donor_side" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        main(["extract", str(movie), "-o", str(out), "--donor-side", "upside"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'upside'" in capsys.readouterr().err
     assert not out.exists()
+
+
+def test_detection_choices_match_the_detector_enum() -> None:
+    # The CLI choices and ExtractOptions use DETECTION_MODES; the detectors dispatch
+    # on ParticleDetectionMode. The two must name the same modes in the same order.
+    assert tuple(m.value for m in ParticleDetectionMode) == DETECTION_MODES
 
 
 def test_extract_too_few_control_points_errors(tmp_path, capsys) -> None:
@@ -663,13 +674,14 @@ def test_extract_rejects_bad_detection_mode(tmp_path, capsys) -> None:
     # Programmatic: a bad mode fails fast with a clean ExtractionError.
     with pytest.raises(ExtractionError, match="detection_mode"):
         ExtractOptions(detection_mode="quantum")
-    # Via the CLI it routes through ExtractOptions -> exit 1 (not argparse's exit 2),
-    # the same operator-actionable contract as --donor-side.
+    # Via the CLI argparse refuses it at parse time (usage exit 2, #654), as for
+    # --donor-side.
     movie = _make_movie(tmp_path)
     out = tmp_path / "out.tether"
-    rc = main(["extract", str(movie), "-o", str(out), "--detection-mode", "quantum"])
-    assert rc == 1
-    assert "detection_mode" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        main(["extract", str(movie), "-o", str(out), "--detection-mode", "quantum"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'quantum'" in capsys.readouterr().err
     assert not out.exists()
 
 

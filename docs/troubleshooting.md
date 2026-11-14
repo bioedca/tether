@@ -30,12 +30,11 @@ one after the other, with a clear drop in one channel and a clear rise in the ot
 first bleach. With fewer, the check does not warn: `tether extract` prints
 `donor side: not enough bleach events to check the donor side`, and `tether batch` neither
 marks the movie `halves-swapped?` nor adds it to its list of movies whose halves look
-swapped. The CLI takes `--donor-side` as free text (`tether.cli`, `metavar="{left,right}"`
-rather than `choices=`), so
-a *typo* is rejected downstream by `ExtractOptions.__post_init__`:
+swapped. The CLI accepts only `left` or `right` for `--donor-side`, so
+a *typo* is a usage error (exit code 2) before any file is opened:
 
 ```text
-tether extract: donor_side must be 'left' or 'right', got 'middle'
+tether extract: error: argument --donor-side: invalid choice: 'middle' (choose from left, right)
 ```
 
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
@@ -373,12 +372,15 @@ Two more from the same family, raised by `tether.project.extract`:
 
 Every operator-actionable tunable is validated in `ExtractOptions.__post_init__`
 (`tether.project.extract`) so bad input fails with a clean one-line message on stderr and
-exit `1` — never a traceback. The ones you are most likely to meet:
+exit `1` — never a traceback. Three flags are refused earlier: argparse checks
+`--donor-side`, `--detection-mode` and `--prealign` against their allowed values, so a wrong
+value gives the usage line, `invalid choice: '<value>' (choose from …)` and exit `2`. The
+`ExtractOptions` messages below are what you meet otherwise:
 
 | Message | Fix |
 |---|---|
-| `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` |
-| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three |
+| `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` (library call; the CLI refuses it at parse time) |
+| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three (library call; the CLI refuses it at parse time) |
 | `detection_threshold must be in [0, 1) (a fraction of the detection-image max), got 1.5` | it is a fraction, not a count |
 | `min_separation must be > 0, got -1.0` | omit it to get each mode's faithful default |
 | `window must be a positive odd integer, got 20` | the aperture side must be odd (default 21) |
@@ -389,7 +391,7 @@ exit `1` — never a traceback. The ones you are most likely to meet:
 
 > **Ordering gotcha.** Option validation runs **before** any file-existence check, and
 > `movie not found` fires before `tmap not found` / `tdat not found`. So
-> `tether extract nope.tif -o x --donor-side middle` reports the donor-side error, not the
+> `tether extract nope.tif -o x --window 20` reports the window error, not the
 > missing movie.
 
 ### Registration was flagged low-confidence
