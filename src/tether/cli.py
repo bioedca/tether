@@ -7,7 +7,8 @@ reports the git-derived app version (NFR-REPRO: "the app version is derived from
 git"); ``tether extract`` runs the M1 native extraction pipeline (movie ->
 ``.tether``) — see :mod:`tether.project.extract`; ``tether batch`` runs the
 extract -> correct -> idealize pipeline over many movies — see
-:mod:`tether.project.batch`.
+:mod:`tether.project.batch`; ``tether metadata`` shows and gives a project's movie
+metadata with its origin — see :mod:`tether.project.movie_metadata`.
 
 The CLI deliberately uses the standard-library :mod:`argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -40,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_extract_parser(subparsers)
     _add_batch_parser(subparsers)
+    _add_metadata_parser(subparsers)
     return parser
 
 
@@ -388,6 +390,87 @@ def _run_batch(args: argparse.Namespace) -> int:
     return 0 if summary.n_failed == 0 else 1
 
 
+def _add_metadata_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``metadata`` subcommand (show or give movie metadata, #911)."""
+    meta = subparsers.add_parser(
+        "metadata",
+        help="show or give a project's frame time, pixel size and channel roles",
+        description=(
+            "Print each movie's frame time, pixel size and channel roles with their "
+            "origin (file, user or unknown) and whether the frame time is verified. "
+            "--frame-time and --pixel-size give a value (origin user); a given frame "
+            "time is verified only by a separate --confirm-frame-time call."
+        ),
+    )
+    meta.add_argument("project", help="path to the .tether project")
+    meta.add_argument(
+        "--movie",
+        default=None,
+        metavar="MOVIE_ID",
+        help="the movie to change (default: the only movie of the project)",
+    )
+    meta.add_argument(
+        "--frame-time", type=float, default=None, metavar="SECONDS", help="give the frame time"
+    )
+    meta.add_argument(
+        "--pixel-size", type=float, default=None, metavar="UM", help="give the pixel size in um"
+    )
+    meta.add_argument(
+        "--confirm-frame-time",
+        action="store_true",
+        help="mark the movie's frame time as verified (a separate call from --frame-time)",
+    )
+    meta.add_argument("--json", action="store_true", help="print the records as JSON")
+
+
+def _run_metadata(args: argparse.Namespace) -> int:
+    """Handle ``tether metadata``; exit 1 on a refused change, 2 on bad arguments."""
+    import json
+
+    from tether.project.core import Project
+    from tether.project.lock import LockedError
+
+    if args.confirm_frame_time and args.frame_time is not None:
+        print(
+            "tether metadata: --confirm-frame-time is a separate action; "
+            "give --frame-time first, then confirm it in a second call",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        project = Project.open(args.project)
+        records = project.movie_metadata()
+        changes = args.frame_time is not None or args.pixel_size is not None
+        if changes or args.confirm_frame_time:
+            movie_id = args.movie
+            if movie_id is None:
+                if len(records) != 1:
+                    raise ValueError(
+                        f"the project has {len(records)} movies; name one with --movie"
+                    )
+                (movie_id,) = records
+            if args.frame_time is not None:
+                project.set_frame_time(movie_id, args.frame_time)
+            if args.pixel_size is not None:
+                project.set_pixel_size(movie_id, args.pixel_size)
+            if args.confirm_frame_time:
+                project.confirm_frame_time(movie_id)
+            records = project.movie_metadata()
+    except (KeyError, ValueError, OSError, LockedError) as exc:
+        print(f"tether metadata: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps([r.to_dict() for r in records.values()], indent=2))
+        return 0
+    for r in records.values():
+        state = "verified" if r.frame_time_verified else "not verified"
+        print(f"{r.movie_id}:")
+        print(f"  frame time: {r.frame_time:g} s ({r.frame_time_origin}, {state})")
+        print(f"  pixel size: {r.pixel_size_um:g} um ({r.pixel_size_origin})")
+        print(f"  channel roles: {r.channel_roles_origin}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a process exit code (``0`` on success).
 
@@ -404,6 +487,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_extract(args)
     if command == "batch":
         return _run_batch(args)
+    if command == "metadata":
+        return _run_metadata(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 

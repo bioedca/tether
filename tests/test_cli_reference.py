@@ -49,7 +49,7 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11}
+_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11, "metadata": 5}
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -194,14 +194,14 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_both_subcommands_are_documented() -> None:
-    """`extract` and `batch` each get their own section.
+    """`extract`, `batch` and `metadata` each get their own section.
 
-    They are the entire headless product surface; a third subcommand added later must
+    They are the entire headless product surface; a fourth subcommand added later must
     either be documented or this fails.
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    assert names == {"extract", "batch"}, f"unexpected subcommand set: {sorted(names)}"
+    assert names == {"extract", "batch", "metadata"}, f"unexpected subcommand set: {sorted(names)}"
     for name in sorted(names):
         assert f"`tether {name}`" in text, (
             f"docs/cli.md has no `tether {name}` section for the {name!r} subcommand"
@@ -433,7 +433,7 @@ def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
 
 
 def test_the_exit_code_table_documents_every_code() -> None:
-    """The table names 0, 1 and 2 for both subcommands.
+    """The table names 0, 1 and 2 for every subcommand.
 
     Presence of the row is the weak half; the exercised tests above are what pin the
     behaviour. What this adds is that the page cannot quietly drop a code.
@@ -441,7 +441,7 @@ def test_the_exit_code_table_documents_every_code() -> None:
     The rows themselves are parsed: the prose after the table also spells `` `0` ``,
     `` `1` `` and `` `2` ``, so a search of the section text passed with the whole table
     deleted (#744, GUI-F19). Each code needs exactly one ``| `N` | … | … |`` row with a
-    non-empty cell for ``tether extract`` and one for ``tether batch``.
+    non-empty cell for each of ``tether extract``, ``tether batch`` and ``tether metadata``.
     """
     rows: dict[str, list[list[str]]] = {}
     for line in _exit_code_section().splitlines():
@@ -454,9 +454,9 @@ def test_the_exit_code_table_documents_every_code() -> None:
     )
     for code, found in sorted(rows.items()):
         assert len(found) == 1, f"the exit-code table has {len(found)} rows for `{code}`"
-        assert len(found[0]) == 2 and all(found[0]), (
-            f"the `{code}` row must state the code's meaning for both `tether extract` "
-            f"and `tether batch`, found {found[0]}"
+        assert len(found[0]) == 3 and all(found[0]), (
+            f"the `{code}` row must state the code's meaning for `tether extract`, "
+            f"`tether batch` and `tether metadata`, found {found[0]}"
         )
 
 

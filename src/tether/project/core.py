@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
     from tether.project.lock import LockIdentity, LockInfo
+    from tether.project.movie_metadata import MovieMetadataRecord
 
 __all__ = ["Project"]
 
@@ -534,6 +535,38 @@ class Project:
 
         self._assert_writable()
         return conditions.remove_category(self.path, condition_id, name)
+
+    # --- movie metadata with its origin (#911; §7.1, §11.1 units) --------------
+
+    def movie_metadata(self) -> dict[str, MovieMetadataRecord]:
+        """Each movie's frame time, pixel size and channel roles with their origins.
+
+        Read-only; delegates to :func:`movie_metadata.read_movie_metadata`.
+        """
+        from tether.project import movie_metadata
+
+        return movie_metadata.read_movie_metadata(self.path)
+
+    def set_frame_time(self, movie_id: str, seconds: float) -> MovieMetadataRecord:
+        """Give a movie's frame time (origin ``user``, not verified). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_frame_time(self.path, movie_id, seconds)
+
+    def confirm_frame_time(self, movie_id: str) -> MovieMetadataRecord:
+        """Verify a movie's frame time (the user's separate action). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.confirm_frame_time(self.path, movie_id)
+
+    def set_pixel_size(self, movie_id: str, micrometres: float) -> MovieMetadataRecord:
+        """Give a movie's pixel size in µm (origin ``user``). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_pixel_size(self.path, movie_id, micrometres)
 
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 

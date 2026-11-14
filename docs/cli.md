@@ -2,8 +2,8 @@
 
 **Who this page is for.** Anyone driving Tether without the window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. `tether extract` and `tether batch` are the whole
-headless surface — there is no third subcommand. If you are curating traces by hand,
+extraction from recorded settings. `tether extract`, `tether batch` and `tether metadata`
+are the whole headless surface — there is no fourth subcommand. If you are curating traces by hand,
 picking states by eye, or reading plots, you want the desktop application instead; this
 page only tells you how to start it.
 
@@ -290,13 +290,54 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
 
+## `tether metadata`
+
+Show, or give, the metadata of the movies in a project: the frame time, the pixel size and
+the channel roles (which half is the donor). Each value has an **origin**: `file` when
+Tether read it from the movie (the ImageJ `finterval` and the ImageJ pixel size in µm, or
+the channel crops of an imported `.tmap`), `user` when a person gave it, and `unknown`
+when there is no value. A native extraction records the channel roles as `user`, because
+`--donor-side` names the donor half.
+
+A frame time is **verified** only when it is from the file, or when you confirm it in a
+second call. Rates in s⁻¹ use only a verified frame time, so a value you type stays not
+verified until you confirm it.
+
+```text
+tether metadata [-h] [--movie MOVIE_ID] [--frame-time SECONDS] [--pixel-size UM]
+                [--confirm-frame-time] [--json]
+                project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | path to the `.tether` project |
+| `--movie MOVIE_ID` | the only movie | the movie to change; required when the project has more than one movie |
+| `--frame-time SECONDS` | none | give the frame time (origin `user`, not verified) |
+| `--pixel-size UM` | none | give the pixel size in µm per pixel (origin `user`) |
+| `--confirm-frame-time` | off | mark the movie's frame time as verified; refused in the same call as `--frame-time` |
+| `--json` | off | print the records as JSON instead of text |
+
+With no option the command changes nothing and prints each movie. A value of `0` means
+unknown. The values are kept beside the `/movies` table, and `/movies.frame_time` keeps
+the value from the file ([`.tether` project store](reference/tether-format.md#movies-one-row-per-source-movie)).
+
+```console
+$ tether metadata run.tether --frame-time 0.1
+mov-…:
+  frame time: 0.1 s (user, not verified)
+  pixel size: 0 um (unknown)
+  channel roles: user
+$ tether metadata run.tether --confirm-frame-time
+```
+
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` |
-|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
+| Code | `tether extract` | `tether batch` | `tether metadata` |
+|---|---|---|---|
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | the records were printed, after any change |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is

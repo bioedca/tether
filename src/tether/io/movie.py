@@ -69,6 +69,7 @@ class MovieReader:
             # for the on-disk dtype.
             self._byteorder = ">" if tif.byteorder == ">" else "<"
             self._frame_time = _read_frame_time(tif)
+            self._pixel_size_um = _read_pixel_size_um(tif)
         try:
             self._data: np.memmap = tifffile.memmap(self._path, mode="r")
         except (ValueError, MemoryError) as exc:
@@ -143,6 +144,17 @@ class MovieReader:
         collapses to the ``0.0`` "unknown" default.
         """
         return self._frame_time
+
+    @property
+    def pixel_size_um(self) -> float | None:
+        """Micrometres per pixel if the TIFF declares it (ImageJ resolution), else None.
+
+        Read from the first page's ``XResolution``/``YResolution`` (pixels per unit)
+        when the ImageJ ``unit`` is micrometres and the pixels are square; any other
+        unit, a non-square or non-positive resolution, or no ImageJ metadata gives
+        ``None`` (a plain TIFF's default resolution is not a pixel size).
+        """
+        return self._pixel_size_um
 
     @property
     def data(self) -> np.memmap:
@@ -233,6 +245,24 @@ def _read_frame_time(tif: tifffile.TiffFile) -> float | None:
     except (TypeError, ValueError):
         return None
     return ft if math.isfinite(ft) and ft > 0 else None
+
+
+#: ImageJ ``unit`` spellings that mean micrometres.
+_MICROMETRE_UNITS = frozenset({"um", "micron", "microns", "\u00b5m", "\u03bcm", "\\u00B5m"})
+
+
+def _read_pixel_size_um(tif: tifffile.TiffFile) -> float | None:
+    """Best-effort micrometres per pixel from an ImageJ TIFF; None if absent/invalid."""
+    meta = tif.imagej_metadata or {}
+    if str(meta.get("unit", "")).strip() not in _MICROMETRE_UNITS:
+        return None
+    try:
+        x_res, y_res = (float(v) for v in tif.pages[0].resolution)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if not (math.isfinite(x_res) and x_res > 0 and math.isclose(x_res, y_res, rel_tol=1e-6)):
+        return None
+    return 1.0 / x_res
 
 
 def open_movie(path: str | PathLike[str]) -> MovieReader:

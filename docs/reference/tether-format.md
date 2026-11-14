@@ -148,6 +148,7 @@ guaranteed to be there.
 | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models` | yes, empty groups | `create_project` |
 | `/calibration/<calibration_id>/…` | no | `write_calibration` (`src/tether/imaging/calibrate.py`) |
 | `/movies` and `/molecules` rows, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/movies/metadata/<movie_id>` | absent | `extract_movie` (`src/tether/project/extract.py`); changed by `tether.project.movie_metadata` |
 | `/idealization/{model}` | no | `write_idealization_model` (`src/tether/project/idealize.py`) |
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
@@ -240,6 +241,26 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `acceptor_rotation_deg` | `i4` | scalar | Same, acceptor channel. |
 | `donor_flip` | `i1` | `(2,)` | `[vertical, horizontal]` flip flags, `0`/`1`. |
 | `acceptor_flip` | `i1` | `(2,)` | Same, acceptor channel. |
+
+The group also holds an additive child, `/movies/metadata/<movie_id>`: one group with
+no datasets per movie, whose attributes record three values with their **origin** — `file`
+(read from the movie), `user` (given by a person) or `unknown` (`src/tether/project/movie_metadata.py`,
+#911). It does not change `frame_time` above, which keeps the value from the file.
+
+| Attribute | Type | Meaning / units |
+|---|---|---|
+| `frame_time` | `float` | **Seconds per frame** in use: the file's value, or the one the user gave; `0.0` unknown. |
+| `frame_time_origin` | `str` | `file`, `user` or `unknown`. |
+| `frame_time_verified` | `bool` | True only for a file value, or after the user confirmed a given value in a separate action (`confirm_frame_time`); giving a value clears it. |
+| `pixel_size_um` | `float` | **Micrometres per pixel**: the ImageJ resolution when its unit is µm and the pixels are square, or the user's value; `0.0` unknown. |
+| `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
+| `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap`, `user` for a native extraction (`--donor-side`). |
+
+`extract_movie` writes the group. A row with no group — a store written before #911, or by
+the Deep-LASI reconstruction or the analysis-only import — reads (`read_movie_metadata`)
+with `frame_time_origin` `file` and verified when `frame_time` is positive, because that
+field has only ever been filled from the ImageJ `finterval`, and `unknown` otherwise; its
+pixel size and channel roles read `unknown`.
 
 ## `/molecules` — one row per molecule
 
