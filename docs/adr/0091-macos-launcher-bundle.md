@@ -73,11 +73,17 @@ Tether.app/Contents/Resources/tether.icns  the brand icon from the installed whe
   `CFBundleShortVersionString` is the full Tether version (`1.0.0rc3`), which Finder shows;
   `CFBundleVersion` is its numeric release part (`1.0.0`), because macOS compares that key as
   dot-separated integers.
+  `LSArchitecturePriority` names the architecture of the installed interpreter (`arm64` for
+  the `osx-arm64` installer, `x86_64` for `osx-64`). The executable is a shell script, so macOS
+  cannot read an architecture from it: on a real Apple silicon Mac without Rosetta 2
+  (macOS 26.6.2), LaunchServices chose `x86_64` for a bundle without the key and refused the
+  start with error -10669 and no message. With the key, the same bundle started natively.
 - **Reinstall.** A `Tether.app` whose `Info.plist` carries Tether's identifier is replaced, so a
   reinstall updates the version and the launcher target. Any other `Tether.app`, or a folder of
   that name without a readable plist, is left as it is with a warning.
-- **Registration.** `lsregister -f` is run best-effort, so Launchpad and Spotlight need not wait
-  for the next scan of the folder. When the script runs as root and the bundle is in the user's
+- **Registration.** `lsregister -f` and `mdimport` are run best-effort, so Launchpad and
+  Spotlight need not wait for the next scan of the folder; on the real Mac, Spotlight had not
+  listed a bundle registered with `lsregister` alone three minutes after the install. When the script runs as root and the bundle is in the user's
   home folder, the bundle is given back to the user, as constructor does for the prefix.
 - **Uninstall.** constructor's `pre_uninstall` is Windows-only (constructor 3.17.3,
   `docs/source/construct-yaml.md`), and the macOS uninstall is the documented deletion of the
@@ -91,8 +97,8 @@ Tether.app/Contents/Resources/tether.icns  the brand icon from the installed whe
   quarantine attribute; the install guide gives the Open Anyway route in case macOS blocks the
   first start all the same, and the PR records what a real Mac showed.
 - **The smoke.** On both macOS legs `install_smoke.sh` checks that `~/Applications/Tether.app`
-  exists, runs `plutil -lint` on its `Info.plist`, runs the module's `check` (keys, icon, and the
-  launcher's target is the installed `tether-gui`), and runs the bundle's executable with
+  exists, runs `plutil -lint` on its `Info.plist`, runs the module's `check` (keys, the
+  architecture key, icon, and the launcher's target is the installed `tether-gui`), and runs the bundle's executable with
   `--version`, which proves that it resolves to the installed entry point.
 
 This amends [ADR-0051](0051-installed-app-launch-surface.md)'s macOS clause: macOS `.pkg` installs
@@ -107,8 +113,9 @@ get the shims **and** this bundle.
   plist and its launcher are unit-tested on every system, and `post_install.sh` is run against a
   stub prefix with a stand-in `uname`.
 - **Bad / accepted.** Launchpad, Spotlight and the Gatekeeper behaviour of a downloaded install
-  are not visible to CI; a real Mac check before merge covers them, and the install guide is
-  corrected from what it shows.
+  are not visible to CI, and the hosted runners may have Rosetta 2, so they cannot show the
+  architecture failure either; a real Mac check before merge covers them, and the install
+  guide is corrected from what it shows.
 - **Bad / accepted.** The bundle is removed by the documented commands, not by an
   uninstaller; macOS `.pkg` installs have none.
 - **Bad / accepted.** The bundle names the install folder in its launcher. Moving the install

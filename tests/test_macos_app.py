@@ -96,6 +96,9 @@ def test_written_bundle_has_the_launcher_layout(tmp_path) -> None:
     assert data["CFBundleVersion"] == "1.0.0"
     assert data["CFBundleExecutable"] == macos_app.EXECUTABLE_NAME
     assert data["CFBundleIconFile"] == macos_app.ICON_FILE
+    arch = macos_app.native_architecture()
+    if arch is not None:
+        assert data["LSArchitecturePriority"] == [arch]
 
     icon = bundle / "Contents" / "Resources" / macos_app.ICON_FILE
     assert icon.read_bytes() == (identity.app_icon_dir() / "tether.icns").read_bytes()
@@ -158,6 +161,51 @@ def test_a_folder_without_info_plist_is_left_alone(tmp_path) -> None:
     (apps / "Tether.app" / "notes").mkdir(parents=True)
     assert macos_app.write_bundle(_prefix(tmp_path), apps, "1.0.0") is None
     assert (apps / "Tether.app" / "notes").is_dir()
+
+
+@pytest.mark.parametrize(
+    ("machine", "expected"),
+    [
+        ("arm64", "arm64"),
+        ("aarch64", "arm64"),
+        ("x86_64", "x86_64"),
+        ("AMD64", "x86_64"),
+        ("ppc64le", None),
+        ("", None),
+    ],
+)
+def test_native_architecture_names_the_macos_architecture(machine, expected) -> None:
+    assert macos_app.native_architecture(machine) == expected
+
+
+def test_info_plist_asks_macos_to_start_the_launcher_natively() -> None:
+    """A real Mac without Rosetta refused the script launcher with error -10669.
+
+    LaunchServices cannot read an architecture from a shell script, chose ``x86_64`` on
+    Apple silicon and found no Rosetta. ``LSArchitecturePriority`` fixed the start.
+    """
+    assert macos_app.info_plist("1.0.0", "arm64")["LSArchitecturePriority"] == ["arm64"]
+    assert macos_app.info_plist("1.0.0", "x86_64")["LSArchitecturePriority"] == ["x86_64"]
+    assert "LSArchitecturePriority" not in macos_app.info_plist("1.0.0")
+
+
+def test_check_rejects_a_bundle_without_the_native_architecture(tmp_path, monkeypatch) -> None:
+    prefix = _prefix(tmp_path)
+    monkeypatch.setattr(macos_app.platform, "machine", lambda: "arm64")
+    bundle = macos_app.write_bundle(prefix, tmp_path / "Applications", "1.0.0")
+    assert _plist(bundle)["LSArchitecturePriority"] == ["arm64"]
+    assert macos_app.check_bundle(bundle, prefix) == []
+
+    data = _plist(bundle)
+    del data["LSArchitecturePriority"]
+    with open(bundle / "Contents" / "Info.plist", "wb") as handle:
+        plistlib.dump(data, handle)
+    assert any("LSArchitecturePriority" in p for p in macos_app.check_bundle(bundle, prefix))
+
+    data["LSArchitecturePriority"] = ["x86_64"]
+    with open(bundle / "Contents" / "Info.plist", "wb") as handle:
+        plistlib.dump(data, handle)
+    assert any("LSArchitecturePriority" in p for p in macos_app.check_bundle(bundle, prefix))
 
 
 def test_check_names_each_problem(tmp_path) -> None:
@@ -229,6 +277,10 @@ def test_post_install_writes_the_bundle_on_macos(tmp_path) -> None:
     bundle = home / "Applications" / "Tether.app"
     assert macos_app.check_bundle(bundle, prefix) == []
     assert not (home / ".local" / "share" / "applications").exists(), "no Linux entry on macOS"
+    # Registration with LaunchServices and Spotlight is best-effort: it never fails the install.
+    text = POST_INSTALL_SH.read_text(encoding="utf-8")
+    assert '"$LSREGISTER" -f "$TETHER_APP" >/dev/null 2>&1 || true' in text
+    assert '/usr/bin/mdimport "$TETHER_APP" >/dev/null 2>&1 || true' in text
 
 
 def test_install_smoke_checks_the_bundle_on_macos() -> None:

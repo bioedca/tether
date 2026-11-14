@@ -811,15 +811,21 @@ From the next release, the macOS installer adds **Tether** (`Tether.app`) to
 `~/Applications`, or to `/Applications` for an install outside your home folder
 ([ADR-0091](adr/0091-macos-launcher-bundle.md)). Like the installer, it is not signed.
 The installer writes it on your Mac, so it does not carry the quarantine attribute of a
-download, and macOS does not normally ask about it. If macOS blocks the first start all the
-same, use the same route as for the installer: try to open **Tether** once, then open
-**System Settings → Privacy & Security**, and use **Open Anyway** under **Security**. You do
-this one time; later starts open directly.
+download. On a test Mac with macOS 26.6.2, it opened from the first start with no dialog. If
+macOS blocks the first start all the same, use the same route as for the installer: try to
+open **Tether** once, then open **System Settings → Privacy & Security**, and use
+**Open Anyway** under **Security**. You do this one time; later starts open directly.
 
-If **Tether** is not in Launchpad or Spotlight right after the install, open the
-`Applications` folder of your home folder in Finder; macOS adds the application to Launchpad
-and Spotlight when it sees it there. Until then, and whenever the application does not open,
-run `tether-gui` in Terminal: it starts the same application and shows any error text.
+If nothing happens when you open **Tether** (no window and no message), make sure that the
+installer matches your Mac. `Tether.app` asks macOS to start it as the architecture of its
+installer. The `osx-arm64` installer is for Apple silicon. The `osx-64` installer is for
+Intel, and on Apple silicon it needs Rosetta 2, which macOS does not install by default.
+
+If **Tether** is not in Launchpad or Spotlight right after the install, wait some minutes:
+the installer asks Spotlight to index the application, but the index can be slow. You can
+also open the `Applications` folder of your home folder in Finder, where macOS sees the
+application. Until then, and whenever the application does not open, run `tether-gui` in
+Terminal: it starts the same application and shows any error text.
 
 ### The deep classifier does not see the GPU
 

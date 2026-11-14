@@ -11,7 +11,8 @@ bundle that does:
 
     Tether.app/
       Contents/
-        Info.plist             the name, the bundle identifier, the version, the icon
+        Info.plist             the name, the bundle identifier, the version, the icon,
+                               the architecture to start the launcher as
         MacOS/Tether           a sh script: exec <prefix>/envs/tether/bin/tether-gui
         Resources/tether.icns  the application icon from the installed wheel
 
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import plistlib
 import re
 import shlex
@@ -62,6 +64,7 @@ __all__ = [
     "launcher_script",
     "launcher_target",
     "main",
+    "native_architecture",
     "remove_bundles",
     "write_bundle",
 ]
@@ -111,9 +114,31 @@ def bundle_version(version: str) -> str:
     return match.group(0) if match else "0"
 
 
-def info_plist(version: str) -> dict[str, Any]:
-    """The ``Info.plist`` keys of the bundle for Tether *version*."""
-    return {
+def native_architecture(machine: str | None = None) -> str | None:
+    """The macOS architecture name of *machine* (default: this interpreter's), or None.
+
+    The bundle executable is a shell script, so macOS cannot read an architecture from
+    it. Without ``LSArchitecturePriority``, LaunchServices on Apple silicon may choose
+    ``x86_64`` for it and, when Rosetta is not installed, refuse to start it with error
+    -10669 and no message (seen on macOS 26.6.2, ADR-0091). The installed interpreter
+    runs as the architecture of the build (``osx-arm64`` or ``osx-64``), so its
+    ``platform.machine()`` names the architecture the bundle must ask for.
+    """
+    name = (machine if machine is not None else platform.machine()).lower()
+    if name in ("arm64", "aarch64"):
+        return "arm64"
+    if name in ("x86_64", "amd64"):
+        return "x86_64"
+    return None
+
+
+def info_plist(version: str, architecture: str | None = None) -> dict[str, Any]:
+    """The ``Info.plist`` keys of the bundle for Tether *version*.
+
+    *architecture* (``arm64`` or ``x86_64``) is written as ``LSArchitecturePriority``,
+    so that macOS starts the launcher natively; see :func:`native_architecture`.
+    """
+    keys: dict[str, Any] = {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleDisplayName": APPLICATION_NAME,
         "CFBundleExecutable": EXECUTABLE_NAME,
@@ -127,6 +152,9 @@ def info_plist(version: str) -> dict[str, Any]:
         "LSApplicationCategoryType": "public.app-category.education",
         "NSHighResolutionCapable": True,
     }
+    if architecture is not None:
+        keys["LSArchitecturePriority"] = [architecture]
+    return keys
 
 
 def _gui_entry_point(prefix: Path) -> Path:
@@ -219,7 +247,7 @@ def write_bundle(
         macos_d.mkdir(parents=True)
         resources_d.mkdir()
         with open(new / "Contents" / "Info.plist", "wb") as handle:
-            plistlib.dump(info_plist(version), handle, fmt=plistlib.FMT_XML)
+            plistlib.dump(info_plist(version, native_architecture()), handle, fmt=plistlib.FMT_XML)
         (new / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")
         exe = macos_d / EXECUTABLE_NAME
         exe.write_text(launcher_script(prefix), encoding="utf-8")
@@ -237,7 +265,8 @@ def check_bundle(bundle: Path, prefix: Path) -> list[str]:
     """The problems of *bundle* for an install into *prefix*; empty when it is correct.
 
     The checks: the ``Info.plist`` parses and carries the keys of :func:`info_plist`
-    (the version excepted), the executable it names exists and can run, that
+    (the version excepted, and ``LSArchitecturePriority`` naming the architecture of
+    the interpreter that runs the check), the executable it names exists and can run, that
     executable starts the installed ``tether-gui`` of *prefix*, and the icon it names
     is a non-empty file.
     """
@@ -246,7 +275,7 @@ def check_bundle(bundle: Path, prefix: Path) -> list[str]:
     if data is None:
         return [f"no readable Contents/Info.plist in {bundle}"]
     problems = []
-    expected = info_plist("0")
+    expected = info_plist("0", native_architecture())
     for key in sorted(expected):
         if key in ("CFBundleShortVersionString", "CFBundleVersion"):
             if not isinstance(data.get(key), str) or not data[key]:

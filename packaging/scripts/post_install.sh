@@ -98,6 +98,11 @@ if [ "$(uname -s)" = "Darwin" ]; then
     if [ -x "$LSREGISTER" ]; then
       "$LSREGISTER" -f "$TETHER_APP" >/dev/null 2>&1 || true
     fi
+    # Best-effort: ask Spotlight to index the bundle now. On a real Mac it was not
+    # listed three minutes after the install without this (ADR-0091).
+    if [ -x /usr/bin/mdimport ]; then
+      /usr/bin/mdimport "$TETHER_APP" >/dev/null 2>&1 || true
+    fi
   fi
 fi
 
