@@ -793,9 +793,9 @@ of a composed plot ([#373](https://github.com/bioedca/tether/issues/373)).
 
 ### 7.8 FR-LEGACY — Legacy import & Deep-LASI re-analysis
 
-Tether **shall** import Deep-LASI projects and tMAVEN SMD. The importer reads a Deep-LASI acquisition (its `.tdat`,
-plus any of the `.mat` export, the `.txt` and a tMAVEN SMD), pairs it to its movie and rebuilds a round-trip project from it
-(the re-analysis workflow below); it imports a coordinate-less SMD or `.txt` as an analysis-only project.
+Tether **shall** import Deep-LASI projects and tMAVEN SMD. The importer rebuilds a round-trip project from a Deep-LASI
+`.mat` export paired to its movie, with an optional `.tdat` supplying coordinates and correction factors (the
+re-analysis workflow below); it imports a coordinate-less SMD or `.txt` as an analysis-only project.
 
 A **raw `.txt`-sourced tMAVEN SMD imported standalone** (no `.tdat`, no `.mat`, possibly no movie — e.g. the M6
 281-molecule parity fixture) carries neither coordinates nor patches, so it **shall** be accepted as an explicit
