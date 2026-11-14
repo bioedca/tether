@@ -28,6 +28,21 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# Measured traces with a per-trace vbFRET path (#797, ADR-0090) — third-party reference data,
+# CC-BY-4.0 (Marzano et al., Zenodo 10.5281/zenodo.11323228 and 10.5281/zenodo.17118152). The two
+# archives copy one condition folder each verbatim; the four tables are what nmarzano/smFRET_module
+# v1.0.3 (MIT, Zenodo 10.5281/zenodo.16791519) computed from them. NOTICE carries both notices.
+# smfret_module_run.json beside the tables is Tether's own record, under the blanket entry.
+[[annotations]]
+path = [
+  "tests/fixtures/marzano_ppr_rnaanticognate.tar.xz",
+  "tests/fixtures/marzano_chaperone_kjg_231027.tar.xz",
+  "tests/fixtures/reference/marzano/*.csv",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2024-2026 Nicholas Marzano et al."
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # PySMACKS tutorial reference (#720): the histogram and HMM result that PySMACKS 1.0.0b4 gives
 # on the CC0-1.0 traces of Zenodo 10.5281/zenodo.21793247 (Molcrette & Schmid), made once by
 # scripts/make_pysmacks_reference.py. Kept under the record's CC0-1.0, so it can travel with the
@@ -89,6 +104,16 @@ SPDX-License-Identifier = "CC-BY-NC-ND-4.0"
 path = ["tests/fixtures/ha_sam_sah/*"]
 precedence = "override"
 SPDX-FileCopyrightText = "2023 Ting-Wei Liao, Ha Single-Molecule Lab (Zenodo 10.5281/zenodo.8088172)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Group IIB intron smFRET data (#711, ADR-0087): an extract of one MASH-FRET project file of
+# Zelger-Paulus, Hadzic, Lindner, Börner, Steffen, Fazliji, Johannsen & Sigel, Zenodo
+# doi:10.5281/zenodo.24104528, CC-BY-4.0 (scripts/make_mashfret_fixture.py says what it keeps).
+# See NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = "tests/fixtures/mashfret_ed135e_30mm_extract.mat"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Susann Zelger-Paulus, Mélodie C.A.S. Hadzic, Lennart Lindner, Richard Börner, Fabio Steffen, Besim Fazliji, Silke Johannsen and Roland Sigel"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
