@@ -283,6 +283,55 @@ def test_post_install_writes_the_bundle_on_macos(tmp_path) -> None:
     assert '/usr/bin/mdimport "$TETHER_APP" >/dev/null 2>&1 || true' in text
 
 
+@needs_sh
+@pytest.mark.parametrize("folder_existed", [False, True])
+def test_root_install_gives_a_new_applications_folder_to_the_user(tmp_path, folder_existed) -> None:
+    """Run as root, the step hands the bundle back, and ``~/Applications`` only if it made it.
+
+    ``id`` answers 0 and ``chown`` records its arguments, so the test needs no root.
+    """
+    home = tmp_path / "home"
+    prefix = home / "Tether"
+    for env in ("tether", "sidecar"):
+        bin_d = prefix / "envs" / env / "bin"
+        bin_d.mkdir(parents=True)
+        stub = bin_d / "python"
+        stub.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then exit 0; fi\n'
+            f'exec "{sys.executable}" "$@"\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+    (prefix / "envs" / "tether" / "bin" / "tether-gui").write_text("#!/bin/sh\n")
+    (prefix / "wheelhouse").mkdir()
+    if folder_existed:
+        (home / "Applications").mkdir()
+    log = tmp_path / "chown.log"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    for name, body in (
+        ("uname", "echo Darwin"),
+        ("id", "echo 0"),
+        ("chown", f'printf "%s " "$@" >> "{log}"; echo >> "{log}"'),
+    ):
+        tool = fake_bin / name
+        tool.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+        tool.chmod(0o755)
+    env = {
+        **os.environ,
+        "PREFIX": str(prefix),
+        "HOME": str(home),
+        "USER": "labmember",
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+    }
+    subprocess.run(["sh", str(POST_INSTALL_SH)], check=True, env=env, capture_output=True)
+    calls = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+    bundle = str(home / "Applications" / "Tether.app")
+    assert ["-R", "labmember", bundle] in calls
+    assert (["labmember", str(home / "Applications")] in calls) is not folder_existed
+
+
 def test_install_smoke_checks_the_bundle_on_macos() -> None:
     smoke = INSTALL_SMOKE.read_text(encoding="utf-8")
     block = smoke.split('if [ "$RUNNER_OS" = "macOS" ]; then', 2)[2].split("\n  fi\n", 1)[0]

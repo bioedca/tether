@@ -84,8 +84,10 @@ Tether.app/Contents/Resources/tether.icns  the brand icon from the installed whe
 - **Registration.** `lsregister -f` and `mdimport` are run best-effort, so Launchpad and
   Spotlight need not wait for the next scan of the folder. On the real Mac, Spotlight still
   listed the bundle only about ten minutes after the install, once it had indexed the new
-  install folder; the install guide says so. When the script runs as root and the bundle is in the user's
-  home folder, the bundle is given back to the user, as constructor does for the prefix.
+  install folder; the install guide says so. When the script runs as root and the bundle is
+  in the user's home folder, the bundle is given back to the user, as constructor does for the
+  prefix, and so is `~/Applications` when the step created it, so that the uninstall needs no
+  `sudo`.
 - **Uninstall.** constructor's `pre_uninstall` is Windows-only (constructor 3.17.3,
   `docs/source/construct-yaml.md`), and the macOS uninstall is the documented deletion of the
   install folder. `docs/install.md` puts `python -m tether.gui.macos_app remove --prefix …`

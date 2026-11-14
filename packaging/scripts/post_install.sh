@@ -83,13 +83,22 @@ done
 # the module did not write is left in place. Nothing removes the bundle on uninstall
 # (constructor's pre_uninstall is Windows-only), so docs/install.md names it.
 if [ "$(uname -s)" = "Darwin" ]; then
+  TETHER_USER_APPS_NEW=""
+  [ -d "$HOME/Applications" ] || TETHER_USER_APPS_NEW=1
   TETHER_APP="$("$TETHER_PY" -m tether.gui.macos_app install --prefix "$PREFIX")"
   if [ -n "$TETHER_APP" ]; then
     # An administrator install runs this script as root: give a bundle in the user's
-    # own Applications folder back to the user, as constructor does for the prefix.
+    # own Applications folder back to the user, as constructor does for the prefix,
+    # and the folder too when this step created it, so the user can remove the bundle
+    # without sudo. A folder that was there before keeps its owner.
     if [ "$(id -u)" = "0" ] && [ -n "${USER:-}" ]; then
       case "$TETHER_APP" in
-        "$HOME"/*) chown -R "$USER" "$TETHER_APP" || true ;;
+        "$HOME"/*)
+          chown -R "$USER" "$TETHER_APP" || true
+          if [ -n "$TETHER_USER_APPS_NEW" ] && [ -d "$HOME/Applications" ]; then
+            chown "$USER" "$HOME/Applications" || true
+          fi
+          ;;
       esac
     fi
     # Best-effort: register the bundle now, so Spotlight and Launchpad need not wait
