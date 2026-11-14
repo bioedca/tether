@@ -31,6 +31,16 @@ sidecar (neither available headlessly). The §8 reference-hardware floor is a 16
 Files-On-Demand, not all hydrated), so the `.tether` + scratch footprint "must stay
 modest," and extraction/trace I/O favor sequential/block access.
 
+## Considered options
+
+- **Envelopes, not an SLA, in a light M3 gate** — the one PRD-registered latency budget, plus a
+  size envelope and an overnight envelope projected from a slice by pixel volume (chosen).
+- **A hard per-movie wall-clock SLA in the default matrix.**
+- **New §11.2 rows for the size and overnight envelopes.**
+- **A naive ×100 of the slice extraction time** as the overnight projection.
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 Add a Qt-free **`tether.project.perf`** module (named budget constants + measurement /
