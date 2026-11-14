@@ -21,8 +21,12 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from tether import __version__
+
+if TYPE_CHECKING:  # the batch stack stays off the ``--version`` path
+    from tether.project.batch import BatchSummary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -224,17 +228,60 @@ def _run_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+#: ``tether batch`` exit codes (#647). ``1`` takes precedence over ``3``: a run with a
+#: failed movie exits ``1`` whether or not a stage was also deferred.
+BATCH_EXIT_OK = 0
+BATCH_EXIT_FAILED = 1
+BATCH_EXIT_USAGE = 2
+BATCH_EXIT_DEFERRED = 3
+
+BATCH_EXIT_MEANINGS: dict[int, str] = {
+    BATCH_EXIT_OK: "every requested stage ran for every movie",
+    BATCH_EXIT_FAILED: "at least one movie had a failed stage",
+    BATCH_EXIT_USAGE: "a usage error: bad arguments, or the run refused to start",
+    BATCH_EXIT_DEFERRED: (
+        "no movie failed, but a requested stage was deferred for at least one movie"
+    ),
+}
+
+
+def _batch_exit_code_epilog() -> str:
+    """The ``exit codes:`` block of ``tether batch --help``, one code per line."""
+    lines = ["exit codes:"]
+    for code, meaning in sorted(BATCH_EXIT_MEANINGS.items()):
+        lines.append(f"  {code}  {meaning}")
+    lines.append(f"  {BATCH_EXIT_FAILED} takes precedence over {BATCH_EXIT_DEFERRED}.")
+    return "\n".join(lines)
+
+
+def batch_exit_code(summary: BatchSummary) -> int:
+    """The exit code for a finished batch run: ``1``, then ``3``, then ``0``.
+
+    A stage the user did not ask for is recorded
+    ``not-requested``, never ``deferred``, so ``--no-idealize`` alone never yields ``3``.
+    """
+    if summary.n_failed > 0:
+        return BATCH_EXIT_FAILED
+    if summary.n_deferred > 0:
+        return BATCH_EXIT_DEFERRED
+    return BATCH_EXIT_OK
+
+
 def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
     """Register the ``batch`` subcommand (many movies -> per-movie ``.tether``)."""
     batch = subparsers.add_parser(
         "batch",
         help="run the extract -> correct -> idealize pipeline over many movies",
+        # Raw, so that the exit-code table in the epilog keeps one code per line; the
+        # description is wrapped by hand for the same reason.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Headless batch runner (FR-BATCH): process each movie into its own "
-            ".tether under --out-dir, isolating failures (continue-on-error) and "
-            "checkpointing per stage so a re-run resumes only the incomplete stages. "
+            "Headless batch runner (FR-BATCH): process each movie into its own\n"
+            ".tether under --out-dir, isolating failures (continue-on-error) and\n"
+            "checkpointing per stage so a re-run resumes only the incomplete stages.\n"
             "Prints an end-of-run summary and writes a JSONL structured log."
         ),
+        epilog=_batch_exit_code_epilog(),
     )
     batch.add_argument("movies", nargs="+", help="one or more dual-channel TIFF movies")
     batch.add_argument(
@@ -318,7 +365,7 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _run_batch(args: argparse.Namespace) -> int:
-    """Handle ``tether batch``; exit 1 if any movie had a failed stage."""
+    """Handle ``tether batch``; the exit code is :func:`batch_exit_code`'s (#647)."""
     # Lazy: keep the imaging/IO/HDF5 stack off the ``--version`` path.
     from pathlib import Path
 
@@ -383,9 +430,11 @@ def _run_batch(args: argparse.Namespace) -> int:
             overwrite=args.overwrite,
             log=log,
         )
+    code = batch_exit_code(summary)
     print(summary.format_report())
+    print(f"Exit code {code}: {BATCH_EXIT_MEANINGS[code]}.")
     print(f"  structured log: {log_path}", file=sys.stderr)
-    return 0 if summary.n_failed == 0 else 1
+    return code
 
 
 def main(argv: Sequence[str] | None = None) -> int:

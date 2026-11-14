@@ -267,6 +267,7 @@ Batch run: 2 movie(s), 2 ok, 0 failed (policy=warn, idealize=off)
   ok    flipped_011  extract=done correct=done idealize=not-requested halves-swapped?
 Donor and acceptor halves look swapped in 1 movie(s) (advisory; nothing was changed):
   flipped_011: 27 of 27 bleach events are consistent with swapped donor and acceptor halves; extract this movie again with --donor-side right
+Exit code 0: every requested stage ran for every movie.
 ```
 
 The structured log carries the same finding as a `donor-side-check` event with status
@@ -294,9 +295,10 @@ already checkpointed is skipped.
 
 | Code | `tether extract` | `tether batch` |
 |---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage |
+| `0` | extraction completed | every requested stage ran for every movie |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, whether or not a stage was also deferred |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
+| `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
@@ -309,13 +311,19 @@ on stderr, never a traceback — an unhandled traceback from either subcommand i
 worth reporting. From `tether batch` it means the run finished with at least one movie
 having a failed stage; fix those and re-run the same command to resume the rest.
 
-> **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
-> when the run starts, the default behaviour is to *defer* idealization: the stage is
-> recorded as `deferred`, which is not `failed`, so the run exits `0` having done
-> extraction and correction only. A script that treats `0` as "these projects are fully
-> idealized" will consume them too early. Re-run the same command once the sidecar is
-> available and the per-stage checkpoint resumes just the idealization, or pass
-> `--no-defer` to make an unavailable sidecar a per-movie failure (exit `1`) instead.
+> **`3` from `tether batch` means the projects are not finished.** If the sidecar is
+> unavailable when the run starts, the default behaviour is to *defer* idealization: the
+> stage is recorded as `deferred`, which is not `failed`, and the run exits `3` having done
+> extraction and correction only. The report prints a `Deferred:` line with the stage and
+> the number of movies. Re-run the same command once the sidecar is available and the
+> per-stage checkpoint resumes just the idealization, or pass `--no-defer` to make an
+> unavailable sidecar a per-movie failure (exit `1`) instead.
+>
+> `1` takes precedence over `3`: a run with a failed movie exits `1` even when another
+> movie's idealization was deferred. A stage you did not ask for is not deferred, so a run
+> with `--no-idealize` exits `0` when every movie extracted and corrected. The last line of
+> the report names the exit code and its meaning, and `tether batch --help` lists the four
+> codes.
 
 **Where to look for what failed.** `tether batch` prints its end-of-run summary — the
 per-movie, per-stage detail — to **stdout**, together with the JSONL structured log it

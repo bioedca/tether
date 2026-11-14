@@ -664,8 +664,9 @@ The vocabulary `tether batch` prints per movie (`tether.project.batch`):
 | `not-requested` | `--no-idealize` | no |
 | `warning` | non-fatal, e.g. provenance stamping failed | no |
 
-Only `failed` makes the run exit non-zero — which is why
-[a deferred idealization exits 0](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
+makes it exit `3` — see
+[a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
 
 `blocked` is the one row that never shows up on an exit-`0` run in practice: a stage is
 blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels
