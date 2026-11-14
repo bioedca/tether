@@ -331,17 +331,17 @@ it today. `tether batch` never returns it, because it applies its `--policy` rul
 map and accepts the estimated correction factors, as it does now
 ([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
 
-| Code | Meaning in every command |
-|---|---|
-| `0` | the command completed |
-| `1` | the command ran and at least one item failed |
-| `2` | bad command-line arguments, or a refusal to start |
-| `4` | the run stopped at an approval step; nothing failed |
+The codes that have one meaning in every command:
+
+- `0`: the command completed.
+- `1`: the command ran, and at least one item failed.
+- `2`: bad command-line arguments, or a refusal to start.
+- `4`: the run stopped at an approval step, and nothing failed.
 
 The approval steps are: accept a map, confirm the bleedthrough factor α, approve γ, and
 select the active fit. A command that stops with `4` writes one message to stderr with the
 step, its subject, the report that is the evidence, the command that approves the step and
 the command that continues the run. The work done before the stop is kept, and the
 continued run does not do it again. A run that has a failed item and also stopped exits
-`1`. A code that this table does not list has the meaning that the table of its command
+`1`. A code that this list does not name has the meaning that the table of its command
 gives.
