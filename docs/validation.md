@@ -22,9 +22,9 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
 | Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
-| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate `_sidecar_gate.py` in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
+| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate `_sidecar_gate.py` and the RF2-ArfA child `_rf2_arfa_child.py` in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
 | Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
-| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check, because its headline leg can skip when the gated movie is absent |
+| Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check: it is manual and weekly, and an LFS outage must never block `main` |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
 | Private data | `@pytest.mark.workstation` | no CI job: a scheduled task on the maintainer's workstation runs `scripts/workstation/run_private_checks.py` ([Running the private-data checks](maintainers/workstation-runner.md)) | No |
 | Reference downloads | `@pytest.mark.reference_download` | `.github/workflows/reference-data.yml` — weekly cron + manual dispatch; downloads the `download` tier of `tests/reference_data/manifest.toml` into a cache and verifies each SHA-256 | No — the required matrix makes no network call |
@@ -50,8 +50,9 @@ The required set is the `main-baseline` ruleset: `lint`, `test` on the three pla
 workflow opens one issue with the title `ci(scheduled): <job> failed on main`. The issue gives
 the run, the commit, the failed step and the last 50 log lines up to the last error. The two
 oracle jobs, `sidecar / parity` and `large-fixtures`, use the fields and labels of the
-validation-oracle-failure form. The other jobs use `type:ci`. A later failure adds one comment,
-and the next passing run adds one comment. Each day there is at most one new comment of each
+validation-oracle-failure form. The other jobs use `type:ci`. A later failure adds one comment
+with the same facts and log excerpt for its own run, because a repeat failure can have a new
+cause. The next passing run adds one comment. Each day there is at most one new comment of each
 kind. After that, a change from failed to passed (or back) edits the latest comment, so the issue
 always shows the latest state, failed or passed. A repeated failure on the same day adds nothing:
 the Actions page lists every run. The issue does not close itself: close it with the cause. A
@@ -70,11 +71,23 @@ directory that an environment variable names). A test skips, with the reason, wh
 available. [ADR-0073](adr/0073-one-manifest-for-reference-data-sets.md) records the tiers, the
 limits and the cache rule.
 
+**The Source Data of the 2024 T-box paper.** The study of Campos-Chavez, Paul, Zhou, Alonso, Verma,
+Fei and Mondragón, *Nature Communications* **15**:6592 (2024),
+[doi:10.1038/s41467-024-50885-x](https://doi.org/10.1038/s41467-024-50885-x), publishes its Source
+Data as one archive (95 MB). The weekly job downloads it and verifies its SHA-256. The repository
+holds 26 of its members, unchanged: the folder `ErrorCalculations_CodeAndSourceData/` (without
+its one notebook, whose saved cells hold private paths) and `checkTDP.py` in plain git, and one trace matrix (6.7 MB) in Git LFS. These files are **not under
+GPL-3.0**. They are under the licence of the publication, CC BY-NC-ND 4.0: you can use and share
+them unchanged, for non-commercial purposes only, and you must cite the article. A test that needs
+another format converts a file when it runs; the repository keeps no changed copy.
+[ADR-0083](adr/0083-unchanged-copies-of-cc-by-nc-nd-reference-data.md) records these rules, and
+`tests/fixtures/PROVENANCE.md` the checksum of each file.
+
 Which tier each oracle's *headline* assertion lives in:
 
 | Oracle | Headline assertion runs in | Also covered on the required matrix |
 | --- | --- | --- |
-| (a) Extraction vs Deep-LASI | `large` — but it **skips even there**, because the ≈0.9 GB movie is on no runner; the numbers come from a local run | scorer unit tests, the committed 4-molecule slice, the registration RMS gate |
+| (a) Extraction vs Deep-LASI | `workstation` — the ≈0.9 GB movie is private data on no CI runner, so the scheduled task on the maintainer's workstation runs it and records its numbers | scorer unit tests, the committed 4-molecule slice, the registration RMS gate |
 | (b) Idealization parity vs tMAVEN | `sidecar` — required, but only actually fits when a pull request touches an idealization path | the frozen artifact is checked against its own recorded evidence |
 | (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery; the level-2 and level-3 truth against the simulator settings files |
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
@@ -82,6 +95,9 @@ Which tier each oracle's *headline* assertion lives in:
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
+| (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
+| RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
+| Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
 
 ## (a) Extraction vs Deep-LASI
 
@@ -96,8 +112,9 @@ export. The ≈0.9 GB movie is **not in the repository** — the reason is size,
 licensing: `.github/workflows/large-fixtures.yml` records that it "is NOT committed (not
 even to LFS; it is too large to host on the repo's LFS budget)", while PRD §8
 (NFR-FIXTURES) states the lab *does* hold redistribution rights, which is why the cropped
-slice below could be committed at all. The gated test locates the full movie via
-`TETHER_UCKOPSB_DIR` and skips when it is absent. A committed 4-molecule slice
+slice below could be committed at all. The enforcing test is a `workstation` test: it finds
+the movie and its files through the name table of the workstation runner, under the neutral id
+`lab-01`, and no CI job runs it. A committed 4-molecule slice
 (`tests/fixtures/deeplasi_export_slice.mat`, `tests/fixtures/deeplasi_traces_slice.txt`)
 covers the readers on every matrix run.
 
@@ -134,19 +151,41 @@ mapped donor position and its Pearson carries the map's molecule-domain scatter;
 bidirectional colocalization filter was measured to collapse recall to ≈0.66.
 
 **Enforcing tests.** `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`
-— `@pytest.mark.large`, so it is never on the required matrix. It *is* collected by the
-weekly `large-fixtures` job, but it **skips there every time**: the movie is absent from
-every GitHub-hosted runner, so this assertion has never executed in CI. (The weekly run of
-2026-07-20 reports `test_extraction_meets_m1_acceptance_on_uckopsb SKIPPED`, summary
-`7 passed, 4 skipped`.) The numbers in the table above therefore come from a local run of
-this enforcing test with `TETHER_UCKOPSB_DIR` pointing at a staged copy of the movie, which
-supplies the `.tdat` detector settings and the 2 px gate; that run is recorded in ADR-0022.
+— `@pytest.mark.workstation`, so no CI job collects it
+([ADR-0071](adr/0071-private-data-checks-run-from-a-workstation-task.md)). Until
+[#699](https://github.com/bioedca/tether/issues/699) it was
+a `large` test that **skipped every time** in the weekly `large-fixtures` job, because the
+movie is absent from every GitHub-hosted runner (the weekly run of 2026-07-20 reports
+`test_extraction_meets_m1_acceptance_on_uckopsb SKIPPED`, summary `7 passed, 4 skipped`), and
+the numbers in the table above come from the local run recorded in ADR-0022. Now the weekly
+scheduled task on the maintainer's workstation runs it
+(`scripts/workstation/run_private_checks.py`, [Running the private-data
+checks](maintainers/workstation-runner.md)), with the `.tdat` detector settings and the 2 px
+gate, and writes its outcome and summary numbers (matched fraction, position RMS, both Pearson
+medians, precision and the molecule counts) to the run's result file. The same run executes
+the two intake tests and the five reader tests on the same bundle
+(`tests/test_intake.py`, `tests/test_deeplasi.py`, `tests/test_register.py`,
+`tests/test_tdat.py`), which are `workstation` tests too.
 `scripts/run_m1_oracle.py --data-dir <staged copy>` reproduces the same configuration
 as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
 the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
 and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
 it as not applicable). Its own behaviour is pinned without the movie by
 `tests/test_run_m1_oracle.py`.
+
+**Newest recorded run.** On the maintainer's workstation on 2026-11-13, at commit `3697f80`
+(a run by hand of the pull request of [#699](https://github.com/bioedca/tether/issues/699),
+before the weekly task had a `main` commit that holds this check): **passed**, matched fraction
+0.984 (246 of 250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854.
+The numbers agree with ADR-0022. The record is
+[`docs/validation/oracle-a-last-run.json`](validation/oracle-a-last-run.json), one check entry of
+a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
+step. Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
+reads one stops when the file is not the pinned one; the pins were measured on the workstation
+on 2026-11-13 after this run, and their first 16 hex digits agree with the fixture provenance
+table. A deliberate regression (the donor traces reversed in time) made the same check fail at the
+donor Pearson gate; the demonstration is recorded on
+[#699](https://github.com/bioedca/tether/issues/699).
 
 On the required matrix: `tests/test_oracle.py::test_real_slice_txt_correlates_with_mat` —
 which is **not an extraction check**. It reads the committed 4-molecule slice's `.txt` and
@@ -387,6 +426,65 @@ equally wrong fits cannot see.
 > `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
 > vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
 > measurement, and no committed test fits `model_type="vbfret"` against it.
+
+### Measured traces with a stored vbFRET path
+
+This part compares with the **original vbFRET_nov12** output on measured data, not with
+standalone tMAVEN, so it adds evidence and replaces none of the parity above
+([#797](https://github.com/bioedca/tether/issues/797),
+[ADR-0090](adr/0090-measured-vbfret-paths-are-a-dwell-reference.md)).
+
+**Measured data.** Two whole condition folders of measured two-colour traces by Marzano et
+al., CC-BY-4.0, each trace with the per-trace vbFRET_nov12 idealization the authors analysed:
+PPR-RNA `Validation_data/RNAanticognate` (114 traces, Zenodo 10.5281/zenodo.11323228;
+Nucleic Acids Res. 52:14154, 2024) and Hsp70/Hsp90 `KJG/KJG_231027` (68 traces, Zenodo
+10.5281/zenodo.17118152; Sci. Adv. 12:eaeg5464, 2026). The fixtures hold the original `.dat` bytes; a reader under
+`tests/` reads them (PRD §2.2, "What the tests can use"). Their manifest ids start with
+`marzano-`.
+
+**Deterministic part (required matrix, three operating systems).** The authors' own analysis
+code, `nmarzano/smFRET_module` v1.0.3 (MIT), ran once outside the product on the fixtures. Its
+dwell and transition tables are committed, and
+`tests/test_marzano_vbfret.py` asserts that Tether's dwell code and transition density, read
+from a `.tether` store that holds the stored paths, give the same state values, the same
+durations in frames and the same order: 640 PPR and 465 chaperone transitions. Four
+definitions differ, and the test goes through each one:
+
+- smFRET_module's dwell table keeps the last run of a molecule; Tether drops it, because it is
+  right-censored. smFRET_module's transition table is every run except the last, which is
+  Tether's `include_first=True` set exactly.
+- Tether drops the first run by default. So does smFRET_module's own
+  `cleanup_dwell(first_dwell="delete")` before its dwell fits.
+- smFRET_module drops each frame whose raw FRET is not inside (-0.5, 1.5) and joins what is
+  left. As `NO_STATE` frames, Tether's dwells agree. Tether's transition density counts no
+  transition across such a gap, smFRET_module does: 2 PPR transitions, no chaperone one.
+- A molecule with only one run gives no dwell and no transition in either program.
+
+A change of one frame in the dwell rule fails this test: each dwell one frame longer, or the
+run boundary one frame later, fails 6 of its 15 cases, and the transition density's initial
+point one frame earlier fails 2.
+
+**Live part (advisory, sidecar).** `tests/test_marzano_vbfret_sidecar.py` runs tMAVEN's own
+per-trace variational-Bayes HMM (`tracelevel_vbhmm_modelselection`: 1 to 5 states for each
+trace, the highest evidence kept) in the pinned sidecar, with the paper settings that tMAVEN
+has (at most 5 states, prior β = 0.5; vbFRET's μ = 1.5 has no tMAVEN counterpart), and
+compares each fitted path with the stored one. No tolerance is frozen; the maintainer accepts
+one first. Measured on tMAVEN `10f4230` (CPython 3.12.13), 2026-11-13, seed 797, with the
+range over seeds 1, 2 and 797 after it:
+
+| Measure | PPR (114 traces) | Chaperone (68 traces) |
+| --- | --- | --- |
+| Traces with the same number of occupied states | 9.6 % (9.6 to 14.0 %) | 19.1 % (16.2 to 20.6 %) |
+| Median state-mean difference, same-count traces | 0.0053 (0.0048 to 0.0098) | 0.0115 (0.0057 to 0.0115) |
+| Largest state-mean difference, same-count traces | 0.0141 (0.0141 to 0.2147) | 0.6243 (0.0586 to 0.6243) |
+| Frames at the nearest stored level (Viterbi agreement) | 0.9394 (0.9348 to 0.9394) | 0.9414 (0.9042 to 0.9414) |
+
+tMAVEN's per-trace fit selects more states than vbFRET_nov12 did. vbFRET kept 1 state in 86 of
+the 114 PPR traces; tMAVEN kept 1 state in 8. Where the two programs use the same number of
+states, the levels agree to about 0.01 FRET. Most frames sit at the nearest stored level, but
+that measure maps each fitted level onto a stored one, so it does not count the extra states.
+The difference in state number is the open finding of this comparison; a frozen tolerance needs
+the maintainer's decision first.
 
 ### ebFRET against stored ebFRET sessions (report only)
 
@@ -749,6 +847,138 @@ reproduce them.
 `test_the_lag_factor_alone_does_not_reach_the_file` and
 `test_the_fixtures_are_the_pinned_commit_of_smfret_analysis2`.
 
+## (i) Corrected FRET vs MASH-FRET
+
+**What it checks.** Tether's leakage correction and γ-corrected FRET against MASH-FRET's own
+results, in the MASH-FRET project files that authors of MASH-FRET published with their group IIB
+intron study (Zenodo doi `10.5281/zenodo.24104528`, CC-BY-4.0). MASH-FRET at commit `1a1f465`
+wrote the smallest file, which is the source of the committed extract; the other files name commits
+`89deb70`, `e0bc2229` and `5ab2aff0`, and one file in the 1.3.4 layout (`240b0d99`) is not read.
+[ADR-0087](adr/0087-mash-fret-is-a-reference-for-corrected-fret.md) records the
+reference, the convention mapping and the ALEX rule; `tests/test_mashfret_reference.py` holds the
+tests.
+
+- **Leakage.** From MASH-FRET's background-corrected intensities and its leakage coefficient,
+  Tether's corrected acceptor equals MASH-FRET's cross-talk-corrected acceptor on both lasers, and
+  the donor is unchanged (relative limit 1e-15; the difference is exactly 0).
+- **Corrected FRET.** The files hold no FRET value for each frame, only the value of each frame's
+  state, and MASH-FRET sets that value to the mean of its γ-corrected FRET over the frames of the
+  state. With MASH-FRET's γ, the mean of Tether's corrected FRET over the same frames equals each
+  state value (relative limit 1e-13; worst 1.4e-15 on the 34 states of the committed extract and
+  6.3e-14 on the 4442 states of the eight readable files of the archive). MASH-FRET's
+  `1 / (1 + γ·I_D/I_A)` is Tether's `I_A / (I_A + γ·I_D)` with the same γ; no conversion factor is
+  needed.
+- **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail.
+
+**What it does not check.** Every file of the record has a leakage coefficient of 0, so the
+leakage test cannot catch a sign error in the correction;
+[#870](https://github.com/bioedca/tether/issues/870) asks for a MASH-FRET reference with a non-zero
+coefficient. The comparison is per state, not per frame. Background
+subtraction is not compared, because the files hold no video. The leakage comparison uses both
+lasers; the FRET comparison uses only the donor and acceptor channels under the donor's laser.
+MASH-FRET's direct-excitation coefficient (an ALEX-only correction that Tether does not make) must
+be 0.
+
+**Where it runs.** The required matrix reads a committed extract of the smallest project file (18
+molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a
+`workstation` entry of the manifest: the nightly workstation run verifies it, makes the extract again
+and compares it byte for byte, and runs both checks on every file of the archive that has the
+layout of that MASH-FRET generation.
+
+## RF2-ArfA data set of the tMAVEN authors
+
+Every other tMAVEN check compares Tether with fits that Tether's own sidecar made. This one uses an
+analysis the tMAVEN authors made themselves: the "RF2-ArfA smFRET data and analysis" record of
+Michael, Huang, Ray, Kinz-Thompson and Gonzalez (Zenodo `10.5281/zenodo.17246323`, CC-BY-4.0), the
+tMAVEN SMD files and "vb Consensus HMM" models behind their paper (*Proc. Natl. Acad. Sci. USA*
+**122**(46):e2509408122, 2025, doi `10.1073/pnas.2509408122`).
+[ADR-0079](adr/0079-rf2-arfa-authors-data-oracle.md) records the decisions.
+
+**What is committed.** One model/SMD pair, the RF2 core domain on ArfA-pre-incubated non-stop
+elongation complexes: the model file verbatim and a windowed extract of the SMD file (frames
+outside each molecule's analysis window set to `0.0`, so it fits under the plain-git gate; a
+tMAVEN fit of the extract equals the fit of the original). `tests/fixtures/PROVENANCE.md` gives
+the archive and member checksums. The whole archive (127.8 MB, 11 SMD files, 9 models) is a
+`download` entry of the manifest.
+
+**Measured results** (2026-11-12; tMAVEN `10f4230`, CPython 3.12.13, NumPy 1.26.4; the authors'
+files name no tMAVEN build and are dated 2022-11-29):
+
+| Check | Result |
+| --- | --- |
+| 1. Import | Every SMD file and model reads, writes back and stores with no loss. The one loss is the float32 `/traces` layers: in 3 of the 11 SMD files some intensities round, by at most 2^-24 relative |
+| 2. Idealization | A fresh two-state fit with the authors' priors and bleed-through 0.035, seed 1: state-count agreement 1.0, per-state \|ΔE\| 7.2e-5, Viterbi agreement 0.99954, all inside the frozen row. **Relative ΔELBO 0.0194 is outside the frozen 0.01.** The whole gap is the Gaussian-Wishart term, which tMAVEN adds once per trace; the other three ELBO terms agree to 2.0e-5 relative and the rates to 4.3e-4. The frozen row does not change; the test pins the measured difference |
+| 3. Kinetics | The stored rates are the authors' rule `-ln(1 - p) / τ` on the stored transition matrix. With the paper's photobleaching correction, 16 of the 21 numbers of Table 1 fall inside the stated SD |
+| 4. 2-D histogram | Start-synchronized: Tether's counts equal tMAVEN's cell for cell. Post-synchronized on the window frames: the same 38 transitions in 29 molecules and the same 1608 counts, cell for cell (since #806; before it Tether lacked 2, the last frame of a dwell that runs to the window end). tMAVEN's app also counts 2 jumps at a window border (#707) |
+
+**Table 1 numbers that do not agree** (1/s; paper value ± SD against the value from the archived
+model). They are measured differences, pinned in `TABLE_1_DIFFERENCES`, not tolerances:
+
+| Complex, rate | Paper | Archive |
+| --- | --- | --- |
+| wt-pre-nsEC, proximal → distal | 0.32 ± 0.02 | 0.3705 |
+| wt-pre-nsEC, distal → proximal | 0.25 ± 0.01 | 0.2755 |
+| wt-pre-nsEC, dissociation from proximal | 0.08 ± 0.02 | 0.0593 |
+| wt-pre-nsEC, dissociation from distal | 0.18 ± 0.01 | 0.1983 |
+| mut-nsEC, dissociation from distal | 1.11 ± 0.03 | 1.1710 |
+
+All four (Cy5)RF2-dIII numbers of the wt-pre-nsEC complex differ, so the archived wt-pre-nsEC
+dIII model is probably not the one behind the table. The mut-nsEC model has four states, two of
+them at zero FRET, which the authors merge.
+
+**Enforcing tests.** Required matrix: `tests/test_rf2_arfa.py::test_the_extract_imports_with_no_loss`
+and `test_the_stored_rates_are_the_authors_rule_on_the_stored_transition_matrix`. Weekly
+(`reference_download`): `test_every_smd_file_of_the_archive_imports_with_no_loss`,
+`test_every_model_file_of_the_archive_imports_with_no_loss`,
+`test_the_smd_extract_is_what_its_script_says` and
+`test_the_archive_reproduces_table_1_of_the_paper`. Live leg (`sidecar`):
+`tests/test_rf2_arfa_sidecar.py::test_a_fresh_fit_with_the_authors_priors_reproduces_their_model`,
+`test_the_settings_the_child_used_are_the_authors`,
+`test_the_start_synchronized_histogram_equals_tmavens` and
+`test_the_post_synchronized_histogram_equals_tmavens_on_the_window_frames`.
+
+## Ha-laboratory SAM/SAH snapshot histogram
+
+**What is compared.** The ligand-free SAM/SAH riboswitch snapshots of Fig. 1 of Liao *et al.*,
+*Nucleic Acids Research* **51**:8957 (2023), doi:10.1093/nar/gkad633. The authors deposited the
+data as Zenodo 10.5281/zenodo.8088172 (CC-BY-4.0): 53 binary `.traces` snapshots of 20 frames
+each, with alternating excitation (green frames 1 to 10, red frames 11 to 20), and the
+laboratory's own output from them: 46,950 FRET values (`frets.dat`), their normalised histogram
+(`test3.dat`, bins of 0.015) and the record of the script's parameters (`counts2.txt`).
+[ADR-0086](adr/0086-ha-laboratory-snapshot-histogram-is-a-reference.md) records this set as a
+reference.
+
+**Reference data.** The 56 files are committed verbatim under `tests/fixtures/ha_sam_sah/` (tier
+`git`, CC-BY-4.0, one manifest entry each with its SHA-256 and its member of the Fig. 1 archive).
+A reader that lives only in the tests reads the `.traces` files; the product has no importer for
+them (PRD N4). The donor is the first channel of each molecule: the IDL extraction script stores
+it first, and in every file that channel falls to its background under red excitation while the
+second keeps the acceptor's direct-excitation signal.
+
+**Two checks.** The rule that turns the traces into `frets.dat` was not found (ADR-0086 says what
+was tried), so the traces are compared by their peaks only:
+
+- *Exact.* Tether's histogram of `frets.dat` on the laboratory's bins equals `test3.dat` to 5e-9
+  (the file writes 8 significant digits; measured largest difference 5.0e-10). One conversion is
+  exact: MATLAB's `hist` puts the values outside the range in the end bins, and Tether's fixed
+  range drops them (two below and two above here).
+- *Peaks.* Tether's leakage-corrected FRET (α = 0.12 from `counts2.txt`, γ = 1) of each molecule,
+  from its mean intensities over the green frames, for the 11,316 molecules whose intensities pass
+  the file's cutoffs. The two peaks of its histogram must lie within **0.015** (one bin) of the
+  two peaks of `test3.dat`. Measured 2026-11-13: Tether 0.3950 and 0.8663, the laboratory 0.3956
+  and 0.8669. With the two channels swapped, the low peak moves to 0.128 from the laboratory's.
+
+**Out of scope.** The three long movies of the folder (their 2,854 values are in `frets.dat` but
+their files are not committed), extraction from the raw `.pma` movies, the dwell times, and the
+other figures (#796). The second `.traces` variant, with a frame-index row, is #798.
+
+**Enforcing tests** (all unmarked — required 3-OS matrix):
+`tests/test_ha_sam_sah_reference.py::test_tether_histogram_of_frets_dat_equals_test3_dat`,
+`test_tether_histogram_of_the_traces_has_the_peaks_of_test3_dat`,
+`test_the_donor_is_the_first_channel_of_each_molecule`,
+`test_swapped_channels_miss_the_peaks_of_test3_dat` and
+`test_the_reader_opens_all_53_files_with_the_molecule_counts_of_the_lab`.
+
 ## External benchmark
 
 Tether's rate constants were compared against the ground truth and the reported inter-tool
@@ -875,20 +1105,69 @@ settings file numbers the same states differently; `settings_state_of` maps each
 row there, and the required-matrix test checks every rate, every zero and both blinking
 rates of both dyes against the file.
 
+## PySMACKS tutorial traces (exact histogram, rate report)
+
+A second data point from outside Tether, tMAVEN and kinSoft
+([#720](https://github.com/bioedca/tether/issues/720)): the traces file of the PySMACKS tutorial,
+Zenodo [10.5281/zenodo.21793247](https://doi.org/10.5281/zenodo.21793247) (Molcrette and Schmid,
+2026, CC0-1.0), manifest id `pysmacks-tutorial-traces`. It holds 1,136 ALEX traces of a
+two-state Holliday junction in OpenFRET JSON; 52 of them carry the label "FRET", a frame range.
+PySMACKS is at a beta version, so it is a second data point and not a reference tool.
+
+**The PySMACKS side was made once, offline.** The record's README says the file holds the HMM
+analysis, but it does not: no trace has the `HMM_param` entry that PySMACKS writes, no trace has
+FRET values, and the file names no PySMACKS version. So `scripts/make_pysmacks_reference.py` ran
+PySMACKS 1.0.0b4 on the 52 labelled traces on 2026-11-13 and wrote
+`tests/fixtures/pysmacks_tutorial_reference.json`, which records the versions that ran. PySMACKS
+never runs in CI (maintainer decision of 2026-11-13). The tests read the original downloaded zip
+with a test-only reader and use only the donor-excitation channels (PRD §2.2, rules 1 and 2).
+Both tests are in the weekly `reference-data` job.
+
+- **Histogram, exact.**
+  `tests/test_pysmacks_tutorial_download.py::test_tethers_apparent_e_histogram_equals_the_pysmacks_histogram`
+  bins Tether's apparent FRET of each labelled, background-subtracted frame (56,442 frames) in
+  151 bins over −0.5 to 1.5, and requires the count of every bin to equal the PySMACKS count.
+  It does.
+- **Rates, report only.**
+  `tests/test_pysmacks_tutorial_download.py::test_tethers_two_state_rates_report_their_difference_from_pysmacks`
+  fits the same frames with the base-environment two-state HMM of oracle (c) and prints its
+  numbers beside the PySMACKS ensemble HMM (a 2-D Gaussian HMM on the donor and acceptor
+  intensities, `TbT_HMM_pipeline` then `Ens_HMM`). It fails only when the fit does not converge.
+  No frozen limit exists; one needs the maintainer's sign-off. The record gives no frame time,
+  so the rates are per frame, and no published rates for this set were found (the PySMACKS
+  documentation site could not be reached from the build environment).
+
+Measured on 2026-11-13:
+
+| Quantity | PySMACKS 1.0.0b4 | Tether | Difference |
+|---|---|---|---|
+| State 1 apparent E | 0.2374 | 0.2140 | −0.0234 |
+| State 2 apparent E | 0.6734 | 0.5944 | −0.0790 |
+| p(1 → 2) per frame | 0.2711 | 0.2649 | −0.0062 |
+| p(2 → 1) per frame | 0.2861 | 0.1679 | −0.1182 |
+| k(1 → 2) per frame | 0.2711 | 0.2054 | −0.0657 |
+| k(2 → 1) per frame | 0.2861 | 0.1422 | −0.1439 |
+
+PySMACKS's state E is the E of its median state means in intensity, and its rate is the
+transition probability per frame, which its Kinetics tab divides by the frame time. Tether's rate
+is `1/⟨τ⟩` of the interior dwells of its Viterbi paths (4,687 and 4,664 dwells). The two fit
+different models (two intensity channels against one apparent-E signal), so this table is
+evidence about the size of the difference and not a tolerance.
+
 ## Scope and known limitations
 
 **Validation coverage.**
 
-- Oracles (a) and (c) have their headline assertions on the `large` tier, which is manual
-  or weekly and is deliberately **not** a required check. Oracle (b)'s live fits are in the
+- Oracle (a) has its headline assertion on the `workstation` tier and oracle (c) on the
+  `large` tier; neither is a required check. Oracle (b)'s live fits are in the
   required `sidecar / parity` job, but that job only actually fits when the pull request
   touches an idealization path. A green required 3-OS matrix run on its own therefore proves
   the scorers, the frozen artifacts and the pure primitives — not a fresh fit against real
   reference data.
 - Oracle (a) is stronger than that: its headline assertion depends on the ≈0.9 GB UCKOPSB
-  movie, which exceeds the repo's Git-LFS budget and so is on **no** runner. The weekly
-  `large-fixtures` job collects it and skips it, every time — the assertion has never run in
-  CI, and its numbers come from a local run recorded in ADR-0022.
+  movie, which exceeds the repo's Git-LFS budget and so is on **no** CI runner. No CI job
+  collects it; the nightly scheduled task on the maintainer's workstation runs it
+  ([#699](https://github.com/bioedca/tether/issues/699)), and a CI run says nothing about it.
 - The frozen **default** parity tolerance for (b) was measured against tMAVEN `71cfa1af`
   (2025-05-06) on CPython 3.9.23 — 13 upstream commits behind the pinned `10f4230b`
   (2025-10-05) on CPython 3.12.13 that CI, the installers and every live sidecar assertion
@@ -908,7 +1187,9 @@ rates of both dyes against the file.
   (see above), and **not blind** — the ground truth is committed and the fit is
   retrospective. Levels 2 and 3 are reported, not band-checked, and the present method does
   not recover the level-2 rates.
-- (b) has no per-trace vbFRET measurement, (d) has no leave-one-video-out protocol and no
+- (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
+  comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
+  tolerance (see "Measured traces with a stored vbFRET path"). (d) has no leave-one-video-out protocol and no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section
   above with the ADR that deferred it.

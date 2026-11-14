@@ -1,0 +1,437 @@
+
+ttl =
+
+    'test3'
+
+
+q =
+
+     2
+
+
+icutoff =
+
+   100
+
+
+icut2 =
+
+        1000
+
+
+fcutoff1 =
+
+    0.5000
+
+
+greenbg =
+
+     0
+
+
+redbg =
+
+     0
+
+
+leakage =
+
+    0.1200
+
+Red ex. frames: 11 to 20
+Green ex. frames: 1 to 10
+hel1.traces
+Total good spots: 1663 / 437
+High fret: 451, low fret: 387
+red only: 19, green only: 806, both: 838
+high intensity cutoff: 19, low int: 85
+donor only: 800, acceptor only: 3
+
+hel10.traces
+Total good spots: 1709 / 437
+High fret: 466, low fret: 484
+red only: 23, green only: 736, both: 950
+high intensity cutoff: 18, low int: 44
+donor only: 726, acceptor only: 3
+
+hel11.traces
+Total good spots: 1629 / 423
+High fret: 463, low fret: 441
+red only: 53, green only: 672, both: 904
+high intensity cutoff: 43, low int: 73
+donor only: 662, acceptor only: 7
+
+hel12.traces
+Total good spots: 1700 / 433
+High fret: 413, low fret: 482
+red only: 46, green only: 759, both: 895
+high intensity cutoff: 24, low int: 54
+donor only: 737, acceptor only: 3
+
+hel13.traces
+Total good spots: 1630 / 416
+High fret: 432, low fret: 457
+red only: 35, green only: 706, both: 889
+high intensity cutoff: 19, low int: 50
+donor only: 689, acceptor only: 8
+
+hel14.traces
+Total good spots: 1762 / 450
+High fret: 474, low fret: 499
+red only: 43, green only: 746, both: 973
+high intensity cutoff: 19, low int: 62
+donor only: 722, acceptor only: 8
+
+hel15.traces
+Total good spots: 1712 / 438
+High fret: 529, low fret: 452
+red only: 25, green only: 706, both: 981
+high intensity cutoff: 11, low int: 54
+donor only: 692, acceptor only: 6
+
+hel16.traces
+Total good spots: 1733 / 443
+High fret: 437, low fret: 493
+red only: 28, green only: 775, both: 930
+high intensity cutoff: 5, low int: 62
+donor only: 752, acceptor only: 6
+
+hel17.traces
+Total good spots: 1674 / 430
+High fret: 415, low fret: 501
+red only: 21, green only: 737, both: 916
+high intensity cutoff: 15, low int: 52
+donor only: 726, acceptor only: 7
+
+hel18.traces
+Total good spots: 1698 / 437
+High fret: 438, low fret: 453
+red only: 38, green only: 769, both: 891
+high intensity cutoff: 30, low int: 58
+donor only: 757, acceptor only: 3
+
+hel19.traces
+Total good spots: 1605 / 414
+High fret: 471, low fret: 448
+red only: 20, green only: 666, both: 919
+high intensity cutoff: 9, low int: 61
+donor only: 656, acceptor only: 9
+
+hel2.traces
+Total good spots: 1666 / 422
+High fret: 398, low fret: 424
+red only: 50, green only: 794, both: 822
+high intensity cutoff: 24, low int: 48
+donor only: 768, acceptor only: 8
+
+hel20.traces
+Total good spots: 1687 / 434
+High fret: 440, low fret: 454
+red only: 41, green only: 752, both: 894
+high intensity cutoff: 22, low int: 68
+donor only: 730, acceptor only: 5
+
+hel21.traces
+Total good spots: 1606 / 412
+High fret: 447, low fret: 424
+red only: 35, green only: 700, both: 871
+high intensity cutoff: 21, low int: 56
+donor only: 683, acceptor only: 6
+
+hel22.traces
+Total good spots: 1694 / 433
+High fret: 468, low fret: 443
+red only: 41, green only: 742, both: 911
+high intensity cutoff: 31, low int: 48
+donor only: 725, acceptor only: 8
+
+hel23.traces
+Total good spots: 1772 / 451
+High fret: 454, low fret: 487
+red only: 37, green only: 794, both: 941
+high intensity cutoff: 22, low int: 47
+donor only: 779, acceptor only: 2
+
+hel24.traces
+Total good spots: 1630 / 422
+High fret: 381, low fret: 526
+red only: 24, green only: 699, both: 907
+high intensity cutoff: 16, low int: 66
+donor only: 690, acceptor only: 13
+
+hel25.traces
+Total good spots: 1589 / 410
+High fret: 446, low fret: 453
+red only: 27, green only: 663, both: 899
+high intensity cutoff: 21, low int: 57
+donor only: 653, acceptor only: 6
+
+hel26.traces
+Total good spots: 1784 / 457
+High fret: 498, low fret: 517
+red only: 46, green only: 723, both: 1015
+high intensity cutoff: 21, low int: 69
+donor only: 695, acceptor only: 3
+
+hel27.traces
+Total good spots: 1657 / 424
+High fret: 425, low fret: 433
+red only: 46, green only: 753, both: 858
+high intensity cutoff: 28, low int: 57
+donor only: 732, acceptor only: 4
+
+hel28.traces
+Total good spots: 1673 / 429
+High fret: 426, low fret: 432
+red only: 40, green only: 775, both: 858
+high intensity cutoff: 24, low int: 58
+donor only: 755, acceptor only: 2
+
+hel29.traces
+Total good spots: 1629 / 421
+High fret: 492, low fret: 467
+red only: 5, green only: 665, both: 959
+high intensity cutoff: 9, low int: 51
+donor only: 662, acceptor only: 4
+
+hel3.traces
+Total good spots: 1657 / 428
+High fret: 418, low fret: 411
+red only: 42, green only: 786, both: 829
+high intensity cutoff: 26, low int: 71
+donor only: 769, acceptor only: 5
+
+hel30.traces
+Total good spots: 1650 / 431
+High fret: 455, low fret: 478
+red only: 13, green only: 704, both: 933
+high intensity cutoff: 11, low int: 76
+donor only: 701, acceptor only: 14
+
+hel31.traces
+Total good spots: 1365 / 361
+High fret: 225, low fret: 228
+red only: 5, green only: 907, both: 453
+high intensity cutoff: 3, low int: 81
+donor only: 905, acceptor only: 2
+
+hel32.traces
+Total good spots: 1637 / 421
+High fret: 360, low fret: 339
+red only: 25, green only: 913, both: 699
+high intensity cutoff: 5, low int: 67
+donor only: 893, acceptor only: 0
+
+hel33.traces
+Total good spots: 1505 / 399
+High fret: 339, low fret: 266
+red only: 9, green only: 891, both: 605
+high intensity cutoff: 8, low int: 92
+donor only: 886, acceptor only: 2
+
+hel34.traces
+Total good spots: 1588 / 406
+High fret: 332, low fret: 374
+red only: 20, green only: 862, both: 706
+high intensity cutoff: 17, low int: 39
+donor only: 846, acceptor only: 6
+
+hel35.traces
+Total good spots: 1658 / 425
+High fret: 388, low fret: 358
+red only: 37, green only: 875, both: 746
+high intensity cutoff: 24, low int: 55
+donor only: 862, acceptor only: 1
+
+hel36.traces
+Total good spots: 1611 / 413
+High fret: 346, low fret: 375
+red only: 24, green only: 866, both: 721
+high intensity cutoff: 12, low int: 53
+donor only: 854, acceptor only: 7
+
+hel37.traces
+Total good spots: 1805 / 467
+High fret: 439, low fret: 449
+red only: 57, green only: 860, both: 888
+high intensity cutoff: 39, low int: 81
+donor only: 840, acceptor only: 3
+
+hel38.traces
+Total good spots: 1670 / 430
+High fret: 379, low fret: 375
+red only: 36, green only: 880, both: 754
+high intensity cutoff: 19, low int: 67
+donor only: 863, acceptor only: 10
+
+hel39.traces
+Total good spots: 1771 / 452
+High fret: 429, low fret: 366
+red only: 44, green only: 932, both: 795
+high intensity cutoff: 21, low int: 60
+donor only: 906, acceptor only: 5
+
+hel4.traces
+Total good spots: 1652 / 421
+High fret: 459, low fret: 458
+red only: 28, green only: 707, both: 917
+high intensity cutoff: 14, low int: 46
+donor only: 692, acceptor only: 3
+
+hel40.traces
+Total good spots: 1672 / 437
+High fret: 395, low fret: 421
+red only: 34, green only: 822, both: 816
+high intensity cutoff: 26, low int: 84
+donor only: 808, acceptor only: 2
+
+hel41.traces
+Total good spots: 1774 / 456
+High fret: 400, low fret: 438
+red only: 52, green only: 884, both: 838
+high intensity cutoff: 35, low int: 67
+donor only: 867, acceptor only: 14
+
+hel42.traces
+Total good spots: 1612 / 411
+High fret: 390, low fret: 318
+red only: 36, green only: 868, both: 708
+high intensity cutoff: 31, low int: 37
+donor only: 859, acceptor only: 0
+
+hel43.traces
+Total good spots: 1634 / 418
+High fret: 402, low fret: 438
+red only: 21, green only: 773, both: 840
+high intensity cutoff: 21, low int: 38
+donor only: 769, acceptor only: 7
+
+hel44.traces
+Total good spots: 1656 / 421
+High fret: 472, low fret: 341
+red only: 63, green only: 780, both: 813
+high intensity cutoff: 31, low int: 60
+donor only: 748, acceptor only: 4
+
+hel45.traces
+Total good spots: 1693 / 442
+High fret: 470, low fret: 320
+red only: 36, green only: 867, both: 790
+high intensity cutoff: 37, low int: 74
+donor only: 856, acceptor only: 2
+
+hel46.traces
+Total good spots: 1593 / 404
+High fret: 344, low fret: 352
+red only: 50, green only: 847, both: 696
+high intensity cutoff: 18, low int: 55
+donor only: 813, acceptor only: 6
+
+hel47.traces
+Total good spots: 1627 / 420
+High fret: 377, low fret: 395
+red only: 48, green only: 807, both: 772
+high intensity cutoff: 29, low int: 72
+donor only: 788, acceptor only: 8
+
+hel48.traces
+Total good spots: 1651 / 428
+High fret: 393, low fret: 344
+red only: 53, green only: 861, both: 737
+high intensity cutoff: 33, low int: 81
+donor only: 837, acceptor only: 6
+
+hel49.traces
+Total good spots: 1630 / 415
+High fret: 355, low fret: 341
+red only: 53, green only: 881, both: 696
+high intensity cutoff: 21, low int: 62
+donor only: 849, acceptor only: 3
+
+hel5.traces
+Total good spots: 1604 / 409
+High fret: 392, low fret: 431
+red only: 46, green only: 735, both: 823
+high intensity cutoff: 32, low int: 46
+donor only: 720, acceptor only: 11
+
+hel50.traces
+Total good spots: 1665 / 428
+High fret: 357, low fret: 351
+red only: 61, green only: 896, both: 708
+high intensity cutoff: 31, low int: 77
+donor only: 865, acceptor only: 7
+
+hel51.traces
+Total good spots: 1639 / 415
+High fret: 388, low fret: 284
+red only: 61, green only: 906, both: 672
+high intensity cutoff: 43, low int: 39
+donor only: 886, acceptor only: 7
+
+hel52.traces
+Total good spots: 1649 / 423
+High fret: 385, low fret: 337
+red only: 45, green only: 882, both: 722
+high intensity cutoff: 28, low int: 60
+donor only: 861, acceptor only: 1
+
+hel53.traces
+Total good spots: 1659 / 419
+High fret: 360, low fret: 323
+red only: 65, green only: 911, both: 683
+high intensity cutoff: 15, low int: 67
+donor only: 861, acceptor only: 16
+
+hel54.traces
+Total good spots: 1509 / 391
+High fret: 459, low fret: 421
+red only: 15, green only: 614, both: 880
+high intensity cutoff: 9, low int: 61
+donor only: 604, acceptor only: 5
+
+hel55.traces
+Total good spots: 1504 / 395
+High fret: 524, low fret: 430
+red only: 21, green only: 529, both: 954
+high intensity cutoff: 31, low int: 66
+donor only: 529, acceptor only: 5
+
+hel56.traces
+Total good spots: 1563 / 409
+High fret: 528, low fret: 492
+red only: 26, green only: 517, both: 1020
+high intensity cutoff: 22, low int: 77
+donor only: 508, acceptor only: 2
+
+hel6.traces
+Total good spots: 1761 / 450
+High fret: 487, low fret: 468
+red only: 41, green only: 765, both: 955
+high intensity cutoff: 28, low int: 52
+donor only: 752, acceptor only: 8
+
+hel7.traces
+Total good spots: 1689 / 437
+High fret: 472, low fret: 427
+red only: 31, green only: 759, both: 899
+high intensity cutoff: 30, low int: 60
+donor only: 745, acceptor only: 6
+
+hel8.traces
+Total good spots: 1714 / 439
+High fret: 428, low fret: 519
+red only: 38, green only: 729, both: 947
+high intensity cutoff: 25, low int: 55
+donor only: 716, acceptor only: 3
+
+hel9.traces
+Total good spots: 1703 / 442
+High fret: 452, low fret: 462
+red only: 35, green only: 754, both: 914
+high intensity cutoff: 19, low int: 81
+donor only: 734, acceptor only: 7
+
+Avg count = 1654.8571 +\- 76.2742
+Avg both = 50.6105 +\- 6.2302%
+Avg both count = 838.3929 +\- 112.0019

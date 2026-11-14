@@ -24,19 +24,19 @@
 # --- The jobs: one table for each check name -----------------------------------------------
 
 [jobs."test (ubuntu-latest)"]
-min_collected = 4016
-max_skipped = 20
+min_collected = 4011
+max_skipped = 15
 
 [jobs."test (macos-latest)"]
-min_collected = 4016
-max_skipped = 33
+min_collected = 4011
+max_skipped = 28
 
 [jobs."test (windows-latest)"]
-min_collected = 4016
-max_skipped = 18
+min_collected = 4011
+max_skipped = 13
 
 [jobs."sidecar / parity"]
-min_collected = 22
+min_collected = 26
 max_skipped = 0
 
 [jobs."deep / smoke"]
@@ -44,8 +44,8 @@ min_collected = 17
 max_skipped = 2
 
 [jobs."large-fixtures"]
-min_collected = 15
-max_skipped = 4
+min_collected = 12
+max_skipped = 1
 
 # --- Expected skips on the three required legs ---------------------------------------------
 
@@ -71,13 +71,6 @@ reason = "VERIFY_X509_STRICT is off before 3.13"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
 why = """The base lock pins Python 3.12 on all three legs; the test checks a default that only \
 Python 3.13 and later have (ADR-0061). It runs when the lock moves to 3.13."""
-
-[[skip]]
-test = "tests/test_deeplasi.py::test_full_export_matches_when_present"
-reason = "external example-data Deep-LASI export absent"
-jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
-why = """The Deep-LASI export of the laboratory movie is private data that is on no GitHub \
-runner. #699 is to run it on the workstation."""
 
 [[skip]]
 test = "tests/test_docs_site_brand.py::test_the_built_site_*"
@@ -106,20 +99,6 @@ reason = "could not import 'markdown': No module named 'markdown'"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
 why = """The base lock has no Python-Markdown. The docs-build job installs the Markdown of the \
 docs build and runs this test with TETHER_REQUIRE_PYTHON_MARKDOWN=1, so there a skip fails (#517)."""
-
-[[skip]]
-test = "tests/test_register.py::test_read_tmap_matches_committed_fixture"
-reason = "external .tmap not present (default checkout)"
-jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
-why = """The real Deep-LASI .tmap of the laboratory movie is private data that is on no GitHub \
-runner. #699 is to run it on the workstation."""
-
-[[skip]]
-test = "tests/test_tdat.py::test_real_tdat_*"
-reason = "external .tdat not present (default checkout)"
-jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
-why = """The three tests read the real Deep-LASI .tdat of the laboratory movie, which is \
-private data that is on no GitHub runner. #699 is to run them on the workstation."""
 
 # --- Platform skips: each test runs on the other legs ---------------------------------------
 
@@ -217,19 +196,7 @@ jobs = ["deep / smoke"]
 why = """deep / smoke runs on a CPU runner. The two CUDA tests run in deep-gpu.yml on a \
 CUDA machine (manual dispatch)."""
 
-# --- large-fixtures (the torch skip above is listed for this job too) ----------------------
-
-[[skip]]
-test = "tests/test_intake.py::*"
-reason = "example-data bundle not present"
-jobs = ["large-fixtures"]
-why = """The two tests read the private laboratory example-data bundle, which is on no GitHub \
-runner. #699 is to run them on the workstation."""
-
-[[skip]]
-test = "tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb"
-reason = "gated UCKOPSB movie + .tmap + .tdat + Deep-LASI .mat absent"
-jobs = ["large-fixtures"]
-why = """Oracle (a) needs the 0.9 GB laboratory movie, which is too large for the LFS budget \
-and is on no GitHub runner (docs/validation.md, oracle (a)). #699 is to run it on the \
-workstation."""
+# --- large-fixtures -------------------------------------------------------------------------
+# Its one skip is the torch module above. The oracle (a) test and the two intake tests on the
+# private bundle of video 010 are `workstation` tests since #699 (ADR-0071): no CI job collects
+# them, and the workstation runner, where a skip fails, runs them.
