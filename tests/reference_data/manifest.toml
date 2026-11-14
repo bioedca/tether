@@ -86,6 +86,114 @@ extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
 
+# --- Measured traces with a per-trace vbFRET path (#797, ADR-0090), CC-BY-4.0 ----------------
+# Marzano N. et al. Each .dat trace holds frame, donor, acceptor, FRET and vbFRET_nov12's
+# idealized FRET. The two git fixtures copy one condition folder of each record verbatim into
+# a .tar.xz; the four tables are the output of nmarzano/smFRET_module v1.0.3 (MIT,
+# doi:10.5281/zenodo.16791519) on those fixtures. scripts/make_marzano_fixture.py makes both.
+
+[[dataset]]
+id = "marzano-ppr-figure2"
+source = "doi:10.5281/zenodo.11323228"
+record_url = "https://zenodo.org/records/11323228"
+license = "CC-BY-4.0"
+file = "Figure_2.zip"
+size = 21570519
+sha256 = "f6f8beffac601d933d6e897ce808c1fcb45f27dc226ab6f11de6118bb50fcd10"
+tier = "download"
+download_url = "https://zenodo.org/records/11323228/files/Figure_2.zip?download=1"
+citation = "Marzano N, et al. Nucleic Acids Res 52(22):14154-14170 (2024). doi:10.1093/nar/gkae984. Data: Zenodo doi:10.5281/zenodo.11323228"
+
+[[dataset]]
+id = "marzano-chaperone-fig1"
+source = "doi:10.5281/zenodo.17118152"
+record_url = "https://zenodo.org/records/17118152"
+license = "CC-BY-4.0"
+file = "Fig1_FigS1_FigS2.7z"
+size = 44432881
+sha256 = "92f94bbd6373edab7875b4dc21e6e2cfa00efaf39a8a45e5bbc74573abd2aac7"
+tier = "download"
+download_url = "https://zenodo.org/records/17118152/files/Fig1_FigS1_FigS2.7z?download=1"
+citation = "Marzano NR, et al. Sci Adv 12(31):eaeg5464 (2026). doi:10.1126/sciadv.aeg5464. Data: Zenodo doi:10.5281/zenodo.17118152"
+
+[[dataset]]
+id = "marzano-ppr-rnaanticognate"
+source = "doi:10.5281/zenodo.11323228"
+record_url = "https://zenodo.org/records/11323228"
+license = "CC-BY-4.0"
+file = "tests/fixtures/marzano_ppr_rnaanticognate.tar.xz"
+size = 482520
+sha256 = "439ebd0af7b5102363b05eef1b24fbeae17d2c315512bcd26164620dd18e7df3"
+tier = "git"
+extract_of = ["marzano-ppr-figure2"]
+extract_script = "scripts/make_marzano_fixture.py"
+citation = "Marzano N, et al. Nucleic Acids Res 52(22):14154-14170 (2024). doi:10.1093/nar/gkae984. Data: Zenodo doi:10.5281/zenodo.11323228"
+
+[[dataset]]
+id = "marzano-chaperone-kjg-231027"
+source = "doi:10.5281/zenodo.17118152"
+record_url = "https://zenodo.org/records/17118152"
+license = "CC-BY-4.0"
+file = "tests/fixtures/marzano_chaperone_kjg_231027.tar.xz"
+size = 465640
+sha256 = "116822250071f16330de19e069da41458fe1fbd12d026dde50dc60048263df60"
+tier = "git"
+extract_of = ["marzano-chaperone-fig1"]
+extract_script = "scripts/make_marzano_fixture.py"
+citation = "Marzano NR, et al. Sci Adv 12(31):eaeg5464 (2026). doi:10.1126/sciadv.aeg5464. Data: Zenodo doi:10.5281/zenodo.17118152"
+
+[[dataset]]
+id = "marzano-ppr-dwells"
+source = "doi:10.5281/zenodo.11323228"
+record_url = "https://zenodo.org/records/11323228"
+license = "CC-BY-4.0"
+file = "tests/fixtures/reference/marzano/ppr_dwells.csv"
+size = 24757
+sha256 = "26aa5db0eb5d429c61a18b58827f1d88306c05f81c5808394219653732d9a4ae"
+tier = "git"
+extract_of = ["marzano-ppr-figure2"]
+extract_script = "scripts/make_marzano_fixture.py"
+citation = "Marzano N, et al. Nucleic Acids Res 52(22):14154-14170 (2024). doi:10.1093/nar/gkae984. Tables made with nmarzano/smFRET_module v1.0.3, doi:10.5281/zenodo.16791519"
+
+[[dataset]]
+id = "marzano-ppr-transitions"
+source = "doi:10.5281/zenodo.11323228"
+record_url = "https://zenodo.org/records/11323228"
+license = "CC-BY-4.0"
+file = "tests/fixtures/reference/marzano/ppr_transitions.csv"
+size = 29359
+sha256 = "8e1d2032db583d6cfead8fc42c2b828142c4e1aa7d98e9b7e9221010788dd2cb"
+tier = "git"
+extract_of = ["marzano-ppr-figure2"]
+extract_script = "scripts/make_marzano_fixture.py"
+citation = "Marzano N, et al. Nucleic Acids Res 52(22):14154-14170 (2024). doi:10.1093/nar/gkae984. Tables made with nmarzano/smFRET_module v1.0.3, doi:10.5281/zenodo.16791519"
+
+[[dataset]]
+id = "marzano-chaperone-dwells"
+source = "doi:10.5281/zenodo.17118152"
+record_url = "https://zenodo.org/records/17118152"
+license = "CC-BY-4.0"
+file = "tests/fixtures/reference/marzano/chaperone_dwells.csv"
+size = 16858
+sha256 = "9362755e352273affe984d09f55c3d5a22328c93ac19a05b19c3b8b29ee92674"
+tier = "git"
+extract_of = ["marzano-chaperone-fig1"]
+extract_script = "scripts/make_marzano_fixture.py"
+citation = "Marzano NR, et al. Sci Adv 12(31):eaeg5464 (2026). doi:10.1126/sciadv.aeg5464. Tables made with nmarzano/smFRET_module v1.0.3, doi:10.5281/zenodo.16791519"
+
+[[dataset]]
+id = "marzano-chaperone-transitions"
+source = "doi:10.5281/zenodo.17118152"
+record_url = "https://zenodo.org/records/17118152"
+license = "CC-BY-4.0"
+file = "tests/fixtures/reference/marzano/chaperone_transitions.csv"
+size = 19374
+sha256 = "90cde4107271d08dc8d753f2fa93d7dce44e70c151d774b7d5f44d4608250b90"
+tier = "git"
+extract_of = ["marzano-chaperone-fig1"]
+extract_script = "scripts/make_marzano_fixture.py"
+citation = "Marzano NR, et al. Sci Adv 12(31):eaeg5464 (2026). doi:10.1126/sciadv.aeg5464. Tables made with nmarzano/smFRET_module v1.0.3, doi:10.5281/zenodo.16791519"
+
 # --- PySMACKS tutorial traces: Zenodo 10.5281/zenodo.21793247, CC0-1.0 (#720) ----------------
 
 [[dataset]]
@@ -2319,3 +2427,63 @@ tier = "git"
 extract_of = ["ha-sam-sah-fig1"]
 extract_member = "Fig 1 Studies of ligand-free conformations/20200129 RNA only condition/RNA only/counts2.txt"
 citation = "Liao T-W, Huang L, Wilson TJ, Ganser LR, Lilley DMJ, Ha T. Linking folding dynamics and function of SAM/SAH riboswitches at the single molecule level. Nucleic Acids Res 51(17):8957-8969 (2023). doi:10.1093/nar/gkad633. Data: Liao T-W, Zenodo (2023), doi:10.5281/zenodo.8088172"
+
+# --- Deep-LASI DNA-origami data: Zenodo record 7561162, CC-BY-4.0 ------------------------------
+# The record has no Zenodo DOI of its own: the DOI it names is the bioRxiv preprint of the
+# paper, so `source` is that DOI and `record_url` the record. Two archives are checked on the
+# workstation (#716, tests/test_deeplasi_public_tdat.py); each is larger than a download entry
+# may be. The data folder of the workstation runner holds them below `zenodo-7561162/`.
+
+[[dataset]]
+id = "deeplasi-zenodo-fig2"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "zenodo-7561162/Figure_2.zip"
+size = 487933185
+sha256 = "fccd230c630272503bcf7d3dbe1c7953c10adb9a6d87ba9570d7d1153ec570ee"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem C-B, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9"
+
+[[dataset]]
+id = "deeplasi-zenodo-fig3"
+source = "doi:10.1101/2023.01.31.526220"
+record_url = "https://zenodo.org/records/7561162"
+license = "CC-BY-4.0"
+file = "zenodo-7561162/Figure_3.zip"
+size = 987751037
+sha256 = "1062b5f56f52bd2aed741ea7646c97339afc8187f0e4e4871d60388ffed27d03"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Wanninger S, Asadiatouei P, Bohlen J, Salem C-B, Tinnefeld P, Ploetz E, Lamb DC. Deep-LASI: deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures. Nat Commun 14:6564 (2023). doi:10.1038/s41467-023-42272-9"
+
+# --- Group IIB intron smFRET data with MASH-FRET projects: Zenodo 10.5281/zenodo.24104528, ----
+# CC-BY-4.0. Nine MASH-FRET project files (#711, ADR-0087). The archive is larger than the
+# download limit, so it is read on the workstation; the required matrix reads an extract of the
+# smallest project file (scripts/make_mashfret_fixture.py says what it keeps).
+
+[[dataset]]
+id = "mashfret-group-iib-intron-archive"
+source = "doi:10.5281/zenodo.24104528"
+record_url = "https://zenodo.org/records/24104528"
+license = "CC-BY-4.0"
+file = "02_smFRET.zip"
+size = 236278098
+sha256 = "0a30d78ab7c67a3bc716afc760fa5f5b7bf54bc60cce5bde8ccac5a41c4605c7"
+tier = "workstation"
+env = "TETHER_PRIVATE_DATA"
+citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
+
+[[dataset]]
+id = "mashfret-ed135e-30mm-extract"
+source = "doi:10.5281/zenodo.24104528"
+record_url = "https://zenodo.org/records/24104528"
+license = "CC-BY-4.0"
+file = "tests/fixtures/mashfret_ed135e_30mm_extract.mat"
+size = 498472
+sha256 = "80f72fd03980bc618c98a8098f48f648f2f33da7ffbf886a86760e12a062a55e"
+tier = "git"
+extract_of = ["mashfret-group-iib-intron-archive"]
+extract_script = "scripts/make_mashfret_fixture.py"
+citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
