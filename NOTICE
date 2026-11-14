@@ -322,6 +322,18 @@ Measured PPR-RNA and Hsp70/Hsp90 smFRET traces  (CC-BY-4.0)  — Marzano N, et a
   CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
   GPL-3.0; attribution to Marzano et al. travels with them.
 
+Group IIB intron smFRET data  (CC-BY-4.0)  — Zelger-Paulus S, Hadzic MCAS,
+  Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S & Sigel R, Zenodo
+  doi:10.5281/zenodo.24104528 (2026), the data of "Cis-exons shape the
+  conformational landscape and Mg2+ response of a group IIB intron."
+  Tether bundles an extract of one MASH-FRET project file of the record,
+  tests/fixtures/mashfret_ed135e_30mm_extract.mat (scripts/make_mashfret_fixture.py
+  keeps 18 of its 119 molecules and leaves out the raw intensities and the
+  project's paths; it changes no value), used only as a MASH-FRET reference for
+  Tether's leakage and gamma-corrected FRET (#711, ADR-0087). This file is licensed
+  CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
+  GPL-3.0; attribution to the authors travels with it.
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------
