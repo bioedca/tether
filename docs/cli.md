@@ -329,7 +329,7 @@ Code `4` is reserved, and it has one meaning in every `tether` command: the run 
 before a step that needs a person, because nothing approved that step. No command returns
 it today. `tether batch` never returns it, because it applies its `--policy` rule to the
 map and accepts the estimated correction factors, as it does now
-([ADR-0100](adr/0100-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
 
 | Code | Meaning in every command |
 |---|---|

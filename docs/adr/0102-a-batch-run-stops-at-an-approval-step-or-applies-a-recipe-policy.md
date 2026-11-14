@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0100 — A batch run stops at a step that needs a person, unless the recipe names a policy
+# 0102 — A batch run stops at a step that needs a person, unless the recipe names a policy
 
 - **Status:** accepted
 - **Date:** 2026-11-14
