@@ -20,7 +20,7 @@ run has no person. Today `tether batch` has one rule of this type: a map above t
 (`--policy warn`, the default) or the movie fails (`--policy fail`) (ADR-0014, ADR-0031). The correction pass of
 `tether batch` uses the estimated factors with no approval at all.
 
-Which steps need a person, what does a batch run do at each of them, and what does the store record?
+Which steps need a person, what does a batch run do at each of them, and what does the store record? Issues
 #899 (the recipe runner), #918 (map commands), #925 (correction states), #939 (active fit) and #958 (deposit)
 implement this contract.
 
@@ -97,7 +97,7 @@ has no hidden default and adds no tunable to §11.2.
 
 | Step | Rules | `otherwise` |
 |---|---|---|
-| `map.accept` | `rms-gate`: approve when the RMS residual is at most `gate_px` | `flag`, `fail` or `stop` |
+| `map.accept` | `rms-gate`: approve when the RMS residual is at most `gate_px`; `no_residual` (`approve` or `stop`) says what to do with a map that has no measured residual, such as an imported `.tmap` without control points | `flag`, `fail` or `stop` |
 | `alpha.confirm` | `estimate`: approve the estimated α when at least `min_qualifying_traces` molecules qualify; `value`: approve a given α with its `source` | `apparent`, `fail` or `stop` |
 | `gamma.approve` | `estimate`: approve the estimated γ when at least `min_qualifying_traces` molecules qualify and γ is in `range`; `value`: approve a given γ with its `source` | `apparent`, `fail` or `stop` |
 | `fit.select` | `best-score`: select the best score in the context of `family` and `score`; `model`: select the fit of `family` with `n_states` | `fail` or `stop` |
@@ -110,7 +110,7 @@ apparent E (G03 BLEEDTHROUGH_REQUIRED or CALIBRATION_BLOCKED, §7.2).
 One example for each step:
 
 ```json
-{"step": "map.accept", "rule": "rms-gate", "gate_px": 0.5, "otherwise": "flag"}
+{"step": "map.accept", "rule": "rms-gate", "gate_px": 0.5, "no_residual": "stop", "otherwise": "flag"}
 {"step": "alpha.confirm", "rule": "value", "alpha": 0.07, "source": "donor-only sample of 2026-10-02, donly.tether", "otherwise": "stop"}
 {"step": "gamma.approve", "rule": "estimate", "min_qualifying_traces": 10, "range": [0.5, 2.0], "otherwise": "stop"}
 {"step": "fit.select", "rule": "best-score", "family": "vbconhmm", "score": "elbo", "otherwise": "stop"}
@@ -144,11 +144,13 @@ its present behaviour:
 
 | Step | `--policy warn` (default) | `--policy fail` |
 |---|---|---|
-| `map.accept` | `rms-gate`, `gate_px` = the §11.2 RMS gate, `otherwise: flag` | the same, `otherwise: fail` |
+| `map.accept` | `rms-gate`, `gate_px` = the §11.2 RMS gate, `no_residual: approve`, `otherwise: flag` | the same, `otherwise: fail` |
 | `alpha.confirm`, `gamma.approve` | `estimate` with the §11.2 `min_qualifying_traces` and no `range`, `otherwise: apparent` | the same |
 | `fit.select` | not reached: `tether batch` makes one fit for each movie | the same |
 
-The default behaviour of `tether batch` does not change: the same flags, outputs, tags, exit codes and
+`no_residual: approve` keeps today's rule for an imported `.tmap` with no control points: its residual is not a
+number, so it is not over the gate, and it gets no flag (ADR-0014). The default behaviour of `tether batch` does not
+change: the same flags, outputs, tags, exit codes and
 `/settings/batch` stamp. When the record of section 4 exists, `tether batch` also writes it, with the implicit
 policy as the policy text, so that its approvals have the same record as the approvals of a recipe.
 
