@@ -42,7 +42,8 @@ specifics worth knowing:
 `tether.fret.efficiency.corrected_fret(donor, acceptor, *, alpha, gamma)`, applying
 `I_A,corr = I_A − α·I_D`, a **bare** `I_D,corr = I_D`, and
 `E = I_A,corr / (I_A,corr + γ·I_D,corr)`
-([Hellenkamp 2018](https://doi.org/10.1038/s41592-018-0085-0)).
+([Hellenkamp 2018](https://doi.org/10.1038/s41592-018-0085-0)). In prose, "corrected E" and
+"corrected FRET" mean this value, corrected for leakage and γ, and nothing else.
 
 > **Tether does not scale the donor by `(1 + α)` the way Deep-LASI does.** γ is defined
 > consistently with the bare `I_D`, so Tether's γ is systematically ≈`(1 + α)`× Deep-LASI's
@@ -188,7 +189,7 @@ These pages never write a bare "window". Each use names one of these kinds:
 3. **estimator windows**: the leakage tail window and γ's 3-frame half-window, in frames.
 4. **model window**: the deep model's `window_length`, 500 frames, the input length of the ML
    classifier ([Deep trace classifier](ml/deep-classifier.md)).
-5. **application window**: the Tether desktop window, or tMAVEN's own window. Its parts
+5. **application window**: the Tether desktop window, or tMAVEN's own application window. Its parts
    keep their own names: the main window and the splash window.
 6. **post-synchronization window**: the frames that a post-synchronized heatmap bins around
    each transition (`single_dwell`, `sync_preframe`; see
@@ -262,6 +263,14 @@ is a sum (top-hat): `I = sum(crop · disk) − ring_background · N_psf`.
 
 This is what `corrected` means in `/traces` at extraction time — **background-subtracted,
 not photophysically corrected** (`tether.project.trace_layers`).
+
+### background-subtracted intensity (`corrected`)
+
+The trace layer with the local background removed: the aperture sum minus the ring background,
+as above. Tether stores this layer as `intensity_quantity="corrected"`, and it is the default
+layer for photobleach detection, the correction factors, idealization and the analyses. It is
+**not** corrected for leakage or γ. These pages write "background-subtracted" for it in prose,
+and write the stored value `corrected` in code formatting only.
 
 ### donor-anchored colocalization
 
@@ -615,6 +624,11 @@ survives only by exact intensity-trace matching. See the
 
 ### `.tether` project
 
+A **project** is the unit of work that you open and save in Tether. The **project file** is the
+`.tether` file that holds it. These pages use those two names. "Store" names the HDF5 layout
+inside a project file, and only the [format reference](reference/tether-format.md) and the
+contributor pages use it.
+
 One HDF5 file per experiment, that is, one day or one session of acquisition. A project can
 hold several movies and several conditions, and one condition can span several projects
 (ADR-0068). The file has the root attribute `format = "tether-project"` and a
@@ -624,6 +638,13 @@ at M0**, so later milestones add *data*, never *structure*
 
 A file stamped with a **higher** `schema_version` than the running app is refused outright
 rather than partially read.
+
+### provenance file
+
+The `<file>.provenance.json` file that every export writes beside its output. It records the
+Tether version, the source project and the export's own parameters
+([Provenance file](reference/exports.md#provenance-file)). Older pages called it the
+"provenance sidecar". It has no relation to the [sidecar](#sidecar) environment.
 
 ### analysis-only import
 
@@ -649,6 +670,10 @@ interpreter is: explicit argument → `TETHER_SIDECAR_PYTHON` → the installer'
 (ADR-0051). That last fallback exists because a
 menu shortcut, `PATH` shim or `.desktop` launch never runs the conda `activate.d` hook that
 would have set the variable.
+
+"Sidecar" names this environment only. The JSON file beside an export is the
+[provenance file](#provenance-file), and the `.lock` file beside an open project is the
+[lock file](#write-lock-stale-lock).
 
 ### transient vs deterministic sidecar failure
 
