@@ -286,10 +286,19 @@ def _targets(node: ast.Assign | ast.AnnAssign | ast.AugAssign) -> list[str]:
     raw = node.targets if isinstance(node, ast.Assign) else [node.target]
     out: list[str] = []
     for tgt in raw:
-        for sub in ast.walk(tgt):
-            if isinstance(sub, ast.Name):
-                out.append(sub.id)
+        _bound_names(tgt, out)
     return out
+
+
+def _bound_names(target: ast.expr, out: list[str]) -> None:
+    """Add the names that *target* binds (``a``, ``a, b``, ``*a``), never ``a.b`` or ``a[0]``."""
+    if isinstance(target, ast.Name):
+        out.append(target.id)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for element in target.elts:
+            _bound_names(element, out)
+    elif isinstance(target, ast.Starred):
+        _bound_names(target.value, out)
 
 
 def _absolute(module: str, is_package: bool, name: str | None, level: int) -> str:

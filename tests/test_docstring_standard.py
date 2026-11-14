@@ -206,3 +206,15 @@ def test_allowlist_never_grows():
     if not allow.allowlist(shown.stdout) and "pydocstyle" not in shown.stdout:
         return  # main has no docstring check yet (the pull request that adds it)
     assert allow.added_entries(shown.stdout, head) == []
+
+
+def test_an_attribute_assignment_does_not_hide_an_import(tmp_path):
+    source = (
+        '"""Use :class:`np.ndarray`."""\n\nimport numpy as np\n\nnp.some_setting = 1\n'
+        "first, *rest = (1, 2)\n"
+    )
+    index = _index(tmp_path, {"tether/__init__.py": '"""Pkg."""\n', "tether/m.py": source})
+    assert index.modules["tether.m"].names["np"] == ("import", "numpy")
+    assert {"first", "rest"} <= set(index.modules["tether.m"].names)
+    out, report = _rewrite(index, "tether.m", source)
+    assert out.startswith('"""Use [`np.ndarray`][]."""')
