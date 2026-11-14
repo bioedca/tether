@@ -513,6 +513,31 @@ def test_fail_over_share_stops_at_tethers_fifteen(
     assert usage.main() == (usage.EXIT_OVER_BUDGET if code else 0)
 
 
+def test_fail_over_share_refuses_an_empty_seat_whatever_tethers_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tether's share is a ceiling inside the seat, not a credit of its own (Codex P2 on #1036).
+
+    14 for Tether and 18 in each other repository is 50 of 50: Tether is under its share, and the
+    seat still has nothing to spend.
+    """
+    counts = {"bioedca/tether": 14, "bioedca/Yeliztli": 18, "bioedca/tbox-finder": 18}
+    prs: dict[str, list] = {}
+    reviews: dict[int, list] = {}
+    number = 0
+    for repo, count in counts.items():
+        prs[repo] = []
+        for _ in range(count):
+            number += 1
+            prs[repo].append(_pr(number))
+            reviews[number] = [_review()]
+    monkeypatch.setattr(usage, "_gh", _fake_gh(prs, reviews))
+    monkeypatch.setattr(
+        "sys.argv", ["greptile_usage.py", "--month", "2026-08", "--fail-over-share"]
+    )
+    assert usage.main() == usage.EXIT_OVER_BUDGET
+
+
 def test_the_seat_verdict_is_never_given_from_part_of_the_seat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

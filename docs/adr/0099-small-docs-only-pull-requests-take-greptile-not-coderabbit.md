@@ -100,7 +100,9 @@ How does a small documentation change finish its review without a turn in the Co
   submitted in the month and the comment's "Reviews (N)" counter. One review that leaves both is
   one credit. The counter covers the pull request's whole life, so a pull request reviewed in two
   months reads high in the second; that is the safe direction.
-- `--repo` narrows the count, and `--fail-over-share` exits 1 once Tether has used its share.
+- `--repo` narrows the count, and `--fail-over-share` exits 1 once Tether has used its share, or
+  when the whole seat was read and is empty: the share is a ceiling inside the seat, never a credit
+  of its own.
   `--fail-over-budget` refuses a narrowed count, because a seat balance from part of the seat reads
   high.
 

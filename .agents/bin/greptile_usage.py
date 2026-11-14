@@ -318,7 +318,10 @@ def main() -> int:
     parser.add_argument(
         "--fail-over-share",
         action="store_true",
-        help="exit 1 when Tether has no credit left in its monthly share (the docs-only route)",
+        help=(
+            "exit 1 when Tether has no credit left in its monthly share, or when the whole seat "
+            "was read and is empty (the docs-only route)"
+        ),
     )
     args = parser.parse_args()
     selected = tuple(repo for repo in REPOS if repo in (args.repo or REPOS))
@@ -398,6 +401,13 @@ def main() -> int:
         return EXIT_OVER_BUDGET
     if args.fail_over_share and per_repo[TETHER] >= REPO_SHARE:
         print(f"\nerror: Tether has used its share of {REPO_SHARE} this month", file=sys.stderr)
+        return EXIT_OVER_BUDGET
+    if args.fail_over_share and whole_seat and left <= 0:
+        # Tether's share is a ceiling inside the seat, never a credit of its own: where the whole
+        # seat was read and it is empty, nothing may be spent however little Tether used (Codex
+        # P2 on #1036). A partial count cannot see this, which is why ADR-0099 has the maintainer
+        # reconcile the seat.
+        print("\nerror: the seat has no included credits left this month", file=sys.stderr)
         return EXIT_OVER_BUDGET
     return 0
 
