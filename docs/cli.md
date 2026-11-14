@@ -290,6 +290,24 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
 
+## Sync-conflict copies beside a project
+
+OneDrive and SharePoint can leave a second copy of a file when two machines save it at the
+same time. Tether does not prevent these copies; it finds them and tells you (PRD §5.4).
+After `tether extract` writes its project, and after `tether batch` finishes, each project
+the command opened is checked for siblings in the two documented naming forms:
+`<stem>-<COMPUTERNAME>.tether` and `<stem> (<...>).tether`. A hit adds one warning line to
+stderr:
+
+```text
+  warning: 1 possible OneDrive/SharePoint conflict copy beside movie.tether: movie-DESKTOP-AB12.tether. Tether does not merge or delete it; compare and reconcile by hand.
+```
+
+The warning is advisory. It does not change the exit code, and Tether does not open, merge,
+rename or delete the copy. The match is by file name only, so a project you named
+`movie-donoronly.tether` on purpose is also listed; ignore the line for such a file. The GUI
+shows the same text in the Browser when you open the project.
+
 ## Exit codes
 
 | Code | `tether extract` | `tether batch` |

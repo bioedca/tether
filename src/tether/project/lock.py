@@ -44,7 +44,9 @@ owner-pull merge (the owner's retrain later joins every split's ``/labels`` on
 
 OneDrive is also **detected, not prevented** (§5.4): :func:`conflict_copies`
 surfaces the sync-conflict duplicates OneDrive/SharePoint leave beside the
-project so the user can reconcile them.
+project so the user can reconcile them, and :func:`conflict_copy_warning` words
+that result once for both front doors — the GUI's open-project banner and the
+CLI's ``extract``/``batch`` stderr line — so they cannot drift apart.
 """
 
 from __future__ import annotations
@@ -84,6 +86,7 @@ __all__ = [
     "assert_writable",
     "assert_process_reservation",
     "conflict_copies",
+    "conflict_copy_warning",
     "create_split_curation",
     "held_lock",
     "local_identity",
@@ -1103,6 +1106,37 @@ def conflict_copies(project_path: str | Path) -> list[Path]:
             if candidate.is_file():
                 matches.add(candidate)
     return sorted(matches)
+
+
+def conflict_copy_warning(project_path: str | Path) -> str | None:
+    """The one-line warning for :func:`conflict_copies` hits, or ``None`` when there are none.
+
+    The GUI (on :meth:`~tether.gui.shell.TetherShell.load_project`) and the CLI
+    (``tether extract`` / ``tether batch``) both surface the same text, so the user
+    reads one message whichever door opened the project. It names every candidate
+    sibling by file name, says they are only *possible* conflict copies (the match
+    is a naming heuristic, see :func:`conflict_copies`), and states that Tether
+    leaves them alone: detection only, never reconciliation, deletion or merge
+    (PRD §5.4).
+
+    A directory that cannot be listed (``OSError``) yields ``None``: this is an
+    advisory surface, and failing to look must never block or fail an open.
+    """
+    p = Path(project_path)
+    try:
+        copies = conflict_copies(p)
+    except OSError:
+        return None
+    if not copies:
+        return None
+    one = len(copies) == 1
+    names = ", ".join(c.name for c in copies)
+    noun = "copy" if one else "copies"
+    pronoun = "it" if one else "them"
+    return (
+        f"{len(copies)} possible OneDrive/SharePoint conflict {noun} beside {p.name}: "
+        f"{names}. Tether does not merge or delete {pronoun}; compare and reconcile by hand"
+    )
 
 
 # --- split-file curation (PRD §7.10 producer side; M5 owner-pull consumer) ----

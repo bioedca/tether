@@ -148,6 +148,30 @@ def test_batch_no_idealize_disables_supervision(tmp_path, monkeypatch) -> None:
     assert captured["kwargs"]["idealize"] is False
 
 
+def test_batch_warns_about_conflict_copies_of_each_output(tmp_path, monkeypatch, capsys) -> None:
+    # #560 / PRD §5.4: every per-movie project the batch opens is checked for
+    # OneDrive/SharePoint conflict siblings, and only a flagged one is named.
+    _capture_run_batch(monkeypatch)
+    movies = [tmp_path / "movie_001.tif", tmp_path / "movie_002.tif"]
+    for movie in movies:
+        movie.write_bytes(b"x")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "movie_002.tether").write_bytes(b"project")
+    (out / "movie_002-DESKTOP-AB12.tether").write_bytes(b"copy")
+
+    rc = main(["batch", *map(str, movies), "--out-dir", str(out), "--no-idealize"])
+
+    assert rc == 0  # advisory: never changes the exit code
+    err = capsys.readouterr().err
+    assert (
+        "  warning: 1 possible OneDrive/SharePoint conflict copy beside movie_002.tether: "
+        "movie_002-DESKTOP-AB12.tether." in err
+    )
+    assert "beside movie_001.tether" not in err
+    assert (out / "movie_002-DESKTOP-AB12.tether").read_bytes() == b"copy"
+
+
 # --- Flags that reach the batch run (#730) ----------------------------------
 
 

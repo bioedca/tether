@@ -19,6 +19,7 @@ heavy imaging/IO stack is imported lazily inside the ``extract`` handler so that
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 
@@ -41,6 +42,20 @@ def build_parser() -> argparse.ArgumentParser:
     _add_extract_parser(subparsers)
     _add_batch_parser(subparsers)
     return parser
+
+
+def _warn_conflict_copies(project_path: str | os.PathLike[str]) -> None:
+    """Print one stderr warning when ``project_path`` has sync-conflict siblings (§5.4).
+
+    The CLI's half of detect-and-surface: the same text the GUI's open-project banner
+    shows (:func:`tether.project.lock.conflict_copy_warning`). Advisory only — it never
+    changes the exit code and never touches the conflict copies.
+    """
+    from tether.project.lock import conflict_copy_warning
+
+    warning = conflict_copy_warning(project_path)
+    if warning is not None:
+        print(f"  warning: {warning}.", file=sys.stderr)
 
 
 def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -221,6 +236,7 @@ def _run_extract(args: argparse.Namespace) -> int:
             print(f"  warning: {note}.", file=sys.stderr)
         else:
             print(f"  donor side: {note}.")
+    _warn_conflict_copies(summary.output_path)
     return 0
 
 
@@ -384,6 +400,8 @@ def _run_batch(args: argparse.Namespace) -> int:
             log=log,
         )
     print(summary.format_report())
+    for job in jobs:
+        _warn_conflict_copies(job.output_path)
     print(f"  structured log: {log_path}", file=sys.stderr)
     return 0 if summary.n_failed == 0 else 1
 

@@ -501,6 +501,13 @@ class TetherShell:
         # The theme's style sheet draws it in the "caution" state token.
         self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
+        # OneDrive/SharePoint sync-conflict siblings of the open project (PRD §5.4,
+        # detect-and-surface): a non-blocking warning, never a dialog or a refusal.
+        self._conflict_copy_banner = QtWidgets.QLabel()
+        self._conflict_copy_banner.setAccessibleName("Sync-conflict copy warning")
+        self._conflict_copy_banner.setWordWrap(True)
+        self._conflict_copy_banner.setProperty("tetherRole", "caution")
+        self._conflict_copy_banner.hide()
         # Section titles use the heading font (Red Hat Display, else the system font).
         self._section_titles = [
             QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Category name")
@@ -511,6 +518,7 @@ class TetherShell:
         vbox.addWidget(movie_title)
         vbox.addWidget(self._movie_switcher)
         vbox.addWidget(self._read_only_banner)
+        vbox.addWidget(self._conflict_copy_banner)
         vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
@@ -772,6 +780,17 @@ class TetherShell:
         return self._read_only_banner
 
     @property
+    def conflict_copy_banner(self) -> QtWidgets.QLabel:
+        """The Browser warning naming possible sync-conflict copies of the open project.
+
+        :meth:`load_project` fills it from
+        :func:`~tether.project.lock.conflict_copy_warning` and hides it when the
+        project's directory holds none; closing the project clears it. It only
+        reports: Tether never reconciles, deletes or merges a conflict copy (§5.4).
+        """
+        return self._conflict_copy_banner
+
+    @property
     def controller(self) -> CurationController:
         """The :class:`~tether.gui.curation.CurationController` each command is routed to."""
         return self._controller
@@ -893,6 +912,15 @@ class TetherShell:
             self._read_only_banner.show()
         self._sync_project_write_controls()
 
+    def _set_conflict_copy_warning(self, warning: str | None) -> None:
+        """Show ``warning`` in the sync-conflict banner, or clear and hide it for ``None``."""
+        if warning is None:
+            self._conflict_copy_banner.clear()
+            self._conflict_copy_banner.hide()
+        else:
+            self._conflict_copy_banner.setText(f"Warning: {warning}.")
+            self._conflict_copy_banner.show()
+
     def _sync_project_write_controls(self) -> None:
         """Enable source-project writers only for an idle writable GUI session."""
         enabled = self._curation_read_only_reason is None and self._idealize_future is None
@@ -938,6 +966,12 @@ class TetherShell:
         never crashes on an open. Returns the opened :class:`~tether.project.core.Project`
         (``None`` on failure).
 
+        A successful open also looks for OneDrive/SharePoint sync-conflict siblings of
+        the file (:func:`~tether.project.lock.conflict_copy_warning`, PRD §5.4
+        detect-and-surface) and names any in the non-blocking
+        :attr:`conflict_copy_banner`; with none, the banner is hidden. The open never
+        waits on, refuses over, or changes a conflict copy.
+
         The curation category vocabulary, the movie switcher, and the napari movie panel
         / round-trip navigation are **not** re-wired here (the movie panel + round-trip
         land at M2 S3/S4, and the per-condition category list is edited through the
@@ -946,7 +980,7 @@ class TetherShell:
         """
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
-        from tether.project.lock import LockedError
+        from tether.project.lock import LockedError, conflict_copy_warning
 
         if self._idealize_future is not None:
             self._status("Open project unavailable: wait for idealization to finish")
@@ -1138,6 +1172,10 @@ class TetherShell:
         detail = marker.banner if analysis_only else f"{len(traces)} molecule(s)"
         if read_only_reason is not None:
             detail = f"{detail}; {read_only_reason}"
+        # Detect-and-surface (§5.4): look for OneDrive/SharePoint conflict siblings on
+        # every successful open, writable or browse-only. Advisory only — the helper
+        # swallows a directory-listing failure, so this can never fail the open.
+        self._set_conflict_copy_warning(conflict_copy_warning(proj_path))
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
 
@@ -1368,6 +1406,7 @@ class TetherShell:
         self._lock_refresh_timer.stop()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         self._idealizer = None
         self._handoff = None
         self._histogram_seam = None
@@ -2087,6 +2126,7 @@ class TetherShell:
                 writable_project.refresh_lock()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         if self._idealize_timer is not None:
             self._idealize_timer.stop()
             self._idealize_timer = None

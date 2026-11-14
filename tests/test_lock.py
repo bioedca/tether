@@ -897,6 +897,57 @@ def test_conflict_copies_empty_when_none(tmp_path: Path) -> None:
     assert lock.conflict_copies(path) == []
 
 
+def test_conflict_copy_warning_names_every_copy_and_says_nothing_is_changed(
+    tmp_path: Path,
+) -> None:
+    # #560: the one message both front doors surface names each candidate, in both
+    # documented naming forms, and says Tether leaves them alone (§5.4).
+    path = _seed(tmp_path, [("k0", "c0")], name="exp.tether")
+    (tmp_path / "exp-DESKTOP-AB12.tether").write_bytes(b"copy")
+    (tmp_path / "exp (1).tether").write_bytes(b"copy")
+
+    warning = lock.conflict_copy_warning(path)
+
+    assert warning is not None
+    assert warning.startswith("2 possible OneDrive/SharePoint conflict copies beside exp.tether:")
+    assert "exp-DESKTOP-AB12.tether" in warning
+    assert "exp (1).tether" in warning
+    assert "does not merge or delete them" in warning
+
+
+def test_conflict_copy_warning_uses_the_singular_for_one_copy(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")], name="exp.tether")
+    (tmp_path / "exp-LAPTOP-9.tether").write_bytes(b"copy")
+
+    warning = lock.conflict_copy_warning(path)
+
+    assert warning == (
+        "1 possible OneDrive/SharePoint conflict copy beside exp.tether: "
+        "exp-LAPTOP-9.tether. Tether does not merge or delete it; compare and "
+        "reconcile by hand"
+    )
+
+
+def test_conflict_copy_warning_is_none_without_copies(tmp_path: Path) -> None:
+    path = _seed(tmp_path, [("k0", "c0")], name="exp.tether")
+    lock.acquire(path, identity=HOST_A)  # its own .lock is not a conflict copy
+    (tmp_path / "other.tether").write_bytes(b"unrelated")
+
+    assert lock.conflict_copy_warning(path) is None
+
+
+def test_conflict_copy_warning_never_raises_when_the_directory_cannot_be_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Advisory only: a listing failure must not fail the open that asked.
+    def _boom(_project_path: object) -> list[Path]:
+        raise PermissionError("listing refused")
+
+    monkeypatch.setattr(lock, "conflict_copies", _boom)
+
+    assert lock.conflict_copy_warning(tmp_path / "exp.tether") is None
+
+
 # --- Project write-guard (§9 M2: lock prevents a second writer) ---------------
 
 
