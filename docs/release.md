@@ -368,6 +368,10 @@ dispatch passes `--ref "$TAG"`; without it `gh workflow run` targets the default
 and a tag cut a few commits back — or `main` advancing during the ~15-minute build matrix
 — would publish unreleased docs under the released version.
 
+The source links follow the tag too: `docs.yml` sets `TETHER_DOCS_SOURCE_TAG` to the tag it
+builds from, and the build hook in `scripts/mkdocs_hooks.py` points each `blob/main` and
+`tree/main` link at it, while a run from `main`, such as `dev`, keeps them on `main`.
+
 Each version's canonical URLs are handled by `mike`, not by `mkdocs.yml`. `mike deploy`
 injects its own plugin and rewrites `site_url` to `<site_url>/<version>` at build time, so
 the published `1.0` tree carries canonicals and a sitemap under `/tether/1.0/`. That is why

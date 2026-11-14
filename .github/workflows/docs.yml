@@ -108,6 +108,12 @@ jobs:
       - name: Publish versioned docs (mike -> gh-pages)
         env:
           VERSION_LABEL: ${{ steps.ver.outputs.label }}
+          # The tag this run checked out and builds from (release.yml dispatches with
+          # `--ref "$TAG"`; a Release event runs on its tag too). scripts/mkdocs_hooks.py
+          # points every `blob/main` source link at it, so the 1.0 docs link the 1.0 code
+          # (#600). A run from a branch -- the `dev` deployment from main -- sets it empty,
+          # and the links stay on main.
+          TETHER_DOCS_SOURCE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           set -euo pipefail
           mike deploy --push --update-aliases "$VERSION_LABEL" latest
