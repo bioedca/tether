@@ -1,0 +1,91 @@
+{
+ "format": 1,
+ "issue": "#759",
+ "adr": "docs/adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md",
+ "dataset": {
+  "id": "pysmacks-tutorial-traces",
+  "source": "doi:10.5281/zenodo.21793247",
+  "license": "CC0-1.0",
+  "file": "PySMACKS_tutorial_traces_dataset.json.zip",
+  "sha256": "2c19091c55326b1eadda42b0e99c8a8c6123f92f9ecccafae176db7fbcb3da59"
+ },
+ "samples": {
+  "unit": "one labelled frame range [indmin, indmax) of one trace: background-subtracted DD and DA",
+  "accept": [
+   "FRET"
+  ],
+  "reject": [
+   "DO",
+   "AO"
+  ],
+  "n_traces": 123,
+  "n_ranges": 149,
+  "n_accept": 52
+ },
+ "split": {
+  "unit": "trace",
+  "rule": "tether.ml.deep.train_val_split over the traces, stratified by the labels each carries",
+  "test_fraction": 0.3,
+  "seed": 759,
+  "n_train_ranges": 104,
+  "n_train_accept": 36,
+  "n_test_ranges": 45,
+  "n_test_accept": 16,
+  "test_traces": [
+   "06a636b3-2482-729c-8000-fd5b881b40dd",
+   "06a636b3-26b6-798e-8000-d345b49a4b7f",
+   "06a636b3-2baa-7c57-8000-c7ee433831a3",
+   "06a636b3-2bd9-7137-8000-d0a03af6d63a",
+   "06a636b3-2c23-759f-8000-a817396fe650",
+   "06a636b3-2d0e-7cdd-8000-c62ce1394c2a",
+   "06a636b3-2d5b-7726-8000-37408ff28dc6",
+   "06a636b3-2d89-78e0-8000-47c1e4052ab3",
+   "06a636b3-2eef-7a9d-8000-0d0d4db14d13",
+   "06a636b3-2f91-7ee5-8000-50e72a90cbcc",
+   "06a636b3-30b5-7849-8000-94c7d294d63e",
+   "06a636b3-31c9-7007-8000-6695a875ceb6",
+   "06a636b3-31ea-7b99-8000-a8add9bb709a",
+   "06a636b3-3432-7886-8000-6a1ff6afc86f",
+   "06a636b3-354a-7a6d-8000-e9097965d1e4",
+   "06a636b3-38a1-79a9-8000-6eebc7c2b7ab",
+   "06a636b3-39e4-7358-8000-fb719ad013f4",
+   "06a636b3-3b3d-79b6-8000-a8228e8fb4bb",
+   "06a636b3-3b53-7ecc-8000-e53223129093",
+   "06a636b3-3dce-7a2a-8000-bf39112adb74",
+   "06a636b3-3fbf-7670-8000-67788eb12263",
+   "06a636b3-4346-7b9a-8000-0b2c0718dc67",
+   "06a636b3-4b09-7664-8000-fe3e3511e56e",
+   "06a636b3-4ee1-7fcc-8000-47b6f75808b8",
+   "06a636b3-4f42-74aa-8000-4f8e73c98f5f",
+   "06a636b3-4f93-78af-8000-5b815f30743f",
+   "06a636b3-50ee-7176-8000-8900c248e66f",
+   "06a636b3-53dc-7e92-8000-2c102b46cd75",
+   "06a636b3-5803-7af3-8000-68896800b431",
+   "06a636b3-587f-73bc-8000-e7c0d3dce817",
+   "06a636b3-5a80-70a4-8000-d1894bd956e2",
+   "06a636b3-5ddd-7490-8000-a4286ee2e5c6",
+   "06a636b3-6147-7777-8000-16f35b320262",
+   "06a636b3-61ed-7e0a-8000-dfc3847b93a1",
+   "06a636b3-629b-7b13-8000-b3c3e4ce1c46",
+   "06a636b3-62fe-7909-8000-0e415f55d62e",
+   "06a636b3-6b6b-782d-8000-b8ab5f3bced5"
+  ]
+ },
+ "training": {
+  "seed": 0,
+  "hyperparameters": "the defaults of tether.ml.deep.model.train_classifier (PRD 11.2)",
+  "window_length": 500,
+  "normalization": "per_trace_total"
+ },
+ "accuracy": {
+  "metric": "roc_auc",
+  "floor": null,
+  "margin_rule": null,
+  "measured": null
+ },
+ "self_drift": {
+  "golden": "tests/golden/deep/pysmacks_classifier.json",
+  "rtol": null,
+  "measured": null
+ }
+}
