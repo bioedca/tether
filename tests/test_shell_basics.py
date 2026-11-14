@@ -148,7 +148,22 @@ def test_no_menu_shortcut_shadows_a_curation_or_reserved_key(shell) -> None:
     assert checked >= 4
 
 
+#: Set to the literal ``1`` by the required CI ``test`` job on all three operating systems (#855).
+REQUIRE_ACTIVATION_ENV = "TETHER_REQUIRE_WINDOW_ACTIVATION"
+
+
 def _activate(shell, qtbot):
+    """Show and activate the shell window, for a test that sends a real key chord.
+
+    A platform plugin that does not activate windows (``QT_QPA_PLATFORM=minimal``, for one)
+    cannot deliver a window shortcut, so the test skips there. The required CI ``test`` job
+    sets ``TETHER_REQUIRE_WINDOW_ACTIVATION=1``, and under it the same timeout **fails** the
+    test: pytest exits 0 when a test skips, so a leg whose plugin stopped activating windows
+    would stay green without exercising the shortcut key path. This is the rule
+    ``TETHER_REQUIRE_SIDECAR`` applies to the live sidecar tests (``tests/_sidecar_gate.py``).
+    """
+    import os
+
     from pyqtgraph.Qt import QtWidgets
 
     shell.show()
@@ -157,7 +172,56 @@ def _activate(shell, qtbot):
     try:
         qtbot.waitUntil(lambda: QtWidgets.QApplication.activeWindow() is shell.window, timeout=2000)
     except qtbot.TimeoutError:
+        if os.environ.get(REQUIRE_ACTIVATION_ENV) == "1":
+            pytest.fail(
+                f"{REQUIRE_ACTIVATION_ENV}=1 but the platform plugin did not activate the window: "
+                "this job requires the keyboard-shortcut tests to run",
+                pytrace=False,
+            )
         pytest.skip("the platform plugin did not activate the window")
+
+
+def _never_active(monkeypatch, qtbot):
+    """Make the activation wait in ``_activate`` time out, as on a plugin that never activates."""
+
+    def time_out(*_args, **_kwargs):
+        raise qtbot.TimeoutError("forced activation timeout")
+
+    monkeypatch.setattr(qtbot, "waitUntil", time_out)
+
+
+def test_an_activation_timeout_fails_where_activation_is_required(shell, qtbot, monkeypatch):
+    """#855: with the switch set, a window that does not activate fails the test, not skips it."""
+    monkeypatch.setenv(REQUIRE_ACTIVATION_ENV, "1")
+    _never_active(monkeypatch, qtbot)
+    with pytest.raises(pytest.fail.Exception, match=REQUIRE_ACTIVATION_ENV):
+        _activate(shell, qtbot)
+
+
+@pytest.mark.parametrize("value", [None, "", "0", "true"])
+def test_an_activation_timeout_skips_where_activation_is_not_required(
+    shell, qtbot, monkeypatch, value
+):
+    """#855: without the literal ``1`` a local run on such a plugin still skips."""
+    if value is None:
+        monkeypatch.delenv(REQUIRE_ACTIVATION_ENV, raising=False)
+    else:
+        monkeypatch.setenv(REQUIRE_ACTIVATION_ENV, value)
+    _never_active(monkeypatch, qtbot)
+    with pytest.raises(pytest.skip.Exception, match="did not activate"):
+        _activate(shell, qtbot)
+
+
+def test_the_ci_test_job_requires_window_activation():
+    """#855: every leg of the required ``test`` job sets the switch, so key tests cannot skip."""
+    import yaml
+
+    ci = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+    job = yaml.safe_load(ci.read_text(encoding="utf-8"))["jobs"]["test"]
+    assert job["strategy"]["matrix"]["os"] == ["ubuntu-latest", "macos-latest", "windows-latest"]
+    assert job["env"][REQUIRE_ACTIVATION_ENV] == "1"
+    for step in job["steps"]:  # a step-level env could override the job's
+        assert REQUIRE_ACTIVATION_ENV not in (step.get("env") or {}), step.get("name")
 
 
 def _press(qtbot, widget, action):

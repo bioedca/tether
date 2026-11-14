@@ -150,6 +150,11 @@ QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 pytest -m "not gui and not large and not sidecar and not deep and not workstation"
 ```
 
+The shell keyboard-shortcut tests in `tests/test_shell_basics.py` need a window that
+the platform plugin activates. Where it does not, they skip, unless
+`TETHER_REQUIRE_WINDOW_ACTIVATION=1` is set: then they fail. The required `test` job sets
+it on all three operating systems, so that gate cannot go green without the key path (#855).
+
 `--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
 **not** protect a negated expression: `-m "not largge"` is a perfectly valid filter that
 happens to exclude nothing, so a typo there silently pulls the optional tiers back into
