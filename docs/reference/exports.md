@@ -39,10 +39,13 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, corrected traces, idealization models — without shipping the movie |
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
-> **There is no CLI or GUI export command, and this page will not invent one.**
-> `tether.cli` registers exactly two subcommands, `extract` and `batch`, and no module
-> under `src/tether/gui/` references any of the four functions above. They are a Python
-> API today. Every snippet on this page is therefore the call you actually run.
+> **The first three also have a command.** `tether export table`, `tether export traces`
+> and `tether export subset` call `export_molecule_table_csv`, `export_deeplasi_txt` and
+> `export_subset_tether`, with one flag for each parameter
+> ([`tether export`](../cli.md#tether-export)); the file is the same. `export_figure` has no
+> command, and no module under `src/tether/gui/` references any of the four functions above.
+> Every snippet on this page is the Python call; the [how-to
+> page](../how-to/export-results.md) gives the commands first.
 
 The tMAVEN hand-off (`tether.project.handoff.hand_off_to_tmaven`, reachable from the GUI)
 also writes a file — an SMD-HDF5 — but it is an *interchange* leg with a return path, not

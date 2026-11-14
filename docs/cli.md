@@ -1,9 +1,10 @@
 # Command line
 
 **Who this page is for.** Anyone driving Tether without the window: scripting the
-pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. `tether extract` and `tether batch` are the whole
-headless surface — there is no third subcommand. If you are curating traces by hand,
+pipeline, processing a night's worth of movies unattended, reproducing an extraction
+from recorded settings, or exporting results from many projects. `tether extract`,
+`tether batch` and `tether export` are the whole headless surface. If you are curating
+traces by hand,
 picking states by eye, or reading plots, you want the desktop application instead; this
 page only tells you how to start it.
 
@@ -150,7 +151,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 `--detection-mode` and `--prealign` are metavars in the same way — an unrecognised value
 reaches `ExtractOptions` rather than argparse, and comes back as an error message on
 stderr with exit code 1, never a traceback. `--policy` on `tether batch` is the one flag
-in either subcommand with a real argparse `choices` list.
+of those two subcommands with a real argparse `choices` list; `--intensity-quantity` on
+`tether export` has one too.
 
 ### Detection settings: pick one source
 
@@ -290,23 +292,151 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
 
+## `tether export`
+
+Write the results of one or more `.tether` projects to files that another tool can read.
+The command has three forms. Each form calls one function of `tether.project.export`, so
+the file is the same file that the function writes for the same settings. The
+[Exports reference](reference/exports.md) tells what each file contains.
+
+| Form | Writes | Function |
+|---|---|---|
+| `tether export table` | one CSV row per molecule | `export_molecule_table_csv` |
+| `tether export traces` | the Deep-LASI donor and acceptor trace matrix | `export_deeplasi_txt` |
+| `tether export subset` | a smaller `.tether` without the movie | `export_subset_tether` |
+
+These rules apply to all three forms:
+
+- **The project is only read.** The export takes no lock and does not change the project or
+  its `<file>.lock` file. You can export a project that another user has open.
+- **Every export writes a provenance file.** It is named after the export with
+  `.provenance.json` added, and it records the Tether version, the source project and the
+  settings ([Provenance sidecar](reference/exports.md#provenance-sidecar)).
+- **An existing file is kept.** If the export or its provenance file exists, the export
+  stops with exit code `1` and tells you to give `--overwrite`.
+- **The source project is never the destination.** An output path that is the project
+  itself, or a hard link to it, stops the export with exit code `1`:
+  `subset out_path movie.tether is the source project; refusing to overwrite`.
+- **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
+  makes the folder if necessary and names each export after its project: `<project>.csv`,
+  `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
+  name would write the same export, so that command stops with exit code `2` before it writes
+  a file. A project that fails does not stop the others; the command then exits `1`.
+- **Each export prints one line,** the number of molecules and the path:
+  `Exported 412 molecule(s) -> molecules.csv`.
+
+### Example — the molecule table of every project after a batch run
+
+```bash
+tether export table projects/*.tether -o tables
+```
+
+```powershell
+# Windows PowerShell has no shell glob expansion for native commands
+tether export table (Get-ChildItem projects\*.tether) -o tables
+```
+
+## `tether export table`
+
+Write one CSV row per molecule: the stored per-molecule fields and the apparent-E summary
+([Molecule-table CSV](reference/exports.md#1-molecule-table-csv)). Rejected molecules are
+included, with `reject` in the `curation_label` column.
+
+```text
+tether export table [-h] -o OUTPUT [--overwrite]
+                    [--intensity-quantity {corrected,raw}]
+                    [--exclude-rejected]
+                    projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the `.csv` file to write; with several projects, or when it is an existing folder, the folder (created if absent) that gets one `<project>.csv` per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--intensity-quantity {corrected,raw}` | `corrected` | which trace layer to read (`intensity_quantity`) |
+| `--exclude-rejected` | off | leave rejected molecules out of the table (`include_rejected=False`) |
+
+```bash
+tether export table movie.tether -o molecules.csv
+```
+
+## `tether export traces`
+
+Write the per-frame donor and acceptor traces as a Deep-LASI trace matrix
+([Deep-LASI trace matrix](reference/exports.md#2-deep-lasi-trace-matrix-txt)). `-o` always
+names a folder, and the file in it is named `<project>-donc-accc-w.txt`. An `-o` that ends in
+`.txt` and does not exist yet is refused with exit code `2`, because it is almost certainly a
+file name. Rejected molecules are left out.
+
+```text
+tether export traces [-h] -o OUTPUT [--overwrite]
+                     [--intensity-quantity {corrected,raw}]
+                     [--include-rejected] [--molecule-key KEY]
+                     projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the folder (created if absent) to write one `<project>-donc-accc-w.txt` in per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--intensity-quantity {corrected,raw}` | `corrected` | which trace layer to read (`intensity_quantity`) |
+| `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
+| `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+
+All molecules in one file share one frame axis. For a project that combines movies of
+different lengths, export one movie at a time with its `--molecule-key` values; otherwise the
+export stops with exit code `1` and names the frame ranges.
+
+```bash
+tether export traces movie.tether -o traces
+```
+
+## `tether export subset`
+
+Write a self-contained `.tether` of the selected molecules, without the movie
+([Subset `.tether`](reference/exports.md#3-subset-tether)). Rejected molecules and the raw
+traces are left out.
+
+```text
+tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
+                     [--include-raw] [--molecule-key KEY]
+                     projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the `.tether` file to write; with several projects, or when it is an existing folder, the folder (created if absent) that gets one `<project>-subset.tether` per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
+| `--include-raw` | off | also embed the raw and background traces (`include_raw=True`) |
+| `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+
+```bash
+tether export subset movie.tether -o accepted.tether
+```
+
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` |
-|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
+| Code | `tether extract` | `tether batch` | `tether export` |
+|---|---|---|---|
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every export was written |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, the output is the source project, or the function refused the selection |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
-before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
-written on either path, so it is safe to fix the arguments and re-run — with one wrinkle,
+before any subcommand handler ran, or `tether batch` or `tether export` refused to start. Nothing is
+read and no project or export is written on either path, so it is safe to fix the arguments
+and re-run — with one wrinkle,
 `tether batch` creates `--out-dir` before it checks for colliding basenames, so that
 particular refusal can leave an empty output directory behind.
 
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
-on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
-worth reporting. From `tether batch` it means the run finished with at least one movie
+on stderr, never a traceback — an unhandled traceback from any subcommand is a bug
+worth reporting. From `tether export` it is one such line per failed project, and the other
+projects are still exported. From `tether batch` it means the run finished with at least one movie
 having a failed stage; fix those and re-run the same command to resume the rest.
 
 > **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable

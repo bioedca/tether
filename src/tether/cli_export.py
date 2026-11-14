@@ -1,0 +1,299 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""``tether export``: the three project exports from the command line (#658, FR-EXPORT).
+
+Each form calls one function of ``tether.project.export`` and nothing else, so a file
+written here is the file that function writes for the same arguments:
+
+* ``tether export table`` calls ``export_molecule_table_csv``;
+* ``tether export traces`` calls ``export_deeplasi_txt``;
+* ``tether export subset`` calls ``export_subset_tether``.
+
+The flags map one-to-one to the function's parameters. What this module adds is only
+what a command line needs and a Python call does not: output naming for several
+projects, a refusal to replace an existing output without ``--overwrite``, a refusal to
+write over the source project, and exit codes (0 written, 1 failed, 2 usage).
+
+An export only reads the source project. It takes no writer lock and never touches the
+project's ``<file>.lock``, so it works on a project another user holds open.
+
+Only :mod:`argparse` is imported at module level: ``tether.cli.build_parser`` registers
+these parsers on the ``tether --version`` path, which must stay free of the HDF5 stack.
+The export functions are imported inside :func:`run_export`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+__all__ = [
+    "EXPORT_FORMS",
+    "INTENSITY_QUANTITIES",
+    "TRACES_SUFFIX",
+    "add_export_parser",
+    "run_export",
+]
+
+#: The three forms, in the order the help lists them.
+EXPORT_FORMS: tuple[str, ...] = ("table", "traces", "subset")
+
+#: The ``intensity_quantity`` values the two table exports accept. A literal here, so
+#: that building the parser imports nothing; a test pins it to the keys of
+#: ``tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS``.
+INTENSITY_QUANTITIES: tuple[str, ...] = ("corrected", "raw")
+
+#: The Deep-LASI trace-matrix file ending that ``tether export traces`` names its files with.
+TRACES_SUFFIX = "-donc-accc-w.txt"
+
+#: The provenance sidecar every export writes beside its file.
+_SIDECAR_SUFFIX = ".provenance.json"
+
+
+#: The ``-o`` help of the two forms whose single-project output is a file.
+_FILE_OR_FOLDER = (
+    "the {kind} file to write; with several projects, or when it is an existing "
+    "folder, the folder (created if absent) that gets one export per project, named "
+    "after it"
+)
+
+
+class _UsageError(Exception):
+    """A command line that parses but cannot run as given (exit 2, nothing written)."""
+
+
+def add_export_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register ``tether export`` and its three forms on the top-level subparsers."""
+    export = subparsers.add_parser(
+        "export",
+        help="write the molecule table, the trace text file or a subset project",
+        description=(
+            "Export from one or more .tether projects. The project is only read: no "
+            "lock is taken, so this works on a project another user holds. Each export "
+            "writes a <file>.provenance.json beside its file."
+        ),
+    )
+    forms = export.add_subparsers(dest="export_form", metavar="<form>", required=True)
+
+    table = forms.add_parser(
+        "table",
+        help="one CSV row per molecule (export_molecule_table_csv)",
+        description=(
+            "Write one CSV row per molecule: the stored per-molecule fields and the "
+            "apparent-E summary. Rejected molecules are included unless "
+            "--exclude-rejected is given."
+        ),
+    )
+    _add_common(table, output_help=_FILE_OR_FOLDER.format(kind=".csv"))
+    _add_intensity_quantity(table)
+    table.add_argument(
+        "--exclude-rejected",
+        action="store_true",
+        help="leave rejected molecules out of the table (include_rejected=False)",
+    )
+
+    traces = forms.add_parser(
+        "traces",
+        help="the Deep-LASI donor/acceptor trace matrix (export_deeplasi_txt)",
+        description=(
+            "Write the per-frame donor and acceptor traces as a Deep-LASI trace matrix, "
+            f"<project>{TRACES_SUFFIX}, in the output folder. Rejected molecules are "
+            "left out unless --include-rejected is given."
+        ),
+    )
+    _add_common(
+        traces,
+        output_help=(
+            f"the folder (created if absent) to write one <project>{TRACES_SUFFIX} in per project"
+        ),
+    )
+    _add_intensity_quantity(traces)
+    _add_include_rejected(traces)
+    _add_molecule_key(traces)
+
+    subset = forms.add_parser(
+        "subset",
+        help="a movie-less subset .tether project (export_subset_tether)",
+        description=(
+            "Write a self-contained .tether of the selected molecules, without the "
+            "movie. Raw traces are left out unless --include-raw is given, and rejected "
+            "molecules unless --include-rejected is given."
+        ),
+    )
+    _add_common(subset, output_help=_FILE_OR_FOLDER.format(kind=".tether"))
+    _add_include_rejected(subset)
+    subset.add_argument(
+        "--include-raw",
+        action="store_true",
+        help="also embed the raw and background traces (include_raw=True)",
+    )
+    _add_molecule_key(subset)
+
+
+def _add_common(parser: argparse.ArgumentParser, *, output_help: str) -> None:
+    parser.add_argument("projects", nargs="+", help="one or more .tether projects to read")
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help=output_help,
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace an existing output file and its provenance file",
+    )
+
+
+def _add_intensity_quantity(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--intensity-quantity",
+        default="corrected",
+        choices=INTENSITY_QUANTITIES,
+        help="which trace layer to read (intensity_quantity; default: corrected)",
+    )
+
+
+def _add_include_rejected(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--include-rejected",
+        action="store_true",
+        help="keep rejected molecules (include_rejected=True)",
+    )
+
+
+def _add_molecule_key(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--molecule-key",
+        action="append",
+        default=None,
+        metavar="KEY",
+        help=(
+            "export only this molecule; repeat for more (molecule_keys; default: every molecule)"
+        ),
+    )
+
+
+def _file_name(form: str, project: Path) -> str:
+    """The name an export of ``project`` gets inside an output folder."""
+    if form == "table":
+        return f"{project.stem}.csv"
+    if form == "traces":
+        return f"{project.stem}{TRACES_SUFFIX}"
+    return f"{project.stem}-subset.tether"
+
+
+def _targets(form: str, projects: list[Path], output: Path) -> list[tuple[Path, Path]]:
+    """Pair each source project with its output path.
+
+    ``traces`` always writes into a folder. ``table`` and ``subset`` write the file
+    ``output`` names, unless ``output`` is an existing folder or several projects are
+    given; then each export goes into that folder, named after its project.
+    """
+    folder = form == "traces" or len(projects) > 1 or output.is_dir()
+    if not folder:
+        return [(projects[0], output)]
+    if output.exists() and not output.is_dir():
+        why = "for traces" if form == "traces" else "with several projects"
+        raise _UsageError(f"-o {output} is a file; {why}, -o names a folder")
+    if form == "traces" and not output.exists() and output.suffix.lower() == ".txt":
+        raise _UsageError(
+            f"-o {output} looks like a file name; for traces, -o names a folder and the "
+            f"file in it is named <project>{TRACES_SUFFIX}"
+        )
+    seen: dict[str, Path] = {}
+    pairs = []
+    for project in projects:
+        name = _file_name(form, project)
+        if name in seen:
+            raise _UsageError(
+                f"projects {str(seen[name])!r} and {str(project)!r} both map to "
+                f"{(output / name).as_posix()!r}; rename one or export them separately"
+            )
+        seen[name] = project
+        pairs.append((project, output / name))
+    output.mkdir(parents=True, exist_ok=True)
+    return pairs
+
+
+def _is_source(source: Path, out: Path) -> bool:
+    """``out`` is ``source``: the same path, or a hard-linked alias of it."""
+    if out.resolve() == source.resolve():
+        return True
+    return out.exists() and source.exists() and out.samefile(source)
+
+
+def _export_one(form: str, source: Path, out: Path, args: argparse.Namespace):
+    """Run one export; raise on any failure, return the function's ``ExportResult``."""
+    from tether.io.schema import assert_is_compatible_project
+    from tether.project.export import (
+        export_deeplasi_txt,
+        export_molecule_table_csv,
+        export_subset_tether,
+    )
+
+    # A clear error for a missing or non-project file, before anything is written.
+    assert_is_compatible_project(source)
+    if _is_source(source, out):
+        # The subset function's own refusal, worded the same way for the two table
+        # exports, which write straight to their path and do not check it themselves.
+        raise ValueError(f"{form} out_path {out} is the source project; refusing to overwrite")
+    if not args.overwrite:
+        for path in (out, out.with_name(out.name + _SIDECAR_SUFFIX)):
+            if path.exists():
+                raise FileExistsError(f"{path} already exists; pass --overwrite to replace it")
+
+    if form == "table":
+        return export_molecule_table_csv(
+            source,
+            out,
+            intensity_quantity=args.intensity_quantity,
+            include_rejected=not args.exclude_rejected,
+        )
+    if form == "traces":
+        return export_deeplasi_txt(
+            source,
+            out,
+            molecule_keys=args.molecule_key,
+            intensity_quantity=args.intensity_quantity,
+            include_rejected=args.include_rejected,
+        )
+    return export_subset_tether(
+        source,
+        out,
+        molecule_keys=args.molecule_key,
+        include_rejected=args.include_rejected,
+        include_raw=args.include_raw,
+        overwrite=args.overwrite,
+    )
+
+
+def run_export(args: argparse.Namespace) -> int:
+    """Handle ``tether export <form>``: 0 all written, 1 any export failed, 2 usage.
+
+    Projects are exported one after the other. A failure is reported on stderr and the
+    remaining projects are still exported, as ``tether batch`` does with movies.
+    """
+    form = args.export_form
+    prog = f"tether export {form}"
+    projects = [Path(p) for p in args.projects]
+    try:
+        targets = _targets(form, projects, Path(args.output))
+    except _UsageError as exc:
+        print(f"{prog}: {exc}", file=sys.stderr)
+        return 2
+
+    failed = 0
+    for source, out in targets:
+        try:
+            result = _export_one(form, source, out, args)
+        except (OSError, ValueError, KeyError) as exc:
+            # str(KeyError) adds quotes around the message; print the message itself.
+            message = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
+            where = f"{source}: " if len(targets) > 1 else ""
+            print(f"{prog}: {where}{message}", file=sys.stderr)
+            failed += 1
+            continue
+        print(f"Exported {result.n_molecules} molecule(s) -> {result.path}")
+    return 1 if failed else 0

@@ -7,7 +7,8 @@ reports the git-derived app version (NFR-REPRO: "the app version is derived from
 git"); ``tether extract`` runs the M1 native extraction pipeline (movie ->
 ``.tether``) — see :mod:`tether.project.extract`; ``tether batch`` runs the
 extract -> correct -> idealize pipeline over many movies — see
-:mod:`tether.project.batch`.
+:mod:`tether.project.batch`; ``tether export`` writes the molecule table, the
+trace text file or a subset project — see :mod:`tether.cli_export`.
 
 The CLI deliberately uses the standard-library :mod:`argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -23,6 +24,7 @@ import sys
 from collections.abc import Sequence
 
 from tether import __version__
+from tether.cli_export import add_export_parser, run_export
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     _add_extract_parser(subparsers)
     _add_batch_parser(subparsers)
+    add_export_parser(subparsers)
     return parser
 
 
@@ -404,6 +407,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_extract(args)
     if command == "batch":
         return _run_batch(args)
+    if command == "export":
+        return run_export(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 

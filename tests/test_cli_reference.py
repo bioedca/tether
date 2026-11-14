@@ -49,7 +49,17 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11}
+_EXPECTED_OPTION_COUNTS = {
+    "extract": 14,
+    "batch": 11,
+    "export table": 4,
+    "export traces": 5,
+    "export subset": 5,
+}
+
+# The top-level subcommands, each a column of the exit-code table. `export` is one column:
+# its three forms (#658) share one set of exit codes.
+_TOP_LEVEL = ("extract", "batch", "export")
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -88,14 +98,27 @@ def _documented_flags(text: str) -> set[str]:
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
-    """The registered subcommands, by name.
+    """The registered subcommands, by name, with nested forms flattened.
 
     argparse exposes no public accessor for this, so reach through the
-    ``_SubParsersAction`` the way the stdlib's own tests do.
+    ``_SubParsersAction`` the way the stdlib's own tests do. A subcommand that only
+    groups forms of its own (``export``, #658) is replaced by those forms, named
+    ``"export table"`` and so on: the forms carry the options, and each has its own
+    ``## `tether export table` `` section on the page.
     """
     for action in parser._actions:  # noqa: SLF001 - no public API for subparser lookup
         if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
-            return dict(action.choices)
+            found: dict[str, argparse.ArgumentParser] = {}
+            for name, sub in action.choices.items():
+                nested = any(
+                    isinstance(a, argparse._SubParsersAction)  # noqa: SLF001
+                    for a in sub._actions  # noqa: SLF001
+                )
+                if nested:
+                    found.update({f"{name} {form}": p for form, p in _subparsers(sub).items()})
+                else:
+                    found[name] = sub
+            return found
     raise AssertionError("tether's top-level parser registers no subcommands")
 
 
@@ -193,15 +216,16 @@ def test_the_reference_page_exists() -> None:
     assert PAGE.is_file(), f"the CLI reference is missing from {PAGE}"
 
 
-def test_both_subcommands_are_documented() -> None:
-    """`extract` and `batch` each get their own section.
+def test_every_subcommand_is_documented() -> None:
+    """`extract`, `batch` and the three `export` forms (#658) each get their own section.
 
-    They are the entire headless product surface; a third subcommand added later must
+    They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    assert names == {"extract", "batch"}, f"unexpected subcommand set: {sorted(names)}"
+    expected = {"extract", "batch", "export table", "export traces", "export subset"}
+    assert names == expected, f"unexpected subcommand set: {sorted(names)}"
     for name in sorted(names):
         assert f"`tether {name}`" in text, (
             f"docs/cli.md has no `tether {name}` section for the {name!r} subcommand"
@@ -391,14 +415,19 @@ def _exit_code_section() -> str:
 
 
 def test_argparse_rejects_bad_arguments_with_code_2() -> None:
-    """Both subcommands really do exit 2 on a usage error.
+    """Every subcommand really does exit 2 on a usage error.
 
     This is exercised rather than asserted about, because the page originally claimed
     ``tether extract`` never returns 2 — argparse's own ``parser.error()`` exits 2 long
     before ``main()`` runs, which made that row simply false.
     """
     parser = build_parser()
-    for argv in (["extract", "movie.tif"], ["batch", "movie.tif"]):
+    for argv in (
+        ["extract", "movie.tif"],
+        ["batch", "movie.tif"],
+        ["export"],
+        ["export", "table", "movie.tether"],
+    ):
         with pytest.raises(SystemExit) as excinfo:
             parser.parse_args(argv)
         assert excinfo.value.code == 2, (
@@ -433,7 +462,7 @@ def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
 
 
 def test_the_exit_code_table_documents_every_code() -> None:
-    """The table names 0, 1 and 2 for both subcommands.
+    """The table names 0, 1 and 2 for every top-level subcommand.
 
     Presence of the row is the weak half; the exercised tests above are what pin the
     behaviour. What this adds is that the page cannot quietly drop a code.
@@ -441,7 +470,7 @@ def test_the_exit_code_table_documents_every_code() -> None:
     The rows themselves are parsed: the prose after the table also spells `` `0` ``,
     `` `1` `` and `` `2` ``, so a search of the section text passed with the whole table
     deleted (#744, GUI-F19). Each code needs exactly one ``| `N` | … | … |`` row with a
-    non-empty cell for ``tether extract`` and one for ``tether batch``.
+    non-empty cell for each of ``tether extract``, ``tether batch`` and ``tether export``.
     """
     rows: dict[str, list[list[str]]] = {}
     for line in _exit_code_section().splitlines():
@@ -454,9 +483,9 @@ def test_the_exit_code_table_documents_every_code() -> None:
     )
     for code, found in sorted(rows.items()):
         assert len(found) == 1, f"the exit-code table has {len(found)} rows for `{code}`"
-        assert len(found[0]) == 2 and all(found[0]), (
-            f"the `{code}` row must state the code's meaning for both `tether extract` "
-            f"and `tether batch`, found {found[0]}"
+        assert len(found[0]) == len(_TOP_LEVEL) and all(found[0]), (
+            f"the `{code}` row must state the code's meaning for each of "
+            f"{', '.join(f'`tether {n}`' for n in _TOP_LEVEL)}, found {found[0]}"
         )
 
 
