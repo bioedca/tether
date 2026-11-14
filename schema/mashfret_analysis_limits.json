@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "issue": 712,
+  "description": "Frozen limits for Tether's idealization against MASH-FRET's own per-trace vbFRET idealization of the 17 'Path A 0.2 +- 0.3' molecules of the smallest MASH-FRET project of Zenodo 10.5281/zenodo.24104528 (tests/fixtures/mashfret_ed135e_30mm_path_a.mat). tests/test_mashfret_analysis_sidecar.py runs Tether's run_vbfret(model_type='vbconhmm_modelselection', seed=712) in the sidecar job and asserts each gate. The FRET histogram needs no limit: it must be equal (tests/test_mashfret_analysis.py). Populations and rates are printed, not gated (ADR-0101).",
+  "metrics": {
+    "frame_agreement": "Over all frames: each frame's Tether level, matched to the nearest of that molecule's MASH-FRET state values, is that frame's MASH-FRET state. 1 is full agreement.",
+    "state_count_mean_abs_difference": "Mean over the molecules of |number of Tether levels in the trace - number of MASH-FRET states in the trace|. 0 is full agreement."
+  },
+  "limit_rule": "Each limit is its measurement rounded outward at the second significant digit: down for an at_least gate, up for an at_most gate. tests/test_mashfret_analysis.py enforces the rule, so a limit cannot move without a new measurement (PRD section 11.2 re-freeze policy).",
+  "measured": {
+    "utc": "2026-11-14",
+    "mashfret": "RNA-FRETools/MASH-FRET 1a1f465983c59cb513459b10c19474fded317af5 (its version text: 1.1.2 (prev. commit: 1a1f465)); per-trace vbFRET, 1 to 5 states, 5 restarts (prmTT{m}{4})",
+    "tmaven": "GonzalezBiophysicsLab/tmaven 10f4230b6d13c6d2ad67b05d801696b4a40eff4a (0.3.0)",
+    "environment": "sidecar/conda-lock.yml: CPython 3.12.13, NumPy 1.26.4, SciPy 1.17.1, Numba 0.60.0; Linux x86-64",
+    "fixture_sha256": "8efa0e919c36f0503e300c17385fd4c36fa19be5a206bda5594fd113ac905c79",
+    "tether_input": "SMD of gamma*I_D and I_A (MASH-FRET denoise intensities at the 532 nm laser, included frames), so tMAVEN's A/(A+D) is MASH-FRET's gamma-corrected FRET; vbconhmm_modelselection chose 3 states (means 0.074, 0.201, 0.374).",
+    "repeat": "Two runs of the same build gave identical values."
+  },
+  "gates": {
+    "frame_agreement": {
+      "direction": "at_least",
+      "measured": 0.8481213443045504,
+      "limit": 0.84
+    },
+    "state_count_mean_abs_difference": {
+      "direction": "at_most",
+      "measured": 0.35294117647058826,
+      "limit": 0.36
+    }
+  }
+}
