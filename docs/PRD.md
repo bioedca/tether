@@ -552,8 +552,12 @@ G03 use `event [guard] / action`.
 | CALIBRATION_STALE | Downstream corrected analysis is disabled | *alpha missing / invalid* → BLEEDTHROUGH_REQUIRED; *alpha valid / recalculate* → GAMMA_REVIEW |
 
 A missing α or an unapproved γ blocks corrected review and corrected analysis; apparent-E curation stays available.
-The total-correction-failure banner above is the view of CALIBRATION_BLOCKED, and its two recovery actions are that
-state's two ways out ([#361](https://github.com/bioedca/tether/issues/361)). The records behind the states:
+The total-correction-failure banner above shows in two states: in BLEEDTHROUGH_REQUIRED when no valid α can be
+obtained, and in CALIBRATION_BLOCKED when no valid γ can be obtained
+([#361](https://github.com/bioedca/tether/issues/361)). G03 has no edge from BLEEDTHROUGH_REQUIRED to
+CALIBRATION_BLOCKED: a project without a valid α stays in BLEEDTHROUGH_REQUIRED and in apparent E. In both states
+the two recovery actions lead to the state's way out: loading a donor-only sample gives new evidence, and a manual
+per-condition α or γ with its source is the override. The records behind the states:
 
 - **The leakage factor α** of a condition **shall** be a record with a source and a version
   ([#926](https://github.com/bioedca/tether/issues/926)).
