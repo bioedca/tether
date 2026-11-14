@@ -131,7 +131,9 @@ else would make it a worse historical record in exchange for a working link.
 | [0084](0084-smfret-analysis2-is-a-reference-at-a-pinned-commit.md) | smfret-analysis2 at a pinned commit is the reference for the histogram and the cross-correlation | accepted | §1 (the two model-free lenses), §7.7 FR-ANALYZE, §8 NFR-VALID, N4 |
 | [0085](0085-a-trailing-dwell-keeps-the-last-window-frame.md) | A trailing dwell keeps the last frame of its analysis window | accepted (the maintainer accepted the re-frozen tMAVEN-app limit on 2026-11-12) | §7.7 FR-ANALYZE, Appendix C A2 (post-synchronized heatmap) |
 | [0086](0086-ha-laboratory-snapshot-histogram-is-a-reference.md) | The Ha-laboratory SAM/SAH snapshot histogram is a reference, compared by its peaks | accepted | §1 (the apparent-E histogram), §2.2 (N4), §8 NFR-VALID, §8 NFR-FIXTURES |
+| [0087](0087-mash-fret-is-a-reference-for-corrected-fret.md) | MASH-FRET's published project files are a reference for leakage and corrected FRET | accepted | §7.2 (corrections), §7.4 (FRET efficiency), §2.2 (what the tests can use), §8 NFR-VALID |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
+| [0090](0090-measured-vbfret-paths-are-a-dwell-reference.md) | Measured traces with a stored vbFRET path are a dwell and transition reference | accepted | §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP) |
 | [0096](0096-the-lock-guard-is-shared-with-directory-writers.md) | The lock lifecycle guard is shared with everyone who can write the project directory | accepted; amends [ADR-0055](0055-gui-session-writer-ownership.md) on the guard's permissions | §5.4 (single writer, steal-lock), §7.10 FR-CONCURRENCY |
 
 <!-- gen:adr-index end -->
