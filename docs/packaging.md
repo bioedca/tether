@@ -1,3 +1,7 @@
+---
+description: "What a Tether installer and the offline bundle contain, and how to check that a download is genuine."
+---
+
 # Packaging &amp; installers
 
 **Who this page is for.** Anyone who wants to know what a Tether installer contains, or who

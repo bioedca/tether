@@ -16,8 +16,9 @@ copyright: Copyright &copy; 2026 The Tether Authors — GPL-3.0-or-later
 
 theme:
   name: material
-  # One partial is overridden: the footer, which links the AI-use statement from every
-  # page (#649). See overrides/partials/copyright.html.
+  # Two templates are overridden: the footer partial, which links the AI-use statement from
+  # every page (#649, overrides/partials/copyright.html), and main.html, which adds the
+  # citation metadata to the HTML head (#599). Neither loads anything from another host.
   custom_dir: overrides
   # Do NOT load Google Fonts. Body text uses the visitor's system fonts. Headings use
   # Red Hat Display from font files that this site serves itself (docs/assets/fonts/,
@@ -49,6 +50,11 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
+# Reads CITATION.cff at build time and gives overrides/main.html the schema.org JSON-LD and
+# the citation_* meta tags, so the page head and the citation file have one source (#599).
+hooks:
+  - scripts/docs_citation_hook.py
 
 # The brand palette, links and beam-row rule (a kit file from #671), then the site's own
 # layer: the heading font and two adjustments to the monochrome palette.
