@@ -4,10 +4,10 @@
 
 This module imports **torch at module top**, so it belongs to the isolated, optional ``deep/``
 conda stack and **must never be imported by anything that runs in the base env**. The
-base-importable public surface is :mod:`tether.ml.deep.model`, which imports this module
+base-importable public surface is [`tether.ml.deep.model`][], which imports this module
 **lazily, inside its functions**. The base-matrix guard
 ``tests/test_torch_optional_import.py`` asserts (in a fresh interpreter) that importing
-:mod:`tether.ml.deep.model` never pulls torch, so the "CPU base app unaffected" invariant
+[`tether.ml.deep.model`][] never pulls torch, so the "CPU base app unaffected" invariant
 (§9 M8) cannot silently regress.
 
 Architecture (DeepFRET/Deep-LASI-style [Thomsen2020][Wanninger2023]): a 1-D CNN feature
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 
 class DeepTraceTorchDataset(Dataset):
-    """A ``torch`` :class:`~torch.utils.data.Dataset` view over a :class:`DeepTraceDataset`.
+    """A ``torch`` [`Dataset`][torch.utils.data.Dataset] view over a [`DeepTraceDataset`][].
 
     Holds the substrate's already-normalized, fixed-length tensors as torch tensors and yields
     one ``(X, length, y, weight)`` sample per row (row ``i`` = ``molecule_ids[i]``). No copy of
@@ -156,11 +156,11 @@ def _optimize(
 ) -> list[float]:
     """Run the weighted-BCE Adam training loop on ``model`` over ``torch_ds``; return the history.
 
-    Shared by :func:`train` (a fresh model) and :func:`fine_tune` (a warm-started deep copy). The
+    Shared by `train` (a fresh model) and `fine_tune` (a warm-started deep copy). The
     Adam optimizer is built over **only the parameters with ``requires_grad``**, so a frozen
     submodule (e.g. the conv feature extractor during transfer fine-tuning) is left untouched; for a
     fully-trainable fresh model that filter is exactly ``model.parameters()`` in order, so
-    :func:`train` is numerically unchanged. A separately-seeded :class:`torch.Generator` fixes the
+    `train` is numerically unchanged. A separately-seeded [`torch.Generator`][] fixes the
     ``DataLoader`` shuffle order (single-process, ``num_workers = 0``); the loss is a per-sample
     **weighted** ``BCEWithLogitsLoss`` (``reduction="none"`` then ``Σ wᵢ·ℓᵢ / Σ wᵢ``), so the M5
     cold-start provisional weights (``w₀ / (1 + n_human)``) carry into the deep model (§7.5).
@@ -216,10 +216,10 @@ def train(
     seed: int,
     device: str,
 ) -> tuple[nn.Module, list[float]]:
-    """Train a fresh :class:`TraceClassifier` on ``dataset``; return ``(model, per_epoch_loss)``.
+    """Train a fresh `TraceClassifier` on ``dataset``; return ``(model, per_epoch_loss)``.
 
     Deterministic for a given ``seed`` on CPU: the global RNG (seeded via ``torch.manual_seed``)
-    fixes weight initialization, and the shared :func:`_optimize` loop fixes the ``DataLoader``
+    fixes weight initialization, and the shared `_optimize` loop fixes the ``DataLoader``
     shuffle order with a separately-seeded generator.
     """
     torch.manual_seed(seed)
@@ -267,7 +267,7 @@ def fine_tune(
     (``requires_grad_(False)``) so only the recurrent summary + classification head adapt — the
     "reuse the learned features, adapt the head" transfer mode; otherwise every weight is
     fine-tuned. Deterministic for a fixed ``seed`` on CPU (the global RNG is seeded before the copy
-    so any dropout draws are reproducible, and :func:`_optimize` seeds the loader-shuffle
+    so any dropout draws are reproducible, and `_optimize` seeds the loader-shuffle
     generator).
     """
     torch.manual_seed(seed)

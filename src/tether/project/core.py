@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The headless project/experiment core (PRD §4.2, §7.11).
 
-:class:`Project` is the scriptable, display-free entry point to a ``.tether``
+[`Project`][] is the scriptable, display-free entry point to a ``.tether``
 store. PRD §7.11 (FR-BATCH) requires every operation to be usable without the
-GUI; the GUI (:mod:`tether.gui`) is a thin layer over this core. This M0 scaffold
-wraps the frozen :mod:`tether.io` store lifecycle (create / open / version
+GUI; the GUI ([`tether.gui`][]) is a thin layer over this core. This M0 scaffold
+wraps the frozen [`tether.io`][] store lifecycle (create / open / version
 compatibility) and the provisional filename→condition parse. Row-level
 extraction (movies, molecules, traces) lands additively at M1+ — this never
 mutates the M0-frozen schema, only the *data* inside it.
@@ -67,16 +67,16 @@ class Project:
     def __init__(self, path: str | Path, *, identity: LockIdentity | None = None) -> None:
         self.path = Path(path)
         #: The single-writer identity this handle acts as (§5.4). ``None`` until
-        #: first resolved to the local process by :meth:`_acting_identity`;
+        #: first resolved to the local process by `_acting_identity`;
         #: overridable (e.g. to model another host/machine in tests, or a shared
         #: workstation login).
         self._identity: LockIdentity | None = identity
         #: Whether ``identity`` was explicitly supplied. An injected identity is
         #: fixed; an auto-resolved one is re-resolved if the PID changes (see
-        #: :meth:`_acting_identity`) so a forked child never inherits the parent's.
+        #: `_acting_identity`) so a forked child never inherits the parent's.
         self._identity_injected: bool = identity is not None
-        #: The lock this handle currently holds (set by :meth:`acquire_lock` /
-        #: :meth:`steal_lock`, cleared by :meth:`release_lock`); ``None`` when the
+        #: The lock this handle currently holds (set by `acquire_lock` /
+        #: `steal_lock`, cleared by `release_lock`); ``None`` when the
         #: handle holds no lock.
         self._held_lock: LockInfo | None = None
 
@@ -89,7 +89,7 @@ class Project:
     ) -> Project:
         """Create a fresh ``.tether`` with the full frozen §5 skeleton.
 
-        Thin wrapper over :func:`tether.io.schema.create_project`; refuses to
+        Thin wrapper over [`tether.io.schema.create_project`][]; refuses to
         clobber an existing file unless ``overwrite=True``. ``identity`` sets the
         handle's single-writer identity (§5.4; defaults to the local process). An
         ``overwrite=True`` that would truncate an existing project is refused
@@ -111,8 +111,8 @@ class Project:
         Validates the on-disk Tether contract — the file is readable HDF5 carrying
         the ``format`` marker (PRD §5.1), and its ``schema_version`` is not newer
         than this app (the §5.4 forward-compatibility guard) — before handing back
-        a usable :class:`Project`. A foreign or partial HDF5 file is refused, not
-        silently accepted (:func:`tether.io.schema.assert_is_compatible_project`).
+        a usable [`Project`][]. A foreign or partial HDF5 file is refused, not
+        silently accepted ([`tether.io.schema.assert_is_compatible_project`][]).
         """
         path = Path(path)
         if not path.exists():
@@ -127,7 +127,7 @@ class Project:
 
     @property
     def app_schema_version(self) -> int:
-        """The schema version this build of Tether writes (:data:`SCHEMA_VERSION`)."""
+        """The schema version this build of Tether writes ([`SCHEMA_VERSION`][])."""
         return SCHEMA_VERSION
 
     @staticmethod
@@ -135,13 +135,13 @@ class Project:
         """Parse a source filename into a **provisional** condition (PRD §7.6).
 
         The parse is filename-derived and must be human-validated at M4
-        (PRD §7.6); :attr:`ParsedFilename.condition_id` is the provisional id
+        (PRD §7.6); [`ParsedFilename.condition_id`][] is the provisional id
         written to ``/molecules.condition_id_provisional`` at extraction.
         """
         return parse_filename(filename)
 
     def open_movie(self, movie_path: str | Path) -> MovieReader:
-        """Open a source movie via the lazy reader (:func:`tether.io.movie.open_movie`).
+        """Open a source movie via the lazy reader ([`tether.io.movie.open_movie`][]).
 
         Imported lazily so the headless core stays importable without the imaging
         stack present (mirrors the GUI's lazy-import discipline).
@@ -160,8 +160,8 @@ class Project:
         is stable and cheap, but is **re-resolved when the PID no longer matches** —
         so a handle inherited across ``fork()`` never lets a child impersonate the
         parent as the lock owner (the "single live process is one owner" contract).
-        On such a fork the inherited :attr:`_held_lock` is also dropped, so a child
-        cannot :meth:`release_lock` (or refresh) the parent's lock.
+        On such a fork the inherited `_held_lock` is also dropped, so a child
+        cannot [`release_lock`][] (or refresh) the parent's lock.
         """
         from tether.project import lock
 
@@ -178,7 +178,7 @@ class Project:
 
         The single-writer boundary every canonical mutator on this handle passes
         through: an untransferred local reservation or foreign/corrupt sidecar raises
-        :class:`~tether.project.lock.LockedError`; the owning reservation context and
+        [`LockedError`][tether.project.lock.LockedError]; the owning reservation context and
         self-owned sidecar pass. Reads never call this — a non-owner may always browse
         read-only (§7.10).
         """
@@ -222,9 +222,9 @@ class Project:
         return lock.lock_path(self.path)
 
     def lock_owner(self) -> LockInfo | None:
-        """The current lock holder, or ``None`` if unlocked (:func:`lock.read_lock`).
+        """The current lock holder, or ``None`` if unlocked (`lock.read_lock`).
 
-        Raises :class:`~tether.project.lock.CorruptLockError` if the sidecar exists
+        Raises [`CorruptLockError`][tether.project.lock.CorruptLockError] if the sidecar exists
         but cannot be parsed.
         """
         from tether.project import lock
@@ -235,7 +235,7 @@ class Project:
         """The foreign lock holder if the file is locked by someone else, else ``None``.
 
         Drives the GUI read-only banner (M2 S9 PR-B): returns ``None`` when the file
-        is unlocked or the lock is ours, and the holding :class:`LockInfo` otherwise.
+        is unlocked or the lock is ours, and the holding [`LockInfo`][] otherwise.
         This reports sidecar ownership only; a canonical write can still fail when
         another local execution context holds a process reservation.
         """
@@ -245,13 +245,13 @@ class Project:
         return owner
 
     def acquire_lock(self, *, steal: bool = False, timeout_s: float | None = None) -> LockInfo:
-        """Acquire the single-writer lock for this handle (:func:`lock.acquire`).
+        """Acquire the single-writer lock for this handle (`lock.acquire`).
 
-        Raises :class:`~tether.project.lock.LockedError` if a foreign lock or another
+        Raises [`LockedError`][tether.project.lock.LockedError] if a foreign lock or another
         local execution context's reservation blocks acquisition. With no reservation,
         ``steal=True`` may replace a sidecar; a stale lock still requires that explicit
         steal (§5.4). ``timeout_s`` overrides the staleness window (default
-        :data:`~tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S`).
+        [`DEFAULT_STALENESS_TIMEOUT_S`][tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S]).
         """
         from tether.project import lock
 
@@ -288,7 +288,7 @@ class Project:
         typed-confirmation UX is M2 S9 PR-B. Last-write-wins — the prior owner's
         unsaved work is not merged back. A process-local reservation held by another
         execution context is never stolen and raises
-        :class:`~tether.project.lock.LockedError`.
+        [`LockedError`][tether.project.lock.LockedError].
         """
         from tether.project import lock
 
@@ -299,9 +299,10 @@ class Project:
     def release_lock(self) -> bool:
         """Release the lock this handle holds; ``False`` if it holds none / lost it.
 
-        Nonce-checked (:func:`lock.release`): never deletes a lock that was stolen
+        Nonce-checked ([`lock.release`][tether.project.lock.release]): never deletes a lock that was
+        stolen
         away in the meantime. Resolving the identity first drops an inherited
-        ``_held_lock`` in a forked child (see :meth:`_acting_identity`), so a child
+        ``_held_lock`` in a forked child (see `_acting_identity`), so a child
         never releases the parent's lock. After a ``False`` result, a readable
         missing or replacement sidecar definitively ends this handle's epoch and
         clears the retained nonce. An unreadable sidecar, or the original nonce
@@ -332,7 +333,7 @@ class Project:
         """A context manager that holds the single-writer lock for a write session.
 
         ``with project.write_lock():`` acquires on entry (raising
-        :class:`~tether.project.lock.LockedError` if blocked and not stealing) and
+        [`LockedError`][tether.project.lock.LockedError] if blocked and not stealing) and
         releases on exit; the release is nonce-checked, so a lock stolen mid-session
         is not clobbered.
         """
@@ -348,10 +349,10 @@ class Project:
     # --- curation (PRD §7.5; the scriptable seam behind the GUI keymap) -------
 
     def accept(self, molecule_key: str, **provenance: object) -> np.ndarray:
-        """Accept a molecule, logging the ``/labels`` event (:func:`labels.accept`).
+        """Accept a molecule, logging the ``/labels`` event (`labels.accept`).
 
         Refuses the canonical write if the file is locked by another writer
-        (:meth:`_assert_writable`, §5.4).
+        (`_assert_writable`, §5.4).
         """
         from tether.project import labels
 
@@ -359,7 +360,7 @@ class Project:
         return labels.accept(self.path, molecule_key, **provenance)
 
     def reject(self, molecule_key: str, **provenance: object) -> np.ndarray:
-        """Reject a molecule (reversible sticky tag, :func:`labels.reject`).
+        """Reject a molecule (reversible sticky tag, `labels.reject`).
 
         Refuses the canonical write if the file is locked by another writer (§5.4).
         """
@@ -369,7 +370,7 @@ class Project:
         return labels.reject(self.path, molecule_key, **provenance)
 
     def unreject(self, molecule_key: str, **provenance: object) -> np.ndarray | None:
-        """Un-reject a molecule; ``None`` if it was not rejected (:func:`labels.unreject`).
+        """Un-reject a molecule; ``None`` if it was not rejected (`labels.unreject`).
 
         Refuses the canonical write if the file is locked by another writer (§5.4).
         """
@@ -379,19 +380,19 @@ class Project:
         return labels.unreject(self.path, molecule_key, **provenance)
 
     def curation_label(self, molecule_key: str) -> int:
-        """The molecule's current ``curation_label`` (:func:`labels.curation_label_of`)."""
+        """The molecule's current ``curation_label`` (`labels.curation_label_of`)."""
         from tether.project import labels
 
         return labels.curation_label_of(self.path, molecule_key)
 
     def read_labels(self) -> np.ndarray:
-        """The ``/labels/table`` provenance log (:func:`labels.read_labels`)."""
+        """The ``/labels/table`` provenance log (`labels.read_labels`)."""
         from tether.project import labels
 
         return labels.read_labels(self.path)
 
     def rejected_molecule_keys(self) -> set[str]:
-        """The molecules currently rejected (:func:`labels.rejected_molecule_keys`)."""
+        """The molecules currently rejected (`labels.rejected_molecule_keys`)."""
         from tether.project import labels
 
         return labels.rejected_molecule_keys(self.path)
@@ -401,8 +402,9 @@ class Project:
     def sync_conditions(self) -> ConditionSyncSummary:
         """Materialize the ``/conditions`` rows ``/molecules`` reference (§5.1).
 
-        Delegates to :func:`conditions.sync_conditions`; refuses the write if the
-        file is locked by another writer (:meth:`_assert_writable`, §5.4).
+        Delegates to [`conditions.sync_conditions`][tether.project.conditions.sync_conditions];
+        refuses the write if the
+        file is locked by another writer (`_assert_writable`, §5.4).
         """
         from tether.project import conditions
 
@@ -410,16 +412,18 @@ class Project:
         return conditions.sync_conditions(self.path)
 
     def read_conditions(self) -> np.ndarray:
-        """The structured ``/conditions/table`` (:func:`conditions.read_conditions`)."""
+        """The structured ``/conditions/table`` (`conditions.read_conditions`)."""
         from tether.project import conditions
 
         return conditions.read_conditions(self.path)
 
     def read_condition_keys(self) -> dict[str, ConditionKey]:
-        """Each materialized ``condition_id`` → its identity :class:`ConditionKey` (§5.1).
+        """Each materialized ``condition_id`` → its identity [`ConditionKey`][] (§5.1).
 
-        Delegates to :func:`conditions.read_condition_keys`; the map behind querying a
-        condition by key fields across its movies (:func:`tether.analysis.query_molecules`).
+        Delegates to
+        [`conditions.read_condition_keys`][tether.project.conditions.read_condition_keys]; the map
+        behind querying a
+        condition by key fields across its movies ([`tether.analysis.query_molecules`][]).
         """
         from tether.project import conditions
 
@@ -428,7 +432,8 @@ class Project:
     def validate_conditions(self) -> ConditionValidationReport:
         """Referential-integrity report of ``/molecules`` → ``/conditions`` (§5.1).
 
-        Delegates to :func:`conditions.validate_conditions`.
+        Delegates to
+        [`conditions.validate_conditions`][tether.project.conditions.validate_conditions].
         """
         from tether.project import conditions
 
@@ -437,14 +442,15 @@ class Project:
     def molecules_by_condition(self) -> dict[str, list[str]]:
         """Each ``condition_id`` → its aggregated ``molecule_key`` list (§5.1).
 
-        Delegates to :func:`conditions.aggregate_molecules_by_condition`.
+        Delegates to
+        [`conditions.aggregate_molecules_by_condition`][tether.project.conditions.aggregate_molecules_by_condition].
         """
         from tether.project import conditions
 
         return conditions.aggregate_molecules_by_condition(self.path)
 
     def preview_rekey(self, from_condition_id: str, to_key: ConditionKey) -> RekeyPreview:
-        """Read-only preview of a condition re-key (:func:`conditions.preview_rekey`)."""
+        """Read-only preview of a condition re-key (`conditions.preview_rekey`)."""
         from tether.project import conditions
 
         return conditions.preview_rekey(self.path, from_condition_id, to_key)
@@ -461,8 +467,9 @@ class Project:
     ) -> RekeyResult:
         """Transactionally re-key a condition; a merge needs ``confirm=True`` (§5.1).
 
-        Delegates to :func:`conditions.rekey_condition`; refuses the write if the file
-        is locked by another writer (:meth:`_assert_writable`, §5.4).
+        Delegates to [`conditions.rekey_condition`][tether.project.conditions.rekey_condition];
+        refuses the write if the file
+        is locked by another writer (`_assert_writable`, §5.4).
         """
         from tether.project import conditions
 
@@ -478,7 +485,7 @@ class Project:
         )
 
     def read_condition_audit(self) -> np.ndarray:
-        """The append-only re-key/merge audit log (:func:`conditions.read_condition_audit`)."""
+        """The append-only re-key/merge audit log (`conditions.read_condition_audit`)."""
         from tether.project import conditions
 
         return conditions.read_condition_audit(self.path)
@@ -488,7 +495,9 @@ class Project:
     def category_list(self, condition_id: str) -> CategoryList:
         """A condition's editable per-trace category vocabulary (§5.1).
 
-        Delegates to :func:`conditions.read_category_list`; read-only, returns an
+        Delegates to
+        [`conditions.read_category_list`][tether.project.conditions.read_category_list]; read-only,
+        returns an
         empty list when the condition has no categories yet.
         """
         from tether.project import conditions
@@ -496,9 +505,9 @@ class Project:
         return conditions.read_category_list(self.path, condition_id)
 
     def set_category_list(self, condition_id: str, categories: object) -> CategoryList:
-        """Replace a condition's whole ordered category list (:func:`conditions.set_category_list`).
+        """Replace a condition's whole ordered category list (`conditions.set_category_list`).
 
-        Refuses the write if the file is locked by another writer (:meth:`_assert_writable`, §5.4).
+        Refuses the write if the file is locked by another writer (`_assert_writable`, §5.4).
         """
         from tether.project import conditions
 
@@ -506,7 +515,7 @@ class Project:
         return conditions.set_category_list(self.path, condition_id, categories)
 
     def add_category(self, condition_id: str, name: str) -> CategoryList:
-        """Append one category to a condition's list (:func:`conditions.add_category`).
+        """Append one category to a condition's list (`conditions.add_category`).
 
         Refuses the write if the file is locked by another writer (§5.4).
         """
@@ -516,7 +525,7 @@ class Project:
         return conditions.add_category(self.path, condition_id, name)
 
     def rename_category(self, condition_id: str, old: str, new: str) -> CategoryList:
-        """Rename a category in place, preserving its code (:func:`conditions.rename_category`).
+        """Rename a category in place, preserving its code (`conditions.rename_category`).
 
         Refuses the write if the file is locked by another writer (§5.4).
         """
@@ -526,7 +535,7 @@ class Project:
         return conditions.rename_category(self.path, condition_id, old, new)
 
     def remove_category(self, condition_id: str, name: str) -> CategoryList:
-        """Remove a category from a condition's list (:func:`conditions.remove_category`).
+        """Remove a category from a condition's list (`conditions.remove_category`).
 
         Refuses the write if the file is locked by another writer (§5.4).
         """
@@ -554,13 +563,13 @@ class Project:
         include_rejected: bool = False,
         _runner: Callable[..., IdealizationResult] | None = None,
     ) -> StoredIdealization:
-        """Idealize selected molecules into ``/idealization`` (:func:`idealize.idealize_molecules`).
+        """Idealize selected molecules into ``/idealization`` (`idealize.idealize_molecules`).
 
         The headless core behind the dock's ``I`` key: reads the selected molecules'
         traces, fits vbFRET / consensus VB-HMM via the sidecar, and writes the model
         back as additive data with a per-molecule input-provenance hash. Rejected
         molecules are excluded unless ``include_rejected=True``. The defaults mirror
-        :func:`tether.project.idealize.idealize_molecules` (its
+        [`tether.project.idealize.idealize_molecules`][] (its
         ``MODEL_TYPE_DEFAULT`` / ``NSTATES_GRID_DEFAULT``); ``_runner`` is a private
         test seam for injecting a fake sidecar.
         """
@@ -588,25 +597,25 @@ class Project:
         )
 
     def read_idealization(self, model_name: str) -> StoredIdealization:
-        """Read a persisted model (:func:`idealize.read_idealization`)."""
+        """Read a persisted model (`idealize.read_idealization`)."""
         from tether.project import idealize
 
         return idealize.read_idealization(self, model_name)
 
     def list_idealizations(self) -> list[str]:
-        """Names of the models under ``/idealization`` (:func:`idealize.list_idealizations`)."""
+        """Names of the models under ``/idealization`` (`idealize.list_idealizations`)."""
         from tether.project import idealize
 
         return idealize.list_idealizations(self)
 
     def stale_idealization_keys(self, model_name: str) -> list[str]:
-        """Molecules whose inputs changed since the fit (:func:`idealize.stale_molecule_keys`)."""
+        """Molecules whose inputs changed since the fit (`idealize.stale_molecule_keys`)."""
         from tether.project import idealize
 
         return idealize.stale_molecule_keys(self, model_name)
 
     def live_idealization_keys(self, model_name: str) -> list[str]:
-        """Non-stale molecules TDP/dwell analysis includes (:func:`idealize.live_molecule_keys`)."""
+        """Non-stale molecules TDP/dwell analysis includes (`idealize.live_molecule_keys`)."""
         from tether.project import idealize
 
         return idealize.live_molecule_keys(self, model_name)
@@ -621,7 +630,7 @@ class Project:
         timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
         _runner: Callable[..., IdealizationResult] | None = None,
     ) -> StoredIdealization:
-        """Re-fit a stale model over current inputs (:func:`idealize.reidealize`)."""
+        """Re-fit a stale model over current inputs (`idealize.reidealize`)."""
         from tether.project import idealize
 
         self._assert_writable()
@@ -646,7 +655,7 @@ class Project:
         overwrite: bool = True,
     ) -> HandoffManifest:
         """Export selected molecules to an SMD the standalone tMAVEN GUI opens
-        (:func:`handoff.hand_off_to_tmaven`)."""
+        ([`handoff.hand_off_to_tmaven`][tether.project.handoff.hand_off_to_tmaven])."""
         from tether.project import handoff
 
         return handoff.hand_off_to_tmaven(
@@ -666,7 +675,7 @@ class Project:
         model_name: str | None = None,
     ) -> ReconcileReport:
         """Preview a returning tMAVEN SMD: intensity-match + reconcile diff
-        (:func:`handoff.read_return_leg`)."""
+        ([`handoff.read_return_leg`][tether.project.handoff.read_return_leg])."""
         from tether.project import handoff
 
         return handoff.read_return_leg(
@@ -691,11 +700,12 @@ class Project:
         require_held_lock: bool = False,
     ) -> AppliedReconcile:
         """Commit accepted return-leg changes, non-destructively
-        (:func:`handoff.apply_reconcile`).
+        ([`handoff.apply_reconcile`][tether.project.handoff.apply_reconcile]).
 
         Refuses the canonical write if the file is locked by another writer (§5.4).
 
-        The entry check alone does not bound the write: :func:`handoff.apply_reconcile`
+        The entry check alone does not bound the write:
+        [`handoff.apply_reconcile`][tether.project.handoff.apply_reconcile]
         re-resolves the match and reads the returned model before it persists anything,
         and a foreign writer can steal the lock during that work. The guard built here
         is therefore re-invoked at each point of persistence. ``require_held_lock`` is

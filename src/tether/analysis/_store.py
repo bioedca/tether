@@ -3,7 +3,7 @@
 """Shared ``.tether`` readers for the analysis population views (PRD §7.7).
 
 Analysis pools per-frame quantities over the *non-rejected* population (§7.5),
-a different selection contract from :mod:`tether.project.idealize` (which takes
+a different selection contract from [`tether.project.idealize`][] (which takes
 explicit ``molecule_keys``). The ``/traces`` layer names are schema-frozen
 (PRD §5) and the analysis-window fallback mirrors
 ``tether.project.idealize._windows`` semantics.
@@ -61,7 +61,7 @@ def windowed_channels_with_keys(
     each kept molecule to its ``analysis_window`` — falling back to ``frame_range``
     when unset ``[0, 0]`` (matching idealization). Returns store order, each row tagged
     with its ``molecule_key`` for per-molecule views (the anticorrelation-event finder).
-    :func:`windowed_channels` is the key-less projection of this.
+    `windowed_channels` is the key-less projection of this.
 
     Raises
     ------
@@ -119,7 +119,7 @@ def windowed_channels(
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Per-molecule ``(donor, acceptor)`` intensity slices over the analysis window.
 
-    The key-less projection of :func:`windowed_channels_with_keys` (same reading,
+    The key-less projection of `windowed_channels_with_keys` (same reading,
     curation filter, ``molecule_keys`` selection, and window fallback; store order).
 
     Raises
@@ -145,11 +145,12 @@ def windowed_state_and_channels(
     """Per-molecule ``(state_path, donor, acceptor)`` slices over the idealized window.
 
     Pairs a persisted ``/idealization/{model_name}`` model's per-molecule Viterbi
-    **state path** (:data:`tether.idealize.NO_STATE` = ``-1`` outside the window)
+    **state path** ([`tether.idealize.NO_STATE`][] = ``-1`` outside the window)
     with the *observed* ``/traces`` intensities of the **same** molecule and frames —
     the substrate the transition-aligned (post-synchronized) analysis views need
     (A2b heatmap; the coming TDP / dwell fits). Both arrays are sliced to the
-    model's idealized extent (the contiguous run of non-:data:`~tether.idealize.NO_STATE`
+    model's idealized extent (the contiguous run of
+    non-[`NO_STATE`][tether.idealize.driver.NO_STATE]
     frames — the window the fit actually covered, robust to a later window edit) and
     re-based to frame 0, so ``state_path[t]`` and the intensities at ``t`` refer to
     the same frame.
@@ -167,7 +168,7 @@ def windowed_state_and_channels(
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths.
     molecule_keys
@@ -175,7 +176,7 @@ def windowed_state_and_channels(
         all); intersected with the curation filter.
     intensity_quantity
         Which ``/traces`` layers feed the returned intensities: ``"corrected"`` or
-        ``"raw"`` (see :func:`resolve_quantity`).
+        ``"raw"`` (see `resolve_quantity`).
     include_rejected
         If ``True``, keep rejected molecules; else exclude them (§7.5 default).
 
@@ -183,7 +184,7 @@ def windowed_state_and_channels(
     -------
     list of (state_path, donor, acceptor)
         ``state_path`` is int64 (still carrying any interior
-        :data:`~tether.idealize.NO_STATE` gap); ``donor``/``acceptor`` are float64.
+        [`NO_STATE`][tether.idealize.driver.NO_STATE] gap); ``donor``/``acceptor`` are float64.
         All three share one length (the molecule's idealized-window extent). Empty
         when the model idealizes no kept molecule.
 
@@ -259,14 +260,15 @@ def windowed_states(
 ) -> list[np.ndarray]:
     """Per-molecule Viterbi **state-path** windows — the state alone, no ``/traces`` I/O.
 
-    Like :func:`windowed_state_and_channels` but returns only each kept molecule's
-    int64 state path over its idealized window (the contiguous non-:data:`~tether.idealize.NO_STATE`
+    Like `windowed_state_and_channels` but returns only each kept molecule's
+    int64 state path over its idealized window (the contiguous
+    non-[`NO_STATE`][tether.idealize.driver.NO_STATE]
     run), for analyses that read the idealized *state* and never the observed signal
     (the TDP; the coming dwell fits). Skipping the ``/traces`` read avoids loading two
     channel datasets per molecule on large stores / interactive filter changes.
 
     Same ``molecule_id`` join, §7.5 curation filter, and ``molecule_keys`` selection
-    as :func:`windowed_state_and_channels`; rows in idealization (fit) order. There is
+    as `windowed_state_and_channels`; rows in idealization (fit) order. There is
     **no** trace-length guard (there is no observed signal to misalign with — a state
     path outrunning a re-extracted trace is already STALE and excluded upstream by the
     fresh-idealizations filter).
@@ -274,7 +276,7 @@ def windowed_states(
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths.
     molecule_keys
@@ -287,7 +289,7 @@ def windowed_states(
     -------
     list of np.ndarray
         One int64 state-path window per kept molecule (still carrying any interior
-        :data:`~tether.idealize.NO_STATE` gap). Empty when the model idealizes no kept
+        [`NO_STATE`][tether.idealize.driver.NO_STATE] gap). Empty when the model idealizes no kept
         molecule.
 
     Raises

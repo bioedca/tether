@@ -6,30 +6,30 @@ This is the **headless** core of the M2 "Hand to tMAVEN" round trip (PRD §7.4,
 FR-IDEALIZE); the interactive per-trace reconcile *dialog* is a thin GUI layer over
 it and lands separately.
 
-Outbound leg — :func:`hand_off_to_tmaven`
+Outbound leg — [`hand_off_to_tmaven`][]
     Export the selected molecules to an SMD-HDF5 file the standalone tMAVEN GUI opens
-    directly (:mod:`tether.idealize.smd`). Tether's own coordinates + identities ride
+    directly ([`tether.idealize.smd`][]). Tether's own coordinates + identities ride
     along in the superset group; the per-trace analysis windows ride along as the
     tMAVEN ``pre_list``/``post_list``. At M2 the tMAVEN integer ``classes`` are written
     neutral (``0`` = uncategorized) because the free-text ``category`` ↔ integer-class
     lookup table lands at M4 (ADR-0023, §7.6).
 
-Return leg — :func:`read_return_leg` (preview) + :func:`apply_reconcile` (commit)
+Return leg — [`read_return_leg`][] (preview) + [`apply_reconcile`][] (commit)
     tMAVEN's writer has no per-molecule slot and its exporter may subset/reorder by the
     GUI selection mask (Appendix D.1), so the returning SMD's coordinates are **not
     trusted**. Each returning trace is re-resolved to its store molecule by **exact
     intensity-trace matching** of the SMD ``raw`` series against the retained store
-    (:func:`tether.idealize.match_return_leg`), with the molecule id / row order as a
+    ([`tether.idealize.match_return_leg`][]), with the molecule id / row order as a
     hint only; unmatched returning traces are **reported, never guessed** (§5.3).
 
     The return leg is **non-destructive**: an imported tMAVEN model is written as a
     *new* ``/idealization/{model}`` entry (via
-    :func:`tether.project.idealize.write_idealization_model`), and an edited analysis
+    [`tether.project.idealize.write_idealization_model`][]), and an edited analysis
     window or class is surfaced as a **per-trace reconcile
     diff** the caller accepts or rejects — never a silent overwrite. An accepted
     analysis-window change is written to ``/molecules.analysis_window``, which
     **re-stales** that molecule's dependent idealizations (their input-provenance hash
-    was computed over the old window; §5.1, :func:`tether.project.idealize.stale_molecule_keys`).
+    was computed over the old window; §5.1, [`tether.project.idealize.stale_molecule_keys`][]).
     tMAVEN's integer ``classes`` map onto Tether's free-text per-condition ``category``
     through the stored integer↔category lookup — at M2 only the non-lossy ``class 0 ↔
     uncategorized`` leg is applicable; a non-zero class is surfaced but its free-text
@@ -83,7 +83,7 @@ __all__ = [
 #: Match tolerance defaults. The return-leg identity test is **exact** (tMAVEN
 #: preserves the SMD ``raw`` byte-for-byte across a save — corrections/idealization
 #: live in separate arrays), so this is an equality test with a tight float guard,
-#: not a scientific tunable (hence no PRD §11.2 row); see :func:`match_return_leg`.
+#: not a scientific tunable (hence no PRD §11.2 row); see `match_return_leg`.
 DEFAULT_MATCH_ATOL = 1e-6
 DEFAULT_MATCH_RTOL = 0.0
 
@@ -101,7 +101,7 @@ _QUANTITY_KEYS = INTENSITY_QUANTITY_LAYERS
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class HandoffManifest:
-    """What :func:`hand_off_to_tmaven` exported, in SMD-row (export) order.
+    """What [`hand_off_to_tmaven`][] exported, in SMD-row (export) order.
 
     ``molecule_keys[i]`` / ``molecule_ids[i]`` identify the store molecule written to
     SMD row ``i``; ``path`` is the SMD the standalone tMAVEN GUI opens.
@@ -169,7 +169,7 @@ class ReconcileReport:
 
     This is what the GUI reconcile prompt renders. ``unmatched_returned`` lists the
     returning-SMD rows that matched no store molecule (reported, never guessed).
-    ``model_name`` is the ``/idealization`` entry an :func:`apply_reconcile` with
+    ``model_name`` is the ``/idealization`` entry an [`apply_reconcile`][] with
     ``import_idealization=True`` would write.
     """
 
@@ -215,7 +215,7 @@ class ReconcileReport:
 
 @dataclass(frozen=True)
 class AppliedReconcile:
-    """What :func:`apply_reconcile` committed. Molecule identities are ``molecule_id``.
+    """What [`apply_reconcile`][] committed. Molecule identities are ``molecule_id``.
 
     ``classes_deferred`` are accepted class changes whose free-text mapping needs the
     M4 lookup (non-zero class) and were **not** written. ``stale_after`` are the
@@ -356,7 +356,7 @@ def hand_off_to_tmaven(
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_keys:
         Molecules to export. ``None`` = every extracted molecule in store order; a list
         is exported in the **requested key order**, with a duplicate ``molecule_key``
@@ -520,9 +520,9 @@ def read_return_leg(
 ) -> ReconcileReport:
     """Preview the return leg: intensity-match + per-trace reconcile diff + unmatched.
 
-    Read-only — computes what :func:`apply_reconcile` *would* change so the GUI can
+    Read-only — computes what [`apply_reconcile`][] *would* change so the GUI can
     render the per-trace reconcile prompt. ``intensity_quantity`` must match the
-    outbound :func:`hand_off_to_tmaven`. When ``model_path`` is given the report notes
+    outbound [`hand_off_to_tmaven`][]. When ``model_path`` is given the report notes
     the model type / state count an ``import_idealization`` apply would write.
     """
     return _reconcile(
@@ -567,7 +567,7 @@ def apply_reconcile(
 
     Re-resolves the match (deterministic; the intensity identity does not depend on
     windows/classes) so the commit acts on exactly the diff a prior
-    :func:`read_return_leg` showed. Then, in order:
+    [`read_return_leg`][] showed. Then, in order:
 
     1. If ``import_idealization`` and ``model_path`` is given, write the tMAVEN model
        as a **new** ``/idealization/{model_name}`` (matched rows remapped to store
@@ -582,12 +582,12 @@ def apply_reconcile(
     change) or an iterable of ``molecule_id`` to accept.
 
     ``writer_guard`` is re-invoked at each point of persistence, immediately before
-    :func:`_import_model` and again before :func:`_commit_store_edits`. A caller's
+    `_import_model` and again before `_commit_store_edits`. A caller's
     entry check is not sufficient on its own: ``_reconcile`` re-resolves the match and
     reads the returned model, which is unbounded work, and a foreign writer can steal
     the lock during it. Re-checking here binds each canonical write to ownership that
     is still valid *at that write*, mirroring the retained-session guard threaded
-    through :func:`tether.project.idealize.idealize`.
+    through `tether.project.idealize.idealize`.
     """
     path = _project_path(project)
     # Materialize an iterable accept-spec once: ``accept_classes`` is consumed by two
@@ -684,7 +684,7 @@ def _import_model(
     all-NaN idealization with a valid-looking input hash (which ``stale_molecule_keys``
     would then read as fresh, masking that no fit exists). The all-NaN check is the
     authoritative signal: an *absent* and an *explicitly empty* ``ran`` are
-    indistinguishable after :func:`read_model`, so a model that fit nothing (ran empty,
+    indistinguishable after [`read_model`][], so a model that fit nothing (ran empty,
     all rows NaN) is correctly rejected rather than imported as empty state paths.
     Returns ``(model_name, unfit_dropped_keys)``.
     """
@@ -815,7 +815,7 @@ def _returning_window(
     """The window the returning trace was idealized over (SMD window, else store).
 
     Applies the same ``hi <= lo`` → native ``frame_range`` fallback as
-    :func:`_store_window` and :func:`tether.project.idealize.stale_molecule_keys`, so a
+    `_store_window` and [`tether.project.idealize.stale_molecule_keys`][], so a
     degenerate returning window (``post <= pre``) hashes over the *same* frames the
     staleness recomputation later uses — a freshly imported model never reads as stale.
     """

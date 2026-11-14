@@ -8,92 +8,109 @@ statistics, and the seven tMAVEN plot types (PRD Appendix C).
 
 Landed so far (M2 S8, FR-ANALYZE):
 
-- :func:`~tether.analysis.histogram.apparent_e_histogram` /
-  :func:`~tether.analysis.histogram.population_apparent_e_histogram` — the 1-D
+- [`apparent_e_histogram`][tether.analysis.histogram.apparent_e_histogram] /
+  [`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram] —
+  the 1-D
   population apparent-E histogram (Appendix C plot A1).
-- :func:`~tether.analysis.crosscorr.cross_correlation` /
-  :func:`~tether.analysis.crosscorr.population_cross_correlation` — the
+- [`cross_correlation`][tether.analysis.crosscorr.cross_correlation] /
+  [`population_cross_correlation`][tether.analysis.crosscorr.population_cross_correlation] — the
   Pearson-normalized donor–acceptor cross-correlation with a lag-1 magnitude.
 
 Added at M3 (FR-ANALYZE, PRD §7.7):
 
-- :func:`~tether.analysis.histogram.bootstrap_histogram_ci` /
-  :func:`~tether.analysis.histogram.population_apparent_e_histogram_ci` — the
+- [`bootstrap_histogram_ci`][tether.analysis.histogram.bootstrap_histogram_ci] /
+  [`population_apparent_e_histogram_ci`][tether.analysis.histogram.population_apparent_e_histogram_ci]
+  — the
   molecule-level bootstrap confidence interval for the histogram (BOBA-FRET
   [König2013]), the FRET histogram's error bars.
 
 Added at M4 (FR-ANNOTATE, PRD §5.1/§7.7):
 
-- :func:`~tether.analysis.query.query_molecules` — the cross-movie condition
+- [`query_molecules`][tether.analysis.query.query_molecules] — the cross-movie condition
   query/filter (by key fields + tags + category), aggregating a condition's
   molecules across all its movies/files.
 
 Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
 
-- :func:`~tether.analysis.histogram.per_condition_apparent_e_histograms` — the
+-
+  [`per_condition_apparent_e_histograms`][tether.analysis.histogram.per_condition_apparent_e_histograms]
+  — the
   per-condition overlay: each condition's apparent-E histogram binned on one
   shared axis (density-normalized for cross-condition shape comparison) with its
   molecule-count ``N`` annotation. This is the M6-owned §7.7 "per-condition
   overlays" clause, which only becomes meaningful once the M4 condition model
   exists.
-- :func:`~tether.analysis.histogram.model_gaussian_overlay` /
-  :func:`~tether.analysis.histogram.population_model_gaussian_overlay` — the A1
+- [`model_gaussian_overlay`][tether.analysis.histogram.model_gaussian_overlay] /
+  [`population_model_gaussian_overlay`][tether.analysis.histogram.population_model_gaussian_overlay]
+  — the A1
   ``model_on`` overlay: the idealized population model's per-state Gaussians
   (``frac·𝒩(mean, var)``) and their sum, drawn on the histogram axis
   [Gopich2010]. The idealized model's own state emissions, not a fresh GMM fit.
-- :func:`~tether.analysis.histogram.time_signal_histogram2d` /
-  :func:`~tether.analysis.histogram.population_time_signal_histogram2d` — the A2
+- [`time_signal_histogram2d`][tether.analysis.histogram.time_signal_histogram2d] /
+  [`population_time_signal_histogram2d`][tether.analysis.histogram.population_time_signal_histogram2d]
+  — the A2
   2-D time-vs-signal occupancy heatmap (tMAVEN ``data_hist2d.py``), raw /
   start-synchronized mode: each accepted molecule's windowed apparent E binned
   into a ``(time, signal)`` grid so the population's FRET evolution over the
   analysis window is visible [Nettels2024].
-- :func:`~tether.analysis.histogram.transition_sync_histogram2d` /
-  :func:`~tether.analysis.histogram.population_transition_sync_histogram2d` — the
+- [`transition_sync_histogram2d`][tether.analysis.histogram.transition_sync_histogram2d] /
+  [`population_transition_sync_histogram2d`][tether.analysis.histogram.population_transition_sync_histogram2d]
+  — the
   A2 post-synchronized (transition-aligned) heatmap: align each molecule's Viterbi
   state transitions to a common column and bin the observed apparent E around them,
   so the population's average approach-to and departure-from a state jump is visible
   (a transition-synchronized ensemble average [Blackwell2020]).
-- :func:`~tether.analysis.tdp.transition_density` /
-  :func:`~tether.analysis.tdp.population_transition_density` — the B1 real Transition
+- [`transition_density`][tether.analysis.tdp.transition_density] /
+  [`population_transition_density`][tether.analysis.tdp.population_transition_density] — the B1 real
+  Transition
   Density Plot: the initial-vs-final idealized-FRET density over state-change frames of
   a population's *fresh* idealizations [McKinney2006].
-- :func:`~tether.analysis.dwell.state_dwells` /
-  :func:`~tether.analysis.dwell.survival_curve` /
-  :func:`~tether.analysis.dwell.fit_survival` /
-  :func:`~tether.analysis.dwell.population_dwell_times` — the B2 dwell-time analysis:
+- [`state_dwells`][tether.analysis.dwell.state_dwells] /
+  [`survival_curve`][tether.analysis.dwell.survival_curve] /
+  [`fit_survival`][tether.analysis.dwell.fit_survival] /
+  [`population_dwell_times`][tether.analysis.dwell.population_dwell_times] — the B2 dwell-time
+  analysis:
   per-state dwell-length distributions, their empirical survival function, and its
   exponential-fit exit rates with confidence intervals + residuals [Schrangl2024].
-- :func:`~tether.analysis.transition_prob.empirical_transition_probability` /
-  :func:`~tether.analysis.transition_prob.transition_prob_histogram` /
-  :func:`~tether.analysis.transition_prob.population_transition_prob_histogram` — the
+-
+  [`empirical_transition_probability`][tether.analysis.transition_prob.empirical_transition_probability]
+  /
+  [`transition_prob_histogram`][tether.analysis.transition_prob.transition_prob_histogram] /
+  [`population_transition_prob_histogram`][tether.analysis.transition_prob.population_transition_prob_histogram]
+  — the
   B3 transition-probability histogram: the population of per-molecule maximum-likelihood
   one-step ``P(init → fin)`` rates estimated from each Viterbi path (the empirical
   analogue of tMAVEN's per-trace ``norm_tmatrix``), binned with an optional Gaussian-KDE
   [McKinney2006].
-- :func:`~tether.analysis.state_number.occupied_state_count` /
-  :func:`~tether.analysis.state_number.state_number_counts` /
-  :func:`~tether.analysis.state_number.population_state_number` — the C1 state-number
+- [`occupied_state_count`][tether.analysis.state_number.occupied_state_count] /
+  [`state_number_counts`][tether.analysis.state_number.state_number_counts] /
+  [`population_state_number`][tether.analysis.state_number.population_state_number] — the C1
+  state-number
   bar chart: molecule counts by the number of **distinct states each Viterbi path
   occupies** (the consensus-model analogue of tMAVEN's per-trace vbFRET state count)
   [vandeMeent2014].
-- :func:`~tether.analysis.cloud.raw_fret_cloud` /
-  :func:`~tether.analysis.cloud.population_raw_fret_cloud` — the raw FRET cloud QC view
+- [`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud] /
+  [`population_raw_fret_cloud`][tether.analysis.cloud.population_raw_fret_cloud] — the raw FRET
+  cloud QC view
   (PR-5a): the pooled pre-idealization ``(time, apparent-E)`` scatter with a 2-D
   Gaussian-KDE surface and highest-density-region percentile contours (the
   numerical-grid density-quantile method) [Hyndman1996][Haselsteiner2017].
-- :func:`~tether.analysis.cloud.alpha_shape` /
-  :func:`~tether.analysis.cloud.population_fret_cloud_alpha_shape` — the raw FRET cloud's
+- [`alpha_shape`][tether.analysis.cloud.alpha_shape] /
+  [`population_fret_cloud_alpha_shape`][tether.analysis.cloud.population_fret_cloud_alpha_shape] —
+  the raw FRET cloud's
   **α-shape support boundary** (PR-5b): the concave hull of the pooled ``(time, E)`` cloud
   from its Delaunay triangulation (circumradius ``<= alpha`` in axis-normalized
   coordinates), tracing where the population's signal lives [Edelsbrunner1983][PateiroLopez2010].
-- :func:`~tether.analysis.cloud.k_rmse_elbow` /
-  :func:`~tether.analysis.cloud.population_fret_cloud_state_number_elbow` — the
+- [`k_rmse_elbow`][tether.analysis.cloud.k_rmse_elbow] /
+  [`population_fret_cloud_state_number_elbow`][tether.analysis.cloud.population_fret_cloud_state_number_elbow]
+  — the
   **k-vs-RMSE elbow** state-count *hint* (PR-5b): k-means over the pooled apparent-E
   values with the knee of the within-cluster RMSE(k) curve [Satopaa2011][Thorndike1953]
   as a pre-idealization suggestion — a heuristic subordinate to the HMM/BIC state count
   [Schubert2022][McKinney2006].
-- :func:`~tether.analysis.anticorrelation.find_anticorrelation_events` /
-  :func:`~tether.analysis.anticorrelation.population_anticorrelation_events` — the
+- [`find_anticorrelation_events`][tether.analysis.anticorrelation.find_anticorrelation_events] /
+  [`population_anticorrelation_events`][tether.analysis.anticorrelation.population_anticorrelation_events]
+  — the
   **anticorrelation-event finder** (PR-6): a sliding window sweeps each donor/acceptor
   trace and merges windows that are both anti-phase (signed lag-0 Pearson ``< 0``, the
   reliable same-frame direction) and temporally structured (lag-1 magnitude above a
@@ -104,10 +121,11 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
 
 Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
 
-- :func:`~tether.analysis.kinetics.fit_gaussian_hmm` /
-  :func:`~tether.analysis.kinetics.viterbi_paths` /
-  :func:`~tether.analysis.kinetics.two_state_rate_constants` /
-  :func:`~tether.analysis.kinetics.evaluate_kinsoft_level` — the **kinSoftChallenge
+- [`fit_gaussian_hmm`][tether.analysis.kinetics.fit_gaussian_hmm] /
+  [`viterbi_paths`][tether.analysis.kinetics.viterbi_paths] /
+  [`two_state_rate_constants`][tether.analysis.kinetics.two_state_rate_constants] /
+  [`evaluate_kinsoft_level`][tether.analysis.kinetics.evaluate_kinsoft_level] — the
+  **kinSoftChallenge
   kinetics-validation oracle**: a self-contained base-env Gaussian HMM (no tMAVEN
   sidecar) idealizes FRET trajectories, pooled dwell-time MLE infers the exit rates,
   and the archetypal 2-state level's rates are checked against that dataset's

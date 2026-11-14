@@ -7,10 +7,10 @@ An empty window used to give no hint of the first step. This page names it: an
 that says a ``.tether`` file can also be dropped on the window, and a link to the
 tutorial for the installed version.
 
-Above them sits the brand (#689): the start art and the tagline :data:`TAGLINE`. The
+Above them sits the brand (#689): the start art and the tagline [`TAGLINE`][]. The
 art is the brand kit's drawing (the surface dots, the wavefronts, the pixel grid and
 the word mark TETHER, drawn from outlines and never typed again), and it follows the
-active theme (:mod:`tether.gui.theme`). The art is decoration, so it is painted on
+active theme ([`tether.gui.theme`][]). The art is decoration, so it is painted on
 the page itself and is no widget at all: assistive technology never meets it. The
 page's accessible description gives the name and the tagline in words instead.
 
@@ -173,7 +173,7 @@ class StartPage:
 
     @property
     def tagline(self) -> QtWidgets.QLabel:
-        """The tagline, :data:`TAGLINE`."""
+        """The tagline, [`TAGLINE`][]."""
         return self._tagline
 
     @property

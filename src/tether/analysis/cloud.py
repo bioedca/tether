@@ -8,7 +8,7 @@ molecule, summarized by a 2-D kernel-density estimate and its highest-density-re
 (HDR) percentile contours. It answers the model-free question "does the FRET signal
 sit in stable bands, and where does the population's density concentrate?" *before*
 any HMM is committed — the counterpart to the A2 time-vs-signal heatmap
-(:func:`tether.analysis.histogram.time_signal_histogram2d`), but as a smoothed density
+([`tether.analysis.histogram.time_signal_histogram2d`][]), but as a smoothed density
 with credible-region contours rather than a raw occupancy histogram.
 
 Unlike the B1 TDP / B3 / C1 model views, the cloud reads **no idealization**: it pools
@@ -16,7 +16,7 @@ the observed ``apparent_fret`` over each molecule's analysis window (the pre-ide
 signal), applying only the §7.5 curation filter (rejected excluded by default). "Raw"
 here means *pre-idealization*, not raw intensities — the E is computed from the chosen
 (corrected, by default) ``/traces`` channels via
-:func:`tether.fret.efficiency.apparent_fret`.
+[`tether.fret.efficiency.apparent_fret`][].
 
 Two estimators are attached (both self-describing for NFR-REPRO):
 
@@ -24,11 +24,12 @@ Two estimators are attached (both self-describing for NFR-REPRO):
   signal_bins)`` grid. gaussian_kde's covariance-scaled bandwidth [Scott1992] absorbs
   the very different time-vs-E scales, so no manual axis normalization is needed. The
   estimate is fit on the points **within the grid range only**: ``apparent_fret`` is
-  deliberately un-clipped (:func:`tether.fret.efficiency.apparent_fret`), so bleached /
+  deliberately un-clipped ([`tether.fret.efficiency.apparent_fret`][]), so bleached /
   blinking frames with a near-zero ``D + A`` produce finite but extreme E far outside
   ``[-0.25, 1.25]``; left in, those (invisible, off-grid) outliers would inflate Scott's
   covariance-scaled bandwidth and silently over-smooth or merge the very bands the view
-  exists to reveal. They are counted in :attr:`~RawFretCloud.n_out_of_range` (a QC signal
+  exists to reveal. They are counted in
+  [`n_out_of_range`][tether.analysis.cloud.RawFretCloud.n_out_of_range] (a QC signal
   in its own right) but excluded from the fit. The surface is ``None`` (never a crash,
   never a fabricated field) when the estimate is undefined — fewer than two in-range
   points, or a singular covariance (all points share one time or one E) — the guard the
@@ -56,8 +57,8 @@ Two further model-free lenses (PRD §7.7), the second half of the raw-cloud deli
   the circumradius test runs in coordinates normalized so each axis spans ``[0, 1]``
   over the cloud's bounding box (the α-shape analogue of the KDE's covariance-scaled
   bandwidth); ``alpha`` is therefore a dimensionless fraction, larger → closer to the
-  convex hull, smaller → more concave / fragmented. :func:`alpha_shape` is the pure
-  core, :func:`population_fret_cloud_alpha_shape` the store entry.
+  convex hull, smaller → more concave / fragmented. [`alpha_shape`][] is the pure
+  core, [`population_fret_cloud_alpha_shape`][] the store entry.
 * **k-vs-RMSE elbow state-count hint** — k-means is run on the pooled **apparent-E
   values** (the FRET dimension only — a state is an E *level*, persisting across time,
   so clustering the 2-D (time, E) cloud would split one state into several time-blobs)
@@ -67,11 +68,11 @@ Two further model-free lenses (PRD §7.7), the second half of the raw-cloud deli
   determination**: the elbow criterion is a heuristic that "severely lacks theoretic
   support" [Schubert2022], so the trustworthy state count remains the HMM/vbFRET model
   view (BIC + the TDP) [McKinney2006]; the elbow merely orients the eye before an HMM is
-  committed. :func:`k_rmse_elbow` is the pure core,
-  :func:`population_fret_cloud_state_number_elbow` the store entry.
+  committed. [`k_rmse_elbow`][] is the pure core,
+  [`population_fret_cloud_state_number_elbow`][] the store entry.
 
-:func:`raw_fret_cloud` is the pure-array core (an iterable of per-molecule windowed
-apparent-E arrays -> a :class:`RawFretCloud`); :func:`population_raw_fret_cloud` is the
+[`raw_fret_cloud`][] is the pure-array core (an iterable of per-molecule windowed
+apparent-E arrays -> a [`RawFretCloud`][]); [`population_raw_fret_cloud`][] is the
 ``.tether`` store entry point (curation filter, channel -> apparent-E). The alpha-shape
 and elbow reuse that pooling and, like the KDE surface, are fit on the **in-grid points
 only** (the off-grid bleach/blink outliers are excluded from both the support boundary
@@ -150,12 +151,12 @@ __all__ = [
 ]
 
 #: KDE-surface resolution across the E (signal) axis. A rendering fidelity default
-#: (like the A1 :data:`~tether.analysis.histogram.DEFAULT_NBINS`), **not** a PRD §11.2
+#: (like the A1 `DEFAULT_NBINS`), **not** a PRD §11.2
 #: science tunable.
 DEFAULT_CLOUD_SIGNAL_BINS = 100
 
 #: E (signal) range of the cloud, matching the A1 / TDP full range
-#: (:data:`tether.analysis.histogram.DEFAULT_RANGE`) so the cloud shares an E axis with
+#: (`tether.analysis.histogram.DEFAULT_RANGE`) so the cloud shares an E axis with
 #: the FRET histogram. A rendering default, **not** a §11.2 tunable.
 DEFAULT_CLOUD_SIGNAL_RANGE: tuple[float, float] = (-0.25, 1.25)
 
@@ -165,7 +166,7 @@ DEFAULT_CLOUD_SIGNAL_RANGE: tuple[float, float] = (-0.25, 1.25)
 DEFAULT_CLOUD_TIME_BINS = 100
 
 #: Frame duration for the time axis (``time = frame_index * time_dt``); frames map to
-#: columns exactly as the A2 heatmap (:data:`~tether.analysis.histogram.DEFAULT_TIME_DT`).
+#: columns exactly as the A2 heatmap (`DEFAULT_TIME_DT`).
 DEFAULT_CLOUD_TIME_DT = 1.0
 
 #: HDR contour coverages drawn by default: the 50% and 95% highest-density regions
@@ -176,7 +177,7 @@ DEFAULT_CLOUD_HDR_COVERAGES: tuple[float, ...] = (0.5, 0.95)
 #: a §11.2 tunable.
 DEFAULT_CLOUD_BW_METHOD = "scott"
 
-#: Auto-``alpha`` multiplier: when :func:`alpha_shape` is given no ``alpha``, the
+#: Auto-``alpha`` multiplier: when `alpha_shape` is given no ``alpha``, the
 #: circumradius threshold is this factor times the **median** finite triangle
 #: circumradius (in normalized coordinates), keeping the bulk of triangles while
 #: dropping the gap-spanning slivers — a mildly concave support. A rendering default,
@@ -203,19 +204,19 @@ DEFAULT_ELBOW_SEED = 0
 class RawFretCloud:
     """A pooled ``(time, apparent-E)`` FRET cloud with a KDE surface + HDR levels.
 
-    :attr:`points` is the raw scatter — one row ``(time, E)`` per finite per-frame
+    [`points`][] is the raw scatter — one row ``(time, E)`` per finite per-frame
     sample, kept so the cloud and any statistic are reproducible (NFR-REPRO) and the
     GUI can always draw the scatter even when the smoothed surface is undefined.
-    :attr:`density` is the 2-D KDE on the ``(time_bins, signal_bins)`` grid
-    (``density[i, j]`` at time :attr:`time_centers` ``[i]`` and E
-    :attr:`signal_centers` ``[j]``), or ``None`` when no KDE could be formed (fewer than
-    two points, or a singular covariance). :attr:`hdr_levels` holds the density
-    threshold per :attr:`hdr_coverages` entry (the ``f = level`` isocontour encloses
+    [`density`][] is the 2-D KDE on the ``(time_bins, signal_bins)`` grid
+    (``density[i, j]`` at time [`time_centers`][] ``[i]`` and E
+    [`signal_centers`][] ``[j]``), or ``None`` when no KDE could be formed (fewer than
+    two points, or a singular covariance). [`hdr_levels`][] holds the density
+    threshold per [`hdr_coverages`][] entry (the ``f = level`` isocontour encloses
     that coverage of the in-grid mass, [Hyndman1996][Haselsteiner2017]); it is ``None``
-    exactly when :attr:`density` is. Because a smaller coverage encloses a
+    exactly when [`density`][] is. Because a smaller coverage encloses a
     higher-density core, the levels **decrease** as the aligned coverages increase.
-    :attr:`points` keeps **all** finite samples (the full scatter, so the GUI can show
-    outliers), but the KDE/HDR are fit on the in-grid subset only; :attr:`n_out_of_range`
+    [`points`][] keeps **all** finite samples (the full scatter, so the GUI can show
+    outliers), but the KDE/HDR are fit on the in-grid subset only; [`n_out_of_range`][]
     reports how many finite samples fell outside the grid range (excluded from the fit —
     a data-QC signal in its own right, e.g. an un-trimmed post-bleach tail).
     """
@@ -298,7 +299,7 @@ def _kde_surface(
     ``(time_centers[i], signal_centers[j])`` and ``factor`` the bandwidth actually used.
     Returns ``None`` (never raises) when the estimate is degenerate — fewer than two
     points, or a singular covariance (all points collinear / one axis constant). scipy
-    raises :class:`~numpy.linalg.LinAlgError` for some singular inputs but *silently*
+    raises [`LinAlgError`][numpy.linalg.LinAlgError] for some singular inputs but *silently*
     returns a degenerate all-zero surface for others (e.g. a constant E axis), so both
     the raise and the resulting zero-mass grid are treated as "no surface" — the B3
     ``try/except`` guard, extended for the 2-D case so a misleading empty field is never
@@ -345,11 +346,13 @@ def raw_fret_cloud(
     Each element of ``fret_chunks`` is one molecule's per-frame **apparent E** over its
     analysis window (``NaN`` where ``D + A == 0``). Frame ``t`` contributes the point
     ``(t * time_dt, E[t])``; non-finite E are dropped (never a fabricated value). Every
-    finite point is kept in :attr:`~RawFretCloud.points` (the scatter), but the 2-D
+    finite point is kept in [`points`][tether.analysis.cloud.RawFretCloud.points] (the scatter), but
+    the 2-D
     Gaussian KDE on the ``(time_bins, signal_bins)`` grid — and the HDR contour thresholds
     derived from it for each ``hdr_coverages`` entry — are fit on the **in-grid points
     only**, so finite-but-off-grid E outliers (bleached/blinking frames) do not inflate
-    the bandwidth; those are counted in :attr:`~RawFretCloud.n_out_of_range`.
+    the bandwidth; those are counted in
+    [`n_out_of_range`][tether.analysis.cloud.RawFretCloud.n_out_of_range].
 
     Parameters
     ----------
@@ -505,8 +508,8 @@ def population_raw_fret_cloud(
     """Raw FRET cloud from a ``.tether`` store (§10 PR-5; PRD §7.7).
 
     Pools each accepted molecule's windowed **apparent E**
-    (:func:`tether.fret.efficiency.apparent_fret` over the ``intensity_quantity``
-    channels, sliced to the ``analysis_window``) and feeds it to :func:`raw_fret_cloud`.
+    ([`tether.fret.efficiency.apparent_fret`][] over the ``intensity_quantity``
+    channels, sliced to the ``analysis_window``) and feeds it to [`raw_fret_cloud`][].
     Rejected molecules are excluded unless ``include_rejected`` (§7.5). This is a
     **pre-idealization** view — it reads ``/traces`` only, never ``/idealization`` — so
     there is no fresh/stale filter (that guards model plots against re-extraction; the
@@ -515,15 +518,15 @@ def population_raw_fret_cloud(
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_keys
         Restrict to these ``molecule_key`` values (``None`` = all), intersected with the
         curation filter.
     intensity_quantity
         Which ``/traces`` layers supply the apparent-E channels (``"corrected"`` default,
-        or ``"raw"``; see :func:`tether.analysis._store.resolve_quantity`).
+        or ``"raw"``; see `tether.analysis._store.resolve_quantity`).
     time_bins, signal_bins, signal_range, time_range, time_dt, hdr_coverages, kde, bw_method
-        Passed through to :func:`raw_fret_cloud`.
+        Passed through to [`raw_fret_cloud`][].
     include_rejected
         Keep rejected molecules (default excludes them, §7.5).
 
@@ -534,7 +537,7 @@ def population_raw_fret_cloud(
     Raises
     ------
     ValueError
-        The store lacks the requested trace layer, or a :func:`raw_fret_cloud`
+        The store lacks the requested trace layer, or a [`raw_fret_cloud`][]
         parameter is invalid.
     """
     from tether.analysis._store import windowed_channels
@@ -566,15 +569,15 @@ class AlphaShape:
     ``alpha`` [Edelsbrunner1983][PateiroLopez2010]; its boundary is the edges shared by
     exactly one such triangle. Because the time and E axes carry different units, the
     circumradius test is applied in coordinates normalized so each axis spans ``[0, 1]``
-    over the cloud's bounding box, so :attr:`alpha` is a **dimensionless** threshold
+    over the cloud's bounding box, so [`alpha`][] is a **dimensionless** threshold
     (larger → nearer the convex hull, smaller → more concave / fragmented).
 
-    :attr:`boundary_edges` are the boundary segments in the **original** ``(time, E)``
+    [`boundary_edges`][] are the boundary segments in the **original** ``(time, E)``
     coordinates (``(n_edges, 2, 2)`` — ``[edge, endpoint, (time, E)]``), ready to draw.
-    :attr:`area` is the total area of the kept triangles in original units (a QC scalar:
-    the occupied ``time·E`` support area). :attr:`n_kept` is how many of the
-    :attr:`n_triangles` Delaunay triangles fell inside the shape; an empty
-    :attr:`boundary_edges` with ``n_kept == 0`` means ``alpha`` was too small to keep any
+    [`area`][] is the total area of the kept triangles in original units (a QC scalar:
+    the occupied ``time·E`` support area). [`n_kept`][] is how many of the
+    [`n_triangles`][] Delaunay triangles fell inside the shape; an empty
+    [`boundary_edges`][] with ``n_kept == 0`` means ``alpha`` was too small to keep any
     triangle (an honest "no support at this α", never a fabricated boundary).
     """
 
@@ -627,10 +630,10 @@ def alpha_shape(points: np.ndarray, *, alpha: float | None = None) -> AlphaShape
     ----------
     points
         ``(n, 2)`` array of ``(time, E)`` samples (typically a
-        :attr:`RawFretCloud.points` subset). Non-finite rows are dropped.
+        [`RawFretCloud.points`][] subset). Non-finite rows are dropped.
     alpha
         Circumradius threshold in normalized coordinates (a positive dimensionless
-        fraction). ``None`` (default) auto-selects :data:`DEFAULT_ALPHA_FACTOR` times the
+        fraction). ``None`` (default) auto-selects [`DEFAULT_ALPHA_FACTOR`][] times the
         median finite triangle circumradius — a mildly concave support that adapts to the
         cloud's density.
 
@@ -724,16 +727,16 @@ def alpha_shape(points: np.ndarray, *, alpha: float | None = None) -> AlphaShape
 class StateNumberElbow:
     """A k-vs-RMSE elbow **hint** for the number of FRET states (pre-idealization QC).
 
-    :attr:`rmse` ``[i]`` is the within-cluster root-mean-square distance of the pooled
-    apparent-E values to their nearest of :attr:`k_values` ``[i]`` k-means centroids
-    (decreasing in ``k``). :attr:`elbow_k` is the "knee" of that curve — the ``k`` of
+    [`rmse`][] ``[i]`` is the within-cluster root-mean-square distance of the pooled
+    apparent-E values to their nearest of [`k_values`][] ``[i]`` k-means centroids
+    (decreasing in ``k``). [`elbow_k`][] is the "knee" of that curve — the ``k`` of
     maximum distance to the first→last chord [Satopaa2011] — offered as a **suggested**
     state count [Thorndike1953], or ``None`` when no interior elbow exists (fewer than
     three probed ``k``, or a flat curve).
 
     This is a heuristic hint only: the elbow criterion "severely lacks theoretic support"
     [Schubert2022], so the trustworthy state count remains the HMM/vbFRET model view
-    (BIC + the TDP) [McKinney2006]. :attr:`seed` records the k-means seed so the curve is
+    (BIC + the TDP) [McKinney2006]. [`seed`][] records the k-means seed so the curve is
     reproducible (NFR-REPRO).
     """
 
@@ -781,13 +784,13 @@ def k_rmse_elbow(
 ) -> StateNumberElbow:
     """k-vs-RMSE elbow **hint** for the number of FRET states from pooled apparent-E.
 
-    Runs k-means (:func:`scipy.cluster.vq.kmeans`, ``restarts`` restarts, keeping the
+    Runs k-means ([`scipy.cluster.vq.kmeans`][], ``restarts`` restarts, keeping the
     lowest-distortion codebook) on the 1-D ``values`` for each ``k`` in
     ``[k_min, k_max]`` and records the within-cluster RMSE. Clustering is on the **E
     values alone** — a state is an E *level* that persists over time, so the count of E
     bands, not spatiotemporal blobs, is the state-number analogue. ``k_max`` is capped at
     the number of distinct values (k-means cannot exceed that). The elbow of the RMSE(k)
-    curve is returned as :attr:`~StateNumberElbow.elbow_k`.
+    curve is returned as [`elbow_k`][tether.analysis.cloud.StateNumberElbow.elbow_k].
 
     This is a **pre-idealization hint, not a determination** [Schubert2022]: it orients
     the eye before an HMM is committed; the state count of record is the model view (BIC +
@@ -796,7 +799,7 @@ def k_rmse_elbow(
     Parameters
     ----------
     values
-        1-D apparent-E samples (non-finite dropped); e.g. a :attr:`RawFretCloud.points`
+        1-D apparent-E samples (non-finite dropped); e.g. a [`RawFretCloud.points`][]
         E column.
     k_min, k_max
         Inclusive range of cluster counts to probe (``1 <= k_min <= k_max``).
@@ -864,7 +867,7 @@ def _in_grid_points(cloud: RawFretCloud) -> np.ndarray:
     """The subset of ``cloud.points`` inside the KDE grid range (the visible cloud).
 
     The alpha-shape and elbow share the KDE's in-grid contract: finite-but-off-grid
-    bleach/blink outliers stay in :attr:`RawFretCloud.points` (the honest scatter) but are
+    bleach/blink outliers stay in [`RawFretCloud.points`][] (the honest scatter) but are
     excluded here, so the support boundary and the E-band clustering match the density
     surface rather than being dragged out by an invisible outlier.
     """
@@ -892,12 +895,12 @@ def population_fret_cloud_alpha_shape(
     """α-shape support boundary of a ``.tether`` store's raw FRET cloud (§10 PR-5b).
 
     Pools the same pre-idealization ``(time, apparent-E)`` cloud as
-    :func:`population_raw_fret_cloud` (curation filter, ``intensity_quantity`` channels,
-    analysis window) and returns its α-shape (:func:`alpha_shape`). By default only the
+    [`population_raw_fret_cloud`][] (curation filter, ``intensity_quantity`` channels,
+    analysis window) and returns its α-shape ([`alpha_shape`][]). By default only the
     in-grid points feed the boundary (``in_grid_only``), matching the KDE surface.
 
-    Parameters mirror :func:`population_raw_fret_cloud` (plus ``alpha`` from
-    :func:`alpha_shape`); ``in_grid_only=False`` bounds the full scatter including
+    Parameters mirror [`population_raw_fret_cloud`][] (plus ``alpha`` from
+    [`alpha_shape`][]); ``in_grid_only=False`` bounds the full scatter including
     off-grid outliers. Returns ``None`` when the cloud cannot span a 2-D region.
     """
     cloud = population_raw_fret_cloud(
@@ -931,11 +934,12 @@ def population_fret_cloud_state_number_elbow(
 ) -> StateNumberElbow:
     """k-vs-RMSE elbow state-count **hint** from a ``.tether`` store (§10 PR-5b).
 
-    Pools the same pre-idealization apparent-E as :func:`population_raw_fret_cloud`, then
-    runs :func:`k_rmse_elbow` on the pooled **E values** (the FRET dimension only). By
+    Pools the same pre-idealization apparent-E as [`population_raw_fret_cloud`][], then
+    runs [`k_rmse_elbow`][] on the pooled **E values** (the FRET dimension only). By
     default only in-grid values are clustered (``in_grid_only``), so off-grid bleach/blink
     outliers do not create a spurious extra band. Returns a
-    :class:`StateNumberElbow` whose :attr:`~StateNumberElbow.elbow_k` is a heuristic
+    [`StateNumberElbow`][] whose [`elbow_k`][tether.analysis.cloud.StateNumberElbow.elbow_k] is a
+    heuristic
     suggestion, subordinate to the HMM/BIC state count [Schubert2022][McKinney2006].
     """
     cloud = population_raw_fret_cloud(

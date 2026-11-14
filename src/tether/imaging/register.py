@@ -11,32 +11,32 @@ This module builds that pipeline incrementally (the native bead-detection ->
 phase-correlation prealign -> nearest-neighbour pairing -> degree-2 fit chain of
 M1 S5/S6):
 
-* :class:`SimilarityTransform2D` + :func:`estimate_translation_prealign` /
-  :func:`estimate_similarity_prealign` -- the coarse phase-correlation prealign
+* [`SimilarityTransform2D`][] + [`estimate_translation_prealign`][] /
+  [`estimate_similarity_prealign`][] -- the coarse phase-correlation prealign
   that seeds pairing (Appendix E Stage 7). M1 S5a lands the translation DOF; M1
   S5b lands the full 4-DOF rotation+scale estimate -- a Fourier-Mellin log-polar
   pass, the faithful analogue of Deep-LASI ``imregcorr(..., 'similarity')``
   (``createMapPhaseCorr.m:11``) -- reusing the same transform type (ADR-0012,
   ADR-0013);
-* :func:`pair_control_points` -- mutual nearest-neighbour pairing within a px
+* [`pair_control_points`][] -- mutual nearest-neighbour pairing within a px
   tolerance (Appendix E Stage 8), matched in the prealigned frame but returning
   the original un-prealigned moving coords for the fit (ADR-0012);
-* :class:`PolyTransform2D` -- a degree-2 2-D polynomial warp in the exact MATLAB
+* [`PolyTransform2D`][] -- a degree-2 2-D polynomial warp in the exact MATLAB
   form (per-output coefficient vectors ``A`` (x) and ``B`` (y) in the basis
   ``[1, x, y, x*y, x**2, y**2]`` with input/output normalisation affines), shared
   by both the decoded ``.tmap`` transform and the native fit so a residual is a
   like-for-like point comparison;
-* :func:`fit_polynomial_transform` -- a normalised least-squares degree-2 fit from
+* [`fit_polynomial_transform`][] -- a normalised least-squares degree-2 fit from
   matched control points (mirrors ``fitgeotrans(...,'polynomial',2)``);
-* :func:`read_tmap` -- decode a Deep-LASI ``.tmap`` (a classic MATLAB v5 MAT-file
+* [`read_tmap`][] -- decode a Deep-LASI ``.tmap`` (a classic MATLAB v5 MAT-file
   whose transform coefficients live in the MCOS ``__function_workspace__`` blob);
-* :func:`point_rms` -- the RMS of per-point Euclidean residuals, the registration
+* [`point_rms`][] -- the RMS of per-point Euclidean residuals, the registration
   quality number (§9 M0.5(b): native RMS <= 0.5 px vs the ``.tmap``).
 
-Coordinate convention follows the rest of :mod:`tether.imaging`: points are
+Coordinate convention follows the rest of [`tether.imaging`][]: points are
 ``(N, 2)`` arrays of ``[x, y] = [col, row]``. ``PolyTransform2D`` evaluates the
 raw polynomial in whatever frame it was built; the decoded ``.tmap`` transforms
-are in MATLAB 1-based pixel coordinates, so :class:`TmapChannel` exposes
+are in MATLAB 1-based pixel coordinates, so [`TmapChannel`][] exposes
 ``reference_to_channel``/``channel_to_reference`` helpers that convert Tether's
 0-based ``[x, y]`` across that boundary (PRD §11.1).
 
@@ -89,7 +89,7 @@ class PolyTransform2D:
     Evaluates ``out = denorm(P(norm(pt)))`` where ``norm`` applies
     ``inv(norm_xy)`` to the input point, ``P`` is the degree-2 polynomial with
     per-output coefficient vectors ``A`` (output x) and ``B`` (output y) in the
-    :func:`poly_basis_deg2` basis, and ``denorm`` applies ``norm_uv`` to the
+    [`poly_basis_deg2`][] basis, and ``denorm`` applies ``norm_uv`` to the
     polynomial output. ``norm_xy``/``norm_uv`` are ``3x3`` affines in MATLAB's
     post-multiply convention (``[x, y, 1] @ M``); identity normalisation reduces
     the transform to a plain polynomial in the input frame.
@@ -133,7 +133,7 @@ def fit_polynomial_transform(
     ``fitgeotrans(src, dst, 'polynomial', 2)``: by default the input points are
     centred/scaled before the fit (``normalize=True``) for conditioning, exactly
     as ``images.geotrans.PolynomialTransformation2D`` does, with the normalisation
-    folded into ``norm_xy`` so :meth:`PolyTransform2D.apply` consumes raw pixels.
+    folded into ``norm_xy`` so [`PolyTransform2D.apply`][] consumes raw pixels.
     The output stays in pixel coordinates (``norm_uv`` is identity), so the fit
     lives in whatever frame ``src``/``dst`` are given in.
 
@@ -194,12 +194,12 @@ class SimilarityTransform2D:
     control points close enough for nearest-neighbour pairing. It is **never**
     composed into the stored polynomial calibration — the map is always fit on
     the original, un-prealigned coordinates (Stage 8; see
-    :func:`pair_control_points`).
+    [`pair_control_points`][]).
 
     M1 S5a populates this from a translation-only phase correlation
-    (:func:`estimate_translation_prealign`, the scale-1/rotation-0 special case);
+    ([`estimate_translation_prealign`][], the scale-1/rotation-0 special case);
     M1 S5b populates the full 4-DOF rotation+scale estimate from a Fourier-Mellin
-    log-polar pass (:func:`estimate_similarity_prealign`). The scale/rotation
+    log-polar pass ([`estimate_similarity_prealign`][]). The scale/rotation
     fields are first-class here so both estimators share one type (ADR-0012,
     ADR-0013).
     """
@@ -238,15 +238,15 @@ def estimate_translation_prealign(
     The translation-DOF analogue of Deep-LASI's ``imregcorr`` prealign:
     ``skimage.registration.phase_cross_correlation`` finds the whole-image shift
     aligning ``moving`` onto ``reference`` to ``1 / upsample_factor`` px. The
-    returned :class:`SimilarityTransform2D` (scale 1, rotation 0) maps a moving
+    returned [`SimilarityTransform2D`][] (scale 1, rotation 0) maps a moving
     ``[x, y]`` point into the reference frame; pass it to
-    :func:`pair_control_points` as ``prealign``.
+    [`pair_control_points`][] as ``prealign``.
 
     Parameters
     ----------
     reference, moving:
         2-D single-channel images of the **same shape** (e.g. the per-half bead
-        detection images from :func:`tether.imaging.detect.detection_image`).
+        detection images from [`tether.imaging.detect.detection_image`][]).
     upsample_factor:
         Sub-pixel registration upsampling (PRD §11.2 default 10): the shift is
         resolved to ``1 / upsample_factor`` px.
@@ -297,11 +297,11 @@ def estimate_similarity_prealign(
     The faithful Python analogue of Deep-LASI's ``imregcorr(...,'similarity')``
     (``deeplasi/functions/mapping/createMapPhaseCorr.m:11``), which recovers
     translation **and** rotation **and** isotropic scale by frequency-domain
-    (Fourier-Mellin) registration. Where :func:`estimate_translation_prealign`
+    (Fourier-Mellin) registration. Where [`estimate_translation_prealign`][]
     covers only the translation DOF (M1 S5a), this adds rotation + scale (M1 S5b,
-    ADR-0013). The returned :class:`SimilarityTransform2D` maps a ``moving``
+    ADR-0013). The returned [`SimilarityTransform2D`][] maps a ``moving``
     ``[x, y]`` point into the ``reference`` frame; pass it to
-    :func:`pair_control_points` as ``prealign``. ``reference`` defaults to the
+    [`pair_control_points`][] as ``prealign``. ``reference`` defaults to the
     donor half (PRD §11.2).
 
     Method (the canonical skimage log-polar recipe, version-matched to the base
@@ -422,7 +422,7 @@ def estimate_similarity_prealign(
 
 @dataclass(frozen=True)
 class PairedControlPoints:
-    """Matched control points from :func:`pair_control_points`.
+    """Matched control points from [`pair_control_points`][].
 
     Attributes
     ----------
@@ -468,18 +468,18 @@ def pair_control_points(
     ----------
     reference, moving:
         ``(N, 2)`` / ``(M, 2)`` ``[x, y]`` point sets (e.g. bead centroids from
-        :func:`tether.imaging.detect.detect_spots` on each half).
+        [`tether.imaging.detect.detect_spots`][] on each half).
     tol:
         Maximum Euclidean pairing distance in px (PRD §11.2 default 2; up to ~4).
     prealign:
         Optional coarse transform mapping ``moving`` into the reference frame
-        (e.g. from :func:`estimate_translation_prealign`).
+        (e.g. from [`estimate_translation_prealign`][]).
 
     Returns
     -------
     PairedControlPoints
         The mutual matches; ``reference``/``moving`` are ready for
-        :func:`fit_polynomial_transform`. Empty (``K = 0``) when nothing pairs.
+        [`fit_polynomial_transform`][]. Empty (``K = 0``) when nothing pairs.
     """
     reference = np.atleast_2d(np.asarray(reference, dtype=np.float64))
     moving = np.atleast_2d(np.asarray(moving, dtype=np.float64))
@@ -536,19 +536,19 @@ class TmapChannel:
     ``transformPointsInverse``, so the stored coefficients evaluate in the
     *inverse* direction relative to the field name (deeplasi
     ``classes/TIRFdata.m``): the decoded ``MapToReference`` actually maps
-    reference -> this channel (:attr:`ref_to_channel`) and ``MapFromReference``
-    maps this channel -> reference (:attr:`channel_to_ref`). The two are
+    reference -> this channel ([`ref_to_channel`][]) and ``MapFromReference``
+    maps this channel -> reference ([`channel_to_ref`][]). The two are
     independently fitted, not algebraic inverses. Transforms are in MATLAB
-    1-based pixel coordinates; the :meth:`reference_to_channel` /
-    :meth:`channel_to_reference` helpers accept and return Tether 0-based
+    1-based pixel coordinates; the [`reference_to_channel`][] /
+    [`channel_to_reference`][] helpers accept and return Tether 0-based
     ``[x, y]`` and handle that boundary (PRD §11.1).
 
     The registration is **channel-local**: Deep-LASI extracts each channel as a
     sub-image via ``processImage(I, Rotation, Crop, Flip)`` (``tools/processImage.m``)
-    and registers those crops, so :meth:`reference_to_channel` maps a *reference-
+    and registers those crops, so [`reference_to_channel`][] maps a *reference-
     local* coordinate to a *this-channel-local* coordinate. To place a point in
-    the raw, un-split movie use :meth:`reference_to_channel_image`, which folds in
-    the per-channel crop :attr:`origin`.
+    the raw, un-split movie use [`reference_to_channel_image`][], which folds in
+    the per-channel crop [`origin`][].
     """
 
     channel_id: int
@@ -559,7 +559,7 @@ class TmapChannel:
     # processImage applies rotate -> flip -> crop; Tether's imported-.tmap path
     # honors only the crop so far (the rotation/flip *apply* is deferred to a
     # follow-up). These carry the stored values so a non-identity geometry can be
-    # refused loudly (see :attr:`has_simple_geometry`) rather than silently
+    # refused loudly (see `has_simple_geometry`) rather than silently
     # mis-split. Empty arrays (the UCKOPSB .tmap's value) and all-zeros mean "none".
     rotation: np.ndarray = field(default_factory=lambda: np.array([]))
     flip: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -618,14 +618,14 @@ class TmapChannel:
         Composes the channel-local registration with the crop geometry: a
         full-frame reference point is rebased to the reference channel's local
         frame (subtract ``reference_origin``), warped into this channel's local
-        frame (:meth:`reference_to_channel`), then offset by this channel's crop
-        :attr:`origin` back to full-frame pixels. Use this to read the acceptor
+        frame ([`reference_to_channel`][]), then offset by this channel's crop
+        [`origin`][] back to full-frame pixels. Use this to read the acceptor
         signal in the raw (un-split) movie at a donor coordinate's mapped position
         — the donor-anchored colocalization read (PRD Appendix E Stages 11-13).
 
         ``reference_origin`` defaults to ``(0, 0)`` (the donor/reference channel
         is conventionally cropped from the frame origin); pass the reference
-        channel's :attr:`origin` if it is not.
+        channel's [`origin`][] if it is not.
         """
         pts = np.atleast_2d(np.asarray(points0, dtype=np.float64))
         ref_origin = np.asarray(reference_origin, dtype=np.float64)

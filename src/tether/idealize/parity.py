@@ -17,10 +17,10 @@ as **statistical agreement within a stated tolerance** on four quantities
    permutation (≥ Z);
 4. **relative ELBO change** — ``|ΔELBO| / |ELBO|`` (≤ W).
 
-This module holds the **pure** comparison core (:func:`compare_models`,
+This module holds the **pure** comparison core ([`compare_models`][],
 numpy-only — what CI's ``sidecar.yml`` asserts against the frozen numbers) and a
-**sidecar-driven** measurement harness (:func:`measure_spread`, which runs
-:func:`tether.idealize.run_vbfret` ≥ N times to *measure* the cross-seed spread
+**sidecar-driven** measurement harness ([`measure_spread`][], which runs
+[`tether.idealize.run_vbfret`][] ≥ N times to *measure* the cross-seed spread
 the four §11.2 numbers are frozen from at M0.5). The frozen numbers live in
 ``schema/parity_tolerance.json`` and PRD §11.2; CI never recomputes them.
 
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from os import PathLike
 
 #: Provisional §11.2 defaults (PRD, pre-ratification). The measured spread either
-#: replaces these (if wider) or confirms them (if tighter) — see :func:`freeze`.
+#: replaces these (if wider) or confirms them (if tighter) — see `freeze`.
 PROVISIONAL = {
     "state_count_min_fraction": 0.90,  # floor: exact on ≥ 90% of traces
     "state_mean_abs_delta_max": 0.02,  # ceiling: per-state |ΔE| (FRET units)
@@ -100,7 +100,7 @@ def canonical_state_path(model: StateModel) -> np.ndarray:
     """Per-frame integer state path in canonical (mean-sorted) labels.
 
     ``(n_molecules, n_frames)`` int64; frames outside a molecule's analysis
-    window stay :data:`tether.idealize.NO_STATE`. Derived from the model's
+    window stay [`tether.idealize.NO_STATE`][]. Derived from the model's
     ``idealized`` levels via nearest-mean assignment, then relabeled so state 0
     is always the lowest-FRET state.
     """
@@ -115,7 +115,7 @@ def canonical_state_path(model: StateModel) -> np.ndarray:
 
 
 def _distinct_counts(path: np.ndarray) -> np.ndarray:
-    """Number of distinct (non-:data:`NO_STATE`) states each row occupies."""
+    """Number of distinct (non-[`NO_STATE`][]) states each row occupies."""
     counts = np.empty(path.shape[0], dtype="int64")
     for i in range(path.shape[0]):
         row = path[i]
@@ -156,8 +156,8 @@ def viterbi_agreement(ref_path: np.ndarray, test_path: np.ndarray) -> float:
     """Per-frame state-path agreement over frames in-window in *both* models.
 
     Both paths must already be in canonical labels
-    (:func:`canonical_state_path`). Frames where either model is
-    :data:`NO_STATE` are excluded. Returns the fraction equal, or ``0.0`` when
+    ([`canonical_state_path`][]). Frames where either model is
+    [`NO_STATE`][] are excluded. Returns the fraction equal, or ``0.0`` when
     the paths are not frame-aligned (differing shapes) or share no in-window
     frames.
     """
@@ -344,7 +344,7 @@ def measure_spread(
     Each fit is compared to ``reference`` — a committed reference model
     (``model_281mol.hdf5``) when supplied, else the first run (cross-seed
     self-comparison, for fixtures with no committed model). Returns the
-    per-metric :class:`SpreadSummary` map and the raw per-run metrics. This is
+    per-metric [`SpreadSummary`][] map and the raw per-run metrics. This is
     the M0.5 ratification harness — sidecar-only, never run in the CI matrix.
 
     Raises ``ValueError`` for configurations that would yield zero comparisons

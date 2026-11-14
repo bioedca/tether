@@ -3,9 +3,9 @@
 """Canonical ``intensity_quantity`` -> ``/traces`` layer mapping (PRD §5).
 
 The single source of truth for which ``/traces`` datasets a given
-``intensity_quantity`` selects, shared by idealization (:mod:`tether.project.idealize`),
-the tMAVEN hand-off (:mod:`tether.project.handoff`), and analysis
-(:mod:`tether.analysis`). Kept dependency-light (a plain dict, no imports) so any
+``intensity_quantity`` selects, shared by idealization ([`tether.project.idealize`][]),
+the tMAVEN hand-off ([`tether.project.handoff`][]), and analysis
+([`tether.analysis`][]). Kept dependency-light (a plain dict, no imports) so any
 consumer can reference it without pulling a heavy import chain — and so a schema
 update happens in exactly one place, never drifting between copies.
 """

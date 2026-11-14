@@ -2,30 +2,30 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """pyqtgraph trace dock — the per-trace curation surface (PRD §7.3, Appendix C D1).
 
-:class:`TraceDock` is the keyboard-driven per-trace viewer at the heart of the
+[`TraceDock`][] is the keyboard-driven per-trace viewer at the heart of the
 FR-ROUNDTRIP browser: donor/acceptor/total intensity + the FRET time-series with
 its marginal histograms. It is tMAVEN's per-trace viewer (Appendix C, **D1**)
 reimagined as Tether's curation surface, so it keeps the familiar conventions —
 **donor green / acceptor red / FRET blue** (the ``classic`` data colours of
-:mod:`tether.gui.theme`, which also colours the plots for the light or dark theme
+[`tether.gui.theme`][], which also colours the plots for the light or dark theme
 and redraws them when the theme changes), the FRET axis fixed to ``0–1``, the
 x-axis in **seconds** (from the linked ``/movies`` row's ``frame_time``, when the
 movie declares one) with a **frame-index toggle**, and an idealization **step
 overlay** drawn over the FRET panel.
 
 At the MVP the FRET axis reads **"apparent E"**: the uncorrected proximity ratio
-``A / (D + A)`` (see :func:`tether.fret.apparent_fret`); leakage/gamma
+``A / (D + A)`` (see [`tether.fret.apparent_fret`][]); leakage/gamma
 corrections land at M3. The idealization **step overlay** is populated by
-one-click vbFRET (M2 S6) through :meth:`TraceDock.set_idealization`; it stays
+one-click vbFRET (M2 S6) through [`TraceDock.set_idealization`][]; it stays
 empty/hidden until a molecule is idealized, and is cleared when a new trace is
 shown so a stale path never bleeds onto the next molecule. tMAVEN visual-parity
 of this plot is verified with the M6 seven-plot gallery (§10), not in this PR.
 
-**Lazy Qt import.** As in :mod:`tether.gui.movie_panel`, pyqtgraph and its Qt
-binding are imported lazily inside :meth:`TraceDock.__init__`, so importing this
-module (and using the Qt-free :class:`TraceView` value object) costs no Qt — the
+**Lazy Qt import.** As in [`tether.gui.movie_panel`][], pyqtgraph and its Qt
+binding are imported lazily inside [`TraceDock.__init__`][], so importing this
+module (and using the Qt-free [`TraceView`][] value object) costs no Qt — the
 pure trace/efficiency logic stays testable headless. Constructing a
-:class:`TraceDock` needs a live ``QApplication`` (the embedding shell, ``qtbot``,
+[`TraceDock`][] needs a live ``QApplication`` (the embedding shell, ``qtbot``,
 or ``pyqtgraph.mkQApp`` provides one).
 """
 
@@ -67,7 +67,7 @@ class TraceView:
     A thin, immutable value object decoupling the dock from any particular data
     source (an SMD file, a ``.tether`` ``/traces`` slice, a simulator): a caller
     resolves a molecule to its donor/acceptor arrays and its movie ``frame_time``
-    and hands over a :class:`TraceView`. Apparent E and the total-intensity trace
+    and hands over a [`TraceView`][]. Apparent E and the total-intensity trace
     are derived here so the dock stays purely presentational.
 
     Parameters
@@ -139,7 +139,7 @@ class TraceView:
     def time_axis(self, mode: TimeMode) -> np.ndarray:
         """Return the x-axis for ``mode``: frame index, or seconds if available.
 
-        ``"seconds"`` requires :attr:`frame_time`; without it the frame-index
+        ``"seconds"`` requires [`frame_time`][]; without it the frame-index
         axis is returned regardless, so the caller never plots a bogus time axis.
         """
         frames = np.arange(self.n_frames, dtype=np.float64)
@@ -194,10 +194,10 @@ def _step_edges(centers: np.ndarray, step: float) -> np.ndarray:
 class TraceDock:
     """A pyqtgraph per-trace viewer: intensity + apparent-E + marginal histograms.
 
-    Construct (needs a ``QApplication``), then :meth:`set_trace` a
-    :class:`TraceView`. Embed :attr:`widget` (a ``QWidget``) into the Tether
+    Construct (needs a ``QApplication``), then [`set_trace`][] a
+    [`TraceView`][]. Embed [`widget`][] (a ``QWidget``) into the Tether
     shell, or drive it in a ``qtbot`` test. Use as a context manager or call
-    :meth:`close`.
+    [`close`][].
 
     Layout is a 2x2 pyqtgraph grid: intensity time-series (top-left) over the
     FRET time-series (bottom-left, x-linked), each with its marginal histogram in
@@ -368,7 +368,7 @@ class TraceDock:
 
     @property
     def idealization_curve(self) -> pg.PlotDataItem:
-        """The idealized-path step overlay (empty/hidden until :meth:`set_idealization`)."""
+        """The idealized-path step overlay (empty/hidden until [`set_idealization`][])."""
         return self._idealization_curve
 
     @property
@@ -378,7 +378,7 @@ class TraceDock:
 
     @property
     def trace(self) -> TraceView | None:
-        """The currently displayed :class:`TraceView`, or ``None``."""
+        """The currently displayed [`TraceView`][], or ``None``."""
         return self._trace
 
     @property
@@ -441,7 +441,7 @@ class TraceDock:
         """Draw the idealized FRET **step overlay** over the FRET panel (§7.4).
 
         ``idealized`` is the per-frame idealized FRET level for the *current* trace
-        (the row :func:`tether.project.idealize.idealize_molecules` returns), NaN
+        (the row [`tether.project.idealize.idealize_molecules`][] returns), NaN
         outside the molecule's analysis window. It must be a 1-D array matching the
         displayed trace length. Only the (contiguous) in-window finite span is
         drawn, as a centred step aligned to the FRET curve's x-axis; a toggle
@@ -590,10 +590,10 @@ def trace_from_smd(
     name: str | None = None,
     molecule_key: str | None = None,
 ) -> TraceView:
-    """Build a :class:`TraceView` from an SMD ``raw`` array's molecule ``index``.
+    """Build a [`TraceView`][] from an SMD ``raw`` array's molecule ``index``.
 
     ``raw`` is the ``(n_molecules, n_frames, 2)`` array from
-    :func:`tether.idealize.smd.read_smd` (``[..., 0]`` donor, ``[..., 1]``
+    [`tether.idealize.smd.read_smd`][] (``[..., 0]`` donor, ``[..., 1]``
     acceptor). A convenience for wiring a stored/handed-off trace into the dock;
     pass ``molecule_key`` to keep the trace's store identity for one-click idealize.
     """

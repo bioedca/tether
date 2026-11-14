@@ -32,39 +32,39 @@ shared E axis across the two plots.
 
 Entry points:
 
-- :func:`apparent_e_histogram` — the pure-array core (bin a pooled 1-D sample).
-- :func:`population_apparent_e_histogram` — read a ``.tether`` store, pool the
+- [`apparent_e_histogram`][] — the pure-array core (bin a pooled 1-D sample).
+- [`population_apparent_e_histogram`][] — read a ``.tether`` store, pool the
   accepted molecules' windowed apparent-E, and reproduce the MVP histogram (the
   PRD §9 M2 acceptance clause "reproduce the MVP histogram from the API").
-- :func:`bootstrap_histogram_ci` — the pure bootstrap core: resample **molecules**
+- [`bootstrap_histogram_ci`][] — the pure bootstrap core: resample **molecules**
   with replacement and re-bin, yielding per-bin percentile confidence intervals
   (the FRET histogram's error bars, PRD §7.7).
-- :func:`population_apparent_e_histogram_ci` — the store-level bootstrap CI over
+- [`population_apparent_e_histogram_ci`][] — the store-level bootstrap CI over
   the accepted molecules.
-- :func:`per_condition_apparent_e_histograms` — overlay each condition's
+- [`per_condition_apparent_e_histograms`][] — overlay each condition's
   histogram on one shared axis (the M6 FR-ANALYZE §7.7 per-condition-overlay
   view), each density-normalized for cross-condition shape comparison
   [McCann2010], annotated with its molecule count ``N``.
-- :func:`model_gaussian_overlay` — the idealized state model drawn on the A1
+- [`model_gaussian_overlay`][] — the idealized state model drawn on the A1
   axis as per-state Gaussians (tMAVEN's ``data_hist1d.py`` ``model_on`` overlay):
   each state ``i`` contributes ``frac[i]·𝒩(mean[i], var[i])`` and the sum is the
   mixture density the histogram is compared against. The multi-state FRET
   histogram *is* such a sum of per-state Gaussians [Gopich2010] — so the overlay
   is the idealized model's own state emissions, **not a fresh GMM re-fit** of the
   pooled E (the faithful tMAVEN behavior).
-- :func:`population_model_gaussian_overlay` — read a persisted ``/idealization``
+- [`population_model_gaussian_overlay`][] — read a persisted ``/idealization``
   population model from a ``.tether`` store and build that overlay from its state
   levels, variances and populations.
-- :func:`time_signal_histogram2d` — the pure-array A2 core: bin a list of
+- [`time_signal_histogram2d`][] — the pure-array A2 core: bin a list of
   per-molecule time-ordered signal traces into a 2-D ``(time, signal)`` occupancy
   heatmap (start-synchronized; NaN and out-of-range frames dropped).
-- :func:`population_time_signal_histogram2d` — read a ``.tether`` store, window
+- [`population_time_signal_histogram2d`][] — read a ``.tether`` store, window
   each accepted molecule's apparent-E, and build the A2 raw heatmap.
-- :func:`transition_sync_histogram2d` — the pure-array A2 **post-synchronized**
+- [`transition_sync_histogram2d`][] — the pure-array A2 **post-synchronized**
   core: align per-molecule ``(state_path, signal)`` pairs on their selected state
   transitions and bin the observed signal into a transition-relative
   ``(time, signal)`` heatmap (tMAVEN ``gen_sync_list_*`` + ``histogram_sync_list``).
-- :func:`population_transition_sync_histogram2d` — read a persisted
+- [`population_transition_sync_histogram2d`][] — read a persisted
   ``/idealization`` model's state paths from a ``.tether`` store, pair them with
   each molecule's windowed apparent-E, and build the A2 post-synchronized heatmap.
 
@@ -175,7 +175,7 @@ DEFAULT_SEED = 0
 
 #: tMAVEN A1 model-overlay grid resolution: ``data_hist1d.py`` evaluates the state
 #: Gaussians on ``np.linspace(signal_min, signal_max, 1001)``. A fixed rendering
-#: fidelity like :data:`DEFAULT_NBINS` (not a science tunable), exposed as the
+#: fidelity like `DEFAULT_NBINS` (not a science tunable), exposed as the
 #: ``n_points`` keyword with this faithful default.
 DEFAULT_OVERLAY_POINTS = 1001
 
@@ -183,8 +183,8 @@ DEFAULT_OVERLAY_POINTS = 1001
 #: ``time_nbins = 100`` per-frame columns, the signal axis ``signal_nbins = 61``
 #: bins over ``[signal_min, signal_max] = [-0.2, 1.2]``, one frame = one column of
 #: width ``time_dt = 1``. These intentionally differ from the A1 defaults
-#: (:data:`DEFAULT_NBINS` / :data:`DEFAULT_RANGE`) — exactly as in tMAVEN, whose A1
-#: and A2 carry distinct defaults. Pass A1's :data:`DEFAULT_RANGE` for a shared E
+#: (`DEFAULT_NBINS` / `DEFAULT_RANGE`) — exactly as in tMAVEN, whose A1
+#: and A2 carry distinct defaults. Pass A1's `DEFAULT_RANGE` for a shared E
 #: axis across the two plots. These are faithful rendering defaults, not §11.2
 #: science tunables.
 DEFAULT_TIME_BINS = 100
@@ -233,12 +233,12 @@ class Histogram1D:
 
 @dataclass(frozen=True)
 class HistogramBootstrapCI:
-    """A :class:`Histogram1D` point estimate plus its bootstrap confidence band.
+    """A [`Histogram1D`][] point estimate plus its bootstrap confidence band.
 
     ``histogram`` is the observed histogram (the point estimate — *not* the
     bootstrap mean, which would be biased). ``ci_low``/``ci_high`` are the
     per-bin percentile bounds of the ``ci_level`` interval over ``n_resamples``
-    molecule-level bootstrap replicates (:func:`bootstrap_histogram_ci`), and
+    molecule-level bootstrap replicates ([`bootstrap_histogram_ci`][]), and
     ``std`` is the per-bin replicate standard deviation. All parameters travel
     with the arrays so the band is reproducible (NFR-REPRO).
     """
@@ -313,9 +313,9 @@ def apparent_e_histogram(
         Pooled per-frame apparent-E values (any shape; flattened). Non-finite
         entries (NaN/inf) are dropped before binning.
     bins
-        Bin count (default :data:`DEFAULT_NBINS` = 151, matching tMAVEN A1).
+        Bin count (default [`DEFAULT_NBINS`][] = 151, matching tMAVEN A1).
     value_range
-        ``(low, high)`` histogram range (default :data:`DEFAULT_RANGE`). Finite
+        ``(low, high)`` histogram range (default [`DEFAULT_RANGE`][]). Finite
         values outside it fall in no bin (consistent with tMAVEN's fixed range).
     density
         If ``True`` (default), normalize so the histogram integrates to 1 over
@@ -381,7 +381,7 @@ def bootstrap_histogram_ci(
     """Molecule-level bootstrap CI for a pooled apparent-E histogram (pure core).
 
     Resample the *molecules* with replacement ``n_resamples`` times, re-pool and
-    re-bin each replicate with :func:`apparent_e_histogram`, and take the per-bin
+    re-bin each replicate with [`apparent_e_histogram`][], and take the per-bin
     ``ci_level`` percentile band ([König2013] BOBA-FRET; see the module docstring
     for why the molecule is the resampled unit).
 
@@ -395,22 +395,22 @@ def bootstrap_histogram_ci(
         equal-weight path passes ``1/m`` for each of a molecule's ``m`` frames).
         Must align element-wise with ``per_molecule_values``.
     bins, value_range, density
-        Binning parameters (see :func:`apparent_e_histogram`); the point estimate
+        Binning parameters (see [`apparent_e_histogram`][]); the point estimate
         and every replicate share them.
     n_resamples
         Number of bootstrap replicates (default
-        :data:`DEFAULT_BOOTSTRAP_RESAMPLES`).
+        [`DEFAULT_BOOTSTRAP_RESAMPLES`][]).
     ci_level
-        Central interval width in ``(0, 1)`` (default :data:`DEFAULT_CI_LEVEL`
+        Central interval width in ``(0, 1)`` (default [`DEFAULT_CI_LEVEL`][]
         = 0.95 → the 2.5/97.5 percentiles).
     seed
-        Seed for :func:`numpy.random.default_rng` (default :data:`DEFAULT_SEED`),
+        Seed for [`numpy.random.default_rng`][] (default [`DEFAULT_SEED`][]),
         making the interval reproducible.
 
     Returns
     -------
     HistogramBootstrapCI
-        Wrapping the observed point-estimate :class:`Histogram1D`. With no
+        Wrapping the observed point-estimate [`Histogram1D`][]. With no
         molecules the band is all zeros (never NaN).
     """
     n_resamples = int(n_resamples)
@@ -553,13 +553,13 @@ def population_apparent_e_histogram(
     """Reproduce the MVP apparent-E histogram from a ``.tether`` store (PRD §9 M2).
 
     Pools the per-frame apparent-E over each selected molecule's analysis window
-    and bins it with :func:`apparent_e_histogram`. This is the headless source of
+    and bins it with [`apparent_e_histogram`][]. This is the headless source of
     truth the GUI population histogram renders.
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_keys
         Restrict to these molecules (``None`` = all). Combined with the curation
         filter by intersection.
@@ -567,7 +567,7 @@ def population_apparent_e_histogram(
         Which ``/traces`` layer feeds apparent E: ``"corrected"`` (default,
         background-subtracted — the apparent-E input at M2) or ``"raw"``.
     bins, value_range, density
-        Binning parameters (see :func:`apparent_e_histogram`).
+        Binning parameters (see [`apparent_e_histogram`][]).
     per_molecule_equal_weight
         If ``True``, every molecule contributes total weight 1 (each of its
         finite frames weighted ``1/m``) so long traces do not dominate (§7.7);
@@ -620,23 +620,23 @@ def population_apparent_e_histogram_ci(
 ) -> HistogramBootstrapCI:
     """Population apparent-E histogram with a molecule-level bootstrap CI (§7.7).
 
-    The confidence-interval counterpart of :func:`population_apparent_e_histogram`:
+    The confidence-interval counterpart of [`population_apparent_e_histogram`][]:
     same pooling and curation semantics, plus per-bin error bars from a
-    molecule-resampling bootstrap (:func:`bootstrap_histogram_ci`, [König2013]).
+    molecule-resampling bootstrap ([`bootstrap_histogram_ci`][], [König2013]).
 
     Parameters
     ----------
     project, molecule_keys, intensity_quantity, bins, value_range, density,
     per_molecule_equal_weight, include_rejected
-        As for :func:`population_apparent_e_histogram`.
+        As for [`population_apparent_e_histogram`][].
     n_resamples, ci_level, seed
-        Bootstrap parameters (see :func:`bootstrap_histogram_ci`).
+        Bootstrap parameters (see [`bootstrap_histogram_ci`][]).
 
     Returns
     -------
     HistogramBootstrapCI
         Whose wrapped ``histogram`` equals
-        :func:`population_apparent_e_histogram` for the same arguments (with
+        [`population_apparent_e_histogram`][] for the same arguments (with
         ``n_molecules`` set), so the point estimate and its band stay consistent.
     """
     value_chunks, weight_chunks = _per_molecule_apparent_e(
@@ -668,7 +668,7 @@ def population_apparent_e_histogram_ci(
 class ConditionHistogram:
     """One condition's apparent-E histogram within a per-condition overlay (§7.7).
 
-    Pairs the ``condition_id`` with its :class:`Histogram1D` so a renderer can
+    Pairs the ``condition_id`` with its [`Histogram1D`][] so a renderer can
     label each overlaid curve and annotate it with the molecule count ``N`` (the
     §7.7 "N annotation"). The histogram carries its own binning parameters and
     ``n_molecules``; this wrapper only adds the condition identity.
@@ -745,7 +745,7 @@ class PerConditionHistograms:
         return sum(ch.n_molecules for ch in self.histograms)
 
     def __getitem__(self, condition_id: str) -> ConditionHistogram:
-        """The :class:`ConditionHistogram` for ``condition_id`` (``KeyError`` if absent)."""
+        """The [`ConditionHistogram`][] for ``condition_id`` (``KeyError`` if absent)."""
         for ch in self.histograms:
             if ch.condition_id == condition_id:
                 return ch
@@ -771,9 +771,9 @@ def per_condition_apparent_e_histograms(
 
     The FR-ANALYZE §7.7 per-condition-overlay view (M6-owned: it only becomes
     meaningful once the M4 condition model exists). Selects the conditioned
-    population with :func:`~tether.analysis.query.query_molecules` (the same ANDed
+    population with [`query_molecules`][tether.analysis.query.query_molecules] (the same ANDed
     key/category/tag filters), groups the matches by condition, and bins each
-    condition's **accepted** molecules with :func:`population_apparent_e_histogram`
+    condition's **accepted** molecules with [`population_apparent_e_histogram`][]
     on a **single shared grid** so the curves overlay directly. Each condition is
     density-normalized independently by default, the standard way FRET-efficiency
     populations are compared across conditions [McCann2010].
@@ -787,26 +787,26 @@ def per_condition_apparent_e_histograms(
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     condition_ids
         Restrict to (and order the overlay by) these conditions; ``None``/empty
         overlays every condition in store order. Conditions requested but absent
         from the store contribute nothing (they are simply not overlaid).
     key, categories, tags, match_all_tags
-        Forwarded verbatim to :func:`~tether.analysis.query.query_molecules` to
+        Forwarded verbatim to [`query_molecules`][tether.analysis.query.query_molecules] to
         narrow which molecules of each condition are pooled (e.g. overlay only the
         ``docked`` category, or a ligand-only ``key``). ``key`` needs materialized
         ``/conditions`` rows (see that function).
     intensity_quantity, bins, value_range, density, per_molecule_equal_weight,
     include_rejected
         Binning / pooling parameters, applied identically to every condition (see
-        :func:`population_apparent_e_histogram`). ``bins`` + ``value_range`` are
+        [`population_apparent_e_histogram`][]). ``bins`` + ``value_range`` are
         shared so the histograms overlay on one axis.
 
     Returns
     -------
     PerConditionHistograms
-        One :class:`ConditionHistogram` per condition with ≥1 queried molecule, on
+        One [`ConditionHistogram`][] per condition with ≥1 queried molecule, on
         the shared grid, in ``condition_ids`` order when given else store order.
         Empty (no ``histograms``) when nothing matches — the shared ``bin_edges``
         are present regardless.
@@ -901,7 +901,7 @@ class ModelGaussianOverlay:
     GMM re-fit** of the pooled apparent-E — the faithful tMAVEN behavior.
 
     Evaluated on the dense grid ``x`` spanning the histogram's ``value_range`` so it
-    overlays a density-normalized :class:`Histogram1D` directly: with ``frac``
+    overlays a density-normalized [`Histogram1D`][] directly: with ``frac``
     summing to 1 and each Gaussian integrating to 1, ``total`` integrates to ~1 over
     the reals (matching ``density=True``). No renormalization to the finite
     ``value_range`` is applied — exactly as tMAVEN plots it — so a state whose mass
@@ -945,8 +945,8 @@ def model_gaussian_overlay(
     Reproduces tMAVEN's ``data_hist1d.py`` ``model_on`` branch: for each state ``i``
     evaluate ``frac[i]·𝒩(x; means[i], variances[i])`` on
     ``x = linspace(*value_range, n_points)`` and sum over states. The result overlays
-    a density-normalized :class:`Histogram1D` on the same ``value_range`` (see
-    :class:`ModelGaussianOverlay`). These are the idealized model's own state
+    a density-normalized [`Histogram1D`][] on the same ``value_range`` (see
+    [`ModelGaussianOverlay`][]). These are the idealized model's own state
     emissions — never a fresh GMM fit of the pooled sample [Gopich2010].
 
     Parameters
@@ -957,10 +957,10 @@ def model_gaussian_overlay(
         ``nstates ≥ 1``. These are ``StateModel.means`` / ``.variances`` / ``.frac``
         (Appendix D.2).
     value_range
-        ``(low, high)`` abscissa span (default :data:`DEFAULT_RANGE`, matching the A1
+        ``(low, high)`` abscissa span (default [`DEFAULT_RANGE`][], matching the A1
         histogram so the curves overlay). ``high > low`` required.
     n_points
-        Grid resolution (default :data:`DEFAULT_OVERLAY_POINTS` = 1001, tMAVEN's).
+        Grid resolution (default [`DEFAULT_OVERLAY_POINTS`][] = 1001, tMAVEN's).
         Must be ≥ 2.
     model_name
         Optional source-model tag carried onto the result (set by the store-level
@@ -1037,21 +1037,21 @@ def population_model_gaussian_overlay(
     """Model-Gaussian overlay for a persisted ``/idealization`` model (§10 A1).
 
     Reads the ``model_name`` population model from a ``.tether`` store
-    (:meth:`~tether.project.core.Project.read_idealization`) and builds the tMAVEN A1
+    ([`read_idealization`][tether.project.core.Project.read_idealization]) and builds the tMAVEN A1
     overlay from its state levels, variances and populations
-    (:func:`model_gaussian_overlay`). The overlay is meaningful when the model was
+    ([`model_gaussian_overlay`][]). The overlay is meaningful when the model was
     idealized on the same FRET-efficiency signal the A1 histogram bins — they share
     the E axis — so pass the histogram's ``value_range`` to align them.
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` to overlay (see
-        :meth:`~tether.project.core.Project.list_idealizations`).
+        [`list_idealizations`][tether.project.core.Project.list_idealizations]).
     value_range, n_points
-        Forwarded to :func:`model_gaussian_overlay` (defaults match the A1
+        Forwarded to [`model_gaussian_overlay`][] (defaults match the A1
         histogram).
 
     Returns
@@ -1163,7 +1163,7 @@ def time_signal_histogram2d(
     The pure-array A2 core, faithful to tMAVEN's ``histogram_raw`` applied after
     ``sync_start`` (``data_hist2d.py``): each ``signal_chunks[i]`` is one molecule's
     per-frame signal over its analysis window, already **start-synchronized** (frame
-    0 = the window start — :func:`~tether.analysis._store.windowed_channels` slices
+    0 = the window start — `windowed_channels` slices
     there). Frame ``t`` of a molecule contributes its value to time column ``t`` and
     to the signal bin holding that value; a frame is **dropped** — without shifting
     the time index of later frames, so gaps stay in place — when it is non-finite,
@@ -1307,9 +1307,9 @@ def population_time_signal_histogram2d(
     """A2 raw time-vs-signal heatmap from a ``.tether`` store (§10 A2; Appendix C A2).
 
     Reads each accepted molecule's windowed apparent E
-    (:func:`~tether.analysis._store.windowed_channels` +
-    :func:`~tether.fret.efficiency.apparent_fret`) — already start-synchronized to
-    its analysis-window start — and bins it with :func:`time_signal_histogram2d`.
+    (`windowed_channels` +
+    [`apparent_fret`][tether.fret.efficiency.apparent_fret]) — already start-synchronized to
+    its analysis-window start — and bins it with [`time_signal_histogram2d`][].
     This is the headless source of truth the GUI A2 heatmap renders. The
     transition-aligned post-synchronized mode (reading the persisted
     ``/idealization`` per-molecule state paths) is a follow-up.
@@ -1317,7 +1317,7 @@ def population_time_signal_histogram2d(
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_keys
         Restrict to these molecules (``None`` = all); intersected with the curation
         filter.
@@ -1325,7 +1325,7 @@ def population_time_signal_histogram2d(
         Which ``/traces`` layer feeds apparent E: ``"corrected"`` (default) or
         ``"raw"``.
     time_bins, signal_bins, signal_range, time_dt, density, per_molecule_equal_weight
-        Binning parameters (see :func:`time_signal_histogram2d`).
+        Binning parameters (see [`time_signal_histogram2d`][]).
     include_rejected
         If ``True``, keep rejected molecules; else exclude them (§7.5 default).
 
@@ -1363,7 +1363,7 @@ class TransitionSyncHistogram2D:
     ``j`` the ``j``-th signal bin, so ``counts[k, j]`` is how much signal density
     sat in bin ``j`` at relative time ``time_centers[k]``. The heatmap has
     ``time_bins + 1`` columns (the extra column is tMAVEN's ``xbins + 1``): the
-    selected transition sits at column :attr:`sync_preframe` — relative-time zero —
+    selected transition sits at column [`sync_preframe`][] — relative-time zero —
     with the approach on its left and the departure on its right, so
     ``time_edges`` are **relative** to the transition and run negative before it.
 
@@ -1468,7 +1468,7 @@ def transition_sync_histogram2d(
     length), and out-of-range **frame indices are dropped** rather than wrapping —
     a deliberate departure from tMAVEN, whose fixed window can index a padded
     row with a negative frame; Tether never bins a frame outside a molecule's own
-    trace (see :func:`~tether.analysis._store.windowed_state_and_channels`, which
+    trace (see `windowed_state_and_channels`, which
     slices to the idealized window). A second, single-dwell departure follows from
     the inclusive trailing end above: tMAVEN ends a trailing window at the movie's
     last frame index, exclusive, so it keeps the final frame of a window that ends
@@ -1476,7 +1476,7 @@ def transition_sync_histogram2d(
     window runs to the movie end. Tether keeps the window's final frame in both
     cases, so the two differ only by that one frame, and only when a trailing dwell
     reaches the movie's last frame inside the time columns. ``no_state`` is the
-    sentinel for a frame with no assigned state (:data:`tether.idealize.NO_STATE` =
+    sentinel for a frame with no assigned state ([`tether.idealize.NO_STATE`][] =
     ``-1``, tMAVEN's NaN analogue) — such frames break a state run without forming a
     transition, so a window boundary between ``no_state`` and a real state is never a
     jump.
@@ -1510,7 +1510,7 @@ def transition_sync_histogram2d(
         counts (default — tMAVEN max-normalizes only for display).
     no_state
         State-path sentinel for "no state" (default ``-1`` =
-        :data:`tether.idealize.NO_STATE`).
+        [`tether.idealize.NO_STATE`][]).
 
     Returns
     -------
@@ -1658,23 +1658,23 @@ def population_transition_sync_histogram2d(
 
     Pairs a persisted ``/idealization/{model_name}`` model's per-molecule Viterbi
     state paths with each molecule's observed windowed apparent E
-    (:func:`~tether.analysis._store.windowed_state_and_channels` +
-    :func:`~tether.fret.efficiency.apparent_fret`) and synchronizes on the selected
-    state transitions with :func:`transition_sync_histogram2d`. This is the headless
+    (`windowed_state_and_channels` +
+    [`apparent_fret`][tether.fret.efficiency.apparent_fret]) and synchronizes on the selected
+    state transitions with [`transition_sync_histogram2d`][]. This is the headless
     source of truth the GUI A2 post-synchronized heatmap renders; the raw /
-    start-synchronized mode is :func:`population_time_signal_histogram2d`.
+    start-synchronized mode is [`population_time_signal_histogram2d`][].
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths (see
-        :meth:`~tether.project.core.Project.list_idealizations`).
+        [`list_idealizations`][tether.project.core.Project.list_idealizations]).
     from_state, to_state, single_dwell, sync_preframe, time_bins, signal_bins,
     signal_range, time_dt, density
         Synchronization / binning parameters (see
-        :func:`transition_sync_histogram2d`).
+        [`transition_sync_histogram2d`][]).
     molecule_keys
         Restrict to these molecules (``None`` = all); intersected with the curation
         filter.

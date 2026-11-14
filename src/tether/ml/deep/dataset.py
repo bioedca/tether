@@ -33,7 +33,7 @@ Design (ADR-0047):
   does not exist yet (ADR-0023 defers it) — so the substrate is binary, extensible later.
 
 Pure and store-free: the store wrapper that reads a ``.tether`` is
-:func:`tether.project.deep_dataset.build_deep_dataset`.
+[`tether.project.deep_dataset.build_deep_dataset`][].
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ class DeepTraceDataset:
         (``CurationLabel`` mapped ``+1 -> 1``, ``-1 -> 0``; ADR-0023).
     sample_weight:
         ``(n_samples,)`` ``float64`` per-sample training weight — ``1.0`` for a human label, the
-        decayed ``w₀/(1 + n_human)`` for a provisional prior (:mod:`tether.ml.weighting`).
+        decayed ``w₀/(1 + n_human)`` for a provisional prior ([`tether.ml.weighting`][]).
     window_length, normalization, intensity_quantity:
         The self-describing build provenance (NFR-REPRO).
     """
@@ -154,7 +154,7 @@ class DeepTraceDataset:
         seed: int = DEFAULT_SPLIT_SEED,
         stratify: bool = True,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Reproducible ``(train_idx, val_idx)`` over these rows — see :func:`train_val_split`."""
+        """Reproducible ``(train_idx, val_idx)`` over these rows — see [`train_val_split`][]."""
         return train_val_split(self.y, val_fraction=val_fraction, seed=seed, stratify=stratify)
 
 
@@ -209,11 +209,11 @@ def assemble_dataset(
     channels: Sequence[str] = DEFAULT_DEEP_CHANNELS,
     intensity_quantity: str = "corrected",
 ) -> DeepTraceDataset:
-    """Build a :class:`DeepTraceDataset` from aligned per-molecule windowed traces + labels.
+    """Build a [`DeepTraceDataset`][] from aligned per-molecule windowed traces + labels.
 
     All inputs are positionally aligned (row ``i`` everywhere = one molecule). ``donors`` /
     ``acceptors`` are variable-length 1-D arrays already sliced to each molecule's analysis
-    window; each pair is per-trace normalized (shared scale, :func:`normalize_pair`), the
+    window; each pair is per-trace normalized (shared scale, [`normalize_pair`][]), the
     requested ``channels`` stacked (axis 1), then cropped/zero-padded to ``window_length`` with a
     validity ``mask``. ``y`` is mapped to binary ``int8`` by ``accept = (label > 0)`` (a
     ``CurationLabel`` ``+1``/boolean ``True`` accept -> ``1``; ``-1``/``0``/``False`` -> ``0``).

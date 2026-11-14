@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The ``tether`` command-line entry point (PRD §7.11, NFR-REPRO).
 
-A thin headless front door over :mod:`tether.project`. ``tether --version``
+A thin headless front door over [`tether.project`][]. ``tether --version``
 reports the git-derived app version (NFR-REPRO: "the app version is derived from
 git"); ``tether extract`` runs the M1 native extraction pipeline (movie ->
-``.tether``) — see :mod:`tether.project.extract`; ``tether batch`` runs the
+``.tether``) — see [`tether.project.extract`][]; ``tether batch`` runs the
 extract -> correct -> idealize pipeline over many movies — see
-:mod:`tether.project.batch`.
+[`tether.project.batch`][].
 
-The CLI deliberately uses the standard-library :mod:`argparse` rather than a
+The CLI deliberately uses the standard-library [`argparse`][] rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
 not justified by the current command surface (the pin-and-hold invariant). The
 heavy imaging/IO stack is imported lazily inside the ``extract`` handler so that
@@ -155,7 +155,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _run_extract(args: argparse.Namespace) -> int:
-    """Handle ``tether extract``; map :class:`ExtractionError` to exit code 1."""
+    """Handle ``tether extract``; map `ExtractionError` to exit code 1."""
     # Lazy: keep the imaging/IO/HDF5 stack off the ``--version`` path.
     from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
 

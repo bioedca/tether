@@ -2,24 +2,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Cold-start label-weight decay law — the ``sample_weight`` the ranker trains on (PRD §7.5; FR-ML).
 
-The per-condition quality ranker (:mod:`tether.ml.gbranker`) trains **weighted by each label's
+The per-condition quality ranker ([`tether.ml.gbranker`][]) trains **weighted by each label's
 ``source``** (PRD §5.1 ``/labels``, §7.5): a human accept/reject is full weight, while the two
 provisional cold-start priors — a Deep-LASI-provisional label or a cross-condition seed — carry a
 **down-weighted** effective weight that **decays toward zero as human labels in the condition
 accrue**. This module is that decay law, kept pure (NumPy only) and **store-free**: it turns a
 ``source``-derived *is-this-a-human-label?* mask plus the condition's human-label count into the
 per-row training weight, with no knowledge of the ``.tether`` store or the ``/labels`` vocabulary
-(that mapping lives in the store layer, :mod:`tether.project.weighting`).
+(that mapping lives in the store layer, [`tether.project.weighting`][]).
 
 The law (PRD §7.5, §11.2)::
 
     w = w₀ / (1 + n_human)          for a provisional/seed label
     w = 1.0                         for a human label
 
-where ``w₀`` is the seed weight (default :data:`DEFAULT_SEED_WEIGHT` ≈ 0.3, the PRD §11.2
+where ``w₀`` is the seed weight (default [`DEFAULT_SEED_WEIGHT`][] ≈ 0.3, the PRD §11.2
 "Cold-start seed weight w₀ / decay law" tunable) and ``n_human`` is the count of human labels in
 the *condition* at retrain time. The weight is **mutable** — recomputed and rewritten on every
-retrain (:func:`tether.project.weighting.recompute_label_weights`) — so a seed that bootstrapped an
+retrain ([`tether.project.weighting.recompute_label_weights`][]) — so a seed that bootstrapped an
 empty condition (``n_human = 0`` → ``w = w₀``) is progressively discounted as real curation arrives
 and never masquerades as ground truth once the condition is well-labeled.
 
@@ -53,7 +53,7 @@ DEFAULT_SEED_WEIGHT = 0.3
 
 #: The full training weight of a human label (PRD §7.5: "human labels are full weight (1.0)"). The
 #: fixed reference the seed-weight decay is measured against; kept here as the pure-layer default so
-#: this module is usable without the store's :data:`tether.project.labels.HUMAN_WEIGHT`.
+#: this module is usable without the store's `tether.project.labels.HUMAN_WEIGHT`.
 HUMAN_WEIGHT = 1.0
 
 
@@ -78,7 +78,7 @@ def seed_weight(n_human: int, *, w0: float = DEFAULT_SEED_WEIGHT) -> float:
         The count of human labels in the condition (``>= 0``). Not the *seed's* own count — the
         amount of trusted evidence that discounts it.
     w0:
-        The seed weight ``w₀`` (default :data:`DEFAULT_SEED_WEIGHT`).
+        The seed weight ``w₀`` (default [`DEFAULT_SEED_WEIGHT`][]).
 
     Raises
     ------
@@ -116,9 +116,9 @@ def effective_weights(
         Integer array (broadcast to ``is_human``'s shape) of each row's condition's human-label
         count, ``>= 0``. A scalar applies to every row.
     w0:
-        The seed weight ``w₀`` (default :data:`DEFAULT_SEED_WEIGHT`).
+        The seed weight ``w₀`` (default [`DEFAULT_SEED_WEIGHT`][]).
     human_weight:
-        The full weight of a human label (default :data:`HUMAN_WEIGHT` = ``1.0``).
+        The full weight of a human label (default [`HUMAN_WEIGHT`][] = ``1.0``).
 
     Returns
     -------

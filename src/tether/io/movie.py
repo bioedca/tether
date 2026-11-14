@@ -4,7 +4,7 @@
 
 The reference acquisitions are multi-page TIFFs — 512×512, 16-bit **big-endian**
 (byteorder ``>``), uint16, ~1700 frames, ≈0.9 GB uncompressed (PRD Appendix A).
-:class:`MovieReader` backs frame access with a :class:`numpy.memmap`, so a single
+[`MovieReader`][] backs frame access with a [`numpy.memmap`][], so a single
 frame is an O(1) slice into the OS page cache and the whole movie **never
 materializes in RAM** — the ``trace → movie`` leg of the round-trip is a
 ``memmap`` seek + slice (PRD §5.2).
@@ -13,11 +13,11 @@ Big-endian is preserved end to end: ``tifffile.memmap`` maps the file with its
 on-disk ``>u2`` dtype, so frame values read correctly with **no eager
 byte-swap** (which would defeat the O(1) map). Frames are returned in on-disk
 byte order; downstream math that wants native order converts per frame. The
-:attr:`MovieReader.byteorder` property surfaces the on-disk order so callers can
+[`MovieReader.byteorder`][] property surfaces the on-disk order so callers can
 decide.
 
 Only uncompressed, contiguous movies are memory-mappable (the reference format,
-Appendix A); a compressed or tiled TIFF raises a clear :class:`ValueError` rather
+Appendix A); a compressed or tiled TIFF raises a clear [`ValueError`][] rather
 than silently loading the stack.
 """
 
@@ -41,14 +41,14 @@ __all__ = ["MovieReader", "open_movie"]
 class MovieReader:
     """Lazy, memory-mapped reader for a multi-page TIRF movie TIFF.
 
-    Open with :func:`open_movie` (or directly) and read frames with
-    :meth:`frame`; the backing :class:`numpy.memmap` is exposed as :attr:`data`
-    for advanced lazy slicing. Use as a context manager (or call :meth:`close`)
+    Open with [`open_movie`][] (or directly) and read frames with
+    [`frame`][]; the backing [`numpy.memmap`][] is exposed as [`data`][]
+    for advanced lazy slicing. Use as a context manager (or call [`close`][])
     to drop the reader's reference to the map once done; the OS reclaims it when
-    no frame views remain (see :meth:`close`).
+    no frame views remain (see [`close`][]).
 
     Frames are returned as ``(height, width)`` views in the movie's on-disk byte
-    order (:attr:`byteorder`); reads are O(1) and never copy the whole stack.
+    order ([`byteorder`][]); reads are O(1) and never copy the whole stack.
     """
 
     def __init__(self, path: str | PathLike[str]) -> None:
@@ -134,12 +134,12 @@ class MovieReader:
 
         The reference movies carry no frame-time tag, and no shipped importer
         supplies one either: the ``.tdat``/``.mat`` decode reads no ``FrameTime``
-        (:mod:`tether.io.tdat`, :mod:`tether.io.deeplasi`). This tag is therefore the
+        ([`tether.io.tdat`][], [`tether.io.deeplasi`][]). This tag is therefore the
         only source ``/movies.frame_time`` has: a store built from those legacy files
         still reads the value off the raw movie TIFF the reconstruction points at, so
         it carries a real interval whenever that TIFF declares a finite, positive
         ``finterval``. Anything else — no tag, or a value that is unparseable,
-        non-finite or non-positive — is rejected by :func:`_read_frame_time` and
+        non-finite or non-positive — is rejected by `_read_frame_time` and
         collapses to the ``0.0`` "unknown" default.
         """
         return self._frame_time
@@ -160,7 +160,7 @@ class MovieReader:
         """Return frame ``index`` as a ``(height, width)`` view — O(1), no copy.
 
         Supports negative indices (numpy convention). The returned array shares
-        memory with :attr:`data` and stays in the movie's on-disk byte order.
+        memory with [`data`][] and stays in the movie's on-disk byte order.
         """
         self._check_open()
         n = self._shape[0]
@@ -183,7 +183,7 @@ class MovieReader:
         """Release our reference to the memory map (idempotent).
 
         Drops the reader's strong reference rather than force-closing the
-        underlying ``mmap``: a frame returned by :meth:`frame` is a *view* into
+        underlying ``mmap``: a frame returned by [`frame`][] is a *view* into
         the map, and closing the map out from under a live view is a
         use-after-free (garbage reads or a crash on Windows). The OS map is
         reclaimed once the reader and any outstanding frame views are gone.
@@ -236,5 +236,5 @@ def _read_frame_time(tif: tifffile.TiffFile) -> float | None:
 
 
 def open_movie(path: str | PathLike[str]) -> MovieReader:
-    """Open ``path`` as a lazy :class:`MovieReader`."""
+    """Open ``path`` as a lazy [`MovieReader`][]."""
     return MovieReader(path)

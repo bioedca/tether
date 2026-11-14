@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Sidecar supervision for the batch idealize stage (PRD §7.11 FR-BATCH; ADR-0031).
 
-The batch runner (:mod:`tether.project.batch`, M3 PR7-A) drives the tMAVEN
+The batch runner ([`tether.project.batch`][], M3 PR7-A) drives the tMAVEN
 idealization sidecar as **one short-lived subprocess per movie**
-(:func:`tether.idealize.run_vbfret`). This module adds the FR-BATCH
+([`tether.idealize.run_vbfret`][]). This module adds the FR-BATCH
 "sidecar supervision" paragraph on top of that model:
 
-* **Startup liveness** — :func:`probe_sidecar` launches the sidecar interpreter on
-  the ``--probe`` fast-path of :mod:`tether.idealize._sidecar_runner` (which imports
+* **Startup liveness** — [`probe_sidecar`][] launches the sidecar interpreter on
+  the ``--probe`` fast-path of `tether.idealize._sidecar_runner` (which imports
   and instantiates ``tmaven.maven.maven_class`` and exits), so a *merely present but
   broken* sidecar env (``tmaven`` missing/unimportable, or no interpreter configured
   at all) is detected **before** the batch commits to idealizing. The runner uses this
@@ -16,16 +16,16 @@ idealization sidecar as **one short-lived subprocess per movie**
   for every movie, and idealization is queued for a later run with a working sidecar
   (the per-stage checkpoint of ADR-0030 makes the resume re-run only the deferred
   stage).
-* **Auto-restart** — :func:`supervise_idealize` re-launches the sidecar up to
+* **Auto-restart** — [`supervise_idealize`][] re-launches the sidecar up to
   ``max_restarts`` times (default **N = 3**, §11.2) on a **transient** failure (the
   process crashed or timed out — a liveness failure a fresh process can recover). A
   sidecar that *cleanly reported* a fit error (``SidecarError.transient`` is ``False``)
   is **not** retried: re-running the same data would only fail again. When every
-  restart is spent the last error is re-raised as :class:`RestartsExhausted`, and the
+  restart is spent the last error is re-raised as [`RestartsExhausted`][], and the
   batch fails **only that movie's** idealization (extract + correct stay checkpointed).
 
 Every piece is dependency-injectable (``_run`` on the probe, the runner passed to
-:func:`supervise_idealize`) so the supervision policy is tested headlessly, without a
+[`supervise_idealize`][]) so the supervision policy is tested headlessly, without a
 real sidecar env — CI has none (PRD §4.3).
 """
 
@@ -77,7 +77,7 @@ DEFAULT_PROBE_TIMEOUT = 120.0
 class RestartsExhausted(SidecarError):
     """Every supervised restart of the sidecar idealization failed.
 
-    A :class:`~tether.idealize.driver.SidecarError` subclass, so the batch runner's
+    A [`SidecarError`][tether.idealize.driver.SidecarError] subclass, so the batch runner's
     existing ``except Exception`` isolation records it as a failed idealize stage for
     that movie without any new handling.
     """
@@ -91,14 +91,14 @@ class SidecarSupervision:
     ----------
     max_restarts:
         Auto-restarts per movie's idealization on a *transient* sidecar failure
-        (default :data:`DEFAULT_MAX_RESTARTS`). ``0`` disables restarts (a single
+        (default [`DEFAULT_MAX_RESTARTS`][]). ``0`` disables restarts (a single
         attempt). A negative value is rejected.
     timeout:
         Per-idealization-call timeout in seconds, forwarded to the idealize runner
-        (default :data:`DEFAULT_SIDECAR_TIMEOUT`). ``None`` waits indefinitely.
+        (default [`DEFAULT_SIDECAR_TIMEOUT`][]). ``None`` waits indefinitely.
     probe_timeout:
         Timeout in seconds for the startup liveness probe (default
-        :data:`DEFAULT_PROBE_TIMEOUT`). ``None`` waits indefinitely.
+        [`DEFAULT_PROBE_TIMEOUT`][]). ``None`` waits indefinitely.
     defer_if_unavailable:
         When ``True`` (default), a failed startup liveness probe defers idealization
         for the whole run instead of failing every movie's idealize stage.
@@ -157,13 +157,13 @@ def probe_sidecar(
     """Check whether the sidecar env can build the tMAVEN driver (liveness).
 
     Resolves the sidecar interpreter, then launches
-    :mod:`tether.idealize._sidecar_runner` in ``--probe`` mode (import + instantiate
+    `tether.idealize._sidecar_runner` in ``--probe`` mode (import + instantiate
     ``maven_class``, no fit). Never raises: a missing interpreter, a launch error, a
-    timeout, or a non-``ok`` probe status all return :class:`ProbeResult`
+    timeout, or a non-``ok`` probe status all return [`ProbeResult`][]
     ``available=False`` with an actionable ``detail``.
 
     ``_run`` is an injectable subprocess launcher (test seam); it defaults to
-    :func:`subprocess.run`.
+    [`subprocess.run`][].
     """
     try:
         py = resolve_sidecar_python(sidecar_python)
@@ -207,12 +207,12 @@ def supervise_idealize(
 ) -> Any:
     """Call ``runner(*args, **kwargs)``, auto-restarting on transient sidecar failure.
 
-    Retries a :class:`~tether.idealize.driver.SidecarError` whose ``transient`` flag is
+    Retries a [`SidecarError`][tether.idealize.driver.SidecarError] whose ``transient`` flag is
     truthy (a crash or timeout — the process failed, a fresh one may succeed) up to
     ``supervision.max_restarts`` times. A **non-transient** ``SidecarError`` (the
     sidecar cleanly reported a fit error) is re-raised immediately — restarting cannot
     help. When the restart budget is exhausted the last error is re-raised as
-    :class:`RestartsExhausted`.
+    [`RestartsExhausted`][].
 
     ``on_restart(restart_number, error)`` is invoked once per restart *before*
     re-launching (``restart_number`` is 1-based), so the caller can log the retry.

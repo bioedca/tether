@@ -4,15 +4,15 @@
 
 Read-only assembly of the per-condition quality ranker's *supervised* view from a
 ``.tether``: it joins the engineered ``/features`` matrix
-(:func:`tether.project.features.feature_matrix`) with each molecule's authoritative
-accept/reject ``curation_label`` (:mod:`tether.project.labels` — the ``/molecules`` state
+([`tether.project.features.feature_matrix`][]) with each molecule's authoritative
+accept/reject ``curation_label`` ([`tether.project.labels`][] — the ``/molecules`` state
 field) to produce the (feature-matrix, good/bad ground-truth) pairing a ranker trains on
-and is evaluated with (:mod:`tether.ml.ranking`).
+and is evaluated with ([`tether.ml.ranking`][]).
 
 Deliberately **no model and no new dependency**: the gradient-boosting model that consumes
 this dataset (and adds scikit-learn/XGBoost to the base lock) is a later PR. What lands here
 is the substrate — the feature/label join, and the **file-order-baseline precision@k**
-(:func:`baseline_precision_at_k`) the model's uplift (PRD §7.5, oracle (d)) will be measured
+([`baseline_precision_at_k`][]) the model's uplift (PRD §7.5, oracle (d)) will be measured
 against. Read-only over the M0-frozen ``/features`` + ``/molecules``: no group, dataset,
 dtype or field change, so the ``schema-guard`` freeze holds.
 
@@ -20,7 +20,7 @@ Join key. Features are keyed by the unique per-row ``molecule_id``; ``curation_l
 on ``molecule_key`` (a key can name several ids — §7.10 quantized-coordinate collisions), so
 each feature row takes the label of its ``molecule_key``. Only human accept/reject labels are
 ground truth: an uncurated molecule is a ranking *candidate* without a training label
-(:attr:`RankingDataset.is_good` omits it), and is never dropped from the candidate set.
+([`RankingDataset.is_good`][] omits it), and is never dropped from the candidate set.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _project_path(project: ProjectRef) -> Path:
 # ``curation_label``); a dataclass-generated ``__eq__`` would compare them with ``==`` (an
 # ndarray ``==`` is elementwise -> ambiguous truth value) and ``__hash__`` would hash an
 # unhashable ndarray, so ``dataset_a == dataset_b`` / ``hash(dataset)`` would raise. Identity
-# semantics keep the object safely comparable/hashable (the :mod:`tether.ml.similarity`
+# semantics keep the object safely comparable/hashable (the `tether.ml.similarity`
 # precedent); tests compare the array fields directly.
 @dataclass(frozen=True, eq=False)
 class RankingDataset:
@@ -64,10 +64,10 @@ class RankingDataset:
 
     ``X`` is the ``(n_molecules, n_features)`` ``float64`` feature matrix (row ``i`` =
     ``molecule_ids[i]`` / ``molecule_keys[i]``); ``curation_label`` is the aligned signed
-    :class:`~tether.project.labels.CurationLabel` code (``+1`` accept, ``-1`` reject, ``0``
-    uncurated). :attr:`labeled_mask` marks the human-labeled rows (the ground truth) and
-    :attr:`is_good` is the ``molecule_id -> accepted?`` map over just those rows, ready for
-    :mod:`tether.ml.ranking`.
+    [`CurationLabel`][tether.project.labels.CurationLabel] code (``+1`` accept, ``-1`` reject, ``0``
+    uncurated). [`labeled_mask`][] marks the human-labeled rows (the ground truth) and
+    [`is_good`][] is the ``molecule_id -> accepted?`` map over just those rows, ready for
+    [`tether.ml.ranking`][].
     """
 
     molecule_ids: list[str]
@@ -104,8 +104,8 @@ class RankingDataset:
 def ranking_dataset(project: ProjectRef) -> RankingDataset:
     """Assemble the supervised ranking dataset from a project's ``/features`` + ``/labels``.
 
-    Reads the stored feature matrix (:func:`tether.project.features.feature_matrix`) and each
-    molecule's ``curation_label`` (:func:`tether.project.labels.curation_labels`), joining on
+    Reads the stored feature matrix ([`tether.project.features.feature_matrix`][]) and each
+    molecule's ``curation_label`` ([`tether.project.labels.curation_labels`][]), joining on
     ``molecule_key``. Read-only.
 
     Raises
@@ -136,8 +136,8 @@ def baseline_precision_at_k(project: ProjectRef, k: int) -> float:
 
     The reference the quality ranker's uplift is measured against: the precision@k that plain
     file-/extraction-order curation achieves on the molecules a human has actually
-    accepted/rejected (:func:`tether.ml.ranking.file_order_ranking` +
-    :func:`tether.ml.ranking.precision_at_k`). Read-only.
+    accepted/rejected ([`tether.ml.ranking.file_order_ranking`][] +
+    [`tether.ml.ranking.precision_at_k`][]). Read-only.
 
     Raises
     ------

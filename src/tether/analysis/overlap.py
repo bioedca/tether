@@ -6,7 +6,7 @@ The Qt-free core of the M2 S10 **static overlap view**: for every molecule it
 computes the distance to its nearest neighbour and flags the pair whose
 integration apertures may overlap, so a curator can spot crowded/contaminated
 spots (PRD §7.3: "a neighbor/overlap view — static patch + nearest-neighbour
-distance"). The GUI half (:mod:`tether.gui.overlap_dock`) only *renders* what this
+distance"). The GUI half ([`tether.gui.overlap_dock`][]) only *renders* what this
 module returns; no geometry lives in the widget.
 
 **Which spots.** A molecule owns a **donor** and an **acceptor** spot, imaged in
@@ -20,7 +20,7 @@ molecule's ``movie_id`` as its group and the neighbour search runs within a grou
 **Overlap geometry (settled, not a tunable).** Each aperture is a PSF disk of
 radius ``aperture_radius`` px (default 3, the Deep-LASI disk; PRD Appendix E /
 §11.2). Two disks of radius ``r`` overlap **iff** their centres are closer than
-``2·r`` (:data:`APERTURE_OVERLAP_FACTOR` × radius) — pure geometry, so the only
+``2·r`` ([`APERTURE_OVERLAP_FACTOR`][] × radius) — pure geometry, so the only
 free input is the aperture radius (an existing §11.2 parameter, read from the
 store's extraction settings), not a new threshold. Note native Tether detection
 enforces an **8 px min-separation** per channel half (PRD §11.2 / Appendix E), so
@@ -30,7 +30,7 @@ not subject to that min-separation, and the raw NN distance is an always-useful
 crowding readout regardless.
 
 Everything here is pure NumPy + SciPy (the ``cKDTree`` already used by
-:mod:`tether.imaging.coloc`), so it runs in the default test matrix without Qt.
+[`tether.imaging.coloc`][]), so it runs in the default test matrix without Qt.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ __all__ = [
 ]
 
 #: PSF-disk aperture radius in px (Deep-LASI disk; PRD Appendix E / §11.2). The
-#: same default as :class:`tether.gui.movie_panel.MovieOverlay`.
+#: same default as `tether.gui.movie_panel.MovieOverlay`.
 DEFAULT_APERTURE_RADIUS = 3.0
 
 #: Two apertures overlap when their centre-to-centre distance is below this many
@@ -64,7 +64,7 @@ APERTURE_OVERLAP_FACTOR = 2.0
 def _validate_coords(coords: object) -> np.ndarray:
     """Validate an ``(N, 2)`` ``[x, y]`` spot-coordinate array (empty allowed).
 
-    Mirrors :func:`tether.gui.movie_panel._validate_xy`: an empty 1-D input maps
+    Mirrors `tether.gui.movie_panel._validate_xy`: an empty 1-D input maps
     to ``(0, 2)``; any other non-``(N, 2)`` shape or a non-finite value is rejected
     so a NaN can never silently poison the KDTree.
     """
@@ -148,7 +148,7 @@ def neighbor_report(
         equally in ``[x, y]`` or napari ``[row, col]``; keep it ``[x, y]`` to match
         detection/storage.
     aperture_radius:
-        PSF-disk radius in px (default :data:`DEFAULT_APERTURE_RADIUS`). Two
+        PSF-disk radius in px (default [`DEFAULT_APERTURE_RADIUS`][]). Two
         apertures overlap when their centres are within
         ``APERTURE_OVERLAP_FACTOR × aperture_radius``. Must be finite and positive.
     groups:
@@ -204,7 +204,7 @@ class OverlapInfo:
     """One molecule's overlap-view payload — its static patch + NN readout.
 
     The value a store-backed overlap seam hands the GUI
-    (:class:`tether.gui.overlap_dock.OverlapDock`) for the selected molecule. It is
+    ([`tether.gui.overlap_dock.OverlapDock`][]) for the selected molecule. It is
     Qt-free (a plain NumPy patch + scalars) so the seam can be built and asserted in
     the default test matrix. ``patch`` is ``None`` for an **analysis-only** project
     that carries no cached patches (§7.4: coordinates/patches absent → the overlap

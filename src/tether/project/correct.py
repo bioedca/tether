@@ -10,11 +10,11 @@ whether an absolute γ-corrected efficiency can be formed and records *how* E is
 computed downstream:
 
 * ``/molecules.correction_method`` — one of
-  :data:`METHOD_CORRECTED`, :data:`METHOD_MANUAL`, :data:`METHOD_APPARENT_UNAVAILABLE`
-  (total correction failure), or :data:`METHOD_APPARENT_TOGGLE` (user asked to view
+  [`METHOD_CORRECTED`][], [`METHOD_MANUAL`][], [`METHOD_APPARENT_UNAVAILABLE`][]
+  (total correction failure), or [`METHOD_APPARENT_TOGGLE`][] (user asked to view
   apparent E despite valid factors). The GUI/analysis derive the per-frame E from this
-  tag: an ``apparent-E`` method uses :func:`tether.fret.apparent_fret` (``α=0, γ=1``);
-  otherwise :func:`tether.fret.corrected_fret` with the molecule's applied
+  tag: an ``apparent-E`` method uses [`tether.fret.apparent_fret`][] (``α=0, γ=1``);
+  otherwise [`tether.fret.corrected_fret`][] with the molecule's applied
   ``/molecules.alpha`` and ``/molecules.gamma``.
 * ``/molecules.correction_confidence`` — ``1.0`` when a real photophysical correction
   (finite α and γ > 0, estimated or manually entered) was applied, ``0.0`` when the
@@ -31,17 +31,17 @@ applied *before* the population median by the earlier α/γ passes, so a withhel
 arrives here as the ``NaN`` "no factor computed" sentinel — never a fabricated value.
 This writer therefore never lets a missing factor become a NaN in E: a molecule whose
 effective α or γ is missing (or γ ≤ 0) is stamped
-:data:`METHOD_APPARENT_UNAVAILABLE` and rendered as apparent E (the *expected* case for
+[`METHOD_APPARENT_UNAVAILABLE`][] and rendered as apparent E (the *expected* case for
 the lab's typical pure-FRET acquisitions lacking a clean acceptor-bleach step). That does
 not make every frame finite: a frame whose denominator is zero gives NaN, because the ratio
-is not defined there (:func:`tether.fret.corrected_fret`). For apparent E that is a frame
+is not defined there ([`tether.fret.corrected_fret`][]). For apparent E that is a frame
 with zero total intensity; for corrected E it is a zero ``I_A,corr + γ·I_D,corr``, so a
 frame with both channels at zero is NaN in both. The GUI
 banner + recovery actions that surface this state are a follow-up GUI PR; this is the
 headless decision + provenance they read.
 
 **Apparent-E toggle.** ``apparent_e_only=True`` stamps every analysable molecule
-:data:`METHOD_APPARENT_TOGGLE` regardless of factor availability, so a project can be
+[`METHOD_APPARENT_TOGGLE`][] regardless of factor availability, so a project can be
 kept on apparent E deliberately; re-running without the toggle restores the corrected
 methods (the toggle round-trips through ``/settings/correction``).
 
@@ -51,7 +51,7 @@ estimated factor). Since leakage α is a single global factor (PRD §5.1/§7.2) 
 manual γ replaces the per-condition value, an override is applied to **every** examined
 molecule: it is written into ``/molecules.alpha`` / ``/molecules.gamma`` (so those
 fields remain the single source of the *effective applied* factor the staleness hash
-keys on) and the molecule is stamped :data:`METHOD_MANUAL`. The finer per-molecule
+keys on) and the molecule is stamped [`METHOD_MANUAL`][]. The finer per-molecule
 fallback scope of a γ override (re-stale fallback molecules only; PRD §5.1) is deferred
 to the staleness-flagging PR, which persists own-vs-fallback γ. ``apparent_e_only``
 takes precedence over an override (an explicit request to view apparent E wins).
@@ -60,7 +60,7 @@ Unlike the α/γ passes, this writer **does not require** the factors to be pres
 graceful degradation to apparent E is the whole point (corrections are never required
 to *view* traces; PRD §7.2). It only reads ``/molecules`` (no ``/traces`` needed: the
 per-frame E is derived downstream). The single-writer ``.lock`` is the caller's
-responsibility, mirroring :func:`tether.project.gamma.compute_gamma`.
+responsibility, mirroring [`tether.project.gamma.compute_gamma`][].
 """
 
 from __future__ import annotations
@@ -111,20 +111,20 @@ _CONFIDENCE_APPARENT = 0.0
 
 @dataclass(frozen=True)
 class CorrectionSummary:
-    """Outcome of a :func:`compute_corrected_fret` pass.
+    """Outcome of a [`compute_corrected_fret`][] pass.
 
     Attributes
     ----------
     n_molecules
         Molecules examined (rows with a valid ``frame_range``).
     n_corrected
-        Molecules stamped :data:`METHOD_CORRECTED` (absolute E from estimated α, γ).
+        Molecules stamped [`METHOD_CORRECTED`][] (absolute E from estimated α, γ).
     n_manual
-        Molecules stamped :data:`METHOD_MANUAL` (a manual α/γ override was applied).
+        Molecules stamped [`METHOD_MANUAL`][] (a manual α/γ override was applied).
     n_apparent
         Molecules stamped an ``apparent-E`` method — total failure
-        (:data:`METHOD_APPARENT_UNAVAILABLE`) or the user toggle
-        (:data:`METHOD_APPARENT_TOGGLE`).
+        ([`METHOD_APPARENT_UNAVAILABLE`][]) or the user toggle
+        ([`METHOD_APPARENT_TOGGLE`][]).
     total_failure
         ``True`` when **no** molecule carries a correction (``n_corrected +
         n_manual == 0``) — the whole project falls to apparent E (PRD §7.2). Also
@@ -177,16 +177,17 @@ def compute_corrected_fret(
     ----------
     project_path
         The ``.tether`` project to update (opened ``r+``). Reads the applied factors
-        the earlier passes wrote (:func:`~tether.project.leakage.compute_leakage_alpha`,
-        :func:`~tether.project.gamma.compute_gamma`); neither is *required* — a missing
+        the earlier passes wrote
+        ([`compute_leakage_alpha`][tether.project.leakage.compute_leakage_alpha],
+        [`compute_gamma`][tether.project.gamma.compute_gamma]); neither is *required* — a missing
         factor degrades that molecule to apparent E.
     apparent_e_only
-        Force apparent E for every analysable molecule (:data:`METHOD_APPARENT_TOGGLE`),
+        Force apparent E for every analysable molecule ([`METHOD_APPARENT_TOGGLE`][]),
         even where valid factors exist. Takes precedence over an override.
     alpha_override, gamma_override
         Manual per-condition factors. When given (and ``apparent_e_only`` is off), the
         value is written into the applied ``/molecules.alpha`` / ``/molecules.gamma``
-        for every examined molecule and the molecule is stamped :data:`METHOD_MANUAL`.
+        for every examined molecule and the molecule is stamped [`METHOD_MANUAL`][].
         ``gamma_override`` must be ``> 0`` (a non-physical γ is rejected).
     write_guard
         Optional caller-owned lock/lease check. With a guard, the complete

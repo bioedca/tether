@@ -6,10 +6,10 @@ The per-condition quality ranker trains **weighted by each label's ``source``**,
 ``weight`` is **mutable — recomputed and rewritten on every retrain** (PRD §5.1 ``/labels``, §7.5).
 This module is that store operation: it reads a ``.tether``'s ``/labels`` history plus the
 authoritative human accept/reject state on ``/molecules``, applies the pure cold-start decay law
-(:mod:`tether.ml.weighting`), and writes the fresh weights back into ``/labels`` — the thing a
+([`tether.ml.weighting`][]), and writes the fresh weights back into ``/labels`` — the thing a
 retrain calls **before** it (re)fits, so the model always trains on current weights.
 
-The decay (:mod:`tether.ml.weighting`)::
+The decay ([`tether.ml.weighting`][])::
 
     weight = 1.0                    for a human label   (source == "human")
     weight = w₀ / (1 + n_human)     for a provisional/seed prior
@@ -17,7 +17,7 @@ The decay (:mod:`tether.ml.weighting`)::
 ``n_human`` is **the number of molecules in the label's condition that currently carry a human
 accept/reject** — i.e. ``/molecules.curation_label != UNCURATED`` grouped by ``condition_id``. That
 count is exactly the trusted evidence the ranker trains on for the condition (a provisional source
-never sets ``curation_label``; :mod:`tether.project.labels`), so tying the decay to it means a
+never sets ``curation_label``; [`tether.project.labels`][]), so tying the decay to it means a
 seed's influence shrinks in lockstep with the real ground truth that supersedes it. Reading the
 count from ``/molecules`` (not by tallying ``/labels`` rows) makes it insensitive to a molecule
 being re-curated multiple times — one molecule's changing mind is one molecule's worth of evidence,
@@ -27,7 +27,7 @@ Additive under the M0 freeze. ``weight`` is a **frozen** ``/labels`` field (ADR-
 rewriting its *values* changes no group, dataset, dtype or field, and §7.5 declares the field
 mutable — so ``schema-guard`` holds. The ``.tether`` is opened ``r+`` for the in-place column
 rewrite; the single-writer ``.lock`` that serializes concurrent curation (§5.4) is the caller's
-concern, exactly as for :func:`tether.project.labels.set_curation_label`.
+concern, exactly as for [`tether.project.labels.set_curation_label`][].
 """
 
 from __future__ import annotations
@@ -70,15 +70,15 @@ def human_counts_by_condition(condition_ids: object, curation_labels: object) ->
     """``condition_id -> n_human`` from a ``/molecules`` table's two aligned columns (PRD §7.5).
 
     ``n_human`` is the count of molecules currently carrying a **human** accept/reject
-    (``curation_label != UNCURATED``, :mod:`tether.project.labels`) grouped by ``condition_id`` —
+    (``curation_label != UNCURATED``, [`tether.project.labels`][]) grouped by ``condition_id`` —
     the trusted-evidence count the cold-start decay ``w = w₀/(1 + n_human)`` divides by. Counting
     ``/molecules`` **rows** (not distinct ``molecule_key`` values, and not ``/labels`` event rows)
     matches the "amount of ground truth" reading: a provisional source never sets
     ``curation_label``, and a re-curated molecule is one molecule's worth of evidence.
 
     Pure and **store-free**: the caller reads ``/molecules`` once and passes the ``condition_id``
-    and ``curation_label`` columns, so both this recompute (:func:`recompute_label_weights`) and
-    the ranker's training-fold (:func:`tether.project.gbranking.weighted_training_set`) share one
+    and ``curation_label`` columns, so both this recompute ([`recompute_label_weights`][]) and
+    the ranker's training-fold ([`tether.project.gbranking.weighted_training_set`][]) share one
     definition of ``n_human``. Vectorized (``np.unique`` + ``np.bincount``) so it does not scale
     with a per-row Python loop.
 
@@ -122,8 +122,8 @@ def human_counts_by_condition(condition_ids: object, curation_labels: object) ->
 def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEIGHT) -> int:
     """Recompute every ``/labels`` row's ``weight`` from the current label set and rewrite it.
 
-    Applies the cold-start decay (:mod:`tether.ml.weighting`): a human label becomes full weight
-    (:data:`tether.project.labels.HUMAN_WEIGHT`); a provisional/seed prior becomes
+    Applies the cold-start decay ([`tether.ml.weighting`][]): a human label becomes full weight
+    ([`tether.project.labels.HUMAN_WEIGHT`][]); a provisional/seed prior becomes
     ``w₀ / (1 + n_human)`` where ``n_human`` is its condition's count of human-curated molecules.
     The whole ``/labels/table`` ``weight`` column is rewritten in place (``r+``); no other field is
     touched. Idempotent — human weights resolve to the same ``1.0`` and a fixed label set yields the
@@ -133,9 +133,10 @@ def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEI
     Parameters
     ----------
     project:
-        The ``.tether`` project (a :class:`~tether.project.core.Project` or a path), opened ``r+``.
+        The ``.tether`` project (a [`Project`][tether.project.core.Project] or a path), opened
+        ``r+``.
     w0:
-        The seed weight ``w₀`` (default :data:`tether.ml.weighting.DEFAULT_SEED_WEIGHT`, the PRD
+        The seed weight ``w₀`` (default [`tether.ml.weighting.DEFAULT_SEED_WEIGHT`][], the PRD
         §11.2 tunable). Provisional/seed rows decay from this.
 
     Returns
@@ -148,7 +149,7 @@ def recompute_label_weights(project: ProjectRef, *, w0: float = DEFAULT_SEED_WEI
     KeyError
         The project has no ``/labels`` or ``/molecules`` group (not an extracted ``.tether``).
     ValueError
-        ``w0`` is not finite and positive (propagated from :mod:`tether.ml.weighting`).
+        ``w0`` is not finite and positive (propagated from [`tether.ml.weighting`][]).
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415

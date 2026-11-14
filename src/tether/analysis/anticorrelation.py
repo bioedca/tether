@@ -10,7 +10,7 @@ structural fluctuation raises one channel as it lowers the other — donor and
 acceptor signals are *anticorrelated* [Felekyan2012][Torres2007] — so a genuine
 conformational/kinetic event shows up as a window where the two channels move in
 anti-phase. Where the population
-:func:`~tether.analysis.crosscorr.cross_correlation` scores a *whole* trace with a
+[`cross_correlation`][tether.analysis.crosscorr.cross_correlation] scores a *whole* trace with a
 single lag-1 magnitude, this finder answers the complementary question **"and
 *when* within the trace does the anticorrelation happen?"** — the pre-idealization
 counterpart to the HMM's transition list, available before any model is committed.
@@ -18,8 +18,9 @@ counterpart to the HMM's transition list, available before any model is committe
 Two statistics of each window's cross-correlation gate an event, each carrying the
 part of the signal it is reliable for:
 
-* **Direction — the lag-0 (same-frame) sign.** :attr:`CrossCorrelation.lag0` is the
-  genuine Pearson coefficient of the two channels (:mod:`tether.analysis.crosscorr`),
+* **Direction — the lag-0 (same-frame) sign.**
+  [`CrossCorrelation.lag0`][tether.analysis.crosscorr.CrossCorrelation.lag0] is the
+  genuine Pearson coefficient of the two channels ([`tether.analysis.crosscorr`][]),
   so its sign is the physically meaningful same-frame relationship: ``lag0 < 0`` is
   anti-phase, ``> 0`` in-phase. This is the *only* reliable anti-phase indicator. The
   signed lag-1 value is **not** used for direction: the cross-correlation is
@@ -28,7 +29,8 @@ part of the signal it is reliable for:
   its sign couples to the donor autocorrelation sign — a fast *in-phase* oscillation
   (period ≲ 4 frames) has a strongly **negative** ``r[+1]`` and would be misflagged if
   the sign of ``r[+1]`` drove detection.
-* **Strength — the lag-1 magnitude.** :attr:`CrossCorrelation.lag1_magnitude`
+* **Strength — the lag-1 magnitude.**
+  [`CrossCorrelation.lag1_magnitude`][tether.analysis.crosscorr.CrossCorrelation.lag1_magnitude]
   (``|r[+1]|``, the quantity the cross-correlation exposes, PRD §7.7) measures the
   *temporal structure* of the fluctuation. A genuine slow anti-phase change persists
   frame-to-frame, so its lag-1 magnitude is large; same-frame **shot-noise**
@@ -41,18 +43,18 @@ part of the signal it is reliable for:
 A window is *flagged* when it is both anti-phase and temporally structured —
 ``lag0 < 0`` **and** ``lag1_magnitude >= min_magnitude`` (a constant window is an
 undefined correlation → ``NaN`` → never flagged, never fabricated as 0). Maximal runs
-of consecutive flagged windows form one :class:`AnticorrelationEvent` spanning every
+of consecutive flagged windows form one [`AnticorrelationEvent`][] spanning every
 frame those windows touch, with the run's most anti-phase (most-negative ``lag0``)
 window as its peak. The thresholds (``window``, ``step``, ``min_magnitude``,
 ``min_windows``) are **QC-rendering defaults**, not PRD §11.2 science tunables: the
 events are a visualization/curation aid — no downstream corrected-E, idealization, or
 exported factor depends on them (the same classification as the raw FRET cloud,
-:mod:`tether.analysis.cloud`). The trustworthy state/transition count of record remains
+[`tether.analysis.cloud`][]). The trustworthy state/transition count of record remains
 the HMM/vbFRET model view (the real TDP) [McKinney2006]; this finder orients the eye
 first.
 
-:func:`find_anticorrelation_events` is the pure-array core (one trace ->
-:class:`AnticorrelationScan`); :func:`population_anticorrelation_events` is the
+[`find_anticorrelation_events`][] is the pure-array core (one trace ->
+[`AnticorrelationScan`][]); [`population_anticorrelation_events`][] is the
 ``.tether`` store entry point (§7.5 curation filter, chosen intensity channels,
 analysis window) returning one scan per accepted molecule.
 
@@ -134,13 +136,13 @@ DEFAULT_ANTICORR_MIN_WINDOWS = 1
 class AnticorrelationEvent:
     """One localized donor–acceptor anticorrelation event within a trace.
 
-    :attr:`start` (inclusive) and :attr:`stop` (exclusive) are the frame span the
+    [`start`][] (inclusive) and [`stop`][] (exclusive) are the frame span the
     event's flagged windows collectively cover, in the trace's own (window-relative)
-    frame coordinates. :attr:`peak_frame` is the centre frame of the run's most
-    anti-phase window (most-negative same-frame ``lag0``); :attr:`peak_lag0` is that
-    window's signed lag-0 Pearson correlation (``< 0``) and :attr:`peak_lag1_magnitude`
-    its lag-1 magnitude (the temporal-structure strength there). :attr:`mean_lag0`
-    averages the signed lag-0 over the run's :attr:`n_windows` flagged windows.
+    frame coordinates. [`peak_frame`][] is the centre frame of the run's most
+    anti-phase window (most-negative same-frame ``lag0``); [`peak_lag0`][] is that
+    window's signed lag-0 Pearson correlation (``< 0``) and [`peak_lag1_magnitude`][]
+    its lag-1 magnitude (the temporal-structure strength there). [`mean_lag0`][]
+    averages the signed lag-0 over the run's [`n_windows`][] flagged windows.
     """
 
     start: int  # first frame of the event (inclusive)
@@ -166,13 +168,13 @@ class AnticorrelationEvent:
 class AnticorrelationScan:
     """The per-window cross-correlation profile of one trace and its events.
 
-    :attr:`lag0` ``[w]`` is the signed lag-0 (same-frame) Pearson correlation and
-    :attr:`lag1_magnitude` ``[w]`` the lag-1 magnitude measured in the window centred at
-    :attr:`centers` ``[w]`` (both ``NaN`` where that window is constant — an undefined
-    correlation, never a fabricated 0). :attr:`events` are the maximal runs of
+    [`lag0`][] ``[w]`` is the signed lag-0 (same-frame) Pearson correlation and
+    [`lag1_magnitude`][] ``[w]`` the lag-1 magnitude measured in the window centred at
+    [`centers`][] ``[w]`` (both ``NaN`` where that window is constant — an undefined
+    correlation, never a fabricated 0). [`events`][] are the maximal runs of
     consecutive windows with ``lag0 < 0`` **and** ``lag1_magnitude >= min_magnitude``
-    that survive the :attr:`min_windows` length filter, in ascending frame order. The
-    scan is empty (no windows, no events) when the trace is shorter than :attr:`window`.
+    that survive the [`min_windows`][] length filter, in ascending frame order. The
+    scan is empty (no windows, no events) when the trace is shorter than [`window`][].
     """
 
     window: int  # window length (frames) used
@@ -201,7 +203,7 @@ def _validate_scan_params(
 ) -> tuple[int, int, float, int]:
     """Validate and coerce the sliding-scan parameters (shared by the core + store entry).
 
-    Kept separate so :func:`population_anticorrelation_events` can enforce the same bounds
+    Kept separate so [`population_anticorrelation_events`][] can enforce the same bounds
     up front — its documented ``ValueError`` on a bad parameter must hold even when no
     molecule is scanned (empty store / all rejected / all too short).
     """
@@ -279,10 +281,10 @@ def find_anticorrelation_events(
 
     Sweeps a ``window``-frame window (stride ``step``) along the trace, measures each
     window's donor–acceptor cross-correlation with
-    :func:`~tether.analysis.crosscorr.cross_correlation` (``max_lag=1``), and merges
+    [`cross_correlation`][tether.analysis.crosscorr.cross_correlation] (``max_lag=1``), and merges
     maximal runs of windows that are **anti-phase** (signed lag-0 ``< 0``) **and**
     **temporally structured** (lag-1 magnitude ``>= min_magnitude``) into
-    :class:`AnticorrelationEvent`\\ s (runs shorter than ``min_windows`` are dropped).
+    [`AnticorrelationEvent`][]\\ s (runs shorter than ``min_windows`` are dropped).
 
     The lag-0 sign supplies the reliable anti-phase direction (it is the Pearson
     coefficient); the lag-1 magnitude supplies the dynamics strength and rejects white
@@ -376,7 +378,7 @@ def find_anticorrelation_events(
 
 @dataclass(frozen=True)
 class MoleculeAnticorrelation:
-    """One accepted molecule's anticorrelation :class:`AnticorrelationScan`, keyed."""
+    """One accepted molecule's anticorrelation [`AnticorrelationScan`][], keyed."""
 
     molecule_key: str
     scan: AnticorrelationScan
@@ -386,9 +388,9 @@ class MoleculeAnticorrelation:
 class PopulationAnticorrelation:
     """Per-molecule anticorrelation-event scans over a ``.tether`` population (§7.7).
 
-    :attr:`molecules` holds one :class:`MoleculeAnticorrelation` per accepted molecule
+    [`molecules`][] holds one [`MoleculeAnticorrelation`][] per accepted molecule
     long enough to scan (``>= window`` frames), in store order; molecules too short are
-    skipped. :attr:`n_molecules` is how many were scanned and :attr:`n_events` the total
+    skipped. [`n_molecules`][] is how many were scanned and [`n_events`][] the total
     events across them. The window/threshold fields echo the parameters used.
     """
 
@@ -414,7 +416,7 @@ def population_anticorrelation_events(
 ) -> PopulationAnticorrelation:
     """Anticorrelation-event scans over a ``.tether`` store (§10 PR-6; PRD §7.7).
 
-    Runs :func:`find_anticorrelation_events` on each accepted molecule's windowed
+    Runs [`find_anticorrelation_events`][] on each accepted molecule's windowed
     donor/acceptor intensities (the ``intensity_quantity`` channels sliced to the
     ``analysis_window``; rejected molecules excluded unless ``include_rejected``, §7.5).
     Only molecules with at least ``window`` frames are scanned; the rest are skipped
@@ -423,15 +425,15 @@ def population_anticorrelation_events(
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_keys
         Restrict to these ``molecule_key`` values (``None`` = all), intersected with
         the §7.5 curation filter.
     intensity_quantity
         Which ``/traces`` layers supply the channels (``"corrected"`` default, or
-        ``"raw"``; see :func:`tether.analysis._store.resolve_quantity`).
+        ``"raw"``; see `tether.analysis._store.resolve_quantity`).
     window, step, min_magnitude, min_windows
-        Passed through to :func:`find_anticorrelation_events`.
+        Passed through to [`find_anticorrelation_events`][].
     include_rejected
         Keep rejected molecules (default excludes them, §7.5).
 
@@ -443,7 +445,7 @@ def population_anticorrelation_events(
     ------
     ValueError
         The store lacks the requested trace layer, or a
-        :func:`find_anticorrelation_events` parameter is invalid.
+        [`find_anticorrelation_events`][] parameter is invalid.
     """
     from tether.analysis._store import windowed_channels_with_keys
 

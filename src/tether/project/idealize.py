@@ -5,7 +5,7 @@
 This is the **headless** half of the M2 "one-click vbFRET from the dock" feature
 (PRD §7.4): it turns a selection of extracted molecules in a ``.tether`` store
 into a fitted idealization written back under the frozen ``/idealization`` group.
-The GUI (``I`` key + Viterbi step overlay) is a thin layer over :func:`idealize_molecules`
+The GUI (``I`` key + Viterbi step overlay) is a thin layer over [`idealize_molecules`][]
 and lands separately.
 
 The pipeline is::
@@ -18,21 +18,21 @@ The pipeline is::
 Two design points are load-bearing and homed in ADR-0024:
 
 * **``/idealization/{model}`` is additive data.** The container group ``/idealization``
-  is part of the M0-frozen §5 skeleton (:mod:`tether.io.schema`); a *model* subgroup
+  is part of the M0-frozen §5 skeleton ([`tether.io.schema`][]); a *model* subgroup
   written here is per-record data, never a structural change, so ``schema-guard``
-  stays green (the guard introspects an empty :func:`~tether.io.schema.create_project`,
+  stays green (the guard introspects an empty [`create_project`][tether.io.schema.create_project],
   which never contains a model subgroup).
 * **Per-molecule composite input-provenance hash (staleness).** PRD §5.1 requires each
   model be stamped with a per-molecule hash of "the inputs the corrected-FRET was
-  computed from". :func:`input_provenance_hash` folds the input-trace identity
-  (:func:`input_trace_hash` over the windowed intensity), the analysis-window bounds,
+  computed from". [`input_provenance_hash`][] folds the input-trace identity
+  ([`input_trace_hash`][] over the windowed intensity), the analysis-window bounds,
   and the molecule's *effective applied* α and γ (apparent-E toggle folded in). If a
   re-extraction, a window edit, or a **correction change** alters any of these, the
-  recomputed hash diverges and :func:`stale_molecule_keys` flags the model stale
-  (:func:`live_molecule_keys` is its complement, the set TDP/dwell analysis keeps).
+  recomputed hash diverges and [`stale_molecule_keys`][] flags the model stale
+  ([`live_molecule_keys`][] is its complement, the set TDP/dwell analysis keeps).
   The re-flag scope is **per-factor** because each molecule's *own* stored factors are
   read: a γ-median shift re-stales only the fallback molecules, while a global-α
-  recalibration re-stales the whole cohort. :func:`reidealize` re-fits a stale model
+  recalibration re-stales the whole cohort. [`reidealize`][] re-fits a stale model
   over the current inputs. See PRD §5.1 and ADR-0029.
 
 **Auto state-count.** With ``nstates=None`` the fit is repeated over ``nstates_grid``
@@ -45,7 +45,7 @@ to fix it (a per-trace manual override the GUI exposes).
 At the MVP the idealization input is the **background-subtracted** donor/acceptor
 intensity (the ``corrected`` trace quantity = disk sum − local background; the M1
 meaning — photophysical α/γ corrections are M3), so the states are apparent-E states
-consistent with :func:`tether.fret.apparent_fret`.
+consistent with [`tether.fret.apparent_fret`][].
 
 References
 ----------
@@ -113,7 +113,7 @@ _WRITING_SUFFIX = ".__writing__"
 #: Default idealization method (the consensus VB-HMM behind the M0.5 parity target).
 MODEL_TYPE_DEFAULT = "vbconhmm"
 #: ebFRET empirical-Bayes population HMM [vandeMeent2014] — the second global
-#: idealizer the M6 suite offers (a ``model_type`` value for :func:`idealize_molecules`).
+#: idealizer the M6 suite offers (a ``model_type`` value for `idealize_molecules`).
 MODEL_TYPE_EBHMM = "ebhmm"
 #: State counts swept for auto (max-ELBO) model selection when ``nstates`` is None
 #: (PRD §11.2 idealization tunable; the vbFRET-family model-selection range).
@@ -124,7 +124,7 @@ NSTATES_GRID_DEFAULT: tuple[int, ...] = (1, 2, 3, 4)
 #: apparent-E input at M2).
 _QUANTITY_KEYS = INTENSITY_QUANTITY_LAYERS
 
-#: Canonical model attrs :func:`write_idealization_model` owns; a caller's ``extra_attrs``
+#: Canonical model attrs `write_idealization_model` owns; a caller's ``extra_attrs``
 #: may not override them (else return-leg provenance could clobber ``type``/``nstates``/…).
 _RESERVED_MODEL_ATTRS = frozenset(
     {
@@ -148,7 +148,7 @@ class StoredIdealization:
 
     ``idealized`` is ``(n_molecules, n_frames)`` float FRET level (NaN outside each
     molecule's analysis window); ``state_paths`` is the matching int64 state index
-    (:data:`tether.idealize.NO_STATE` outside the window). Row ``i`` of every
+    ([`tether.idealize.NO_STATE`][] outside the window). Row ``i`` of every
     per-molecule array corresponds to ``molecule_keys[i]`` / ``molecule_ids[i]`` /
     ``input_hashes[i]``. ``molecule_ids`` is the **unique** per-row identity (the
     ``molecule_key`` is *not* unique — §7.10 quantized-coordinate collisions), so it
@@ -200,7 +200,7 @@ def input_trace_hash(donor: np.ndarray, acceptor: np.ndarray, quantity: str) -> 
     the same numbers read from a different trace layer hash differently. Inputs are
     cast to C-contiguous ``float64`` first, so the digest is stable regardless of the
     on-disk float width (``/traces`` is ``float32``). This is the **input-trace
-    identity** component of the composite staleness stamp (:func:`input_provenance_hash`,
+    identity** component of the composite staleness stamp ([`input_provenance_hash`][],
     PRD §5.1): a re-extraction that changes the trace changes the hash.
     """
     d = np.ascontiguousarray(np.asarray(donor, dtype="float64"))
@@ -214,7 +214,7 @@ def input_trace_hash(donor: np.ndarray, acceptor: np.ndarray, quantity: str) -> 
 
 #: ``correction_method`` values (and the ``""`` un-corrected extraction default) under
 #: which no absolute γ-corrected E is formed, so the *effective applied* correction is
-#: apparent E — leakage α = 0 and detection γ = 1 (:func:`tether.fret.apparent_fret`).
+#: apparent E — leakage α = 0 and detection γ = 1 (`tether.fret.apparent_fret`).
 _APPARENT_METHODS = frozenset({"", METHOD_APPARENT_TOGGLE, METHOD_APPARENT_UNAVAILABLE})
 
 
@@ -223,7 +223,7 @@ def _effective_factors(alpha: float, gamma: float, correction_method: str) -> tu
 
     Apparent-E methods (and the un-corrected ``""`` default) apply no photophysical
     correction, so their effective factors are the apparent-E identity ``(0.0, 1.0)``
-    (§7.2, :func:`tether.fret.apparent_fret`); a ``corrected``/``manual`` molecule uses
+    (§7.2, [`tether.fret.apparent_fret`][]); a ``corrected``/``manual`` molecule uses
     its stored ``/molecules.alpha`` / ``/molecules.gamma`` (PRD §5.1 "effective applied
     α and γ"). Folding the **effective** factor — not the raw stored one — means a
     change to a stored factor while a molecule stays on apparent E does not spuriously
@@ -263,10 +263,10 @@ def input_provenance_hash(
     """Composite per-molecule staleness stamp (PRD §5.1 ``/idealization``).
 
     The idealization's per-molecule provenance hash of **the inputs the corrected-FRET
-    was computed from**: the input-trace identity (:func:`input_trace_hash` over the
+    was computed from**: the input-trace identity ([`input_trace_hash`][] over the
     windowed intensity), the analysis-window bounds, and the molecule's *effective
     applied* leakage α and detection γ — with the apparent-E toggle folded in through
-    :func:`_effective_factors` (apparent E hashes as ``α=0, γ=1``). Deliberately **not**
+    `_effective_factors` (apparent E hashes as ``α=0, γ=1``). Deliberately **not**
     a hash of the final E array (which would miss a window-only edit that rounds to the
     same E) and **not** the global factor set (which would falsely STALE the whole
     cohort on any unrelated global-median shift).
@@ -370,7 +370,7 @@ def _select_by_elbo(
     Returns ``(winning_result, chosen_nstates, elbo_by_nstates)``. A fit whose model
     reports a **non-finite** ELBO (``None``, ``NaN`` or ``inf`` — a degenerate/failed
     fit) is scored ``-inf`` so it never wins over a comparable finite fit; a raw NaN
-    must never reach :func:`max` (NaN comparisons are always ``False``, which would
+    must never reach [`max`][] (NaN comparisons are always ``False``, which would
     make the winner order-dependent and could select the degenerate model). Ties in
     ELBO break toward the **smallest** state count (parsimony), so an all-``-inf``
     grid deterministically keeps the simplest model.
@@ -415,14 +415,14 @@ def idealize_molecules(
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_keys:
         The molecules to idealize (``None`` = every eligible extracted molecule).
         Rejected rows are omitted unless ``include_rejected=True``. Order is store
         order; a duplicate ``molecule_key`` (§7.10) idealizes each matching row.
     model_type:
         A sidecar model key (default ``"vbconhmm"``; see
-        :func:`tether.idealize.run_vbfret`).
+        [`tether.idealize.run_vbfret`][]).
     nstates:
         Fixed state count. ``None`` (default) selects it by maximum ELBO over
         ``nstates_grid`` [Bronson2009].
@@ -435,7 +435,7 @@ def idealize_molecules(
         Which ``/traces`` layer feeds the fit: ``"corrected"`` (default,
         background-subtracted — the apparent-E input) or ``"raw"``.
     sidecar_python, nrestarts, timeout:
-        Forwarded to :func:`tether.idealize.run_vbfret`.
+        Forwarded to [`tether.idealize.run_vbfret`][].
     scratch_dir:
         Where the transient SMD + per-fit model files are written. Handled
         **locally** (not forwarded to ``run_vbfret``); ``None`` (default) uses a
@@ -446,7 +446,7 @@ def idealize_molecules(
         Include molecules carrying the sticky reject label. ``False`` by default,
         matching the product contract; callers must opt in explicitly.
     require_held_lock:
-        Require the supplied :class:`Project` handle's exact held sidecar nonce
+        Require the supplied [`Project`][] handle's exact held sidecar nonce
         before fitting and again immediately before persistence. The GUI session
         enables this stricter retained-ownership contract; headless callers keep
         the normal unlocked-or-self-owned writer check by default.
@@ -461,7 +461,7 @@ def idealize_molecules(
     Returns
     -------
     StoredIdealization
-        The persisted model (also readable back via :func:`read_idealization`).
+        The persisted model (also readable back via [`read_idealization`][]).
 
     Raises
     ------
@@ -671,9 +671,9 @@ def write_idealization_model(
     """Persist one ``/idealization/{model_name}`` subgroup as additive data.
 
     The **single writer** of the ``/idealization`` model layout, shared by the
-    in-app fitter (:func:`idealize_molecules`, ``selected_by`` ``"max-elbo"``/
+    in-app fitter ([`idealize_molecules`][], ``selected_by`` ``"max-elbo"``/
     ``"fixed"``) and the tMAVEN return-leg importer
-    (:func:`tether.project.handoff.apply_reconcile`, ``selected_by="imported"``) so
+    ([`tether.project.handoff.apply_reconcile`][], ``selected_by="imported"``) so
     both stamp the exact same datasets/attrs against the M0-frozen ``/idealization``
     container group — a subgroup here is per-record data, never a structural change,
     so ``schema-guard`` stays green (ADR-0024, ADR-0025). The optional population-model
@@ -684,7 +684,7 @@ def write_idealization_model(
     The model is staged in a transient ``{model_name}.__writing__`` subgroup and only
     then swapped in (delete the old entry, rename the staged one). A crash **before**
     the swap leaves the prior model intact plus a leftover ``.__writing__`` group that
-    :func:`list_idealizations` ignores and the next write cleans up. The swap itself is
+    [`list_idealizations`][] ignores and the next write cleans up. The swap itself is
     delete-then-rename and is **not fully atomic**: a crash in the brief window between
     removing the old model and renaming the staged one can leave only the staged group
     (recoverable by re-running the write) — HDF5 has no atomic in-file rename-over, so
@@ -692,7 +692,7 @@ def write_idealization_model(
     finite-guarded by the caller (``None`` for a non-finite/absent value; recorded as
     absent rather than as an out-of-range float attr). ``extra_attrs`` carries any
     writer-specific provenance (e.g. the importer's source SMD/model paths + match
-    counts) and **may not override a canonical attr** (:data:`_RESERVED_MODEL_ATTRS`).
+    counts) and **may not override a canonical attr** (`_RESERVED_MODEL_ATTRS`).
 
     Raises ``ValueError`` if the row-aligned inputs (``molecule_ids`` / ``input_hashes``
     / ``idealized`` / ``state_paths``) disagree with ``molecule_keys`` in length, or if
@@ -843,8 +843,8 @@ def _write_model(
     overwrite: bool,
     write_guard: Callable[[], None] | None = None,
 ) -> StoredIdealization:
-    """Write a fitted model subgroup (via :func:`write_idealization_model`) and
-    return the in-memory :class:`StoredIdealization`."""
+    """Write a fitted model subgroup (via [`write_idealization_model`][]) and
+    return the in-memory [`StoredIdealization`][]."""
     model = result.model
     idealized, state_paths = _idealized_and_paths(result)
     created = datetime.now(UTC).isoformat()
@@ -947,7 +947,7 @@ def list_idealizations(project: Project | str | PathLike[str]) -> list[str]:
 def read_idealization(
     project: Project | str | PathLike[str], model_name: str
 ) -> StoredIdealization:
-    """Read ``/idealization/{model_name}`` back into a :class:`StoredIdealization`."""
+    """Read ``/idealization/{model_name}`` back into a [`StoredIdealization`][]."""
     import h5py
 
     from tether.project.core import Project as _Project
@@ -1010,7 +1010,7 @@ def read_idealization(
 def stale_molecule_keys(project: Project | str | PathLike[str], model_name: str) -> list[str]:
     """Molecules whose current trace no longer matches the model's input hash.
 
-    Recomputes each stored molecule's :func:`input_provenance_hash` from the *current*
+    Recomputes each stored molecule's [`input_provenance_hash`][] from the *current*
     ``/traces`` + ``/molecules`` window and returns the ``molecule_key`` of every
     molecule whose recomputed hash diverges from the one recorded in
     ``/idealization/{model_name}`` — i.e. whose inputs changed since the fit (a
@@ -1031,8 +1031,8 @@ def _stale_keys_for(
     project: Project | str | PathLike[str], stored: StoredIdealization
 ) -> list[str]:
     """Staleness recompute for an **already-loaded** model (the shared body of
-    :func:`stale_molecule_keys` and :func:`live_molecule_keys`, so the model is read
-    once). Recomputes each row's :func:`input_provenance_hash` from the current
+    [`stale_molecule_keys`][] and [`live_molecule_keys`][], so the model is read
+    once). Recomputes each row's [`input_provenance_hash`][] from the current
     ``/traces`` + ``/molecules`` and returns the diverging molecule keys, de-duplicated
     in first-seen order (a row absent from the store, or a vanished trace layer, is
     reported stale).
@@ -1086,13 +1086,13 @@ def _stale_keys_for(
 def live_molecule_keys(project: Project | str | PathLike[str], model_name: str) -> list[str]:
     """The model's non-stale molecule keys — the set TDP/dwell analysis includes.
 
-    The complement of :func:`stale_molecule_keys` within one model's molecules: every
+    The complement of [`stale_molecule_keys`][] within one model's molecules: every
     ``molecule_key`` whose current inputs still match the fit, de-duplicated in
     first-seen order. STALE molecules are **excluded from TDP/dwell analysis** (PRD
-    §5.1) until a re-idealization (:func:`reidealize`) refreshes them, so analysis never
+    §5.1) until a re-idealization ([`reidealize`][]) refreshes them, so analysis never
     mixes a state path with inputs it was not fit on. A ``molecule_key`` that names
     several rows (§7.10) is excluded whole if *any* of its rows went stale (the
-    conservative, key-level granularity :func:`stale_molecule_keys` reports at).
+    conservative, key-level granularity [`stale_molecule_keys`][] reports at).
     """
     stored = read_idealization(project, model_name)
     stale = set(_stale_keys_for(project, stored))  # one read, shared with the staleness pass
@@ -1118,12 +1118,12 @@ def reidealize(
     The headless half of the "one-click re-idealize" a STALE model offers (PRD §5.1):
     reads the stored model's molecule set + fit configuration (``model_type``,
     ``intensity_quantity``, and the state count — the same fixed ``nstates`` or a fresh
-    max-ELBO sweep over the recorded grid) and re-runs :func:`idealize_molecules` with
+    max-ELBO sweep over the recorded grid) and re-runs [`idealize_molecules`][] with
     ``overwrite=True``. The refreshed model's provenance hashes are recomputed from the
     current corrections, so the previously-stale molecules read live again. The stored
     cohort is preserved even when one of its members is now rejected; rejection filters
     new default selections, not the explicit membership of an existing model. ``_runner``
-    is the same private sidecar test seam as :func:`idealize_molecules`.
+    is the same private sidecar test seam as [`idealize_molecules`][].
     """
     stored = read_idealization(project, model_name)
     keys = list(dict.fromkeys(stored.molecule_keys))

@@ -3,7 +3,7 @@
 """Deep trace-classifier subpackage (PRD §4.1/§9 M8; FR-ML) — the optional GPU add-on.
 
 The framework-agnostic, **dependency-free** substrate for Tether's M8 deep classifier lives
-here (:mod:`tether.ml.deep.dataset`): it turns the shared curation-label store into
+here ([`tether.ml.deep.dataset`][]): it turns the shared curation-label store into
 normalized, fixed-length NumPy tensors ready for a 1-D CNN/LSTM — **without** importing any
 deep-learning framework, so this module stays in the base env and is covered by the default
 3-OS test matrix.

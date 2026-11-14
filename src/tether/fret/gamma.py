@@ -50,7 +50,7 @@ Definitions and gates (PRD §11.2)
   a well-separated step with enough stable signal on each side (Deep-LASI's
   ``length(spFRET_frames) > min_frames && length(da_acc_bleached) > min_frames``,
   ``deep_autocorrect_2color.m:129``). This is the *same* §11.2 quantity the leakage
-  tail uses, kept as one named parameter (:mod:`tether.fret.leakage`).
+  tail uses, kept as one named parameter ([`tether.fret.leakage`][]).
 * **Acceptance ceiling** ``GAMMA_CEILING`` (= 5, §11.2 row 818): a per-trace γ
   outside ``(0, GAMMA_CEILING]`` is non-physical (a negative or zero ratio, or an
   implausibly large one) and is dropped (Deep-LASI ``gamma > 0 && gamma <= γ_lim``).
@@ -64,7 +64,7 @@ Unlike leakage α (one per-condition factor applied to every molecule), γ is a
 molecule keeps its own γ; a molecule that fails the gates takes the dataset median
 (Deep-LASI ``isnan_corr(gamma(i), median(gamma))``, ``:144``). That per-molecule vs
 fallback split is what the later staleness scope keys on — a γ-median shift re-stales
-only the fallback molecules (PRD §5.1, §7.2). :func:`estimate_gamma` reports both the
+only the fallback molecules (PRD §5.1, §7.2). [`estimate_gamma`][] reports both the
 per-trace estimates and the dataset median so the store writer can apply that split.
 
 References
@@ -166,7 +166,7 @@ class GammaEstimate:
     n_traces
         How many traces were examined.
     per_trace
-        The per-trace :class:`TraceGamma` for every examined trace, in input order
+        The per-trace [`TraceGamma`][] for every examined trace, in input order
         (qualifying and rejected alike).
     """
 
@@ -235,7 +235,7 @@ def trace_gamma(
     acceptor_pb, donor_pb
         Per-channel first-bleach frames (0-based within these arrays;
         ``== donor.size`` when a channel does not bleach), e.g. from
-        :func:`tether.fret.photobleach.detect_photobleach`. γ needs the acceptor to
+        [`tether.fret.photobleach.detect_photobleach`][]. γ needs the acceptor to
         bleach **before** the donor.
     half_window
         Level tolerance half-window each side of the step (PRD §11.2, default 3).
@@ -313,13 +313,13 @@ def estimate_gamma(
 ) -> GammaEstimate:
     """Aggregate a dataset's γ from every trace's acceptor-bleach step.
 
-    Computes a per-trace :func:`trace_gamma` for each molecule, then the dataset
+    Computes a per-trace [`trace_gamma`][] for each molecule, then the dataset
     factor as the **median** of the qualifying values. The median is withheld
     (``gamma is None``) below ``min_qualifying_traces`` — a population γ is only as
     trustworthy as the number of clean acceptor-bleach steps behind it (PRD §7.2),
     and a fabricated one would silently bias every corrected E. Qualifying molecules
     keep their own γ; the rest take this median as a fallback (see
-    :meth:`GammaEstimate.effective_gamma`).
+    [`GammaEstimate.effective_gamma`][]).
 
     All five per-trace sequences must be the same length (one entry per molecule).
     """
