@@ -95,6 +95,10 @@ It can also say what the page does not assume. A page in the "Project & maintain
 names the access to `bioedca/tether` that the reader needs. The reader statement of
 [Install Tether](../install.md) is the model.
 
+Link to a Tether source file on `main`, as `https://github.com/bioedca/tether/blob/main/...`.
+Do not link to a commit or to a different branch. A release build points these links at the
+release tag.
+
 ## Rule 9. Punctuation
 
 - Do not use a semicolon to join two statements. Write two sentences.

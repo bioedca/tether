@@ -56,6 +56,12 @@ extra_css:
   - assets/brand/brand.css
   - stylesheets/site.css
 
+# Build hooks, one module for the whole site. Today it points every `blob/main` and `tree/main`
+# source link at the release tag when docs.yml builds a release (TETHER_DOCS_SOURCE_TAG, #600);
+# a local build, the docs-build gate and the `dev` deployment keep the links on main.
+hooks:
+  - scripts/mkdocs_hooks.py
+
 nav:
   # Two top-level groups, decided on #181 (2026-07-27, confirmed 2026-07-31): what a lab
   # scientist needs, and what only the project and its maintainers act on. Every page under
