@@ -305,6 +305,40 @@ def test_the_subset_refusal_is_the_function_message(source, capsys) -> None:
     assert capsys.readouterr().err == f"tether export subset: {excinfo.value}\n"
 
 
+def test_an_export_may_not_replace_another_input_project(source, tmp_path, capsys) -> None:
+    """With ``--overwrite``, ``exp``'s subset must not replace ``exp-subset.tether`` given as
+    a second input: that would destroy the input and then export the replacement."""
+    path, _ = source
+    other = _second(tmp_path, name="exp-subset.tether")
+    folder = other.parent
+    before = (_digest(path), _digest(other))
+
+    argv = ["export", "subset", str(path), str(other), "-o", str(folder), "--overwrite"]
+    assert main(argv) == 1
+
+    assert (_digest(path), _digest(other)) == before
+    assert not (folder / "exp-subset-subset.tether").exists()
+    assert not (folder / ("exp-subset.tether" + _SIDECAR)).exists()
+    assert f"is the input project {other}; refusing to overwrite it" in capsys.readouterr().err
+
+
+def test_a_hard_linked_alias_of_another_input_is_refused(source, tmp_path) -> None:
+    path, _ = source
+    other = _second(tmp_path)
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    try:
+        os.link(other, folder / "exp.csv")
+    except OSError:  # pragma: no cover - a file system without hard links
+        pytest.skip("hard links are not available here")
+    before = _digest(other)
+
+    argv = ["export", "table", str(path), str(other), "-o", str(folder), "--overwrite"]
+    assert main(argv) == 1
+    assert _digest(other) == before
+    assert not (folder / "other.csv").exists()
+
+
 def test_a_hard_linked_alias_of_the_source_is_refused(source, tmp_path) -> None:
     path, _ = source
     alias = tmp_path / "alias.csv"

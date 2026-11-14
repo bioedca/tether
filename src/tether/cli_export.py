@@ -184,16 +184,19 @@ def _file_name(form: str, project: Path) -> str:
     return f"{project.stem}-subset.tether"
 
 
-def _targets(form: str, projects: list[Path], output: Path) -> list[tuple[Path, Path]]:
-    """Pair each source project with its output path.
+def _targets(
+    form: str, projects: list[Path], output: Path
+) -> tuple[list[tuple[Path, Path]], Path | None]:
+    """Pair each source project with its output path; also return the folder to make.
 
     ``traces`` always writes into a folder. ``table`` and ``subset`` write the file
     ``output`` names, unless ``output`` is an existing folder or several projects are
-    given; then each export goes into that folder, named after its project.
+    given; then each export goes into that folder, named after its project. The folder
+    is returned rather than made, so that nothing is created before every check passed.
     """
     folder = form == "traces" or len(projects) > 1 or output.is_dir()
     if not folder:
-        return [(projects[0], output)]
+        return [(projects[0], output)], None
     if output.exists() and not output.is_dir():
         why = "for traces" if form == "traces" else "with several projects"
         raise _UsageError(f"-o {output} is a file; {why}, -o names a folder")
@@ -214,8 +217,7 @@ def _targets(form: str, projects: list[Path], output: Path) -> list[tuple[Path, 
             )
         seen[name.casefold()] = project
         pairs.append((project, output / name))
-    output.mkdir(parents=True, exist_ok=True)
-    return pairs
+    return pairs, output
 
 
 def _is_source(source: Path, out: Path) -> bool:
@@ -223,6 +225,30 @@ def _is_source(source: Path, out: Path) -> bool:
     if out.resolve() == source.resolve():
         return True
     return out.exists() and source.exists() and out.samefile(source)
+
+
+def _input_overwritten(form: str, targets: list[tuple[Path, Path]]) -> str | None:
+    """The refusal message if any export or its provenance file is an input project.
+
+    Every destination is checked against **every** input, not only its own source,
+    before the first export starts: with ``--overwrite``, the subset of ``movie.tether``
+    could otherwise replace ``movie-subset.tether`` given as a second input, which would
+    destroy that input and then export the replacement.
+    """
+    inputs = [source for source, _ in targets]
+    for source, out in targets:
+        for path in (out, out.with_name(out.name + _SIDECAR_SUFFIX)):
+            for project in inputs:
+                if not _is_source(project, path):
+                    continue
+                if project == source and path == out:
+                    # The subset function's own refusal, worded the same way for the two
+                    # table exports, which write straight to their path and do not check.
+                    return f"{form} out_path {out} is the source project; refusing to overwrite"
+                return (
+                    f"{form} output {path} is the input project {project}; refusing to overwrite it"
+                )
+    return None
 
 
 def _export_one(form: str, source: Path, out: Path, args: argparse.Namespace):
@@ -236,10 +262,6 @@ def _export_one(form: str, source: Path, out: Path, args: argparse.Namespace):
 
     # A clear error for a missing or non-project file, before anything is written.
     assert_is_compatible_project(source)
-    if _is_source(source, out):
-        # The subset function's own refusal, worded the same way for the two table
-        # exports, which write straight to their path and do not check it themselves.
-        raise ValueError(f"{form} out_path {out} is the source project; refusing to overwrite")
     if not args.overwrite:
         for path in (out, out.with_name(out.name + _SIDECAR_SUFFIX)):
             if path.exists():
@@ -280,13 +302,20 @@ def run_export(args: argparse.Namespace) -> int:
     prog = f"tether export {form}"
     projects = [Path(p) for p in args.projects]
     try:
-        targets = _targets(form, projects, Path(args.output))
+        targets, folder = _targets(form, projects, Path(args.output))
     except _UsageError as exc:
         print(f"{prog}: {exc}", file=sys.stderr)
         return 2
-    except OSError as exc:  # the output folder could not be made
-        print(f"{prog}: {exc}", file=sys.stderr)
+    refusal = _input_overwritten(form, targets)
+    if refusal is not None:
+        print(f"{prog}: {refusal}", file=sys.stderr)
         return 1
+    if folder is not None:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"{prog}: {exc}", file=sys.stderr)
+            return 1
 
     failed = 0
     for source, out in targets:

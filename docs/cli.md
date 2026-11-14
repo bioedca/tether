@@ -314,9 +314,13 @@ These rules apply to all three forms:
   settings ([Provenance sidecar](reference/exports.md#provenance-sidecar)).
 - **An existing file is kept.** If the export or its provenance file exists, the export
   stops with exit code `1` and tells you to give `--overwrite`.
-- **The source project is never the destination.** An output path that is the project
+- **An input project is never a destination.** An output path that is the project
   itself, or a hard link to it, stops the export with exit code `1`:
-  `subset out_path movie.tether is the source project; refusing to overwrite`.
+  `subset out_path movie.tether is the source project; refusing to overwrite`. With several
+  projects, every export and provenance file is checked against every project you gave, before
+  the first export starts; a match stops the command with exit code `1` and nothing written.
+  So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
+  second project with the subset of the first, even with `--overwrite`.
 - **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
   makes the folder if necessary and names each export after its project: `<project>.csv`,
   `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
@@ -423,7 +427,7 @@ tether export subset movie.tether -o accepted.tether
 | Code | `tether extract` | `tether batch` | `tether export` |
 |---|---|---|---|
 | `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every export was written |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, the output is the source project, or the function refused the selection; or the output folder could not be made |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project, or the function refused the selection; or the output folder could not be made |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
