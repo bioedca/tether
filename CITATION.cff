@@ -264,6 +264,152 @@ references:
     start: "e60404"
     doi: "10.7554/eLife.60404"
     notes: "DeepFRET — deep trace classifier lineage. Author list abbreviated (et al.), as in the PRD."
+  # The seven entries below are the remaining method sources docs/citing.md asks a citing user
+  # to cite (issue #534). Each one lists its full author list. On 2026-11-14 each was checked
+  # against the metadata registered for its DOI (read through scite.ai) and, for the five that
+  # PubMed indexes, against its PubMed record; none carries a retraction or correction notice.
+  - type: article
+    title: >-
+      Accurate FRET measurements within single diffusing biomolecules using
+      alternating-laser excitation
+    authors:
+      - family-names: "Lee"
+        given-names: "Nam Ki"
+      - family-names: "Kapanidis"
+        given-names: "Achillefs N."
+      - family-names: "Wang"
+        given-names: "You"
+      - family-names: "Michalet"
+        given-names: "Xavier"
+      - family-names: "Mukhopadhyay"
+        given-names: "Jayanta"
+      - family-names: "Ebright"
+        given-names: "Richard H."
+      - family-names: "Weiss"
+        given-names: "Shimon"
+    journal: "Biophysical Journal"
+    volume: 88
+    issue: 4
+    year: 2005
+    start: 2939
+    end: 2953
+    doi: "10.1529/biophysj.104.054114"
+    notes: "Leakage (alpha) and gamma corrections, and the alpha/delta/gamma convention."
+  - type: article
+    title: "A practical guide to single-molecule FRET"
+    authors:
+      - family-names: "Roy"
+        given-names: "Rahul"
+      - family-names: "Hohng"
+        given-names: "Sungchul"
+      - family-names: "Ha"
+        given-names: "Taekjip"
+    journal: "Nature Methods"
+    volume: 5
+    issue: 6
+    year: 2008
+    start: 507
+    end: 516
+    doi: "10.1038/nmeth.1208"
+    notes: "Leakage (alpha) and gamma corrections on immobilized single molecules."
+  - type: article
+    title: "Extraction of spots in biological images using multiscale products"
+    authors:
+      - family-names: "Olivo-Marin"
+        given-names: "Jean-Christophe"
+    journal: "Pattern Recognition"
+    volume: 35
+    issue: 9
+    year: 2002
+    start: 1989
+    end: 1996
+    doi: "10.1016/S0031-3203(01)00127-3"
+    notes: "A trous multiscale-product wavelet spot detector (detection_mode wavelet, the default)."
+  - type: article
+    title: "Wavelet analysis for single molecule localization microscopy"
+    authors:
+      - family-names: "Izeddin"
+        given-names: "I."
+      - family-names: "Boulanger"
+        given-names: "J."
+      - family-names: "Racine"
+        given-names: "V."
+      - family-names: "Specht"
+        given-names: "C. G."
+      - family-names: "Kechkar"
+        given-names: "A."
+      - family-names: "Nair"
+        given-names: "D."
+      - family-names: "Triller"
+        given-names: "A."
+      - family-names: "Choquet"
+        given-names: "D."
+      - family-names: "Dahan"
+        given-names: "M."
+      - family-names: "Sibarita"
+        given-names: "J. B."
+    journal: "Optics Express"
+    volume: 20
+    issue: 3
+    year: 2012
+    start: 2081
+    end: 2095
+    doi: "10.1364/OE.20.002081"
+    notes: "Wavelet segmentation and centroid localization (detection_mode wavelet)."
+  - type: article
+    title: "Methods of digital video microscopy for colloidal studies"
+    authors:
+      - family-names: "Crocker"
+        given-names: "John C."
+      - family-names: "Grier"
+        given-names: "David G."
+    journal: "Journal of Colloid and Interface Science"
+    volume: 179
+    issue: 1
+    year: 1996
+    start: 298
+    end: 310
+    doi: "10.1006/jcis.1996.0217"
+    notes: "Crocker-Grier band-pass filter (detection_mode intensity and bandpass)."
+  - type: article
+    title: >-
+      Automatic classification and segmentation of single-molecule fluorescence
+      time traces with deep learning
+    authors:
+      - family-names: "Li"
+        given-names: "Jieming"
+      - family-names: "Zhang"
+        given-names: "Leyou"
+      - family-names: "Johnson-Buck"
+        given-names: "Alexander"
+      - family-names: "Walter"
+        given-names: "Nils G."
+    journal: "Nature Communications"
+    volume: 11
+    issue: 1
+    year: 2020
+    start: 5833
+    doi: "10.1038/s41467-020-19673-1"
+    notes: "AutoSiM - CNN trace selection and transfer learning behind the deep trace classifier."
+  - type: article
+    title: >-
+      Pretrained deep neural network Kin-SiM for single-molecule FRET trace
+      idealization
+    authors:
+      - family-names: "Zhang"
+        given-names: "Leyou"
+      - family-names: "Li"
+        given-names: "Jieming"
+      - family-names: "Walter"
+        given-names: "Nils G."
+    journal: "The Journal of Physical Chemistry B"
+    volume: 129
+    issue: 4
+    year: 2025
+    start: 1167
+    end: 1175
+    doi: "10.1021/acs.jpcb.4c05276"
+    notes: "Kin-SiM - LSTM trace idealization and pretrain-then-apply behind the deep trace classifier."
   # The kinSoftChallenge pair below is copied from NOTICE, which already attributes the
   # bundled CC-BY-4.0 test fixture; listing it here keeps NOTICE and this file in sync.
   - type: article
