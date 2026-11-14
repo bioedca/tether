@@ -199,7 +199,7 @@ fit over a new selection; re-fitting a stale model keeps its original molecules
 
 `tether.project.export` writes a molecule table, a Deep-LASI trace matrix, or a smaller
 self-contained `.tether`, and `tether.analysis.plot_export` writes figures. Each one carries a provenance file
-beside it ([provenance sidecar](reference/exports.md#provenance-sidecar)).
+beside it ([provenance file](reference/exports.md#provenance-file)).
 
 - **Writes:** new files where you direct them; the source project is never modified.
 - **Read more:** [Exports](reference/exports.md)
@@ -300,12 +300,12 @@ Photobleach detection is the exception: it records the bleach frames and window 
 not the detector settings it used
 ([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py)). The two table exports carry only part
 of it. The Deep-LASI `.txt` trace matrix holds intensities alone; the molecule-table CSV adds
-each molecule's window, α, γ and correction method. The provenance sidecar beside each export
+each molecule's window, α, γ and correction method. The provenance file beside each export
 records the export's own parameters, the Tether version that wrote it and the project it came
 from, but not the parameters of the passes that produced the factors, so only a `.tether`
 file, the project or a subset exported from it (which copies `/settings`), answers all of
 those questions
-([provenance sidecar](reference/exports.md#provenance-sidecar)).
+([provenance file](reference/exports.md#provenance-file)).
 
 Idealization is where this pays off most. By default the model is fitted on the
 background-subtracted donor and acceptor intensities, with no α or γ applied; a fit can be
@@ -324,5 +324,5 @@ only the corrected molecules that took that median
 [staleness](glossary.md#staleness-stale-fresh-live)). That is what lets you say that a dwell
 time or a transition rate came from exactly the trace, window and correction state
 recorded with it, and not from an older version of them. When the result leaves Tether, the
-[provenance sidecar](reference/exports.md#provenance-sidecar) beside each export names the
+[provenance file](reference/exports.md#provenance-file) beside each export names the
 project it came from, which is where the rest of that record stays.

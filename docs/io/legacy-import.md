@@ -32,7 +32,7 @@ This page is the **input** half of the story. Its counterpart,
 [Exports — what Tether writes out](../reference/exports.md), documents everything Tether
 writes *back* out: the molecule-table CSV column-by-column, the Deep-LASI `…-donc-accc-w.txt`
 matrix on the write side, the subset `.tether`, the plot exports, and the provenance
-sidecar every one of them carries.
+file every one of them carries.
 
 ## Coordinate-availability matrix
 

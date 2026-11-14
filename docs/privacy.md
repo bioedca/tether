@@ -30,12 +30,12 @@ storage, and temporary idealization files are described below.
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project store records the application version, your analysis
   parameters, and your operating-system username (as the curator, or "labeler", of your
-  annotations). A separate sidecar `.lock` file records your computer's hostname, username
+  annotations). A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell
   who currently holds the write-lock. This information is stored only in files at the
   location you choose and is **never transmitted by Tether** to the project or to any third
   party. If you share a `.tether` file with a collaborator it carries your OS username and
-  the source movie paths you selected (the `.lock` sidecar is a separate file and is not
+  the source movie paths you selected (the lock file is a separate file and is not
   embedded in the project) — so treat shared project files as you would any working
   document.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,

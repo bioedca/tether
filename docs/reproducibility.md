@@ -9,7 +9,7 @@ it.
 Tether's design rule is that every datum carries its origin
 ([ADR-0001](adr/0001-provenance-first-data-model.md)). In practice that means three things,
 covered in turn below: a version stamp and the stage's settings on extraction, the leakage,
-γ and correction passes and each idealization inside the project, the same stamp in a sidecar file
+γ and correction passes and each idealization inside the project, the same stamp in a provenance file
 beside every publication export, and committed dependency locks that pin the environment the
 version ran in. The record is not complete: some steps and some settings are never stamped,
 and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
@@ -144,7 +144,7 @@ Some steps leave no version or parameter stamp in the project, and one leaves on
   records no version.
 - Ranking and classification runs. A saved classical ranker records the version it was
   trained under (`tether_version` in its model manifest). The deep classifier records none.
-- The SMD file handed off to standalone tMAVEN has no sidecar. A fit run there is stamped
+- The SMD file handed off to standalone tMAVEN has no provenance file. A fit run there is stamped
   only with the Tether version that imported it, so report the tMAVEN version you ran.
 - Extraction is stamped once, for the first movie (see `/settings/extraction` above).
   Tether records no per-movie version, so the release that extracted a later movie is not
@@ -161,12 +161,12 @@ belongs in your own notes.
 
 ### Every export
 
-Each publication export writes a sidecar beside its output with the same stamp
+Each publication export writes a provenance file beside its output with the same stamp
 (`write_provenance_sidecar`, `src/tether/project/export.py`). The name is the full output
 filename with `.provenance.json` appended, so the original extension survives:
 `molecules.csv.provenance.json`, `traces.txt.provenance.json`,
 `subset.tether.provenance.json`. A figure exported with `export_figure`
-(`src/tether/analysis/plot_export.py`) is named by its stem, so its sidecar is
+(`src/tether/analysis/plot_export.py`) is named by its stem, so its provenance file is
 `<stem>.provenance.json`.
 
 | Key | Meaning |
@@ -179,10 +179,10 @@ filename with `.provenance.json` appended, so the original extension survives:
 
 Figures are stamped twice more: the version is printed in the figure footer and embedded in
 the PDF, SVG and PNG metadata. The printed footer is there only with `export_figure`'s
-default `stamp=True`; a caller that passes `stamp=False` gets no footer, while the sidecar
+default `stamp=True`; a caller that passes `stamp=False` gets no footer, while the provenance file
 and the embedded metadata are still written. A figure re-rendered and exported again at the same pinned
 time gives byte-identical files in all three formats. Each export's parameters are listed in
-the [exports reference](reference/exports.md#provenance-sidecar).
+the [exports reference](reference/exports.md#provenance-file).
 
 ## How to read it back
 
@@ -318,7 +318,7 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   type = vbconhmm
 ```
 
-An export's sidecar is plain JSON. This prints the stamp and then each parameter:
+An export's provenance file is plain JSON. This prints the stamp and then each parameter:
 
 ```python
 import json

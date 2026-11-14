@@ -673,14 +673,14 @@ with a `failed` in the same movie and the run exits `1` anyway.
 
 ### write lock / stale lock
 
-Single-writer ownership is held by a `<project>.tether.lock` JSON sidecar carrying
+Single-writer ownership is held by a `<project>.tether.lock` lock file, in JSON, carrying
 `host / user / pid / timestamp` plus a per-acquisition nonce (`tether.project.lock`).
 Ownership is the full `(host, user, pid)` triple — `user` is included deliberately so a
 recycled PID under a different login is never silently granted write access.
 
 Liveness is judged by a **wall-clock staleness timeout of ≈30 min**, not by probing the PID
 (a remote PID cannot be probed and cloud sync is eventually consistent). A stale lock is
-reclaimable only by an **explicit steal**, never automatically. The `.lock` sidecar is not
+reclaimable only by an **explicit steal**, never automatically. The lock file is not
 part of the schema.
 
 ### schema_version

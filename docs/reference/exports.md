@@ -46,7 +46,7 @@ Four export entry points are public. The first three live in `tether.project.exp
 
 The tMAVEN hand-off (`tether.project.handoff.hand_off_to_tmaven`, reachable from the GUI)
 also writes a file — an SMD-HDF5 — but it is an *interchange* leg with a return path, not
-an export, and it does **not** write a provenance sidecar. It is documented on
+an export, and it does **not** write a provenance file. It is documented on
 [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md).
 
 ## What all three store exports share
@@ -150,7 +150,7 @@ disk's pixel count `n_psf = int(disk.sum())`.
 > `integrate_traces(disk_radius=…)`). The effective geometry is stamped into
 > `/settings/extraction` (`window`, `disk_radius`, `ring_inner`, `ring_outer`,
 > `bg_window`, `n_psf` — `tether.imaging.extract._write_settings_once`), which travels in
-> a subset `.tether` but is carried by **neither** the `.txt` nor its sidecar.
+> a subset `.tether` but is carried by **neither** the `.txt` nor its provenance file.
 
 > **An imported store's `/settings/extraction` is provenance, not a measurement.**
 > `reconstruct_project` hands `write_extraction` the standard constants
@@ -305,10 +305,10 @@ A real first line, from a three-molecule store:
 length are appended (ADR-0016), so `export_deeplasi_txt` trims to the selection's shared
 `frame_range`: the written matrix is `donor_all[rows][:, lo:hi]`. Row 0 of the file is
 therefore absolute frame **`lo`**, which need not be 0, and `lo` is recorded **only** in
-the provenance sidecar (`frame_range`). A selection spanning more than one `frame_range`
+the provenance file (`frame_range`). A selection spanning more than one `frame_range`
 has no honest common axis and raises `ValueError` rather than padding or truncating.
 
-Sidecar `parameters` for this export: `intensity_quantity`, `include_rejected`,
+Provenance-file `parameters` for this export: `intensity_quantity`, `include_rejected`,
 `n_molecules`, `n_frames` (`= hi - lo`), `frame_range` (`[lo, hi]`, half-open),
 `molecule_keys` (`null` or a list).
 
@@ -352,15 +352,15 @@ row counts consistent, both patch channels present) **before** anything is writt
 | `/movies` **rows** | The subset is definitionally movie-less. The group exists (the skeleton is frozen) but has **zero rows**, so nothing the row itself held comes with it: `uri`, `sha256`, `file_size`, `mtime`, `n_frames` / `height` / `width`, `pixel_dtype`, `frame_time`, `head_tail_hash`, the per-channel crop/rotation/flip, and the row's `calibration_id` cell (`tether.io.schema.MOVIES_DTYPE`). **The calibration itself does travel** — `/calibration` is in `_SUBSET_VERBATIM_GROUPS` and is copied whole, so `/calibration/<calibration_id>` keeps the id (it *is* the group name), the two polynomial transforms and the registration geometry attrs; only the movie row is gone |
 | `/features` | Present but empty — per-molecule ML features are outside the subset embed set (`_SUBSET_VERBATIM_GROUPS` deliberately omits it) |
 | Raw **and** background traces, when `include_raw=False` | They ride as a set of four. Because `corrected = raw − background` exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too |
-| Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the sidecar's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
+| Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the provenance file's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
-**Embedded provenance.** Besides the sidecar, the subset stamps four root attributes
+**Embedded provenance.** Besides the provenance file, the subset stamps four root attributes
 (readable with `h5py`):
 
 | Attribute | Value |
 |---|---|
 | `tether_subset_of` | The **source filename only** (`path.name`), never a full path |
-| `tether_subset_created_utc` | Offset-aware ISO-8601 UTC — byte-identical to the sidecar's `created_utc` |
+| `tether_subset_created_utc` | Offset-aware ISO-8601 UTC — byte-identical to the provenance file's `created_utc` |
 | `tether_subset_include_raw` | `0` or `1` — an integer, not a bool |
 | `tether_subset_n_molecules` | The exported count |
 
@@ -372,7 +372,7 @@ the source's.
 when the output resolves to (or is a hard link of) the source, when the selection is
 empty, or when the preflight fails.
 
-Sidecar `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
+Provenance-file `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
 `n_idealization_models`, `skipped_idealization_models`, `n_label_rows`.
 
@@ -414,10 +414,10 @@ print(result.paths)              # {'pdf': ..., 'svg': ..., 'png': ...}
 
 A plot export is stamped **three** ways:
 
-1. **The sidecar** `<stem>.provenance.json`, written by the same
+1. **The provenance file** `<stem>.provenance.json`, written by the same
    `write_provenance_sidecar`. `export_figure` merges three keys of its own into your
    `parameters`: `formats` (canonical order), `dpi`, and `outputs` (`{format: basename}` —
-   basenames, not paths). The sidecar is written even when `stamp=False`.
+   basenames, not paths). The provenance file is written even when `stamp=False`.
 2. **A visible on-figure footer**, when `stamp=True` (the default): two 6-point,
    55 %-opacity texts at the bottom of the figure — `Tether <version> · <kind>` on the
    left and the ISO timestamp on the right.
@@ -459,7 +459,9 @@ un-clipped apparent-E outliers cannot inflate the bandwidth. The excluded count 
 `n_out_of_range`; the on-figure annotation reports only `n_samples` and `n_molecules`,
 so read it off the dataclass.
 
-## Provenance sidecar
+<a id="provenance-sidecar"></a>
+
+## Provenance file
 
 Every one of the four exports writes `<file>.provenance.json` beside its output, via
 `tether.project.export.write_provenance_sidecar`. The name is formed by *appending* to the
@@ -473,7 +475,7 @@ why the keys read alphabetically:
 | Field | Content |
 |---|---|
 | `app_version` | The git-derived `tether.__version__`, falling back to `"0.0.0+unknown"`. A provenance stamp never raises |
-| `created_utc` | Offset-aware ISO-8601 UTC with microseconds (`datetime.now(UTC).isoformat()`), e.g. `2026-07-20T22:14:26.314669+00:00`. A caller may pin it, which is how a subset's in-file attribute and its sidecar agree exactly |
+| `created_utc` | Offset-aware ISO-8601 UTC with microseconds (`datetime.now(UTC).isoformat()`), e.g. `2026-07-20T22:14:26.314669+00:00`. A caller may pin it, which is how a subset's in-file attribute and its provenance file agree exactly |
 | `parameters` | The export's own parameters — different per export; the per-export lists are given above |
 | `source_project` | For the three store exports, the source `.tether` **basename only** — they call `write_provenance_sidecar(source=path.name)`. For `export_figure` it is **caller-supplied and unnormalized**: the `source=` argument is forwarded verbatim, and `write_provenance_sidecar` does no `.name` reduction of its own, so an absolute path you pass is an absolute path in the JSON. Pass a basename yourself |
 | `tether_export` | The export-kind discriminator |
@@ -482,7 +484,7 @@ why the keys read alphabetically:
 `"deeplasi-txt"`, `"molecule-table-csv"`, `"subset-tether"`. For plots it is **caller-supplied
 and unvalidated**: nothing in `src/` defines or checks a plot kind vocabulary.
 
-A real sidecar, verbatim:
+A real provenance file, verbatim:
 
 ```json
 {
@@ -498,16 +500,16 @@ A real sidecar, verbatim:
 }
 ```
 
-The sidecar exists because flat text has no metadata slot and the Deep-LASI `.txt` must
+The provenance file exists because flat text has no metadata slot and the Deep-LASI `.txt` must
 stay header-free — so the stamp travels beside the file rather than inside it (PRD §8
 NFR-REPRO; ADR-0001). Keep it with the data file when you move or share the export. For
 the CSV and the `.txt` it is the **only** record of which build, which project and which
 parameters produced those numbers. A subset `.tether` and a plot export also carry a stamp
 *inside* the file — the subset's four `tether_subset_*` root attributes plus
 `create_project`'s `app_version`, and a plot's on-figure footer plus its embedded document
-metadata (both above) — but only the sidecar carries the full parameter set.
+metadata (both above) — but only the provenance file carries the full parameter set.
 
-To read a sidecar back next to the stamps inside the project, and to turn both into a
+To read a provenance file back next to the stamps inside the project, and to turn both into a
 Methods paragraph, see [Reproducibility and reporting](../reproducibility.md).
 
 ## Reading the exports elsewhere

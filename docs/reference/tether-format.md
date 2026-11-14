@@ -9,7 +9,7 @@ Tether *writes out* (SMD-HDF5 hand-off, CSV/Parquet tables, plot exports) is a
 separate surface, described in [Exports (files, columns, units)](exports.md).
 
 A `.tether` file is an ordinary HDF5 file. There is no proprietary container, no
-sidecar index, and no compression scheme beyond stock gzip on the bulk arrays.
+separate index file, and no compression scheme beyond stock gzip on the bulk arrays.
 
 The format has **two layers**, and they carry different guarantees:
 
@@ -124,7 +124,7 @@ Two properties worth knowing before you build on the format:
   here, plus the coordinates, patches, corrections and provenance SMD has no slot
   for. Round-trip fidelity is therefore a property of the data model, not of a
   converter.
-- The `<file>.lock` single-writer marker is a **sidecar file**, not part of the
+- The `<file>.lock` single-writer marker is a separate **lock file**, not part of the
   in-HDF5 schema (`src/tether/io/schema.py` module docstring); `create_project`
   never writes it.
 
