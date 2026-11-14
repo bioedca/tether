@@ -35,8 +35,9 @@ How does a small documentation change finish its review without a turn in the Co
   a pull request cannot pick its own reviewer by argument.
 - A pull request that changes the review rules must not route itself around the reviewer the rules
   name. ADR-0064 calls those paths the agent layer.
-- `AGENTS.md` has a byte budget (`tests/test_agent_contract_is_runnable.py`), so the rule there is
-  short and the definition is repeated in full here.
+- `AGENTS.md` has a byte budget (`tests/test_agent_contract_is_runnable.py`), measured on a
+  Windows checkout with CRLF line endings, and it had about 250 bytes left. So `AGENTS.md` carries a
+  two-line rule that names this record, and the definition and the conditions live here.
 
 ## Considered options
 
@@ -83,8 +84,8 @@ How does a small documentation change finish its review without a turn in the Co
    takes the CodeRabbit queue.
 6. **Greptile's clean result is a summary comment, not a review object.** On #996 (2026-11-14) a
    clean review left a comment whose last line links `Last reviewed commit` to the full 40-hex
-   commit, and no entry under `pulls/996/reviews`. `AGENTS.md` now names it beside Codex's clean
-   comment.
+   commit, and no entry under `pulls/996/reviews`. That link is the head the review read; the
+   pull-request template names this shape on its Greptile line.
 
 ### Changes to the balance script
 
@@ -129,5 +130,5 @@ review of #996, which the old script counted as zero.
   its conditions.
 - [ADR-0069](0069-one-metered-review-then-the-codex-close.md) — one metered review per pull request,
   the Greptile stand-in and Tether's 15-credit share.
-- The rule itself: `AGENTS.md` §Review. Working copies: the pull-request template, the PRD §12,
+- The rule itself: `AGENTS.md` §Review, which points here for the definition. Working copies: the pull-request template, the PRD §12,
   `.greptile/README.md`, and the worker skill.
