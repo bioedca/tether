@@ -1,3 +1,7 @@
+---
+description: "The HDF5 layout of a .tether project store, so that you can read it with h5py, another language or a script that must work across releases."
+---
+
 # The `.tether` project store
 
 **Who this page is for.** Anyone who has been handed a `.tether` file and wants to read it
