@@ -203,7 +203,9 @@ def _model(means, idealized, elbo) -> StateModel:
     )
 
 
-#: The reference: two molecules, four frames; molecule 0 uses both states, molecule 1 one.
+#: The model that ``_RUN_METRICS`` are measured against: two molecules, four frames; molecule 0
+#: uses both states, molecule 1 one. Run 0 is this model, so it is also the anchor that
+#: ``measure_spread`` takes when no reference is given.
 _REFERENCE = _model([0.1, 0.9], [[0.1, 0.1, 0.9, 0.9], [0.1, 0.1, 0.1, 0.1]], 100.0)
 
 #: Three fits, each compared with ``_REFERENCE``. Hand-computed metrics (count, |dE|, Viterbi,
@@ -214,7 +216,7 @@ _REFERENCE = _model([0.1, 0.9], [[0.1, 0.1, 0.9, 0.9], [0.1, 0.1, 0.1, 0.1]], 10
 #:                                                                            0.5, 0.02, 0.875, 0.01
 #:   run 2 - two frames of molecule 0 swap state, high level 0.85, ELBO 102:  1.0, 0.05, 0.75,  0.02
 _RUNS = [
-    _model([0.1, 0.9], [[0.1, 0.1, 0.9, 0.9], [0.1, 0.1, 0.1, 0.1]], 100.0),
+    _REFERENCE,
     _model([0.12, 0.9], [[0.12, 0.12, 0.9, 0.9], [0.12, 0.12, 0.12, 0.9]], 99.0),
     _model([0.1, 0.85], [[0.1, 0.85, 0.1, 0.85], [0.1, 0.1, 0.1, 0.1]], 102.0),
 ]
@@ -223,6 +225,25 @@ _RUN_METRICS = [
     (0.5, 0.02, 0.875, 0.01),
     (1.0, 0.05, 0.75, 0.02),
 ]
+
+#: The reference GIVEN to ``measure_spread``. It differs from run 0 in its high level (0.8, not
+#: 0.9) and in its ELBO (80, not 100); its canonical state path is the same as run 0's. Thus an
+#: implementation that takes the first fit as the anchor although a reference is given, and still
+#: makes ``n_runs`` comparisons, gets (1.0, 0.0, 1.0, 0.0) for run 0 and fails (#835).
+_GIVEN_REFERENCE = _model([0.1, 0.8], [[0.1, 0.1, 0.8, 0.8], [0.1, 0.1, 0.1, 0.1]], 80.0)
+
+#: Hand-computed metrics of each fit against ``_GIVEN_REFERENCE`` (count, |dE|, Viterbi,
+#: relative ELBO). The paths are those of ``_REFERENCE``, so count and Viterbi are as in
+#: ``_RUN_METRICS``; |dE| is the larger of the low and high deltas; the ELBO is over |80|:
+#:   run 0 - |0.9 - 0.8|, |100 - 80| / 80:                      1.0, 0.1,  1.0,   0.25
+#:   run 1 - max(|0.12 - 0.1|, |0.9 - 0.8|), |99 - 80| / 80:     0.5, 0.1,  0.875, 0.2375
+#:   run 2 - |0.85 - 0.8|, |102 - 80| / 80:                     1.0, 0.05, 0.75,  0.275
+_GIVEN_METRICS = [
+    (1.0, 0.1, 1.0, 0.25),
+    (0.5, 0.1, 0.875, 0.2375),
+    (1.0, 0.05, 0.75, 0.275),
+]
+
 _METRIC_NAMES = (
     "state_count_fraction",
     "state_mean_abs_delta",
@@ -251,13 +272,13 @@ def fake_fits(monkeypatch):
     return calls
 
 
-def _write_reference(path: Path) -> Path:
+def _write_reference(path: Path, model: StateModel) -> Path:
     with h5py.File(path, "w") as f:
         g = f.create_group("model")
         g.attrs["type"] = "vb Consensus HMM"
-        g.create_dataset("mean", data=_REFERENCE.means)
-        g.create_dataset("idealized", data=_REFERENCE.idealized)
-        g.create_dataset("likelihood", data=np.asarray([[_REFERENCE.elbo]]))
+        g.create_dataset("mean", data=model.means)
+        g.create_dataset("idealized", data=model.idealized)
+        g.create_dataset("likelihood", data=np.asarray([[model.elbo]]))
     return path
 
 
@@ -268,7 +289,14 @@ def _assert_metrics(metrics, expected) -> None:
 
 @pytest.mark.parametrize("given_as", ["model", "path"])
 def test_measure_spread_compares_every_run_with_the_given_reference(tmp_path, fake_fits, given_as):
-    reference = _REFERENCE if given_as == "model" else _write_reference(tmp_path / "ref.hdf5")
+    # The given reference is not the first fit, so each metric shows which one is the anchor.
+    assert _GIVEN_REFERENCE.elbo != _RUNS[0].elbo
+    assert not np.array_equal(_GIVEN_REFERENCE.means, _RUNS[0].means)
+    reference = (
+        _GIVEN_REFERENCE
+        if given_as == "model"
+        else _write_reference(tmp_path / "ref.hdf5", _GIVEN_REFERENCE)
+    )
     smd = tmp_path / "smd_x.hdf5"
     scratch = tmp_path / "runs"
 
@@ -284,19 +312,19 @@ def test_measure_spread_compares_every_run_with_the_given_reference(tmp_path, fa
         progress=False,
     )
 
-    # With a reference, every one of the n_runs fits is a comparison.
+    # With a reference, every one of the n_runs fits is a comparison, against that reference.
     assert len(per_run) == 3
-    for metrics, expected in zip(per_run, _RUN_METRICS, strict=True):
+    for metrics, expected in zip(per_run, _GIVEN_METRICS, strict=True):
         _assert_metrics(metrics, expected)
         assert (metrics.n_states_ref, metrics.n_states_test) == (2, 2)
 
     # The summary holds each run's value in order, and the worst of each metric.
     for k, name in enumerate(_METRIC_NAMES):
-        assert spread[name].values == pytest.approx([run[k] for run in _RUN_METRICS])
+        assert spread[name].values == pytest.approx([run[k] for run in _GIVEN_METRICS])
     assert spread["state_count_fraction"].worst == pytest.approx(0.5)
-    assert spread["state_mean_abs_delta"].worst == pytest.approx(0.05)
+    assert spread["state_mean_abs_delta"].worst == pytest.approx(0.1)
     assert spread["viterbi_agreement"].worst == pytest.approx(0.75)
-    assert spread["relative_elbo"].worst == pytest.approx(0.02)
+    assert spread["relative_elbo"].worst == pytest.approx(0.275)
 
     # Each fit is driven with the caller's settings into its own model file in the scratch dir.
     assert scratch.is_dir()
