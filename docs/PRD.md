@@ -487,13 +487,16 @@ Corrections **shall** not be required to *view* traces: apparent-E analysis and 
 photobleaching; only the α/γ corrections require bleach steps.
 
 **Total-correction-failure path.** The min-qualifying-traces gate (§11.2) is applied **before** the population
-median, so an empty qualifying set can never emit a NaN factor or NaN corrected-E. When **no donor-only sample is
+median, so an empty qualifying set can never emit a NaN factor. A missing factor never becomes a NaN in E: a missing or
+non-finite α or γ routes the molecule to apparent E. When **no donor-only sample is
 loaded and fewer than `min_qualifying_traces` molecules yield a valid factor** — the *expected* case for the lab's
 typical pure-FRET acquisitions lacking a clean acceptor-bleach step — Tether **shall** retain/display **apparent
 E** (α = δ = 0, γ = 1), stamp provenance `method = "apparent-E (corrections unavailable)"`, show a **non-blocking
 banner**, and offer two recovery actions: load a donor-only sample, or enter manual per-condition α/γ (which stamps
-`method = "manual"`). If the user declines, the project stays in apparent-E. A NaN factor or NaN corrected-E is
-never written (§9 M3, §10).
+`method = "manual"`). If the user declines, the project stays in apparent-E. A NaN factor is never written (§9 M3,
+§10). This guarantee is about the factors only. E can still be NaN on a frame whose denominator is zero, because the
+ratio is not defined there: for apparent E that is a frame with zero total intensity, and for corrected E a frame where
+I_A,corr + γ·I_D,corr is zero.
 
 ### 7.3 FR-ROUNDTRIP — Provenance & round-trip browser (the MVP centerpiece)
 
@@ -859,9 +862,10 @@ These hold across every milestone and are never regressed. They are harvested fr
 1. **The schema is additive-only after M0.** `schema-guard` enforces it; a structural change needs an ADR and a
    version bump ([ADR-0005](adr/0005-m0-schema-freeze.md), §5).
 2. **`main` is always green and releasable.** Never advance or summarize over a red or pending check (§12.3).
-3. **Apparent E is never NaN.** A total correction failure falls to apparent E with a banner; the gate is applied
-   *before* the median, so no NaN factor is ever written (§7.2,
-   [ADR-0003](adr/0003-apparent-e-never-nan.md)).
+3. **A missing factor never makes E NaN.** A missing α or γ routes the molecule to apparent E, and a total correction
+   failure falls to apparent E with a banner; the gate is applied *before* the median, so no NaN factor is ever
+   written (§7.2, [ADR-0003](adr/0003-apparent-e-never-nan.md); the ADR's title refers to the factors). A frame
+   with zero total intensity is still NaN in apparent E, because the ratio is not defined there.
 4. **Provenance travels with every datum** — coordinates, corrections, app version, parameters. The trace↔movie
    round-trip is a data-model property, recovered by exact intensity matching on any tMAVEN return leg
    ([ADR-0001](adr/0001-provenance-first-data-model.md),
@@ -981,7 +985,7 @@ tolerance), is release-acceptance work owned by its GitHub milestone.
 | **(b)** Idealization parity vs tMAVEN | state count, state means, Viterbi path, ELBO | `sidecar` — required, but **path-filtered**: it fits only when a pull request touches an idealization path | the frozen artifact checked against its own recorded evidence | `tests/fixtures/smd_4mol.hdf5`; LFS `smd_281mol.hdf5` + `model_281mol.hdf5` | `schema/parity_tolerance.json` (`$.tolerance`; ebFRET `$.tolerance_by_method.ebhmm`, ADR-0043); per-trace vbFRET, the transition-matrix term and the default row's re-freeze on the pinned tMAVEN build are not yet evidenced (§9.6); the ebFRET gate fits two fixed seeds, so it gives one answer per commit ([#311](https://github.com/bioedca/tether/issues/311), ADR-0075) | gate |
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
 | **(d)** Ranker held-out cross-validation | prequential precision@k uplift over file order, median across videos | required matrix | yes (synthetic stores only) | synthetic and programmatic stores | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`; the real-video uplift and leave-one-video-out legs are not yet evidenced (§9.6) | gate on the protocol; the real-data legs are *not yet met* |
-| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E never NaN | required matrix | yes | synthetic known-α/known-γ and edge-case traces | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
+| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E (a missing factor never gives a NaN E; a zero-total-intensity frame is NaN) | required matrix | yes | synthetic known-α/known-γ and edge-case traces | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
 | **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); the schema-migration leg §8 and §5.4 name has no test (§9.6) | gate |
 | **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
 
@@ -1069,7 +1073,7 @@ this section.
 - **Correction factors on sparse bleaching.** Mitigation: trace-wise α/γ with a global-median fallback +
   confidence; a donor-only-sample fallback for α; manual override; do not require photobleaching to *view* traces.
   **Total failure** (no donor-only sample AND fewer than `min_qualifying_traces` valid factors — the *expected*
-  pure-FRET case) applies the gate *before* the median, so no NaN is ever emitted: the project falls to
+  pure-FRET case) applies the gate *before* the median, so no NaN factor is ever emitted: the project falls to
   **apparent-E with a banner + recovery actions** (load donor-only / manual entry), never a NaN factor (§7.2).
 - **OneDrive + a single HDF5.** Mitigation: a **one-owner-at-a-time** posture with single-writer `.lock` + a
   **wall-clock stale-timeout** (≈ 30 min) + steal-lock; **detect-and-surface OneDrive conflict-copies**; concurrent

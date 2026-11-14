@@ -674,8 +674,10 @@ withholding below the minimum qualifying count rather than emitting a factor fro
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
 
-**Total failure → apparent E, never NaN.** `tests/test_project_correct.py` covers the path
-that PRD §8 singles out: `test_total_failure_falls_to_apparent_never_nan`,
+**Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
+non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is
+still NaN in apparent E, because the ratio is not defined there; that is not a correction
+failure. `tests/test_project_correct.py` covers the path that PRD §8 singles out: `test_total_failure_falls_to_apparent_never_nan`,
 `test_fresh_store_nan_factors_is_total_failure`, `test_zero_gamma_boundary_is_total_failure`,
 `test_negative_gamma_is_total_failure`, `test_manual_override_rescues_total_failure`,
 `test_partial_alpha_override_without_gamma_stays_apparent`, and
@@ -1276,8 +1278,8 @@ documented gaps rather than fabricated values):
   patches from the import wizard (which opens the movie), and otherwise zero-fills; the
   movie link keeps crops re-cacheable.
 - **γ may be absent.** Remapped α/γ are injected only when γ is finite and positive;
-  otherwise the project degrades to the explicit apparent-E substrate — never a NaN E
-  (ADR-0003). The committed Cy3-only fixture exercises that path.
+  otherwise the project degrades to the explicit apparent-E substrate, so a missing γ never
+  gives a NaN E (ADR-0003). The committed Cy3-only fixture exercises that path.
 - δ (direct excitation) is inert 0 for single-laser Deep-LASI data, which has no ALEX
   channel to estimate it from.
 - A raw-`.txt`-sourced SMD has no coordinates and no patches, so it is imported as an
