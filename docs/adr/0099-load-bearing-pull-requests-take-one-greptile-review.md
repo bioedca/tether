@@ -55,7 +55,8 @@ a pull request whose Greptile review had findings close its gate?
 
 1. **A pull request takes the Greptile route when either of these is true**, read from GitHub's
    list of changed files (the diff against the merge base with `main`), renamed files by both names:
-   - a changed file is `AGENTS.md` (at any depth), `CLAUDE.md` or `docs/PRD.md`; or
+   - a changed file is `AGENTS.md` (at any depth), `CLAUDE.md` or
+     [`docs/PRD.md`](https://github.com/bioedca/tether/blob/main/docs/PRD.md); or
    - the pull request body's line `Risk (may only increase):` says `high`, and more than half of
      the changed lines (additions plus deletions) are in files that are not Markdown (`*.md`).
 
