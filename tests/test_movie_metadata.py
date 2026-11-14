@@ -211,3 +211,13 @@ def test_cli_reports_a_refused_change_with_code_1(tmp_path, capsys) -> None:
     assert main(["metadata", str(out), "--movie", "mov-absent", "--pixel-size", "1"]) == 1
     assert main(["metadata", str(tmp_path / "absent.tether")]) == 1
     assert _only(out).pixel_size_um == 0.0  # nothing was written
+
+
+def test_cli_writes_nothing_when_any_requested_change_is_refused(tmp_path, capsys) -> None:
+    out = tmp_path / "j.tether"
+    extract_movie(_imagej_movie(tmp_path), out, options=_OPTIONS)
+    before = _only(out)
+
+    assert main(["metadata", str(out), "--frame-time", "0.2", "--pixel-size", "-1"]) == 1
+    assert "finite positive" in capsys.readouterr().err
+    assert _only(out) == before  # the valid frame time was not written either

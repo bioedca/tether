@@ -37,6 +37,7 @@ __all__ = [
     "ORIGIN_USER",
     "MovieMetadataRecord",
     "confirm_frame_time",
+    "positive_value",
     "read_movie_metadata",
     "set_frame_time",
     "set_pixel_size",
@@ -74,7 +75,8 @@ class MovieMetadataRecord:
         return asdict(self)
 
 
-def _positive(value: float, name: str) -> float:
+def positive_value(value: float, name: str) -> float:
+    """Return ``value`` as a float; :class:`ValueError` unless finite and positive."""
     number = float(value)
     if not (math.isfinite(number) and number > 0.0):
         raise ValueError(f"{name} must be a finite positive number, got {value!r}")
@@ -162,7 +164,7 @@ def set_frame_time(path: str | Path, movie_id: str, seconds: float) -> MovieMeta
     The value replaces any earlier one, a file value included, and clears the
     verified flag: only :func:`confirm_frame_time` verifies a user's value.
     """
-    value = _positive(seconds, "frame time")
+    value = positive_value(seconds, "frame time")
     return _update(
         path, movie_id, frame_time=value, frame_time_origin=ORIGIN_USER, frame_time_verified=False
     )
@@ -183,5 +185,5 @@ def confirm_frame_time(path: str | Path, movie_id: str) -> MovieMetadataRecord:
 
 def set_pixel_size(path: str | Path, movie_id: str, micrometres: float) -> MovieMetadataRecord:
     """Record a pixel size (µm per pixel) the user gives (origin ``user``)."""
-    value = _positive(micrometres, "pixel size")
+    value = positive_value(micrometres, "pixel size")
     return _update(path, movie_id, pixel_size_um=value, pixel_size_origin=ORIGIN_USER)
