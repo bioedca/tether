@@ -94,7 +94,8 @@ def test_read_step_states_its_rules() -> None:
     assert "Each warning comes before the step that it protects." in flat
     assert "(maintainers/writing-style.md)" in flat
     assert "Read each changed user page again." in flat
-    assert "git diff --name-only <read-commit> HEAD -- README.md docs/" in flat
+    assert "git diff --name-only <read-commit> HEAD -- README.md docs/ mkdocs.yml" in flat
+    assert "Read each page that is new in the group." in flat
 
 
 def test_record_has_one_place_and_its_fields() -> None:

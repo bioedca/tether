@@ -73,9 +73,11 @@ release**, not the binaries, and it is unaffected by any of the above.
 
     5. **A page that changes after the read.** Before you tag, find the files that changed
        after the commit that was read. Run
-       `git diff --name-only <read-commit> HEAD -- README.md docs/` for this.
+       `git diff --name-only <read-commit> HEAD -- README.md docs/ mkdocs.yml` for this.
 
-        Read each changed user page again. Add a row for this second read. The row names the
+        Read each changed user page again. If `mkdocs.yml` changed, compare its `Using Tether`
+        group with the group at the commit that was read. Read each page that is new in the
+        group. Add a row for this second read. The row names the
         pages that you read again. The commit that writes a row changes no user page, so it does
         not start a new read.
 
