@@ -41,11 +41,24 @@ _SOURCE_LINK = re.compile(r"github\.com/bioedca/tether/(?:blob|tree)/([^/\s)#?\"
 
 
 def _site_pages() -> list[Path]:
-    """Every Markdown page MkDocs builds: ``docs/**/*.md`` minus the excluded ``PRD.md``."""
+    """Every Markdown page MkDocs builds: ``docs/**/*.md`` minus ``exclude_docs``.
+
+    ``exclude_docs`` is gitignore-style. This reads the two shapes it holds, a file path and a
+    directory ending in ``/``, and fails on any other shape rather than guess at it.
+    """
     cfg = yaml.safe_load((_REPO / "mkdocs.yml").read_text(encoding="utf-8"))
-    excluded = {line.strip() for line in cfg.get("exclude_docs", "").splitlines() if line.strip()}
-    assert excluded == {"PRD.md"}, f"update _site_pages for the new exclude_docs: {excluded}"
-    return sorted(p for p in DOCS.rglob("*.md") if p.relative_to(DOCS).as_posix() != "PRD.md")
+    entries = [line.strip() for line in cfg.get("exclude_docs", "").splitlines() if line.strip()]
+    plain = re.compile(r"[\w.-]+(?:/[\w.-]+)*/?")
+    odd = [e for e in entries if not plain.fullmatch(e)]
+    assert not odd, f"update _site_pages for these exclude_docs patterns: {odd}"
+    dirs = tuple(e for e in entries if e.endswith("/"))
+    files = {e for e in entries if not e.endswith("/")}
+
+    def built(page: Path) -> bool:
+        rel = page.relative_to(DOCS).as_posix()
+        return rel not in files and not rel.startswith(dirs)
+
+    return sorted(p for p in DOCS.rglob("*.md") if built(p))
 
 
 # --- the hook ------------------------------------------------------------------------------
@@ -147,8 +160,11 @@ def test_the_guard_pattern_sees_a_commit_and_a_branch() -> None:
 
 
 def test_mkdocs_registers_the_hook() -> None:
-    cfg = yaml.safe_load((_REPO / "mkdocs.yml").read_text(encoding="utf-8"))
-    assert "scripts/mkdocs_hooks.py" in cfg.get("hooks", [])
+    text = (_REPO / "mkdocs.yml").read_text(encoding="utf-8")
+    # YAML keeps only the last of two equal keys, so a second `hooks:` list (from a merge of two
+    # PRs that each add a hook) would drop the first list's hooks without an error.
+    assert len(re.findall(r"^hooks:", text, flags=re.MULTILINE)) == 1
+    assert "scripts/mkdocs_hooks.py" in yaml.safe_load(text).get("hooks", [])
 
 
 def test_the_docs_deployment_passes_the_tag_it_builds_from() -> None:
