@@ -643,8 +643,8 @@ rather than partially read.
 
 The `<file>.provenance.json` file that every export writes beside its output. It records the
 Tether version, the source project and the export's own parameters
-([Provenance file](reference/exports.md#provenance-file)). Older pages called it the
-"provenance sidecar". It has no relation to the [sidecar](#sidecar) environment.
+([Provenance file](reference/exports.md#provenance-file)). It has no relation to the
+[sidecar](#sidecar) environment.
 
 ### analysis-only import
 
