@@ -36,7 +36,7 @@ Four export entry points are public. The first three live in `tether.project.exp
 |---|---|---|
 | `tether.project.export.export_molecule_table_csv` | `<name>.csv` + `<name>.csv.provenance.json` | You want one row per molecule for a spreadsheet, R/pandas, Prism or Origin — the per-molecule inventory and its apparent-E summary |
 | `tether.project.export.export_deeplasi_txt` | `<name>.txt` + `<name>.txt.provenance.json` | You want the per-frame intensity traces themselves, in the Deep-LASI `…-donc-accc-w.txt` matrix a downstream Deep-LASI-compatible tool reads |
-| `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, corrected traces, idealization models — without shipping the movie |
+| `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, background-subtracted traces, idealization models — without shipping the movie |
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
 > **There is no CLI or GUI export command, and this page will not invent one.**
@@ -103,8 +103,8 @@ anywhere in `tether.imaging`, so nothing any export writes is in photons. What t
 | Store built by | What an exported intensity is |
 |---|---|
 | **Native extraction** — `tether.project.extract.extract_movie` → `tether.imaging.extract.write_extraction` | An **integrated camera value in the movie's own pixel units**, produced here by `tether.imaging.aperture.integrate_traces` over the aperture below: counts/ADU, tied to Tether's own extraction settings |
-| **Deep-LASI reconstruction** — `tether.project.reconstruct.reconstruct_project` | The **pre-integrated Deep-LASI `.mat` series, carried through without re-integration**. `_traces_from_export` maps `donc`/`accc` → the corrected layer, `don`/`acc` → raw, `bdon`/`bacc` → background; its docstring states that "the aperture integration `extract_molecules` would run is skipped". The units are whatever Deep-LASI's own integration produced |
-| **Analysis-only import** — `tether.project.analysis_import.import_analysis_only_project` | The **SMD / `.txt` intensity series, carried through without re-integration** as the corrected pair (`_write_corrected_traces`), the module's "apparent-E analysis substrate". No `raw` or `background` layers are synthesized — there is "no movie to decompose the intensities against" |
+| **Deep-LASI reconstruction** — `tether.project.reconstruct.reconstruct_project` | The **pre-integrated Deep-LASI `.mat` series, carried through without re-integration**. `_traces_from_export` maps `donc`/`accc` → the background-subtracted (`corrected`) layer, `don`/`acc` → raw, `bdon`/`bacc` → background; its docstring states that "the aperture integration `extract_molecules` would run is skipped". The units are whatever Deep-LASI's own integration produced |
+| **Analysis-only import** — `tether.project.analysis_import.import_analysis_only_project` | The **SMD / `.txt` intensity series, carried through without re-integration** as the background-subtracted (`corrected`) pair (`_write_corrected_traces`), the module's "apparent-E analysis substrate". No `raw` or `background` layers are synthesized — there is "no movie to decompose the intensities against" |
 
 Only the first row is a number Tether itself measured. For the other two the units are the
 upstream tool's, and the aperture parameters below describe the *provenance* of the
@@ -159,7 +159,7 @@ disk's pixel count `n_psf = int(disk.sum())`.
 > describing "the *provenance* of the layers, not a fresh integration this module
 > performed". An analysis-only import writes **no** `/settings/extraction` at all — its
 > `/settings` children are `analysis_only` and `correction` — and, carrying neither
-> `raw`/`background` layers nor `/patches`, it can leave only as the CSV or the corrected
+> `raw`/`background` layers nor `/patches`, it can leave only as the CSV or the background-subtracted
 > `.txt`: `intensity_quantity="raw"` raises `KeyError: 'donor_raw'`, and `export_subset_tether`
 > refuses with `ValueError: source /patches is missing the 'donor' channel; cannot export
 > a curatable movie-less subset`.

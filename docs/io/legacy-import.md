@@ -46,9 +46,9 @@ the movie to link molecules to pixels.
 |---|---|---|---|---|
 | Movie `*.tif` | big-endian multi-page TIFF | — (pixels only) | — (raw movie) | Links molecules to pixels; SHA-256 seeds every `molecule_key`; makes crops re-cacheable |
 | `*.tdat` | MATLAB v7.3 (HDF5, MCOS) | **✓** `ParticlesColocalized` (donor = reference channel, acceptor = the one other colocalized channel) | not read by the shipped decode | Preferred *native* coordinates + remapped α/γ + detection mode + embedded movie reference |
-| `DeepLASI_MAT_export_*.mat` | MATLAB v5 | **✓** `fret_pairs` → `donor_xy` / `acceptor_xy` | **✓** raw / corrected / background, donor + acceptor | **Mandatory trace source**; baseline coordinates when no `.tdat` |
-| `…-donc-accc-w.txt` | whitespace text | — | **✓** corrected only | Analysis-only trace source |
-| tMAVEN SMD `*.hdf5` | SMD-HDF5 (Appendix D) | — (Tether's coordinate superset is dropped on a standalone-tMAVEN round-trip) | **✓** corrected + curated subset | Analysis-only source; intensity-matched back to coordinates when a coordinate source is present |
+| `DeepLASI_MAT_export_*.mat` | MATLAB v5 | **✓** `fret_pairs` → `donor_xy` / `acceptor_xy` | **✓** raw / background-subtracted / background, donor + acceptor | **Mandatory trace source**; baseline coordinates when no `.tdat` |
+| `…-donc-accc-w.txt` | whitespace text | — | **✓** background-subtracted only | Analysis-only trace source |
+| tMAVEN SMD `*.hdf5` | SMD-HDF5 (Appendix D) | — (Tether's coordinate superset is dropped on a standalone-tMAVEN round-trip) | **✓** background-subtracted + curated subset | Analysis-only source; intensity-matched back to coordinates when a coordinate source is present |
 
 Coordinates are always **recovered, never re-detected** — but the two sources store them
 differently. The `.mat` `fret_pairs` is MATLAB 1-based `[x = col, y = row]`, so
@@ -144,7 +144,7 @@ not trusted: `match_smd_to_coordinates` re-resolves each SMD trace to its acquis
 molecule by **exact intensity matching** against index-aligned reference traces, then attaches
 the recovered coordinates; unmatched rows are reported (`mapping = -1`, `[nan, nan]`), never
 guessed. The reference traces and the SMD must be the *same kind* of series — a Deep-LASI SMD
-stores the **corrected** `-donc-accc-w` intensities, so the cross-check uses the corrected
+stores the **background-subtracted** `-donc-accc-w` intensities, so the cross-check uses the background-subtracted
 `.mat` `donc`/`accc` (or the `.txt`), never the raw `don`/`acc`.
 
 ### Round-trip reconstruction
@@ -152,7 +152,7 @@ stores the **corrected** `-donc-accc-w` intensities, so the cross-check uses the
 `reconstruct_project(output_path, *, export, movie, coordinates=…, corrections=…, …)` builds
 a round-trip-ready store by **reusing the existing extraction writers** — it never writes
 HDF5 directly, so the M0 schema freeze holds (ADR-0045). It maps the legacy pre-integrated
-series into layers without re-integrating (corrected → `intensity`, raw → `total`,
+series into layers without re-integrating (background-subtracted → `intensity`, raw → `total`,
 background → `background`), writes the linked `/movies` row, the `/molecules` rows keyed by
 the stable `molecule_key = SHA-256(movie.sha256 + quantized donor_xy)` (§7.10), the six
 `/traces` arrays, `/patches`, the remapped α/γ and corrected FRET (`METHOD_MANUAL` when
@@ -175,7 +175,7 @@ from it instead).
 
 `import_analysis_only_project(output_path, *, source, …)` handles the degraded branch — a
 bare `.txt` or a coordinate-less SMD with no `.tdat`, `.mat`, or movie (ADR-0046). It writes
-a **movie-less** store: only the corrected trace layer, `donor_xy` / `acceptor_xy` as NaN
+a **movie-less** store: only the background-subtracted (`corrected`) trace layer, `donor_xy` / `acceptor_xy` as NaN
 sentinels (genuinely absent, never a fake `[0, 0]`), a synthesized per-molecule
 `molecule_key` (a content hash over source id + row index + trace bytes, so keys stay unique
 and stable without coordinates), and every molecule tagged
@@ -216,7 +216,7 @@ read before mutating shell state, so a bad open leaves the prior project in plac
 | Requires | movie + `.mat` (+ optional `.tdat`) | `.txt` or coordinate-less SMD |
 | Coordinates | recovered from `.tdat`/`.mat` | NaN (genuinely absent) |
 | Movie link | yes (`/movies` row, `molecule_key` from movie hash) | none (`movie_id = ""`) |
-| Trace layers | corrected + raw + background | corrected only |
+| Trace layers | background-subtracted + raw + background | background-subtracted only |
 | Patches | written (real if supplied, else zero-filled; crops re-cache from movie) | none |
 | Curation prior | Deep-LASI mask → `deeplasi-provisional` `/labels` | none (SMD *is* the curated subset; all import uncurated) |
 | Per-molecule marker | — | `tags = "round-trip-unavailable"` |

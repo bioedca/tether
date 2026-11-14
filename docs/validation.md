@@ -751,7 +751,7 @@ first-bleach frames against the `.mat` `pacc`/`pdon` fields within the PRD §11.
 of ±2 frames. [ADR-0026](adr/0026-photobleach-detection-and-window-default.md) found this
 field is not a per-molecule oracle: in `DeepLASI_MAT_export_…010.mat`, `pacc` and `pdon`
 are `uint8` arrays of shape 250×1 whose value is the **constant 60 for all 250 molecules**,
-while the corrected traces bleach at ≈97, ≈644 and ≈1693. Gating on it would require the
+while the background-subtracted traces bleach at ≈97, ≈644 and ≈1693. Gating on it would require the
 detector to return 60 for a molecule that demonstrably bleaches at 97. It is an
 acquisition-wide marker, not ground truth.
 
@@ -859,7 +859,7 @@ wrote the smallest file, which is the source of the committed extract; the other
 reference, the convention mapping and the ALEX rule; `tests/test_mashfret_reference.py` holds the
 tests.
 
-- **Leakage.** From MASH-FRET's background-corrected intensities and its leakage coefficient,
+- **Leakage.** From MASH-FRET's background-subtracted intensities and its leakage coefficient,
   Tether's corrected acceptor equals MASH-FRET's cross-talk-corrected acceptor on both lasers, and
   the donor is unchanged (relative limit 1e-15; the difference is exactly 0).
 - **Corrected FRET.** The files hold no FRET value for each frame, only the value of each frame's
@@ -995,7 +995,7 @@ provenance record, and `tests/test_matlab_reference.py` checks their SHA-256 val
 `tests/test_mash_fret_extraction.py` runs `extract_movie` with every default on each video and
 measures: how many of the molecules whose aperture fits in the channel Tether found (a donor
 position within 1.5 px of the truth), how many Tether molecules match no true one, the largest
-donor and acceptor position errors, and, in each channel, the median ratio of Tether's corrected
+donor and acceptor position errors, and, in each channel, the median ratio of Tether's background-subtracted
 intensity to the true image counts and the lowest Pearson correlation of the traces. The first
 measurement:
 
