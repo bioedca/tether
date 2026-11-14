@@ -120,9 +120,10 @@ applies them to the existing pages. Later issues add terms.
 
 ### Retired phrases
 
-Do not use these phrases in prose. This list puts them in code formatting so that the check
-does not read them as prose. The term list above gives the name to use in their place. A
-style check reads this list ([issue #592](https://github.com/bioedca/tether/issues/592)).
+Do not use these phrases in prose. The term list above gives the name to use in their place.
+[Issue #592](https://github.com/bioedca/tether/issues/592) plans a style check that reads this
+list. The list puts the phrases in code formatting, so that the check does not read them as
+prose.
 
 - `provenance sidecar`, `JSON sidecar`, `sidecar .lock file`, `.lock sidecar`
 - `project store`
