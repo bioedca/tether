@@ -631,6 +631,10 @@ Tether **shall** provide:
   [Hyndman1996] + alpha-shape + k-vs-RMSE elbow).
 - **Real TDP**: a 2-D before/after idealized-state density (fresh idealizations only) [McKinney2006][Hadzic2018];
   dwell distributions with exponential/rate fits and CIs.
+- **Rate constants with Dirichlet error bounds** from a model's un-normalized transition count matrix and the frame
+  time: each row is a Dirichlet distribution, `k = −ln(1 − p)/dt`, and the bounds are the rates at `p ± √var`; the
+  method of the Source Data of [CamposChavez2024], reproduced to the printed digits of its five published outputs
+  ([ADR-0092](adr/0092-dirichlet-rate-bounds-from-the-count-matrix.md)).
 - Native reproduction of the **seven tMAVEN plot types** (Appendix C); any other tMAVEN plot stays reachable via
   the hand-off.
 
@@ -2236,6 +2240,10 @@ Published literature:
 - **[Götz2022]** Götz M, Barth A, Bohr SS-R, et al. "A blind benchmark of analysis tools to infer kinetic rate
   constants from single-molecule FRET trajectories." *Nature Communications* 13:5402 (2022).
   doi:10.1038/s41467-022-33023-3.
+- **[CamposChavez2024]** Campos-Chavez E, Paul S, Zhou Z, Alonso D, Verma AR, Fei J, Mondragón A. "Translational
+  T-box riboswitches bind tRNA by modulating conformational flexibility." *Nature Communications* 15:6592 (2024).
+  doi:10.1038/s41467-024-50885-x. (The Dirichlet rate bounds of §7.7: the Source Data script
+  `Kmatrix/CalculateKbounds.py` and its five published outputs.)
 - **[Olivo-Marin2002]** Olivo-Marin J-C. "Extraction of spots in biological images using multiscale products."
   *Pattern Recognition* 35(9):1989–1996 (2002). doi:10.1016/S0031-3203(01)00127-3.
 - **[Izeddin2012]** Izeddin I, Boulanger J, Racine V, et al. "Wavelet analysis for single molecule localization
