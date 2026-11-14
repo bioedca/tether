@@ -45,6 +45,8 @@ People are accountable for everything that Tether publishes.
   gives that rule.
 - The maintainer has read every published user page in full. The maintainer made this
   statement on 10 November 2026.
+- Before each release tag, a named person reads every user page and records the read. Step 2
+  of [Cutting a release](release.md#cutting-a-release) gives that rule.
 
 ### Limits
 
@@ -109,7 +111,7 @@ or "Not yet". Each open issue updates its row when it is merged.
 
 | White-paper item | Status | Evidence or open work |
 |---|---|---|
-| AI assists, and human oversight stays | Partly | The maintainer approves every merge and signs every release. No rule yet makes a person read the user pages before a release ([#650](https://github.com/bioedca/tether/issues/650)). |
+| AI assists, and human oversight stays | Met | The maintainer approves every merge and signs every release. Before each release tag, a named person reads every user page and records the read ([step 2 of Cutting a release](release.md#cutting-a-release)). |
 | A statement of AI use, with its scope and its limits | Met | This page, the footer of each page of this site, and the README. |
 | Rules for data handling | Met | The contributor guide tells a contributor to check the group policy and the retention terms of a service before sending unpublished material. The agent contract forbids an agent to send sensitive or uncommitted material to an external service. |
 | Rules for model validation and quality assurance | Not yet | An AI-use policy for documentation work ([#651](https://github.com/bioedca/tether/issues/651)). |
