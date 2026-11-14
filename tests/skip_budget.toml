@@ -33,7 +33,7 @@ max_skipped = 33
 
 [jobs."test (windows-latest)"]
 min_collected = 4016
-max_skipped = 18
+max_skipped = 19
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -142,6 +142,14 @@ reason = "the icon step of post_install.sh runs on Linux only"
 jobs = ["test (macos-latest)", "test (windows-latest)"]
 why = """The icon step of the installer's post_install.sh is the Linux menu entry (#673); \
 test (ubuntu-latest) runs the two tests."""
+
+[[skip]]
+test = "tests/test_install_launchers.py::test_post_install_sh_writes_only_the_two_launchers"
+reason = "post_install.sh is the Linux and macOS post-install script"
+jobs = ["test (windows-latest)"]
+why = """post_install.sh is the sh script the Linux and macOS installers run (#492, ADR-0096); \
+Windows runs post_install.bat, whose launcher folder the same module checks on every leg. \
+test (ubuntu-latest) and test (macos-latest) run the test."""
 
 [[skip]]
 test = "tests/test_gui_indicators.py::test_the_windows_setting_is_read_without_error"
