@@ -37,11 +37,14 @@ histograms/idealization through the **toggleable filter** :func:`curation_filter
 label (its ``/labels`` row).
 
 Scope (M2 S5). This logs **accept / reject / un-reject** — the ML training signal
-the M5 ranker consumes. Logging a *category* assignment to ``/labels`` is deferred
-to **M4**: category is independent of accept/reject (§7.6), its authoritative home
-is ``/molecules.category``, and neither the editable per-condition category list
-nor its integer↔category lookup (which a ``label_value`` encoding would need)
-exists until M4 (ADR-0023). Each row's ``weight`` is written at the human full weight here;
+the M5 ranker consumes. A *category* assignment is **not** logged here: category is
+independent of accept/reject (§7.6) and its authoritative home is
+``/molecules.category``. Since #358 it is written by
+:func:`tether.project.molecule_edits.set_category` / ``clear_category``, which check
+the name against the condition's editable category list and log each change to their
+own append-only ``/settings/molecule_audit`` — never to ``/labels``, whose
+``label_value`` is this accept/reject codec, so a category code there would read as an
+ML training label (ADR-0023). Each row's ``weight`` is written at the human full weight here;
 the ``source``-driven cold-start decay (``w = w₀/(1+n_human)``, §7.5) that down-weights a
 provisional/seed prior is applied at retrain time by
 :func:`tether.project.weighting.recompute_label_weights` (ADR-0036), which rewrites this

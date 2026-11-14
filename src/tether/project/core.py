@@ -535,6 +535,111 @@ class Project:
         self._assert_writable()
         return conditions.remove_category(self.path, condition_id, name)
 
+    # --- per-molecule category + analysis window (PRD §5.1, §7.2; #358) --------
+
+    def set_category(
+        self,
+        molecule_key: str,
+        category: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Set a molecule's category to a name in its condition's list
+        (:func:`molecule_edits.set_category`).
+
+        The condition's :meth:`category_list` is the vocabulary: a name not in it is
+        refused. Refuses the write if the file is locked by another writer
+        (:meth:`_assert_writable`, §5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.set_category(
+            self.path,
+            molecule_key,
+            category,
+            labeler=labeler,
+            reason=reason,
+            timestamp=timestamp,
+        )
+
+    def clear_category(
+        self,
+        molecule_key: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Clear a molecule's category to ``""`` (:func:`molecule_edits.clear_category`).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.clear_category(
+            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def set_analysis_window(
+        self,
+        molecule_key: str,
+        start: int,
+        stop: int,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Set a molecule's ``[start, stop)`` analysis window, clamped to its frames
+        (:func:`molecule_edits.set_analysis_window`).
+
+        A window narrower than ``frame_range`` is a manual override that photobleach
+        detection leaves alone. Refuses the write if the file is locked by another
+        writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.set_analysis_window(
+            self.path,
+            molecule_key,
+            start,
+            stop,
+            labeler=labeler,
+            reason=reason,
+            timestamp=timestamp,
+        )
+
+    def reset_analysis_window(
+        self,
+        molecule_key: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Restore a molecule's analysis window to its ``frame_range``
+        (:func:`molecule_edits.reset_analysis_window`).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.reset_analysis_window(
+            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def read_molecule_audit(self) -> np.ndarray:
+        """The append-only per-molecule edit log (:func:`molecule_edits.read_molecule_audit`)."""
+        from tether.project import molecule_edits
+
+        return molecule_edits.read_molecule_audit(self.path)
+
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 
     def idealize(
