@@ -1,0 +1,478 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The macOS ``Tether.app`` launcher bundle (issue #663, ADR-0091).
+
+:mod:`tether.gui.macos_app` imports only the standard library, so these tests run on
+every system. The bundle's executable is a ``sh`` script; the tests that run it need a
+POSIX shell. The one end-to-end test runs ``post_install.sh`` with a ``uname`` that
+answers ``Darwin``, so the macOS block runs here against a stub prefix. What only a real
+Mac shows (Launchpad, Spotlight, Gatekeeper) is the manual check the PR records.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import plistlib
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from tether.gui import identity, macos_app
+
+ROOT = Path(__file__).resolve().parents[1]
+POST_INSTALL_SH = ROOT / "packaging" / "scripts" / "post_install.sh"
+INSTALL_SMOKE = ROOT / "packaging" / "scripts" / "install_smoke.sh"
+INSTALL_DOC = ROOT / "docs" / "install.md"
+
+_POSIX_SH = os.name == "posix" and shutil.which("sh") is not None
+needs_sh = pytest.mark.skipif(
+    not _POSIX_SH, reason="the bundle launcher and post_install.sh are sh scripts"
+)
+
+
+def _prefix(tmp_path: Path, name: str = "Tether with space") -> Path:
+    """An install prefix whose ``tether-gui`` prints the arguments it was given."""
+    prefix = tmp_path / name
+    bin_d = prefix / "envs" / "tether" / "bin"
+    bin_d.mkdir(parents=True)
+    gui = bin_d / "tether-gui"
+    gui.write_text('#!/bin/sh\nprintf "%s\\n" "tether-gui" "$@"\n', encoding="utf-8")
+    gui.chmod(0o755)
+    return prefix
+
+
+def _plist(bundle: Path) -> dict:
+    with open(bundle / "Contents" / "Info.plist", "rb") as handle:
+        return plistlib.load(handle)
+
+
+def test_bundle_goes_to_the_user_folder_for_an_install_in_home(tmp_path) -> None:
+    home = tmp_path / "home"
+    assert macos_app.applications_dir(home / "Tether", home) == home / "Applications"
+
+
+def test_bundle_goes_to_the_system_folder_for_any_other_install(tmp_path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "is_dir", lambda self: True)
+    monkeypatch.setattr(os, "access", lambda path, mode: True)
+    assert macos_app.applications_dir(tmp_path / "opt" / "Tether", home) == Path("/Applications")
+
+
+def test_unwritable_system_folder_falls_back_to_the_user_folder(tmp_path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setattr(os, "access", lambda path, mode: False)
+    assert macos_app.applications_dir(tmp_path / "opt" / "Tether", home) == home / "Applications"
+
+
+def test_a_folder_that_only_starts_like_home_is_not_in_home(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(Path, "is_dir", lambda self: True)
+    monkeypatch.setattr(os, "access", lambda path, mode: True)
+    home = tmp_path / "home"
+    assert macos_app.applications_dir(tmp_path / "home2" / "Tether", home) == Path("/Applications")
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [("1.0.0", "1.0.0"), ("1.0.0rc3", "1.0.0"), ("1.2.dev4+g1234", "1.2"), ("unknown", "0")],
+)
+def test_bundle_version_is_the_numeric_release(version, expected) -> None:
+    assert macos_app.bundle_version(version) == expected
+
+
+def test_written_bundle_has_the_launcher_layout(tmp_path) -> None:
+    prefix = _prefix(tmp_path)
+    bundle = macos_app.write_bundle(prefix, tmp_path / "Applications", "1.0.0rc3")
+    assert bundle == tmp_path / "Applications" / "Tether.app"
+
+    data = _plist(bundle)
+    assert data["CFBundleIdentifier"] == macos_app.BUNDLE_ID
+    assert data["CFBundleName"] == data["CFBundleDisplayName"] == identity.APPLICATION_NAME
+    assert data["CFBundlePackageType"] == "APPL"
+    assert data["CFBundleShortVersionString"] == "1.0.0rc3"
+    assert data["CFBundleVersion"] == "1.0.0"
+    assert data["CFBundleExecutable"] == macos_app.EXECUTABLE_NAME
+    assert data["CFBundleIconFile"] == macos_app.ICON_FILE
+    arch = macos_app.native_architecture()
+    if arch is not None:
+        assert data["LSArchitecturePriority"] == [arch]
+
+    icon = bundle / "Contents" / "Resources" / macos_app.ICON_FILE
+    assert icon.read_bytes() == (identity.app_icon_dir() / "tether.icns").read_bytes()
+    assert (bundle / "Contents" / "PkgInfo").read_text(encoding="ascii") == "APPL????"
+    # A launcher only: no copy of the environment goes into the bundle.
+    files = sorted(p.relative_to(bundle).as_posix() for p in bundle.rglob("*") if p.is_file())
+    assert files == [
+        "Contents/Info.plist",
+        "Contents/MacOS/Tether",
+        "Contents/PkgInfo",
+        "Contents/Resources/tether.icns",
+    ]
+    assert not list((tmp_path / "Applications").glob(".tether-app-*")), "staging left behind"
+    assert macos_app.check_bundle(bundle, prefix) == []
+
+
+@needs_sh
+def test_bundle_executable_starts_the_installed_entry_point(tmp_path) -> None:
+    """The bundle's executable forwards its arguments to ``tether-gui`` of the prefix.
+
+    The prefix has a space in it, as a user's folder can. The ``-psn_`` argument that
+    older macOS versions add is dropped; every other argument arrives unchanged.
+    """
+    prefix = _prefix(tmp_path)
+    bundle = macos_app.write_bundle(prefix, tmp_path / "Applications", "1.0.0")
+    exe = bundle / "Contents" / "MacOS" / macos_app.EXECUTABLE_NAME
+    assert os.access(exe, os.X_OK)
+    out = subprocess.run(
+        [str(exe), "-psn_0_12345", "my project.tether"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert out.splitlines() == ["tether-gui", "my project.tether"]
+
+
+def test_reinstall_replaces_tethers_own_bundle(tmp_path) -> None:
+    prefix = _prefix(tmp_path)
+    apps = tmp_path / "Applications"
+    macos_app.write_bundle(prefix, apps, "1.0.0rc3")
+    (apps / "Tether.app" / "Contents" / "Resources" / "stale").write_text("x")
+    bundle = macos_app.write_bundle(prefix, apps, "1.0.0")
+    assert _plist(bundle)["CFBundleShortVersionString"] == "1.0.0"
+    assert not (bundle / "Contents" / "Resources" / "stale").exists()
+
+
+def test_another_programs_bundle_is_left_alone(tmp_path) -> None:
+    apps = tmp_path / "Applications"
+    other = apps / "Tether.app" / "Contents"
+    other.mkdir(parents=True)
+    with open(other / "Info.plist", "wb") as handle:
+        plistlib.dump({"CFBundleIdentifier": "org.example.tether"}, handle)
+    assert macos_app.write_bundle(_prefix(tmp_path), apps, "1.0.0") is None
+    assert _plist(apps / "Tether.app")["CFBundleIdentifier"] == "org.example.tether"
+    assert not (other / "MacOS").exists()
+
+
+def test_a_folder_without_info_plist_is_left_alone(tmp_path) -> None:
+    apps = tmp_path / "Applications"
+    (apps / "Tether.app" / "notes").mkdir(parents=True)
+    assert macos_app.write_bundle(_prefix(tmp_path), apps, "1.0.0") is None
+    assert (apps / "Tether.app" / "notes").is_dir()
+
+
+@pytest.mark.parametrize(
+    ("machine", "expected"),
+    [
+        ("arm64", "arm64"),
+        ("aarch64", "arm64"),
+        ("x86_64", "x86_64"),
+        ("AMD64", "x86_64"),
+        ("ppc64le", None),
+        ("", None),
+    ],
+)
+def test_native_architecture_names_the_macos_architecture(machine, expected) -> None:
+    assert macos_app.native_architecture(machine) == expected
+
+
+def test_info_plist_asks_macos_to_start_the_launcher_natively() -> None:
+    """A real Mac without Rosetta refused the script launcher with error -10669.
+
+    LaunchServices cannot read an architecture from a shell script, chose ``x86_64`` on
+    Apple silicon and found no Rosetta. ``LSArchitecturePriority`` fixed the start.
+    """
+    assert macos_app.info_plist("1.0.0", "arm64")["LSArchitecturePriority"] == ["arm64"]
+    assert macos_app.info_plist("1.0.0", "x86_64")["LSArchitecturePriority"] == ["x86_64"]
+    assert "LSArchitecturePriority" not in macos_app.info_plist("1.0.0")
+
+
+def test_check_rejects_a_bundle_without_the_native_architecture(tmp_path, monkeypatch) -> None:
+    prefix = _prefix(tmp_path)
+    monkeypatch.setattr(macos_app.platform, "machine", lambda: "arm64")
+    bundle = macos_app.write_bundle(prefix, tmp_path / "Applications", "1.0.0")
+    assert _plist(bundle)["LSArchitecturePriority"] == ["arm64"]
+    assert macos_app.check_bundle(bundle, prefix) == []
+
+    data = _plist(bundle)
+    del data["LSArchitecturePriority"]
+    with open(bundle / "Contents" / "Info.plist", "wb") as handle:
+        plistlib.dump(data, handle)
+    assert any("LSArchitecturePriority" in p for p in macos_app.check_bundle(bundle, prefix))
+
+    data["LSArchitecturePriority"] = ["x86_64"]
+    with open(bundle / "Contents" / "Info.plist", "wb") as handle:
+        plistlib.dump(data, handle)
+    assert any("LSArchitecturePriority" in p for p in macos_app.check_bundle(bundle, prefix))
+
+
+def test_check_names_each_problem(tmp_path) -> None:
+    prefix = _prefix(tmp_path)
+    bundle = macos_app.write_bundle(prefix, tmp_path / "Applications", "1.0.0")
+    other_prefix = _prefix(tmp_path, "Other")
+    assert any("does not start" in p for p in macos_app.check_bundle(bundle, other_prefix))
+
+    (bundle / "Contents" / "Resources" / macos_app.ICON_FILE).write_bytes(b"")
+    assert any("icon is missing" in p for p in macos_app.check_bundle(bundle, prefix))
+
+    data = _plist(bundle)
+    data["CFBundleIdentifier"] = "org.example.other"
+    with open(bundle / "Contents" / "Info.plist", "wb") as handle:
+        plistlib.dump(data, handle)
+    assert any("CFBundleIdentifier" in p for p in macos_app.check_bundle(bundle, prefix))
+
+    (bundle / "Contents" / "Info.plist").write_bytes(b"not a plist")
+    assert macos_app.check_bundle(bundle, prefix) == [
+        f"no readable Contents/Info.plist in {bundle}"
+    ]
+
+
+def test_cli_installs_and_checks(tmp_path, capsys) -> None:
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+    assert macos_app.main(["install", "--prefix", str(prefix), "--home", str(home)]) == 0
+    bundle = home / "Applications" / "Tether.app"
+    assert capsys.readouterr().out.strip() == str(bundle)
+    assert macos_app.main(["check", str(bundle), "--prefix", str(prefix)]) == 0
+    assert macos_app.main(["check", str(bundle), "--prefix", str(tmp_path / "x")]) == 1
+
+
+@needs_sh
+def test_post_install_writes_the_bundle_on_macos(tmp_path) -> None:
+    """``post_install.sh`` on "macOS" writes ``~/Applications/Tether.app``, run twice.
+
+    A ``uname`` that answers ``Darwin`` comes first on ``PATH``; the env interpreters are
+    stubs that skip pip and run this test's own Python, as in ``test_gui_identity``.
+    """
+    home = tmp_path / "home"
+    prefix = home / "Tether"
+    for env in ("tether", "sidecar"):
+        bin_d = prefix / "envs" / env / "bin"
+        bin_d.mkdir(parents=True)
+        stub = bin_d / "python"
+        stub.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then exit 0; fi\n'
+            f'exec "{sys.executable}" "$@"\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+    (prefix / "envs" / "tether" / "bin" / "tether-gui").write_text("#!/bin/sh\n")
+    (prefix / "wheelhouse").mkdir()
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    uname = fake_bin / "uname"
+    uname.write_text("#!/bin/sh\necho Darwin\n", encoding="utf-8")
+    uname.chmod(0o755)
+    env = {
+        **os.environ,
+        "PREFIX": str(prefix),
+        "HOME": str(home),
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+    }
+    for _ in range(2):
+        subprocess.run(["sh", str(POST_INSTALL_SH)], check=True, env=env, capture_output=True)
+    bundle = home / "Applications" / "Tether.app"
+    assert macos_app.check_bundle(bundle, prefix) == []
+    assert not (home / ".local" / "share" / "applications").exists(), "no Linux entry on macOS"
+    # Registration with LaunchServices and Spotlight is best-effort: it never fails the install.
+    text = POST_INSTALL_SH.read_text(encoding="utf-8")
+    assert '"$LSREGISTER" -f "$TETHER_APP" >/dev/null 2>&1 || true' in text
+    assert '/usr/bin/mdimport "$TETHER_APP" >/dev/null 2>&1 || true' in text
+
+
+@needs_sh
+@pytest.mark.parametrize("folder_existed", [False, True])
+def test_root_install_gives_a_new_applications_folder_to_the_user(tmp_path, folder_existed) -> None:
+    """Run as root, the step hands the bundle back, and ``~/Applications`` only if it made it.
+
+    ``id`` answers 0 and ``chown`` records its arguments, so the test needs no root.
+    """
+    home = tmp_path / "home"
+    prefix = home / "Tether"
+    for env in ("tether", "sidecar"):
+        bin_d = prefix / "envs" / env / "bin"
+        bin_d.mkdir(parents=True)
+        stub = bin_d / "python"
+        stub.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then exit 0; fi\n'
+            f'exec "{sys.executable}" "$@"\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+    (prefix / "envs" / "tether" / "bin" / "tether-gui").write_text("#!/bin/sh\n")
+    (prefix / "wheelhouse").mkdir()
+    if folder_existed:
+        (home / "Applications").mkdir()
+    log = tmp_path / "chown.log"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    for name, body in (
+        ("uname", "echo Darwin"),
+        ("id", "echo 0"),
+        ("chown", f'printf "%s " "$@" >> "{log}"; echo >> "{log}"'),
+    ):
+        tool = fake_bin / name
+        tool.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+        tool.chmod(0o755)
+    env = {
+        **os.environ,
+        "PREFIX": str(prefix),
+        "HOME": str(home),
+        "USER": "labmember",
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+    }
+    subprocess.run(["sh", str(POST_INSTALL_SH)], check=True, env=env, capture_output=True)
+    calls = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+    bundle = str(home / "Applications" / "Tether.app")
+    assert ["-R", "labmember", bundle] in calls
+    assert (["labmember", str(home / "Applications")] in calls) is not folder_existed
+
+
+def test_install_smoke_checks_the_bundle_on_macos() -> None:
+    smoke = INSTALL_SMOKE.read_text(encoding="utf-8")
+    block = smoke.split('if [ "$RUNNER_OS" = "macOS" ]; then', 2)[2].split("\n  fi\n", 1)[0]
+    assert 'app="$HOME/Applications/Tether.app"' in block
+    assert 'plutil -lint "$app/Contents/Info.plist"' in block
+    assert "-m tether.gui.macos_app check" in block
+    assert '"$app/Contents/MacOS/$app_exe" --version' in block
+
+
+def test_install_guide_names_the_bundle_for_launch_and_uninstall() -> None:
+    doc = INSTALL_DOC.read_text(encoding="utf-8")
+    uninstall = doc.split("## Uninstall", 1)[1].split("**Windows.**", 1)[0]
+    macos = uninstall.split("**macOS**", 1)[1]
+    assert (
+        "~/Tether/envs/tether/bin/python -m tether.gui.macos_app remove --prefix ~/Tether" in macos
+    )
+    assert macos.index("macos_app remove") < macos.index("rm -rf ~/Tether")
+    assert "Launchpad" in doc.split("## 5. Check that Tether runs", 1)[1].split("\n## ", 1)[0]
+
+
+def test_check_accepts_another_spelling_of_the_same_install_folder(tmp_path) -> None:
+    """constructor's ``.pkg`` installs into ``~/tether``; the smoke names it ``~/Tether``.
+
+    The two strings name one folder on macOS and Windows, whose file systems ignore case.
+    On Linux a link stands in for that: ``check`` compares the files, not the strings.
+    """
+    prefix = _prefix(tmp_path, "tether")
+    bundle = macos_app.write_bundle(prefix, tmp_path / "Applications", "1.0.0")
+    if sys.platform.startswith("linux"):
+        alias = tmp_path / "Tether-alias"
+        alias.symlink_to(prefix, target_is_directory=True)
+    else:
+        alias = tmp_path / "TETHER"
+    assert macos_app.check_bundle(bundle, alias) == []
+
+
+def test_launcher_target_reads_the_exec_line(tmp_path) -> None:
+    prefix = tmp_path / "with space" / "Tether"
+    expected = Path(os.path.abspath(prefix)) / "envs" / "tether" / "bin" / "tether-gui"
+    assert macos_app.launcher_target(macos_app.launcher_script(prefix)) == expected
+    assert macos_app.launcher_target("#!/bin/sh\necho hi\n") is None
+    assert macos_app.launcher_target("exec 'unterminated\n") is None
+
+
+def test_a_broken_xml_plist_is_left_alone(tmp_path) -> None:
+    """A plist that starts as XML and then breaks is not Tether's; the install goes on."""
+    apps = tmp_path / "Applications"
+    contents = apps / "Tether.app" / "Contents"
+    contents.mkdir(parents=True)
+    broken = b'<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>'
+    (contents / "Info.plist").write_bytes(broken)
+    assert not macos_app.is_tether_bundle(apps / "Tether.app")
+    assert macos_app.write_bundle(_prefix(tmp_path), apps, "1.0.0") is None
+    assert (contents / "Info.plist").read_bytes() == broken
+
+
+def test_remove_deletes_only_this_installs_bundle(tmp_path, monkeypatch) -> None:
+    """``remove`` deletes Tether's bundle for this prefix and nothing else."""
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+    other_prefix = _prefix(home, "Tether-2")
+    system = tmp_path / "system" / "Applications"
+    real_path = Path
+
+    def fake_path(*parts):
+        if parts == ("/Applications",):
+            return real_path(system)
+        return real_path(*parts)
+
+    monkeypatch.setattr(macos_app, "Path", fake_path)
+    mine = macos_app.write_bundle(prefix, home / "Applications", "1.0.0")
+    theirs = macos_app.write_bundle(other_prefix, system, "1.0.0")
+    removed, failed = macos_app.remove_bundles(prefix, home)
+    assert removed == [mine] and failed == []
+    assert not mine.exists()
+    assert theirs.is_dir(), "the launcher of another install stays"
+    assert macos_app.remove_bundles(prefix, home) == ([], [])
+
+
+@needs_sh
+def test_remove_unregisters_the_bundle_before_it_deletes_it(tmp_path, monkeypatch) -> None:
+    """A real Mac kept a LaunchServices record of a deleted bundle; ``lsregister -u`` drops it."""
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+    log = tmp_path / "lsregister.log"
+    fake = tmp_path / "lsregister"
+    fake.write_text(
+        f'#!/bin/sh\n[ -d "$2" ] && echo exists >> "{log}"\nprintf "%s\\n" "$@" >> "{log}"\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    monkeypatch.setattr(macos_app, "LSREGISTER", fake)
+    foreign = home / "Applications" / "Tether.app" / "Contents"
+    foreign.mkdir(parents=True)
+    with open(foreign / "Info.plist", "wb") as handle:
+        plistlib.dump({"CFBundleIdentifier": "org.example.other"}, handle)
+    assert macos_app.remove_bundles(prefix, home) == ([], [])
+    assert not log.exists(), "a foreign bundle is not unregistered"
+
+    shutil.rmtree(home / "Applications" / "Tether.app")
+    mine = macos_app.write_bundle(prefix, home / "Applications", "1.0.0")
+    assert macos_app.remove_bundles(prefix, home)[0] == [mine]
+    assert log.read_text(encoding="utf-8").splitlines() == ["exists", "-u", str(mine)]
+
+
+def test_remove_leaves_another_programs_bundle(tmp_path, capsys) -> None:
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+    other = home / "Applications" / "Tether.app" / "Contents"
+    other.mkdir(parents=True)
+    with open(other / "Info.plist", "wb") as handle:
+        plistlib.dump({"CFBundleIdentifier": "org.example.tether"}, handle)
+    assert macos_app.main(["remove", "--prefix", str(prefix), "--home", str(home)]) == 0
+    assert "no Tether.app of this install" in capsys.readouterr().out
+    assert (other / "Info.plist").is_file()
+
+
+_HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("pyqtgraph", "PySide6"))
+
+
+@pytest.mark.gui
+@pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not installed")
+def test_running_application_has_the_name_and_icon_the_bundle_declares(qtbot, tmp_path) -> None:
+    """The bundle starts ``tether-gui``; the window it opens is the one the bundle names.
+
+    The menu bar and the Dock show the running application's name and icon, and Finder,
+    Launchpad and Spotlight show the bundle's. Built headless through the same entry point
+    the bundle starts (``create_shell``, behind ``tether-gui``), the application must carry
+    the ``CFBundleName`` of the plist and an icon from the same brand files as the bundle's
+    ``tether.icns``.
+    """
+    from tether.gui.app import create_shell
+
+    bundle = macos_app.write_bundle(_prefix(tmp_path), tmp_path / "Applications", "1.0.0")
+    data = _plist(bundle)
+    app, shell = create_shell([])
+    qtbot.addWidget(shell._window)
+    assert app.applicationName() == data["CFBundleName"] == data["CFBundleDisplayName"]
+    assert not app.windowIcon().isNull()
+    icns = bundle / "Contents" / "Resources" / data["CFBundleIconFile"]
+    assert icns.parent.parent.parent == bundle
+    assert icns.read_bytes() == (identity.app_icon_dir() / "tether.icns").read_bytes()
+    assert set(identity.icon_png_sizes()) <= {s.width() for s in app.windowIcon().availableSizes()}
+    shell.close()

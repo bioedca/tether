@@ -33,7 +33,7 @@ max_skipped = 28
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 13
+max_skipped = 18
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -195,6 +195,15 @@ reason = "requires a CUDA-capable GPU"
 jobs = ["deep / smoke"]
 why = """deep / smoke runs on a CPU runner. The two CUDA tests run in deep-gpu.yml on a \
 CUDA machine (manual dispatch)."""
+
+[[skip]]
+test = "tests/test_macos_app.py::test_*"
+reason = "the bundle launcher and post_install.sh are sh scripts"
+jobs = ["test (windows-latest)"]
+why = """Five tests run sh scripts: the Tether.app launcher (#663, ADR-0091), \
+post_install.sh with a stand-in uname (three runs, two of them as a stand-in root), and a \
+stand-in lsregister. The macOS installer runs both under sh, and Windows has \
+no POSIX shell in the test environment. The Linux and macOS legs run them."""
 
 # --- large-fixtures -------------------------------------------------------------------------
 # Its one skip is the torch module above. The oracle (a) test and the two intake tests on the
