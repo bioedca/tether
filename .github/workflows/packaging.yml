@@ -218,7 +218,7 @@ jobs:
         run: bash packaging/scripts/install_smoke.sh
 
       - name: Upgrade smoke — the settings store survives a re-install
-        # Issue #330, ADR-0094: measures what running the installer again does to the
+        # Issue #330, ADR-0095: measures what running the installer again does to the
         # install folder, and proves the update-check answer the INSTALLED app wrote is
         # still what it reads after an over-install and after remove-then-install. The
         # measurements go to the step summary. packaging.yml only: three more installs

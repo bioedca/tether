@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for the application settings store (issue #330, ADR-0094).
+"""Tests for the application settings store (issue #330, ADR-0095).
 
 The store holds one answer, the update-check consent of ADR-0060 decision 3. These tests
 pin the four things the issue asks of it in this tier:
@@ -111,7 +111,8 @@ def test_the_administrator_override_wins_over_every_user_level(
 
 
 @pytest.mark.parametrize(
-    "content", ["", '{"update_check": "allowed"}', "enable", '{"schema": 1, "update_check": "allowed"}']
+    "content",
+    ["", '{"update_check": "allowed"}', "enable", '{"schema": 1, "update_check": "allowed"}'],
 )
 def test_the_override_can_only_disable_whatever_it_contains(
     store: tuple[Path, Path], content: str
@@ -323,11 +324,14 @@ def test_the_windows_override_is_under_programdata(monkeypatch: pytest.MonkeyPat
     monkeypatch.delenv("PROGRAMDATA", raising=False)
     assert machine_override_path() == Path("C:/ProgramData/MondragonLab/Tether") / OVERRIDE_FILENAME
     monkeypatch.setenv("PROGRAMDATA", str(Path.home() / "pd"))
-    assert machine_override_path() == Path.home() / "pd" / "MondragonLab" / "Tether" / OVERRIDE_FILENAME
+    assert (
+        machine_override_path()
+        == Path.home() / "pd" / "MondragonLab" / "Tether" / OVERRIDE_FILENAME
+    )
 
 
 def test_the_running_store_is_outside_the_install_prefix() -> None:
-    # The whole point of ADR-0094: whatever an installer does to its prefix, the answer
+    # The whole point of ADR-0095: whatever an installer does to its prefix, the answer
     # is somewhere else. In an installed copy sys.prefix is <install>/envs/tether, so the
     # install folder is two levels up.
     prefix = Path(sys.prefix).resolve()
@@ -344,11 +348,12 @@ def test_the_folder_names_match_the_names_the_gui_gives_qt() -> None:
 
 
 def test_a_read_at_startup_imports_no_qt_numpy_or_hdf5(tmp_path: Path) -> None:
+    settings, override = str(tmp_path / "s.json"), str(tmp_path / "o")
     code = (
         "import sys\n"
         "from pathlib import Path\n"
         "from tether.gui.app_settings import update_check_state\n"
-        f"state = update_check_state(Path({str(tmp_path / 's.json')!r}), Path({str(tmp_path / 'o')!r}))\n"
+        f"state = update_check_state(Path({settings!r}), Path({override!r}))\n"
         "heavy = sorted({m.split('.')[0] for m in sys.modules} & "
         "{'PySide6', 'PyQt5', 'pyqtgraph', 'napari', 'numpy', 'h5py', 'scipy', 'numba'})\n"
         "print(state.value, heavy)\n"

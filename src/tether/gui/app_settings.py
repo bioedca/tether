@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The application settings store: one consent answer that survives an update (ADR-0094).
+"""The application settings store: one consent answer that survives an update (ADR-0095).
 
 Tether keeps almost every setting inside a ``.tether`` project. The update-check consent
 of ADR-0060 decision 3 cannot live there: it must be readable at startup, before any
@@ -10,7 +10,7 @@ more. It is not a preferences framework, it holds no analysis parameter (those b
 in the project store, PRD §5), and the batch runner does not read it.
 
 **Where it lives.** Outside the install folder, in the user's own per-user folder, so
-that what an installer does to its prefix cannot matter (ADR-0094 records the measured
+that what an installer does to its prefix cannot matter (ADR-0095 records the measured
 per-OS behaviour that this choice makes irrelevant):
 
 ============  ==========================================================================
@@ -51,6 +51,7 @@ file read and no Qt, NumPy or HDF5 import.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import json
 import os
@@ -236,9 +237,7 @@ def record_update_consent(allowed: bool, settings_file: Path | None = None) -> P
             os.fsync(handle.fileno())
         os.replace(tmp_name, path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_name)
-        except OSError:
-            pass
         raise
     return path

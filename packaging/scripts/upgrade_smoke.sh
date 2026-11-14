@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The upgrade smoke for the application settings store (issue #330, ADR-0094). It runs
+# The upgrade smoke for the application settings store (issue #330, ADR-0095). It runs
 # after install_smoke.sh in .github/workflows/packaging.yml, on the installer that job
 # just built, and does two things on every platform:
 #
