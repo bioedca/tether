@@ -25,15 +25,15 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4016
-max_skipped = 20
+max_skipped = 21
 
 [jobs."test (macos-latest)"]
 min_collected = 4016
-max_skipped = 33
+max_skipped = 34
 
 [jobs."test (windows-latest)"]
 min_collected = 4016
-max_skipped = 18
+max_skipped = 19
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -85,6 +85,14 @@ reason = "TETHER_BUILT_SITE is not set; the docs-build job sets it after the bui
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
 why = """The two tests read the built site, and the test legs build no site. The docs-build job \
 sets TETHER_BUILT_SITE after `mkdocs build` and runs them there (#674)."""
+
+[[skip]]
+test = "tests/test_docs_citation_head.py::test_the_built_heads_carry_the_descriptions_and_the_citation_metadata"
+reason = "TETHER_BUILT_SITE is not set; the docs-build job sets it after the build"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The test reads the built site, and the test legs build no site. The docs-build job sets \
+TETHER_BUILT_SITE after `mkdocs build` and runs it there (#599). It is one test for all pages, so \
+it costs each leg one skip; max_skipped of the three legs is one higher for it."""
 
 [[skip]]
 test = "tests/test_docs_validation_numbers.py::test_the_fence_rule_is_python_markdowns"

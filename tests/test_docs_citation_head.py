@@ -253,27 +253,30 @@ def _head(site: Path, page: str) -> _Head:
     return parser
 
 
-def test_the_built_landing_page_carries_the_record_of_the_citation_file(built_site: Path) -> None:
-    head = _head(built_site, "index.md")
-    assert len(head.json_ld) == 1, head.json_ld
-    record = json.loads(head.json_ld[0])
+def test_the_built_heads_carry_the_descriptions_and_the_citation_metadata(
+    built_site: Path,
+) -> None:
+    # One test for every page, not one for each: on the 3-OS legs, where no site is built,
+    # it is one entry in tests/skip_budget.toml and one skip, not one skip per nav page.
     cff = _cff()
+    record = json.loads(_head(built_site, "index.md").json_ld[0])
     assert record["@type"] == "SoftwareSourceCode"
     assert record["identifier"] == f"https://doi.org/{cff['doi']}"
     assert record["license"] == f"https://spdx.org/licenses/{cff['license']}"
     assert [a["name"] for a in record["author"]] == _person_names(cff)
 
-
-@pytest.mark.parametrize("page", NAV_PAGES)
-def test_every_built_page_carries_its_description_and_the_record(
-    built_site: Path, page: str
-) -> None:
-    head = _head(built_site, page)
-    descriptions = [content for name, content in head.meta if name == "description"]
-    assert descriptions == [_front_matter(page)["description"]], page
-    assert [json.loads(text) for text in head.json_ld] == [hook.json_ld(_cff())], page
-    tags = [(name, content) for name, content in head.meta if name.startswith("citation_")]
-    if page in hook.CITATION_PAGES:
-        assert tags == hook.citation_meta(_cff()), page
-    else:
-        assert tags == [], page
+    wrong: dict[str, list[str]] = {}
+    for page in NAV_PAGES:
+        head = _head(built_site, page)
+        problems = []
+        descriptions = [content for name, content in head.meta if name == "description"]
+        if descriptions != [_front_matter(page)["description"]]:
+            problems.append(f"description {descriptions}")
+        if [json.loads(text) for text in head.json_ld] != [hook.json_ld(cff)]:
+            problems.append(f"{len(head.json_ld)} JSON-LD records, or not the CITATION.cff one")
+        tags = [(name, content) for name, content in head.meta if name.startswith("citation_")]
+        if tags != (hook.citation_meta(cff) if page in hook.CITATION_PAGES else []):
+            problems.append(f"citation_* tags {tags}")
+        if problems:
+            wrong[page] = problems
+    assert wrong == {}
