@@ -1,3 +1,7 @@
+---
+description: "The files that Tether writes out: each column, its order, its unit and what a blank cell means, for tables, trace files, subsets and figures."
+---
+
 # Exports — what Tether writes out
 
 **Who this page is for.** Anyone who has a file Tether produced — a molecule-table CSV
@@ -57,7 +61,7 @@ All three take their rows from `_selected_rows` in `tether.project.export`, whic
 
 | Behavior | Detail |
 |---|---|
-| Order | **Store order** (ascending row index). A `molecule_keys` request does *not* reorder the output |
+| Order | **Project order** (ascending row index). A `molecule_keys` request does *not* reorder the output |
 | Curation filter | Rows whose `curation_label` is `CurationLabel.REJECT` (`-1`, `tether.project.labels`) are dropped unless `include_rejected=True` |
 | `molecule_keys` | A membership subselect, not a lookup. `molecule_key` is **not unique**, so one requested key matches *every* project row carrying it |
 | Unknown key | A requested key matching no project row raises `KeyError` — a typo fails loudly rather than silently under-exporting |
@@ -100,7 +104,7 @@ number is **uncalibrated**: there is no gain, offset or quantum-efficiency conve
 anywhere in `tether.imaging`, so nothing any export writes is in photons. What the number
 *is*, though, depends on how the project file was built — and no export records that:
 
-| Store built by | What an exported intensity is |
+| Project file built by | What an exported intensity is |
 |---|---|
 | **Native extraction** — `tether.project.extract.extract_movie` → `tether.imaging.extract.write_extraction` | An **integrated camera value in the movie's own pixel units**, produced here by `tether.imaging.aperture.integrate_traces` over the aperture below: counts/ADU, tied to Tether's own extraction settings |
 | **Deep-LASI reconstruction** — `tether.project.reconstruct.reconstruct_project` | The **pre-integrated Deep-LASI `.mat` series, carried through without re-integration**. `_traces_from_export` maps `donc`/`accc` → the background-subtracted (`corrected`) layer, `don`/`acc` → raw, `bdon`/`bacc` → background; its docstring states that "the aperture integration `extract_molecules` would run is skipped". The units are whatever Deep-LASI's own integration produced |

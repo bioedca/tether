@@ -1,3 +1,7 @@
+---
+description: "The seven tMAVEN analysis plots and the Tether plot that matches each one. This page is about plot parity, not numerical accuracy."
+---
+
 # Seven-plot parity gallery
 
 **Who this page is for.** Anyone who used tMAVEN's analysis plots and wants to find the same

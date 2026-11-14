@@ -1,3 +1,7 @@
+---
+description: "Open Tether's traces in the standalone tMAVEN application window, edit the fit by hand and bring it back. It also covers the tMAVEN sidecar setup."
+---
+
 # Standalone-tMAVEN hand-off
 
 **Who this page is for.** Anyone who wants to open Tether's traces in the standalone tMAVEN
