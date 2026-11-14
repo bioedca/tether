@@ -88,7 +88,9 @@ The crop cannot resolve scale to the 0.0005 limit #734 set:
 
 - detection finds 83 donor and 65 acceptor spots, of which 14 pair within 1.5 px under the
   ground-truth map; a least-squares similarity on them gives scale 1.0028, and a 300-sample
-  bootstrap of that fit a scale SD of 0.0023;
+  bootstrap of that fit (seed 0) a scale SD of 0.0023 — a test in
+  `tests/test_register_prealign.py` repeats this derivation, so a change to the fixture, the
+  detector or the pairing that moves the figure fails and the limit is decided again;
 - seven correct variants of the method gave 0.9968 to 1.0120 on the crop;
 - the old estimator's 1.00135 was one scale step (0.0014) above 1.0, not a measurement — the
   same estimator returns 1.0 or 1.0014 for every synthetic warp of #780.

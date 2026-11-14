@@ -139,6 +139,54 @@ def test_real_bead_pair_matches_tmap_ground_truth() -> None:
     assert np.linalg.norm(est.translation) > 5.0
 
 
+def _similarity_scale(moving: np.ndarray, reference: np.ndarray) -> float:
+    """Least-squares 2-D similarity scale mapping ``moving`` onto ``reference``.
+
+    With the points as complex numbers, the fit ``reference ~ a * moving + b`` has
+    ``a = sum(conj(m) r) / sum(|m|^2)`` after centring, and the scale is ``|a|``.
+    """
+    m = moving[:, 0] + 1j * moving[:, 1]
+    r = reference[:, 0] + 1j * reference[:, 1]
+    m = m - m.mean()
+    r = r - r.mean()
+    return float(abs(np.sum(np.conj(m) * r) / np.sum(np.abs(m) ** 2)))
+
+
+def test_real_crop_scale_uncertainty_is_above_the_old_limit() -> None:
+    """Derives the reason for the 0.005 real-crop scale limit (ADR-0089, #780).
+
+    The crop's own bead pairs, fitted with a similarity, pin the scale only to a
+    bootstrap SD of about 0.0023: four times the 0.0005 limit #734 set, so that
+    limit asked the crop for a precision its content does not hold. A change to the
+    fixture, the detector or the pairing that changes this figure fails here, and
+    the limit must then be decided again.
+    """
+    from tether.imaging.detect import detect_spots
+    from tether.imaging.register import pair_control_points
+
+    data = np.load(FIXTURE)
+    donor = data["donor"].astype(np.float64)
+    acceptor = data["acceptor"].astype(np.float64)
+    gt = SimilarityTransform2D(
+        scale=float(data["gt_scale"]),
+        rotation=float(np.deg2rad(float(data["gt_rotation_deg"]))),
+        translation=data["gt_translation"],
+    )
+    pairs = pair_control_points(
+        np.asarray(detect_spots(donor)), np.asarray(detect_spots(acceptor)), tol=1.5, prealign=gt
+    )
+    n = len(pairs.reference)
+    assert n == 14
+    rng = np.random.default_rng(0)
+    scales = []
+    for _ in range(300):
+        pick = rng.integers(0, n, n)
+        scales.append(_similarity_scale(pairs.moving[pick], pairs.reference[pick]))
+    sd = float(np.std(scales))
+    assert 0.0015 < sd < 0.0035, f"bootstrap scale SD {sd:.5f}"
+    assert sd > 3 * 0.0005
+
+
 @pytest.mark.parametrize("rot_deg", [10.0, -10.0])
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_rotation_reaches_the_estimate(rot_deg: float, seed: int) -> None:
