@@ -62,10 +62,17 @@ The reference acquisition the performance envelope is written against is a
 
 ## Acquisition geometry
 
-Tether splits each frame into a left half and a right half and treats one as donor and the
-other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
-`left`); the split itself is `tether.project.extract._half_split_geometry`, which crops
-both halves from the frame *width* — there is no top/bottom split.
+By default Tether splits each frame into a left half and a right half and treats one as donor
+and the other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
+`left`). From Python, `ExtractOptions(channel_layout=…)` takes a `ChannelLayout`
+(`tether.imaging.layout`) for other optical layouts: `top-bottom` (the channels one above the
+other, stacked and not rotated, donor `top` or `bottom`) or `rectangles` (one free
+`[y1, x1, y2, x2]` rectangle for each channel, 1-based and inclusive). The two channels must be
+the same size; a layout that gives two different sizes, or a rectangle outside the frame, is
+refused, and overlapping rectangles give a warning. Each movie's layout is stored as
+`/movies/layouts/<movie_id>` in the project. There is no command-line option for a layout yet,
+and no rotation or flip of a channel; a movie whose two channels are separate files is not
+supported yet either.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
 batch`) does not expose it: `_run_batch` builds its `MovieJob`s without an `ExtractOptions`,

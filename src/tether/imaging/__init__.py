@@ -58,6 +58,14 @@ from tether.imaging.extract import (
     read_traces,
     write_extraction,
 )
+from tether.imaging.layout import (
+    DEFAULT_CHANNEL_LAYOUT,
+    LAYOUT_KINDS,
+    ChannelLayout,
+    ChannelLayoutError,
+    ChannelOverlapWarning,
+    read_layout_record,
+)
 from tether.imaging.register import (
     PairedControlPoints,
     PolyTransform2D,
@@ -78,11 +86,16 @@ from tether.imaging.split import (
 )
 
 __all__ = [
+    "DEFAULT_CHANNEL_LAYOUT",
     "DEFAULT_COLOC_DISTANCE_PX",
     "DEFAULT_RMS_GATE_PX",
+    "LAYOUT_KINDS",
     "LOW_CONFIDENCE_TAG",
     "MOLECULE_KEY_QUANTUM_PX",
     "ChannelGeometry",
+    "ChannelLayout",
+    "ChannelLayoutError",
+    "ChannelOverlapWarning",
     "ColocalizedMolecules",
     "IntegratedTraces",
     "MoleculeTraces",
@@ -118,6 +131,7 @@ __all__ = [
     "poly_basis_deg2",
     "process_image",
     "read_calibration",
+    "read_layout_record",
     "read_molecules",
     "read_patches",
     "read_tmap",

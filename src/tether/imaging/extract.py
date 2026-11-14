@@ -42,6 +42,9 @@ What it writes (PRD §5.1)
   overlap view (PRD §5.1).
 * **``/settings/extraction``** — the effective aperture/integration parameters +
   app version, written once per experiment (provenance, NFR-REPRO).
+* **``/movies/layouts/<movie_id>``** — the movie's channel layout record (#908,
+  :func:`tether.imaging.layout.write_layout_record`), only when the caller's
+  :class:`MovieMetadata` carries one.
 
 Coordinate convention follows the rest of :mod:`tether.imaging`: points are
 ``(N, 2)`` arrays of ``[x, y] = [col, row]`` in 0-based pixels; frame shapes are
@@ -67,6 +70,7 @@ from tether.imaging.aperture import (
 )
 from tether.imaging.calibrate import RegistrationMap
 from tether.imaging.coloc import ColocalizedMolecules
+from tether.imaging.layout import ChannelLayout, check_layout_slot, write_layout_record
 from tether.imaging.split import ChannelGeometry
 
 if TYPE_CHECKING:
@@ -174,6 +178,8 @@ class MovieMetadata:
     from the source file. ``donor_geometry`` / ``acceptor_geometry`` carry the
     per-channel split (crop/rotation/flip); an absent geometry (or a full-frame
     crop) is written as a zero crop ``[0, 0, 0, 0]``, rotation 0, flip ``[0, 0]``.
+    ``channel_layout`` is the layout those geometries were resolved from (#908); when
+    set, it is stored as ``/movies/layouts/<movie_id>``, and ``None`` stores nothing.
     """
 
     movie_id: str
@@ -192,6 +198,7 @@ class MovieMetadata:
     mtime: float = 0.0
     offline_flag: int = 0
     head_tail_hash: str = ""
+    channel_layout: ChannelLayout | None = None
 
     def __post_init__(self) -> None:
         if not self.movie_id:
@@ -593,11 +600,15 @@ def write_extraction(
         # so a rejected movie leaves the file untouched (h5py appends are not
         # transactional — a late raise would orphan a half-written movie's rows).
         _check_against_existing(f, project_path, movie, traces)
+        if movie.channel_layout is not None:
+            check_layout_slot(f["movies"], movie.movie_id)
         movie_row = _build_movie_row(movie)
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
         profile_json = json.dumps(dict(settings), sort_keys=True) if settings else None
 
         _append_compound_rows(f["movies"][TABLE], movie_row)
+        if movie.channel_layout is not None:
+            write_layout_record(f["movies"], movie.movie_id, movie.channel_layout)
         _write_settings_once(f, traces, profile_json)
         if molecules.n_molecules:
             _append_compound_rows(f["molecules"][TABLE], rows)

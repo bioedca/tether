@@ -37,6 +37,14 @@ imported ``.tmap``"):
   ~1.6 px molecule-domain scatter of a bead map is colocalization, not registration,
   error -- see ADR-0014).
 
+The native path splits each frame by a **channel layout** (#908,
+:mod:`tether.imaging.layout`): ``options.channel_layout`` -- side by side, top and
+bottom, or one free rectangle per channel -- or, when that is ``None``, the
+side-by-side split with the donor on ``options.donor_side``, which is the split
+Tether used before #908. The layout is stored for each movie as
+``/movies/layouts/<movie_id>``; the imported path takes its split from the ``.tmap``
+and stores no layout record.
+
 The imported ``.tmap``'s per-channel ``Rotation``/``Flip`` are decoded but their
 *apply* is deferred: a ``.tmap`` whose channels carry a non-identity rotation/flip
 is **refused** (a clean ``ExtractionError``) rather than silently split at the wrong
@@ -85,6 +93,11 @@ from tether.imaging.extract import (
     extract_molecules,
     write_extraction,
 )
+from tether.imaging.layout import (
+    LAYOUT_SIDE_BY_SIDE,
+    ChannelLayout,
+    ChannelLayoutError,
+)
 from tether.imaging.register import (
     estimate_similarity_prealign,
     estimate_translation_prealign,
@@ -127,6 +140,7 @@ class ExtractOptions:
     """
 
     donor_side: str = "left"
+    channel_layout: ChannelLayout | None = None
     detection_mode: str = "wavelet"
     detection_threshold: float | None = None
     detection_block: int = 50
@@ -150,6 +164,22 @@ class ExtractOptions:
         # ValueError from deep in a primitive (the "never a raw traceback" contract).
         if self.donor_side not in ("left", "right"):
             raise ExtractionError(f"donor_side must be 'left' or 'right', got {self.donor_side!r}")
+        # ``channel_layout`` (#908) says where each channel is in the frame; ``None``
+        # is the side-by-side split ``donor_side`` describes (the layout before #908).
+        # A layout names its own donor, so a non-default ``donor_side`` beside it is
+        # a contradiction to refuse, not a value to ignore silently.
+        if self.channel_layout is not None:
+            if not isinstance(self.channel_layout, ChannelLayout):
+                raise ExtractionError(
+                    "channel_layout must be a tether.imaging.layout.ChannelLayout or None, "
+                    f"got {type(self.channel_layout).__name__}"
+                )
+            if self.donor_side != "left":
+                raise ExtractionError(
+                    "donor_side applies only when channel_layout is None; name the donor "
+                    f"in the channel layout instead (got donor_side={self.donor_side!r} "
+                    f"and a {self.channel_layout.kind!r} layout)"
+                )
         valid_modes = tuple(m.value for m in ParticleDetectionMode)
         if self.detection_mode not in valid_modes:
             raise ExtractionError(
@@ -218,22 +248,33 @@ class ExtractionSummary:
     donor_side_check: DonorSideCheck | None = None
 
 
-def _half_split_geometry(
-    width: int, height: int, donor_side: str
-) -> tuple[ChannelGeometry, ChannelGeometry]:
-    """Build donor/acceptor :class:`ChannelGeometry` for a vertical L/R split.
+def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
+    """The channel layout an extraction with ``options`` applies (#908).
 
-    Both halves are cropped to the *same* width ``width // 2`` (a trailing odd
-    column is dropped) so the per-half detection images share a shape — a
-    precondition of the phase-correlation prealign.
+    ``options.channel_layout`` when set; otherwise the side-by-side split with the
+    donor on ``options.donor_side`` -- the one layout Tether had before #908, so a
+    default extraction is unchanged.
     """
-    half = width // 2
-    if half < 1:
-        raise ExtractionError(f"movie too narrow ({width} px) to split into two channels")
-    # ChannelGeometry.crop is [y1, x1, y2, x2], 1-based inclusive.
-    left = ChannelGeometry(crop=(1, 1, height, half))
-    right = ChannelGeometry(crop=(1, half + 1, height, 2 * half))
-    return (left, right) if donor_side == "left" else (right, left)
+    if options.channel_layout is not None:
+        return options.channel_layout
+    return ChannelLayout(kind=LAYOUT_SIDE_BY_SIDE, donor=options.donor_side)
+
+
+def _layout_geometry(
+    layout: ChannelLayout, width: int, height: int
+) -> tuple[ChannelGeometry, ChannelGeometry]:
+    """Build donor/acceptor :class:`ChannelGeometry` for ``layout`` on one frame size.
+
+    Both channels get the *same* size (the half layouts drop an odd trailing column
+    or row, and a ``rectangles`` layout must give two equal rectangles) so the
+    per-channel detection images share a shape -- a precondition of the
+    phase-correlation prealign. A layout that cannot split this frame becomes a
+    clean :class:`ExtractionError`.
+    """
+    try:
+        return layout.geometries(height, width)
+    except ChannelLayoutError as exc:
+        raise ExtractionError(f"channel layout cannot split this movie: {exc}") from exc
 
 
 def _hash_movie(path: Path) -> tuple[str, int, float]:
@@ -399,8 +440,9 @@ def extract_movie(
     Parameters
     ----------
     movie_path:
-        An uncompressed (big-endian) dual-channel TIFF movie; the two channels
-        are the left/right halves (see ``options.donor_side``).
+        An uncompressed (big-endian) dual-channel TIFF movie; where the two
+        channels are in the frame is ``options.channel_layout`` (#908), by default
+        the left/right halves with the donor on ``options.donor_side``.
     output_path:
         Destination ``.tether`` project; created fresh (must not exist unless
         ``overwrite``).
@@ -410,8 +452,9 @@ def extract_movie(
         Optional path to a Deep-LASI ``.tmap``. When given, registration is
         **imported** from it (the native detect/prealign/pair/fit is skipped); the
         two channels are split + read at the ``.tmap``'s own stored crop geometry,
-        so ``options.donor_side`` is ignored. When ``None`` (default), a native fit
-        is paired from the movie's own detections.
+        so ``options.donor_side`` is ignored and an ``options.channel_layout`` is
+        refused. When ``None`` (default), a native fit is paired from the movie's
+        own detections.
     tdat:
         Optional path to a Deep-LASI ``.tdat``. When given, the particle-detection
         mode (and, once the MCOS ``Channel`` decoder lands, the per-channel
@@ -442,7 +485,9 @@ def extract_movie(
         Any operator-actionable failure: invalid options, a missing or
         unreadable/compressed movie, a missing or undecodable ``.tmap`` or
         ``.tdat`` (or a ``.tdat`` with an unsupported detection mode), a
-        pre-existing output without ``overwrite``, an un-splittable frame, too few
+        pre-existing output without ``overwrite``, an un-splittable frame (a channel
+        layout whose rectangles are outside the frame, or a frame too small to cut
+        in two), a channel layout given together with a ``.tmap``, too few
         matched control points to register (native path), or a write failure. Never
         a raw primitive traceback.
     """
@@ -458,6 +503,13 @@ def extract_movie(
         raise ExtractionError(f"tdat not found: {tdat}")
     if output_path.exists() and not overwrite:
         raise ExtractionError(f"output exists: {output_path} (use overwrite=True / --overwrite)")
+    if tmap is not None and options.channel_layout is not None:
+        # The imported path splits at the .tmap's own crops; a layout beside it would
+        # name a second, competing split.
+        raise ExtractionError(
+            "channel_layout and tmap both set the channel split; give only one (the "
+            ".tmap splits at its own stored crop geometry)"
+        )
 
     # A .tdat supplies the detection mode/threshold the movie was actually detected
     # with; resolve it up front (before any movie IO) so a bad or unsupported-mode
@@ -488,6 +540,7 @@ def extract_movie(
             # FrameTime, so a legacy import cannot supply one later either.
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
 
+            layout: ChannelLayout | None = None
             if imported_map is not None:
                 # Imported path: registration comes from the .tmap. Split + detect
                 # at its own stored channel crop geometry (donor = reference half,
@@ -506,7 +559,8 @@ def extract_movie(
                 )
             else:
                 # Native path: pair control points from the movie's own detections.
-                donor_geom, acceptor_geom = _half_split_geometry(width, height, options.donor_side)
+                layout = resolve_channel_layout(options)
+                donor_geom, acceptor_geom = _layout_geometry(layout, width, height)
                 donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
                 donor_det, acceptor_det, donor_spots, acceptor_spots = _detect_channels(
                     donor_stack, acceptor_stack, options
@@ -604,6 +658,7 @@ def extract_movie(
         acceptor_geometry=acceptor_geom,
         file_size=file_size,
         mtime=mtime,
+        channel_layout=layout,
     )
     settings = _settings(
         options,

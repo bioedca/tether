@@ -24,7 +24,7 @@ The format has **two layers**, and they carry different guarantees:
   page is a bug**.
 - Everything a pipeline stage writes *later* — `/traces/*`, `/patches/*`,
   `/settings/*`, `/idealization/{model}`, `/features/table`, `/conditions/categories`,
-  `/calibration/*` — is additive per-record data declared by the module that writes
+  `/movies/layouts`, `/calibration/*` — is additive per-record data declared by the module that writes
   it. None of it appears in the manifest, so the manifest cannot arbitrate it: the
   writer named in each section below is the authority. Note the `/*`: the **container
   groups** these live in are themselves part of the frozen skeleton above, and only
@@ -147,7 +147,7 @@ guaranteed to be there.
 | `/movies/table`, `/molecules/table`, `/conditions/table`, `/labels/table` | yes, 0 rows | `create_project` (`src/tether/io/schema.py`) |
 | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models` | yes, empty groups | `create_project` |
 | `/calibration/<calibration_id>/…` | no | `write_calibration` (`src/tether/imaging/calibrate.py`) |
-| `/movies` and `/molecules` rows, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/movies` and `/molecules` rows, `/movies/layouts/<movie_id>`, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
 | `/idealization/{model}` | no | `write_idealization_model` (`src/tether/project/idealize.py`) |
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
@@ -240,6 +240,23 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `acceptor_rotation_deg` | `i4` | scalar | Same, acceptor channel. |
 | `donor_flip` | `i1` | `(2,)` | `[vertical, horizontal]` flip flags, `0`/`1`. |
 | `acceptor_flip` | `i1` | `(2,)` | Same, acceptor channel. |
+
+The group also holds an additive child, `/movies/layouts/<movie_id>`: the **channel layout**
+the movie was split by (#908; `write_layout_record` in `src/tether/imaging/layout.py`). Each
+record is an empty group with attributes only:
+
+- `version` (int): `1`. A reader refuses a newer version (`read_layout_record`).
+- `kind` (str): `side-by-side`, `top-bottom` or `rectangles`.
+- `donor` and `acceptor` (str): the donor and the acceptor half — `left`/`right` or
+  `top`/`bottom` — and `""` for `rectangles`.
+- `donor_rect` and `acceptor_rect` (int32 `[y1, x1, y2, x2]`, 1-based inclusive): for
+  `rectangles` only.
+
+The record states the layout; the crops it resolved to for this frame size are the
+`donor_crop` and `acceptor_crop` fields above. The native `tether extract` path writes one for
+every movie, the default `side-by-side` / `left` included. A store written before #908, a
+Deep-LASI reconstruction, and an extraction that took its split from an imported `.tmap` have
+no record for the movie; read the crop fields instead.
 
 ## `/molecules` — one row per molecule
 
