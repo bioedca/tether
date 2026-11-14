@@ -50,8 +50,9 @@ MEMORY_FLOOR_BYTES = 1 << 20
 NOISE_CEILING = 1.2
 _MIN_REPEAT_S = 0.05
 #: One child measurement that runs longer than this is stopped and recorded as an error. The
-#: slowest case took about 10 s on a GitHub runner in the noise run of #722; a hanging case
-#: then costs at most rounds x sizes x this (30 min), inside the job's 60-minute limit (#875).
+#: slowest case took about 10 s on a GitHub runner in the noise run of #722. A case that timed
+#: out on one tree is not run again on that tree (``_cmd_run``), so a hanging case costs at most
+#: sizes x trees x this (20 min for base and head), inside the job's 60-minute limit (#875).
 CHILD_TIMEOUT_S = 300.0
 
 
@@ -193,12 +194,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
         names = [n for n in names if n in args.cases.split(",")]
     sizes = args.sizes.split(",") if args.sizes else list(SIZES)
     raw: dict[str, dict[str, list[dict]]] = {side: {} for side in sides}
+    timed_out: dict[tuple[str, str], dict] = {}  # (src, case/size) -> its timeout record
     for r in range(args.rounds):
         order = list(sides) if r % 2 == 0 else list(reversed(sides))
         for name in names:
             for size in sizes:
                 for side in order:
-                    rec = _child(sides[side], name, size, args.repeats, args.timeout)
+                    key = (sides[side], f"{name}/{size}")
+                    if key in timed_out:  # the same tree again (a later round, a noise copy)
+                        rec = dict(timed_out[key])
+                    else:
+                        rec = _child(sides[side], name, size, args.repeats, args.timeout)
+                        if str(rec.get("error", "")).startswith("timed out after"):
+                            timed_out[key] = rec
                     raw[side].setdefault(f"{name}/{size}", []).append(rec)
                     print(f"round {r + 1} {side:>6} {name}/{size}: {rec}", flush=True)
     result = {

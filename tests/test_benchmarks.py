@@ -181,6 +181,26 @@ def test_a_timeout_also_stops_what_the_child_started() -> None:
     assert time.monotonic() - start < 8  # without the group kill: 1 s + the 10 s drain
 
 
+def test_a_timed_out_case_is_not_run_again_on_the_same_tree(monkeypatch, tmp_path) -> None:
+    # Three rounds of a hanging head would cost 3 timeouts per size; one is enough (#875).
+    calls: list[str] = []
+
+    def child(src: str, case: str, size: str, repeats: int, timeout: float) -> dict:
+        calls.append(src)
+        return {"error": f"timed out after {timeout:g} s"} if src == "h" else _rec(0.1)
+
+    monkeypatch.setattr(bench, "_child", child)
+    out = tmp_path / "r.json"
+    common = ["--cases", "histogram", "--sizes", "small", "--timeout", "7", "--out", str(out)]
+    assert bench.main(["run", "--side", "base=b", "--side", "head=h", *common]) == 0
+    assert calls.count("b") == 3 and calls.count("h") == 1
+    head = json.loads(out.read_text("utf-8"))["sides"]["head"]["histogram/small"]
+    assert head == {"error": "timed out after 7 s"}
+    calls.clear()  # the noise run: ten copies of one tree time out once in all
+    assert bench.main(["run", "--side", "run=h", "--copies", "10", "--rounds", "1", *common]) == 0
+    assert calls == ["h"]
+
+
 def test_a_child_that_prints_no_record_reports_its_exit_status() -> None:
     record = bench.run_child([sys.executable, "-c", "import sys; sys.exit('boom')"])
     assert record == {"error": "exit 1: boom"}
