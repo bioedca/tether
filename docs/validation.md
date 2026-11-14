@@ -881,7 +881,7 @@ be 0.
 
 **Where it runs.** The required matrix reads a committed extract of the smallest project file (18
 molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a
-`workstation` entry of the manifest: the weekly workstation run verifies it, makes the extract again
+`workstation` entry of the manifest: the nightly workstation run verifies it, makes the extract again
 and compares it byte for byte, and runs both checks on every file of the archive that has the
 layout of that MASH-FRET generation.
 
@@ -1166,7 +1166,7 @@ evidence about the size of the difference and not a tolerance.
   reference data.
 - Oracle (a) is stronger than that: its headline assertion depends on the ≈0.9 GB UCKOPSB
   movie, which exceeds the repo's Git-LFS budget and so is on **no** CI runner. No CI job
-  collects it; the weekly scheduled task on the maintainer's workstation runs it
+  collects it; the nightly scheduled task on the maintainer's workstation runs it
   ([#699](https://github.com/bioedca/tether/issues/699)), and a CI run says nothing about it.
 - The frozen **default** parity tolerance for (b) was measured against tMAVEN `71cfa1af`
   (2025-05-06) on CPython 3.9.23 — 13 upstream commits behind the pinned `10f4230b`
