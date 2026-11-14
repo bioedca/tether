@@ -642,8 +642,8 @@ Tether **shall** provide:
 
 ### 7.8 FR-LEGACY — Legacy import & Deep-LASI re-analysis
 
-Tether **shall** import Deep-LASI projects and tMAVEN SMD. The importer reads a Deep-LASI acquisition (the `.tdat`,
-the `.mat` export, the `.txt` and a tMAVEN SMD), pairs it to its movie and rebuilds a round-trip project from it
+Tether **shall** import Deep-LASI projects and tMAVEN SMD. The importer reads a Deep-LASI acquisition (its `.tdat`,
+plus any of the `.mat` export, the `.txt` and a tMAVEN SMD), pairs it to its movie and rebuilds a round-trip project from it
 (the re-analysis workflow below); it imports a coordinate-less SMD or `.txt` as an analysis-only project.
 
 A **raw `.txt`-sourced tMAVEN SMD imported standalone** (no `.tdat`, no `.mat`, possibly no movie — e.g. the M6
