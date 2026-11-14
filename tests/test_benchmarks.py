@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -153,6 +154,51 @@ def test_one_refuses_a_tree_that_tether_was_not_imported_from(tmp_path: Path) ->
     assert "not " + str(tmp_path.resolve()) in json.loads(proc.stdout)["error"]
 
 
+def test_a_hanging_child_gives_a_timed_out_error_record() -> None:
+    # A case that hangs must name itself in the table, not run into the job's limit (#875).
+    record = bench.run_child([sys.executable, "-c", "import time; time.sleep(60)"], timeout=1)
+    assert record == {"error": "timed out after 1 s"}
+    lines, failures = bench.compare(
+        _result({"cloud/small": _rec(0.1)}, {"cloud/small": bench._merge([record])}),
+        "base", "head", 1.5,
+    )  # fmt: skip
+    assert failures == ["cloud/small: head failed to run (timed out after 1 s)"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX; the job is Linux")
+def test_a_timeout_also_stops_what_the_child_started() -> None:
+    # The sidecar fit runs in a grandchild that inherits the output pipe; left alive, it
+    # would keep the timed-out call waiting until it finished.
+    code = (
+        "import subprocess, sys, time; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        "time.sleep(60)"
+    )
+    start = time.monotonic()
+    assert bench.run_child([sys.executable, "-c", code], timeout=1) == {
+        "error": "timed out after 1 s"
+    }
+    assert time.monotonic() - start < 8  # without the group kill: 1 s + the 10 s drain
+
+
+def test_a_child_that_prints_no_record_reports_its_exit_status() -> None:
+    record = bench.run_child([sys.executable, "-c", "import sys; sys.exit('boom')"])
+    assert record == {"error": "exit 1: boom"}
+
+
+def test_the_sidecar_case_seeds_the_fit(monkeypatch, tmp_path: Path) -> None:
+    # Unseeded, tMAVEN starts from OS entropy and base and head can fit different models (#875).
+    import cases
+
+    import tether.idealize.driver as driver
+
+    calls: list[dict] = []
+    monkeypatch.setattr(driver, "run_vbfret", lambda smd, **kw: calls.append(kw))
+    fn, _ = CASES["idealize_sidecar"].setup("small", tmp_path)
+    fn()
+    assert calls[0]["seed"] == cases._SEED
+
+
 @pytest.mark.parametrize("name", [n for n, c in CASES.items() if c.group == "default"])
 def test_each_default_case_runs_at_the_small_size(name: str) -> None:
     record = bench.measure(name, "small", repeats=1)
@@ -178,6 +224,9 @@ def test_the_job_runs_only_for_source_changes_and_compares_base_with_head() -> N
     assert 'git merge-base "$BASE_SHA" HEAD' in text
     assert '--side base="$RUNNER_TEMP/base/src" --side head="$head"' in text
     assert 'head="$GITHUB_WORKSPACE/src"' in text
+    # Assigned, then exported: `export X="$(...)"` would hide a failed lookup (SC2155, #875).
+    assert "export TETHER_SIDECAR_PYTHON=" not in text
+    assert "\n          export TETHER_SIDECAR_PYTHON\n" in text
     checkout = workflow["jobs"]["bench"]["steps"][0]
     assert checkout["with"]["ref"] == "${{ github.event.pull_request.head.sha || github.sha }}"
     for job in workflow["jobs"].values():
