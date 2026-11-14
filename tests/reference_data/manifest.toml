@@ -86,6 +86,33 @@ extract_of = ["kinsoft-sim-fig4"]
 extract_member = "sim_level3_final_publish/trace_58.txt"
 citation = "Götz M, Barth A, Bohr SS-R, et al. A blind benchmark of analysis tools to infer kinetic rate constants from single-molecule FRET trajectories. Nat Commun 13:5402 (2022). doi:10.1038/s41467-022-33023-3"
 
+# --- PySMACKS tutorial traces: Zenodo 10.5281/zenodo.21793247, CC0-1.0 (#720) ----------------
+
+[[dataset]]
+id = "pysmacks-tutorial-traces"
+source = "doi:10.5281/zenodo.21793247"
+record_url = "https://zenodo.org/records/21793247"
+license = "CC0-1.0"
+file = "PySMACKS_tutorial_traces_dataset.json.zip"
+size = 28009862
+sha256 = "2c19091c55326b1eadda42b0e99c8a8c6123f92f9ecccafae176db7fbcb3da59"
+tier = "download"
+download_url = "https://zenodo.org/records/21793247/files/PySMACKS_tutorial_traces_dataset.json.zip?download=1"
+citation = "Molcrette B, Schmid S. Dataset for the PySMACKS tutorial (v1.0.0). Zenodo (2026). doi:10.5281/zenodo.21793247"
+
+[[dataset]]
+id = "pysmacks-tutorial-reference"
+source = "doi:10.5281/zenodo.21793247"
+record_url = "https://zenodo.org/records/21793247"
+license = "CC0-1.0"
+file = "tests/fixtures/pysmacks_tutorial_reference.json"
+size = 6438
+sha256 = "0d1a8e2d2c13f7020bed3c67ab05f879265543b67c29570c44ad729699bbc1da"
+tier = "git"
+extract_of = ["pysmacks-tutorial-traces"]
+extract_script = "scripts/make_pysmacks_reference.py"
+citation = "Molcrette B, Schmid S. Dataset for the PySMACKS tutorial (v1.0.0). Zenodo (2026). doi:10.5281/zenodo.21793247"
+
 # --- RF2-ArfA smFRET data and tMAVEN analysis: Zenodo 10.5281/zenodo.17246323, CC-BY-4.0 ----
 # The tMAVEN authors' own SMD files and "vb Consensus HMM" models (#708, ADR-0079). The smallest
 # pair is committed: the model file verbatim, and an extract of the SMD file that keeps every
