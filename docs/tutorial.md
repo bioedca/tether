@@ -1,3 +1,7 @@
+---
+description: "Take a small sample movie through Tether from extraction to an exported table in about fifteen minutes, with no data of your own."
+---
+
 # Your first analysis
 
 **Who this page is for.** Someone who has just installed Tether by following

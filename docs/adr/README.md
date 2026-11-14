@@ -1,3 +1,7 @@
+---
+description: "The architecture decision records of Tether: the reasoning, the options and the result of each consequential design choice."
+---
+
 # Architecture Decision Records (ADRs)
 
 **Who this page is for.** Anyone who wants the reasoning behind a consequential Tether design

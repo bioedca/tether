@@ -1,3 +1,7 @@
+---
+description: "Download, verify, install and uninstall the Tether desktop installer on Windows, macOS or Linux. No Python or conda knowledge is necessary."
+---
+
 # Install Tether
 
 **Who this page is for.** A lab scientist who wants to run Tether on their own Windows, macOS

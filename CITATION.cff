@@ -49,8 +49,10 @@ keywords:
 #      when the GitHub Release is published, after the tagged commit exists. So no tagged
 #      commit can name its own version DOI, and none is written here.
 #   3. `doi:` below is the *concept* DOI, which always resolves to the newest archived
-#      version. It never changes between releases, and README.md and docs/citing.md
-#      carry the same value. Each version DOI lives on its Zenodo record only.
+#      version. It never changes between releases, and README.md, docs/citing.md and
+#      the docs landing page docs/index.md carry the same value; the docs build copies it
+#      into each page head (scripts/docs_citation_hook.py). Each version DOI lives on its
+#      Zenodo record only.
 #   4. The release commit sets `version:` (the tag without its leading "v") and
 #      `date-released:` (ISO 8601) to the release being cut; until then they describe the
 #      newest archived release.

@@ -1,3 +1,7 @@
+---
+description: "Each analysis default that Tether applies, how to change it, and if your project records it for a methods section."
+---
+
 # Analysis parameters
 
 **Who this page is for.** The person who runs the experiment, not the person who maintains the

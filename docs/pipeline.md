@@ -1,3 +1,7 @@
+---
+description: "How Tether takes a movie through extraction, curation, corrections, idealization, analysis and export, and why each choice matters in a paper."
+---
+
 # How Tether works
 
 **Who this page is for.** You are about to analyze single-molecule FRET data with Tether and

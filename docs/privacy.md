@@ -1,3 +1,7 @@
+---
+description: "What Tether and this documentation site collect and do not collect. You need no repository access to rely on this policy."
+---
+
 # Privacy policy
 
 **Who this page is for.** Anyone who runs Tether or visits this site; no repository access is

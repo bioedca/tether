@@ -1,3 +1,7 @@
+---
+description: "Check if Tether can read your smFRET acquisition before you install it: the movie geometry, the file formats, the limits and the cost of a dataset."
+---
+
 # Does Tether fit my data?
 
 **Who this page is for.** Anyone deciding whether to install Tether at all. It describes

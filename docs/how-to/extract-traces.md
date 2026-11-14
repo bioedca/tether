@@ -1,3 +1,7 @@
+---
+description: "Make a .tether project of donor and acceptor traces from a dual-view TIRF movie, with or without a Deep-LASI channel map."
+---
+
 # Extract traces from a dual-view movie
 
 ## Who this page is for

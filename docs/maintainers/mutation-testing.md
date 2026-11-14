@@ -1,3 +1,7 @@
+---
+description: "How to read the monthly mutation report, and how to add a mutant to the list of known equivalent mutants."
+---
+
 # Reading the mutation report
 
 **Who this page is for.** The maintainer and contributors who read the monthly mutation report

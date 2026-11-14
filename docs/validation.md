@@ -1,3 +1,7 @@
+---
+description: "The seven validation oracles of Tether: what each compares, the reference data, the frozen tolerance, the measured result and the test that enforces it."
+---
+
 # Validation & benchmarks
 
 **Who this page is for:** anyone deciding whether an analysis produced with Tether is

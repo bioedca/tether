@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from _docs_source import check_call, dict_literals, tether_calls
+from _docs_source import check_call, dict_literals, split_front_matter, tether_calls
 from tether.cli import build_parser
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +60,8 @@ _PYTHON_LANGS = {"python", "py", "pycon"}
 
 
 def _text(name: str) -> str:
-    return (HOW_TO / name).read_text(encoding="utf-8")
+    """The page's Markdown, without the YAML front matter that carries its description."""
+    return split_front_matter((HOW_TO / name).read_text(encoding="utf-8"))[1]
 
 
 def _fences(name: str, langs: set[str]) -> list[str]:
