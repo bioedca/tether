@@ -271,6 +271,13 @@ def test_a_benchmark_case_or_group_that_cannot_run_fails_the_benchmark_check() -
     assert by_name[ph.CHECK_ACQUISITIONS] == "passed"
     record["benchmark_errors"] = ["movie.tif"]
     assert ph.validate_record(record)
+    # A group that exits 0 with no case measured (an empty group or a --cases that matches
+    # none) did not run either.
+    for sides in ({}, {"main": {}}):
+        empty = _record(bench=[*_bench(), {"group": "gui", "sides": sides}])
+        assert empty["benchmark_errors"] == ["gui/run"]
+        by_name = {c["check"]: c["outcome"] for c in ph.checks_for(empty, [])}
+        assert by_name[ph.CHECK_BENCHMARKS] == "failed"
 
 
 def test_the_baseline_is_the_last_10_records_not_the_last_10_values(tmp_path) -> None:

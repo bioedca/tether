@@ -137,7 +137,11 @@ def bench_values(bench: list | None) -> tuple[dict[str, dict[str, float]], list[
         if "error" in result:
             errors.append(f"{result['group']}/run")
             continue
-        for case, rec in next(iter(result["sides"].values()), {}).items():
+        cases = next(iter(result["sides"].values()), {})
+        if not cases:  # the group ran and measured nothing: it did not run either
+            errors.append(f"{result['group']}/run")
+            continue
+        for case, rec in cases.items():
             if "error" in rec or not _number(rec.get("time_s")):
                 errors.append(case)
                 continue
