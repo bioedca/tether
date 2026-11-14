@@ -58,6 +58,7 @@ __all__ = [
     "info_plist",
     "is_tether_bundle",
     "launcher_script",
+    "launcher_target",
     "main",
     "write_bundle",
 ]
@@ -146,6 +147,31 @@ def launcher_script(prefix: Path) -> str:
     )
 
 
+def launcher_target(script: str) -> Path | None:
+    """The program that a launcher written by :func:`launcher_script` ``exec``s, or None."""
+    for line in script.splitlines():
+        if line.startswith("exec "):
+            try:
+                words = shlex.split(line)
+            except ValueError:
+                return None
+            return Path(words[1]) if len(words) == 3 and words[2] == "$@" else None
+    return None
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    """True when *a* and *b* name one file.
+
+    A path comparison is not enough on macOS: constructor installs into a lower-case
+    folder (``~/tether``) on a file system that ignores case, so ``~/Tether`` names the
+    same folder with a different string.
+    """
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.abspath(a) == os.path.abspath(b)
+
+
 def _read_plist(bundle: Path) -> dict[str, Any] | None:
     try:
         with open(bundle / "Contents" / "Info.plist", "rb") as handle:
@@ -229,7 +255,8 @@ def check_bundle(bundle: Path, prefix: Path) -> list[str]:
     else:
         if os.name == "posix" and not exe.stat().st_mode & stat.S_IXUSR:
             problems.append(f"the bundle executable cannot run: {exe}")
-        if exe.read_text(encoding="utf-8") != launcher_script(prefix):
+        started = launcher_target(exe.read_text(encoding="utf-8"))
+        if started is None or not _same_file(started, _gui_entry_point(prefix)):
             problems.append(f"the bundle executable does not start {_gui_entry_point(prefix)}")
     target = _gui_entry_point(prefix)
     if not target.is_file():

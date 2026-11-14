@@ -245,3 +245,27 @@ def test_install_guide_names_the_bundle_for_launch_and_uninstall() -> None:
     macos = uninstall.split("**macOS**", 1)[1]
     assert "rm -rf ~/Tether ~/Applications/Tether.app" in macos
     assert "Launchpad" in doc.split("## 5. Check that Tether runs", 1)[1].split("\n## ", 1)[0]
+
+
+def test_check_accepts_another_spelling_of_the_same_install_folder(tmp_path) -> None:
+    """constructor's ``.pkg`` installs into ``~/tether``; the smoke names it ``~/Tether``.
+
+    The two strings name one folder on macOS and Windows, whose file systems ignore case.
+    On Linux a link stands in for that: ``check`` compares the files, not the strings.
+    """
+    prefix = _prefix(tmp_path, "tether")
+    bundle = macos_app.write_bundle(prefix, tmp_path / "Applications", "1.0.0")
+    if sys.platform.startswith("linux"):
+        alias = tmp_path / "Tether-alias"
+        alias.symlink_to(prefix, target_is_directory=True)
+    else:
+        alias = tmp_path / "TETHER"
+    assert macos_app.check_bundle(bundle, alias) == []
+
+
+def test_launcher_target_reads_the_exec_line(tmp_path) -> None:
+    prefix = tmp_path / "with space" / "Tether"
+    expected = Path(os.path.abspath(prefix)) / "envs" / "tether" / "bin" / "tether-gui"
+    assert macos_app.launcher_target(macos_app.launcher_script(prefix)) == expected
+    assert macos_app.launcher_target("#!/bin/sh\necho hi\n") is None
+    assert macos_app.launcher_target("exec 'unterminated\n") is None
