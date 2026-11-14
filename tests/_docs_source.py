@@ -119,10 +119,15 @@ def dict_literals(tree: ast.Module) -> dict[str, list[str]]:
     return found
 
 
-def tether_imports(*trees: ast.Module) -> dict[str, str]:
-    """``{bound name: module}`` for every ``from tether... import name`` in ``trees``."""
+def tether_imports(*trees: ast.Module) -> dict[str, tuple[str, str]]:
+    """``{bound name: (module, original name)}`` for every ``from tether... import`` in ``trees``.
+
+    The bound name matches the page's calls; the original name finds the definition, so
+    ``from tether.m import a as b`` checks ``b(...)`` against ``a`` and never against a
+    different ``b`` that ``tether.m`` may also define (#853).
+    """
     return {
-        alias.asname or alias.name: node.module
+        alias.asname or alias.name: (node.module, alias.name)
         for tree in trees
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("tether")
@@ -131,7 +136,7 @@ def tether_imports(*trees: ast.Module) -> dict[str, str]:
 
 
 def tether_calls(
-    src: Path, tree: ast.Module, imported: dict[str, str] | None = None
+    src: Path, tree: ast.Module, imported: dict[str, tuple[str, str]] | None = None
 ) -> list[tuple[str, ast.Call, ast.FunctionDef | None, bool]]:
     """Every call in ``tree`` of a name imported from ``tether``.
 
@@ -148,14 +153,16 @@ def tether_calls(
     found: list[tuple[str, ast.Call, ast.FunctionDef | None, bool]] = []
     for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
         if isinstance(call.func, ast.Name) and call.func.id in imported:
-            target = top_level(module_tree(src, imported[call.func.id]), call.func.id)
+            module, original = imported[call.func.id]
+            target = top_level(module_tree(src, module), original)
             label, bound = call.func.id, False
         elif (
             isinstance(call.func, ast.Attribute)
             and isinstance(call.func.value, ast.Name)
             and call.func.value.id in imported
         ):
-            owner = top_level(module_tree(src, imported[call.func.value.id]), call.func.value.id)
+            module, original = imported[call.func.value.id]
+            owner = top_level(module_tree(src, module), original)
             target = (
                 top_level(ast.Module(body=owner.body, type_ignores=[]), call.func.attr)
                 if isinstance(owner, ast.ClassDef)
