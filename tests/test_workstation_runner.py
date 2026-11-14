@@ -501,7 +501,7 @@ def test_a_completed_scheduled_run_after_a_run_error_names_the_run_issue_for_rec
     failed = {**done, "status": "failed", "checks": [{**done["checks"][0], "outcome": "failed"}]}
     opened, passed = report_of("20261121T030000Z-0123456789ab.json", failed)
     assert runner.RUN_ISSUE_TITLE not in opened and passed == [runner.RUN_ISSUE_TITLE]
-    # A result too old to be the weekly run, or a dry run, is no recovery.
+    # A result too old to be the nightly run, or a dry run, is no recovery.
     newest = tmp_path / "20261121T030000Z-0123456789ab.json"
     old = time.time() - (runner.STALE_HOURS + 1) * 3600
     os.utime(newest, (old, old))

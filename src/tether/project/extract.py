@@ -133,7 +133,7 @@ class ExtractOptions:
     min_separation: float | None = None
     prealign: str = "translation"
     prealign_upsample: int = 10
-    prealign_low_sigma: float = 3.0
+    prealign_low_sigma: float = 1.0
     prealign_high_sigma: float = 20.0
     pair_tol: float = 2.0
     rms_gate: float = 0.5
