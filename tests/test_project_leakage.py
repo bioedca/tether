@@ -23,6 +23,7 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
+from test_project_gamma import _gamma_store  # noqa: E402, PLC2701
 from tether.imaging.aperture import IntegratedTraces  # noqa: E402
 from tether.imaging.calibrate import RegistrationMap  # noqa: E402
 from tether.imaging.coloc import ColocalizedMolecules  # noqa: E402
@@ -37,6 +38,7 @@ from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import TABLE, create_project  # noqa: E402
 from tether.project import lock  # noqa: E402
+from tether.project.gamma import compute_gamma  # noqa: E402
 from tether.project.leakage import compute_leakage_alpha  # noqa: E402
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
@@ -285,6 +287,62 @@ def test_withholding_recompute_clears_previously_applied_alpha(tmp_path: Path) -
     second = compute_leakage_alpha(path, min_qualifying_traces=999)
     assert second.applied is False
     assert np.all(np.isnan(read_molecules(path)["alpha"]))
+
+
+@pytest.mark.parametrize("guarded", [False, True], ids=["in-place", "guarded"])
+def test_withholding_recompute_removes_stale_settings_gamma(tmp_path: Path, guarded: bool) -> None:
+    # #549: a withheld second leakage pass resets processed /molecules.gamma to NaN
+    # (#252), and the documented workflow then skips compute_gamma. The previous
+    # pass's /settings/gamma must not survive as provenance for a gamma that no
+    # molecule carries any more; the maintainer chose removal over a marker.
+    path = tmp_path / "leak.tether"
+    _gamma_store(path, n_mol=14)
+    assert compute_leakage_alpha(path).applied is True
+    assert compute_gamma(path).applied is True
+    with h5py.File(path, "r") as f:
+        assert "gamma" in f["settings"]
+
+    owner = lock.acquire(path) if guarded else None
+    try:
+        guard = (lambda: None) if guarded else None
+        second = compute_leakage_alpha(path, min_qualifying_traces=999, write_guard=guard)
+    finally:
+        if owner is not None:
+            assert lock.release(path, owner)
+    assert second.applied is False
+
+    assert np.all(np.isnan(read_molecules(path)["gamma"]))
+    with h5py.File(path, "r") as f:
+        assert "gamma" not in f["settings"]
+        # The leakage stamp itself stays, so the withheld attempt is auditable.
+        assert bool(f["settings/leakage"].attrs["withheld"]) is True
+
+
+def test_applied_recompute_keeps_settings_gamma(tmp_path: Path) -> None:
+    # Only a withheld pass invalidates gamma; an applied pass leaves both the
+    # per-molecule gamma and its /settings/gamma provenance in place.
+    path = tmp_path / "leak.tether"
+    _gamma_store(path, n_mol=14)
+    compute_leakage_alpha(path)
+    compute_gamma(path)
+    with h5py.File(path, "r") as f:
+        before = dict(f["settings/gamma"].attrs)
+
+    assert compute_leakage_alpha(path).applied is True
+    assert np.all(np.isfinite(read_molecules(path)["gamma"]))
+    with h5py.File(path, "r") as f:
+        assert dict(f["settings/gamma"].attrs).keys() == before.keys()
+        assert f["settings/gamma"].attrs["created_utc"] == before["created_utc"]
+
+
+def test_withheld_pass_without_a_gamma_pass_adds_nothing_else(tmp_path: Path) -> None:
+    # A withheld pass on a project that never ran gamma has no /settings/gamma to
+    # remove and must not fail looking for one.
+    path = tmp_path / "leak.tether"
+    _cohort_store(path, n_mol=12, alpha=0.1)
+    assert compute_leakage_alpha(path, min_qualifying_traces=999).applied is False
+    with h5py.File(path, "r") as f:
+        assert "gamma" not in f["settings"]
 
 
 def test_recompute_overwrites_settings(tmp_path: Path) -> None:
