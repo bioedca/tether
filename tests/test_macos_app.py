@@ -28,7 +28,9 @@ INSTALL_SMOKE = ROOT / "packaging" / "scripts" / "install_smoke.sh"
 INSTALL_DOC = ROOT / "docs" / "install.md"
 
 _POSIX_SH = os.name == "posix" and shutil.which("sh") is not None
-needs_sh = pytest.mark.skipif(not _POSIX_SH, reason="the bundle launcher is a sh script")
+needs_sh = pytest.mark.skipif(
+    not _POSIX_SH, reason="the bundle launcher and post_install.sh are sh scripts"
+)
 
 
 def _prefix(tmp_path: Path, name: str = "Tether with space") -> Path:
@@ -188,10 +190,7 @@ def test_cli_installs_and_checks(tmp_path, capsys) -> None:
     assert macos_app.main(["check", str(bundle), "--prefix", str(tmp_path / "x")]) == 1
 
 
-@pytest.mark.skipif(
-    not sys.platform.startswith("linux") or shutil.which("sh") is None,
-    reason="runs post_install.sh with a stand-in uname",
-)
+@needs_sh
 def test_post_install_writes_the_bundle_on_macos(tmp_path) -> None:
     """``post_install.sh`` on "macOS" writes ``~/Applications/Tether.app``, run twice.
 
