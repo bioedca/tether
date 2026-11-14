@@ -382,8 +382,11 @@ Sidecar `parameters` for this export: `include_raw`, `include_rejected`, `molecu
 a bare `matplotlib.figure.Figure` and writes nothing; `export_figure` is the only function
 that touches disk. Figures are built with the object-oriented `Figure` API rather than
 `pyplot`, so no GUI backend is selected and the base environment stays `matplotlib-base`
-(ADR-0044). The module is deliberately **not** re-exported from `tether.analysis`, so
-importing the package does not pull in Matplotlib.
+(ADR-0044). `tether.analysis` re-exports the module and its public names **lazily**: a
+module-level `__getattr__` ([PEP 562](https://peps.python.org/pep-0562/)) imports
+`plot_export` on the first access to one of them. `from tether.analysis import export_figure`
+therefore works, and `import tether.analysis` alone still does not pull in Matplotlib. The
+names are not in `tether.analysis.__all__`, so a star import does not pull it in either.
 
 ```python
 from tether.analysis.histogram import population_apparent_e_histogram

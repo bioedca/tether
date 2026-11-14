@@ -33,11 +33,18 @@ Design
   stamp time, so a re-export of the same figure at the same ``created_utc`` is
   reproducible.
 
-This module is intentionally **not** eagerly imported by ``tether.analysis``'s
-package ``__init__`` — importing it pulls in Matplotlib, which the lightweight
-headless test paths do not always have. Import it explicitly::
+This module is **lazily re-exported** by the ``tether.analysis`` package: its
+``__init__`` resolves ``plot_export`` and every name in this module's ``__all__`` on
+first attribute access through a module ``__getattr__`` (:pep:`562`), and
+``dir(tether.analysis)`` lists them. A plain ``import tether.analysis`` therefore
+still does not import Matplotlib, which the lightweight headless paths do not need.
+Either spelling works, and both import Matplotlib at that point::
 
+    from tether.analysis import export_figure, render_histogram1d
     from tether.analysis.plot_export import export_figure, render_histogram1d
+
+The names are not in ``tether.analysis.__all__``, so ``from tether.analysis import *``
+stays Matplotlib-free.
 """
 
 from __future__ import annotations
