@@ -109,7 +109,7 @@ LOCK_SUFFIX = ".lock"
 #: Lifecycle operations request ``0666`` (subject to the site's umask), then the
 #: guard's owner adds read/write for every permission class that can write the
 #: project directory, so a shared project keeps one cross-user ``O_RDWR`` guard
-#: even under ``umask 022`` (#257, ADR-0094). Tether never unlinks or replaces it.
+#: even under ``umask 022`` (#257, ADR-0096). Tether never unlinks or replaces it.
 _GUARD_SUFFIX = ".guard"
 _GUARD_ACQUIRE_TIMEOUT_S = 5.0
 _GUARD_RETRY_INTERVAL_S = 0.01

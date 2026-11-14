@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0094 — The lock lifecycle guard is shared with everyone who can write the project directory
+# 0096 — The lock lifecycle guard is shared with everyone who can write the project directory
 
 - **Status:** accepted; amends [ADR-0055](0055-gui-session-writer-ownership.md) on the guard's permissions
 - **Date:** 2026-11-14
