@@ -47,7 +47,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # cmd.exe running tether-gui.bat with `/c` arguments, minimized. post_install opens an
   # existing .lnk rather than replacing it, so the shortcut checks after the install
   # prove that every field is overwritten, the arguments included (issue #579, PR #827).
-  # rc3 wrote its launchers into bin\, so the seed names that folder (ADR-0094).
+  # rc3 wrote its launchers into bin\, so the seed names that folder (ADR-0096).
   old_sm_dir="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Tether"
   mkdir -p "$old_sm_dir"
   TETHER_LNK_W="$(cygpath -w "$old_sm_dir/Tether.lnk")" OLD_BAT_W="$prefix\\bin\\tether-gui.bat" \
@@ -83,7 +83,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   test -f "$prefix_u/launchers/tether.bat" || { echo "missing shim: launchers\\tether.bat"; exit 1; }
   test -f "$prefix_u/launchers/tether-gui.bat" || { echo "missing shim: launchers\\tether-gui.bat"; exit 1; }
   # The folder the install guide puts on PATH holds the two launchers and nothing else
-  # (issue #492, ADR-0094), so adding it, first or last, changes nothing else a shell finds.
+  # (issue #492, ADR-0096), so adding it, first or last, changes nothing else a shell finds.
   launchers="$(ls -A "$prefix_u/launchers" | LC_ALL=C sort | tr '\n' ' ')"
   test "$launchers" = "tether-gui.bat tether.bat " || {
     echo "the launcher folder must hold only tether.bat and tether-gui.bat: $launchers"; exit 1; }
@@ -217,7 +217,7 @@ else
   test -x "$prefix/launchers/tether" || { echo "missing shim: $prefix/launchers/tether"; exit 1; }
   test -x "$prefix/launchers/tether-gui" || { echo "missing shim: $prefix/launchers/tether-gui"; exit 1; }
   # The folder the install guide puts on PATH holds the two launchers and nothing else
-  # (issue #492, ADR-0094). <prefix>/bin, their folder until rc3, is the bootstrap env's
+  # (issue #492, ADR-0096). <prefix>/bin, their folder until rc3, is the bootstrap env's
   # bin: on PATH it also gave the user that env's python, pip and conda.
   launchers="$(ls -A "$prefix/launchers" | LC_ALL=C sort | tr '\n' ' ')"
   test "$launchers" = "tether tether-gui " || {

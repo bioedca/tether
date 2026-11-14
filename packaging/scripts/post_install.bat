@@ -80,7 +80,7 @@ rem the install guide can name a SINGLE path to put on PATH. The installer does 
 rem edit PATH itself: `setx` silently TRUNCATES PATH beyond 1024 characters, which is
 rem not recoverable by documentation, whereas adding a directory is a one-liner.
 rem
-rem The directory holds the two launchers and nothing else (issue #492, ADR-0094).
+rem The directory holds the two launchers and nothing else (issue #492, ADR-0096).
 rem Until rc3 they went into %PREFIX%\bin. On Linux and macOS that folder is the bin
 rem of the python + conda bootstrap env, so the folder name moved on all three
 rem systems at once and the install guide names one folder for all of them.

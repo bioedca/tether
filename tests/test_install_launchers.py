@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The folder the install guide puts on ``PATH`` holds the two launchers only (#492, ADR-0094).
+"""The folder the install guide puts on ``PATH`` holds the two launchers only (#492, ADR-0096).
 
 Up to rc3 the installer wrote ``tether`` and ``tether-gui`` into ``<prefix>/bin``. On Linux and
 macOS that is the ``bin`` of constructor's base env, the python + conda bootstrap, so a user
