@@ -211,12 +211,18 @@ def compare_export_routes(project_a: Path, project_b: Path) -> dict[str, float]:
     ma, mb = read_molecules(project_a), read_molecules(project_b)
     ta, tb = read_traces(project_a), read_traces(project_b)
 
-    def keyed(m: np.ndarray) -> dict[tuple[float, ...], int]:
+    def keyed(m: np.ndarray) -> dict[tuple[float, ...], list[int]]:
+        # Every molecule at a position, so a duplicated position counts once for each copy.
         xy = np.hstack([np.asarray(m["donor_xy"]), np.asarray(m["acceptor_xy"])])
-        return {tuple(np.round(row, 6).tolist()): i for i, row in enumerate(xy)}
+        out: dict[tuple[float, ...], list[int]] = {}
+        for i, row in enumerate(xy):
+            out.setdefault(tuple(np.round(row, 6).tolist()), []).append(i)
+        return out
 
     ka, kb = keyed(ma), keyed(mb)
     common = sorted(set(ka) & set(kb))
+    pairs = [(i, j) for key in common for i, j in zip(ka[key], kb[key], strict=False)]
+    unmatched = sum(abs(len(ka.get(k, [])) - len(kb.get(k, []))) for k in set(ka) | set(kb))
     worst = 0.0
     nonfinite = 0
     frames = (int(np.asarray(ta["donor_raw"]).shape[1]), int(np.asarray(tb["donor_raw"]).shape[1]))
@@ -224,8 +230,8 @@ def compare_export_routes(project_a: Path, project_b: Path) -> dict[str, float]:
     for channel in ("donor_raw", "acceptor_raw"):
         a = np.asarray(ta[channel], dtype="float64")[:, :width]
         b = np.asarray(tb[channel], dtype="float64")[:, :width]
-        for key in common:
-            ra, rb = a[ka[key]], b[kb[key]]
+        for i, j in pairs:
+            ra, rb = a[i], b[j]
             fa, fb = np.isfinite(ra), np.isfinite(rb)
             nonfinite += int(np.count_nonzero(fa != fb))
             both = fa & fb
@@ -235,8 +241,8 @@ def compare_export_routes(project_a: Path, project_b: Path) -> dict[str, float]:
         "n_molecules_b": int(mb.shape[0]),
         "n_frames_a": frames[0],
         "n_frames_b": frames[1],
-        "n_matched": len(common),
-        "n_unmatched": len(set(ka) ^ set(kb)),
+        "n_matched": len(pairs),
+        "n_unmatched": unmatched,
         "n_nonfinite_diff": nonfinite,
         "max_trace_diff": worst,
     }

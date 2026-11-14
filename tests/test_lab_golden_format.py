@@ -232,6 +232,35 @@ def test_a_nan_in_one_route_counts_as_a_trace_difference(
     assert diff["max_trace_diff"] == 0.0  # the finite frames agree
 
 
+def test_an_extra_molecule_at_a_matched_position_is_unmatched(
+    synthetic, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, project = synthetic
+    import tether.imaging.extract as extract  # noqa: PLC0415
+
+    real_m, real_t = extract.read_molecules, extract.read_traces
+    seen: list[str] = []
+
+    def duplicated(read, kind: str):
+        def wrapped(path: Path):
+            data = read(path)
+            seen.append(kind)
+            if seen.count(kind) != 2:  # the second route only
+                return data
+            if kind == "m":
+                return np.concatenate([data, data[-1:]])
+            return {k: np.concatenate([np.asarray(v), np.asarray(v)[-1:]]) for k, v in data.items()}
+
+        return wrapped
+
+    monkeypatch.setattr(extract, "read_molecules", duplicated(real_m, "m"))
+    monkeypatch.setattr(extract, "read_traces", duplicated(real_t, "t"))
+    diff = _lab_golden.compare_export_routes(project, project)
+    assert diff["n_molecules_b"] == diff["n_molecules_a"] + 1
+    assert diff["n_unmatched"] == 1
+    assert diff["max_trace_diff"] == 0.0
+
+
 def test_a_failed_batch_gives_no_golden_numbers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
