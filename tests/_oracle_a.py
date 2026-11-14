@@ -9,9 +9,9 @@ names of the files stay in the name table on the workstation; a test and its ass
 messages name only the neutral id.
 
 A file is used only when its SHA-256 is the one below, so a committed result of these tests
-always names the bytes it was measured on. The first 16 hex digits of the movie, ``.tmap``,
-``.tdat`` and ``.mat`` digests are the ones ``tests/fixtures/PROVENANCE.md`` records for the
-sources of the committed fixtures and of the ADR-0022 measurement, and
+always names the bytes it was measured on. All five digests are the full ones
+``tests/fixtures/PROVENANCE.md`` records for the sources of the committed fixtures and of the
+ADR-0022 measurement (#552), and
 ``tests/test_oracle_a_record.py`` keeps the two in step.
 """
 
