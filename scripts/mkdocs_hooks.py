@@ -13,7 +13,7 @@ With the variable unset or empty -- a local ``mkdocs build --strict``, the requi
 gate, and the ``dev`` deployment dispatched from ``main`` -- the links stay on ``main``.
 
 The module is stdlib-only, so ``tests/test_docs_source_links.py`` runs it in the base test matrix,
-which has no MkDocs. Other build hooks belong in this file too, so the site has one hooks module.
+which has no MkDocs.
 """
 
 from __future__ import annotations

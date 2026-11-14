@@ -56,7 +56,7 @@ extra_css:
   - assets/brand/brand.css
   - stylesheets/site.css
 
-# Build hooks, one module for the whole site. Today it points every `blob/main` and `tree/main`
+# Build hooks. scripts/mkdocs_hooks.py points every `blob/main` and `tree/main`
 # source link at the release tag when docs.yml builds a release (TETHER_DOCS_SOURCE_TAG, #600);
 # a local build, the docs-build gate and the `dev` deployment keep the links on main.
 hooks:
