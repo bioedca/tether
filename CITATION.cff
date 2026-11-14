@@ -29,7 +29,7 @@ authors:
     email: "bioedca@u.northwestern.edu"
 license: GPL-3.0-or-later
 repository-code: "https://github.com/bioedca/tether"
-url: "https://github.com/bioedca/tether"
+url: "https://bioedca.github.io/tether/"
 keywords:
   - single-molecule FRET
   - smFRET
@@ -53,7 +53,8 @@ keywords:
 #      carry the same value. Each version DOI lives on its Zenodo record only.
 #   4. The release commit sets `version:` (the tag without its leading "v") and
 #      `date-released:` (ISO 8601) to the release being cut; until then they describe the
-#      newest archived release.
+#      newest archived release. `codemeta.json` carries the same two values as `version`
+#      and `datePublished`, and changes in the same commit (tests/test_citation_metadata.py).
 # docs/release.md "Archiving (Zenodo)" is the operational copy of these steps.
 version: "1.0.0-rc3"
 date-released: "2026-11-09"

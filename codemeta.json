@@ -1,0 +1,67 @@
+{
+  "@context": "https://w3id.org/codemeta/3.0",
+  "@type": "SoftwareSourceCode",
+  "name": "Tether",
+  "description": "A cross-platform, provenance-first desktop suite for single-molecule FRET (smFRET) analysis: native movie-to-trace extraction, a trace-to-movie round-trip browser, per-condition machine-assisted curation, photophysical corrections, and HMM idealization via an isolated tMAVEN sidecar. Built for the Mondragón Lab, Northwestern University.",
+  "version": "1.0.0-rc3",
+  "datePublished": "2026-11-09",
+  "identifier": "https://doi.org/10.5281/zenodo.23306397",
+  "license": "https://spdx.org/licenses/GPL-3.0-or-later",
+  "author": [
+    {
+      "@type": "Person",
+      "@id": "https://orcid.org/0000-0002-6416-5408",
+      "givenName": "Eduardo",
+      "familyName": "Campos-Chávez",
+      "email": "bioedca@u.northwestern.edu",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "Mondragón Lab, Northwestern University"
+      }
+    },
+    {
+      "@type": "Person",
+      "@id": "https://orcid.org/0000-0002-0423-6323",
+      "givenName": "Alfonso",
+      "familyName": "Mondragon",
+      "affiliation": {
+        "@type": "Organization",
+        "name": "Mondragón Lab, Northwestern University"
+      }
+    },
+    {
+      "@type": "Organization",
+      "name": "The Tether Authors",
+      "email": "bioedca@u.northwestern.edu"
+    }
+  ],
+  "codeRepository": "https://github.com/bioedca/tether",
+  "url": "https://bioedca.github.io/tether/",
+  "softwareHelp": "https://bioedca.github.io/tether/",
+  "issueTracker": "https://github.com/bioedca/tether/issues",
+  "releaseNotes": "https://github.com/bioedca/tether/releases",
+  "developmentStatus": "https://www.repostatus.org/#active",
+  "programmingLanguage": "Python",
+  "operatingSystem": [
+    "Windows",
+    "macOS",
+    "Linux"
+  ],
+  "softwareRequirements": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "Python",
+      "version": ">=3.11"
+    }
+  ],
+  "keywords": [
+    "single-molecule FRET",
+    "smFRET",
+    "TIRF microscopy",
+    "trace extraction",
+    "HMM idealization",
+    "provenance",
+    "napari",
+    "PySide6"
+  ]
+}

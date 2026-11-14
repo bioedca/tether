@@ -296,7 +296,7 @@ DOI, and they go in different places:
 
 | DOI | Resolves to | Where it is written |
 |---|---|---|
-| **Concept DOI** `10.5281/zenodo.23306397` | the newest archived version, whichever that is | `CITATION.cff` `doi:`, `README.md`, [Citing Tether](citing.md). It never changes. |
+| **Concept DOI** `10.5281/zenodo.23306397` | the newest archived version, whichever that is | `CITATION.cff` `doi:`, `codemeta.json` `identifier`, the `DOI` entry of `pyproject.toml` `[project.urls]`, `README.md`, [Citing Tether](citing.md). It never changes. |
 | **Version DOI** | one release | only its own Zenodo record (linked from the concept record). Never hand-copied into the repository. |
 
 The ordering below is load-bearing and cannot be repaired by editing files afterwards. Follow
@@ -312,7 +312,9 @@ it for every release:
    no tagged commit can contain its own version DOI. That is why `CITATION.cff` carries the
    concept DOI instead.
 3. **In the release commit**, set `CITATION.cff` `version:` to the tag without its leading
-   `v` and `date-released:` to the release date (ISO 8601). Leave `doi:` alone.
+   `v` and `date-released:` to the release date (ISO 8601). Leave `doi:` alone. Change
+   `version` and `datePublished` in `codemeta.json` to the same two values in the same
+   commit; a test fails while the two files differ.
 4. **After the Release is published**, open the concept DOI and check that the new version
    appears in the record's version list. Zenodo reads the archive's metadata from
    `CITATION.cff` in the tagged tree.
