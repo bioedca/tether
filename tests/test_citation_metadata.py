@@ -198,3 +198,28 @@ def test_the_doi_matches_the_pages_that_repeat_it() -> None:
         f"CITATION.cff cites {doi}, but these pages cite other or no Zenodo DOIs "
         f"(page: DOIs found): {mismatched}"
     )
+
+
+def test_references_list_every_author() -> None:
+    """No ``references:`` entry stands in for a cut author list with "et al." (#529).
+
+    CFF readers such as cffconvert and GitHub's citation export take ``authors`` as the
+    complete list and ignore ``notes``, so an entry that names three authors and says
+    "abbreviated" in its notes exports a three-author citation. Each entry must carry
+    every author on its published record instead.
+    """
+    offenders = []
+    for ref in _citation().get("references") or []:
+        names = " ".join(
+            str(a.get(key, ""))
+            for a in ref.get("authors") or []
+            for key in ("family-names", "name")
+        )
+        notes = str(ref.get("notes", ""))
+        if re.search(r"\bet al\b", names, re.IGNORECASE) or re.search(
+            r"\bet al\b|\babbreviated\b", notes, re.IGNORECASE
+        ):
+            offenders.append(ref.get("doi") or ref.get("title"))
+    assert not offenders, (
+        f"these CITATION.cff references cut their author list with 'et al.': {offenders}"
+    )
