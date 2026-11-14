@@ -1226,7 +1226,7 @@ evidence about the size of the difference and not a tolerance.
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section
   above with the ADR that deferred it.
-- PRD §8 states that no synthetic-data simulator is introduced. In practice (e) and (g) are
+- PRD N2 and §8 state that Tether ships no synthetic-data simulator. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
   synthetic separable multi-video store, because the real fixtures do not carry the required
   ground-truth field. Two of those substitutions were ratified in an ADR and two were not:
@@ -1238,8 +1238,11 @@ evidence about the size of the difference and not a tolerance.
   [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md) defers the donor-only α cross-check
   but never mentions synthetic data, and neither ranker ADR
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
-  [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all. The
-  real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.
+  [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all.
+  PRD N2 allows synthesized known-truth fixtures in tests, and PRD §9.6 carries these two as
+  not yet validated on real data ([#546](https://github.com/bioedca/tether/issues/546),
+  [#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
+  exist (oracles (a), (b), (c)) stay on real fixtures.
 - A reference that comes from an ALEX data set compares **apparent FRET from the
   donor-excitation channels only** — the donor and acceptor intensities under donor
   excitation. It does not check direct excitation (δ), stoichiometry or any other quantity
