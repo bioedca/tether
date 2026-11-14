@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The dependency graph of a project and the rules that make a result stale (ADR-0100).
+"""The dependency graph of a project and the rules that make a result stale (ADR-0103).
 
-This module is the **one Qt-free table** of the graph that ADR-0100 decides (PRD §7.13
+This module is the **one Qt-free table** of the graph that ADR-0103 decides (PRD §7.13
 FR-WORKFLOW-6). It holds data and two read-only walks, nothing else: it writes no store
 data and it sets no stale mark. The job and dependency coordinator of #895 and the stage
 readiness of #896 read it, so that two features cannot implement two different rules for
@@ -26,7 +26,7 @@ of the node kind: an α change stales the corrections of its condition only, and
 edit stales the fits of that one analysis set only.
 
 ``tests/test_dependency_graph.py`` asserts that :data:`NODES` and :data:`EDGES` agree, cell by
-cell, with the two tables of ``docs/adr/0100-the-project-dependency-graph-and-the-stale-rules.md``.
+cell, with the two tables of ``docs/adr/0103-the-project-dependency-graph-and-the-stale-rules.md``.
 A change to one is a change to the other, in the same pull request.
 """
 
@@ -49,7 +49,7 @@ IDENTITY_EXTERNAL_ID = "external id"
 
 IDENTITY_KINDS = frozenset({IDENTITY_CONTENT_HASH, IDENTITY_VERSION_COUNTER, IDENTITY_EXTERNAL_ID})
 
-#: What every stale record permits, whatever its kind (ADR-0100, decision 3).
+#: What every stale record permits, whatever its kind (ADR-0103, decision 3).
 STALE_PERMITS = (
     "A stale record stays readable and keeps its stale mark.",
     "A stale record never supplies a current result.",

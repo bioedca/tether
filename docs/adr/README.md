@@ -135,7 +135,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0088](0088-extraction-test-on-mash-fret-simulated-videos.md) | An extraction test on videos with known truth from the MASH-FRET simulator | accepted | §9.5 (the validation suite), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
 | [0090](0090-measured-vbfret-paths-are-a-dwell-reference.md) | Measured traces with a stored vbFRET path are a dwell and transition reference | accepted | §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP) |
-| [0100](0100-the-project-dependency-graph-and-the-stale-rules.md) | The dependency graph of a project and the rules that make a result stale | accepted | §7.13 (FR-WORKFLOW-6), §5 (data model), §9.1 (load-bearing invariants) |
+| [0103](0103-the-project-dependency-graph-and-the-stale-rules.md) | The dependency graph of a project and the rules that make a result stale | accepted | §7.13 (FR-WORKFLOW-6), §5 (data model), §9.1 (load-bearing invariants) |
 
 <!-- gen:adr-index end -->
 

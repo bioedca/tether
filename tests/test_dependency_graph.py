@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The dependency graph table agrees with ADR-0100, and the stale rules hold on it (#893).
+"""The dependency graph table agrees with ADR-0103, and the stale rules hold on it (#893).
 
-ADR-0100 gives the graph of a project as two Markdown tables, and
+ADR-0103 gives the graph of a project as two Markdown tables, and
 :mod:`tether.project.dependency_graph` holds the same graph as data that code reads. The first
 group of tests reads the two tables of the ADR and requires them to equal the module, cell by
 cell, so the record and the code cannot drift apart. The second group checks the graph itself:
@@ -25,7 +25,7 @@ import pytest
 from tether.project import dependency_graph as g
 
 REPO = Path(__file__).resolve().parents[1]
-ADR = REPO / "docs" / "adr" / "0100-the-project-dependency-graph-and-the-stale-rules.md"
+ADR = REPO / "docs" / "adr" / "0103-the-project-dependency-graph-and-the-stale-rules.md"
 
 # An unescaped pipe is a cell boundary (the rule of scripts/gen_adr_index.py).
 _CELL_RE = re.compile(r"(?<!\\)\|")
@@ -35,7 +35,7 @@ def _table(tag: str) -> list[list[str]]:
     """The body rows of the table between the ``graph:<tag>`` markers, as normalized cells."""
     text = ADR.read_text(encoding="utf-8")
     match = re.search(rf"<!-- graph:{tag} start -->\n(.*?)<!-- graph:{tag} end -->", text, re.S)
-    assert match, f"ADR-0100 has no graph:{tag} block"
+    assert match, f"ADR-0103 has no graph:{tag} block"
     lines = [ln for ln in match.group(1).splitlines() if ln.strip()]
     assert len(lines) >= 2, f"graph:{tag} block holds no table"
     rows = []

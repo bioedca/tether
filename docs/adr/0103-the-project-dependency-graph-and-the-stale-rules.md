@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0100 — The dependency graph of a project and the rules that make a result stale
+# 0103 — The dependency graph of a project and the rules that make a result stale
 
 - **Status:** accepted
 - **Date:** 2026-11-14
