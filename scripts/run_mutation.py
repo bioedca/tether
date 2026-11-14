@@ -464,14 +464,17 @@ class _Imports:
     ``from tether.a import b`` imports ``tether.a`` and, when ``b`` is a submodule, ``tether.a.b``.
     When ``tether.a`` only re-exports ``b`` (``from tether.a.c import b`` in its ``__init__``),
     the test reads a value that ``tether.a.c`` made, so it imports ``tether.a.c`` too, and so on
-    down the chain of re-exports."""
+    down the chain of re-exports (every branch of a conditional one). Every module found also
+    imports its parent packages (``tether`` and ``tether.a`` for ``tether.a.b``), as Python
+    runs their ``__init__`` first."""
 
     def __init__(self, src: Path) -> None:
         self.src = src
-        self._reexports: dict[str, dict[str, tuple[str, str]]] = {}
+        self._reexports: dict[str, dict[str, list[tuple[str, str]]]] = {}
 
-    def reexports(self, module: str) -> dict[str, tuple[str, str]]:
-        """name -> (module it comes from, its name there), for the names *module* imports."""
+    def reexports(self, module: str) -> dict[str, list[tuple[str, str]]]:
+        """name -> every (module it may come from, its name there), for the names *module*
+        imports; an ``if``/``else`` or ``try``/``except`` pair gives a name two origins."""
         if module not in self._reexports:
             self._reexports[module] = {}
             path = _module_file(self.src, module)
@@ -486,10 +489,9 @@ class _Imports:
                         origin = _absolute(module, is_package, node)
                         for alias in node.names:
                             if alias.name != "*":
-                                self._reexports[module][alias.asname or alias.name] = (
-                                    origin,
-                                    alias.name,
-                                )
+                                self._reexports[module].setdefault(
+                                    alias.asname or alias.name, []
+                                ).append((origin, alias.name))
         return self._reexports[module]
 
     def _from(self, module: str, name: str, seen: set[tuple[str, str]]) -> set[str]:
@@ -500,8 +502,7 @@ class _Imports:
         found = {module}
         if _module_file(self.src, f"{module}.{name}") is not None:
             found.add(f"{module}.{name}")
-        if name in self.reexports(module):
-            origin, original = self.reexports(module)[name]
+        for origin, original in self.reexports(module).get(name, ()):
             found |= self._from(origin, original, seen)
         return found
 
@@ -519,7 +520,8 @@ class _Imports:
                 for alias in node.names:
                     star = alias.name == "*"
                     found |= {node.module} if star else self._from(node.module, alias.name, set())
-        return found
+        parents = {name.rsplit(".", i)[0] for name in found for i in range(1, name.count(".") + 1)}
+        return found | parents
 
 
 def imports_of_tests(root: Path, test_files: Iterable[str]) -> dict[str, set[str]]:

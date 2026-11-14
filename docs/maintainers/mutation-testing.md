@@ -46,10 +46,12 @@ line of that file, and also every test of each test file that imports the module
 only reads a value the import made, such as `assert DEFAULT_STATE_NUMBER_LOW == 1`, runs no line
 of the file, and this second rule selects it (#883). A test file imports a module when it has
 `import tether.a.b`, `from tether.a.b import ...` or `from tether.a import b` (with `b` a
-submodule). When a package only passes a name on, as `tether.analysis` passes on
+submodule). It then also imports the parent packages `tether` and `tether.a`, because Python runs
+their `__init__.py` first. When a package only passes a name on, as `tether.analysis` passes on
 `DEFAULT_STATE_NUMBER_LOW` from `tether.analysis.state_number`, `from tether.analysis import
-DEFAULT_STATE_NUMBER_LOW` imports `tether.analysis.state_number` too. An import in a helper module
-that the test file imports does not count.
+DEFAULT_STATE_NUMBER_LOW` imports `tether.analysis.state_number` too. When the package takes the
+name from one of two modules (`if` and `else`, or `try` and `except`), both count. An import in a
+helper module that the test file imports does not count.
 
 ## How to read the report
 
