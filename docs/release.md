@@ -48,7 +48,38 @@ release**, not the binaries, and it is unaffected by any of the above.
    when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
    were cancelled by a following merge can never be released — release from a later commit
    whose checks ran to completion instead.
-2. Create a **signed, annotated** tag on the release commit and push it, with the two
+2. **Read every user page before the tag, and record the read.** A named person does this
+   step. An AI tool cannot do this step. AI tools draft the user pages, and the review lane of a
+   pull request has only AI reviewers. This read is part of the release sign-off that the agent
+   contract gives to a person. Do this step for each release, and for the first time for
+   `v1.0.0`.
+
+    1. **The reader.** One named person reads all the pages. Write that person's name in the
+       record.
+    2. **The pages.** Read each page in the `Using Tether` group of the `nav:` list in
+       `mkdocs.yml`, and `README.md`. Read the pages at the commit that you will tag.
+    3. **What to check.** On each page, check these three items:
+        - Each instruction is true of the application at that commit.
+        - Each warning comes before the step that it protects.
+        - The text obeys the [writing style for documentation](maintainers/writing-style.md).
+
+        Fix each problem through a pull request. Then read the changed pages again, as item 5
+        tells you.
+
+    4. **The record.** Write one row in the
+       [record of user-page reads](#record-of-user-page-reads). The row gives the release,
+       the date, the reader, the commit that the reader read, and the pages read. The table is
+       the only place for the record.
+
+    5. **A page that changes after the read.** Before you tag, find the files that changed
+       after the commit that was read. Run
+       `git diff --name-only <read-commit> HEAD -- README.md docs/` for this.
+
+        Read each changed user page again. Add a row for this second read. The row names the
+        pages that you read again. The commit that writes a row changes no user page, so it does
+        not start a new read.
+
+3. Create a **signed, annotated** tag on the release commit and push it, with the two
    commands below the list:
 
     **Before pushing the tag, confirm the Zenodo integration is on** for `bioedca/tether`
@@ -85,7 +116,7 @@ release**, not the binaries, and it is unaffected by any of the above.
     `if: steps.resolve.outputs.publish == 'true'`. The post-merge check-state guard from
     step 1 is not behind that gate either, so a dry run evaluates it too.
 
-3. To rehearse without publishing, run the **`release`** workflow via *Actions → release
+4. To rehearse without publishing, run the **`release`** workflow via *Actions → release
    → Run workflow* with `dry_run: true` and, as `ref`, a fresh `v*` rc tag cut from the
    `main` you are about to release — it builds, install-smokes, checksums and SBOMs, but
    publishes no Release. The dry run also evaluates the post-merge check guard and
@@ -96,7 +127,7 @@ release**, not the binaries, and it is unaffected by any of the above.
    such a tag self-consistently, set **Use workflow from** to the tag itself, the same
    rule the docs dispatch below already states.
 
-The two commands for step 2, run only after the gate check it describes:
+The two commands for step 3, run only after the gate check it describes:
 
 ```bash
 git tag -s v1.0.0 -m "Tether v1.0.0"
@@ -108,6 +139,18 @@ release link, tag ref, `tether --version` line and the `--source-digest` in
 [Install Tether](install.md) to the new release, and set `INSTALL_RELEASE` and
 `INSTALL_RELEASE_COMMIT` in `tests/test_docs_install_release.py` with them. That test fails
 when the page names two releases at once.
+
+### Record of user-page reads
+
+Step 2 of [Cutting a release](#cutting-a-release) writes a row in this table. Each row records
+one read of the user pages before a release tag. The first read fills the `v1.0.0` row. Each
+later read adds a row.
+
+The install-page update above comes after the tag. The read for the next release includes it.
+
+| Release | Date | Reader | Commit read | Pages read |
+|---|---|---|---|---|
+| `v1.0.0` | | | | Not read yet |
 
 ### What a published Release contains: verified `v1.0.0-rc1`
 
@@ -305,7 +348,7 @@ it for every release:
 1. **The integration must be on before the tag is pushed.** Zenodo archives a Release only
    if its webhook is active at the moment the Release is *published*. Check
    <https://zenodo.org/account/settings/github/> (the `bioedca/tether` toggle is on) and the
-   repository's *Settings → Webhooks* (a `zenodo.org` hook is listed) before step 2 of
+   repository's *Settings → Webhooks* (a `zenodo.org` hook is listed) before step 3 of
    [Cutting a release](#cutting-a-release).
 2. **No DOI can be reserved in advance.** Through the GitHub integration Zenodo mints a
    version's DOI when its Release is published, after the tagged commit already exists, so
