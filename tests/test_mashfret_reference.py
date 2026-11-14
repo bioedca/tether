@@ -22,9 +22,10 @@ commit that wrote the files, the convention mapping and the ALEX rule. What the 
   test fails (the pull request records the demonstration).
 * **Background.** The files hold no video, so MASH-FRET's background subtraction cannot be
   repeated; both tests start from ``intensities_bgCorr``.
-* **ALEX.** The set alternates a 532 nm and a 638 nm laser. The tests use only the donor and the
-  acceptor channels under the donor's laser (PRD §2.2, "What the tests can use"), and require
-  MASH-FRET's direct-excitation coefficient, an ALEX-only correction, to be 0.
+* **ALEX.** The set alternates a 532 nm and a 638 nm laser. The FRET test uses only the donor and
+  the acceptor channels under the donor's laser (PRD §2.2, "What the tests can use"); the leakage
+  test uses both lasers. Both tests require MASH-FRET's direct-excitation coefficient, an ALEX-only
+  correction, to be 0.
 """
 
 from __future__ import annotations
