@@ -350,7 +350,9 @@ memory below 1 MiB only records. The runner adds two checks to the result file:
   or group did not run.
 
 A check that fails opens or updates its issue through the steps above (#698). A history that
-cannot be read gives both checks the outcome `error`; the runner does not change that file.
+cannot be read gives both checks the outcome `error`; the runner does not change that file. If
+the last record is valid but has no newline (after a hand edit, for example), the runner adds the
+newline before it writes the new record.
 
 **See the history.** Run these with the Tether environment:
 
@@ -360,7 +362,8 @@ python <state>/clone/scripts/workstation/plot_perf_history.py <state>/perf-histo
 ```
 
 The first prints the newest record's projection and its slowdowns. The second draws the stage
-times, the stage peaks and the projection for each record of `main`.
+times, the stage peaks and the projection for each record of `main`. If a record did not measure
+a stage on all its acquisitions, the line of that stage has a gap at that record, not a zero.
 
 **Show that the rule works.** The runner runs only commits of `main`. To show a slowdown, make a
 throw-away branch in a scratch clone of the repository, not in the runner's clone, and make one
