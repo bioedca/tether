@@ -286,3 +286,13 @@ def test_the_module_imports_without_qt_or_numpy() -> None:
         "assert not bad, bad"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_a_new_generation_stales_the_factor_version_on_alpha_or_gamma_evidence() -> None:
+    # alpha comes from post-acceptor-bleach tails of the traces (ADR-0027) and gamma from
+    # bleach steps (ADR-0028); the contributor sets differ, so the guard names both.
+    (edge,) = [
+        e for e in g.EDGES if (e.upstream, e.downstream) == ("trace_generation", "factor_version")
+    ]
+    assert "α" in edge.guard and "γ" in edge.guard
+    assert "factor_version" in g.descendants("trace_generation")

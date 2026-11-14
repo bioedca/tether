@@ -384,7 +384,7 @@ EDGES: tuple[Edge, ...] = (
         "trace_generation",
         "factor_version",
         "New trace generation: calibration evidence changes",
-        "only when the intensities of an included γ contributor change",
+        "only when the intensities of an α or γ contributor change",
         "G03 “calibration evidence changes”",
     ),
     Edge(

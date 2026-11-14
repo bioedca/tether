@@ -195,7 +195,7 @@ A dash in the *Guard* column means that the edge always applies.
 | 4 | `map` | `trace_generation` | Map edit | — | G05 note 03; G02 note 04 |
 | 5 | `trace_generation` | `curation_labels` | New trace generation: labels are carried by `molecule_key` | — | G02 note 04 |
 | 6 | `trace_generation` | `analysis_windows` | New trace generation: windows are carried by `molecule_key` | — | G02 note 04 |
-| 7 | `trace_generation` | `factor_version` | New trace generation: calibration evidence changes | only when the intensities of an included γ contributor change | G03 “calibration evidence changes” |
+| 7 | `trace_generation` | `factor_version` | New trace generation: calibration evidence changes | only when the intensities of an α or γ contributor change | G03 “calibration evidence changes” |
 | 8 | `trace_generation` | `correction_version` | New trace generation | — | G02 note 04 |
 | 9 | `trace_generation` | `analysis_set_version` | New trace generation of a member movie | — | G04 “Frozen analysis-set version” |
 | 10 | `trace_generation` | `fit` | New trace generation: the input-trace identity changes | — | G02 note 04 |
