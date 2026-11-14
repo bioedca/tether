@@ -90,7 +90,8 @@ Tether.app/Contents/Resources/tether.icns  the brand icon from the installed whe
   install folder. `docs/install.md` puts `python -m tether.gui.macos_app remove --prefix …`
   before it. `remove` deletes a `Tether.app` only when its plist has Tether's identifier and its
   launcher starts that install's `tether-gui`, so an unconditional `rm -rf` never deletes a
-  `Tether.app` that the install left alone.
+  `Tether.app` that the install left alone. It runs `lsregister -u` on the bundle first: on the
+  real Mac, deleting a bundle that had been started left its LaunchServices record behind.
 - **Signing.** None, as for the installer ([ADR-0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md)).
   The bundle's only executable is a shell script, and the interpreter it starts is the conda one
   the shims already start. The installer writes the bundle on the Mac, so the bundle carries no

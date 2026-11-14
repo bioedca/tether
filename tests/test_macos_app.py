@@ -362,6 +362,32 @@ def test_remove_deletes_only_this_installs_bundle(tmp_path, monkeypatch) -> None
     assert macos_app.remove_bundles(prefix, home) == ([], [])
 
 
+@needs_sh
+def test_remove_unregisters_the_bundle_before_it_deletes_it(tmp_path, monkeypatch) -> None:
+    """A real Mac kept a LaunchServices record of a deleted bundle; ``lsregister -u`` drops it."""
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+    log = tmp_path / "lsregister.log"
+    fake = tmp_path / "lsregister"
+    fake.write_text(
+        f'#!/bin/sh\n[ -d "$2" ] && echo exists >> "{log}"\nprintf "%s\\n" "$@" >> "{log}"\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    monkeypatch.setattr(macos_app, "LSREGISTER", fake)
+    foreign = home / "Applications" / "Tether.app" / "Contents"
+    foreign.mkdir(parents=True)
+    with open(foreign / "Info.plist", "wb") as handle:
+        plistlib.dump({"CFBundleIdentifier": "org.example.other"}, handle)
+    assert macos_app.remove_bundles(prefix, home) == ([], [])
+    assert not log.exists(), "a foreign bundle is not unregistered"
+
+    shutil.rmtree(home / "Applications" / "Tether.app")
+    mine = macos_app.write_bundle(prefix, home / "Applications", "1.0.0")
+    assert macos_app.remove_bundles(prefix, home)[0] == [mine]
+    assert log.read_text(encoding="utf-8").splitlines() == ["exists", "-u", str(mine)]
+
+
 def test_remove_leaves_another_programs_bundle(tmp_path, capsys) -> None:
     home = tmp_path / "home"
     prefix = _prefix(home, "Tether")

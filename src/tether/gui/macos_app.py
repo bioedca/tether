@@ -36,6 +36,7 @@ tests run on every system.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import platform
 import plistlib
@@ -43,6 +44,7 @@ import re
 import shlex
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -300,6 +302,27 @@ def check_bundle(bundle: Path, prefix: Path) -> list[str]:
     return problems
 
 
+LSREGISTER = Path(
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework"
+    "/Support/lsregister"
+)
+
+
+def _unregister(bundle: Path) -> None:
+    """Best-effort: drop *bundle* from the LaunchServices database before it is deleted.
+
+    On a real Mac, deleting a bundle that had been started left its record behind, so
+    ``lsregister -dump`` still named it. ``lsregister -u`` removes the record. A Mac
+    without ``lsregister`` (or any other system) is left as it is.
+    """
+    if not os.access(LSREGISTER, os.X_OK):
+        return
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(
+            [str(LSREGISTER), "-u", str(bundle)], check=False, capture_output=True, timeout=60
+        )
+
+
 def remove_bundles(prefix: Path, home: Path) -> tuple[list[Path], list[Path]]:
     """Remove the ``Tether.app`` of the install in *prefix*; return (removed, failed).
 
@@ -307,7 +330,8 @@ def remove_bundles(prefix: Path, home: Path) -> tuple[list[Path], list[Path]]:
     when its ``Info.plist`` has Tether's identifier **and** its launcher starts the
     ``tether-gui`` of *prefix*, so the uninstall never deletes another program's
     ``Tether.app`` or the launcher of another Tether install. A bundle that cannot be
-    removed (``/Applications`` needs an administrator) is returned in *failed*.
+    removed (``/Applications`` needs an administrator) is returned in *failed*. Each
+    bundle is unregistered from LaunchServices before it is deleted.
     """
     removed: list[Path] = []
     failed: list[Path] = []
@@ -323,6 +347,7 @@ def remove_bundles(prefix: Path, home: Path) -> tuple[list[Path], list[Path]]:
             continue
         if started is None or not _same_file(started, _gui_entry_point(prefix)):
             continue
+        _unregister(bundle)
         try:
             shutil.rmtree(bundle)
         except OSError:
