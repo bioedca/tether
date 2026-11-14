@@ -391,12 +391,12 @@ governs.
 1. Open the PR as a draft.
 2. Wait until every required check is green. Do not merge over a red or pending check.
 3. Ask Codex for a review with an `@codex review` comment.
-4. Mark the PR ready for review.
-5. Ask CodeRabbit with an `@coderabbitai full review` comment. The incremental command reviews
+4. Fix each blocking Codex finding and ask Codex again. Repeat until Codex finds nothing blocking.
+5. Mark the PR ready for review.
+6. Ask CodeRabbit with an `@coderabbitai full review` comment. The incremental command reviews
    nothing on this repository.
-6. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
-7. Resolve each review thread. An unresolved thread blocks the merge, even when every check is
-   green.
+7. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
+8. Resolve each review thread. An unresolved thread blocks the merge, even with green checks.
 
 No provider reviews a PR automatically here, so a review that was not asked for does not come.
 A review usually posts within an hour of the request. A provider can refuse for a quota or a
