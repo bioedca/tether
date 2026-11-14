@@ -214,6 +214,19 @@ else
   # The GUI entry point must import and answer --version WITHOUT a display;
   # `gui-scripts` on Unix is a normal console script, so this is safe headless.
   PATH="$prefix/bin:$PATH" tether-gui --version
+  if [ "$RUNNER_OS" = "macOS" ]; then
+    # The launcher bundle (issue #663, ADR-0091). This install is "for me only", into
+    # the home folder, so post_install put the bundle in ~/Applications. plutil is
+    # Apple's own Info.plist check; the module's `check` reads the keys, the icon and
+    # the launcher's target; the last line starts the bundle's own executable, which
+    # proves that it resolves to the installed entry point.
+    app="$HOME/Applications/Tether.app"
+    test -d "$app" || { echo "missing launcher bundle: $app"; exit 1; }
+    plutil -lint "$app/Contents/Info.plist"
+    "$prefix/envs/tether/bin/python" -m tether.gui.macos_app check "$app" --prefix "$prefix"
+    app_exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+    "$app/Contents/MacOS/$app_exe" --version
+  fi
   if [ "$RUNNER_OS" = "Linux" ]; then
     desktop="$HOME/.local/share/applications/tether.desktop"
     test -f "$desktop" || {

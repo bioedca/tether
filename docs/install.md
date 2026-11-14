@@ -231,8 +231,14 @@ Windows PowerShell. To start the desktop application:
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
   (A desktop that was already running may only show the menu entry after you log out and back
   in.)
-- **macOS:** run `tether-gui` in Terminal. The Dock shows the Tether icon while the
-  application runs, but there is no Launchpad entry yet.
+- **macOS:** with rc3, run `tether-gui` in Terminal. The Dock shows the Tether icon while
+  the application runs. From the next release, the installer also puts **Tether** in the
+  `Applications` folder of your home folder
+  ([#663](https://github.com/bioedca/tether/issues/663)): open it from **Launchpad**, find it
+  with **Spotlight** (press Command-Space and type `Tether`), or double-click it in Finder.
+  You can keep it in the Dock. `tether-gui` in Terminal still works and is the fallback. If
+  macOS blocks the first start of **Tether**, see
+  [If macOS will not open Tether.app](troubleshooting.md#if-macos-will-not-open-tetherapp).
 
 While the application loads, a splash window shows the Tether name, the version and
 **Loading…**. The splash window closes when the main window opens.
@@ -261,7 +267,10 @@ Start menu shortcut, and on Linux an application-menu entry at
 `~/.local/share/applications/tether.desktop` with its icon. The icon is nine files in
 `~/.local/share/icons/hicolor`: `tether.png` in the `apps` folder of each of the eight size
 folders `16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256` and `512x512`,
-and `tether.svg` in `scalable/apps`. On macOS there is none. Windows and macOS also
+and `tether.svg` in `scalable/apps`. On macOS, from the next release, it is the
+application `Tether.app` in `~/Applications`, or in `/Applications` when you installed into a
+folder outside your home folder. `Tether.app` is a small launcher: it starts the application
+in the install folder and holds no copy of it. Windows and macOS also
 keep their usual record of an installed program: the **Installed apps** entry that the Windows
 uninstaller runs from, and the package receipt macOS records for every `.pkg`.
 
@@ -275,7 +284,8 @@ terminal cannot see the launcher folder. Check that you opened a **new** termina
 4, and that the folder in the PATH line matches where you installed.
 
 **The application does not open.** Tether does not write a log file, so start it from a
-terminal with `tether-gui` and read what it prints. On Windows the Start menu shortcut and
+terminal with `tether-gui` and read what it prints. The macOS **Tether** application and
+the Windows Start menu shortcut show no text when the start fails. On Windows the Start menu shortcut and
 `tether-gui` show no console, so run this instead to see the error text:
 
 ```powershell
@@ -320,10 +330,12 @@ Then delete the `export PATH=…/tether/bin` line from `~/.bashrc`.
 **macOS**
 
 ```bash
-rm -rf ~/Tether
+rm -rf ~/Tether ~/Applications/Tether.app
 ```
 
-Then delete the `export PATH=…/Tether/bin` line from `~/.zshrc`.
+If you installed into a folder outside your home folder, delete that folder instead, and the
+launcher is `/Applications/Tether.app`. Then delete the `export PATH=…/Tether/bin` line from
+`~/.zshrc`.
 macOS keeps its package receipt for the install; it is a small record and does no harm left
 in place.
 

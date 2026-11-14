@@ -146,7 +146,10 @@ installer_type: sh     # [linux]
 #
 # These four keys are why nothing lands on PATH, which is what ADR-0051 addresses:
 # post_install writes `<prefix>/bin/{tether,tether-gui}` shims plus a Start Menu
-# shortcut (Windows) / .desktop entry (Linux). The installer still does NOT edit the
+# shortcut (Windows) / .desktop entry (Linux) / Tether.app launcher bundle (macOS,
+# ADR-0091). The macOS bundle has no pre_uninstall counterpart: constructor runs
+# pre_uninstall on Windows only, so docs/install.md names the bundle in the uninstall
+# command. The installer still does NOT edit the
 # user's PATH — `setx` truncates PATH past 1024 chars and rewriting a shell rc is
 # equally invasive — so adding `<prefix>/bin` stays a documented one-line step.
 keep_pkgs: false

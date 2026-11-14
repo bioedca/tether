@@ -805,6 +805,22 @@ If you hit something these steps do not cover,
 [tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
 this entry will be corrected from the observation.
 
+#### If macOS will not open Tether.app
+
+From the next release, the macOS installer adds **Tether** (`Tether.app`) to
+`~/Applications`, or to `/Applications` for an install outside your home folder
+([ADR-0091](adr/0091-macos-launcher-bundle.md)). Like the installer, it is not signed.
+The installer writes it on your Mac, so it does not carry the quarantine attribute of a
+download, and macOS does not normally ask about it. If macOS blocks the first start all the
+same, use the same route as for the installer: try to open **Tether** once, then open
+**System Settings → Privacy & Security**, and use **Open Anyway** under **Security**. You do
+this one time; later starts open directly.
+
+If **Tether** is not in Launchpad or Spotlight right after the install, open the
+`Applications` folder of your home folder in Finder; macOS adds the application to Launchpad
+and Spotlight when it sees it there. Until then, and whenever the application does not open,
+run `tether-gui` in Terminal: it starts the same application and shows any error text.
+
 ### The deep classifier does not see the GPU
 
 **Symptom.** `torch.cuda.is_available()` is `False`, or the CUDA runtime fails to initialize,

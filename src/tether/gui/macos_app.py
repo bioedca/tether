@@ -1,0 +1,279 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The macOS ``Tether.app`` launcher bundle (issue #663, ADR-0091).
+
+The macOS installer is a constructor ``.pkg``. It puts the application in
+``<prefix>/envs/tether`` and two shims in ``<prefix>/bin`` (ADR-0051), but those give
+no icon in Launchpad, Spotlight or the Dock. This module writes a small application
+bundle that does:
+
+.. code-block:: text
+
+    Tether.app/
+      Contents/
+        Info.plist             the name, the bundle identifier, the version, the icon
+        MacOS/Tether           a sh script: exec <prefix>/envs/tether/bin/tether-gui
+        Resources/tether.icns  the application icon from the installed wheel
+
+The bundle is a launcher only. It holds no copy of the environment, so the size of the
+installer and its offline property do not change. ``packaging/scripts/post_install.sh``
+runs :func:`main` with ``install`` from the installed environment, and the install smoke
+runs it with ``check``.
+
+The bundle goes in ``~/Applications`` when the install folder is in the user's home
+folder (the "install for me only" choice), and in ``/Applications`` for any other
+install folder. If ``/Applications`` cannot be written, it goes in ``~/Applications``.
+
+A ``Tether.app`` that this module did not write (its ``Info.plist`` names another
+bundle identifier, or there is none) is never replaced or removed.
+
+Only the standard library is imported, so the step costs no Qt and no NumPy, and the
+tests run on every system.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import plistlib
+import re
+import shlex
+import shutil
+import stat
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from tether.gui.identity import APPLICATION_NAME, app_icon_dir
+
+__all__ = [
+    "BUNDLE_ID",
+    "BUNDLE_NAME",
+    "EXECUTABLE_NAME",
+    "ICON_FILE",
+    "applications_dir",
+    "bundle_version",
+    "check_bundle",
+    "info_plist",
+    "is_tether_bundle",
+    "launcher_script",
+    "main",
+    "write_bundle",
+]
+
+#: The folder name of the bundle, as Finder, Launchpad and Spotlight show it.
+BUNDLE_NAME = f"{APPLICATION_NAME}.app"
+
+#: The bundle identifier: reverse DNS of the documentation site, bioedca.github.io.
+#: It must not change between releases, because macOS keys the bundle's records on it.
+BUNDLE_ID = "io.github.bioedca.tether"
+
+#: The file name of the launcher in ``Contents/MacOS``.
+EXECUTABLE_NAME = APPLICATION_NAME
+
+#: The file name of the icon in ``Contents/Resources``.
+ICON_FILE = "tether.icns"
+
+_RELEASE = re.compile(r"\d+(?:\.\d+)*")
+
+
+def applications_dir(prefix: Path, home: Path) -> Path:
+    """The ``Applications`` folder for an install into *prefix*.
+
+    ``~/Applications`` when *prefix* is inside *home*, else ``/Applications``. When
+    ``/Applications`` is not writable (an install without administrator rights into a
+    folder outside the home folder), ``~/Applications`` again.
+    """
+    prefix = Path(os.path.abspath(prefix))
+    home = Path(os.path.abspath(home))
+    user_dir = home / "Applications"
+    if prefix == home or home in prefix.parents:
+        return user_dir
+    system_dir = Path("/Applications")
+    if system_dir.is_dir() and os.access(system_dir, os.W_OK):
+        return system_dir
+    return user_dir
+
+
+def bundle_version(version: str) -> str:
+    """The numeric release part of *version*, for ``CFBundleVersion``.
+
+    ``1.0.0rc3`` gives ``1.0.0``. macOS compares bundle versions as integers separated
+    by dots, so the pre-release text stays out of this key. A version without numbers
+    gives ``0``.
+    """
+    match = _RELEASE.match(version.strip())
+    return match.group(0) if match else "0"
+
+
+def info_plist(version: str) -> dict[str, Any]:
+    """The ``Info.plist`` keys of the bundle for Tether *version*."""
+    return {
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleDisplayName": APPLICATION_NAME,
+        "CFBundleExecutable": EXECUTABLE_NAME,
+        "CFBundleIconFile": ICON_FILE,
+        "CFBundleIdentifier": BUNDLE_ID,
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundleName": APPLICATION_NAME,
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": version,
+        "CFBundleVersion": bundle_version(version),
+        "LSApplicationCategoryType": "public.app-category.education",
+        "NSHighResolutionCapable": True,
+    }
+
+
+def _gui_entry_point(prefix: Path) -> Path:
+    return Path(os.path.abspath(prefix)) / "envs" / "tether" / "bin" / "tether-gui"
+
+
+def launcher_script(prefix: Path) -> str:
+    """The text of ``Contents/MacOS/Tether`` for an install into *prefix*.
+
+    It replaces itself with the installed ``tether-gui`` entry point (``exec``), so the
+    process that macOS started for the bundle is the application. Older macOS versions
+    add a ``-psn_…`` process-serial-number argument; the script drops it, so that
+    ``tether-gui`` does not read it as a project path.
+    """
+    target = shlex.quote(str(_gui_entry_point(prefix)))
+    return (
+        "#!/bin/sh\n"
+        "# Generated by the Tether installer (ADR-0091). Starts the installed application.\n"
+        'case "${1:-}" in -psn_*) shift ;; esac\n'
+        f'exec {target} "$@"\n'
+    )
+
+
+def _read_plist(bundle: Path) -> dict[str, Any] | None:
+    try:
+        with open(bundle / "Contents" / "Info.plist", "rb") as handle:
+            data = plistlib.load(handle)
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def is_tether_bundle(bundle: Path) -> bool:
+    """True when *bundle* has an ``Info.plist`` with Tether's bundle identifier."""
+    data = _read_plist(bundle)
+    return data is not None and data.get("CFBundleIdentifier") == BUNDLE_ID
+
+
+def write_bundle(
+    prefix: Path,
+    applications: Path,
+    version: str,
+    icon: Path | None = None,
+) -> Path | None:
+    """Write ``Tether.app`` into *applications* for an install into *prefix*.
+
+    A bundle that this function wrote before is replaced, so a reinstall over an older
+    install updates the version and the launcher. Any other ``Tether.app`` is left as
+    it is and the function returns ``None``. The new bundle is built in a temporary
+    folder next to the target and then moved into place.
+    """
+    applications = Path(applications)
+    bundle = applications / BUNDLE_NAME
+    if bundle.is_symlink() or (bundle.exists() and not is_tether_bundle(bundle)):
+        return None
+    applications.mkdir(parents=True, exist_ok=True)
+    icon = app_icon_dir() / ICON_FILE if icon is None else Path(icon)
+
+    staging = Path(tempfile.mkdtemp(prefix=".tether-app-", dir=applications))
+    try:
+        new = staging / BUNDLE_NAME
+        macos_d = new / "Contents" / "MacOS"
+        resources_d = new / "Contents" / "Resources"
+        macos_d.mkdir(parents=True)
+        resources_d.mkdir()
+        with open(new / "Contents" / "Info.plist", "wb") as handle:
+            plistlib.dump(info_plist(version), handle, fmt=plistlib.FMT_XML)
+        (new / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")
+        exe = macos_d / EXECUTABLE_NAME
+        exe.write_text(launcher_script(prefix), encoding="utf-8")
+        exe.chmod(0o755)
+        shutil.copyfile(icon, resources_d / ICON_FILE)
+        if bundle.exists():
+            shutil.rmtree(bundle)
+        os.replace(new, bundle)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return bundle
+
+
+def check_bundle(bundle: Path, prefix: Path) -> list[str]:
+    """The problems of *bundle* for an install into *prefix*; empty when it is correct.
+
+    The checks: the ``Info.plist`` parses and carries the keys of :func:`info_plist`
+    (the version excepted), the executable it names exists and can run, that
+    executable starts the installed ``tether-gui`` of *prefix*, and the icon it names
+    is a non-empty file.
+    """
+    bundle = Path(bundle)
+    data = _read_plist(bundle)
+    if data is None:
+        return [f"no readable Contents/Info.plist in {bundle}"]
+    problems = []
+    expected = info_plist("0")
+    for key in sorted(expected):
+        if key in ("CFBundleShortVersionString", "CFBundleVersion"):
+            if not isinstance(data.get(key), str) or not data[key]:
+                problems.append(f"Info.plist has no {key}")
+        elif data.get(key) != expected[key]:
+            problems.append(f"Info.plist {key} is {data.get(key)!r}, not {expected[key]!r}")
+    exe = bundle / "Contents" / "MacOS" / str(data.get("CFBundleExecutable", ""))
+    if not exe.is_file():
+        problems.append(f"the bundle executable is missing: {exe}")
+    else:
+        if os.name == "posix" and not exe.stat().st_mode & stat.S_IXUSR:
+            problems.append(f"the bundle executable cannot run: {exe}")
+        if exe.read_text(encoding="utf-8") != launcher_script(prefix):
+            problems.append(f"the bundle executable does not start {_gui_entry_point(prefix)}")
+    target = _gui_entry_point(prefix)
+    if not target.is_file():
+        problems.append(f"the entry point the bundle starts is missing: {target}")
+    icon = bundle / "Contents" / "Resources" / str(data.get("CFBundleIconFile", ""))
+    if not icon.is_file() or icon.stat().st_size == 0:
+        problems.append(f"the bundle icon is missing: {icon}")
+    return problems
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m tether.gui.macos_app install|check`` (the installer and the smoke)."""
+    parser = argparse.ArgumentParser(prog="python -m tether.gui.macos_app")
+    commands = parser.add_subparsers(dest="command", required=True)
+    install = commands.add_parser("install", help="write Tether.app for an install")
+    install.add_argument("--prefix", type=Path, required=True)
+    install.add_argument("--home", type=Path, default=Path.home())
+    check = commands.add_parser("check", help="check a Tether.app against an install")
+    check.add_argument("bundle", type=Path)
+    check.add_argument("--prefix", type=Path, required=True)
+    args = parser.parse_args(argv)
+
+    if args.command == "install":
+        from tether import __version__
+
+        target = applications_dir(args.prefix, args.home)
+        bundle = write_bundle(args.prefix, target, __version__)
+        if bundle is None:
+            print(
+                f"warning: {target / BUNDLE_NAME} is not Tether's launcher; left it as it is",
+                file=sys.stderr,
+            )
+            return 0
+        print(bundle)
+        return 0
+
+    problems = check_bundle(args.bundle, args.prefix)
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    if problems:
+        return 1
+    print(f"{args.bundle}: OK")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through the CLI tests
+    raise SystemExit(main())

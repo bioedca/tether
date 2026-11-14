@@ -74,9 +74,35 @@ EOF
   chmod +x "$BIN_D/$_cmd"
 done
 
-# Linux desktop entry so the shell is launchable from the applications menu. macOS
-# .pkg installs get the shims above only — a proper .app bundle is separate work
-# (ADR-0051). `uname` rather than a constructor selector: this is one shared script.
+# macOS application bundle (issue #663, ADR-0091): Tether.app in ~/Applications for an
+# install inside the home folder, else in /Applications, so that Launchpad, Spotlight and
+# the Dock find "Tether". The bundle is a launcher only: its executable is a sh script that
+# execs envs/tether/bin/tether-gui, and it holds no copy of the environment.
+# tether.gui.macos_app writes it with plistlib, so the Info.plist is valid by
+# construction, and the install smoke runs the same module's `check`. A Tether.app that
+# the module did not write is left in place. Nothing removes the bundle on uninstall
+# (constructor's pre_uninstall is Windows-only), so docs/install.md names it.
+if [ "$(uname -s)" = "Darwin" ]; then
+  TETHER_APP="$("$TETHER_PY" -m tether.gui.macos_app install --prefix "$PREFIX")"
+  if [ -n "$TETHER_APP" ]; then
+    # An administrator install runs this script as root: give a bundle in the user's
+    # own Applications folder back to the user, as constructor does for the prefix.
+    if [ "$(id -u)" = "0" ] && [ -n "${USER:-}" ]; then
+      case "$TETHER_APP" in
+        "$HOME"/*) chown -R "$USER" "$TETHER_APP" || true ;;
+      esac
+    fi
+    # Best-effort: register the bundle now, so Spotlight and Launchpad need not wait
+    # for the next scan of the folder.
+    LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    if [ -x "$LSREGISTER" ]; then
+      "$LSREGISTER" -f "$TETHER_APP" >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
+# Linux desktop entry so the shell is launchable from the applications menu.
+# `uname` rather than a constructor selector: this is one shared script.
 # Exec= is quoted below: the freedesktop spec splits that value on whitespace, so an
 # unquoted prefix containing a space would launch the wrong executable.
 #
