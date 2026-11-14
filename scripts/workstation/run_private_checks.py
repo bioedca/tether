@@ -157,10 +157,25 @@ def redact(text: str, tokens: frozenset[str]) -> str:
     return text
 
 
+#: POSIX only: Windows has no such flag, so there the open flags stay as they were (#884).
+NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
 def open_private(path: Path, *, append: bool = False):
-    """Open *path* for writing text; a new file is owner-only on POSIX (it can name files)."""
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
-    fd = os.open(path, flags | getattr(os, "O_BINARY", 0), 0o600)
+    """Open *path* for writing text; a new file is owner-only on POSIX (it can name files).
+
+    On POSIX a symbolic link at *path* is refused, so that the open cannot truncate or append to
+    the file that the link points at (#884).
+    """
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC) | NOFOLLOW
+    try:
+        fd = os.open(path, flags | getattr(os, "O_BINARY", 0), 0o600)
+    except OSError:
+        if NOFOLLOW and os.path.islink(path):
+            raise RuntimeError(
+                f"refused to open {Path(path).name}: it is a symbolic link"
+            ) from None
+        raise
     if os.name != "nt":
         os.fchmod(fd, stat.S_IMODE(os.fstat(fd).st_mode) & ~GROUP_OTHER)
     return os.fdopen(fd, "a" if append else "w", encoding="utf-8")

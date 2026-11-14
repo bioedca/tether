@@ -549,6 +549,37 @@ def test_the_state_folder_and_its_log_are_owner_only_whatever_the_umask(tmp_path
     assert not list(state.glob("*.record.jsonl"))  # the record is removed after the run
 
 
+def test_a_symbolic_link_at_the_log_path_is_refused_and_its_target_is_kept(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """#884: a link planted at the run log or the record path is not followed, so the open
+    cannot truncate or append to the file it points at; the run ends as a run error. Windows
+    has no ``O_NOFOLLOW``, so there the open flags are unchanged."""
+    if os.name == "nt":
+        assert runner.NOFOLLOW == 0
+        record = tmp_path / "record.jsonl"
+        runner.append_record(record, {"kind": "open"})
+        assert record.read_text(encoding="utf-8") == '{"kind": "open"}\n'
+        return
+    assert runner.NOFOLLOW == os.O_NOFOLLOW != 0
+    target = tmp_path / "elsewhere.txt"
+    target.write_text("keep me", encoding="utf-8")
+    monkeypatch.setattr(runner, "_utc", lambda stamp: "2026-01-01T00:00:00Z")
+    state = tmp_path / "state"
+    (state / "logs").mkdir(parents=True)
+    (state / "logs" / "20260101T000000Z.log").symlink_to(target)
+    args = ["run", "--dry-run", "--state", str(state), "--data", str(_data_dir(tmp_path))]
+    assert runner.main(args) == runner.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "error: refused to open 20260101T000000Z.log: it is a symbolic link" in err
+    assert target.read_text(encoding="utf-8") == "keep me"
+    link = tmp_path / "record.jsonl"
+    link.symlink_to(target)
+    with pytest.raises(RuntimeError, match="it is a symbolic link"):
+        runner.append_record(link, {"kind": "open"})
+    assert target.read_text(encoding="utf-8") == "keep me"
+
+
 def test_the_runner_and_ci_install_the_same_test_tooling() -> None:
     ci = (_REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert all(f'"{pin}"' in ci for pin in runner.TEST_TOOLS), runner.TEST_TOOLS

@@ -30,6 +30,8 @@ The pytest log in `logs/` can name private files, so only your account must read
   When one of these folders already has group or other permission bits, the runner removes them
   before it runs and prints a `note:` line. It does not refuse the run. A `--results` folder
   outside the state folder holds only sealed results, so the runner does not change it.
+  The runner does not follow a symbolic link at the path of the log file or the check record.
+  It stops with an `error:` line and does not write to the file that the link points at.
 - **Windows.** The runner does not change permissions. A folder that you make in your user
   profile (`%USERPROFILE%`) inherits the ACL of the profile folder. By default, that ACL gives
   full control to `SYSTEM`, to `Administrators` and to your account, and nothing to `Users` or
