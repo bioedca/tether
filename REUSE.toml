@@ -28,6 +28,21 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Markus Götz and Sonja Schmid (kinSoftChallenge)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# Measured traces with a per-trace vbFRET path (#797, ADR-0090) — third-party reference data,
+# CC-BY-4.0 (Marzano et al., Zenodo 10.5281/zenodo.11323228 and 10.5281/zenodo.17118152). The two
+# archives copy one condition folder each verbatim; the four tables are what nmarzano/smFRET_module
+# v1.0.3 (MIT, Zenodo 10.5281/zenodo.16791519) computed from them. NOTICE carries both notices.
+# smfret_module_run.json beside the tables is Tether's own record, under the blanket entry.
+[[annotations]]
+path = [
+  "tests/fixtures/marzano_ppr_rnaanticognate.tar.xz",
+  "tests/fixtures/marzano_chaperone_kjg_231027.tar.xz",
+  "tests/fixtures/reference/marzano/*.csv",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2024-2026 Nicholas Marzano et al."
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # PySMACKS tutorial reference (#720): the histogram and HMM result that PySMACKS 1.0.0b4 gives
 # on the CC0-1.0 traces of Zenodo 10.5281/zenodo.21793247 (Molcrette & Schmid), made once by
 # scripts/make_pysmacks_reference.py. Kept under the record's CC0-1.0, so it can travel with the
