@@ -2,8 +2,8 @@
 
 **Who this page is for.** Anyone driving Tether without the window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. `tether extract` and `tether batch` are the whole
-headless surface — there is no third subcommand. If you are curating traces by hand,
+extraction from recorded settings. `tether extract` and `tether batch` write projects;
+`tether info` only reads them and prints a summary. There is no other subcommand. If you are curating traces by hand,
 picking states by eye, or reading plots, you want the desktop application instead; this
 page only tells you how to start it.
 
@@ -290,13 +290,141 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
 
+## `tether info`
+
+Print a summary of what one or more projects hold, without the application and without a
+Python script: the movies, the molecule and curation counts, the corrections, the
+idealization models and the lock holder. Use it to check the result of a batch run, or to
+put a summary of a project in a support request.
+
+```text
+tether info [-h] [--json] [--stale] projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects |
+| `--json` | off | print one JSON document instead of text; the layout is [below](#json-layout) |
+| `--stale` | off | also count the stale molecules of each idealization model; this reads the trace arrays the models were fit on, so it is slower on a large project |
+
+**It does not change the project.** The command opens the project read-only and takes no
+lock, so it works on a project that another user holds, and it does not change the project
+file or its `.lock` file. It reads only the tables and the attributes of the project. It
+does not read the trace arrays (except for `--stale`) and it never opens a movie file, so it
+is fast on a large project and it does not download a OneDrive placeholder movie.
+
+For each project the text output gives:
+
+- the schema version, and the Tether version that created the project;
+- each movie: its file name, its frame count, its frame time, its molecule count and the
+  curation counts of its molecules;
+- each condition and its molecule count. A condition that the molecules name but that has no
+  `/conditions` row yet shows `(not yet in /conditions)`;
+- the molecule count and the curation counts (accepted, rejected, undecided) for all movies;
+- the category counts, and how many molecules have no category;
+- whether the correction pass ran, and how many molecules have each correction method
+  (`none` is a molecule with no method);
+- each idealization model: its method, its state count, its molecule count and, with
+  `--stale`, its stale molecule count. Without `--stale` the text says `stale not checked`;
+- the ranker model reference: the entries under `/models`, or `none`;
+- the lock: `not held`, the holder (user, host, process id, the time it was taken, and
+  `active` or `stale`), or `present but unreadable` when the `.lock` file cannot be parsed.
+  A lock is stale after 30 minutes, the same limit the application uses.
+
+### Example — check the projects of a batch run
+
+```console
+$ tether info out/movie_010.tether
+out/movie_010.tether
+  schema version 1, written by Tether <version>
+  movies: 1
+    movie_010.tif: 1200 frames, 0.1 s/frame, 214 molecules
+      curation: 120 accepted, 30 rejected, 64 undecided
+  conditions: 1
+    cond-353fd5a76531: 214 molecules
+  molecules: 214
+  curation: 120 accepted, 30 rejected, 64 undecided
+  categories: none set (214 uncategorized)
+  corrections: ran (corrected 190, apparent-E (corrections unavailable) 24)
+  idealizations: 1
+    vbconhmm: method vbconhmm, 3 states, 184 molecules, stale not checked (use --stale)
+  ranker model: none
+  lock: not held
+```
+
+Give several projects to summarize them in one run (on Windows PowerShell, list them, or use
+`Get-ChildItem` as in the [batch example](#example-a-folder-of-movies-extraction-and-correction-only)).
+A project that cannot be read gives one line on stderr, `tether info: <path>: <reason>`, and the
+others are still printed. The reasons are: the file does not exist, it is not a `.tether`
+project, or its schema version is newer than this version of Tether can read.
+
+### JSON layout
+
+`--json` prints one JSON document for all the projects given. The layout has a version,
+`format_version`. A later version of Tether can add keys without a change to the version; it
+changes the version if it renames or removes a key, or changes the meaning of a value. A
+value that the project does not record is `null`. The keys are:
+
+| Key | Meaning |
+|---|---|
+| `format` | always `"tether-info"` |
+| `format_version` | the version of this layout (now `1`) |
+| `tether_version` | the version of Tether that printed the document |
+| `projects` | one entry for each project argument, in the order given |
+| `projects[].path` | the project path as given |
+| `projects[].error` | only in the entry of a project that could not be read: the reason. Such an entry has no other keys |
+| `projects[].schema_version` | the schema version of the project |
+| `projects[].written_by` | the Tether version that created the project, or `null` |
+| `projects[].n_molecules` | the molecule count |
+| `projects[].movies` | one entry for each movie |
+| `projects[].movies[].movie_id` | the movie identifier in the project |
+| `projects[].movies[].name` | the file name of the movie |
+| `projects[].movies[].uri` | the movie path recorded at extraction (the file is not opened) |
+| `projects[].movies[].n_frames` | the frame count |
+| `projects[].movies[].frame_time_s` | seconds for each frame, or `null` when the project does not record it |
+| `projects[].movies[].n_molecules` | the molecule count of the movie |
+| `projects[].movies[].curation` | the curation counts of the molecules of the movie |
+| `projects[].movies[].curation.accepted` | accepted molecules |
+| `projects[].movies[].curation.rejected` | rejected molecules |
+| `projects[].movies[].curation.undecided` | molecules not accepted and not rejected |
+| `projects[].conditions` | one entry for each condition |
+| `projects[].conditions[].condition_id` | the condition identifier |
+| `projects[].conditions[].materialized` | `true` when the condition has a `/conditions` row |
+| `projects[].conditions[].n_molecules` | the molecule count of the condition |
+| `projects[].conditions[].key` | the identity fields of the `/conditions` row: `construct_variant`, `dye`, `ligand`, `ligand_concentration`, `ligand_concentration_unit`, `buffer`, `temperature_c`, `laser_power`. Empty when `materialized` is `false` |
+| `projects[].curation` | the curation counts of all molecules |
+| `projects[].curation.accepted` | accepted molecules |
+| `projects[].curation.rejected` | rejected molecules |
+| `projects[].curation.undecided` | molecules not accepted and not rejected |
+| `projects[].categories` | a map from each category name to its molecule count |
+| `projects[].uncategorized` | molecules with no category |
+| `projects[].corrections` | the correction state |
+| `projects[].corrections.ran` | `true` when the correction pass ran |
+| `projects[].corrections.methods` | a map from each correction method to its molecule count; the key `""` is a molecule with no method |
+| `projects[].idealizations` | one entry for each idealization model |
+| `projects[].idealizations[].name` | the model name |
+| `projects[].idealizations[].method` | the method that made the model, for example `vbconhmm` |
+| `projects[].idealizations[].n_states` | the state count |
+| `projects[].idealizations[].n_molecules` | the molecule count of the model |
+| `projects[].idealizations[].stale` | the stale molecule count with `--stale`, else `null` (not checked) |
+| `projects[].models` | the entries under `/models` (the ranker model reference); empty when there is none |
+| `projects[].lock` | the `.lock` file as read |
+| `projects[].lock.held` | `true` when a `.lock` file is present |
+| `projects[].lock.corrupt` | `true` when the `.lock` file cannot be parsed; the owner fields are then `null` |
+| `projects[].lock.host` | the computer of the holder |
+| `projects[].lock.user` | the user name of the holder |
+| `projects[].lock.pid` | the process identifier of the holder |
+| `projects[].lock.acquired_utc` | the time the lock was taken (ISO 8601, UTC) |
+| `projects[].lock.age_s` | the age of the lock in seconds |
+| `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
+
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` |
-|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` |
+| Code | `tether extract` | `tether batch` | `tether info` |
+|---|---|---|---|
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one project could not be read |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is

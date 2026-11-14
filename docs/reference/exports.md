@@ -40,7 +40,8 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
 > **There is no CLI or GUI export command, and this page will not invent one.**
-> `tether.cli` registers exactly two subcommands, `extract` and `batch`, and no module
+> `tether.cli` registers three subcommands, `extract`, `batch` and `info`, and none of
+> them exports; no module
 > under `src/tether/gui/` references any of the four functions above. They are a Python
 > API today. Every snippet on this page is therefore the call you actually run.
 
