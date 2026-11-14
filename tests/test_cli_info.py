@@ -179,6 +179,20 @@ def test_check_stale_counts_what_the_staleness_recompute_reports(tmp_path: Path)
     assert model.stale == expected
 
 
+def test_the_stale_count_counts_rows_not_shared_keys(tmp_path: Path) -> None:
+    """Two stale molecules that share a quantized ``molecule_key`` (§7.10) count as two."""
+    project, keys = build_store_with_model(tmp_path, _STATES[:3], MEANS, stale=[True, True, False])
+    shared = keys[0]
+    with h5py.File(project.path, "r+") as f:
+        table = f["molecules"]["table"][:]
+        table["molecule_key"][1] = shared
+        f["molecules"]["table"][:] = table
+        f["idealization"]["vbconhmm"]["molecule_key"][1] = shared
+    assert project.stale_idealization_keys("vbconhmm") == [shared]  # one key ...
+    (model,) = read_project_summary(project.path, check_stale=True).idealizations
+    assert model.stale == 2  # ... two stale molecules
+
+
 def test_the_text_output_prints_the_counts(tmp_path: Path, capsys) -> None:
     path = _rich_store(tmp_path)
     assert main(["info", str(path)]) == 0

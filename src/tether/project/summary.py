@@ -20,7 +20,7 @@ The read is deliberately narrow:
   arrays are never loaded, and a movie's ``uri`` is reported, never opened or stat'ed —
   so a cloud placeholder movie is not downloaded. The one exception is opt-in:
   ``check_stale=True`` runs the idealization staleness recompute
-  (:func:`tether.project.idealize.stale_molecule_keys`), which by its nature reads the
+  (:func:`tether.project.idealize.stale_row_ids`), which by its nature reads the
   trace layers each model was fit on. Without it every model's ``stale`` is ``None``
   ("not checked"), never ``0``.
 
@@ -395,9 +395,10 @@ def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False
     for name, method, n_states, n_fit in idealization_rows:
         stale: int | None = None
         if check_stale:
-            from tether.project.idealize import stale_molecule_keys
+            from tether.project.idealize import read_idealization, stale_row_ids
 
-            stale = len(stale_molecule_keys(path, name))
+            # Rows, not keys: two stale molecules may share one quantized key (§7.10).
+            stale = len(stale_row_ids(path, read_idealization(path, name)))
         idealizations.append(IdealizationSummary(name, method, n_states, n_fit, stale))
 
     return ProjectSummary(
