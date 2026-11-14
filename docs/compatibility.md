@@ -179,6 +179,12 @@ and derived envelopes, not measurements or a service guarantee**:
 `tests/test_project_perf.py` runs a real extraction and holds the projections under them,
 which is what keeps them honest.
 
+These budgets cannot see a regression that stays inside them. The `benchmarks` workflow
+([ADR-0078](adr/0078-benchmarks-compare-a-pull-request-with-its-merge-base.md)) does that part:
+on a pull request that changes `src/tether/`, it times each operation and records its peak
+memory on the merge base and on the pull request, on one runner, and it fails when a gated
+operation becomes more than 1.5 times slower or larger. The job summary shows the table.
+
 | Quantity | Value | Constant |
 |---|---|---|
 | Reference movie | 512 × 512, 1700 frames | `REFERENCE_MOVIE_*` |
@@ -234,9 +240,10 @@ which needs an older, incompatible numeric stack of its own. Two full environmen
 bundled Python make the install considerably larger than a single-environment desktop
 utility.
 
-**Measured on Linux only: 3.6 GB.** Installing the `v1.0.0-rc2` Linux installer
-(`Tether-1.0.0-rc2-Linux-x86_64.sh`) into a clean folder left an install folder of 3.6 GB; that
-is the figure [Install Tether](install.md#what-gets-installed-and-where) reports for the same
+**Measured on Linux only: 3.6 GB.** Installing the `v1.0.0-rc3` Linux installer
+(`Tether-1.0.0-rc3-Linux-x86_64.sh`) into a clean folder left an install folder of 3.6 GB
+(`du -sh`, 12 November 2026); the `v1.0.0-rc2` installer measured the same. That is the
+figure [Install Tether](install.md#what-gets-installed-and-where) reports for the same
 release. **Windows and macOS have not been measured**, so no figure is quoted for them: a guess
 about disk usage is worse than no number, and a Linux figure is not a stand-in for theirs.
 Installer **download** sizes are a different quantity — an installer is compressed and unpacks

@@ -18,6 +18,7 @@ import operator
 import pickle
 import warnings
 import zipfile
+from datetime import UTC, datetime
 
 import pytest
 
@@ -33,6 +34,7 @@ from tether.ml.persistence import (  # noqa: E402
     MODEL_FORMAT_VERSION,
     CorruptModelError,
     PortableRankerModel,
+    SourceProject,
     UnsupportedModelFormatError,
     load_model,
     save_model,
@@ -65,6 +67,10 @@ def _repack(src, dst, *, manifest=None, model_bytes=None) -> None:
 
 
 FEATURES = ("f0", "f1", "f2")
+
+#: A model member no unpickle can read: a refusal that still names a manifest fault was raised
+#: before the pickle was touched.
+_NOT_A_PICKLE = b"\x00 not a pickle \x00"
 
 
 def _separable(
@@ -137,6 +143,12 @@ def test_round_trip_preserves_provenance(tmp_path) -> None:
     assert loaded.n_train == model.n_train
     assert loaded.n_good == model.n_good
     assert loaded.hyperparams == hp
+    # ML-F8: the recorded hyperparams must be the ones the estimator was fit with, before and
+    # after the round trip (the provenance field alone is a copy of the argument).
+    for ranker in (model.ranker, loaded.ranker):
+        assert ranker._model.get_params()["max_iter"] == 40
+        assert ranker._model.get_params()["random_state"] == 5
+        assert ranker._model.n_iter_ == 40
     assert loaded.created_utc == model.created_utc
     assert loaded.updated_utc == model.updated_utc
     assert loaded.tether_version == model.tether_version
@@ -203,6 +215,44 @@ def test_warm_start_retrain_advances_provenance() -> None:
     # The input model is frozen — untouched by the retrain.
     assert model1.n_retrains == 0
     assert model1.videos_seen == ("v1",)
+
+
+_T0 = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+_T1 = datetime(2026, 2, 3, 4, 5, 6, tzinfo=UTC)
+
+
+def test_warm_start_retrain_refreshes_updated_utc_only() -> None:
+    # ML-F11: the retrain stamps ``updated_utc`` with its own time and keeps ``created_utc`` from
+    # the first fit (the warm_start_retrain docstring); both times are injected, so a retrain that
+    # carries the old ``updated_utc`` forward fails here.
+    X, y, _ = _overlapping(20, seed=1)
+    names = ("f0", "f1", "f2", "f3")
+    model1 = train_portable_model(X, y, names, condition_id="c", now=_T0)
+    assert model1.created_utc == _T0.isoformat()
+    assert model1.updated_utc == _T0.isoformat()
+    model2 = warm_start_retrain(model1, X, y, names, video_id="v2", now=_T1)
+    assert model2.created_utc == _T0.isoformat()
+    assert model2.updated_utc == _T1.isoformat()
+    assert model1.updated_utc == _T0.isoformat()  # the input model stays frozen
+
+
+def test_warm_start_retrain_fits_with_the_given_hyperparams() -> None:
+    # ML-F8: a ``hyperparams=`` override on the retrain reaches the fitted estimator and the
+    # provenance; without one the model's own hyperparams are carried forward.
+    X, y, _ = _overlapping(20, seed=1)
+    names = ("f0", "f1", "f2", "f3")
+    model1 = train_portable_model(
+        X, y, names, condition_id="c", hyperparams=RankerHyperparams(max_iter=15)
+    )
+    assert model1.ranker._model.n_iter_ == 15
+    carried = warm_start_retrain(model1, X, y, names)
+    assert carried.hyperparams == RankerHyperparams(max_iter=15)
+    assert carried.ranker._model.n_iter_ == 15
+    override = RankerHyperparams(max_iter=7, random_state=3)
+    changed = warm_start_retrain(model1, X, y, names, hyperparams=override)
+    assert changed.hyperparams == override
+    assert changed.ranker._model.get_params()["max_iter"] == 7
+    assert changed.ranker._model.n_iter_ == 7
 
 
 def test_warm_start_retrain_dedups_revisited_video() -> None:
@@ -392,7 +442,9 @@ def test_non_ranker_pickle_raises_corrupt(tmp_path) -> None:
 
 def test_wrong_typed_manifest_field_raises_corrupt(tmp_path) -> None:
     # A manifest whose format_version is fine but a provenance field is the wrong type is refused —
-    # and, per the security contract, before the model member is unpickled.
+    # and, per the security contract, before the model member is unpickled. ML-F9: the model
+    # member is un-unpicklable garbage (as in the format-version test), so only a refusal raised
+    # on the manifest alone can carry the "wrong type" message.
     X, y, _ = _separable()
     good = tmp_path / "good.tethermodel"
     save_model(train_portable_model(X, y, FEATURES, condition_id="c"), good)
@@ -400,7 +452,7 @@ def test_wrong_typed_manifest_field_raises_corrupt(tmp_path) -> None:
         manifest = json.loads(zf.read("manifest.json"))
     manifest["n_retrains"] = "five"  # int expected
     bad = tmp_path / "bad.tethermodel"
-    _repack(good, bad, manifest=manifest)
+    _repack(good, bad, manifest=manifest, model_bytes=_NOT_A_PICKLE)
     with pytest.raises(CorruptModelError, match="wrong type"):
         load_model(bad)
 
@@ -413,7 +465,8 @@ def test_malformed_hyperparams_raise_corrupt(tmp_path) -> None:
         manifest = json.loads(zf.read("manifest.json"))
     del manifest["hyperparams"]["max_iter"]  # a required hyperparameter key
     bad = tmp_path / "bad.tethermodel"
-    _repack(good, bad, manifest=manifest)
+    # ML-F9: garbage model member, so the refusal must come before the unpickle.
+    _repack(good, bad, manifest=manifest, model_bytes=_NOT_A_PICKLE)
     with pytest.raises(CorruptModelError, match="hyperparam"):
         load_model(bad)
 
@@ -548,3 +601,75 @@ def test_portable_model_rejects_invalid_sample_weight() -> None:
     X, y, _ = _separable()
     with pytest.raises(ValueError, match="sample_weight"):
         train_portable_model(X, y, FEATURES, condition_id="c", sample_weight=np.ones(len(y) - 1))
+
+
+# --- the project record (ADR-0077) ----------------------------------------------
+
+
+def _source(path: str, n_rows: int = 3, n_human: int = 2) -> SourceProject:
+    return SourceProject(path=path, rows_sha256="ab" * 32, n_rows=n_rows, n_human=n_human)
+
+
+def test_source_projects_round_trip_and_replace(tmp_path) -> None:
+    X, y, _ = _separable()
+    record = (_source("/data/day1.tether"), _source("/data/day2.tether", 5, 5))
+    model = train_portable_model(X, y, FEATURES, condition_id="c", source_projects=record)
+    path = tmp_path / "c.tethermodel"
+    save_model(model, path)
+    loaded = load_model(path)
+    assert loaded.source_projects == record
+
+    # None clears the record: the arrays may not be the recorded rows, and a stale record would
+    # make a later project retrain leave out labels without a message. A new record replaces it.
+    assert warm_start_retrain(loaded, X, y, FEATURES).source_projects == ()
+    newer = (_source("/data/day3.tether"),)
+    assert warm_start_retrain(loaded, X, y, FEATURES, source_projects=newer).source_projects == (
+        newer
+    )
+
+
+def test_artifact_without_source_projects_loads_with_an_empty_record(tmp_path) -> None:
+    # The key is additive: an artifact saved before it existed still loads, format version 1.
+    X, y, _ = _separable()
+    path = tmp_path / "c.tethermodel"
+    save_model(train_portable_model(X, y, FEATURES, condition_id="c"), path)
+    with zipfile.ZipFile(path) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+    del manifest["source_projects"]
+    old = tmp_path / "old.tethermodel"
+    _repack(path, old, manifest=manifest)
+    loaded = load_model(old)
+    assert loaded.source_projects == ()
+    assert manifest["format_version"] == persistence.MODEL_FORMAT_VERSION == 1
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "not-a-list",
+        ["not-an-object"],
+        [{"path": "/p", "rows_sha256": "x", "n_rows": "3", "n_human": 1}],
+        [
+            {"path": "/p", "rows_sha256": "x", "n_rows": 1, "n_human": 1},
+            {"path": "/p", "rows_sha256": "y", "n_rows": 2, "n_human": 2},
+        ],
+    ],
+)
+def test_malformed_source_projects_is_corrupt(tmp_path, bad) -> None:
+    X, y, _ = _separable()
+    path = tmp_path / "c.tethermodel"
+    save_model(train_portable_model(X, y, FEATURES, condition_id="c"), path)
+    with zipfile.ZipFile(path) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+    manifest["source_projects"] = bad
+    tampered = tmp_path / "bad.tethermodel"
+    _repack(path, tampered, manifest=manifest)
+    with pytest.raises(CorruptModelError):
+        load_model(tampered)
+
+
+def test_source_projects_rejects_a_file_named_twice() -> None:
+    X, y, _ = _separable()
+    twice = (_source("/data/day1.tether"), _source("/data/day1.tether"))
+    with pytest.raises(ValueError, match="more than once"):
+        train_portable_model(X, y, FEATURES, condition_id="c", source_projects=twice)

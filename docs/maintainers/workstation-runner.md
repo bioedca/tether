@@ -21,6 +21,28 @@ pull request cannot run code on that computer.
 
 The runner keeps everything in one **state folder**: `clone/`, `env/`, `logs/` and `results/`.
 
+## Who can read the state folder
+
+The pytest log in `logs/` can name private files, so only your account must read it.
+
+- **Linux, macOS and WSL.** The runner makes the state folder, `logs/` and `results/` owner-only
+  (`700`), and the log file and the check record owner-only (`600`), whatever your `umask` is.
+  When one of these folders already has group or other permission bits, the runner removes them
+  before it runs and prints a `note:` line. It does not refuse the run. A `--results` folder
+  outside the state folder holds only sealed results, so the runner does not change it.
+- **Windows.** The runner does not change permissions. A folder that you make in your user
+  profile (`%USERPROFILE%`) inherits the ACL of the profile folder. By default, that ACL gives
+  full control to `SYSTEM`, to `Administrators` and to your account, and nothing to `Users` or
+  `Authenticated Users`. Thus other standard accounts cannot read the log, but an administrator
+  can. Put the state folder in your profile. A folder outside the profile, for example in `C:\`,
+  inherits the ACL of `C:\`, which by default lets every signed-in account read it.
+- **Check it.** On Windows, run `icacls <state folder>` and look for entries other than
+  `SYSTEM`, `Administrators` and your account. An entry that a person added to the profile folder
+  is inherited too. On POSIX, run `ls -ld <state folder> <state folder>/logs`.
+
+The data folder and its mapping file keep the permissions that you give them. They name the
+files too, so give them the same protection.
+
 ## The data folder
 
 Put the private data in one folder. Put a file `tether-private-data.json` in that folder. It
@@ -181,7 +203,10 @@ one-issue-per-check rule as the scheduled CI jobs (#697).
       comment each day.
 4. For each title in `passed` that has an open issue, add one comment that says the check
    passed, with the commit. Do not close the issue: a person or an agent closes it with the
-   cause.
+   cause. When a scheduled run completes again, `passed` also has the title
+   `test(workstation): the scheduled run failed on main`, so an open run-level issue gets its
+   recovery comment the same way. A run completes when its checks ran, also when one of them
+   failed: that check has its own issue. A result older than 192 hours does not count (step 2).
 
 ## Add a check
 

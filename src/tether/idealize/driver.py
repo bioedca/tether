@@ -33,6 +33,8 @@ and dwell logic are covered by ordinary unit tests.
 from __future__ import annotations
 
 import json
+import numbers
+import operator
 import os
 import subprocess
 import sys
@@ -361,6 +363,25 @@ def _sidecar_env() -> dict[str, str]:
     return env
 
 
+def _check_seed(seed: object) -> int | None:
+    """Return ``seed`` as a plain ``int``, or ``None``; refuse anything else.
+
+    Only integer types pass: :class:`numbers.Integral`, which holds ``int`` and
+    the NumPy integer types, never ``bool`` (nor ``numpy.bool_``, which is not
+    registered as integral). A float such as ``3.0`` is refused although it
+    equals an integer (issue #839), and so is a string such as ``"3"``. The
+    check runs before the sidecar starts.
+    """
+    if seed is None:
+        return None
+    if isinstance(seed, bool) or not isinstance(seed, numbers.Integral):
+        raise ValueError(f"seed must be a non-negative integer or None, got {seed!r}")
+    value = operator.index(seed)
+    if value < 0:
+        raise ValueError(f"seed must be a non-negative integer or None, got {seed!r}")
+    return value
+
+
 def run_vbfret(
     smd_path: str | PathLike[str],
     *,
@@ -405,8 +426,7 @@ def run_vbfret(
     IdealizationResult
         The fitted model plus per-molecule state paths and dwell segments.
     """
-    if seed is not None and (isinstance(seed, bool) or int(seed) != seed or seed < 0):
-        raise ValueError(f"seed must be a non-negative integer or None, got {seed!r}")
+    seed = _check_seed(seed)
     py = resolve_sidecar_python(sidecar_python)
     smd_path = Path(smd_path)
     if not smd_path.exists():
@@ -419,7 +439,7 @@ def run_vbfret(
 
     cmd = [str(py), str(_RUNNER)]
     if seed is not None:
-        cmd += ["--seed", str(int(seed))]
+        cmd += ["--seed", str(seed)]
     cmd += [
         str(smd_path),
         group,

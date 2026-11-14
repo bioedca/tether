@@ -134,12 +134,13 @@ def _write_movie(
 
 
 def _discriminable_traces(
-    n_per_class: int, *, seed: int
+    n_per_class: int, *, seed: int, good_first: bool = True
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``2*n_per_class`` interleaved traces: even rows clean/anticorrelated 'good', odd 'bad'.
 
     Good and bad separate strongly in feature space (SNR ~high vs ~low, anticorrelation ~-1 vs
     ~0), and the interleaving makes plain file order a baseline a working ranker can beat.
+    ``good_first=False`` swaps the parity (odd rows good), so the label sequence differs.
     """
     rng = np.random.default_rng(seed)
     t = 40
@@ -148,7 +149,7 @@ def _discriminable_traces(
     acceptor = np.empty((n, t), dtype=np.float64)
     good = np.zeros(n, dtype=bool)
     for j in range(n_per_class):
-        gi, bi = 2 * j, 2 * j + 1
+        gi, bi = (2 * j, 2 * j + 1) if good_first else (2 * j + 1, 2 * j)
         good[gi] = True
         d = rng.normal(600.0, 8.0, size=t)
         donor[gi] = d
@@ -159,17 +160,25 @@ def _discriminable_traces(
 
 
 def _multi_movie_store(
-    path: Path, *, n_movies: int, n_per_class: int, label: bool = True
+    path: Path,
+    *,
+    n_movies: int,
+    n_per_class: int,
+    label: bool = True,
+    bad_first_movies: frozenset[int] = frozenset(),
 ) -> tuple[Project, np.ndarray]:
     """A ``.tether`` of ``n_movies`` separable videos; returns the project + store-order good mask.
 
     Each movie contributes ``2*n_per_class`` interleaved good/bad molecules under its own
     ``movie_id``. Features are computed over the full store, then (``label=True``) every molecule
-    is accepted/rejected by its good/bad status in store order.
+    is accepted/rejected by its good/bad status in store order. Movies whose index is in
+    ``bad_first_movies`` start with a bad molecule, so their label sequence differs.
     """
     goods: list[np.ndarray] = []
     for m in range(n_movies):
-        donor, acceptor, good = _discriminable_traces(n_per_class, seed=17 + m)
+        donor, acceptor, good = _discriminable_traces(
+            n_per_class, seed=17 + m, good_first=m not in bad_first_movies
+        )
         _write_movie(path, f"mov-{m}", f"{m + 1:064x}", donor, acceptor, create=(m == 0))
         goods.append(good)
     good_store_order = np.concatenate(goods)
@@ -264,17 +273,25 @@ def test_gate_uplift_is_held_out_not_apparent(tmp_path, monkeypatch) -> None:
     # The evaluated videos are scored by a model that never trained on them (the prior only ever
     # grows), so the number is a genuine generalization measurement. Spy on the fit and check the
     # rows it trains on (#742 ML-F13): for each held-out video, exactly the earlier videos' rows.
+    # Also check the labels (#851): mov-1 starts with a bad molecule, so its label sequence is the
+    # opposite of mov-0's and labels taken from the evaluated video cannot pass as the prior's.
     import tether.ml.gbranker as _gbranker  # noqa: PLC0415
 
-    proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=3, n_per_class=8)
+    proj, _ = _multi_movie_store(
+        tmp_path / "x.tether", n_movies=3, n_per_class=8, bad_first_movies=frozenset({1})
+    )
     folds = prequential_folds(proj)
     assert [f.movie_id for f in folds] == ["mov-0", "mov-1", "mov-2"]
+    labels = [np.asarray(f.is_good, dtype=bool) for f in folds]
+    assert not np.array_equal(labels[0], labels[1])  # the check below has teeth
 
     real_fit = _gbranker.train_quality_ranker
     seen_x: list[np.ndarray] = []
+    seen_y: list[np.ndarray] = []
 
     def _spy(x, y, feature_names, **kwargs):
         seen_x.append(np.array(x, dtype=np.float64, copy=True))
+        seen_y.append(np.array(y, copy=True))
         return real_fit(x, y, feature_names, **kwargs)
 
     monkeypatch.setattr(_gbranker, "train_quality_ranker", _spy)
@@ -286,6 +303,10 @@ def test_gate_uplift_is_held_out_not_apparent(tmp_path, monkeypatch) -> None:
     np.testing.assert_array_equal(
         seen_x[1], np.concatenate([np.asarray(folds[0].X), np.asarray(folds[1].X)])
     )
+    # Each fit gets exactly the earlier videos' labels, in the same order as its rows.
+    assert len(seen_y) == 2
+    np.testing.assert_array_equal(seen_y[0], labels[0])
+    np.testing.assert_array_equal(seen_y[1], np.concatenate([labels[0], labels[1]]))
 
 
 def test_custom_ship_bar_can_withhold_a_ship(tmp_path) -> None:
