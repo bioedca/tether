@@ -334,6 +334,120 @@ def test_render_transition_density(tmp_path):
     _assert_valid(result)
 
 
+def _tdp_with_empty_bins():
+    """A tiny TDP: one dominant cell (40 counts), one weak cell (1 count), the rest empty."""
+    from tether.analysis.tdp import transition_density
+
+    # 0.2 -> 0.8 forty times (one transition per molecule), 0.8 -> 0.2 once.
+    up = [np.array([0.2, 0.2, 0.8, 0.8, 0.8])] * 40
+    down = [np.array([0.8, 0.8, 0.2, 0.2, 0.2])]
+    tdp = transition_density(up + down)
+    counts = np.asarray(tdp.counts)
+    assert counts.max() == 40 and np.count_nonzero(counts) == 2 and (counts == 0).any()
+    return tdp
+
+
+def test_render_transition_density_defaults_to_a_zero_safe_log_scale(tmp_path):
+    """#556: PRD Appendix C B1 names a log-normalized TDP. The default colour scale is log,
+    so a 1-count transition next to a 40-count one is still visibly coloured, and empty bins
+    are drawn in the colour map's floor colour rather than becoming -inf or a hole."""
+    from matplotlib.colors import LogNorm
+
+    tdp = _tdp_with_empty_bins()
+    fig = pe.render_transition_density(tdp)
+    ax = fig.axes[0]
+    mesh = next(c for c in ax.collections if isinstance(c, QuadMesh))
+    assert isinstance(mesh.norm, LogNorm)
+    drawn, x_edges, y_edges = _mesh(ax)
+    # The stored histogram is drawn unchanged: the log is display only (NFR-REPRO).
+    np.testing.assert_array_equal(drawn, np.asarray(tdp.counts).T)
+    weak = _value_at(drawn, x_edges, y_edges, 0.8, 0.2)
+    strong = _value_at(drawn, x_edges, y_edges, 0.2, 0.8)
+    assert (weak, strong) == (1, 40)
+    floor_rgba = np.asarray(mesh.cmap(0.0))
+    rgba = mesh.to_rgba(np.asarray([[0.0, weak, strong]]))[0]
+    assert np.all(np.isfinite(rgba))
+    # The empty bin takes the floor colour, opaque.
+    np.testing.assert_allclose(rgba[0], floor_rgba)
+    assert rgba[0][3] == 1.0
+    # The weakest transition is not the floor colour an empty bin takes: the log floor sits
+    # one decade below it, so 1 count of 40 is drawn 1/log10(400) ~ 38 % up the colour map,
+    # where a linear scale would put it at 2.5 %.
+    assert mesh.norm(1.0) == pytest.approx(1.0 / np.log10(400.0))
+    assert mesh.norm(1.0) > 0.3
+    assert not np.allclose(rgba[1], floor_rgba)
+    assert mesh.norm(40.0) == pytest.approx(1.0)
+    result = pe.export_figure(
+        fig, tmp_path / "b1", tether_export="plot:b1", source="s", parameters={}
+    )
+    _assert_valid(result)
+    payload = json.loads(result.provenance_path.read_text(encoding="utf-8"))
+    assert payload["parameters"]["display"] == {"color_scale": "log"}
+
+
+def test_render_transition_density_linear_scale_is_selectable_and_recorded(tmp_path):
+    from matplotlib.colors import LogNorm
+
+    tdp = _tdp_with_empty_bins()
+    fig = pe.render_transition_density(tdp, color_scale="linear")
+    mesh = next(c for c in fig.axes[0].collections if isinstance(c, QuadMesh))
+    assert not isinstance(mesh.norm, LogNorm)
+    assert mesh.norm.vmin == 0.0 and mesh.norm.vmax == 40.0
+    result = pe.export_figure(
+        fig, tmp_path / "b1", tether_export="plot:b1", source="s", parameters={"nskip": 2}
+    )
+    payload = json.loads(result.provenance_path.read_text(encoding="utf-8"))
+    assert payload["parameters"]["display"] == {"color_scale": "linear"}
+    assert payload["parameters"]["nskip"] == 2
+
+
+def test_render_transition_density_log_scale_survives_an_empty_tdp(tmp_path):
+    """No transitions at all: every bin is empty, and the log scale must still render."""
+    from tether.analysis.tdp import transition_density
+
+    tdp = transition_density([np.full(6, 0.5)])
+    assert tdp.n_transitions == 0
+    fig = pe.render_transition_density(tdp)
+    mesh = next(c for c in fig.axes[0].collections if isinstance(c, QuadMesh))
+    rgba = mesh.to_rgba(np.asarray(tdp.counts))
+    assert np.all(np.isfinite(rgba))
+    np.testing.assert_allclose(rgba.reshape(-1, 4)[0], mesh.cmap(0.0))
+    result = pe.export_figure(
+        fig, tmp_path / "b1", tether_export="plot:b1", source="s", parameters={}
+    )
+    _assert_valid(result)
+
+
+def test_render_transition_density_rejects_an_unknown_color_scale():
+    tdp = _tdp_with_empty_bins()
+    with pytest.raises(ValueError, match="color_scale"):
+        pe.render_transition_density(tdp, color_scale="sqrt")
+
+
+def test_export_refuses_a_display_record_that_contradicts_the_figure(tmp_path):
+    """The figure, not the caller, says how it was drawn: a caller-supplied ``display``
+    entry that disagrees would make the provenance describe a different picture."""
+    fig = pe.render_transition_density(_tdp_with_empty_bins())
+    with pytest.raises(ValueError, match="display"):
+        pe.export_figure(
+            fig,
+            tmp_path / "b1",
+            tether_export="plot:b1",
+            source="s",
+            parameters={"display": {"color_scale": "linear"}},
+        )
+    # Agreeing with the figure is allowed and changes nothing.
+    result = pe.export_figure(
+        fig,
+        tmp_path / "b1",
+        tether_export="plot:b1",
+        source="s",
+        parameters={"display": {"color_scale": "log"}},
+    )
+    payload = json.loads(result.provenance_path.read_text(encoding="utf-8"))
+    assert payload["parameters"]["display"] == {"color_scale": "log"}
+
+
 def test_render_dwell_survival(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
     analysis = population_dwell_times(proj, "vbconhmm", state=1)

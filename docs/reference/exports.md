@@ -445,6 +445,15 @@ The eight renderers, and the plot each produces (Appendix-C ids as used in the
 | `render_raw_fret_cloud` | `RawFretCloud` | QC raw FRET cloud | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
 | `render_cross_correlation` | `CrossCorrelation` | Donor–acceptor cross-correlation | `Lag (frames)` — always frames; there is no seconds variant |
 
+`render_transition_density` draws the B1 colour scale as `color_scale="log"` by default, the
+log-normalized TDP that PRD Appendix C names. Use `color_scale="linear"` for a linear scale.
+The log scale is zero-safe: an empty bin gets the floor colour of the colour map. The floor
+is one decade below the smallest non-empty bin, so a rare transition does not disappear next
+to a frequent one. The scale is display-only: the drawn array is the stored histogram.
+`export_figure` writes the scale to the sidecar as `parameters.display.color_scale`. You do
+not have to pass it. If you pass a `display` entry that does not agree with the figure,
+`export_figure` raises `ValueError`.
+
 > **A time axis says seconds only if you supplied a frame duration.** `dt` / `time_dt`
 > default to `1.0`, and at that default the renderer labels the axis in frames. The same
 > applies to rates read off a B2 survival fit: `tether.analysis.dwell` reports them in

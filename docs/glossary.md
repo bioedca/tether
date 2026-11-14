@@ -483,7 +483,8 @@ of a population ([McKinney 2006](https://doi.org/10.1529/biophysj.106.082487)). 
 the "real" TDP: built from a persisted model's Viterbi paths, with a point emitted **only at
 state-change frames**, initial and final read `DEFAULT_TDP_NSKIP = 2` frames apart
 (`tether.analysis.tdp`). The stored array is the exact unsmoothed histogram in raw counts;
-log-normalization and smoothing are display-only.
+log-normalization and smoothing are display-only. The plot export draws a zero-safe log
+colour scale by default and records the scale in the provenance sidecar.
 
 ### post-synchronization
 
