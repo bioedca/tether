@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Headless stage preview of the extraction pipeline (#348; PRD §7.11, Appendix E).
 
-:func:`iter_extraction_stages` runs the stages of :func:`~tether.project.extract.extract_movie`
-on a movie that is already in memory and yields one :class:`StageResult` per stage, with the
-intermediate arrays a preview panel shows. :func:`preview_extraction` collects them. The stage
+[`iter_extraction_stages`][] runs the stages of
+[`extract_movie`][tether.project.extract.extract_movie]
+on a movie that is already in memory and yields one [`StageResult`][] per stage, with the
+intermediate arrays a preview panel shows. [`preview_extraction`][] collects them. The stage
 order is the one ``extract_movie`` executes::
 
     split_channels -> detection_image / detect_spots_by_mode (both halves)
@@ -91,6 +92,7 @@ class StageResult:
     message: str = ""
 
     def __post_init__(self) -> None:
+        """Freeze both mappings so a preview panel cannot change a recorded stage."""
         object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
         object.__setattr__(self, "outputs", MappingProxyType(dict(self.outputs)))
 
@@ -102,7 +104,7 @@ class ExtractionPreview:
     stages: tuple[StageResult, ...]
 
     def stage(self, name: str) -> StageResult | None:
-        """The result of stage ``name``, or ``None`` if the run did not reach it."""
+        """Return the result of stage ``name``, or ``None`` if the run did not reach it."""
         return next((s for s in self.stages if s.name == name), None)
 
     @property
@@ -139,7 +141,7 @@ def _run(name: str, params: dict[str, Any], body: Callable[[], dict[str, Any]]) 
 
 
 def _registered(reg_map: RegistrationMap) -> dict[str, Any]:
-    """The ``register`` outputs, the same for a native fit and a supplied map."""
+    """Build the ``register`` outputs, the same for a native fit and a supplied map."""
     return {
         "registration": reg_map,
         "rms_residual": float(reg_map.rms_residual),
@@ -148,7 +150,7 @@ def _registered(reg_map: RegistrationMap) -> dict[str, Any]:
 
 
 def _geometry_params(side: str, geometry: ChannelGeometry) -> dict[str, Any]:
-    """The whole transform a channel's split applies: crop, rotation and flip."""
+    """Record the whole transform a channel's split applies: crop, rotation and flip."""
     crop = None if geometry.crop is None else [int(v) for v in geometry.crop]
     return {
         f"{side}_crop": crop,
@@ -187,15 +189,15 @@ def iter_extraction_stages(
     registration: RegistrationMap | None = None,
     policy: str = "donor-anchored",
 ) -> Iterator[StageResult]:
-    """Yield one :class:`StageResult` per extraction stage of ``movie``.
+    """Yield one [`StageResult`][] per extraction stage of ``movie``.
 
     Parameters
     ----------
     movie:
         The raw ``(T, H, W)`` movie, for example the ``data`` of an
-        :func:`~tether.io.movie.open_movie` reader. It is only read.
+        [`open_movie`][tether.io.movie.open_movie] reader. It is only read.
     options:
-        The tunables :func:`~tether.project.extract.extract_movie` takes. Resolve a
+        The tunables [`extract_movie`][tether.project.extract.extract_movie] takes. Resolve a
         ``.tdat`` into them first; the preview reads no files.
     geometry:
         The ``(donor, acceptor)`` channel geometry. ``None`` uses the geometry of
@@ -203,10 +205,11 @@ def iter_extraction_stages(
         ``options.donor_side`` names.
     registration:
         An imported map (for example from
-        :func:`~tether.imaging.calibrate.registration_map_from_tmap`). ``None`` fits a native
+        [`registration_map_from_tmap`][tether.imaging.calibrate.registration_map_from_tmap]).
+        ``None`` fits a native
         map from the movie's own spots. With a map, prealign and pair are ``skipped``.
     policy:
-        The colocalization rule, one of :data:`COLOCALIZATION_POLICIES`.
+        The colocalization rule, one of [`COLOCALIZATION_POLICIES`][].
 
     Raises
     ------
@@ -371,5 +374,5 @@ def iter_extraction_stages(
 
 
 def preview_extraction(movie: np.ndarray, **kwargs: Any) -> ExtractionPreview:
-    """Run :func:`iter_extraction_stages` to its end and collect the results."""
+    """Run [`iter_extraction_stages`][] to its end and collect the results."""
     return ExtractionPreview(tuple(iter_extraction_stages(movie, **kwargs)))
