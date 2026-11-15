@@ -47,7 +47,9 @@ def _stub_prefix(tmp_path: Path) -> Path:
     """A prefix with no base env, whose env interpreters skip pip.
 
     ``envs/tether/bin`` also gets the two entry points as small scripts that print their
-    own name and arguments, so a launcher can be run end to end.
+    own name and arguments, so a launcher can be run end to end. ``verifier/gh/gh`` is an
+    empty stand-in for the bundled update verifier, which ``post_install.sh`` makes
+    executable (#332).
     """
     prefix = tmp_path / "prefix with space"
     for env in ("tether", "sidecar"):
@@ -66,6 +68,9 @@ def _stub_prefix(tmp_path: Path) -> Path:
         entry.write_text(f'#!/bin/sh\necho "{name} $*"\n', encoding="utf-8")
         entry.chmod(0o755)
     (prefix / "wheelhouse").mkdir()
+    gh_d = prefix / "verifier" / "gh"
+    gh_d.mkdir(parents=True)
+    (gh_d / "gh").write_text("", encoding="utf-8")
     return prefix
 
 
