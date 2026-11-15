@@ -1009,6 +1009,9 @@ def _anchors(path: Path) -> frozenset[str]:
 
 #: A mkdocstrings block (#179): ``::: tether.analysis.histogram`` at column zero.
 _API_BLOCK_RE = re.compile(r"^::: (tether(?:\.\w+)*)[ \t]*$", re.MULTILINE)
+#: A block the generator does not run: an HTML comment, or a fenced block at the root.
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.DOTALL | re.MULTILINE)
 _SRC = DOCS.parent / "src"
 
 
@@ -1022,7 +1025,8 @@ def _api_anchors(path: Path) -> set[str]:
     them fails here; ``mkdocs build --strict`` checks the rendered anchors in full.
     """
     anchors: set[str] = set()
-    for dotted in _API_BLOCK_RE.findall(path.read_text(encoding="utf-8")):
+    text = _FENCE_RE.sub("", _COMMENT_RE.sub("", path.read_text(encoding="utf-8")))
+    for dotted in _API_BLOCK_RE.findall(text):
         base = _SRC.joinpath(*dotted.split("."))
         source = base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
         if not source.is_file():
@@ -1275,6 +1279,16 @@ def test_an_api_page_serves_the_anchors_of_its_modules(
     bad = "# B\n\n[x](api.md#tether.fret.gamma.not_a_name) and [y](api.md#tether.fret.leakage)\n"
     out = _check(tmp_path, monkeypatch, {"api.md": api, "good.md": good, "bad.md": bad})
     assert [p.split(": ", 1)[0] for p in out] == ["docs/bad.md:3", "docs/bad.md:3"], out
+
+
+def test_a_fenced_or_commented_api_block_serves_no_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``:::`` line in a fence or an HTML comment is not run, so it makes no heading."""
+    api = "# API\n\n```\n::: tether.fret.gamma\n```\n\n<!--\n::: tether.fret.leakage\n-->\n"
+    page = "# A\n\n[g](api.md#tether.fret.gamma) and [l](api.md#tether.fret.leakage)\n"
+    out = _check(tmp_path, monkeypatch, {"api.md": api, "page.md": page})
+    assert [p.split(": ", 1)[0] for p in out] == ["docs/page.md:3", "docs/page.md:3"], out
 
 
 def test_raw_html_links_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
