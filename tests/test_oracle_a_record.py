@@ -127,16 +127,16 @@ def test_the_page_states_the_newest_recorded_run() -> None:
 def test_each_file_of_video_010_is_pinned_and_agrees_with_the_provenance_table() -> None:
     """The record names the bytes it was measured on: the digests in ``tests/_oracle_a.py``.
 
-    ``tests/fixtures/PROVENANCE.md`` records the first 16 hex digits and the size of four of the
-    five files (the sources of the committed fixtures and of the ADR-0022 measurement). They
-    must be the same files, or the record and ADR-0022 would describe different data.
+    ``tests/fixtures/PROVENANCE.md`` records the full SHA-256 and the size of all five files (the
+    sources of the committed fixtures and of the ADR-0022 measurement; full digests since #552).
+    They must be the same files, or the record and ADR-0022 would describe different data.
     """
     assert set(FILES) == {"movie", "tmap", "tdat", "mat", "txt"}
     for role, (sha256, size) in FILES.items():
         assert re.fullmatch(r"[0-9a-f]{64}", sha256), role
         assert isinstance(size, int) and size > 0, role
     table = PROVENANCE.read_text(encoding="utf-8")
-    for role in ("movie", "tmap", "tdat", "mat"):
+    for role in ("movie", "tmap", "tdat", "mat", "txt"):
         sha256, size = FILES[role]
-        assert f"`{sha256[:16]}…`" in table, f"{role}: PROVENANCE.md has another digest"
+        assert f"`{sha256}`" in table, f"{role}: PROVENANCE.md has another digest"
         assert f"{size:,} B" in table, f"{role}: PROVENANCE.md has another size"

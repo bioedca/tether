@@ -15,21 +15,21 @@ whose ``P(good)`` sits nearest the ``0.5`` decision boundary, i.e. the one the m
 sure about and so whose human label is most informative [Cho2024]. For a binary quality
 classifier the least-confidence, margin, and Shannon-entropy uncertainty measures are all
 monotone in ``|P(good) - 0.5|`` and so induce the **same** "most informative" ordering
-[Guochen2021][Hein2022]; this module uses the *margin* form :func:`informativeness`
+[Guochen2021][Hein2022]; this module uses the *margin* form [`informativeness`][]
 (``1 - |2p - 1|`` — bounded ``[0, 1]``, no logarithm), maximal at the boundary.
 
 This module is deliberately **model-free and store-free** (pure NumPy): the gradient-boosting
-ranker (:mod:`tether.ml.gbranker`) produces the ``P(good)`` scores and the ``.tether`` glue
-(:func:`tether.project.active.next_recommendation`) supplies which molecules a human has
+ranker ([`tether.ml.gbranker`][]) produces the ``P(good)`` scores and the ``.tether`` glue
+([`tether.project.active.next_recommendation`][]) supplies which molecules a human has
 already curated; the strategy here just reads scores + a curated mask and names the single
 molecule to curate next. It is structurally **non-reordering**: it takes an aligned
-``(molecule_ids, scores)`` view and returns a :class:`NextBadge` *annotation* — it never
+``(molecule_ids, scores)`` view and returns a [`NextBadge`][] *annotation* — it never
 returns or mutates an order, so the fixed sweep it annotates is untouched by construction.
 
 Never fabricate. Only *uncurated* molecules with a real (finite) score are candidates; a
 molecule the model could not score (a ``NaN`` — never a fabricated ``0``, the
-:mod:`tether.ml.ranking` discipline) is excluded from the recommendation but never dropped,
-and when nothing remains to recommend the badge is :data:`None` rather than an invented pick.
+[`tether.ml.ranking`][] discipline) is excluded from the recommendation but never dropped,
+and when nothing remains to recommend the badge is [`None`][] rather than an invented pick.
 
 References
 ----------
@@ -77,7 +77,7 @@ def informativeness(scores: object) -> np.ndarray:
     ----------
     scores:
         A 1-D array of ``P(good)`` quality probabilities
-        (:meth:`tether.ml.gbranker.QualityRanker.score`), each in ``[0, 1]``. ``NaN`` is allowed
+        ([`tether.ml.gbranker.QualityRanker.score`][]), each in ``[0, 1]``. ``NaN`` is allowed
         (an unscored molecule — never a fabricated ``0``)
         and propagates to a ``NaN`` informativeness, so such a molecule is not comparable and is
         never chosen; ``±inf`` and out-of-``[0, 1]`` values are rejected (a probability cannot be
@@ -117,7 +117,7 @@ class NextBadge:
     molecule_id:
         The recommended molecule's ``molecule_id``.
     informativeness:
-        Its :func:`informativeness` (``1`` = at the decision boundary, maximally uncertain).
+        Its [`informativeness`][] (``1`` = at the decision boundary, maximally uncertain).
     score:
         Its ``P(good)`` quality score, carried for display alongside the cue.
     """
@@ -134,10 +134,10 @@ def recommend_next(
 
     Uncertainty sampling [Huellermeier2021]: among the molecules a human has **not** yet
     curated (``curated[i] is False``) and that carry a real score, return the one whose
-    :func:`informativeness` is highest — the ``P(good)`` nearest the ``0.5`` boundary, the
+    [`informativeness`][] is highest — the ``P(good)`` nearest the ``0.5`` boundary, the
     model's least-confident and so most-informative candidate. Ties (equal informativeness)
     break on the ascending ``molecule_id`` so the recommendation is deterministic across
-    platforms (the :mod:`tether.ml.ranking` precedent).
+    platforms (the [`tether.ml.ranking`][] precedent).
 
     This is a pure read: it neither returns nor mutates any ordering, so the fixed within-video
     sweep the badge annotates is untouched — the badge is a **non-reordering** cue, not a
@@ -148,7 +148,7 @@ def recommend_next(
     molecule_ids:
         The candidate molecules (must be unique — a recommendation is over a molecule *set*).
     scores:
-        Their ``P(good)`` quality scores, aligned to ``molecule_ids`` (:func:`informativeness`
+        Their ``P(good)`` quality scores, aligned to ``molecule_ids`` ([`informativeness`][]
         validates them; ``NaN`` marks an unscored molecule, excluded from the pick but kept).
     curated:
         A 1-D boolean mask aligned to ``molecule_ids``: ``True`` where a human has already
