@@ -2,27 +2,27 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The Tether PySide6 shell host + curation help/overflow dialogs (PRD §7.3).
 
-:class:`TetherShell` is the minimal ``QMainWindow`` that wires the M2 S2 focus
-contract: it hosts the pyqtgraph trace dock (:mod:`tether.gui.trace_dock`) plus
+[`TetherShell`][] is the minimal ``QMainWindow`` that wires the M2 S2 focus
+contract: it hosts the pyqtgraph trace dock ([`tether.gui.trace_dock`][]) plus
 the focus surfaces the curation keys must reach past — a molecule list, a movie
 switcher, and the **editable category field** (a text-entry that is exempt from
 the keymap, §7.6) — and installs the application-level
-:class:`~tether.gui.curation.CurationEventFilter`. The embedded napari movie panel
+[`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. The embedded napari movie panel
 and the real round-trip navigation land at M2 S3/S4; this shell is deliberately
 small so those sessions extend it.
 
 Two companion dialogs complete the §7.3 contract:
 
-* :class:`OverflowCategoryPicker` assigns a category **beyond the first nine**
+* [`OverflowCategoryPicker`][] assigns a category **beyond the first nine**
   (the ``1``–``9`` hotkeys cover only the first nine of the per-condition list),
   returning the chosen integer class.
-* :class:`CheatSheetOverlay` renders the shipped, always-current keyboard
-  cheat-sheet from the live :class:`~tether.gui.curation.Keymap`.
+* [`CheatSheetOverlay`][] renders the shipped, always-current keyboard
+  cheat-sheet from the live [`Keymap`][tether.gui.curation.Keymap].
 
 The shell also carries the desktop basics (#629): File → Close project and Quit
 with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
-log folder, and the About box of :mod:`tether.gui.about`), opening a dropped
-``.tether`` file, and the :mod:`tether.gui.start_page` shown while nothing is loaded.
+log folder, and the About box of [`tether.gui.about`][]), opening a dropped
+``.tether`` file, and the [`tether.gui.start_page`][] shown while nothing is loaded.
 
 All three are **composition** wrappers (they *hold* a Qt widget rather than
 subclass one) so importing this module costs no Qt, matching the rest of
@@ -65,27 +65,27 @@ if TYPE_CHECKING:
 
     #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
     #: outside its analysis window), or ``None`` when nothing was produced. The
-    #: shell's ``I`` handler draws the result on the dock; :func:`make_store_idealizer`
+    #: shell's ``I`` handler draws the result on the dock; `make_store_idealizer`
     #: is the store-backed default that runs the real one-click vbFRET pipeline.
     Idealizer = Callable[[str], np.ndarray | None]
 
-    #: Recompute + return the pooled population apparent-E :class:`Histogram1D` the
+    #: Recompute + return the pooled population apparent-E `Histogram1D` the
     #: shell's ``&Analysis`` menu draws, or ``None`` when there is nothing to show.
-    #: :func:`make_store_histogram` is the store-backed default that runs the real
-    #: :func:`tether.analysis.histogram.population_apparent_e_histogram` each call,
+    #: `make_store_histogram` is the store-backed default that runs the real
+    #: `tether.analysis.histogram.population_apparent_e_histogram` each call,
     #: so the histogram reflects the current curation state (§7.5/§7.7).
     HistogramSeam = Callable[[], Histogram1D | None]
 
     #: Resolve a molecule_key to its static-overlap-view payload — the cached patch
     #: + nearest-neighbour distance + apertures-overlap flag — or ``None`` for an
-    #: unknown key. :func:`make_store_overlap` is the store-backed default that
+    #: unknown key. `make_store_overlap` is the store-backed default that
     #: computes it once from ``/molecules`` coordinates + ``/patches`` (§7.3/§5.1).
     OverlapSeam = Callable[[str], OverlapInfo | None]
 
     class HandoffSeam(Protocol):
         """The store hand-off operations the shell's ``&Hand-off`` menu drives.
 
-        :func:`make_store_handoff` is the store-backed default; a test can inject a
+        [`make_store_handoff`][] is the store-backed default; a test can inject a
         fake so the menu wiring is exercised without an on-disk ``.tether``.
         """
 
@@ -222,7 +222,7 @@ class OverflowCategoryPicker:
     """Modal picker for assigning a category beyond the ``1``–``9`` hotkeys.
 
     Given the full ordered per-condition category list, it lists only the entries
-    whose integer class exceeds :data:`~tether.gui.curation.CATEGORY_SLOTS`
+    whose integer class exceeds [`CATEGORY_SLOTS`][tether.gui.curation.CATEGORY_SLOTS]
     (index ``>= 9``) and returns the chosen **integer class** (1-based) — the
     correct integer↔category mapping the ``/labels`` writer stores (§7.3). The
     full ``> 9`` path is re-exercised once the M4 editable list lands.
@@ -273,7 +273,7 @@ class OverflowCategoryPicker:
         return self._overflow_classes[row] if 0 <= row < len(self._overflow_classes) else None
 
     def command(self) -> Command | None:
-        """The :class:`Command` for the selection (``ASSIGN_CATEGORY``), or ``None``."""
+        """The [`Command`][] for the selection (``ASSIGN_CATEGORY``), or ``None``."""
         cls = self.selected_class()
         return Command(CurationAction.ASSIGN_CATEGORY, cls) if cls is not None else None
 
@@ -289,7 +289,7 @@ class CheatSheetOverlay:
     """The shipped keyboard cheat-sheet, rendered from the live keymap (§7.3).
 
     A two-column ``Key`` / ``Action`` table populated from
-    :meth:`~tether.gui.curation.Keymap.cheatsheet`; :meth:`refresh` re-reads the
+    [`cheatsheet`][tether.gui.curation.Keymap.cheatsheet]; [`refresh`][] re-reads the
     keymap so a rebinding is reflected the next time it is shown.
     """
 
@@ -346,11 +346,11 @@ class TetherShell:
     unavailable, and exposes the dialogs. The ``I`` key runs one-click idealize on
     the selected molecule through
     the injected ``idealizer`` seam
-    (:func:`make_store_idealizer` wires the real store-backed vbFRET pipeline) and
+    ([`make_store_idealizer`][] wires the real store-backed vbFRET pipeline) and
     draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
-    (:func:`make_store_overlap`), a right-hand static overlap dock shows the selected
+    ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
-    (§7.3). Use as a context manager or call :meth:`close`.
+    (§7.3). Use as a context manager or call [`close`][].
     """
 
     def __init__(
@@ -698,7 +698,7 @@ class TetherShell:
 
     @property
     def trace_dock(self) -> Any:
-        """The :class:`~tether.gui.trace_dock.TraceDock` occupying the window's central widget."""
+        """The `TraceDock` occupying the window's central widget."""
         return self._trace_dock
 
     @property
@@ -748,7 +748,7 @@ class TetherShell:
 
     @property
     def busy_indicator(self) -> Any:
-        """The status-bar :class:`~tether.gui.indicators.BusyIndicator`."""
+        """The status-bar `BusyIndicator`."""
         return self._busy_indicator
 
     def _apply_menu_icons(self, active: Any) -> None:
@@ -773,22 +773,22 @@ class TetherShell:
 
     @property
     def controller(self) -> CurationController:
-        """The :class:`~tether.gui.curation.CurationController` each command is routed to."""
+        """The `CurationController` each command is routed to."""
         return self._controller
 
     @property
     def keymap(self) -> Keymap:
-        """The live :class:`~tether.gui.curation.Keymap` resolving key chords to commands."""
+        """The live [`Keymap`][tether.gui.curation.Keymap] resolving key chords to commands."""
         return self._keymap
 
     @property
     def event_filter(self) -> CurationEventFilter:
-        """The application-level :class:`CurationEventFilter` this shell installs (§7.3)."""
+        """The application-level [`CurationEventFilter`][] this shell installs (§7.3)."""
         return self._event_filter
 
     @property
     def cheatsheet(self) -> CheatSheetOverlay:
-        """The :class:`CheatSheetOverlay` this shell shows for ``Keyboard shortcuts…``."""
+        """The [`CheatSheetOverlay`][] this shell shows for ``Keyboard shortcuts…``."""
         return self._cheatsheet
 
     @property
@@ -832,7 +832,7 @@ class TetherShell:
     def _refresh_overlap(self, trace: TraceView) -> None:
         """Update the overlap view for the selected molecule (§7.3, no-op when unwired).
 
-        Runs the injected ``overlap`` seam (:func:`make_store_overlap` computes the
+        Runs the injected ``overlap`` seam ([`make_store_overlap`][] computes the
         per-molecule neighbour report + patch once), building the dock lazily on the
         first selection that resolves. A molecule with no ``molecule_key`` (the
         synthetic/no-project shell) or a seam failure surfaces as a status message
@@ -916,26 +916,26 @@ class TetherShell:
         idealize (``I``), the population histogram (``&Analysis``), the standalone-tMAVEN
         hand-off (``&Hand-off``), the per-molecule overlap view, and the ``&Conditions``
         validation target — then loads the store's molecules into the browser + trace
-        dock (:meth:`set_molecules`). This is the general store↔shell hookup (the
+        dock ([`set_molecules`][]). This is the general store↔shell hookup (the
         M2-deferred capability, reusable beyond legacy): a wizard-produced project
-        (:meth:`import_deeplasi_bundle`) or any extracted ``.tether`` opens live without
+        ([`import_deeplasi_bundle`][]) or any extracted ``.tether`` opens live without
         relaunching.
 
         The GUI acquires and retains the project's single-writer sidecar lock before
         enabling any write seam. A foreign/corrupt/uncreatable lock does not prevent
         browsing: the project opens read-only, write seams stay disabled, and the
         status banner records why. Replacing a project releases the prior session
-        lock; :meth:`close` releases the current one (after any in-flight idealizer
+        lock; [`close`][] releases the current one (after any in-flight idealizer
         write settles).
 
-        Every :class:`~tether.gui.trace_dock.TraceView` carries its ``molecule_key`` so
+        Every [`TraceView`][tether.gui.trace_dock.TraceView] carries its ``molecule_key`` so
         the idealize / overlap seams resolve the store row. An **analysis-only** import
         (coordinate-less, ``read_analysis_only_marker`` non-``None``) leaves the overlap
         seam unwired — the spot/overlap view is meaningless without coordinates/patches —
         and surfaces the one-time marker banner. All reads happen before any state is
         mutated, so a failed open (missing / incompatible / unreadable ``.tether``)
         leaves the prior project in place and only reports a status message — the shell
-        never crashes on an open. Returns the opened :class:`~tether.project.core.Project`
+        never crashes on an open. Returns the opened [`Project`][tether.project.core.Project]
         (``None`` on failure).
 
         The curation category vocabulary, the movie switcher, and the napari movie panel
@@ -1144,7 +1144,7 @@ class TetherShell:
     # --- session-lock state (read-only) ---------------------------------------
     #
     # Public, read-only views of the single-writer session state that
-    # :meth:`load_project`, the lock-refresh timer and the release-retry timer
+    # `load_project`, the lock-refresh timer and the release-retry timer
     # maintain. They expose state for inspection only: none has a setter, and none
     # changes the lock or the session.
 
@@ -1153,8 +1153,8 @@ class TetherShell:
         """The writable project this shell curates, or ``None`` when no write is allowed.
 
         ``None`` before any project opens, while the loaded project is browse-only
-        (see :attr:`read_only_reason`), after the session lock is lost, and after
-        :meth:`close`. Only this project receives curation, idealization, conditions
+        (see [`read_only_reason`][]), after the session lock is lost, and after
+        [`close`][]. Only this project receives curation, idealization, conditions
         and return-leg writes.
         """
         return self._curation_project
@@ -1163,9 +1163,9 @@ class TetherShell:
     def session_project(self) -> Project | None:
         """The project whose session lock this shell holds or has yet to release.
 
-        Usually the same object as :attr:`curation_project`. It stays set after the
+        Usually the same object as [`curation_project`][]. It stays set after the
         project becomes browse-only or the shell closes while a release of its lock
-        is still pending (:attr:`lock_release_pending`), and is ``None`` once that
+        is still pending ([`lock_release_pending`][]), and is ``None`` once that
         release succeeds or no lock was taken.
         """
         return self._session_project
@@ -1184,7 +1184,7 @@ class TetherShell:
     def rollback_session_project(self) -> Project | None:
         """A project whose lock a failed project switch left held, or ``None``.
 
-        When :meth:`load_project` cannot release the prior session's lock, it gives
+        When [`load_project`][] cannot release the prior session's lock, it gives
         up the switch and keeps the prior project; if it then also cannot release
         the lock just taken on the new project, that project is kept here until the
         release-retry timer frees it.
@@ -1193,14 +1193,14 @@ class TetherShell:
 
     @property
     def holds_rollback_claim(self) -> bool:
-        """``True`` while the in-process claim of :attr:`rollback_session_project` is held."""
+        """``True`` while the in-process claim of [`rollback_session_project`][] is held."""
         return self._rollback_claimed_project_key is not None
 
     @property
     def read_only_reason(self) -> str | None:
         """Why the loaded project is browse-only, or ``None`` when writes are not blocked.
 
-        The same text the Browser's read-only banner shows (:attr:`read_only_banner`),
+        The same text the Browser's read-only banner shows ([`read_only_banner`][]),
         for example a lock held by another session or a lost session lock.
         """
         return self._curation_read_only_reason
@@ -1220,7 +1220,7 @@ class TetherShell:
         """``True`` while a session or rollback lock still waits on the release-retry timer.
 
         Not only a failure signal: the timer also runs, for example, after
-        :meth:`close` deferred the release because an idealization still writes to
+        [`close`][] deferred the release because an idealization still writes to
         the project, as well as after a release attempt failed.
         """
         return bool(self._lock_release_timer.isActive())
@@ -1330,7 +1330,7 @@ class TetherShell:
         self.load_project(path)
 
     def open_dropped(self, paths: list[Path]) -> Project | None:
-        """Open one dropped ``.tether`` file through :meth:`load_project` (#629).
+        """Open one dropped ``.tether`` file through [`load_project`][] (#629).
 
         Anything else — another file type, or more than one file — is refused with
         one status message and opens nothing.
@@ -1353,7 +1353,7 @@ class TetherShell:
         """Close the open project and release its session lock; show the start page.
 
         Refused (returns ``False`` with a status message) while idealization owns the
-        store, as :meth:`load_project` is. The lock release takes the same nonce-safe
+        store, as [`load_project`][] is. The lock release takes the same nonce-safe
         route as a lock-loss fallback: a transient failure keeps the handle and the
         release timer retries it.
         """
@@ -1390,7 +1390,7 @@ class TetherShell:
 
     @property
     def start_page(self) -> Any:
-        """The :class:`~tether.gui.start_page.StartPage` shown while nothing is loaded."""
+        """The [`StartPage`][tether.gui.start_page.StartPage] shown while nothing is loaded."""
         return self._start_page
 
     @property
@@ -1694,11 +1694,12 @@ class TetherShell:
     ) -> tuple[Path, ...]:
         """Run the Deep-LASI re-analysis wizard, then report + return the written projects.
 
-        Opens the :class:`~tether.gui.deeplasi_wizard_ui.DeepLasiWizardDialog` — which
+        Opens the [`DeepLasiWizardDialog`][tether.gui.deeplasi_wizard_ui.DeepLasiWizardDialog] —
+        which
         owns the whole flow (folder intake → per-acquisition plan confirmation →
         reconstruct / analysis-only import) — then reports the written ``.tether``
         project paths in the status bar and returns them (§7.8, FR-LEGACY). The
-        ``dialog_factory`` seam defaults to :meth:`_new_deeplasi_dialog` (the real
+        ``dialog_factory`` seam defaults to `_new_deeplasi_dialog` (the real
         modal dialog parented to the shell); a test injects a stand-in to drive the
         report path headlessly without a modal event loop. A dialog that raises is
         caught and surfaced as a status message so the shell stays alive; the return
@@ -1745,10 +1746,12 @@ class TetherShell:
     def show_histogram(self) -> Any | None:
         """Compute + display the population apparent-E histogram (§7.7, §9 M2).
 
-        Runs the injected ``histogram`` seam (:func:`make_store_histogram` wires the
-        real :func:`~tether.analysis.histogram.population_apparent_e_histogram` over
+        Runs the injected ``histogram`` seam ([`make_store_histogram`][] wires the
+        real
+        [`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram]
+        over
         the bound project, recomputed each call so it tracks curation), draws the
-        result in a bottom :class:`~tether.gui.histogram_dock.HistogramDock` (built
+        result in a bottom [`HistogramDock`][tether.gui.histogram_dock.HistogramDock] (built
         lazily on first use), and returns the dock. No wired seam, a failing
         computation, or a ``None`` result each surface as a status message and
         return ``None`` — the shell never crashes on analysis. An *empty* histogram
@@ -1931,10 +1934,10 @@ class TetherShell:
     def _idealize_current(self) -> None:
         """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
 
-        The thin GUI layer over :func:`tether.project.idealize.idealize_molecules`
+        The thin GUI layer over [`tether.project.idealize.idealize_molecules`][]
         (M2 S6 PR-A): resolve the selected list row to its ``molecule_key`` and run
-        the injected :data:`Idealizer` (the store-backed one built by
-        :func:`make_store_idealizer` runs the real SMD→vbFRET→write pipeline). The
+        the injected [`Idealizer`][] (the store-backed one built by
+        [`make_store_idealizer`][] runs the real SMD→vbFRET→write pipeline). The
         fit runs on a **background worker** and a main-thread timer polls it, so the
         GUI stays responsive during a long (cold-JIT) fit; when it finishes the
         Viterbi path is drawn on the dock — always on the main thread. A missing
@@ -2140,19 +2143,20 @@ def make_store_idealizer(
     require_held_lock: bool = False,
     **kwargs: Any,
 ) -> Idealizer:
-    """Build the store-backed one-click-idealize callable for a :class:`TetherShell`.
+    """Build the store-backed one-click-idealize callable for a [`TetherShell`][].
 
     Returns a ``molecule_key -> idealized-path`` function that runs the real
-    :func:`tether.project.idealize.idealize_molecules` pipeline for that molecule
+    [`tether.project.idealize.idealize_molecules`][] pipeline for that molecule
     (build an SMD → vbFRET via the sidecar → write ``/idealization/{model_name}`` as
     additive data with the per-molecule input-provenance hash) and hands back its
     per-frame Viterbi path for the dock overlay. ``overwrite=True`` so re-pressing
     ``I`` re-idealizes into the same model. Extra keyword arguments
     (``nstates`` / ``nstates_grid`` / ``intensity_quantity`` / ``sidecar_python`` /
-    ``timeout`` …) pass straight through to :func:`idealize_molecules`.
+    ``timeout`` …) pass straight through to
+    [`idealize_molecules`][tether.project.idealize.idealize_molecules].
 
     ``require_held_lock=True`` is the explicit retained-session contract used by
-    :meth:`TetherShell.load_project`. An ordinary :class:`Project` handle keeps the
+    [`TetherShell.load_project`][]. An ordinary [`Project`][] handle keeps the
     documented unlocked-or-self-owned writer guard.
 
     **MVP scope.** Idealizes the single selected molecule into a shared model,
@@ -2184,10 +2188,10 @@ def make_store_idealizer(
 
 
 def make_store_histogram(project: Project | str | PathLike[str], **kwargs: Any) -> HistogramSeam:
-    """Build the store-backed population-histogram seam for a :class:`TetherShell`.
+    """Build the store-backed population-histogram seam for a [`TetherShell`][].
 
     Returns a ``() -> Histogram1D`` that runs
-    :func:`tether.analysis.histogram.population_apparent_e_histogram` over
+    [`tether.analysis.histogram.population_apparent_e_histogram`][] over
     ``project`` **each time it is called**, so re-opening the histogram reflects the
     current curation state (rejected molecules excluded by default, §7.5). Keyword
     arguments (``molecule_keys`` / ``intensity_quantity`` / ``bins`` /
@@ -2226,17 +2230,17 @@ def make_store_overlap(
     *,
     aperture_radius: float | None = None,
 ) -> OverlapSeam:
-    """Build the store-backed static-overlap-view seam for a :class:`TetherShell`.
+    """Build the store-backed static-overlap-view seam for a [`TetherShell`][].
 
     Reads ``/molecules`` (donor coordinates + ``movie_id``) and the cached
     ``/patches`` **once**, computes each molecule's nearest-neighbour distance +
-    apertures-overlap flag via :func:`tether.analysis.overlap.neighbor_report`
+    apertures-overlap flag via [`tether.analysis.overlap.neighbor_report`][]
     (confined per movie, §5.2), and returns a ``molecule_key -> OverlapInfo`` lookup
     the shell refreshes on selection. The geometry is static — spot coordinates
     never change with curation — so it is computed once, not per call (unlike the
     histogram seam). ``aperture_radius`` defaults to the experiment's stored
     extraction ``disk_radius``, falling back to
-    :data:`~tether.analysis.overlap.DEFAULT_APERTURE_RADIUS` when absent, so the
+    [`DEFAULT_APERTURE_RADIUS`][tether.analysis.overlap.DEFAULT_APERTURE_RADIUS] when absent, so the
     overlap threshold is never a hardcoded literal. An analysis-only project with no
     ``/patches`` still yields the NN readouts, with a ``None`` patch (§7.4).
     """
@@ -2298,7 +2302,7 @@ def _with_smd_suffix(path: str) -> str:
 
 
 def _applied_summary(applied: AppliedReconcile) -> str:
-    """A one-line status summary of what an :meth:`TetherShell.import_return_leg` committed."""
+    """A one-line status summary of what an [`TetherShell.import_return_leg`][] committed."""
     parts: list[str] = []
     if applied.idealization_written is not None:
         parts.append(f"imported model /idealization/{applied.idealization_written}")
@@ -2318,10 +2322,10 @@ def _applied_summary(applied: AppliedReconcile) -> str:
 
 
 class _StoreHandoff:
-    """Store-backed :class:`HandoffSeam` over :mod:`tether.project.handoff`.
+    """Store-backed [`HandoffSeam`][] over [`tether.project.handoff`][].
 
     Binds one project + intensity quantity so all three legs use the same ``/traces``
-    layer; see :func:`make_store_handoff`. Each op imports its ``handoff`` function
+    layer; see [`make_store_handoff`][]. Each op imports its ``handoff`` function
     lazily so constructing the seam (and importing this module) stays light.
     """
 
@@ -2404,7 +2408,7 @@ def make_store_handoff(
     model_name: str | None = None,
     overwrite: bool = False,
 ) -> HandoffSeam:
-    """Build the store-backed :class:`HandoffSeam` for a :class:`TetherShell`.
+    """Build the store-backed [`HandoffSeam`][] for a [`TetherShell`][].
 
     Binds one ``.tether`` project + intensity quantity across all three legs so the
     outbound SMD and the return-leg intensity match use the **same** ``/traces`` layer
@@ -2425,9 +2429,9 @@ def _movie_frame_times(path: str | PathLike[str]) -> dict[str, float | None]:
     """Map each ``/movies`` ``movie_id`` to its per-frame time (seconds), ``None`` unknown.
 
     Reads ``/movies/table`` directly (there is no ``read_movies`` helper) to fill each
-    :class:`~tether.gui.trace_dock.TraceView`'s ``frame_time``. A stored ``0.0`` (the
+    [`TraceView`][tether.gui.trace_dock.TraceView]'s ``frame_time``. A stored ``0.0`` (the
     extractor's "TIFF interval unknown" sentinel) maps to ``None`` — a frame-index-only
-    axis — because :class:`TraceView` rejects a non-positive ``frame_time``. An
+    axis — because [`TraceView`][] rejects a non-positive ``frame_time``. An
     analysis-only import (movie-less, no ``/movies`` group) yields an empty map, so every
     trace falls back to ``None``.
     """
@@ -2460,20 +2464,21 @@ def traces_from_store(
     """Read a ``.tether`` store's molecules into the shell's ``list[TraceView]``.
 
     The missing member of the ``make_store_*`` family: turns a produced / extracted
-    ``.tether`` into the value objects :meth:`TetherShell.set_molecules` consumes, so a
-    project can be opened live in the shell (:meth:`TetherShell.load_project`). Reads
+    ``.tether`` into the value objects [`TetherShell.set_molecules`][] consumes, so a
+    project can be opened live in the shell ([`TetherShell.load_project`][]). Reads
     ``/molecules`` + ``/traces`` positionally (row *i* of each is the same molecule,
     §5.1) and, for every molecule, slices the chosen intensity layer to its **full native
     ``frame_range``** — the whole trace including post-bleach frames, the curation view
     (unlike analysis, which narrows to the ``analysis_window``). ``frame_range`` unset
-    ``[0, 0]`` falls back to the full row extent. Each :class:`TraceView` carries its
+    ``[0, 0]`` falls back to the full row extent. Each [`TraceView`][] carries its
     decoded ``molecule_key`` (so the idealize / overlap seams resolve the store row) and
     its ``frame_time`` from the linked ``/movies`` row (``0.0``/movie-less → ``None``).
 
     Rejected molecules are **included** (a curator revisits rejects); the histogram /
     analysis seams still exclude them by their own default. ``intensity_quantity`` selects
     the ``/traces`` layer via the frozen
-    :data:`~tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS` map — ``"corrected"``
+    [`INTENSITY_QUANTITY_LAYERS`][tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS] map —
+    ``"corrected"``
     (the apparent-E substrate present in both round-trip and analysis-only stores) or
     ``"raw"``.
 

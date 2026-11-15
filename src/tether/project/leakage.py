@@ -3,7 +3,7 @@
 """Estimate + store a project's donor→acceptor leakage α (M3, FR-CORRECT).
 
 Runs the post-acceptor-bleach-tail leakage estimator
-(:mod:`tether.fret.leakage`) over a project's stored intensity traces and writes:
+([`tether.fret.leakage`][]) over a project's stored intensity traces and writes:
 
 * ``/molecules.alpha`` — the applied leakage factor, into the **already-frozen**
   ``/molecules`` field (schema-guard stays green — no structural change). Leakage α
@@ -14,7 +14,7 @@ Runs the post-acceptor-bleach-tail leakage estimator
   (NFR-REPRO). Recomputable — overwritten on each pass.
 
 The tail estimate needs the per-channel first-bleach frames written by
-:func:`tether.project.photobleach.compute_photobleach`, so that pass must run first.
+[`tether.project.photobleach.compute_photobleach`][], so that pass must run first.
 Detection and this estimate both run on the **background-subtracted** (``corrected``)
 traces by default.
 
@@ -39,8 +39,8 @@ always-available primary estimator, and post-acceptor-bleach *is* a per-molecule
 donor-only condition.
 
 The single-writer ``.lock`` is the caller's responsibility, mirroring
-:func:`tether.project.photobleach.compute_photobleach` (a low-level ``r+`` writer;
-the :class:`~tether.project.core.Project` facade / batch runner holds the lock).
+[`tether.project.photobleach.compute_photobleach`][] (a low-level ``r+`` writer;
+the [`Project`][tether.project.core.Project] facade / batch runner holds the lock).
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ LEAKAGE_SOURCE_TAIL = "post-acceptor-bleach-tail"
 
 @dataclass(frozen=True)
 class LeakageAlphaSummary:
-    """Outcome of a :func:`compute_leakage_alpha` pass.
+    """Outcome of a [`compute_leakage_alpha`][] pass.
 
     Attributes
     ----------
@@ -132,7 +132,8 @@ def compute_leakage_alpha(
     ----------
     project_path
         The ``.tether`` project to update (opened ``r+``). Requires per-channel
-        ``bleach_frames`` (run :func:`~tether.project.photobleach.compute_photobleach`
+        ``bleach_frames`` (run
+        [`compute_photobleach`][tether.project.photobleach.compute_photobleach]
         first).
     intensity_quantity
         Which ``/traces`` layer to estimate on — ``"corrected"`` (default,
@@ -162,7 +163,7 @@ def compute_leakage_alpha(
     ValueError
         If ``intensity_quantity`` is not a known ``/traces`` layer, or if a
         molecule's ``bleach_frames`` are still the undetected sentinel (run
-        :func:`~tether.project.photobleach.compute_photobleach` first).
+        [`compute_photobleach`][tether.project.photobleach.compute_photobleach] first).
     KeyError
         If the project lacks the selected donor/acceptor trace layer.
     """
@@ -275,7 +276,7 @@ def _drop_gamma_settings(f: object) -> None:
     """Remove ``/settings/gamma`` after a withheld pass has invalidated γ (#549).
 
     The withheld pass resets processed ``/molecules.gamma`` rows to ``NaN`` and the
-    documented workflow then skips :func:`~tether.project.gamma.compute_gamma`, so the
+    documented workflow then skips [`compute_gamma`][tether.project.gamma.compute_gamma], so the
     previous γ pass's group would otherwise describe a factor no molecule carries.
     The group is optional and recomputable (absent in a fresh store, rewritten by every
     γ pass), so removing it changes no frozen structure; an invalidated marker would

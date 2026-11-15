@@ -11,19 +11,19 @@ a **vector SVG**, and a **raster PNG**, each carrying a provenance stamp.
 Design
 ------
 - **Headless, Qt-free.** Rendering uses Matplotlib's object-oriented
-  :class:`matplotlib.figure.Figure` API directly (never ``pyplot``), so no GUI
+  [`matplotlib.figure.Figure`][] API directly (never ``pyplot``), so no GUI
   backend is ever selected — this keeps the base environment free of PyQt5/Tk
   (the §4.1 no-PyQt5 base invariant that motivated shipping ``matplotlib-base``,
   ADR-0044). ``Figure.savefig`` attaches the format-appropriate canvas (Agg for
   PNG, ``backend_pdf`` for PDF, ``backend_svg`` for SVG) on demand.
 - **Rendering is separate from IO.** Each ``render_*`` returns a bare
-  :class:`~matplotlib.figure.Figure` (no stamp, no file); :func:`export_figure`
+  [`Figure`][matplotlib.figure.Figure] (no stamp, no file); [`export_figure`][]
   adds the visible provenance footer and writes the three files + the sidecar.
   A caller can therefore embed the same figure in the GUI and export it
   identically.
 - **Provenance travels three ways** (§8 NFR-REPRO, invariant §1.3(4)): a
   ``<stem>.provenance.json`` sidecar (reusing
-  :func:`tether.project.export.write_provenance_sidecar`, the single stamping
+  [`tether.project.export.write_provenance_sidecar`][], the single stamping
   convention shared with the table/subset exports); a **visible on-figure footer**
   (``Tether <version> · <utc> · <kind>``) so the stamp travels *on the plot* a
   reader sees; and **embedded file metadata** (PDF/SVG/PNG document metadata).
@@ -100,7 +100,7 @@ DEFAULT_PLOT_FORMATS: tuple[str, ...] = ("pdf", "svg", "png")
 #: salts element ids per process).
 _SVG_HASHSALT = "tether.analysis.plot_export"
 
-#: The colour scales :func:`render_transition_density` can draw the B1 TDP with.
+#: The colour scales `render_transition_density` can draw the B1 TDP with.
 TDP_COLOR_SCALES: tuple[str, ...] = ("log", "linear")
 
 #: PRD Appendix C B1 names the TDP *log-normalized* [McKinney2006], as tMAVEN draws it
@@ -115,7 +115,7 @@ DEFAULT_TDP_COLOR_SCALE = "log"
 #: clear of the floor while the scale still spans the data. Display only.
 _TDP_LOG_FLOOR_DECADES = 1.0
 
-#: Figure attribute a ``render_*`` helper sets to tell :func:`export_figure` how it
+#: Figure attribute a ``render_*`` helper sets to tell `export_figure` how it
 #: drew the data (for example the TDP colour scale), so the provenance sidecar records
 #: what the reader actually sees without the caller having to repeat it.
 _DISPLAY_ATTR = "_tether_display_parameters"
@@ -273,7 +273,7 @@ def export_figure(
         *"stamped with provenance and parameters"* payload. How the ``render_*``
         helper drew the data (for example the TDP ``color_scale``) is added under
         ``"display"`` from the figure itself; a ``"display"`` entry here that
-        contradicts the figure raises :class:`ValueError`.
+        contradicts the figure raises [`ValueError`][].
     title
         Optional human title embedded in the document metadata; defaults to
         ``tether_export``.
@@ -355,7 +355,7 @@ def export_figure(
 
 
 def _new_figure(figsize: tuple[float, float] | None) -> Figure:
-    """A constrained-layout :class:`Figure` (no pyplot, so no GUI backend)."""
+    """A constrained-layout [`Figure`][] (no pyplot, so no GUI backend)."""
     return Figure(figsize=figsize or DEFAULT_FIGSIZE, layout="constrained")
 
 
@@ -373,10 +373,10 @@ def render_histogram1d(
 ) -> Figure:
     """Render the A1 1-D population apparent-E histogram (Appendix C A1).
 
-    Accepts a bare :class:`~tether.analysis.histogram.Histogram1D` or a
-    :class:`~tether.analysis.histogram.HistogramBootstrapCI` (whose per-bin
+    Accepts a bare [`Histogram1D`][tether.analysis.histogram.Histogram1D] or a
+    [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI] (whose per-bin
     percentile band is drawn as a shaded region). An optional
-    :class:`~tether.analysis.histogram.ModelGaussianOverlay` draws the idealized
+    [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] draws the idealized
     model's per-state Gaussians and their sum.
     """
     if isinstance(hist, HistogramBootstrapCI):
@@ -469,9 +469,9 @@ def render_histogram2d(
 def _tdp_norm(counts: np.ndarray, color_scale: str) -> Normalize:
     """The colour normalization for a TDP ``counts`` array.
 
-    ``"log"`` is zero-safe: :class:`~matplotlib.colors.LogNorm` masks every bin
+    ``"log"`` is zero-safe: [`LogNorm`][matplotlib.colors.LogNorm] masks every bin
     ``<= 0`` instead of taking ``log(0) = -inf``, and its limits come from the positive
-    finite bins only. The floor sits :data:`_TDP_LOG_FLOOR_DECADES` below the smallest
+    finite bins only. The floor sits `_TDP_LOG_FLOOR_DECADES` below the smallest
     non-empty bin, so the weakest transition is drawn visibly above the floor colour
     that marks an empty bin. With no positive bin at all (an empty TDP) there is no
     magnitude to span, so the limits are a nominal ``[1, 10]`` and every bin is masked.
@@ -503,13 +503,13 @@ def render_transition_density(
     title
         The axes title.
     figsize
-        Figure size in inches; defaults to :data:`DEFAULT_FIGSIZE`.
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
     color_scale
-        ``"log"`` (default, :data:`DEFAULT_TDP_COLOR_SCALE`) or ``"linear"``. PRD
+        ``"log"`` (default, [`DEFAULT_TDP_COLOR_SCALE`][]) or ``"linear"``. PRD
         Appendix C B1 names the TDP log-normalized, so a rare transition stays visible
         beside a dominant one. The log scale is zero-safe: an empty bin is drawn in the
         colour map's floor colour, never as ``-inf`` or a hole. It is display only — the
-        drawn array is ``tdp.counts`` unchanged — and :func:`export_figure` records it
+        drawn array is ``tdp.counts`` unchanged — and [`export_figure`][] records it
         in the provenance sidecar under ``parameters["display"]["color_scale"]``.
     """
     if color_scale not in TDP_COLOR_SCALES:
@@ -710,7 +710,7 @@ def render_raw_fret_cloud(
 
     ``max_points`` caps the scatter overlay for a manageable vector file; the density
     surface (when computed) is unaffected by that cap — but it was fit by
-    :func:`tether.analysis.cloud.raw_fret_cloud` on the in-range points only
+    [`tether.analysis.cloud.raw_fret_cloud`][] on the in-range points only
     (``n_out_of_range`` counts the rest).
     """
     points = np.asarray(cloud.points, dtype="float64")
