@@ -202,8 +202,10 @@ def test_the_doi_matches_the_pages_that_repeat_it() -> None:
 
 #: A journal locator as the attribution pages write it: ``123(17):2765–2780``, ``16:3``,
 #: ``13(4):e0195277``. Groups: volume, issue, first page, last page (the last two optional
-#: pieces come back as ``""``). The look-arounds keep it off DOIs and dotted numbers.
-_LOCATOR_RE = re.compile(r"(?<![\w.])(\d+)(?:\((\d+)\))?:(e?\d+)(?:[–-](\d+))?(?![\w.])")
+#: pieces come back as ``""``). The look-arounds keep it off DOIs and dotted numbers, but a
+#: sentence-ending period after the locator is allowed. The range is possessive (``?+``), so a
+#: range that fails the look-ahead is not cut back to its first page.
+_LOCATOR_RE = re.compile(r"(?<![\w.])(\d+)(?:\((\d+)\))?:(e?\d+)(?:[–-](\d+))?+(?!\w|\.\w)")
 
 #: A line that starts a new entry: a blank line, a list item or a table row. NOTICE has no
 #: lists, so there an entry is a paragraph.
@@ -261,3 +263,22 @@ def test_reference_locators_match_the_pages_that_repeat_them() -> None:
                     if found != expected:
                         mismatched.append(f"{rel}: {doi} written as {found}, CFF has {expected}")
     assert not mismatched, "\n".join(mismatched)
+
+
+def test_locator_pattern_reads_whole_locators() -> None:
+    """The locator pattern reads a whole locator and nothing that only looks like one.
+
+    A locator can end a sentence (``123(17):2765–2780.``). The pattern once rejected the full
+    range there and matched only the first page, and it did not see a single-page locator
+    before a period at all, so a wrong article number could pass unseen.
+    """
+    cases = {
+        "123(17):2765–2780. doi:10.1016/j.bpj.2024.01.022": [("123", "17", "2765", "2780")],
+        "*BMC Bioinformatics* 16:3. doi:10.1186/s12859-014-0429-4": [("16", "", "3", "")],
+        "*PLoS ONE* 13(4):e0195277 (2018).": [("13", "4", "e0195277", "")],
+        "123(17):2765–2780.5": [],
+        "16:3.5": [],
+        "doi:10.1016/j.bpj.2024.01.022": [],
+    }
+    for text, expected in cases.items():
+        assert _LOCATOR_RE.findall(text) == expected, text
