@@ -1719,7 +1719,7 @@ as a **draft PR** and cannot merge. The PR title is a Conventional-Commits strin
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
-spent **cheapest first** rather than routed by risk. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
+spent **cheapest first**, and risk routes a provider only on the load-bearing route of ADR-0099 below. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
 diff reaches green before anything metered is asked. Then **Codex on that green diff, uncapped** — the draft by default,
 or the ready PR whose reason is recorded, since what the order protects is that no metered provider reads a diff Codex
 has not — until it surfaces
@@ -1729,8 +1729,9 @@ TREX one three; then ready-for-review if it is not already; then **CodeRabbit wi
 which is the last metered gate before merge — and when that one-review cap is spent, a fresh posted Codex review
 of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
 than on a maintainer (ADR-0065, as ADR-0069 amends it)**. Where CodeRabbit posts a refusal that names more than 30 minutes,
-one standard Greptile review **may** stand in as that gate within Tether's share of 15 credits a month, and Codex
-**shall not** stand in (ADR-0069). **`AGENTS.md` §Review is the operative statement of the conditions
+one standard Greptile review **may** stand in as that gate within Tether's share of 45 credits a cycle, and Codex
+**shall not** stand in (ADR-0069). A load-bearing pull request takes one standard Greptile review in CodeRabbit's
+place, within the same share, and after a review with findings one CodeRabbit review and a Codex review close it (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
 and the pull-request template do carry working copies, as detail and as evidence fields, and both
 defer to §Review where they differ. Four drafts of this
@@ -1744,7 +1745,7 @@ uncapped**, being unmetered. The cap bounds how many times a provider whose read
 diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not that one; counting those would make the gate
 unsatisfiable exactly when the provider is rate-limiting. It licenses neither a second review nor hammering: the retry
-interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 15 a month. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 45 a cycle from the 17th (ADR-0099). Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
