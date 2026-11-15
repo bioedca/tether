@@ -1,3 +1,7 @@
+---
+description: "What Tether and this documentation site collect and do not collect. You need no repository access to rely on this policy."
+---
+
 # Privacy policy
 
 **Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
@@ -37,7 +41,8 @@ storage, and temporary idealization files are described below.
   party. If you share a `.tether` file with a collaborator it carries your OS username and
   the source movie paths you selected (the `.lock` sidecar is a separate file and is not
   embedded in the project) — so treat shared project files as you would any working
-  document.
+  document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
+  shows how to see these fields before you make a file public.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
   These run locally, and Tether does not configure them to collect or transmit your data.
