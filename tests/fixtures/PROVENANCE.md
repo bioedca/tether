@@ -602,7 +602,15 @@ Chavez, 2025, unpublished), run unchanged once by the `cloud` task of
 `acceptor / (acceptor + donor)` in temporary copies). The script is pinned by its SHA-256 and is not
 in the repository. The directory holds `files.csv`, `pairs.csv`, `density.h5`, `thresholds.csv`,
 `centroids.csv`, `toolbox.csv` and `provenance.json`. The values derive from the GPL-3.0-only
-smfret-analysis2 traces, so the outputs carry GPL-3.0-only (`REUSE.toml`).
+smfret-analysis2 traces, so the outputs carry GPL-3.0-only (`REUSE.toml`, `NOTICE`, manifest ids
+`fret-cloud-*`):
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv`.
 
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 

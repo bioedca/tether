@@ -2500,3 +2500,85 @@ tier = "git"
 extract_of = ["mashfret-group-iib-intron-archive"]
 extract_script = "scripts/make_mashfret_fixture.py"
 citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
+
+# --- Frozen output of the FRET_cloud script on the smfret-analysis2 traces (#710, ADR-0105) -----
+# Values computed by FRET_cloud_contours_centroids.m (FRET_cloud scripts, Eduardo Campos Chavez,
+# 2025, unpublished; pinned by SHA-256 in scripts/reference/matlab/pins.toml, not vendored) from
+# the GPL-3.0-only traces above, so GPL-3.0-only. provenance.json is the harness record.
+
+[[dataset]]
+id = "fret-cloud-centroids-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv"
+size = 162
+sha256 = "1fecb09c8fa5ad4c85f23a5a71738fc9b7b99810315741201fbae3847af3b58b"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-density-h5"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5"
+size = 324992
+sha256 = "c20de959914d6048de0fb353cc5ad2d9cef416dfeee58c00acbab6d339a82086"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-files-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv"
+size = 1051
+sha256 = "46146dcd4cc8fe1f5b1c2254621abe58b48cef453d364607c9d9281003ee63cd"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-pairs-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv"
+size = 151259
+sha256 = "1841fc6e2696c916a32ed6cf376a194dc91557e51373d8a8970962a66889e8a0"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-provenance-json"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json"
+size = 8093
+sha256 = "a0ffb4a449bd04c8cddec37e17b3f6e8f9a6421ae166de13b56cd9bc5720891e"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-thresholds-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv"
+size = 352
+sha256 = "b5574055afb1a7dd2d65769bd1cebf41ac3b718e12c4ba2dbdb98500fec9dbfc"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"
+
+[[dataset]]
+id = "fret-cloud-toolbox-csv"
+source = "accession:github:vafabakhsh-lab/smfret-analysis2@121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4"
+record_url = "https://github.com/vafabakhsh-lab/smfret-analysis2/tree/121634e9b533eb3a922fbfe9bc1e7715a9a6a6b4/test-data/traces"
+license = "GPL-3.0-only"
+file = "tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv"
+size = 74
+sha256 = "1d3fdcfd927cd384fadfe9cc3cbf90f4de0c71ed50cdd7cf8ae12aeffa385a50"
+tier = "git"
+citation = "FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished; run on the test traces of Schamber M. smfret-analysis2 (Vafabakhsh lab), GitHub vafabakhsh-lab/smfret-analysis2, commit 121634e (2022-05-20)"

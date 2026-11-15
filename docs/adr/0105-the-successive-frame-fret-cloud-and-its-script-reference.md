@@ -50,7 +50,7 @@ random?
    kernel with one fixed bandwidth on both axes [Silverman1986], evaluated at the nodes of a square
    grid and normalized to mass 1 on the grid (`f / sum(f) / (dx dy)`); the highest-density-region
    level of each coverage by the grid density-quantile rule that `tether.analysis.cloud` already
-   uses [Hyndman1996][Haselsteiner2017]; k-means with k-means++ starts [Arthur2007] and Lloyd
+   uses [Hyndman1996], [Haselsteiner2017]; k-means with k-means++ starts [Arthur2007] and Lloyd
    iterations [Lloyd1982], the run of least within-cluster sum of squares kept. Every pair counts
    in every estimate, also one outside the grid range; `n_out_of_range` reports them.
 3. **The defaults are the scripts' values** and are PRD §11.2 science tunables: a 200 × 200 grid on
