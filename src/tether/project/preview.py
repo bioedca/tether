@@ -147,8 +147,14 @@ def _registered(reg_map: RegistrationMap) -> dict[str, Any]:
     }
 
 
-def _crop(geometry: ChannelGeometry) -> list[int] | None:
-    return None if geometry.crop is None else [int(v) for v in geometry.crop]
+def _geometry_params(side: str, geometry: ChannelGeometry) -> dict[str, Any]:
+    """The whole transform a channel's split applies: crop, rotation and flip."""
+    crop = None if geometry.crop is None else [int(v) for v in geometry.crop]
+    return {
+        f"{side}_crop": crop,
+        f"{side}_rotation_deg": int(geometry.rotation_deg),
+        f"{side}_flip": [int(v) for v in geometry.flip],
+    }
 
 
 def _geometry(
@@ -214,7 +220,9 @@ def iter_extraction_stages(
 
     def split() -> dict[str, Any]:
         donor, acceptor = _geometry(movie, opts, geometry, registration, split_params)
-        split_params.update(donor_crop=_crop(donor), acceptor_crop=_crop(acceptor))
+        split_params.update(
+            _geometry_params("donor", donor) | _geometry_params("acceptor", acceptor)
+        )
         donor_stack, acceptor_stack = split_channels(movie, donor, acceptor)
         return {
             "donor_geometry": donor,

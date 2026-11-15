@@ -240,6 +240,14 @@ def test_geometry_and_policy_are_arguments() -> None:
     assert preview.stage("colocalize").parameters["policy"] == "donor-anchored"
     swapped = preview_extraction(_movie_array(), geometry=(right, left))
     assert swapped.stage("split").parameters["donor_crop"] == [1, 49, 64, 96]
+    # The whole transform is recorded, not only the crop: two geometries that differ
+    # only in rotation or flip must not record the same settings.
+    flipped = ChannelGeometry(crop=(1, 1, 64, 48), rotation_deg=180, flip=(1, 0))
+    split = preview_extraction(_movie_array(), geometry=(flipped, right)).stage("split")
+    assert split.parameters["donor_rotation_deg"] == 180
+    assert split.parameters["donor_flip"] == [1, 0]
+    assert split.parameters["acceptor_rotation_deg"] == 0
+    assert split.parameters["acceptor_flip"] == [0, 0]
     with pytest.raises(ValueError, match="policy"):
         preview_extraction(_movie_array(), policy="partner-in-both")
 
