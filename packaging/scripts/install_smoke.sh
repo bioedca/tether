@@ -28,6 +28,29 @@ set -euo pipefail
 export PIP_NO_INDEX=1
 export CONDA_OFFLINE=1
 
+# The bundled update verifier (issue #332, ADR-0060), checked the same way on every platform.
+# $1 is the INSTALLED app env's python. The binary is located by the installed package's own
+# tether._verifier.bundled_gh(), which derives it from sys.prefix, so this proves the app can
+# reach it by the prefix-relative path and not merely that a file landed somewhere. Then it must
+# run from the installed prefix and report the version packaging/gh-verifier.toml pins (read
+# through stage_gh.py, so the smoke restates nothing), with its MIT license and the third-party
+# notices beside it. `--version` makes no network call, and GH_NO_UPDATE_NOTIFIER stops gh
+# looking for a newer release of itself.
+check_gh_verifier() {
+  gh_path="$("$1" -c 'from tether._verifier import bundled_gh; p = bundled_gh(); assert p, "no bundled gh"; print(p)' | tr -d '\r')"
+  echo "bundled gh: $gh_path"
+  gh_want="$(python packaging/scripts/stage_gh.py print-version | tr -d '\r')"
+  gh_got="$(GH_NO_UPDATE_NOTIFIER=1 "$gh_path" --version | head -1 | tr -d '\r')"
+  echo "bundled gh reports: $gh_got"
+  case "$gh_got" in
+    "gh version $gh_want "*) ;;
+    *) echo "the bundled gh is not the pinned $gh_want: $gh_got"; exit 1 ;;
+  esac
+  # The notices, read by the installed python: on Windows the path is a native one, which
+  # git-bash's dirname cannot split.
+  "$1" -c 'import sys; from tether._verifier import bundled_gh; d = bundled_gh().parent; m = [n for n in ("LICENSE", "THIRD-PARTY-LICENSES.txt") if not (d / n).is_file() or not (d / n).stat().st_size]; sys.exit(f"the bundled gh has no {m} in {d}" if m else 0)'
+}
+
 if [ "$RUNNER_OS" = "Windows" ]; then
   # Stop git-bash from mangling the NSIS /S and /D switches. Exported here for the
   # same single-source reason as the offline pair above: the msys runtime reads it
@@ -47,6 +70,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # cmd.exe running tether-gui.bat with `/c` arguments, minimized. post_install opens an
   # existing .lnk rather than replacing it, so the shortcut checks after the install
   # prove that every field is overwritten, the arguments included (issue #579, PR #827).
+  # rc3 wrote its launchers into bin\, so the seed names that folder (ADR-0094).
   old_sm_dir="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Tether"
   mkdir -p "$old_sm_dir"
   TETHER_LNK_W="$(cygpath -w "$old_sm_dir/Tether.lnk")" OLD_BAT_W="$prefix\\bin\\tether-gui.bat" \
@@ -76,16 +100,22 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # The interface icons are SVG files (#677), and they draw only when the bundle carries
   # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
   QT_QPA_PLATFORM=offscreen "$prefix\\envs\\tether\\python.exe" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
+  check_gh_verifier "$prefix\\envs\\tether\\python.exe"
   # The USER-FACING launch surface (ADR-0051). The absolute env path above
   # proves the env was built; these prove the app can actually be STARTED.
   prefix_u="$(cygpath -u "$prefix")"
-  test -f "$prefix_u/bin/tether.bat" || { echo "missing shim: bin\\tether.bat"; exit 1; }
-  test -f "$prefix_u/bin/tether-gui.bat" || { echo "missing shim: bin\\tether-gui.bat"; exit 1; }
+  test -f "$prefix_u/launchers/tether.bat" || { echo "missing shim: launchers\\tether.bat"; exit 1; }
+  test -f "$prefix_u/launchers/tether-gui.bat" || { echo "missing shim: launchers\\tether-gui.bat"; exit 1; }
+  # The folder the install guide puts on PATH holds the two launchers and nothing else
+  # (issue #492, ADR-0094), so adding it, first or last, changes nothing else a shell finds.
+  launchers="$(ls -A "$prefix_u/launchers" | LC_ALL=C sort | tr '\n' ' ')"
+  test "$launchers" = "tether-gui.bat tether.bat " || {
+    echo "the launcher folder must hold only tether.bat and tether-gui.bat: $launchers"; exit 1; }
   # [project.gui-scripts] must produce the console-less launcher; without it a
   # shortcut flashes a terminal on every start.
   test -f "$prefix_u/envs/tether/Scripts/tether-gui.exe" || {
     echo "missing tether-gui.exe — is [project.gui-scripts] declared?"; exit 1; }
-  cmd /c "$prefix\\bin\\tether.bat" --version
+  cmd /c "$prefix\\launchers\\tether.bat" --version
   # `--version` imports nothing that touches BLAS, so it passed on rc2 while every
   # real extraction crashed in MKL on a user's PC (issue #553). Run a real one
   # through the launcher: the committed tutorial movie's native registration calls
@@ -94,7 +124,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # the user's crash; it keeps the launch route, not just the env, under test.
   # No path here contains a space, so git-bash adds no quotes for cmd to mangle.
   smoke_project="$RUNNER_TEMP\\smoke-launcher.tether"
-  cmd /c "$prefix\\bin\\tether.bat" extract docs\\tutorial\\data\\tutorial_movie.tif -o "$smoke_project"
+  cmd /c "$prefix\\launchers\\tether.bat" extract docs\\tutorial\\data\\tutorial_movie.tif -o "$smoke_project"
   test -f "$(cygpath -u "$smoke_project")" || {
     echo "tether.bat extract wrote no project: $smoke_project"; exit 1; }
   # Start Menu shortcut (created directly; menuinst cannot own a pip-installed
@@ -204,16 +234,23 @@ else
   # The interface icons are SVG files (#677), and they draw only when the bundle carries
   # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
   QT_QPA_PLATFORM=offscreen "$prefix/envs/tether/bin/python" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
+  check_gh_verifier "$prefix/envs/tether/bin/python"
   # The USER-FACING launch surface (ADR-0051). The absolute env paths above
   # prove the envs were built; these prove the app can actually be STARTED,
   # which is the thing an install guide has to document. Exercised through
-  # the prefix shims, exactly as a user with <prefix>/bin on PATH would.
-  test -x "$prefix/bin/tether" || { echo "missing shim: $prefix/bin/tether"; exit 1; }
-  test -x "$prefix/bin/tether-gui" || { echo "missing shim: $prefix/bin/tether-gui"; exit 1; }
-  PATH="$prefix/bin:$PATH" tether --version
+  # the prefix shims, exactly as a user with <prefix>/launchers on PATH would.
+  test -x "$prefix/launchers/tether" || { echo "missing shim: $prefix/launchers/tether"; exit 1; }
+  test -x "$prefix/launchers/tether-gui" || { echo "missing shim: $prefix/launchers/tether-gui"; exit 1; }
+  # The folder the install guide puts on PATH holds the two launchers and nothing else
+  # (issue #492, ADR-0094). <prefix>/bin, their folder until rc3, is the bootstrap env's
+  # bin: on PATH it also gave the user that env's python, pip and conda.
+  launchers="$(ls -A "$prefix/launchers" | LC_ALL=C sort | tr '\n' ' ')"
+  test "$launchers" = "tether tether-gui " || {
+    echo "the launcher folder must hold only tether and tether-gui: $launchers"; exit 1; }
+  PATH="$prefix/launchers:$PATH" tether --version
   # The GUI entry point must import and answer --version WITHOUT a display;
   # `gui-scripts` on Unix is a normal console script, so this is safe headless.
-  PATH="$prefix/bin:$PATH" tether-gui --version
+  PATH="$prefix/launchers:$PATH" tether-gui --version
   if [ "$RUNNER_OS" = "macOS" ]; then
     # The launcher bundle (issue #663, ADR-0091). This install is "for me only", into
     # the home folder, so post_install put the bundle in ~/Applications. plutil is

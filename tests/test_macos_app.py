@@ -261,6 +261,9 @@ def test_post_install_writes_the_bundle_on_macos(tmp_path) -> None:
         stub.chmod(0o755)
     (prefix / "envs" / "tether" / "bin" / "tether-gui").write_text("#!/bin/sh\n")
     (prefix / "wheelhouse").mkdir()
+    # post_install.sh makes the bundled update verifier executable (#332).
+    (prefix / "verifier" / "gh").mkdir(parents=True)
+    (prefix / "verifier" / "gh" / "gh").write_text("", encoding="utf-8")
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     uname = fake_bin / "uname"
@@ -305,6 +308,9 @@ def test_root_install_gives_a_new_applications_folder_to_the_user(tmp_path, fold
         stub.chmod(0o755)
     (prefix / "envs" / "tether" / "bin" / "tether-gui").write_text("#!/bin/sh\n")
     (prefix / "wheelhouse").mkdir()
+    # post_install.sh makes the bundled update verifier executable (#332).
+    (prefix / "verifier" / "gh").mkdir(parents=True)
+    (prefix / "verifier" / "gh" / "gh").write_text("", encoding="utf-8")
     if folder_existed:
         (home / "Applications").mkdir()
     log = tmp_path / "chown.log"
