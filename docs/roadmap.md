@@ -1,3 +1,7 @@
+---
+description: "What the current Tether release contains, what comes next and what is out of scope, as a short public summary."
+---
+
 # Roadmap
 
 **Who this page is for.** Readers who want a short, public view of what Tether is
@@ -34,6 +38,12 @@ The next release step is to finish M9 and tag stable `v1.0.0`: exercise the bund
 installers and validation suite end to end, finish release hardening, and publish the
 installer assets, environment locks, checksums, SBOM, and versioned documentation through
 the release pipeline.
+
+Before stable `v1.0.0`, the desktop application also gets an extraction section
+(milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17)):
+a lab member takes a fresh acquisition from the raw movie to a `.tether` project with no
+terminal. Until then, a new movie is extracted with `tether extract` or `tether batch`
+(see [Command line](cli.md)), and the application opens the result.
 
 There is no committed v1.1 feature slate yet. Post-1.0 work will be selected through the
 public issue backlog after the stable-release gates are complete; deferred ideas are not

@@ -1,14 +1,25 @@
+---
+description: "Run tether extract and tether batch without the window: script the pipeline, process movies unattended or repeat an extraction from recorded settings."
+---
+
 # Command line
 
 **Who this page is for.** Anyone driving Tether without the window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. `tether extract` and `tether batch` are the whole
-headless surface — there is no third subcommand. If you are curating traces by hand,
-picking states by eye, or reading plots, you want the desktop application instead; this
-page only tells you how to start it.
+extraction from recorded settings. Today the command line has two subcommands,
+`tether extract` and `tether batch`.
+
+**A new movie starts here, for now.** The desktop application does not extract a movie
+yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
+traces by hand, pick states by eye and read plots, but only `tether extract` and
+`tether batch` make a `.tether` project from a raw movie. So, for a fresh acquisition, run
+one of them first, then open its output in the application; this page tells you how to
+start the application too. The extraction section of the application, which takes a movie
+to a `.tether` project with no terminal, is planned work: see
+[its milestone on GitHub](https://github.com/bioedca/tether/milestone/17).
 
 Everything below was transcribed from the live argparse parser in `src/tether/cli.py` —
-the same parser `--help` prints from — and a guard test (`tests/test_cli_reference.py`)
+the same parser `--help` prints from — and a guard test ([`tests/test_cli_reference.py`](https://github.com/bioedca/tether/blob/main/tests/test_cli_reference.py))
 fails if that parser gains, loses or renames an option without a matching edit here. Where
 a default is quoted, it is the string argparse prints, not a value read out of the source.
 
