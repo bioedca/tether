@@ -1,0 +1,59 @@
+digraph Tether {
+graph [layout=neato, rankdir=TB, overlap=true, compound=true, newrank=true, bgcolor="white", fontname="Arial", nodesep=0.65, ranksep=0.85, pad=0.20, splines=ortho, outputorder=edgesfirst];
+node [fontname="Arial", fontsize=13, color="#263D4C", fontcolor="#122937", penwidth=1.2, margin="0.16,0.11", width=2.45, height=0.58];
+edge [fontname="Arial", fontsize=10, color="#364D5C", fontcolor="#263F4E", penwidth=1.25, arrowsize=0.7];
+select [label="Select frozen analysis snapshot\nChoose participating experiments\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="0.0,0.0!", pin=true];
+collect [label="Collect full dependency set\nRaw movies, map sources, projects,\nresults\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="0.0,-1.9!", pin=true];
+available [label="All sources\navailable and verified?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="0.0,-3.8!", pin=true];
+manifest [label="Portable package manifest\nRelative paths + checksums + lineage\n[N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="0.0,-5.699999999999999!", pin=true];
+auth [label="Connect user Zenodo account\nKeep credentials outside project files\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,0.0!", pin=true];
+metadata [label="Review authors, title, license,\nfunding\nFile access / embargo + related\nrecords\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-1.9!", pin=true];
+capacity [label="Fits applicable\nZenodo limits?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="5.8,-3.8!", pin=true];
+resolve [label="Relink missing files / request quota\nOr plan complete linked records\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="5.8,-5.699999999999999!", pin=true];
+draft [label="Create / resume draft\nBind deposit ID to manifest\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,0.0!", pin=true];
+upload [label="Upload pending files\nVerify completed file checksums\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-1.9!", pin=true];
+verified [label="All files\nverified?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="11.6,-3.8!", pin=true];
+retry [label="Reconcile server state\nRetry incomplete / failed files\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="11.6,-5.699999999999999!", pin=true];
+review [label="Final file + metadata review\nShow exact publication snapshot\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="17.4,0.0!", pin=true];
+intent [label="User explicitly\nchooses Publish?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="17.4,-1.9!", pin=true];
+publish [label="Request publication\n[N]", shape=box, style="rounded,filled", fillcolor="#F5F8FA", pos="17.4,-3.8!", pin=true];
+success [label="Publication\nverified?", shape=diamond, style=filled, fillcolor="#FFF8E5", fontsize=11, width=2.15, height=0.86, margin="0.07,0.05", pos="17.4,-5.699999999999999!", pin=true];
+record [label="Save DOI + record version\nManifest linked to project snapshot\n[N]", shape=cylinder, style=filled, fillcolor="#EAF4EF", pos="17.4,-7.6!", pin=true];
+subgraph cluster_0 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_0 [label="PREPARE", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="0.0,1.15!", pin=true];
+select;collect;available;manifest;
+}
+subgraph cluster_1 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_1 [label="VALIDATE", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="5.8,1.15!", pin=true];
+auth;metadata;capacity;resolve;
+}
+subgraph cluster_2 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_2 [label="TRANSFER", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="11.6,1.15!", pin=true];
+draft;upload;verified;retry;
+}
+subgraph cluster_3 { label=""; color="#AFC0CC"; style="rounded"; margin=18;
+heading_3 [label="PUBLISH", shape=plaintext, fontcolor="#264D64", fontsize=13, width=2.6, height=0.4, pos="17.4,1.15!", pin=true];
+review;intent;publish;success;record;
+}
+select -> collect [];
+collect -> available [];
+available -> manifest [tooltip="Yes", xlabel="Yes", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+available -> resolve [tooltip="No", xlabel="No"];
+resolve -> collect [tooltip="Resolved", xlabel="Resolved", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+manifest -> auth [];
+auth -> metadata [];
+metadata -> capacity [];
+capacity -> resolve [tooltip="No", xlabel="No"];
+capacity -> draft [tooltip="Yes", xlabel="Yes"];
+draft -> upload [];
+upload -> verified [];
+verified -> retry [tooltip="No", xlabel="No"];
+retry -> upload [tooltip="Retry", xlabel="Retry", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+verified -> review [tooltip="Yes", xlabel="Yes"];
+review -> intent [];
+intent -> publish [tooltip="Yes", xlabel="Yes"];
+intent -> draft [tooltip="No: retain draft", xlabel="No: retain draft", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+publish -> success [];
+success -> review [tooltip="No: show error", xlabel="No: show error", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+success -> record [tooltip="Yes", xlabel="Yes", style=dashed, color="#356B8C", fontcolor="#356B8C"];
+}

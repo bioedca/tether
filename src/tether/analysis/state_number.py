@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -186,7 +187,7 @@ def population_state_number(
     project: ProjectRef,
     model_name: str,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     states_low: int = DEFAULT_STATE_NUMBER_LOW,
     states_high: int | None = None,
     include_rejected: bool = False,
@@ -225,17 +226,9 @@ def population_state_number(
     KeyError
         No ``/idealization/{model_name}`` in the store.
     """
-    from tether.analysis._store import windowed_states
-    from tether.project.idealize import live_molecule_keys
+    from tether.analysis._store import fresh_selection, windowed_states
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     return state_number_counts(states, states_low=states_low, states_high=states_high)

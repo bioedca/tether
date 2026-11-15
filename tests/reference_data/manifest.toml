@@ -2487,3 +2487,16 @@ tier = "git"
 extract_of = ["mashfret-group-iib-intron-archive"]
 extract_script = "scripts/make_mashfret_fixture.py"
 citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
+
+[[dataset]]
+id = "mashfret-ed135e-30mm-path-a"
+source = "doi:10.5281/zenodo.24104528"
+record_url = "https://zenodo.org/records/24104528"
+license = "CC-BY-4.0"
+file = "tests/fixtures/mashfret_ed135e_30mm_path_a.mat"
+size = 204676
+sha256 = "8efa0e919c36f0503e300c17385fd4c36fa19be5a206bda5594fd113ac905c79"
+tier = "git"
+extract_of = ["mashfret-group-iib-intron-archive"]
+extract_script = "scripts/make_mashfret_fixture.py"
+citation = "Zelger-Paulus S, Hadzic MCAS, Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S, Sigel R. Dataset: Cis-exons shape the conformational landscape and Mg2+ response of a group IIB intron. Zenodo (2026). doi:10.5281/zenodo.24104528"
