@@ -14,8 +14,8 @@
 # The build driver (.github/workflows/packaging.yml and release.yml, and
 # packaging/README.md for local builds) sets the env vars this recipe reads and
 # stages the artifacts it references (the rendered per-platform locks under locks/,
-# the THREE wheels — see `extra_files` below — and the GPL license text under
-# staging/). See ADR-0049 for the architecture.
+# the THREE wheels and the `gh` update verifier — see `extra_files` below — and the GPL
+# license text under staging/). See ADR-0049 for the architecture.
 #
 # UNSIGNED by decision (ADR-0059): installers are not OS-code-signed on any
 # platform, and that is the settled 1.0 position rather than a pending step. The
@@ -96,6 +96,19 @@ extra_files:
   - {{ environ.get("TETHER_WHEEL", "staging/tether.whl") }}: wheelhouse/{{ environ.get("TETHER_WHEEL_NAME", "tether.whl") }}
   - {{ environ.get("TMAVEN_WHEEL", "staging/tmaven.whl") }}: wheelhouse/{{ environ.get("TMAVEN_WHEEL_NAME", "tmaven.whl") }}
   - {{ environ.get("SETUPTOOLS_WHEEL", "staging/setuptools.whl") }}: wheelhouse/{{ environ.get("SETUPTOOLS_WHEEL_NAME", "setuptools.whl") }}
+
+# The update verifier (issue #332, ADR-0060): the upstream `gh` CLI, pinned with the SHA-256 of
+# each platform's release archive in packaging/gh-verifier.toml. The build driver runs
+# packaging/scripts/stage_gh.py, which downloads the archive, refuses it unless the digest
+# matches, and writes these three fixed names into staging/gh/. Extra files, not conda-lock:
+# ADR-0060 rejects re-solving the base lock for one tool. `verifier/gh/` is a folder of its own,
+# never a folder on the user's PATH, so the bundled gh cannot shadow a gh the user has;
+# tether._verifier.bundled_gh() finds it from sys.prefix. LICENSE is gh's MIT text and
+# THIRD-PARTY-LICENSES.txt the notices of its dependencies (`gh licenses`).
+  - staging/gh/gh: verifier/gh/gh             # [unix]
+  - staging/gh/gh.exe: verifier/gh/gh.exe     # [win]
+  - staging/gh/LICENSE: verifier/gh/LICENSE
+  - staging/gh/THIRD-PARTY-LICENSES.txt: verifier/gh/THIRD-PARTY-LICENSES.txt
 
 # GPL-3.0 license text shown during install and shipped beside the installer
 # (NOTICE: the bundled sidecar also ships tMAVEN's own GPL-3.0 text — staged by the
