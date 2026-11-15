@@ -5,7 +5,7 @@
 Torch is imported **lazily, inside the functions** here (never at module top), so importing
 this module in the base env is safe and pulls **no** deep-learning framework — the load-bearing
 "deep classifier is optional; CPU base app unaffected" invariant (§9 M8). The torch
-``nn.Module`` + ``Dataset`` live in the sibling private module :mod:`tether.ml.deep._torch_model`,
+``nn.Module`` + ``Dataset`` live in the sibling private module `tether.ml.deep._torch_model`,
 imported only from within these functions.
 
 Model (DeepFRET/Deep-LASI-style [Thomsen2020][Wanninger2023]): a 1-D CNN over the
@@ -15,8 +15,8 @@ accept/reject logit. Training uses a **per-sample-weighted** BCE so the M5 cold-
 provisional weights carry through (§7.5). LSTM trace idealization/classification for smFRET
 follows Kin-SiM [Zhang2025]; CNN trace selection follows AutoSiM [Li2020].
 
-The framework-agnostic input tensors come from :func:`tether.ml.deep.dataset.assemble_dataset`
-(or the store-backed :func:`tether.project.deep_dataset.build_deep_dataset`); this module is the
+The framework-agnostic input tensors come from [`tether.ml.deep.dataset.assemble_dataset`][]
+(or the store-backed [`tether.project.deep_dataset.build_deep_dataset`][]); this module is the
 torch consumer of that substrate. Every tunable default below is registered in **PRD §11.2**
 ("Deep-classifier model + training"), the single source of truth (NFR-REPRO).
 
@@ -104,11 +104,11 @@ class TrainedDeepClassifier:
     """A trained deep trace classifier plus its self-describing build provenance (NFR-REPRO).
 
     ``model`` is the trained ``torch.nn.Module``; it is typed ``Any`` so this container stays
-    importable in the torch-free base env (a caller only touches it via :meth:`predict_proba`,
+    importable in the torch-free base env (a caller only touches it via [`predict_proba`][],
     which lazily loads torch). ``history`` is the per-epoch weighted training loss;
     ``hyperparameters`` records every §11.2 tunable used, so a stored result is reproducible.
     The preprocessing provenance (``channels``, ``n_channels``, ``window_length``,
-    ``normalization``, ``intensity_quantity``) is the **contract** :func:`predict_proba` enforces:
+    ``normalization``, ``intensity_quantity``) is the **contract** [`predict_proba`][] enforces:
     an inference dataset built with a different channel order, normalization, window, or intensity
     quantity would keep a compatible tensor *shape* yet produce silently-invalid scores, so it is
     rejected rather than scored.
@@ -126,7 +126,7 @@ class TrainedDeepClassifier:
     def predict_proba(
         self, dataset: DeepTraceDataset, *, batch_size: int = DEFAULT_BATCH_SIZE
     ) -> Any:
-        """Per-sample accept probability for ``dataset`` — see module :func:`predict_proba`."""
+        """Per-sample accept probability for ``dataset`` — see module [`predict_proba`][]."""
         return predict_proba(self, dataset, batch_size=batch_size)
 
 
@@ -145,11 +145,11 @@ def train_classifier(
     seed: int = DEFAULT_SPLIT_SEED,
     device: str = DEFAULT_DEVICE,
 ) -> TrainedDeepClassifier:
-    """Train a 1-D CNN/LSTM accept/reject classifier on a :class:`DeepTraceDataset`.
+    """Train a 1-D CNN/LSTM accept/reject classifier on a [`DeepTraceDataset`][].
 
-    Lazily imports torch (:mod:`tether.ml.deep._torch_model`), so calling this needs the optional
+    Lazily imports torch (`tether.ml.deep._torch_model`), so calling this needs the optional
     ``deep/`` env; merely importing this module does not. Determinism: fixed ``seed`` reproduces
-    weight init + shuffle order on CPU. Returns a :class:`TrainedDeepClassifier` carrying the
+    weight init + shuffle order on CPU. Returns a [`TrainedDeepClassifier`][] carrying the
     trained model, per-epoch loss ``history``, and the full §11.2 hyperparameter record.
 
     Raises
@@ -227,14 +227,14 @@ def predict_proba(
 ) -> Any:
     """Per-sample accept probability ``sigmoid(logit)`` as a ``float64`` ``(n_samples,)`` array.
 
-    Accepts either a :class:`TrainedDeepClassifier` or a bare trained ``nn.Module``. Rows align
+    Accepts either a [`TrainedDeepClassifier`][] or a bare trained ``nn.Module``. Rows align
     with ``dataset.molecule_ids`` (no shuffle). ``device`` defaults to the training device when a
-    :class:`TrainedDeepClassifier` is passed, else ``"cpu"``. Lazily imports torch.
+    [`TrainedDeepClassifier`][] is passed, else ``"cpu"``. Lazily imports torch.
 
-    When a :class:`TrainedDeepClassifier` is passed, the ``dataset``'s preprocessing provenance
+    When a [`TrainedDeepClassifier`][] is passed, the ``dataset``'s preprocessing provenance
     (channel order, channel count, window length, normalization, intensity quantity) must match
     what the model was trained on — a mismatch keeps a compatible tensor shape but would yield
-    silently-invalid scores, so it raises :class:`ValueError`. Pass a bare ``nn.Module`` to bypass
+    silently-invalid scores, so it raises [`ValueError`][]. Pass a bare ``nn.Module`` to bypass
     the check (the caller then owns the contract).
     """
     from tether.ml.deep import _torch_model  # lazy: torch only loads here
@@ -292,7 +292,7 @@ def fine_tune(
     ``base`` is **not** mutated — the fine-tuned model is a deep copy, so the caller can score the
     same held-out set with both to confirm the fine-tune improved it (the §9 M8 "fine-tuning
     improves a held-out metric" clause). With ``freeze_conv`` only the recurrent summary + head
-    adapt (the CNN feature extractor is frozen). The returned :class:`TrainedDeepClassifier`
+    adapt (the CNN feature extractor is frozen). The returned [`TrainedDeepClassifier`][]
     carries ``base``'s preprocessing provenance (which must match ``dataset``) and records the
     fine-tune hyperparameters plus ``base``'s under ``base_hyperparameters`` (NFR-REPRO);
     ``history`` is this fine-tune run's per-epoch weighted loss.
@@ -303,7 +303,7 @@ def fine_tune(
         Non-positive ``epochs`` / ``batch_size`` / ``learning_rate``, or a ``dataset`` whose
         preprocessing (channel order/count, window length, normalization, intensity quantity) does
         not match what ``base`` was trained on — fine-tuning on differently-preprocessed traces
-        would corrupt the pretrained weights (the same contract :func:`predict_proba` enforces).
+        would corrupt the pretrained weights (the same contract [`predict_proba`][] enforces).
     """
     if epochs <= 0:
         raise ValueError(f"epochs must be positive, got {epochs}")
@@ -377,14 +377,14 @@ def rank_by_deep_model(
     """Rank ``dataset``'s molecules by the deep model's accept probability (FR-ML).
 
     The reconciliation seam with the M5 **classical** ranker: the deep model's per-molecule
-    ``P(accept)`` (:func:`predict_proba`) is fed to the *same* model-agnostic, never-auto-drop
-    :func:`tether.ml.ranking.rank_by_score` that the gradient-boosting
-    :class:`~tether.ml.gbranker.QualityRanker`'s scores feed, and is scored by the *same*
-    :func:`tether.ml.ranking.precision_at_k`. So the deep model is a drop-in scorer for the M5
+    ``P(accept)`` ([`predict_proba`][]) is fed to the *same* model-agnostic, never-auto-drop
+    [`tether.ml.ranking.rank_by_score`][] that the gradient-boosting
+    [`QualityRanker`][tether.ml.gbranker.QualityRanker]'s scores feed, and is scored by the *same*
+    [`tether.ml.ranking.precision_at_k`][]. So the deep model is a drop-in scorer for the M5
     quality-ranking pipeline: the two rankers' outputs are directly comparable on the shared
     precision@k objective (PRD §7.5), and neither auto-drops a trace — a molecule is only ever
     re-ordered (higher probability ranks earlier). Enforces the same preprocessing contract as
-    :func:`predict_proba`; lazily imports torch.
+    [`predict_proba`][]; lazily imports torch.
     """
     proba = predict_proba(trained, dataset, batch_size=batch_size)
     return rank_by_score(dataset.molecule_ids, proba)

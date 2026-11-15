@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """pyqtgraph static overlap view — patch + nearest-neighbour distance (PRD §7.3).
 
-:class:`OverlapDock` is the *GUI* half of the M2 S10 neighbor/overlap view: for the
+[`OverlapDock`][] is the *GUI* half of the M2 S10 neighbor/overlap view: for the
 selected molecule it shows the cached **static image patch** (``/patches``, §5.1)
 and a one-line readout of the **nearest-neighbour distance** with an
 apertures-overlap warning. All geometry — the NN distance and the overlap flag —
-comes from the Qt-free :mod:`tether.analysis.overlap` core (an
-:class:`~tether.analysis.overlap.OverlapInfo`); this dock only draws what that core
-returns, exactly as :class:`tether.gui.histogram_dock.HistogramDock` draws a
+comes from the Qt-free [`tether.analysis.overlap`][] core (an
+[`OverlapInfo`][tether.analysis.overlap.OverlapInfo]); this dock only draws what that core
+returns, exactly as [`tether.gui.histogram_dock.HistogramDock`][] draws a
 ``Histogram1D``.
 
 Because the patch is cached at extraction/import, the view works **without the
@@ -16,9 +16,9 @@ movie loaded** (movie-less curation, §5.1). An **analysis-only** project that
 carries no patches (§7.4) still gets the NN readout; the patch panel just shows a
 "no patch" placeholder rather than a fabricated image.
 
-**Lazy Qt import.** As in :mod:`tether.gui.histogram_dock`, pyqtgraph and its Qt
-binding are imported lazily inside :meth:`OverlapDock.__init__`, so importing this
-module costs no Qt. Constructing an :class:`OverlapDock` needs a live
+**Lazy Qt import.** As in [`tether.gui.histogram_dock`][], pyqtgraph and its Qt
+binding are imported lazily inside [`OverlapDock.__init__`][], so importing this
+module costs no Qt. Constructing an [`OverlapDock`][] needs a live
 ``QApplication`` (the embedding shell, ``qtbot``, or ``pyqtgraph.mkQApp``).
 """
 
@@ -63,14 +63,14 @@ def _readout(info: OverlapInfo) -> str:
 class OverlapDock:
     """A pyqtgraph dock showing the selected molecule's patch + NN distance.
 
-    Construct (needs a ``QApplication``), then :meth:`set_molecule` an
-    :class:`~tether.analysis.overlap.OverlapInfo` (or ``None`` to blank it). Embed
-    :attr:`widget` (a ``QWidget``) into the Tether shell, or drive it in a ``qtbot``
-    test. Use as a context manager or call :meth:`close`.
+    Construct (needs a ``QApplication``), then [`set_molecule`][] an
+    [`OverlapInfo`][tether.analysis.overlap.OverlapInfo] (or ``None`` to blank it). Embed
+    [`widget`][] (a ``QWidget``) into the Tether shell, or drive it in a ``qtbot``
+    test. Use as a context manager or call [`close`][].
 
     Purely presentational: it takes an already-computed
-    :class:`~tether.analysis.overlap.OverlapInfo` and draws it. No NN geometry lives
-    here — that is :func:`tether.analysis.overlap.neighbor_report`.
+    [`OverlapInfo`][tether.analysis.overlap.OverlapInfo] and draws it. No NN geometry lives
+    here — that is [`tether.analysis.overlap.neighbor_report`][].
     """
 
     def __init__(self) -> None:
@@ -134,7 +134,7 @@ class OverlapDock:
 
     @property
     def info(self) -> OverlapInfo | None:
-        """The currently displayed :class:`OverlapInfo`, or ``None``."""
+        """The currently displayed [`OverlapInfo`][], or ``None``."""
         return self._info
 
     @property
@@ -157,7 +157,7 @@ class OverlapDock:
     def set_molecule(self, info: OverlapInfo | None) -> None:
         """Draw ``info`` (patch + NN readout), or blank the dock when ``None``.
 
-        ``info`` is an :class:`~tether.analysis.overlap.OverlapInfo` from a
+        ``info`` is an [`OverlapInfo`][tether.analysis.overlap.OverlapInfo] from a
         store-backed overlap seam. A ``None`` ``info`` (nothing selected) or a
         ``None`` ``info.patch`` (analysis-only project, no cached patch) still draws
         the readout and leaves the patch panel blank — never a fabricated image.

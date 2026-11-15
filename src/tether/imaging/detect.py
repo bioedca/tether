@@ -5,30 +5,30 @@
 Faithful NumPy/SciPy ports of Deep-LASI's selectable particle-detection methods
 (`deeplasi/functions/mapping/findPart.m`'s ``method`` dispatch). Deep-LASI offers
 several detectors behind the GUI ``Rbg_Detection`` radio group; Tether implements
-them behind :class:`ParticleDetectionMode` so a movie can be extracted with the
+them behind [`ParticleDetectionMode`][] so a movie can be extracted with the
 method (and threshold) it was actually detected with:
 
-* **mode 1 — wavelet** (:func:`detect_spots`): the class-default à trous /
+* **mode 1 — wavelet** ([`detect_spots`][]): the class-default à trous /
   multiscale-product detector (`external/Wave_Partfind.m`), detailed below.
-* **mode 2 — intensity** (:func:`detect_spots_intensity`): the legacy
+* **mode 2 — intensity** ([`detect_spots_intensity`][]): the legacy
   intensity-threshold detector (`findPart.m:21-28`) — threshold the detection
   image at ``t * max``, Crocker-Grier band-pass (`external/bpass.m`), re-threshold
   at 3 % of the band-pass max, erode, and take connected-component centroids.
-* **mode 3 — bandpass** (:func:`detect_spots_bandpass`): the Crocker-Grier
+* **mode 3 — bandpass** ([`detect_spots_bandpass`][]): the Crocker-Grier
   band-pass / sort detector (`mapping/find_part_bpass_sort.m`) — threshold at
   ``t * max``, band-pass (``bpass(I, 1, 9)``; note ``lobject = 9`` vs mode 2's 7),
   keep only the band-pass values in the top ``1 - t`` fraction (a percentile sort),
   take the regional maxima (``imregionalmax``), and their connected-component
   centroids.
 
-:func:`detect_spots_by_mode` dispatches on :class:`ParticleDetectionMode`. All
+[`detect_spots_by_mode`][] dispatches on [`ParticleDetectionMode`][]. All
 modes share the Stage-4 post-detection tail (snap -> border -> NMS ->
 ``[x, y]``), mirroring ``findPart.m``'s shared post-switch block (lines 63-103).
 
 The mode-1 wavelet path is a faithful port of
 (`deeplasi/functions/external/Wave_Partfind.m`, `mapping/findPart.m`):
 
-* **Stage 2 — detection image** (:func:`detection_image`): the "Cumulated" image,
+* **Stage 2 — detection image** ([`detection_image`][]): the "Cumulated" image,
   a moving-average max projection. Frames are grouped into non-overlapping **whole**
   blocks of ``block`` (default 50; a trailing partial block of ``T % block`` frames
   is dropped, as in ``cumIMG.m``), each block is mean-projected, the per-pixel
@@ -37,7 +37,7 @@ The mode-1 wavelet path is a faithful port of
   single-frame noise/blinking while keeping a spot bright in >= 1 window
   (`tools/cumIMG.m:16-65`).
 
-* **Stage 3 — spot detection** (:func:`detect_spots`): an undecimated *à trous* /
+* **Stage 3 — spot detection** ([`detect_spots`][]): an undecimated *à trous* /
   starlet transform with the separable B3-spline kernel
   ``[1/16, 1/4, 3/8, 1/4, 1/16]`` dilated by ``2**(i-1)`` holes at scale ``i``;
   per-scale noise ``sigma = 2 * MAD`` hard-thresholds each wavelet plane; the
@@ -48,17 +48,17 @@ The mode-1 wavelet path is a faithful port of
   Recognit.*); wavelet-segmentation + centroid localization follows Izeddin
   (2012).
 
-* **Stage 4 — snap + guardrails** (within :func:`detect_spots`): an optional
+* **Stage 4 — snap + guardrails** (within [`detect_spots`][]): an optional
   max-pixel **snap** (Gaussian sigma = 1, capped at 3 px) refines each centroid
   toward the local intensity maximum (`mapping/findPart.m:88-101`); then a border
   margin drops spots too close to the edge and an 8 px min-separation keeps only
   the brightest of each cluster (non-maximum suppression by local 3x3 sum). The
   guardrails run **after** the snap so the returned coordinates always satisfy
   the border + separation contract. Every coordinate-to-pixel snap uses MATLAB
-  away-from-zero rounding (:func:`tether.imaging._rounding.round_half_away`) to
+  away-from-zero rounding (`tether.imaging._rounding.round_half_away`) to
   match Deep-LASI's ``round`` exactly.
 
-**Coordinate convention.** :func:`detect_spots` returns an ``(N, 2)`` float array
+**Coordinate convention.** [`detect_spots`][] returns an ``(N, 2)`` float array
 of ``[x, y]`` = ``[column, row]`` (Deep-LASI stores ``fliplr`` -> ``[x, y]``),
 0-based, sorted by descending brightness. Mode 3, as actually written in
 ``find_part_bpass_sort.m``, localizes with the connected-component **centroid**
@@ -233,7 +233,7 @@ def _refine_snap(
     Crops a ``(2*half+1)`` window, Gaussian-smooths (sigma=1), finds the max, and
     if the offset from the crop centre is < 3 px snaps to ``round(centroid +
     offset)`` (`findPart.m:88-101`). Rounding is MATLAB away-from-zero
-    (:func:`round_half_away`), matching the reference ``round`` at both the crop
+    (`round_half_away`), matching the reference ``round`` at both the crop
     centre and the snap. Spots too close to the border to crop are returned
     unchanged.
     """
@@ -363,7 +363,7 @@ def detect_spots(
     Parameters
     ----------
     detection_img:
-        ``(H, W)`` detection image (e.g. from :func:`detection_image`).
+        ``(H, W)`` detection image (e.g. from [`detection_image`][]).
     n_scales:
         Number of à trous scales ``J`` (default 6 -> 5 wavelet planes).
     scale_pair:
@@ -435,17 +435,17 @@ def detect_spots_intensity(
     Faithful port of `deeplasi/functions/mapping/findPart.m:21-28` and its nested
     ``fourierImage`` thresholding (lines 107-115): zero pixels below
     ``threshold * max`` of the detection image, apply the Crocker-Grier band-pass
-    (:func:`_bandpass`, ``lnoise``/``lobject``), binarize at ``fine_threshold`` of
+    (`_bandpass`, ``lnoise``/``lobject``), binarize at ``fine_threshold`` of
     the band-pass max (3 % default), erode with a 3x3 element
     (``bwmorph(..., 'erode')``), and take the 8-connected component centroids
     (``regionprops(..., 'Centroid')``). The shared Stage-4 tail
-    (:func:`_finalize_candidates`) then snaps, applies the border + min-separation
+    (`_finalize_candidates`) then snaps, applies the border + min-separation
     guardrails, and orders by brightness.
 
     Parameters
     ----------
     detection_img:
-        ``(H, W)`` detection image (e.g. from :func:`detection_image`).
+        ``(H, W)`` detection image (e.g. from [`detection_image`][]).
     threshold:
         Deep-LASI ``DetectionThreshold`` (PRD §11.2): the fraction of the image
         max below which pixels are zeroed before the band-pass (default 0.5).
@@ -456,7 +456,7 @@ def detect_spots_intensity(
         Band-pass binarization level, as a fraction of the band-pass max
         (``findPart.m:24`` uses 3 %).
     min_separation, border_margin, refine:
-        Shared Stage-4 guardrails (see :func:`detect_spots`). The default here is
+        Shared Stage-4 guardrails (see [`detect_spots`][]). The default here is
         **3 px, not the wavelet mode's 8** (ADR-0022): Deep-LASI's ``findPart``
         shared tail applies *no* effective minimum-separation NMS — its
         ``XY = XY(max(D>z),:)`` filter (``findPart.m:66-69``) is a no-op in a
@@ -527,7 +527,7 @@ def detect_spots_bandpass(
 
     1. zero pixels below ``t * max`` of the detection image (``:13-14``);
     2. Crocker-Grier band-pass with ``lobject = 9`` (``bpass(I, 1, 9)``, ``:15``;
-       note this is **9**, vs the intensity mode's 7) via :func:`_bandpass`;
+       note this is **9**, vs the intensity mode's 7) via `_bandpass`;
     3. **percentile sort** — keep only band-pass values ``>=`` the
        ``floor(N * t)``-th smallest (``N`` = pixel count), i.e. the top ``1 - t``
        fraction; everything below is zeroed (``:16-17``);
@@ -536,7 +536,7 @@ def detect_spots_bandpass(
        version-matched to the base ``conda-lock`` scikit-image 0.26; ``:22``);
     5. 8-connected component centroids (``regionprops 'Centroid'``, ``:24-25``).
 
-    The shared Stage-4 tail (:func:`_finalize_candidates`) then snaps, applies the
+    The shared Stage-4 tail (`_finalize_candidates`) then snaps, applies the
     border + min-separation guardrails, and orders by brightness.
 
     ``threshold`` is **dual-use** here (faithful to the reference): it both floors
@@ -552,7 +552,7 @@ def detect_spots_bandpass(
     Parameters
     ----------
     detection_img:
-        ``(H, W)`` detection image (e.g. from :func:`detection_image`).
+        ``(H, W)`` detection image (e.g. from [`detection_image`][]).
     threshold:
         Deep-LASI mode-3 ``t`` (PRD §11.2): see the dual-use note above
         (default 0.98).
@@ -560,8 +560,8 @@ def detect_spots_bandpass(
         Crocker-Grier band-pass noise / object length scales (`bpass.m`; mode-3
         defaults ``1`` / ``9``).
     min_separation, border_margin, refine:
-        Shared Stage-4 guardrails (see :func:`detect_spots`). Default 3 px, not the
-        wavelet mode's 8 (ADR-0022; see :func:`detect_spots_intensity` — ``findPart``
+        Shared Stage-4 guardrails (see [`detect_spots`][]). Default 3 px, not the
+        wavelet mode's 8 (ADR-0022; see [`detect_spots_intensity`][] — ``findPart``
         applies no effective separation NMS).
 
     Returns
@@ -632,9 +632,9 @@ def detect_spots_by_mode(
     border_margin: int = 1,
     refine: bool = True,
 ) -> np.ndarray:
-    """Dispatch spot detection on :class:`ParticleDetectionMode`.
+    """Dispatch spot detection on [`ParticleDetectionMode`][].
 
-    ``mode`` accepts a :class:`ParticleDetectionMode` or its string value
+    ``mode`` accepts a [`ParticleDetectionMode`][] or its string value
     (``"wavelet"`` / ``"intensity"`` / ``"bandpass"``); an unknown value raises
     ``ValueError`` at the enum coercion. ``threshold`` is the shared Deep-LASI
     GUI ``DetectionThreshold`` knob — consumed by the intensity and band-pass

@@ -101,9 +101,9 @@ def _load_art(*, dark: bool, device_pixel_ratio: float) -> QtGui.QPixmap | None:
 class StartupSplash(QtWidgets.QSplashScreen):
     """The splash window: the art, ``Tether <version>`` and one status line.
 
-    Build it with :func:`open_splash`, which also shows it. Call
-    :meth:`close_when_shown` with the main window when the start succeeds, or
-    :meth:`abort` when it fails.
+    Build it with [`open_splash`][], which also shows it. Call
+    [`close_when_shown`][] with the main window when the start succeeds, or
+    [`abort`][] when it fails.
     """
 
     def __init__(
@@ -145,7 +145,7 @@ class StartupSplash(QtWidgets.QSplashScreen):
         app.processEvents()
 
     def close_when_shown(self, window: QtWidgets.QWidget) -> None:
-        """Close the splash once ``window`` is shown, with :meth:`QSplashScreen.finish`."""
+        """Close the splash once ``window`` is shown, with `QSplashScreen.finish`."""
         self._window = window
         if window.isVisible():
             QtCore.QTimer.singleShot(0, self._finish)
@@ -191,7 +191,7 @@ class StartupSplash(QtWidgets.QSplashScreen):
 def open_splash(app: QtWidgets.QApplication) -> StartupSplash | None:
     """Show the splash for the system colour scheme; ``None`` when there is no art.
 
-    The caller decides whether a splash is wanted (see :func:`is_headless`).
+    The caller decides whether a splash is wanted (see [`is_headless`][]).
     """
     dark = system_is_dark(app)
     screen = app.primaryScreen()

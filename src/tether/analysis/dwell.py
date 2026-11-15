@@ -13,9 +13,9 @@ so the plot reproduces its tMAVEN counterpart (the §9 M6 parity clause), with t
 Tether invariants tMAVEN has no analogue for layered on at the store path: **fresh
 idealizations only** (STALE molecules excluded, PRD §5.1) and the §7.5 curation filter.
 
-Three pieces, mirroring :mod:`tether.analysis.tdp`:
+Three pieces, mirroring [`tether.analysis.tdp`][]:
 
-* :func:`state_dwells` — the pure extraction core (iterable of per-molecule state
+* [`state_dwells`][] — the pure extraction core (iterable of per-molecule state
   paths → per-state dwell-length samples). Faithful to tMAVEN ``generate_dwells``:
   the **first** and **last** dwell of every molecule are dropped, so only interior
   dwells contribute — the last always, the first unless ``include_first`` (tMAVEN's
@@ -27,12 +27,12 @@ Three pieces, mirroring :mod:`tether.analysis.tdp`:
   was already in that state when the window opened — while its exit is a recorded
   transition, observed only when no interior ``NO_STATE`` gap separates it from the
   next state.
-* :func:`survival_curve` / :func:`fit_survival` — the empirical survival function
+* [`survival_curve`][] / [`fit_survival`][] — the empirical survival function
   (tMAVEN ``survival``) and its non-linear-least-squares exponential fit (tMAVEN
   ``optimize_*_surv``), with covariance-derived standard errors + Student-``t``
   confidence intervals + fit residuals.
-* :func:`population_dwell_times` — the ``.tether`` store entry point that assembles a
-  :class:`DwellTimeAnalysis` per state from a model's fresh, accepted Viterbi paths.
+* [`population_dwell_times`][] — the ``.tether`` store entry point that assembles a
+  [`DwellTimeAnalysis`][] per state from a model's fresh, accepted Viterbi paths.
 
 All headless (no Qt) → runs in the base CI matrix. ``dt`` (seconds per frame),
 ``nbins``, the fit model, and the CI level are analysis/render parameters, **not**
@@ -51,6 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -166,7 +167,7 @@ def state_dwells(
         Iterable of 1-D per-molecule integer state-path arrays.
     no_state
         Sentinel for out-of-window / gap frames. ``None`` uses
-        :data:`tether.idealize.NO_STATE`.
+        [`tether.idealize.NO_STATE`][].
     include_first
         Keep each molecule's first (start not observed) dwell (default drops it).
 
@@ -229,8 +230,8 @@ def survival_curve(dwell_lengths: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
     Dwell lengths are frame counts and must be ``>= 1``; a non-positive value (which
     would make ``np.bincount`` raise or ``raw[0]`` index out of bounds) is rejected
-    with a clear :class:`ValueError` rather than crashing — this is a re-exported
-    public helper, not only reached via :func:`state_dwells`.
+    with a clear [`ValueError`][] rather than crashing — this is a re-exported
+    public helper, not only reached via [`state_dwells`][].
     """
     d = np.asarray(dwell_lengths, dtype=np.int64).ravel()
     if d.size == 0:
@@ -259,7 +260,7 @@ class DwellFit:
     rates. ``rate_stderr`` / ``amplitude_stderr`` are the 1-σ standard errors from the
     fit covariance (tMAVEN's ``error``); ``rate_ci`` / ``amplitude_ci`` are two-sided
     ``ci_level`` half-widths (Student-``t`` on the residual degrees of freedom).
-    ``model_survival`` is the fitted curve sampled at :attr:`tau` and ``residuals`` is
+    ``model_survival`` is the fitted curve sampled at [`tau`][] and ``residuals`` is
     ``survival - model_survival`` (the residual subplot). ``success`` is ``False`` when
     the fit did not converge or the covariance was not estimable — the parameters are
     then ``NaN`` and the plot should fall back to the bare survival curve.
@@ -365,13 +366,13 @@ def fit_survival(
     ``1/second``). Standard errors are ``sqrt(diag(pcov))`` and confidence intervals
     use the two-sided Student-``t`` multiplier on ``n_points - n_params`` degrees of
     freedom. A non-converging fit or an unestimable covariance yields a
-    :class:`DwellFit` with ``success = False`` and ``NaN`` parameters rather than
+    [`DwellFit`][] with ``success = False`` and ``NaN`` parameters rather than
     raising — the analysis view then shows the bare survival curve.
 
     Parameters
     ----------
     tau, survival
-        The empirical survival curve from :func:`survival_curve` (``tau`` optionally
+        The empirical survival curve from [`survival_curve`][] (``tau`` optionally
         scaled to physical time).
     model
         ``"single"``, ``"double"``, ``"triple"``, or ``"stretched"``.
@@ -461,9 +462,9 @@ class DwellTimeAnalysis:
     """A single state's dwell-time distribution, survival curve, and exponential fit.
 
     ``dwell_lengths`` are the state's fully-observed interior dwells **in frames**;
-    :attr:`tau` and the fit work in physical time (``frames · dt``). ``fit`` is
+    [`tau`][] and the fit work in physical time (``frames · dt``). ``fit`` is
     ``None`` only when the state had no dwell at all; otherwise it is a
-    :class:`DwellFit` (possibly ``success = False``).
+    [`DwellFit`][] (possibly ``success = False``).
     """
 
     state: int
@@ -500,35 +501,40 @@ def population_dwell_times(
     *,
     state: int | None = None,
     dt: float = DEFAULT_DWELL_DT,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     include_first: bool = False,
     model: str = "single",
     ci_level: float = DEFAULT_DWELL_CI_LEVEL,
     include_rejected: bool = False,
     include_stale: bool = False,
-) -> dict[int, DwellTimeAnalysis] | DwellTimeAnalysis:
+) -> dict[int, DwellTimeAnalysis]:
     """Dwell-time analyses from a ``.tether`` store (§10 B2; Appendix C B2; PRD §7.7).
 
     Extracts each accepted, **fresh** molecule's dwells from the
-    ``/idealization/{model_name}`` Viterbi state paths (:func:`state_dwells`), builds
-    each state's empirical survival curve (:func:`survival_curve`), and fits it
-    (:func:`fit_survival`). STALE molecules are excluded (PRD §5.1) unless
+    ``/idealization/{model_name}`` Viterbi state paths ([`state_dwells`][]), builds
+    each state's empirical survival curve ([`survival_curve`][]), and fits it
+    ([`fit_survival`][]). STALE molecules are excluded (PRD §5.1) unless
     ``include_stale``; rejected molecules are excluded unless ``include_rejected``
-    (§7.5) — the same fresh + curation contract as :func:`population_transition_density`.
+    (§7.5) — the same fresh + curation contract as
+    [`population_transition_density`][tether.analysis.tdp.population_transition_density].
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths + means.
     state
-        A single state index to analyse; ``None`` returns every state that has dwells.
+        A single state index to analyse: the mapping then holds that one state (an
+        empty analysis — no dwells, ``fit = None`` — if it never dwells). ``None``
+        returns every state that has dwells. The return shape is the mapping either way
+        (ADR-0109), so a caller that reads one state indexes it: ``result[state]``.
     dt
         Seconds per frame (rates come out in ``1/second``); default per-frame.
     molecule_keys
-        Restrict to these ``molecule_key`` values (``None`` = all), intersected with
-        the fresh + curation filters.
+        The selection (``None`` = all): ``molecule_key`` values or a
+        [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection] (ADR-0109), intersected
+        with the fresh + curation filters.
     include_first
         Keep each molecule's first (start not observed) dwell (default drops it).
     model
@@ -540,31 +546,23 @@ def population_dwell_times(
 
     Returns
     -------
-    dict[int, DwellTimeAnalysis] or DwellTimeAnalysis
-        A mapping ``state -> analysis`` (ascending states), or the single
-        :class:`DwellTimeAnalysis` when ``state`` is given (an empty analysis — no
-        dwells, ``fit = None`` — if that state never dwells).
+    dict[int, DwellTimeAnalysis]
+        A mapping ``state -> analysis``: every state that dwells, ascending, or the one
+        key ``state`` when it is given.
 
     Raises
     ------
     KeyError
         No ``/idealization/{model_name}`` in the store.
     """
-    from tether.analysis._store import windowed_states
+    from tether.analysis._store import fresh_selection, windowed_states
     from tether.idealize import NO_STATE
-    from tether.project.idealize import live_molecule_keys, read_idealization
+    from tether.project.idealize import read_idealization
 
     stored = read_idealization(project, model_name)
     means = np.asarray(stored.means, dtype="float64")
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     dwells = state_dwells(states, no_state=NO_STATE, include_first=include_first)
@@ -590,5 +588,5 @@ def population_dwell_times(
         )
 
     if state is not None:
-        return _analysis(int(state))
+        return {int(state): _analysis(int(state))}
     return {st: _analysis(st) for st in sorted(dwells.lengths)}
