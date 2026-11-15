@@ -87,6 +87,7 @@ __all__ = [
     "conflict_copies",
     "create_split_curation",
     "held_lock",
+    "holding",
     "local_identity",
     "lock_path",
     "read_lock",
@@ -1145,6 +1146,37 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
         except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
             return False
         return True
+
+
+@contextmanager
+def holding(project_path: str | Path, held: LockInfo) -> Iterator[LockInfo]:
+    """Run a block while ``held`` is proven to be the current lock (PRD §5.4; #561).
+
+    Takes the same per-path OS lifecycle guard as [`acquire`][], [`steal_lock`][],
+    [`refresh`][] and [`release`][], then checks that the sidecar still carries
+    ``held.nonce``. The block runs inside the guard, so no cooperating steal can land
+    between that check and the write the block makes: a steal waits for the block to
+    end, and a block that starts after a steal is refused. A vanished, corrupt or
+    replacement record raises [`LockedError`][] before the block runs.
+
+    Keep the block short. The guard waits for at most a few seconds, so another
+    process's lifecycle call that waits longer than that fails with
+    ``TimeoutError`` instead of blocking. A single file write fits; a model fit does
+    not, and belongs before the block.
+
+    Yields
+    ------
+    LockInfo
+        The current record, which carries ``held.nonce``.
+    """
+    lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        current, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if current is None or current.nonce != held.nonce:
+            raise LockedError(current, path=lp)
+        yield current
 
 
 @contextmanager

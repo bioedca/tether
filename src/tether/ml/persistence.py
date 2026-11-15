@@ -9,9 +9,12 @@ experiment files), reloaded and retrained video-by-video, *not* trapped inside o
 save primitives — kept Qt-free and **store-free** (pure [`tether.ml`][]): it moves a fitted
 [`QualityRanker`][tether.ml.gbranker.QualityRanker] plus its provenance to and from a portable file
 and
-refits it at the video boundary. Wiring the artifact to a project's ``/models`` reference and its
-own single-writer owner-curator lock (PRD §5.1 ``/models``, §7.10) is the store-integration layer
-and lands in a later PR; nothing here touches a ``.tether``.
+refits it at the video boundary. Nothing here touches a ``.tether`` or takes a lock: the
+store-integration layer — the project's ``/models`` reference to the artifact and the artifact's
+own single-writer owner-curator lock (PRD §5.1 ``/models``, §7.10) — is
+[`tether.project.model_artifact`][] (ADR-0112). A curator who saves through
+[`model_writer`][tether.project.model_artifact.model_writer] cannot silently discard another
+curator's retrain; [`save_model`][] alone is the unguarded primitive under it.
 
 The UC3 loop (PRD §7.5) is::
 
@@ -426,6 +429,11 @@ def save_model(model: PortableRankerModel, path: PathRef) -> None:
     destination directory, then [`os.replace`][] s it into place, so a reader never sees a
     half-written artifact and a crash mid-write leaves the previous model intact. The
     ``.tethermodel`` extension is the convention, but any ``path`` is accepted.
+
+    This takes no lock: a second writer that saves to the same path replaces the file. To save as
+    the condition's owner-curator, use
+    [`tether.project.model_artifact.model_writer`][], which holds the file's lock and refuses to
+    overwrite a version it did not open (ADR-0112).
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
