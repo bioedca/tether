@@ -1,3 +1,7 @@
+---
+description: "For maintainers: build the Tether desktop installers from source and smoke-test them on each operating system."
+---
+
 # Building the installers
 
 **Who this page is for.** Tether maintainers with write access to `bioedca/tether`, who build
