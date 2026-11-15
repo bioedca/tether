@@ -1,3 +1,7 @@
+---
+description: "Write the results of a project to a table, to Deep-LASI-compatible trace files or to a smaller project for a collaborator."
+---
+
 # Export results for a figure or another tool
 
 ## Who this page is for
