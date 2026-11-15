@@ -113,6 +113,25 @@ Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
   and the archetypal 2-state level's rates are checked against that dataset's
   reported inter-tool spread (``schema/kinsoft_reference.json``) — an **advisory**
   gate [Götz2022].
+
+Changed at M17 (#369, ADR-0109):
+
+- Every population function takes its selection through one keyword, ``molecule_keys``,
+  which also accepts a :class:`~tether.analysis.selection.MoleculeSelection` — the
+  protocol a frozen analysis-set version implements (#934). The six that read
+  ``/idealization`` take ``include_stale``; the nine that read none do not.
+- :func:`~tether.analysis.dwell.population_dwell_times` always returns the mapping, and
+  :func:`~tether.analysis.cloud.population_fret_cloud_alpha_shape` always an
+  :class:`~tether.analysis.cloud.AlphaShape` (:meth:`~tether.analysis.cloud.AlphaShape.no_region`
+  when the cloud has no 2-D region).
+
+Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
+
+- :func:`~tether.analysis.rate_bounds.dirichlet_rate_bounds` /
+  :func:`~tether.analysis.rate_bounds.model_rate_bounds` — the rate constants of an
+  HMM's un-normalized transition count matrix with their Dirichlet lower and upper
+  bounds, the method of the Source Data of [CamposChavez2024], from an array or from a
+  stored idealization model (the result carries its provenance stamp).
 """
 
 from __future__ import annotations
@@ -218,6 +237,12 @@ from tether.analysis.query import (
     MoleculeMatch,
     query_molecules,
 )
+from tether.analysis.rate_bounds import (
+    RateBounds,
+    dirichlet_rate_bounds,
+    model_rate_bounds,
+)
+from tether.analysis.selection import MoleculeSelection, Selection, resolve_selection
 from tether.analysis.state_number import (
     DEFAULT_STATE_NUMBER_LOW,
     StateNumberCounts,
@@ -298,12 +323,15 @@ __all__ = [
     "HistogramBootstrapCI",
     "KinsoftKineticsResult",
     "KinsoftReference",
+    "MoleculeSelection",
     "ModelGaussianOverlay",
     "MoleculeAnticorrelation",
     "MoleculeMatch",
     "PerConditionHistograms",
     "PopulationAnticorrelation",
+    "RateBounds",
     "RawFretCloud",
+    "Selection",
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
@@ -315,6 +343,7 @@ __all__ = [
     "apparent_e_histogram",
     "bootstrap_histogram_ci",
     "cross_correlation",
+    "dirichlet_rate_bounds",
     "empirical_transition_probability",
     "evaluate_kinsoft_level",
     "find_anticorrelation_events",
@@ -323,6 +352,7 @@ __all__ = [
     "k_rmse_elbow",
     "load_kinsoft_reference",
     "model_gaussian_overlay",
+    "model_rate_bounds",
     "occupied_state_count",
     "per_condition_apparent_e_histograms",
     "pooled_exit_rates",
@@ -342,6 +372,7 @@ __all__ = [
     "population_transition_sync_histogram2d",
     "query_molecules",
     "raw_fret_cloud",
+    "resolve_selection",
     "state_dwells",
     "state_number_counts",
     "survival_curve",
