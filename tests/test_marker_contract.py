@@ -683,17 +683,20 @@ def _assert_a_match_sets_run_true(lines: list[str]) -> None:
     assert lines[start] == _RELEVANCE_TEST, (
         f"the relevance test must read `{_RELEVANCE_TEST}`, not {lines[start]!r}"
     )
-    branch = []
+    branch, depth = [], 0  # a nested `if ... fi` stays inside the match branch (#974)
     for line in lines[start + 1 :]:
-        if line in ("else", "fi") or line.startswith("elif "):
+        if depth == 0 and (line in ("else", "fi") or line.startswith("elif ")):
             break
+        if line.startswith("if ") and not re.search(r";\s*fi$", line):
+            depth += 1
+        elif line == "fi":
+            depth -= 1
         branch.append(line)
     else:
         raise AssertionError("the relevance test must close its match branch")
     assert branch[:1] == ["run=true"], f"a match must set `run=true` first: {branch}"
-    assert not any(re.match(r"run=(?!true$)", line) for line in branch), (
-        f"the match branch must not set `run` to anything but `true`: {branch}"
-    )
+    resets = [line for line in branch if re.search(r"(?:^|[\s;])run=(?!true(?:$|[\s;]))", line)]
+    assert not resets, f"the match branch must not set `run` to anything but `true`: {resets}"
 
 
 def test_the_relevance_reader_rejects_a_gate_turned_around() -> None:
@@ -710,8 +713,16 @@ def test_the_relevance_reader_rejects_a_gate_turned_around() -> None:
     ):
         with pytest.raises(AssertionError):
             _assert_a_match_sets_run_true(gate(test, branch))
-    with pytest.raises(AssertionError):  # a later `run=false` in the same branch undoes it
-        _assert_a_match_sets_run_true(gate(_RELEVANCE_TEST, "run=true\n  run=false"))
+    for branch in (
+        "run=true\n  run=false",  # a later reset in the same branch undoes it
+        # past a nested `fi`, and then in a one-line nested `if`
+        'run=true\n  if [ -n "$changed" ]; then\n    echo log\n  fi\n  run=false',
+        'run=true\n  if [ -n "$changed" ]; then run=false; fi',
+    ):
+        with pytest.raises(AssertionError):
+            _assert_a_match_sets_run_true(gate(_RELEVANCE_TEST, branch))
+    nested = 'run=true\n  if [ -n "$changed" ]; then\n    echo log\n  fi'
+    _assert_a_match_sets_run_true(gate(_RELEVANCE_TEST, nested))
 
 
 def _local_imports(tree: ast.AST) -> set[str]:
@@ -908,8 +919,9 @@ def _stops_on_first_failure(shell: object) -> bool:
     """Whether a step ``shell:`` stops at the first failed command, as ``bash -e {0}`` does.
 
     GitHub runs the bare ``bash`` as ``bash --noprofile --norc -eo pipefail {0}``; a custom
-    ``bash ... {0}`` stops only when one of its short-option groups carries ``e`` and none
-    turns it off again with ``+e``.
+    ``bash ... {0}`` stops only when it sets ``-e`` (or ``-o errexit``). Only options that
+    still execute the script are accepted: ``-n`` reads it without running it, so
+    ``bash -en {0}`` passes without a check (#974), and ``+e`` turns ``-e`` off again.
     """
     if not isinstance(shell, str):
         return False
@@ -918,17 +930,29 @@ def _stops_on_first_failure(shell: object) -> bool:
         return True
     if len(words) < 2 or words[0] != "bash" or words[-1] != "{0}":
         return False
-    options = words[1:-1]
-    if any(word.startswith("+") and "e" in word for word in options):
-        return False
-    return any(re.fullmatch(r"-[a-z]*e[a-z]*", word) for word in options)
+    options, errexit = iter(words[1:-1]), False
+    for word in options:
+        if word in ("--noprofile", "--norc", "--login"):
+            continue
+        group = re.fullmatch(r"-([elux]*)(o?)", word)
+        if not group or not any(group.groups()):
+            return False
+        errexit |= "e" in group[1]
+        if group[2]:
+            name = next(options, None)
+            if name not in ("errexit", "pipefail", "nounset", "xtrace"):
+                return False
+            errexit |= name == "errexit"
+    return errexit
 
 
 def test_the_shell_reader_knows_which_shells_stop_on_a_failure() -> None:
     stopping = ("bash", "bash -e {0}", "bash -el {0}", "bash --noprofile --norc -eo pipefail {0}")
     for shell in stopping:
         assert _stops_on_first_failure(shell), shell
-    for shell in (None, "bash {0}", "bash -l {0}", "bash -e +e {0}", "sh -e {0}", "pwsh"):
+    assert _stops_on_first_failure("bash -o errexit {0}")
+    rejected = (None, "bash {0}", "bash -l {0}", "bash -e +e {0}", "bash -en {0}", "bash -e -n {0}")
+    for shell in (*rejected, "bash -eo {0}", "sh -e {0}", "pwsh"):
         assert not _stops_on_first_failure(shell), shell
     assert not _stops_on_first_failure("bash -e")  # no `{0}`: not a shell GitHub accepts
 
