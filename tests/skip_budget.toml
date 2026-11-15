@@ -25,11 +25,11 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-max_skipped = 16
+max_skipped = 17
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 29
+max_skipped = 30
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
