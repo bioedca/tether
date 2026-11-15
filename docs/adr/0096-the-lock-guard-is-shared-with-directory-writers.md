@@ -66,12 +66,16 @@ Chosen option: **2**.
   descriptor is a regular file with one link that the guard path itself names. A directory writer
   can plant a symlink or a hard link at the guard path; a symlink now fails the operation closed,
   and neither can make Tether widen access to an unrelated file the caller owns.
+- On POSIX both opens are non-blocking, and a guard that is not a regular file fails the operation
+  closed (`OSError`, `EINVAL`). A FIFO planted at the guard path would otherwise block the
+  read-only open indefinitely, while the process-wide guard registry lock is held.
 - A user who is **not** the owner and cannot open the guard `O_RDWR` opens it read-only.
   `flock()` takes an exclusive lock whatever the descriptor's access mode, so that user still
   serializes with every other process and can run the explicit steal.
 - Some network filesystems emulate `flock()` with byte-range locks, which need a writable
   descriptor. There the read-only lock fails with `EBADF`, and Tether raises a `PermissionError`
-  that names the guard and the remedy (its owner makes it group-writable), instead of an
+  that names the guard and the remedy (its owner gives it the directory's group and makes it
+  group-writable, or runs Tether on the project once, which does both), instead of an
   unexplained `OSError`.
 - Windows is unchanged: it has no POSIX mode bits, and its guard is a byte-range lock that needs a
   writable descriptor.
@@ -84,13 +88,14 @@ Chosen option: **2**.
   run as root) two real users with different primary groups end to end.
 - Good: the guard never grants a class write access that the directory does not already grant.
 - Good: sharing the guard cannot change the mode or group of any file but the guard itself.
-- Neutral: a guard path that is a symlink — which no release of Tether creates — now fails every
-  lifecycle operation with `OSError` (`ELOOP`) until it is removed.
+- Neutral: a guard path that is a symlink or another non-regular file — which no release of
+  Tether creates — now fails every lifecycle operation with `OSError` (`ELOOP` or `EINVAL`) until
+  it is removed.
 - Neutral: in a world-writable directory (for example a sticky `/tmp`) the guard becomes `0666`.
   That grants nothing new — any user who can read the guard can already `flock()` it.
 - Bad: a guard owned by a user who never runs Tether again stays `0644`. On a local filesystem the
   read-only fallback covers it; on an NFS-like filesystem its owner (or an administrator) must
-  `chmod g+rw` it once, which the error message says.
+  give it the directory's group and `chmod g+rw` it once, which the error message says.
 
 ## More information
 

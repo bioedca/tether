@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -495,10 +496,56 @@ def test_read_only_guard_on_a_filesystem_that_needs_write_names_the_remedy(
 
     monkeypatch.setattr(lock.os, "open", foreign_guard_open)
     monkeypatch.setattr(fcntl, "flock", nfs_flock)
-    with pytest.raises(PermissionError, match="chmod g\\+rw"):
+    with pytest.raises(PermissionError, match="chgrp <group> and chmod g\\+rw") as caught:
         lock.steal_lock(path, identity=HOST_B)
 
+    assert "run Tether on the project once" in str(caught.value)
     assert read_only_fds
+    assert lock.read_lock(path) == first
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFO semantics")
+@pytest.mark.parametrize("writable", [True, False], ids=["read-write", "read-only-fallback"])
+def test_a_fifo_at_the_guard_path_fails_closed_without_blocking(
+    tmp_path: Path, monkeypatch, writable: bool
+) -> None:
+    """A FIFO planted at the guard path must not hang the open (#257 review)."""
+    import errno
+
+    path = _seed(tmp_path, [("k0", "c0")])
+    first = lock.acquire(path, identity=HOST_A)
+    guard = lock._guard_path(lock.lock_path(path))
+    guard.unlink()
+    os.mkfifo(guard, 0o666 if writable else 0o444)
+    real_open = os.open
+
+    def foreign_guard_open(target, flags, *args, **kwargs):
+        if not writable and Path(target) == guard and flags & os.O_ACCMODE != os.O_RDONLY:
+            raise PermissionError(13, "Permission denied", str(target))
+        return real_open(target, flags, *args, **kwargs)
+
+    monkeypatch.setattr(lock.os, "open", foreign_guard_open)
+    outcome: list[BaseException] = []
+
+    def steal() -> None:
+        try:
+            lock.steal_lock(path, identity=HOST_B)
+        except BaseException as exc:  # noqa: BLE001 - recorded for the assertion
+            outcome.append(exc)
+
+    worker = threading.Thread(target=steal, daemon=True)
+    worker.start()
+    worker.join(timeout=10)
+    if worker.is_alive():
+        # Unblock the stuck open so the daemon thread can finish.
+        with suppress(OSError):
+            os.close(real_open(guard, os.O_WRONLY | os.O_NONBLOCK))
+        pytest.fail("opening a FIFO guard blocked")
+
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], OSError)
+    assert outcome[0].errno == errno.EINVAL
+    assert stat.S_ISFIFO(os.lstat(guard).st_mode)
     assert lock.read_lock(path) == first
 
 

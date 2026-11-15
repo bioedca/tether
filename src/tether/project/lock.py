@@ -507,20 +507,36 @@ def _open_guard(gp: Path) -> tuple[int, bool]:
     or a strict site umask) is opened read-only instead of failing: ``flock()``
     takes an exclusive lock regardless of the descriptor's access mode, so a
     second user can still serialize with the owner and run an explicit steal.
+
+    On POSIX both opens are non-blocking and the result must be a regular file. A
+    FIFO a directory writer planted at the guard path would otherwise block a
+    read-only open indefinitely while the process-wide guard registry lock is
+    held; any non-regular guard fails the operation closed instead.
     """
     no_follow = getattr(os, "O_NOFOLLOW", 0)
+    posix_flags = 0 if os.name == "nt" else no_follow | getattr(os, "O_NONBLOCK", 0)
+    read_only = False
     try:
-        fd = os.open(gp, os.O_CREAT | os.O_RDWR | no_follow, 0o666)
+        fd = os.open(gp, os.O_CREAT | os.O_RDWR | posix_flags, 0o666)
     except PermissionError as exc:
         if os.name == "nt":
             raise
         try:
-            return os.open(gp, os.O_RDONLY | no_follow), True
+            fd = os.open(gp, os.O_RDONLY | posix_flags)
         except OSError:
             raise exc from None
-    if os.name != "nt":
+        read_only = True
+    if os.name == "nt":
+        return fd, False
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "lock lifecycle guard is not a regular file", str(gp))
+    except BaseException:
+        os.close(fd)
+        raise
+    if not read_only:
         _share_guard_with_directory_writers(fd, gp)
-    return fd, False
+    return fd, read_only
 
 
 _register_at_fork = getattr(os, "register_at_fork", None)
@@ -589,8 +605,10 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
                         raise PermissionError(
                             errno.EACCES,
                             "lock lifecycle guard is not writable by this user and this "
-                            "filesystem cannot lock it read-only; ask its owner to make "
-                            "it group-writable (chmod g+rw)",
+                            "filesystem cannot lock it read-only; ask its owner to give "
+                            "it the project directory's group and make it group-writable "
+                            "(chgrp <group> and chmod g+rw), or to run Tether on the "
+                            "project once, which does both",
                             str(gp),
                         ) from exc
                     if exc.errno not in {errno.EACCES, errno.EAGAIN}:
