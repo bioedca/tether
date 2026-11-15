@@ -282,3 +282,39 @@ def test_closing_the_project_clears_the_lock_actions(shell, tmp_path) -> None:
         assert lock.read_lock(project.path) == held
     finally:
         lock.release(project.path, held)
+
+
+def test_failed_reopen_keeps_retrying_the_release_of_the_taken_lock(
+    shell, tmp_path, monkeypatch
+) -> None:
+    from tether.project import lock
+    from tether.project.lock import LockIdentity, local_identity
+
+    project = _store(tmp_path)
+    me = local_identity()
+    lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=_dead_pid()))
+    assert shell.load_project(project.path) is not None
+    assert not shell.recover_button.isHidden()
+
+    real_release = lock.release
+    failures = {"left": 1}
+
+    def flaky_release(path, info):
+        if failures["left"]:
+            failures["left"] -= 1
+            raise OSError("share went away")
+        return real_release(path, info)
+
+    monkeypatch.setattr(lock, "release", flaky_release)
+    monkeypatch.setattr(shell, "load_project", lambda *_a, **_k: None)
+
+    assert shell.recover_project_lock() is None
+    assert "Recover failed" in shell.status_message
+    taken = lock.read_lock(project.path)
+    assert taken is not None and taken.identity == me
+    assert shell.lock_release_pending  # the timer owns the taken lock now
+
+    shell._retry_session_release()  # one timer tick
+
+    assert lock.read_lock(project.path) is None
+    assert not shell.lock_release_pending

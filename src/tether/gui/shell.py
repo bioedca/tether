@@ -445,6 +445,10 @@ class TetherShell:
         self._lock_recovery: Any | None = None
         # The open's refusal text, kept so a timed re-check can rebuild the banner.
         self._lock_refusal: str | None = None
+        # A lock a recovery took whose reopen then failed and whose release has not
+        # yet succeeded: ``(project path, taken LockInfo)``. The release-retry timer
+        # keeps trying its exact nonce, as it does for a rollback session.
+        self._recovered_lock: tuple[Path, Any] | None = None
         # The one-click-idealize seam: a molecule_key -> idealized-path callable.
         # None (the synthetic/no-project default) makes ``I`` report that a project
         # must be loaded; make_store_idealizer(project) wires the real pipeline.
@@ -1338,9 +1342,11 @@ class TetherShell:
         # Re-run the open path so every write seam binds to the new session.
         opened = self.load_project(path)
         if self._session_project is None:
-            # The reopen did not take a session; give back the lock just taken.
-            with suppress(OSError):
-                lock.release(path, taken)
+            # The reopen did not take a session; give back the lock just taken. A
+            # failed release keeps the record, and the release-retry timer owns it.
+            self._recovered_lock = (path, taken)
+            if not self._release_recovered_lock_once():
+                self._lock_release_timer.start()
             self._status(f"{label} failed: {self._curation_read_only_reason or 'reopen failed'}")
             return None
         holder = (
@@ -1498,8 +1504,26 @@ class TetherShell:
             return
         self._lock_release_timer.stop()
 
+    def _release_recovered_lock_once(self) -> bool:
+        """Release a lock a failed recovery reopen left held; ``False`` to retry."""
+        from tether.project import lock
+
+        with self._session_release_lock:
+            recovered = self._recovered_lock
+            if recovered is None:
+                return True
+            try:
+                # Nonce-checked: a no-op once a later open re-took the lock.
+                lock.release(*recovered)
+            except OSError:
+                return False
+            self._recovered_lock = None
+            return True
+
     def _release_rollback_session_once(self) -> bool:
         """Release a failed project-switch rollback without dropping its lifecycle."""
+        if not self._release_recovered_lock_once():
+            return False
         with self._session_release_lock:
             project = self._rollback_session_project
             if project is not None:
