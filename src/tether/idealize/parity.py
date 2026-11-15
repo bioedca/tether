@@ -209,8 +209,10 @@ def _row_normalized(model: StateModel) -> np.ndarray | None:
     if model.tmatrix is None:
         return None
     t = np.asarray(model.tmatrix, dtype="float64")
+    if t.ndim != 2:  # before the row sum, which a 0-D or 1-D array cannot take
+        return None
     sums = t.sum(axis=1, keepdims=True)
-    if t.ndim != 2 or not np.all(np.isfinite(sums)) or np.any(sums <= 0):
+    if not np.all(np.isfinite(sums)) or np.any(sums <= 0):
         return None
     return t / sums
 

@@ -697,6 +697,11 @@ def test_transition_matrix_delta_is_inf_when_incomparable():
     assert transition_matrix_abs_delta(two, wrong_shape) == float("inf")
     broken = _tm_model([0.1, 0.9], [[NAN, 0.05], [0.10, 0.90]])
     assert transition_matrix_abs_delta(two, broken) == float("inf")
+    # A raw (not row-normalized) matrix that is not 2-D is malformed: inf, not an exception.
+    for raw in (np.array([0.95, 0.05]), np.array(0.9)):
+        flat = _model([0.1, 0.9])
+        flat.tmatrix = raw
+        assert transition_matrix_abs_delta(two, flat) == float("inf")
 
 
 def test_compare_models_carries_the_transition_matrix_term():
