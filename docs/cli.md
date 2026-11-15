@@ -15,11 +15,11 @@ traces by hand, pick states by eye and read plots, but only `tether extract` and
 `tether batch` make a `.tether` project from a raw movie. So, for a fresh acquisition, run
 one of them first, then open its output in the application; this page tells you how to
 start the application too. The extraction section of the application, which takes a movie
-to a `.tether` project with no terminal, is the milestone
-[M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17).
+to a `.tether` project with no terminal, is planned work: see
+[its milestone on GitHub](https://github.com/bioedca/tether/milestone/17).
 
 Everything below was transcribed from the live argparse parser in `src/tether/cli.py` —
-the same parser `--help` prints from — and a guard test (`tests/test_cli_reference.py`)
+the same parser `--help` prints from — and a guard test ([`tests/test_cli_reference.py`](https://github.com/bioedca/tether/blob/main/tests/test_cli_reference.py))
 fails if that parser gains, loses or renames an option without a matching edit here. Where
 a default is quoted, it is the string argparse prints, not a value read out of the source.
 

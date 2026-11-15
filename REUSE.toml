@@ -106,12 +106,12 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 Ting-Wei Liao, Ha Single-Molecule Lab (Zenodo 10.5281/zenodo.8088172)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
-# Group IIB intron smFRET data (#711, ADR-0087): an extract of one MASH-FRET project file of
+# Group IIB intron smFRET data (#711 ADR-0087, #712 ADR-0101): two extracts of one MASH-FRET project file of
 # Zelger-Paulus, Hadzic, Lindner, Börner, Steffen, Fazliji, Johannsen & Sigel, Zenodo
 # doi:10.5281/zenodo.24104528, CC-BY-4.0 (scripts/make_mashfret_fixture.py says what it keeps).
 # See NOTICE and tests/fixtures/PROVENANCE.md.
 [[annotations]]
-path = "tests/fixtures/mashfret_ed135e_30mm_extract.mat"
+path = ["tests/fixtures/mashfret_ed135e_30mm_extract.mat", "tests/fixtures/mashfret_ed135e_30mm_path_a.mat"]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Susann Zelger-Paulus, Mélodie C.A.S. Hadzic, Lennart Lindner, Richard Börner, Fabio Steffen, Besim Fazliji, Silke Johannsen and Roland Sigel"
 SPDX-License-Identifier = "CC-BY-4.0"
