@@ -1,3 +1,7 @@
+---
+description: "For maintainers: how a version tag builds and publishes the Tether installers and this site, and how Zenodo archives each release."
+---
+
 # Releasing Tether (tag-driven pipeline)
 
 **Who this page is for.** Tether maintainers with write access to `bioedca/tether`; users do
@@ -341,7 +345,7 @@ DOI, and they go in different places:
 
 | DOI | Resolves to | Where it is written |
 |---|---|---|
-| **Concept DOI** `10.5281/zenodo.23306397` | the newest archived version, whichever that is | `CITATION.cff` `doi:`, `codemeta.json` `identifier`, the `DOI` entry of `pyproject.toml` `[project.urls]`, `README.md`, [Citing Tether](citing.md). It never changes. |
+| **Concept DOI** `10.5281/zenodo.23306397` | the newest archived version, whichever that is | `CITATION.cff` `doi:`, `codemeta.json` `identifier`, the `DOI` entry of `pyproject.toml` `[project.urls]`, `README.md`, [Citing Tether](citing.md), the [home page](index.md#cite-tether), and the head of each docs page (copied from `CITATION.cff` at build time). It never changes. |
 | **Version DOI** | one release | only its own Zenodo record (linked from the concept record). Never hand-copied into the repository. |
 
 The ordering below is load-bearing and cannot be repaired by editing files afterwards. Follow
@@ -414,6 +418,10 @@ The site is built **from the release tag**, not from whatever `main` happens to 
 dispatch passes `--ref "$TAG"`; without it `gh workflow run` targets the default branch,
 and a tag cut a few commits back — or `main` advancing during the ~15-minute build matrix
 — would publish unreleased docs under the released version.
+
+The source links follow the tag too: `docs.yml` sets `TETHER_DOCS_SOURCE_TAG` to the tag it
+builds from, and the build hook in `scripts/mkdocs_hooks.py` points each `blob/main` and
+`tree/main` link at it, while a run from `main`, such as `dev`, keeps them on `main`.
 
 Each version's canonical URLs are handled by `mike`, not by `mkdocs.yml`. `mike deploy`
 injects its own plugin and rewrites `site_url` to `<site_url>/<version>` at build time, so

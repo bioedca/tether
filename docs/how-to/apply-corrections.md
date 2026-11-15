@@ -1,3 +1,7 @@
+---
+description: "Estimate the leakage factor alpha and the gamma factor from your traces and record them on every molecule of a project."
+---
+
 # Correct a dataset for leakage (α) and gamma (γ)
 
 ## Who this page is for
