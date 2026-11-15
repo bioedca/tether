@@ -500,6 +500,25 @@ generation is additive store data (§5, §9.1), with its ADR in
 [#923](https://github.com/bioedca/tether/issues/923). The steps of the Prepare section around extraction (import,
 channel geometry, the map) are FR-WORKFLOW-8 to FR-WORKFLOW-10 (§7.13).
 
+**FR-EXTRACT-UI — Extraction from the application (G6).** Tether **shall** take a fresh acquisition from its raw
+movie to a `.tether` project from the application alone. The acceptance criterion is literally *a fresh acquisition
+goes movie → `.tether` with no terminal*, and it discharges goal G6 (§2.1: non-technical lab members never touch a
+terminal). The requirement does not change the extraction science above; it puts every step of it in the
+application:
+
+- the steps of the Prepare section, import, mapping and extraction, are FR-WORKFLOW-8 to FR-WORKFLOW-10 (§7.13);
+- the extraction **appends** into the project that the application has open, under that project's single-writer
+  lock (§7.10);
+- the over-gate registration branch above is the blocking GUI dialog, not a log line;
+- the extraction runs as a background job with progress and cancel (FR-WORKFLOW-5);
+- every extraction option that the command line takes is reachable from the application, and a saved extraction
+  profile carries them, so the two routes keep the parity of §7.11.
+
+The milestone *M15 - Trace extraction section* carries this requirement, and its description embeds the §9.3 bar as
+its checklist. Until that milestone closes, `tether extract` and `tether batch` (§7.11) are the only routes from a
+new movie to a `.tether`; the application opens, curates and analyzes the result, and imports a Deep-LASI
+acquisition (§7.8), but it does not extract. §9.6 carries the criterion.
+
 ### 7.2 FR-CORRECT — Corrections & FRET computation
 
 Tether **shall** compute corrected FRET following the order **background → leakage α → direct-excitation δ (= 0)
@@ -1249,6 +1268,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Project store & schema** (§5) | A `.tether` skeleton is created and re-opened with its version stamp; the frozen schema includes the `molecule_key` (on `/molecules` and `/labels`), the label-provenance, condition-key, and metadata-only movie-signature fields. | M0 |
 | **Movie I/O & viewer** (Appendix A) | A big-endian 512×512×1700 TIFF opens and displays in napari; the filename parser round-trips a known condition string. | M0 |
 | **Native extraction** (FR-EXTRACT, Appendix E) | Extraction vs Deep-LASI on the UCKOPSB pair meets the §9.2 extraction tolerance **(reframed — ADR-0022)**; the `TIRFdata` decode recovers coordinates + α/β/γ (Appendix B); native registration RMS residual ≤ 0.5 px vs the `.tmap`; the CLI produces a valid `.tether` headlessly. (M0.5's ≥ 95% recall leg was homed at M1 by [ADR-0011](adr/0011-home-extraction-recall-at-m1.md) and is the recall term of the reframed gate.) | M0.5(b), M1 |
+| **Extraction from the application** (FR-EXTRACT-UI, G6) | A fresh acquisition goes movie → `.tether` with no terminal (G6, §7.1). The evidence is a recorded run in which an operator with no terminal open makes a valid `.tether` from a raw movie and then appends a second movie to it, plus committed `pytest-qt` coverage of the extraction section, green headless on the required matrix (*not yet met*, §9.6). | M15 |
 | **Idealization & sidecar** (FR-IDEALIZE) | A headless vbFRET idealization reproduces tMAVEN's states on a known SMD within the frozen §11.2 idealization-parity tolerance (state count / means / Viterbi path / ELBO), and that §11.2 row is frozen with the measured numbers before any later parity sign-off (§9.2; the default row was measured on an older tMAVEN build than the pinned one, and its re-freeze is *not yet met*, §9.6); one-click vbFRET matches standalone tMAVEN within that tolerance (*not yet met* per trace: the frozen row was measured on consensus `vbconhmm` and no test fits per-trace vbFRET, §9.6); consensus VB-HMM and ebFRET reproduce standalone tMAVEN on the ≥ 50-molecule SMD within it (state levels + transition matrix + ELBO; the transition-matrix term has no metric yet, *not yet met*, §9.6); the exported SMD opens in tMAVEN's own loader. The **standalone-tMAVEN GUI** leg — the exported SMD opens in the standalone GUI with coordinate metadata intact, and the guided setup runs clean on ≥ 2 OSes (Windows + macOS/Linux) — was **(leg deferred — [ADR-0010](adr/0010-defer-cross-os-gui-handoff.md))** to M9 acceptance and is met: it passed on Windows 11 and Ubuntu on WSL2 on the locked sidecar environment ([cross-OS record](maintainers/standalone-tmaven-cross-os-record.md), #543). | M0.5(a), M2, M6 |
 | **Round-trip browser & curation** (FR-ROUNDTRIP) | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies (*not yet met*, §9.6); every accept/reject writes a `/labels` row; headless: the MVP histogram reproduces from the API. | M2 |
 | **Multi-movie project** (§5) | One `.tether` holds many movies, as the M2 multi-movie round-trip browser assumes: a second movie appends into an existing project under its writer lock (*not yet met*, §9.6). | M2 |
@@ -1361,6 +1381,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | Free tags on molecules and conditions, in the application | §7.6 | [#634](https://github.com/bioedca/tether/issues/634) |
 | Idealization of the project from the application, with a manual state-count override (the application fits only the selected molecule, with no state-count choice) | §7.4, §3.2 | [#625](https://github.com/bioedca/tether/issues/625) |
 | A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#660](https://github.com/bioedca/tether/issues/660) |
+| A fresh acquisition goes movie → `.tether` with no terminal: extraction from the application (FR-EXTRACT-UI). Today only `tether extract` and `tether batch` make a `.tether` from a new movie | M15; §7.1, G6 | the issues of milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17); the extraction section itself is [#350](https://github.com/bioedca/tether/issues/350) |
 | The overnight batch of many movies without a terminal: a multi-movie queue in the application. The M3 *Batch runner* bar was met by the library and the `tether batch` command | M3; UC7, G6 | [#645](https://github.com/bioedca/tether/issues/645) |
 | Per-trace vbFRET parity against the frozen tolerance (the row was measured on consensus `vbconhmm`; no test fits per-trace vbFRET) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The transition-matrix term of consensus VB-HMM / ebFRET parity on the ≥ 50-molecule SMD (the parity metrics have no transition-matrix term) | M6 | [#545](https://github.com/bioedca/tether/issues/545) |
