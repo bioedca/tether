@@ -37,6 +37,7 @@ Coordinates follow the rest of :mod:`tether.imaging`: ``(N, 2)`` arrays of
 from __future__ import annotations
 
 import hashlib
+import operator
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -238,7 +239,8 @@ def _frame_range(frames: tuple[int, int] | None, n_frames: int) -> tuple[int, in
     if frames is None:
         return 0, n_frames
     try:
-        start, stop = (int(v) for v in frames)
+        # operator.index, not int(): a fractional bound is refused, never truncated.
+        start, stop = (operator.index(v) for v in frames)
     except (TypeError, ValueError) as exc:
         raise BeadMapError(
             f"frames must be a (start, stop) pair of integers, got {frames!r}"
@@ -523,6 +525,7 @@ def bead_map_from_file(
     path = Path(path)
     if not path.is_file():
         raise BeadMapError(f"bead file not found: {path}")
+    before = path.stat()
     source_id = f"sha256:{_sha256_file(path)}"
     try:
         tif = tifffile.TiffFile(path)
@@ -551,5 +554,14 @@ def bead_map_from_file(
             raise BeadMapError(f"{path.name} has one page; frames and projection apply to a video")
         kwargs.setdefault("bead_file", path.name)
         if data.ndim == 2:
-            return bead_map(data, source_id=source_id, **kwargs)
-        return bead_map(data, source_id=source_id, frames=frames, projection=projection, **kwargs)
+            result = bead_map(data, source_id=source_id, **kwargs)
+        else:
+            result = bead_map(
+                data, source_id=source_id, frames=frames, projection=projection, **kwargs
+            )
+    # The memory map is read lazily, so check after the projection: a file replaced
+    # since it was hashed would make the source id name bytes that were not used.
+    after = path.stat()
+    if (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+        raise BeadMapError(f"{path.name} changed while it was read; run it again")
+    return result

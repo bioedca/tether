@@ -303,6 +303,31 @@ def test_projection_in_blocks_equals_the_whole_stack_reduction(tmp_path: Path) -
     assert np.array_equal(project_frames(mapped, frames=(5, 71)), selected.max(axis=0))
 
 
+def test_from_file_refuses_a_file_changed_while_read(
+    bead_image: np.ndarray, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The source id is the hash of the bytes; a file changed between the hash and
+    the read is refused rather than stamped with an id of other content."""
+    import os
+
+    import tether.imaging.beadmap as beadmap
+
+    path = tmp_path / "beads.tif"
+    tifffile.imwrite(path, np.stack([bead_image] * 2), photometric="minisblack")
+    real_map = beadmap.bead_map
+
+    def touch_then_map(*args, **kwargs):
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+        return real_map(*args, **kwargs)
+
+    monkeypatch.setattr(beadmap, "bead_map", touch_then_map)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OverGateRegistrationWarning)
+        with pytest.raises(BeadMapError, match="changed while it was read"):
+            bead_map_from_file(path)
+
+
 def test_from_file_refuses_an_rgb_image(tmp_path: Path) -> None:
     rgb = tmp_path / "rgb.tif"
     tifffile.imwrite(rgb, np.zeros((32, 64, 3), dtype=np.uint8), photometric="rgb")
@@ -395,6 +420,8 @@ def test_over_gate_map_warns_and_is_kept(bead_image: np.ndarray) -> None:
         ({"frames": (2, 2)}, "not inside"),
         ({"frames": (-1, 2)}, "not inside"),
         ({"frames": "ab"}, "pair of integers"),
+        ({"frames": (-0.5, 2.9)}, "pair of integers"),
+        ({"frames": (0.0, 2.0)}, "pair of integers"),
         ({"projection": "median"}, "projection must be one of"),
         ({"donor_side": "top"}, "donor_side"),
         ({"prealign": "affine"}, "prealign"),
