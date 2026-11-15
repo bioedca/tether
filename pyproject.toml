@@ -134,6 +134,7 @@ convention = "numpy"
 "src/tether/gui/movie_panel.py" = ["D105"]
 "src/tether/gui/overlap_dock.py" = ["D105", "D401"]
 "src/tether/gui/reconcile.py" = ["D205", "D209", "D401"]
+"src/tether/gui/sections.py" = ["D105", "D401"]
 "src/tether/gui/roundtrip.py" = ["D102", "D105", "D401"]
 "src/tether/gui/shell.py" = ["D102", "D105", "D401"]
 "src/tether/gui/start_page.py" = ["D401"]
