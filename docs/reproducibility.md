@@ -1,3 +1,7 @@
+---
+description: "What a project and its exports record about how they were made, how to read that record back, and how to write a Methods paragraph."
+---
+
 # Reproducibility and reporting
 
 **Who this page is for.** Anyone who has to write the Methods paragraph for an analysis done
