@@ -118,10 +118,26 @@ both — Appendices B and E), HDF5 for self-describing files, and the SMD format
 - **N1 — No ALEX/PIE, no stoichiometry, no three-color.** Two-color, single-laser only. Consequently the direct-
   excitation correction δ is structurally inert (= 0): its estimator requires the acceptor-under-acceptor-excitation
   channel that only ALEX provides [Lee2005][Hohlbein2014] (Appendix B).
-- **N2 — No data simulator in v1.** Validation uses real labeled traces and the kinSoftChallenge benchmark
-  [Götz2022]; a simulator is deferred.
-- **N3 — Bounded plot parity.** The native analysis surface reproduces exactly the seven tMAVEN plot types
-  (Appendix C); any other tMAVEN plot is reachable via the standalone hand-off, not reimplemented.
+- **N2 — No data simulator in v1.** Tether ships no simulator of smFRET data; a simulator is deferred. Validation
+  against real data uses real labeled traces and the kinSoftChallenge benchmark [Götz2022]. N2 does not stop a test
+  from synthesizing an input with a known truth to check an implementation. Such a fixture shows that the code
+  recovers the truth it was given. It does not show that the method holds on real data, and it never stands in for
+  a missing real reference (§9.4). Where an oracle rests on synthesized fixtures, §9.5 says so, and the real-data leg
+  is either accepted by an ADR or carried in §9.6.
+- **N3 — Bounded plot parity.** The tMAVEN **parity** commitment is the seven tMAVEN plot types of Appendix C and
+  only those; any other tMAVEN plot is reachable via the standalone hand-off, not reimplemented. The **native
+  catalogue** is not capped at seven: it is every result type that `tether.analysis` computes (Appendix C), and a
+  result type with no tMAVEN counterpart has no parity claim. What N3 still forbids is chasing tMAVEN's full plot
+  inventory.
+  - *Amended.* N3 used to bound the native analysis surface itself to "exactly the seven tMAVEN plot types". The
+    maintainer widened the native catalogue on 2026-08-02, in the planning restructure that set the acceptance
+    criteria of milestone *M17 - Analysis & plot composition*;
+    [#368](https://github.com/bioedca/tether/issues/368) writes the amendment here. The parity bound did not change.
+  - *What the widening inherits.* Two §7.7 *shall* clauses were already unmet under the old bound, because the
+    library computes each result but no renderer draws it: the **per-condition overlays** of the FRET histogram, and
+    the **alpha-shape** and **k-vs-RMSE elbow** half of the raw FRET cloud. They are a backlog that §7.7 already
+    required under the old bound, not new scope that the widening adds. Their renderers, and those of the other
+    result types with none today (Appendix C), are carried by [#370](https://github.com/bioedca/tether/issues/370) (§9.6).
 - **N4 — Out-of-scope legacy formats.** Supported legacy inputs are Deep-LASI (`.tdat` + `.tmap` + `.txt` + `.mat`)
   and tMAVEN SMD (`.hdf5`). Older `.dat` and vbFRET `.mat` formats are out of scope.
 - **N5 — No central server.** Each lab member runs on their own machine; data lives on OneDrive / a network share.
@@ -142,8 +158,8 @@ test use that data and give the product no new feature. Each data set still foll
 2. **Old formats through test-only readers.** A test can read an old file format, such as a `.dat` trace file or a
    vbFRET `.mat` file, with a small reader that lives under `tests/`. The product gets no importer, and N4 stays as
    it is. The test starts from the original bytes of the reference file, not from a converted copy.
-3. **Simulated data.** This subsection adds no rule for simulated data. The N2 text governs it, and
-   [#550](https://github.com/bioedca/tether/issues/550) settles that text.
+3. **Simulated data.** This subsection adds no rule for simulated data. The N2 text governs it: a test can
+   synthesize a known-truth input, and the product ships no simulator.
 
 ---
 
@@ -241,8 +257,8 @@ capability-sequenced, with no schedule commitment anywhere).
   quality, never auto-drop) [Chen2016]; similarity search; active-learning loop; model load / warm-start-retrain /
   save as a portable artifact; deep models later [Thomsen2020].
 - **`tether.analysis`** — histograms with CI [König2013], transition density plots [McKinney2006], the raw FRET
-  cloud, the anticorrelation-event finder, per-condition population statistics, and the seven tMAVEN plot types
-  (Appendix C).
+  cloud, the anticorrelation-event finder, per-condition population statistics, and the native plot catalogue of
+  Appendix C: every result type this package computes, the seven tMAVEN plot types among them (N3).
 - **`tether.gui`** — the PySide6 shell + embedded napari panel, the multi-movie round-trip browser,
   curation/labeling, annotation, and plot docks.
 - **`tether.project`** — the experiment/session model plus the batch runner and headless API; the GUI is a thin
@@ -495,6 +511,25 @@ generation is additive store data (§5, §9.1), with its ADR in
 [#921](https://github.com/bioedca/tether/issues/921); the reconcile page is
 [#923](https://github.com/bioedca/tether/issues/923). The steps of the Prepare section around extraction (import,
 channel geometry, the map) are FR-WORKFLOW-8 to FR-WORKFLOW-10 (§7.13).
+
+**FR-EXTRACT-UI — Extraction from the application (G6).** Tether **shall** take a fresh acquisition from its raw
+movie to a `.tether` project from the application alone. The acceptance criterion is literally *a fresh acquisition
+goes movie → `.tether` with no terminal*, and it discharges goal G6 (§2.1: non-technical lab members never touch a
+terminal). The requirement does not change the extraction science above; it puts every step of it in the
+application:
+
+- the steps of the Prepare section, import, mapping and extraction, are FR-WORKFLOW-8 to FR-WORKFLOW-10 (§7.13);
+- the extraction **appends** into the project that the application has open, under that project's single-writer
+  lock (§7.10);
+- the over-gate registration branch above is the blocking GUI dialog, not a log line;
+- the extraction runs as a background job with progress and cancel (FR-WORKFLOW-5);
+- every extraction option that the command line takes is reachable from the application, and a saved extraction
+  profile carries them, so the two routes keep the parity of §7.11.
+
+The milestone *M15 - Trace extraction section* carries this requirement, and its description embeds the §9.3 bar as
+its checklist. Until that milestone closes, `tether extract` and `tether batch` (§7.11) are the only routes from a
+new movie to a `.tether`; the application opens, curates and analyzes the result, and imports a Deep-LASI
+acquisition (§7.8), but it does not extract. §9.6 carries the criterion.
 
 ### 7.2 FR-CORRECT — Corrections & FRET computation
 
@@ -752,8 +787,9 @@ Tether **shall** provide:
   [Hyndman1996] + alpha-shape + k-vs-RMSE elbow).
 - **Real TDP**: a 2-D before/after idealized-state density (fresh idealizations only) [McKinney2006][Hadzic2018];
   dwell distributions with exponential/rate fits and CIs.
-- Native reproduction of the **seven tMAVEN plot types** (Appendix C); any other tMAVEN plot stays reachable via
-  the hand-off.
+- A native **plot catalogue** that is every result type `tether.analysis` computes (Appendix C, N3), including a
+  native reproduction of the **seven tMAVEN plot types** at parity; any other tMAVEN plot stays reachable via the
+  hand-off.
 
 **Analysis sets (diagram G04; [#934](https://github.com/bioedca/tether/issues/934)).** The input of an analysis
 **shall** be a version of an *analysis set*: a named selection of molecules from one or more projects, grouped by
@@ -787,9 +823,9 @@ or the nested form (molecules in movies in biological replicates), and each plot
 versioned *result snapshot* with its lineage to the exact analysis-set version and the active fit (§7.4). A later
 change makes a new snapshot; a historical result keeps the inputs that it was made from.
 
-**Related changes of this section.** [#368](https://github.com/bioedca/tether/issues/368) amends non-goal N3 and the
-seven-plot-type sentences of this section and §7.9; [#378](https://github.com/bioedca/tether/issues/378) adds
-FR-PLOT, the composed and exportable plot. Neither is changed here. A version of an analysis set is the data input
+**Related changes of this section.** [#368](https://github.com/bioedca/tether/issues/368) amended non-goal N3 and the
+plot-catalogue sentences of this section and §7.9; [#378](https://github.com/bioedca/tether/issues/378) adds
+FR-PLOT, the composed and exportable plot, which is not changed here. A version of an analysis set is the data input
 of a composed plot ([#373](https://github.com/bioedca/tether/issues/373)).
 
 ### 7.8 FR-LEGACY — Legacy import & Deep-LASI re-analysis
@@ -838,8 +874,9 @@ Misattributing β would silently drop a real leakage correction and shift every 
 
 Tether **shall** export: CSV and Deep-LASI-style `.txt` per-molecule/per-condition tables; a **subset `.tether`**
 (movie-less; embeds patches/coordinates/corrected traces/idealization/provenance, raw optional); SMD-HDF5 for
-tMAVEN hand-off [Greenfeld2015]; and every plot as vector PDF/SVG + PNG. The seven tMAVEN plot types are reproduced
-natively (Appendix C); all exports are stamped with provenance and parameters.
+tMAVEN hand-off [Greenfeld2015]; and every plot as vector PDF/SVG + PNG. Every plot of the native catalogue exports
+this way, the seven tMAVEN plot types among them (Appendix C, N3); all exports are stamped with provenance and
+parameters.
 
 An export of figures and tables **shall** also write a result snapshot (§7.7) and the plot recipe with its
 provenance, so that an exported figure traces back to its analysis-set version and its active fit. An exported
@@ -1125,7 +1162,10 @@ boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) s
   reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the
   **§11.2 bleach-frame tolerance** — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground
   truth (§9 M3 — validating the Bayesian single-step detector).
-  **No synthetic-data simulator is introduced** — validation stays on real labeled fixtures (N2 holds).
+  **No synthetic-data simulator is shipped** (N2). Oracles (a) and (b) compare against real labeled fixtures, and
+  the headline leg of (c) against the kinSoftChallenge benchmark. Oracles (d), (e) and (g) also use synthesized
+  known-truth inputs, which N2 allows in tests; §9.5 says what those inputs establish, and §9.6 carries the
+  real-data legs that no ADR accepts.
 - **NFR-FIXTURES — Test fixtures.** Because the lab holds redistribution rights, a small cropped UCKOPSB movie
   slice + a few molecules are committed for unit/CI; a **redistributable ≥ 50-molecule curated SMD**
   (`example-data/tmaven-model/model-source-smd-281mol.hdf5` — the 281-molecule population that
@@ -1242,6 +1282,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Project store & schema** (§5) | A `.tether` skeleton is created and re-opened with its version stamp; the frozen schema includes the `molecule_key` (on `/molecules` and `/labels`), the label-provenance, condition-key, and metadata-only movie-signature fields. | M0 |
 | **Movie I/O & viewer** (Appendix A) | A big-endian 512×512×1700 TIFF opens and displays in napari; the filename parser round-trips a known condition string. | M0 |
 | **Native extraction** (FR-EXTRACT, Appendix E) | Extraction vs Deep-LASI on the UCKOPSB pair meets the §9.2 extraction tolerance **(reframed — ADR-0022)**; the `TIRFdata` decode recovers coordinates + α/β/γ (Appendix B); native registration RMS residual ≤ 0.5 px vs the `.tmap`; the CLI produces a valid `.tether` headlessly. (M0.5's ≥ 95% recall leg was homed at M1 by [ADR-0011](adr/0011-home-extraction-recall-at-m1.md) and is the recall term of the reframed gate.) | M0.5(b), M1 |
+| **Extraction from the application** (FR-EXTRACT-UI, G6) | A fresh acquisition goes movie → `.tether` with no terminal (G6, §7.1). The evidence is a recorded run in which an operator with no terminal open makes a valid `.tether` from a raw movie and then appends a second movie to it, plus committed `pytest-qt` coverage of the extraction section, green headless on the required matrix (*not yet met*, §9.6). | M15 |
 | **Idealization & sidecar** (FR-IDEALIZE) | A headless vbFRET idealization reproduces tMAVEN's states on a known SMD within the frozen §11.2 idealization-parity tolerance (state count / means / Viterbi path / ELBO), and that §11.2 row is frozen with the measured numbers before any later parity sign-off (§9.2; the default row was measured on an older tMAVEN build than the pinned one, and its re-freeze is *not yet met*, §9.6); one-click vbFRET matches standalone tMAVEN within that tolerance (*not yet met* per trace: the frozen row was measured on consensus `vbconhmm` and no test fits per-trace vbFRET, §9.6); consensus VB-HMM and ebFRET reproduce standalone tMAVEN on the ≥ 50-molecule SMD within it (state levels + transition matrix + ELBO; the transition-matrix term has no metric yet, *not yet met*, §9.6); the exported SMD opens in tMAVEN's own loader. The **standalone-tMAVEN GUI** leg — the exported SMD opens in the standalone GUI with coordinate metadata intact, and the guided setup runs clean on ≥ 2 OSes (Windows + macOS/Linux) — was **(leg deferred — [ADR-0010](adr/0010-defer-cross-os-gui-handoff.md))** to M9 acceptance and is met: it passed on Windows 11 and Ubuntu on WSL2 on the locked sidecar environment ([cross-OS record](maintainers/standalone-tmaven-cross-os-record.md), #543). | M0.5(a), M2, M6 |
 | **Round-trip browser & curation** (FR-ROUNDTRIP) | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies (*not yet met*, §9.6); every accept/reject writes a `/labels` row; headless: the MVP histogram reproduces from the API. | M2 |
 | **Multi-movie project** (§5) | One `.tether` holds many movies, as the M2 multi-movie round-trip browser assumes: a second movie appends into an existing project under its writer lock (*not yet met*, §9.6). | M2 |
@@ -1252,6 +1293,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Annotation & conditions** (FR-ANNOTATE) | A condition aggregates molecules across ≥ 2 files; category edits persist (*not yet met* from the application, §9.6); provisional `condition_id` values are confirmed or corrected via the validation UI; a mis-parsed `condition_id` re-keys all affected molecules transactionally with an audit entry, and merges are keep-separate-by-default + human-confirmed (§5.1). | M4 |
 | **Curation ranking** (FR-ML) | Reloading the saved model on a held-out (prequential) new video improves **precision@k** (k ≈ 20–50) over the file-order baseline by ≥ the agreed ship-bar (default ≥ 10 pts, §11.2), holding on the median across the condition's videos (evidenced on synthetic stores only: the uplift on real labelled videos and the §8 NFR-VALID (d) leave-one-video-out protocol are *not yet met*, §9.6); never-auto-drop is verified as a permutation invariant; active learning surfaces informative traces; the model file is portable across experiment files; a **weight-decay test** confirms a provisional label's effective weight drops below a stated fraction (e.g. < 0.2·w₀) after K human labels (decay law §7.5/§11.2); a **drift-flag test** confirms a deliberately mismatched source/target condition raises the advisory while a matched pair does not; and a **two-curator split-and-merge test** confirms split-file labels merge back on `molecule_key` with weights recomputed centrally and human-vs-human conflicts surfaced (§7.10). | M5 |
 | **Analysis suite** (FR-ANALYZE, Appendix C) | Each of the seven plot types renders from real data and visually matches its tMAVEN counterpart (D1, the per-trace viewer, has no visual oracle and matches by layout and convention, as [the parity gallery](analysis/parity-gallery.md) records) — and is reachable from the application (*not yet met*, §9.6); TDP uses only fresh idealizations; all exports carry provenance stamps. | M6 |
+| **Analysis catalogue** (FR-ANALYZE, N3, Appendix C) | Every result type that `tether.analysis` computes (the native catalogue of Appendix C) renders to a figure that exports as vector PDF/SVG + PNG with its provenance stamp, and is reachable from the application (*not yet met*, §9.6). That includes a renderer for each of the five result types with none: the per-condition overlay, the post-synchronized A2 heatmap (A2b), the alpha shape, the k-vs-RMSE elbow and the anticorrelation events. The tMAVEN parity claim stays with the seven Appendix C types of the *Analysis suite* bar; no other result type carries one. | M17 |
 | **Legacy import** (FR-LEGACY) | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; the intensity-match cross-check passes on the SMD subset. | M7 |
 | **Deep add-on** (FR-ML) | A deep classifier trains on the shared label store and is optional: the CPU base app is unaffected (§9.1 item 5). | M8 |
 | **Kinetics** (§8 NFR-VALID (c)) | Kinetics on the named kinSoftChallenge dataset fall within that dataset's reported inter-tool spread (§11.2) — **advisory**, never a gate (§9.5). | M8 |
@@ -1298,10 +1340,18 @@ tolerance), is release-acceptance work owned by its GitHub milestone.
 | **(a)** Extraction vs Deep-LASI | recall, donor intensity Pearson, registration RMS | `large` — the headline leg **skips on every runner** (the ≈ 0.9 GB movie is on none), so its numbers come from a local run of the enforcing test `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb` with `TETHER_UCKOPSB_DIR` set, which supplies the `.tdat` detector settings and the 2 px gate (recorded in ADR-0022; `scripts/run_m1_oracle.py` reproduces the same configuration as a one-shot report, [#555](https://github.com/bioedca/tether/issues/555)) | scorer unit tests, the committed 4-molecule slice, the registration RMS gate (`tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance`; the headline run imports the `.tmap`, so its RMS is not applicable) | UCKOPSB pair (gated full movie + committed slice) | the §9.2 extraction gate (reframed — ADR-0022); constants in `src/tether/project/oracle.py` | gate; evidence is a recorded run until a runner holds the movie |
 | **(b)** Idealization parity vs tMAVEN | state count, state means, Viterbi path, ELBO | `sidecar` — required, but **path-filtered**: it fits only when a pull request touches an idealization path | the frozen artifact checked against its own recorded evidence | `tests/fixtures/smd_4mol.hdf5`; LFS `smd_281mol.hdf5` + `model_281mol.hdf5` | `schema/parity_tolerance.json` (`$.tolerance`; ebFRET `$.tolerance_by_method.ebhmm`, ADR-0043); per-trace vbFRET, the transition-matrix term and the default row's re-freeze on the pinned tMAVEN build are not yet evidenced (§9.6); the ebFRET gate fits two fixed seeds, so it gives one answer per commit ([#311](https://github.com/bioedca/tether/issues/311), ADR-0075) | gate |
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
-| **(d)** Ranker held-out cross-validation | prequential precision@k uplift over file order, median across videos | required matrix | yes (synthetic stores only) | synthetic and programmatic stores | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`; the real-video uplift and leave-one-video-out legs are not yet evidenced (§9.6) | gate on the protocol; the real-data legs are *not yet met* |
-| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E never NaN | required matrix | yes | synthetic known-α/known-γ and edge-case traces | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
+| **(d)** Ranker held-out cross-validation | prequential precision@k uplift over file order, median across videos | required matrix | yes (synthetic stores only) | synthetic separable multi-video and programmatic stores (no ADR accepts them; §9.6) | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`; the real-video uplift and leave-one-video-out legs are not yet evidenced (§9.6) | gate on the protocol; the real-data legs are *not yet met* |
+| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E never NaN | required matrix | yes | synthetic known-α/known-γ and edge-case traces (known-γ accepted by ADR-0028; known-α by no ADR, §9.6) | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
 | **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); the schema-migration leg §8 and §5.4 name has no test (§9.6) | gate |
 | **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
+
+**What a synthesized fixture establishes.** A row whose fixture is synthesized ((d), (e), (g), and the synthetic
+rate recovery that (c) runs on the required matrix) shows that the implementation recovers a truth it was given
+(N2). It does not show agreement with real data. Two substitutions are accepted by an ADR:
+[ADR-0026](adr/0026-photobleach-detection-and-window-default.md) option C makes synthesized known steps the ground
+truth for (g), and [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md) option D accepts γ's known-γ
+recovery for (e), with its Deep-LASI leg still in §9.6. No ADR accepts (e)'s synthesized known-α traces or (d)'s
+synthetic multi-video store, so §9.6 carries both as not yet validated on real data.
 
 **What "runs end to end" means.** Every *gate* row has passing evidence bound to the release commit, and (c) may be
 recorded advisory; no other oracle may. Binding that evidence (one artifact per oracle naming the commit it was
@@ -1332,6 +1382,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | Corrections as a surface of the application: the correction pass over the open project, the §7.2 total-failure banner with both recovery actions, and an apparent/corrected toggle | M3 | [#360](https://github.com/bioedca/tether/issues/360), [#361](https://github.com/bioedca/tether/issues/361), [#362](https://github.com/bioedca/tether/issues/362) |
 | Category (and analysis-window) edits made in the application persist to the project | M4 | [#359](https://github.com/bioedca/tether/issues/359) (the setters it writes through: [#358](https://github.com/bioedca/tether/issues/358)) |
 | Every plot renders from the application — each Appendix C type reachable from the GUI, not only from the API | M6 | [#374](https://github.com/bioedca/tether/issues/374) |
+| Every result type of the native catalogue renders and is reachable from the application (N3 as amended). Two of the renderers it lacks are §7.7 clauses that were unmet before the amendment: the per-condition overlays of the FRET histogram, and the alpha-shape and k-vs-RMSE-elbow half of the raw FRET cloud | §7.7; M17 | [#370](https://github.com/bioedca/tether/issues/370) (the five renderers), [#374](https://github.com/bioedca/tether/issues/374) (the route from the application) |
 | The multi-movie project: a second movie appends into an existing `.tether` | M2 | [#347](https://github.com/bioedca/tether/issues/347) |
 | The ranker pre-sorts a movie's traces when the movie opens in the application, and the application shows each trace's feature values next to it. The M5 *Curation ranking* bar was met on library evidence alone; no bar named the feature values | M5; §7.5 | [#639](https://github.com/bioedca/tether/issues/639) |
 | The per-condition model in the application's UC3 loop: loaded when a video opens, warm-start-retrained at the video boundary and saved. The M5 bar's reload and portability legs were met on library evidence alone | M5 | [#640](https://github.com/bioedca/tether/issues/640) (the model's `/models` reference and owner-curator lock: [#561](https://github.com/bioedca/tether/issues/561)) |
@@ -1346,15 +1397,16 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | Free tags on molecules and conditions, in the application | §7.6 | [#634](https://github.com/bioedca/tether/issues/634) |
 | Idealization of the project from the application, with a manual state-count override (the application fits only the selected molecule, with no state-count choice) | §7.4, §3.2 | [#625](https://github.com/bioedca/tether/issues/625) |
 | A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#660](https://github.com/bioedca/tether/issues/660) |
+| A fresh acquisition goes movie → `.tether` with no terminal: extraction from the application (FR-EXTRACT-UI). Today only `tether extract` and `tether batch` make a `.tether` from a new movie | M15; §7.1, G6 | the issues of milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17); the extraction section itself is [#350](https://github.com/bioedca/tether/issues/350) |
 | The overnight batch of many movies without a terminal: a multi-movie queue in the application. The M3 *Batch runner* bar was met by the library and the `tether batch` command | M3; UC7, G6 | [#645](https://github.com/bioedca/tether/issues/645) |
 | Per-trace vbFRET parity against the frozen tolerance (the row was measured on consensus `vbconhmm`; no test fits per-trace vbFRET) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The transition-matrix term of consensus VB-HMM / ebFRET parity on the ≥ 50-molecule SMD (the parity metrics have no transition-matrix term) | M6 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The default idealization-parity row re-measured and re-frozen on the pinned tMAVEN `10f4230b` / CPython 3.12.13 build (it was measured on `71cfa1af` / CPython 3.9.23) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
 | A check that fails when a frozen `$.tolerance` bound is loosened (the artifact self-checks catch only tightening below the evidence, or its removal) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
-| The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
+| The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores. Oracle (d) is evidenced only on a synthetic multi-video store, which no ADR accepts (N2, §9.5) | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
 | The §8 NFR-VALID (d) leave-one-video-out protocol, implemented or settled against the prequential protocol | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
 | Oracle (f)'s schema-migration leg: §8 NFR-VALID (f) and §5.4 name migration tests that the additive-only freeze has never needed | M0, §8 | [#547](https://github.com/bioedca/tether/issues/547) |
-| The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
+| The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027). Until it is met, oracle (e)'s α is evidenced only on synthesized known-α traces, which no ADR accepts (N2, §9.5) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
 | γ agreement with the Deep-LASI median on a shared frame set — withheld: the vendored export carries no per-frame classification (ADR-0028) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
 
 **Requirements of the workflow design of 2026-11-14, not yet met.** These are new requirements (§7.1, §7.2, §7.4,
@@ -1457,7 +1509,8 @@ this section.
   timeout + liveness, auto-restart ≤ N, fail-only-that-movie's-idealization on persistent failure, an
   **idealization-deferred** mode if the sidecar is absent/corrupt at startup) so a sidecar hang or crash cannot
   stall the whole run (§7.11).
-- **Scope creep.** Mitigation: MVP-first; "all tMAVEN plots" bounded to seven (Appendix C) + hand-off; simulator
+- **Scope creep.** Mitigation: MVP-first; tMAVEN parity bounded to seven plot types (Appendix C) + hand-off, and
+  the native catalogue bounded to what `tether.analysis` computes, never tMAVEN's full inventory (N3); simulator
   deferred.
 
 ---
@@ -1683,7 +1736,7 @@ as a **draft PR** and cannot merge. The PR title is a Conventional-Commits strin
 becomes the squash commit and feeds the changelog. CodeQL remains enforced through code-scanning **default
 setup** and the ruleset's `code_scanning` rule, not as a named status check. Agent-authored PRs also follow the
 `AGENTS.md` §Review, recorded in ADR-0064: every PR requires substantive independent review, and the providers are
-spent **cheapest first** rather than routed by risk. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
+spent **cheapest first**, and risk routes a provider only on the load-bearing route of ADR-0099 below. **Open as a draft** — opening ready is permitted but must record its reason, since it spends a metered provider on a diff no unmetered one has read — every required check runs on a draft, so the
 diff reaches green before anything metered is asked. Then **Codex on that green diff, uncapped** — the draft by default,
 or the ready PR whose reason is recorded, since what the order protects is that no metered provider reads a diff Codex
 has not — until it surfaces
@@ -1693,8 +1746,9 @@ TREX one three; then ready-for-review if it is not already; then **CodeRabbit wi
 which is the last metered gate before merge — and when that one-review cap is spent, a fresh posted Codex review
 of the final head closes the gate in its place, so a reviewed PR finishes on an unmetered read rather
 than on a maintainer (ADR-0065, as ADR-0069 amends it)**. Where CodeRabbit posts a refusal that names more than 30 minutes,
-one standard Greptile review **may** stand in as that gate within Tether's share of 15 credits a month, and Codex
-**shall not** stand in (ADR-0069). **`AGENTS.md` §Review is the operative statement of the conditions
+one standard Greptile review **may** stand in as that gate within Tether's share of 45 credits a cycle, and Codex
+**shall not** stand in (ADR-0069). A load-bearing pull request takes one standard Greptile review in CodeRabbit's
+place, within the same share, and after a review with findings one CodeRabbit review and a Codex review close it (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
 and the pull-request template do carry working copies, as detail and as evidence fields, and both
 defer to §Review where they differ. Four drafts of this
@@ -1708,7 +1762,7 @@ uncapped**, being unmetered. The cap bounds how many times a provider whose read
 diff**, so a request that produced
 nothing — a throttle, a quota refusal, a failed run — is not that one; counting those would make the gate
 unsatisfiable exactly when the provider is rate-limiting. It licenses neither a second review nor hammering: the retry
-interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 15 a month. Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
+interval a refusal names **shall** be honoured. A Greptile review is not always one credit — a standard review costs one and a TREX review three — and Tether's share of the seat is 45 a cycle from the 17th (ADR-0099). Measured on the reaper change, two providers' findings barely intersected, so on load-bearing work
 no single one was sufficient — the lane keeps that property while spending the metered ones deliberately.
 **Metered providers share one seat.** Greptile is 50 credits per seat per month across every repository this account
 works in, billed per **completed review** — one credit for a standard review, **three for a TREX** one; Copilot is budgeted the same way and is **advisory only** — it never satisfies a
@@ -2273,7 +2327,14 @@ formula, the gates, and median aggregation) are detailed in Appendix E, Stages 1
 
 ## Appendix C — tMAVEN plot inventory (M6 native-reproduction scope)
 
-Enumerated from tMAVEN source at the pinned commit. There are **exactly seven distinct plot types**: six
+This appendix holds the **native plot catalogue** of N3 in two parts. The first part is the tMAVEN inventory: the
+seven plot types that Tether reproduces at **parity** with tMAVEN, and the only ones it makes a parity claim for. The
+second part is the rest of the catalogue: the result types that `tether.analysis` computes beyond those seven, which
+Tether plots as its own results with no tMAVEN counterpart. Before the amendment of N3 the catalogue was the first
+part only (N3, *Amended*).
+
+**The tMAVEN inventory (parity).** Enumerated from tMAVEN source at the pinned commit. There are **exactly seven
+distinct plot types**: six
 `controller_base_analysisplot` subclasses (registered in
 `tmaven/tmaven/controllers/analysis_plots/analysisplots.py`) plus the per-trace viewer in
 `tmaven/tmaven/trace_plot/`. The smFRET / ND-Normalized / ND-Raw modes and post-synchronization are *variants*, not
@@ -2300,6 +2361,24 @@ separate plots. Groups B/C are idealization-gated; A/D work without a model.
   and marginal probability histograms (right); three alpha-graded segments split at pre-truncation + photobleach;
   the Viterbi/idealized path overlaid on the FRET panel; mode-switchable. This *is* Tether's curation trace dock
   (FR-ROUNDTRIP). `tmaven/tmaven/trace_plot/multi_plot.py`.
+
+**Tether's own results (no parity claim).** The other result types that `tether.analysis` computes for a population.
+A result type that has no renderer is in the catalogue all the same: N3 makes it a plot to draw, and its renderer is
+carried by [#370](https://github.com/bioedca/tether/issues/370) (§9.6).
+
+| Result | Computed by (`tether.analysis.…`) | Renderer (`plot_export`) |
+|---|---|---|
+| Per-condition overlay: each condition's FRET histogram on one shared A1 axis, with its N (§7.7) | `histogram.per_condition_apparent_e_histograms` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Donor–acceptor cross-correlation: the population curve and its lag-1 magnitude (§7.7) | `crosscorr.population_cross_correlation` | `render_cross_correlation` |
+| Raw FRET cloud: KDE + highest-density-region contours (§7.7) | `cloud.population_raw_fret_cloud` | `render_raw_fret_cloud` |
+| Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+
+A2's post-synchronized heatmap (A2b, `histogram.population_transition_sync_histogram2d`) is a variant of a tMAVEN type
+and so belongs to the first part; it is the fifth result type with no renderer today, also carried by #370. Two parts
+of `tether.analysis` are not plots and are outside the catalogue: the condition query (`query`) selects molecules,
+and the kinSoftChallenge kinetics check (`kinetics`) is a validation oracle (§9.5).
 
 ---
 
