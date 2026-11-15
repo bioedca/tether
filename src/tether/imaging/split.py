@@ -189,7 +189,7 @@ class ChannelGeometry:
         out = np.asarray(image)
         for name, value in self.operations:
             if name == "rotate":
-                out = process_image(out, rotation_deg=int(value))
+                out = process_image(out, rotation_deg=value)
             elif name == "flip":
                 out = process_image(out, flip=value)
             elif name == "crop":

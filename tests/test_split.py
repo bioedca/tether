@@ -226,6 +226,8 @@ def test_channel_geometry_apply_rejects_bad_steps() -> None:
     a = np.zeros((4, 4))
     with pytest.raises(ValueError, match="rotation_deg"):
         ChannelGeometry(rotation_deg=45).apply(a)
+    with pytest.raises(ValueError, match="rotation_deg"):
+        ChannelGeometry(rotation_deg=90.5).apply(a)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="flip"):
         ChannelGeometry(flip=(2, 0)).apply(a)
     with pytest.raises(ValueError, match="exceeds"):
