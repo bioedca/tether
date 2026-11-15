@@ -1,3 +1,7 @@
+---
+description: "What the current Tether release contains, what comes next and what is out of scope, as a short public summary."
+---
+
 # Roadmap
 
 **Who this page is for.** Readers who want a short, public view of what Tether is
