@@ -202,19 +202,30 @@ def relative_elbo(ref: StateModel, test: StateModel) -> float:
     return float(abs(float(test.elbo) - float(ref.elbo)) / denom)
 
 
+#: How far a row of ``norm_tmatrix`` may sum from 1 and still be a probability row: well
+#: above float64 rounding (tMAVEN's rows sum to 1 within ~2e-16), far below any real error.
+_ROW_SUM_TOLERANCE = 1e-6
+
+
 def _row_normalized(model: StateModel) -> np.ndarray | None:
-    """The model's per-frame transition probabilities (rows sum to 1), or ``None``."""
-    if model.norm_tmatrix is not None:
-        return np.asarray(model.norm_tmatrix, dtype="float64")
-    if model.tmatrix is None:
+    """The model's per-frame transition probabilities (rows sum to 1), or ``None``.
+
+    ``None`` for anything that is not a transition matrix: not 2-D, a non-finite or
+    negative entry, a ``norm_tmatrix`` row that does not sum to 1, or a raw ``tmatrix``
+    row whose total is not positive. Two equally invalid matrices must never compare
+    as equal, so a malformed one is refused here rather than compared.
+    """
+    raw = model.norm_tmatrix is None
+    source = model.tmatrix if raw else model.norm_tmatrix
+    if source is None:
         return None
-    t = np.asarray(model.tmatrix, dtype="float64")
-    if t.ndim != 2:  # before the row sum, which a 0-D or 1-D array cannot take
+    t = np.asarray(source, dtype="float64")
+    if t.ndim != 2 or not np.all(np.isfinite(t)) or np.any(t < 0):
         return None
     sums = t.sum(axis=1, keepdims=True)
-    if not np.all(np.isfinite(sums)) or np.any(sums <= 0):
-        return None
-    return t / sums
+    if raw:
+        return None if np.any(sums <= 0) else t / sums
+    return t if np.all(np.abs(sums - 1.0) <= _ROW_SUM_TOLERANCE) else None
 
 
 def transition_matrix_abs_delta(ref: StateModel, test: StateModel) -> float:
@@ -225,8 +236,9 @@ def transition_matrix_abs_delta(ref: StateModel, test: StateModel) -> float:
     canonical state order — rows and columns permuted by ascending mean FRET,
     the same alignment as every other metric — and the largest entry-wise
     ``|Δ|`` is returned. ``inf`` when the state counts differ, a model has no
-    transition matrix, a matrix is not ``K × K`` for its ``K`` means, or an entry
-    is not finite: an incomparable pair can never read as agreement.
+    transition matrix, a matrix is not ``K × K`` for its ``K`` means, or it is not
+    a matrix of transition probabilities (a non-finite or negative entry, a row
+    that does not sum to 1): an incomparable pair can never read as agreement.
     """
     rm = np.asarray(ref.means, dtype="float64").reshape(-1)
     tm = np.asarray(test.means, dtype="float64").reshape(-1)

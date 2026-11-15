@@ -702,6 +702,17 @@ def test_transition_matrix_delta_is_inf_when_incomparable():
         flat = _model([0.1, 0.9])
         flat.tmatrix = raw
         assert transition_matrix_abs_delta(two, flat) == float("inf")
+    # Not a transition matrix: rows that are not probabilities score inf, even when both
+    # sides are equally wrong (two zero-filled matrices must not read as a perfect match).
+    zeros = np.zeros((2, 2))
+    assert transition_matrix_abs_delta(
+        _tm_model([0.1, 0.9], zeros), _tm_model([0.1, 0.9], zeros)
+    ) == (float("inf"))
+    for bad in ([[1.05, -0.05], [0.10, 0.90]], [[0.5, 0.4], [0.10, 0.90]]):
+        assert transition_matrix_abs_delta(two, _tm_model([0.1, 0.9], bad)) == float("inf")
+    negative = _model([0.1, 0.9])
+    negative.tmatrix = np.array([[96.0, -1.0], [10.0, 90.0]])  # positive row sums, negative entry
+    assert transition_matrix_abs_delta(two, negative) == float("inf")
 
 
 def test_compare_models_carries_the_transition_matrix_term():
