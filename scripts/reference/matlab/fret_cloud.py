@@ -9,11 +9,11 @@ workstation; no line of them enters the repository.
 
 The one task runs ``FRET_cloud_contours_centroids.m`` unchanged on every trace file of the input
 ``traces`` (the smfret-analysis2 test traces) and writes what the script computed:
-``files.csv``, ``pairs.csv``, ``density.h5``, ``thresholds.csv`` and ``centroids.csv``
-(``m/fret_cloud/tether_fret_cloud.m`` says how). The script's own constants (column 4, 50 pairs a
-file, a 200 x 200 grid on [0, 1], bandwidth 0.05, coverages 10 % to 90 %, 4 centroids with 5
-replicates) are not parameters: the script sets them after its ``clear``. ``seed`` seeds the
-random stream of its ``kmeans``.
+``files.csv``, ``pairs.csv``, ``density.h5``, ``thresholds.csv``, ``centroids.csv`` and
+``toolbox.csv`` (``m/fret_cloud/tether_fret_cloud.m`` says how). The script's own constants
+(column 4, 50 pairs a file, a 200 x 200 grid on [0, 1], bandwidth 0.05, coverages 10 % to 90 %,
+4 centroids with 5 replicates) are not parameters: the script sets them after its ``clear``.
+``seed`` seeds the random stream of its ``kmeans``.
 
     python scripts/reference/matlab/fret_cloud.py run --clone FOLDER --task cloud \\
         --input traces=tests/fixtures/smfret_analysis2/traces \\

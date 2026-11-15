@@ -136,9 +136,11 @@ def test_a_files_pin_checks_each_script_hash(tmp_path, traces) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "cloud.m").write_text("function cloud\nend\n", encoding="utf-8")
-    pins = {"lab": {"kind": "files", "files": {"cloud.m": harness.sha256(scripts / "cloud.m")}}}
+    digest = harness.sha256(scripts / "cloud.m")
+    pins = {"lab": {"kind": "files", "citation": "A, 2025", "files": {"cloud.m": digest}}}
     assert harness.verify_clone("lab", scripts, pins) == {
         "name": "lab",
+        "citation": "A, 2025",
         "files": pins["lab"]["files"],
     }
     (scripts / "cloud.m").write_text("function cloud\ndisp(1)\nend\n", encoding="utf-8")

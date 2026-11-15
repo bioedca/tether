@@ -14,6 +14,8 @@ function tether_fret_cloud(job)
 %     density.h5      /x, /y: the grid nodes; /density: pdfNormalized (the normalized KDE)
 %     thresholds.csv  coverage, threshold: percentLevels and densityThresholds
 %     centroids.csv   x, y: the k-means centroids
+%     toolbox.csv     toolbox, version: the Statistics and Machine Learning Toolbox that ran
+%                     mvksdensity and kmeans
 %
 %   The script reads column 4 of each file as FRET. Column 4 of the smfret-analysis2 traces is
 %   zero, so the task gives the script a copy of each trace whose column 4 is
@@ -59,6 +61,13 @@ tether_fret_cloud_csv(fullfile(out, 'pairs.csv'), 'x,y', [S.allX(:) S.allY(:)]);
 tether_fret_cloud_csv(fullfile(out, 'thresholds.csv'), 'coverage,threshold', ...
     [S.percentLevels(:) S.densityThresholds(:)]);
 tether_fret_cloud_csv(fullfile(out, 'centroids.csv'), 'x,y', S.centroids);
+stats = ver('stats');
+if isempty(stats)
+    error('tether:noToolbox', 'the Statistics and Machine Learning Toolbox is not installed');
+end
+fid = fopen(fullfile(out, 'toolbox.csv'), 'w');
+fprintf(fid, 'toolbox,version\n"%s","%s %s"\n', stats(1).Name, stats(1).Version, stats(1).Release);
+fclose(fid);
 h5 = fullfile(out, 'density.h5');
 x = S.xGrid(1, :);
 y = S.yGrid(:, 1)';

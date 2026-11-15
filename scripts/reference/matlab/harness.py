@@ -109,7 +109,8 @@ def verify_clone(tool: str, clone: Path, pins: dict) -> dict:
             got = sha256(path) if path.is_file() else "missing"
             if got != want:
                 raise HarnessError(f"{tool} script {name} has SHA-256 {got}, the pin is {want}")
-        return {"name": tool, "files": dict(pin["files"])}
+        # The record carries the citation with the hashes: the scripts have no URL to name.
+        return {"name": tool, "citation": pin["citation"], "files": dict(pin["files"])}
     raise HarnessError(f"unknown pin kind {pin['kind']!r} for {tool}")
 
 
