@@ -1,3 +1,7 @@
+---
+description: "Terms used across the Tether documentation, as this codebase uses them, with the module that defines each term and a link to more detail."
+---
+
 # Glossary
 
 **Who this page is for.** A bench scientist or new contributor reading the rest of this
@@ -188,7 +192,7 @@ default, so a curator-narrowed window is never overwritten.
 
 ### curation label / category / quality class
 
-Three **independent** fields on `/molecules` (PRD §5.1):
+Three **independent** fields on `/molecules`:
 
 - `curation_label` — the accept/reject state. Codec `CurationLabel` in
   `tether.project.labels`: `UNCURATED = 0`, `ACCEPT = +1`, `REJECT = -1`
@@ -369,7 +373,7 @@ around it depends on which function reads the path:
 
 - `tether.analysis.dwell.state_dwells` does **not split a run** at it. It *strips* the
   `NO_STATE` frames before splitting on state change (tMAVEN's NaN strip, kept for parity —
-  `test_state_dwells_strips_no_state_like_tmaven`), so two same-state segments either side
+  [`test_state_dwells_strips_no_state_like_tmaven`](https://github.com/bioedca/tether/blob/main/tests/test_analysis_dwell.py)), so two same-state segments either side
   of an interior gap are stitched into **one run**.
 - `tether.idealize.dwells_from_states` does the opposite: a `NO_STATE` frame **ends** the run
   it interrupts (its docstring: "they break a run but are not dwells").
@@ -442,7 +446,7 @@ of stitching them (identical first/last handling; a comparison, not a mode Tethe
 `population_dwell_times` and `tether.analysis.kinetics.pooled_exit_rates` call `state_dwells`
 with the sentinel `-1`, which *is* `NO_STATE`.
 
-- `population_dwell_times` reads its paths through `tether.analysis._store.windowed_states`,
+- `population_dwell_times` reads its paths through [`tether.analysis._store.windowed_states`](https://github.com/bioedca/tether/blob/main/src/tether/analysis/_store.py),
   which cuts each molecule's window between its first and last non-sentinel frame but keeps
   any interior gap — so it **merges**.
 - `pooled_exit_rates`' only caller in Tether's source is `two_state_rate_constants`, whose
@@ -483,7 +487,8 @@ of a population ([McKinney 2006](https://doi.org/10.1529/biophysj.106.082487)). 
 the "real" TDP: built from a persisted model's Viterbi paths, with a point emitted **only at
 state-change frames**, initial and final read `DEFAULT_TDP_NSKIP = 2` frames apart
 (`tether.analysis.tdp`). The stored array is the exact unsmoothed histogram in raw counts;
-log-normalization and smoothing are display-only.
+log-normalization and smoothing are display-only. The plot export draws a zero-safe log
+colour scale by default and records the scale in the provenance sidecar.
 
 ### post-synchronization
 
@@ -611,7 +616,7 @@ One HDF5 file per experiment, that is, one day or one session of acquisition. A 
 hold several movies and several conditions, and one condition can span several projects
 (ADR-0068). The file has the root attribute `format = "tether-project"` and a
 monotonic `schema_version` (currently `1`). The **entire group skeleton was forward-declared
-at M0**, so later milestones add *data*, never *structure*
+when the schema was frozen**, so later versions add *data*, never *structure*
 (ADR-0005); a `schema-guard` CI gate enforces it.
 
 A file stamped with a **higher** `schema_version` than the running app is refused outright

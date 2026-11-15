@@ -25,15 +25,15 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-max_skipped = 15
+max_skipped = 16
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 28
+max_skipped = 30
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 14
+max_skipped = 17
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -58,6 +58,14 @@ Only the Linux leg fetches main and sets TETHER_COVERAGE_BASE_REF, which makes t
 instead of skip there; the macOS and Windows legs do not change, so they have no main to read."""
 
 [[skip]]
+test = "tests/test_docstring_standard.py::test_allowlist_never_grows"
+reason = "no origin/main in this checkout (CI's Linux leg fetches it and sets TETHER_DOCSTRING_BASE_REF)"
+jobs = ["test (macos-latest)", "test (windows-latest)"]
+why = """The docstring-allowlist ratchet (#611, ADR-0093) compares the allowlist with the copy on \
+main, like the coverage-floor ratchet above. Only the Linux leg fetches main and sets \
+TETHER_DOCSTRING_BASE_REF, which makes the test fail instead of skip there."""
+
+[[skip]]
 test = "tests/test_deep_gpu_deep.py"
 reason = "could not import 'torch': No module named 'torch'"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)", "large-fixtures"]
@@ -78,6 +86,14 @@ reason = "TETHER_BUILT_SITE is not set; the docs-build job sets it after the bui
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
 why = """The two tests read the built site, and the test legs build no site. The docs-build job \
 sets TETHER_BUILT_SITE after `mkdocs build` and runs them there (#674)."""
+
+[[skip]]
+test = "tests/test_docs_citation_head.py::test_the_built_heads_carry_the_descriptions_and_the_citation_metadata"
+reason = "TETHER_BUILT_SITE is not set; the docs-build job sets it after the build"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The test reads the built site, and the test legs build no site. The docs-build job sets \
+TETHER_BUILT_SITE after `mkdocs build` and runs it there (#599). It is one test for all pages, so \
+it costs each leg one skip; max_skipped of the three legs is one higher for it."""
 
 [[skip]]
 test = "tests/test_docs_validation_numbers.py::test_the_fence_rule_is_python_markdowns"
@@ -121,6 +137,14 @@ reason = "the icon step of post_install.sh runs on Linux only"
 jobs = ["test (macos-latest)", "test (windows-latest)"]
 why = """The icon step of the installer's post_install.sh is the Linux menu entry (#673); \
 test (ubuntu-latest) runs the two tests."""
+
+[[skip]]
+test = "tests/test_install_launchers.py::test_post_install_sh_writes_only_the_two_launchers"
+reason = "post_install.sh is the Linux and macOS post-install script"
+jobs = ["test (windows-latest)"]
+why = """post_install.sh is the sh script the Linux and macOS installers run (#492, ADR-0094); \
+Windows runs post_install.bat, whose launcher folder the same module checks on every leg. \
+test (ubuntu-latest) and test (macos-latest) run the test."""
 
 [[skip]]
 test = "tests/test_gui_indicators.py::test_the_windows_setting_is_read_without_error"
