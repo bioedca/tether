@@ -116,6 +116,17 @@ precedence = "override"
 SPDX-FileCopyrightText = "2026 Susann Zelger-Paulus, Mélodie C.A.S. Hadzic, Lennart Lindner, Richard Börner, Fabio Steffen, Besim Fazliji, Silke Johannsen and Roland Sigel"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# A MASH-FRET test project with a non-zero leakage coefficient (#870): an extract of
+# MASH-FRET/source/routines/bar-menu/assets/2chan2exc.mash of github.com/RNA-FRETools/MASH-FRET at
+# commit b577928 (scripts/make_mashfret_leakage_fixture.py says what it keeps). The repository
+# gives the GPL version 3 text with no "or later" statement, so GPL-3.0-only. See NOTICE and
+# tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = ["tests/fixtures/mashfret_2chan2exc_leakage_extract.mat"]
+precedence = "override"
+SPDX-FileCopyrightText = "2021 Mélodie C.A.S. Hadzic and the MASH-FRET authors (github.com/RNA-FRETools/MASH-FRET)"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.

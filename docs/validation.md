@@ -870,6 +870,15 @@ tests.
 - **Leakage.** From MASH-FRET's background-corrected intensities and its leakage coefficient,
   Tether's corrected acceptor equals MASH-FRET's cross-talk-corrected acceptor on both lasers, and
   the donor is unchanged (relative limit 1e-15; the difference is exactly 0).
+- **Leakage at a non-zero coefficient** ([#870](https://github.com/bioedca/tether/issues/870)).
+  A second reference is a test project of the MASH-FRET repository (`2chan2exc.mash` at commit
+  `b577928`, GPL-3.0), which MASH-FRET "1.3.2 (prev. commit: 3471fdf3)" wrote with a leakage
+  coefficient of 0.0775. That project also has a direct-excitation coefficient of 0.0176, and
+  MASH-FRET subtracts that term after the leakage term. So under the acceptor's laser the test
+  compares directly, and under the donor's laser it adds MASH-FRET's own direct-excitation term
+  back first. Tether's corrected acceptor equals MASH-FRET's on 10 molecules and both lasers
+  (relative limit 1e-15; worst 1.1e-16, and 1.7e-16 on all 30 molecules of the project). The
+  traces of this project are MASH-FRET test data, not a published measurement.
 - **Corrected FRET.** The files hold no FRET value for each frame, only the value of each frame's
   state, and MASH-FRET sets that value to the mean of its γ-corrected FRET over the frames of the
   state. With MASH-FRET's γ, the mean of Tether's corrected FRET over the same frames equals each
@@ -877,16 +886,18 @@ tests.
   6.3e-14 on the 4442 states of the eight readable files of the archive). MASH-FRET's
   `1 / (1 + γ·I_D/I_A)` is Tether's `I_A / (I_A + γ·I_D)` with the same γ; no conversion factor is
   needed.
-- **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail.
+- **Teeth.** γ applied to the acceptor, or no γ, makes the FRET test fail. A sign error in the
+  leakage correction (`I_A + α·I_D`) makes the non-zero leakage test fail: its worst difference
+  is then 0.25.
 
-**What it does not check.** Every file of the record has a leakage coefficient of 0, so the
-leakage test cannot catch a sign error in the correction;
-[#870](https://github.com/bioedca/tether/issues/870) asks for a MASH-FRET reference with a non-zero
-coefficient. The comparison is per state, not per frame. Background
+**What it does not check.** Every file of the group IIB intron record has a leakage coefficient of
+0, so the sign of the correction is checked only on the MASH-FRET test project. The comparison is
+per state, not per frame. Background
 subtraction is not compared, because the files hold no video. The leakage comparison uses both
 lasers; the FRET comparison uses only the donor and acceptor channels under the donor's laser.
 MASH-FRET's direct-excitation coefficient (an ALEX-only correction that Tether does not make) must
-be 0.
+be 0 in the record; in the test project it is not 0, and the test removes MASH-FRET's own term
+instead of comparing it.
 
 **Where it runs.** The required matrix reads a committed extract of the smallest project file (18
 molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a
