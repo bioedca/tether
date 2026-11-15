@@ -5,17 +5,17 @@
 Three provenance-stamped exports that read a project store and produce artifacts a
 downstream tool or a portable re-analysis can consume:
 
-* :func:`export_deeplasi_txt` — the Deep-LASI ``…-donc-accc-w.txt``
+* [`export_deeplasi_txt`][] — the Deep-LASI ``…-donc-accc-w.txt``
   corrected-trace matrix (a ``T × 2N`` table, one interleaved ``(donor, acceptor)``
   column pair per molecule; the write-side companion to
-  :func:`tether.io.deeplasi.read_deeplasi_txt`), trimmed to the molecules' shared
+  [`tether.io.deeplasi.read_deeplasi_txt`][]), trimmed to the molecules' shared
   native frame extent so a round-trip preserves the traces to the 5-decimal text
   rounding.
-* :func:`export_molecule_table_csv` — one CSV row per molecule carrying the
+* [`export_molecule_table_csv`][] — one CSV row per molecule carrying the
   ``/molecules`` scalar fields (identity, correction factors, photobleach frames,
   curation state, windows) plus the derived per-molecule **apparent-E** summary
   (mean/median over the analysis window, and the finite-frame count).
-* :func:`export_subset_tether` — a **movie-less subset ``.tether``** (§7.9, §5.4):
+* [`export_subset_tether`][] — a **movie-less subset ``.tether``** (§7.9, §5.4):
   a self-contained new project embedding the selected molecules' coordinates,
   patches, corrected traces, and idealization models, with the source **raw**
   traces optional. It carries **no** ``/movies`` rows (definitionally movie-less)
@@ -24,7 +24,7 @@ downstream tool or a portable re-analysis can consume:
   **not reconstructable** from the subset (the §5.4 invariant). Unlike the two
   table exports it *writes a new store*, but it never mutates the source and adds
   no structure to the M0-frozen skeleton (it builds the subset via
-  :func:`tether.io.schema.create_project` and writes only additive data).
+  [`tether.io.schema.create_project`][] and writes only additive data).
 
 Every export writes a companion ``<file>.provenance.json`` sidecar stamping the
 Tether app version, a UTC timestamp, the source project, and the export
@@ -35,10 +35,10 @@ slot, and the ``.txt`` must stay Deep-LASI-faithful (no header lines), so its
 stamp travels in the sidecar rather than inline.
 
 The table exports are the orchestration layer: they read the store, derive E, and
-feed pure serializers (:func:`tether.io.deeplasi.write_deeplasi_txt`, the stdlib
-:mod:`csv`) — mirroring how :mod:`tether.project.handoff` drives the SMD
-:func:`tether.idealize.write_smd` primitive. They are read-only on the store. The
-subset export is a filtered store-to-store copy (:mod:`h5py`), also read-only on
+feed pure serializers ([`tether.io.deeplasi.write_deeplasi_txt`][], the stdlib
+[`csv`][]) — mirroring how [`tether.project.handoff`][] drives the SMD
+[`tether.idealize.write_smd`][] primitive. They are read-only on the store. The
+subset export is a filtered store-to-store copy ([`h5py`][]), also read-only on
 the source.
 """
 
@@ -131,7 +131,7 @@ def _app_version() -> str:
 
 
 def _project_path(project: Project | str | os.PathLike[str]) -> Path:
-    """Resolve a project reference (an open :class:`Project` or a path) to its path."""
+    """Resolve a project reference (an open [`Project`][] or a path) to its path."""
     if isinstance(project, Project):
         return Path(project.path)
     return Path(project)
@@ -193,7 +193,7 @@ def _selected_rows(
     KeyError
         If a requested ``molecule_key`` matches no store row — a caller typo fails
         loudly rather than silently under-exporting (matching the
-        :func:`tether.project.handoff` selection).
+        [`tether.project.handoff`][] selection).
     """
     wanted = None if molecule_keys is None else {str(k) for k in molecule_keys}
     reject = int(CurationLabel.REJECT)
@@ -261,7 +261,7 @@ def export_deeplasi_txt(
     selects molecules in **store order** (the §7.5 curation filter drops ``REJECT``
     unless ``include_rejected``; an optional ``molecule_keys`` list subselects by
     ``molecule_key``), and writes the interleaved-donor-first ``T × 2N`` matrix via
-    :func:`tether.io.deeplasi.write_deeplasi_txt`, plus a provenance sidecar.
+    [`tether.io.deeplasi.write_deeplasi_txt`][], plus a provenance sidecar.
 
     Raises
     ------
@@ -269,7 +269,8 @@ def export_deeplasi_txt(
         If a requested ``molecule_key`` matches no store row (a typo — fail loudly).
     ValueError
         If ``intensity_quantity`` is unknown; the selection is empty (nothing to
-        write — :func:`read_deeplasi_txt` rejects a zero-column table); or the
+        write — [`read_deeplasi_txt`][tether.io.deeplasi.read_deeplasi_txt] rejects a zero-column
+        table); or the
         selection spans molecules of differing native frame extent (see below).
     """
     path = _project_path(project)
@@ -330,7 +331,7 @@ def export_molecule_table_csv(
 ) -> ExportResult:
     """Export one CSV row per molecule (the ``/molecules`` scalars + derived E).
 
-    Columns are :data:`MOLECULE_TABLE_COLUMNS`. Each row carries the stored
+    Columns are [`MOLECULE_TABLE_COLUMNS`][]. Each row carries the stored
     per-molecule fields (identity, condition, correction factors α/γ/δ, photobleach
     frames, frame range, curation label, category, ML ``quality_class``, tags) plus a
     derived apparent-E summary — mean/median of ``A / (D + A)`` over the molecule's
@@ -425,7 +426,7 @@ _SUBSET_CORRECTED_LAYERS: tuple[str, ...] = ("donor_corrected", "acceptor_correc
 
 #: ``/traces`` layers embedded **only** when raw is included. Background rides with
 #: raw, not corrected: ``corrected = raw − background`` exactly (the aperture
-#: top-hat, :mod:`tether.imaging.aperture`), so keeping background alongside
+#: top-hat, `tether.imaging.aperture`), so keeping background alongside
 #: corrected would let raw be reconstructed as ``corrected + background`` — omitting
 #: raw must therefore omit background too, or the §5.4 "raw is not reconstructable
 #: there" invariant is silently violated.
@@ -438,7 +439,7 @@ _SUBSET_RAW_LAYERS: tuple[str, ...] = (
 
 #: ``/idealization/{model}`` datasets that are **row-aligned with the model's
 #: molecules** and so must be filtered to the exported subset (mirrors the writer,
-#: :func:`tether.project.idealize.write_idealization_model`). Every other model
+#: `tether.project.idealize.write_idealization_model`). Every other model
 #: member (``mean``/``var``/``tmatrix``/``norm_tmatrix``/``rates``/``pi``/``frac``/
 #: the ``priors`` group) is a **global** consensus-model array, copied verbatim.
 _IDEALIZATION_PER_MOLECULE: frozenset[str] = frozenset(
@@ -463,7 +464,7 @@ def _selected_ids(molecules: np.ndarray, rows: list[int]) -> set[str]:
 
     Idealization is joined per-molecule on ``molecule_id`` (the stable UUID), **not**
     on the non-unique ``molecule_key`` (§7.10 — two distinct rows can quantize to the
-    same key): that is the identity :func:`tether.project.idealize.stale_molecule_keys`
+    same key): that is the identity [`tether.project.idealize.stale_molecule_keys`][]
     itself joins on. Filtering a model's rows by ``molecule_key`` instead would, when a
     key is duplicated and the selection splits it (e.g. one namesake dropped as
     ``REJECT``), copy the un-exported row's idealization as an orphan whose
@@ -476,7 +477,7 @@ def _selected_ids(molecules: np.ndarray, rows: list[int]) -> set[str]:
 def _copy_molecule_rows(src: object, dst: object, rows: list[int]) -> None:
     """Append the selected ``/molecules`` rows into the fresh subset (store order).
 
-    ``rows`` is strictly increasing (:func:`_selected_rows`), so h5py reads only the
+    ``rows`` is strictly increasing (`_selected_rows`), so h5py reads only the
     selected rows directly — it never materializes the whole source table.
     """
     from tether.io.schema import TABLE  # noqa: PLC0415
@@ -544,9 +545,9 @@ def _copy_idealization(
     """Copy each ``/idealization`` model, filtering its per-molecule rows to the subset.
 
     Global model arrays (levels/transition matrix/rates/priors) are copied verbatim;
-    the row-aligned per-molecule datasets (:data:`_IDEALIZATION_PER_MOLECULE`) are
+    the row-aligned per-molecule datasets (`_IDEALIZATION_PER_MOLECULE`) are
     subset to the exported molecules **by ``molecule_id``** (the unique per-row identity
-    the staleness join uses — see :func:`_selected_ids`), never by the non-unique
+    the staleness join uses — see `_selected_ids`), never by the non-unique
     ``molecule_key``.
 
     A model is **skipped** (and recorded) when either it covers no exported molecule (it
@@ -706,7 +707,7 @@ def export_subset_tether(
     movie, no raw, no background to back it out), satisfying the §5.4 invariant; with
     it ``True`` the full six-layer trace record travels.
 
-    Selection mirrors :func:`export_deeplasi_txt`: molecules are taken in **store
+    Selection mirrors [`export_deeplasi_txt`][]: molecules are taken in **store
     order**; the §7.5 curation filter drops ``REJECT`` unless ``include_rejected``; an
     optional ``molecule_keys`` list subselects by ``molecule_key`` (a duplicate key,
     §7.10, matches every store row that carries it).
@@ -717,7 +718,7 @@ def export_subset_tether(
     its input layers it could never be re-staled and would read back permanently stale.
 
     Schema freeze & atomicity. The subset is written through
-    :func:`tether.io.schema.create_project` and populated with **additive data only**;
+    [`tether.io.schema.create_project`][] and populated with **additive data only**;
     it adds no structure to the M0-frozen skeleton and never mutates the source
     (``schema-guard`` neutral). It is built under a temporary sibling path and
     **atomically moved** into place, so a mid-export failure leaves any existing
@@ -728,7 +729,7 @@ def export_subset_tether(
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to the source ``.tether``.
+        A [`Project`][tether.project.core.Project] or a path to the source ``.tether``.
     out_path:
         Destination ``.tether`` path (must differ from the source).
     molecule_keys:

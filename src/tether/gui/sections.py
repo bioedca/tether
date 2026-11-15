@@ -4,27 +4,28 @@
 
 The unified shell (M14) shows one *section* at a time — for example Prepare, Curate and
 correct, Analyze and Deposit (#897). This module describes a section as data, and the shell
-builds the widgets from that data. One :class:`SectionSpec` holds:
+builds the widgets from that data. One [`SectionSpec`][] holds:
 
 * an ``id`` and a ``title``;
 * an ``order``: the position of the section in the shell and in the guided mode;
 * the factory of the central widget;
-* the docks (:class:`DockSpec`), each with its :class:`DockArea`;
-* the menus (:class:`MenuSpec`);
+* the docks ([`DockSpec`][]), each with its [`DockArea`][];
+* the menus ([`MenuSpec`][]);
 * the keymap scope that is active while the section shows;
 * ``writes_project``: whether the section may write to the open project. The publish path
-  (#352) reads this flag from :meth:`SectionRegistry.may_write` and from no other place.
+  (#352) reads this flag from [`SectionRegistry.may_write`][] and from no other place.
 
-A :class:`SectionRegistry` holds the sections. It refuses a second section with the same
+A [`SectionRegistry`][] holds the sections. It refuses a second section with the same
 ``id`` or the same ``order``, and it always gives the sections in ascending ``order``, so the
 order does not depend on the order of registration.
 
 **No Qt.** This module imports only the standard library, so the registry and its tests run
 without a display and without a ``QApplication``. A factory receives a
-:class:`SectionHostLike`, the part of the shell that a section drives. The shell satisfies that
-:class:`~typing.Protocol` by its structure, and a test satisfies it with a small fake object, as
-:class:`~tether.gui.roundtrip.MoviePanelLike` does for the movie panel. :class:`DockArea` gives
-the name of each Qt dock area as text (:attr:`DockArea.qt_name`); the shell converts that name
+[`SectionHostLike`][], the part of the shell that a section drives. The shell satisfies that
+[`Protocol`][typing.Protocol] by its structure, and a test satisfies it with a small fake object, as
+[`MoviePanelLike`][tether.gui.roundtrip.MoviePanelLike] does for the movie panel. [`DockArea`][]
+gives
+the name of each Qt dock area as text ([`DockArea.qt_name`][]); the shell converts that name
 to the Qt value, so every area takes the same code path.
 """
 
@@ -75,9 +76,9 @@ def _check_unique(ids: Iterable[str], what: str, owner: str) -> None:
 
 @runtime_checkable
 class SectionHostLike(Protocol):
-    """The part of :class:`~tether.gui.shell.TetherShell` that a section drives.
+    """The part of [`TetherShell`][tether.gui.shell.TetherShell] that a section drives.
 
-    A factory of a :class:`SectionSpec` or a :class:`DockSpec` receives the host. The real
+    A factory of a [`SectionSpec`][] or a [`DockSpec`][] receives the host. The real
     shell satisfies this protocol by its structure; tests use a small fake object.
     """
 
@@ -110,7 +111,7 @@ class SectionHostLike(Protocol):
 class DockArea(StrEnum):
     """The side of the main window where a dock attaches.
 
-    The value is the name a dock spec uses; :attr:`qt_name` is the name of the member of
+    The value is the name a dock spec uses; [`qt_name`][] is the name of the member of
     ``Qt.DockWidgetArea``. The shell looks up the Qt value by that name, so no area needs
     its own code.
     """
@@ -128,9 +129,9 @@ class DockArea(StrEnum):
 
 @dataclass(frozen=True, kw_only=True)
 class DockSpec:
-    """One dock of a section: its id, its title, its :class:`DockArea` and its factory.
+    """One dock of a section: its id, its title, its [`DockArea`][] and its factory.
 
-    ``factory`` receives the :class:`SectionHostLike` and returns the widget of the dock.
+    ``factory`` receives the [`SectionHostLike`][] and returns the widget of the dock.
     """
 
     id: str
@@ -151,7 +152,7 @@ class DockSpec:
 class MenuSpec:
     """One menu of a section on the menu bar.
 
-    ``populate`` receives the :class:`SectionHostLike` and the new menu, and adds the actions.
+    ``populate`` receives the [`SectionHostLike`][] and the new menu, and adds the actions.
     ``None`` makes an empty menu.
     """
 
@@ -179,7 +180,7 @@ class SectionSpec:
     order
         The position of the section in the shell and in the guided mode; lower comes first.
     central
-        Receives the :class:`SectionHostLike` and returns the central widget of the section.
+        Receives the [`SectionHostLike`][] and returns the central widget of the section.
     writes_project
         ``True`` when the section may write to the open project. There is no default: each
         section must declare it.
@@ -228,10 +229,10 @@ class DuplicateSectionError(ValueError):
 
 
 class SectionRegistry:
-    """The sections of the shell, always in ascending :attr:`SectionSpec.order`.
+    """The sections of the shell, always in ascending [`SectionSpec.order`][].
 
-    Iteration, :attr:`ids` and :meth:`sections` give the same order each time, whatever
-    the order of :meth:`register` calls.
+    Iteration, [`ids`][] and [`sections`][] give the same order each time, whatever
+    the order of [`register`][] calls.
     """
 
     def __init__(self, sections: Iterable[SectionSpec] = ()) -> None:
@@ -240,7 +241,7 @@ class SectionRegistry:
             self.register(spec)
 
     def register(self, spec: SectionSpec) -> None:
-        """Add ``spec``; raise :class:`DuplicateSectionError` for a used id or order."""
+        """Add ``spec``; raise [`DuplicateSectionError`][] for a used id or order."""
         if not isinstance(spec, SectionSpec):
             raise TypeError(f"register needs a SectionSpec, got {spec!r}")
         if spec.id in self._by_id:
@@ -262,7 +263,7 @@ class SectionRegistry:
         return tuple(spec.id for spec in self.sections())
 
     def get(self, section_id: str) -> SectionSpec:
-        """The section with ``section_id``; raise :class:`KeyError` when there is none."""
+        """The section with ``section_id``; raise [`KeyError`][] when there is none."""
         try:
             return self._by_id[section_id]
         except KeyError:

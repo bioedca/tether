@@ -2,18 +2,18 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The one selection argument of the population functions (PRD §7.7; ADR-0109).
 
-Every population function of :mod:`tether.analysis` takes the molecules it pools through
+Every population function of [`tether.analysis`][] takes the molecules it pools through
 one keyword, ``molecule_keys``. That keyword accepts three things:
 
 - ``None`` — every molecule of the project (then the curation filter and, for a
   model-derived view, the freshness filter apply as before);
 - an iterable of ``molecule_key`` strings — the selection the functions took before;
-- a :class:`MoleculeSelection` — any object that can name its molecules *in one
+- a [`MoleculeSelection`][] — any object that can name its molecules *in one
   project*. A frozen version of an analysis set (#934) is the selection this protocol is
   for: the set spans several projects, so the version names, for the project at hand,
   the keys of its members that come from that project.
 
-:func:`resolve_selection` turns each of the three into ``list[str] | None`` before the
+[`resolve_selection`][] turns each of the three into ``list[str] | None`` before the
 function reads the store, so a selection never changes how a number is computed — only
 which molecules enter it.
 """
@@ -38,8 +38,8 @@ class MoleculeSelection(Protocol):
     """A selection that names its molecules in one project (ADR-0109).
 
     The protocol a frozen analysis-set version (#934) implements so it can be passed as
-    the ``molecule_keys`` of any population function. :meth:`molecule_keys_in` gets the
-    open :class:`~tether.project.core.Project` and returns the ``molecule_key`` values of
+    the ``molecule_keys`` of any population function. [`molecule_keys_in`][] gets the
+    open [`Project`][tether.project.core.Project] and returns the ``molecule_key`` values of
     the selection's members that belong to it — an empty collection when none do. It
     must not return ``None``: "every molecule" is said with ``molecule_keys=None``, never
     by a selection object.
@@ -57,7 +57,7 @@ Selection = MoleculeSelection | Iterable[str] | None
 def resolve_selection(selection: Selection, project: ProjectRef) -> list[str] | None:
     """Turn the ``molecule_keys`` argument into ``list[str] | None`` (ADR-0109).
 
-    ``None`` stays ``None``. A :class:`MoleculeSelection` is asked for its keys in
+    ``None`` stays ``None``. A [`MoleculeSelection`][] is asked for its keys in
     ``project`` (opened only in this case, when a path is given). Any other iterable is
     read into a list of strings once, so a one-shot iterator is not consumed twice.
 
@@ -65,7 +65,7 @@ def resolve_selection(selection: Selection, project: ProjectRef) -> list[str] | 
     ------
     TypeError
         ``selection`` is a bare ``str`` or ``bytes`` (it would select its characters), a
-        :class:`MoleculeSelection` returns ``None`` or a bare string, or ``selection``
+        [`MoleculeSelection`][] returns ``None`` or a bare string, or ``selection``
         is not iterable.
     """
     if selection is None:

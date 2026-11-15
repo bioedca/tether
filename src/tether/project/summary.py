@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """A read-only summary of what one ``.tether`` project holds (PRD §4.2, §5.1; #655).
 
-:func:`read_project_summary` is the one function behind ``tether info``. It answers the
+[`read_project_summary`][] is the one function behind ``tether info``. It answers the
 questions a user asks after an extraction or a batch run — how many movies and molecules,
 how far curation has gone, whether corrections ran, which idealizations exist, who holds
 the lock — without the application and without a script. ``tether status`` (#896) is
@@ -11,8 +11,8 @@ meant to read a project through the same function.
 The read is deliberately narrow:
 
 * **Read-only, no lock.** The store is opened with ``h5py`` mode ``"r"`` and the sidecar
-  ``<file>.lock`` is only read (:func:`tether.project.lock.read_lock`). Nothing here calls
-  a writer or :func:`tether.project.lock.acquire`, so it works on a project another user
+  ``<file>.lock`` is only read ([`tether.project.lock.read_lock`][]). Nothing here calls
+  a writer or [`tether.project.lock.acquire`][], so it works on a project another user
   holds (PRD §7.10 lets a non-owner browse read-only) and leaves both files byte-for-byte
   unchanged.
 * **No trace arrays, no movie files.** Only the compound ``table`` rows, group attributes
@@ -20,12 +20,12 @@ The read is deliberately narrow:
   arrays are never loaded, and a movie's ``uri`` is reported, never opened or stat'ed —
   so a cloud placeholder movie is not downloaded. The one exception is opt-in:
   ``check_stale=True`` runs the idealization staleness recompute
-  (:func:`tether.project.idealize.stale_row_ids`), which by its nature reads the
+  ([`tether.project.idealize.stale_row_ids`][]), which by its nature reads the
   trace layers each model was fit on. Without it every model's ``stale`` is ``None``
   ("not checked"), never ``0``.
 
-:meth:`ProjectSummary.to_dict` is the documented, versioned JSON layout
-(:data:`SUMMARY_FORMAT_VERSION`); ``docs/cli.md`` lists its keys.
+[`ProjectSummary.to_dict`][] is the documented, versioned JSON layout
+([`SUMMARY_FORMAT_VERSION`][]); ``docs/cli.md`` lists its keys.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ __all__ = [
     "read_project_summary",
 ]
 
-#: Version of the :meth:`ProjectSummary.to_dict` layout. A key may be *added* without a
+#: Version of the `ProjectSummary.to_dict` layout. A key may be *added* without a
 #: bump; renaming or removing one, or changing what a value means, bumps it.
 SUMMARY_FORMAT_VERSION = 1
 
@@ -205,7 +205,7 @@ class LockSummary:
 
 @dataclass(frozen=True)
 class ProjectSummary:
-    """Everything :func:`read_project_summary` reports for one project."""
+    """Everything [`read_project_summary`][] reports for one project."""
 
     path: str
     schema_version: int
@@ -263,7 +263,7 @@ def _movie_name(uri: str) -> str:
 
 
 def _curation(labels: list[int]) -> CurationCounts:
-    """Count the signed curation codes (:class:`tether.project.labels.CurationLabel`)."""
+    """Count the signed curation codes ([`tether.project.labels.CurationLabel`][])."""
     from tether.project.labels import CurationLabel
 
     counts = Counter(labels)
@@ -296,9 +296,9 @@ def _read_lock(path: Path) -> LockSummary:
 def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False) -> ProjectSummary:
     """Summarize the project at ``path`` read-only, taking no lock (#655).
 
-    Raises :class:`ProjectSummaryError` when the file is missing, is not a ``.tether``
+    Raises [`ProjectSummaryError`][] when the file is missing, is not a ``.tether``
     project, or carries a schema newer than this version of Tether understands (the
-    §5.4 guard, :func:`tether.io.schema.assert_is_compatible_project`).
+    §5.4 guard, [`tether.io.schema.assert_is_compatible_project`][]).
 
     ``check_stale=True`` also counts each idealization's stale molecules — the one part
     of the summary that reads trace arrays (see the module docstring).

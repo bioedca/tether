@@ -2,16 +2,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Store-integrated prequential precision@k uplift gate (PRD §7.5, §9 M5; FR-ML).
 
-Wires the pure prequential harness (:mod:`tether.ml.prequential`) to a ``.tether``: it groups
+Wires the pure prequential harness ([`tether.ml.prequential`][]) to a ``.tether``: it groups
 the project's human-labeled molecules into per-video folds by ``movie_id`` (in curation /
 store order) and runs the interleaved test-then-train protocol, training the gradient-boosting
-ranker (:func:`tether.ml.gbranker.train_quality_ranker`) on the accumulated prior at each video
+ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on the accumulated prior at each video
 boundary. The result is the **honest, held-out** M5 ship metric — the median across videos of
 each video's precision@k uplift over file order — the counterpart to the optimistic in-sample
-``ranker_precision_at_k`` (:mod:`tether.project.gbranking`).
+``ranker_precision_at_k`` ([`tether.project.gbranking`][]).
 
 Read-only over the M0-frozen ``/features`` + ``/molecules`` (the ``/features`` ⋈ ``/labels``
-join of :func:`tether.project.ranking.ranking_dataset`, plus each molecule's ``movie_id``): no
+join of [`tether.project.ranking.ranking_dataset`][], plus each molecule's ``movie_id``): no
 group, dataset, dtype or field change, so the ``schema-guard`` freeze holds, and nothing is
 persisted or mutated.
 """
@@ -57,9 +57,9 @@ def _folds_and_feature_names(
 ) -> tuple[list[VideoFold], tuple[str, ...]]:
     """Group the project's labeled molecules into ordered per-video folds by ``movie_id``.
 
-    Reads the ``/features`` ⋈ ``/labels`` supervised view (:func:`ranking_dataset`) and each
+    Reads the ``/features`` ⋈ ``/labels`` supervised view ([`ranking_dataset`][]) and each
     molecule's ``movie_id`` (``/molecules``), then buckets the **human-labeled** molecules into
-    one :class:`~tether.ml.prequential.VideoFold` per movie, preserving store order both across
+    one [`VideoFold`][tether.ml.prequential.VideoFold] per movie, preserving store order both across
     movies (first-appearance = curation order) and within a movie (the file-order baseline
     order). Uncurated molecules carry no ground truth and so are not fold members.
     """
@@ -104,7 +104,7 @@ def prequential_folds(project: ProjectRef) -> list[VideoFold]:
     """The project's human-labeled molecules as ordered per-video folds (PRD §7.5).
 
     The evaluation units the prequential gate consumes: one
-    :class:`~tether.ml.prequential.VideoFold` per ``movie_id`` that has labeled molecules, in
+    [`VideoFold`][tether.ml.prequential.VideoFold] per ``movie_id`` that has labeled molecules, in
     curation (store) order. Read-only.
 
     Raises
@@ -124,23 +124,23 @@ def ranker_prequential_uplift(
 ) -> PrequentialResult:
     """Prequential, held-out precision@k uplift of the ranker across a project's videos (§9 M5).
 
-    Trains the gradient-boosting quality ranker (:func:`tether.ml.gbranker.train_quality_ranker`)
+    Trains the gradient-boosting quality ranker ([`tether.ml.gbranker.train_quality_ranker`][])
     on the accumulated prior at each video boundary and measures the median-across-videos
     precision@k uplift over file order — the M5 ship gate (PRD §9 M5, §11.2), and the honest
-    counterpart to :func:`tether.project.gbranking.ranker_precision_at_k` (which is in-sample).
+    counterpart to [`tether.project.gbranking.ranker_precision_at_k`][] (which is in-sample).
     Read-only; trains no persisted model.
 
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     k:
         The review-budget cutoff for precision@k (a positive integer; PRD §7.5).
     ship_bar_pts:
         The percentage-point median-uplift threshold to ship (default
-        :data:`tether.ml.prequential.DEFAULT_SHIP_BAR_PTS`, the PRD §11.2 value).
+        [`tether.ml.prequential.DEFAULT_SHIP_BAR_PTS`][], the PRD §11.2 value).
     hyperparams:
-        Override the ranker's :data:`tether.ml.gbranker.DEFAULT_HYPERPARAMS` (PRD §11.2).
+        Override the ranker's [`tether.ml.gbranker.DEFAULT_HYPERPARAMS`][] (PRD §11.2).
 
     Returns
     -------
