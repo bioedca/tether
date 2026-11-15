@@ -28,6 +28,29 @@ set -euo pipefail
 export PIP_NO_INDEX=1
 export CONDA_OFFLINE=1
 
+# The bundled update verifier (issue #332, ADR-0060), checked the same way on every platform.
+# $1 is the INSTALLED app env's python. The binary is located by the installed package's own
+# tether._verifier.bundled_gh(), which derives it from sys.prefix, so this proves the app can
+# reach it by the prefix-relative path and not merely that a file landed somewhere. Then it must
+# run from the installed prefix and report the version packaging/gh-verifier.toml pins (read
+# through stage_gh.py, so the smoke restates nothing), with its MIT license and the third-party
+# notices beside it. `--version` makes no network call, and GH_NO_UPDATE_NOTIFIER stops gh
+# looking for a newer release of itself.
+check_gh_verifier() {
+  gh_path="$("$1" -c 'from tether._verifier import bundled_gh; p = bundled_gh(); assert p, "no bundled gh"; print(p)' | tr -d '\r')"
+  echo "bundled gh: $gh_path"
+  gh_want="$(python packaging/scripts/stage_gh.py print-version | tr -d '\r')"
+  gh_got="$(GH_NO_UPDATE_NOTIFIER=1 "$gh_path" --version | head -1 | tr -d '\r')"
+  echo "bundled gh reports: $gh_got"
+  case "$gh_got" in
+    "gh version $gh_want "*) ;;
+    *) echo "the bundled gh is not the pinned $gh_want: $gh_got"; exit 1 ;;
+  esac
+  # The notices, read by the installed python: on Windows the path is a native one, which
+  # git-bash's dirname cannot split.
+  "$1" -c 'import sys; from tether._verifier import bundled_gh; d = bundled_gh().parent; m = [n for n in ("LICENSE", "THIRD-PARTY-LICENSES.txt") if not (d / n).is_file() or not (d / n).stat().st_size]; sys.exit(f"the bundled gh has no {m} in {d}" if m else 0)'
+}
+
 if [ "$RUNNER_OS" = "Windows" ]; then
   # Stop git-bash from mangling the NSIS /S and /D switches. Exported here for the
   # same single-source reason as the offline pair above: the msys runtime reads it
@@ -76,6 +99,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # The interface icons are SVG files (#677), and they draw only when the bundle carries
   # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
   QT_QPA_PLATFORM=offscreen "$prefix\\envs\\tether\\python.exe" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
+  check_gh_verifier "$prefix\\envs\\tether\\python.exe"
   # The USER-FACING launch surface (ADR-0051). The absolute env path above
   # proves the env was built; these prove the app can actually be STARTED.
   prefix_u="$(cygpath -u "$prefix")"
@@ -204,6 +228,7 @@ else
   # The interface icons are SVG files (#677), and they draw only when the bundle carries
   # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
   QT_QPA_PLATFORM=offscreen "$prefix/envs/tether/bin/python" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
+  check_gh_verifier "$prefix/envs/tether/bin/python"
   # The USER-FACING launch surface (ADR-0051). The absolute env paths above
   # prove the envs were built; these prove the app can actually be STARTED,
   # which is the thing an install guide has to document. Exercised through
