@@ -293,11 +293,18 @@ class CheatSheetOverlay:
     keymap so a rebinding is reflected the next time it is shown.
     """
 
-    def __init__(self, keymap: Keymap, *, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        keymap: Keymap,
+        *,
+        parent: QtWidgets.QWidget | None = None,
+        note: str | None = None,
+    ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
         self._keymap = keymap
         self._rows: list[tuple[str, str]] = []
+        self._note = note
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("Keyboard shortcuts")
         layout = QtWidgets.QVBoxLayout(self._dialog)
@@ -306,6 +313,12 @@ class CheatSheetOverlay:
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
+        if note:
+            # A behavior the key rows cannot carry, such as the advance-after-curation
+            # preference (#631): shown under the table, never as a key row.
+            label = QtWidgets.QLabel(note)
+            label.setWordWrap(True)
+            layout.addWidget(label)
         self.refresh()
 
     @property
@@ -317,6 +330,11 @@ class CheatSheetOverlay:
     def rows(self) -> list[tuple[str, str]]:
         """The ``(key_label, action)`` rows currently displayed."""
         return list(self._rows)
+
+    @property
+    def note(self) -> str | None:
+        """The text shown under the key table, or ``None`` when there is none."""
+        return self._note
 
     def refresh(self) -> None:
         """Re-read the keymap and repopulate the table (reflects rebindings)."""
@@ -350,7 +368,9 @@ class TetherShell:
     draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
     ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
-    (§7.3). Use as a context manager or call [`close`][].
+    (§7.3). After a stored accept or reject the next listed molecule is selected,
+    so one key both decides and moves on; ``advance_after_curation=False`` keeps the
+    selection in place instead. Use as a context manager or call [`close`][].
     """
 
     def __init__(
@@ -362,6 +382,7 @@ class TetherShell:
         histogram: HistogramSeam | None = None,
         overlap: OverlapSeam | None = None,
         conditions: Project | None = None,
+        advance_after_curation: bool = True,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
@@ -377,6 +398,10 @@ class TetherShell:
         )
         self._traces: list[TraceView] = []
         self._current_index = -1
+        # "Advance after accept or reject" (#631): a stored accept or reject selects
+        # the next listed molecule. On by default; the settings store (#330) will
+        # carry the preference, until then the caller passes it here.
+        self._advance_after_curation = bool(advance_after_curation)
         # The writable project behind Space/Backspace/Delete. It is set only by a
         # successful load_project call: synthetic/demo traces and a bare shell must
         # never acquire an accidental persistence target.
@@ -591,7 +616,9 @@ class TetherShell:
         self._act_quit.triggered.connect(self.quit)
 
         # Help / overflow actions (menu + the shipped cheat-sheet).
-        self._cheatsheet = CheatSheetOverlay(self._keymap, parent=self._window)
+        self._cheatsheet = CheatSheetOverlay(
+            self._keymap, parent=self._window, note=self._advance_note()
+        )
         menu = self._window.menuBar().addMenu("&Curation")
         act_help = menu.addAction("Keyboard &shortcuts…")
         act_help.triggered.connect(self.show_cheatsheet)
@@ -1909,7 +1936,44 @@ class TetherShell:
 
         target = trace.name or trace.molecule_key
         self._queue_open_histogram_refresh()
-        self._status(f"{completed} {target}")
+        if action is CurationAction.UNREJECT or not self._advance_after_curation:
+            self._status(f"{completed} {target}")
+            return
+        self._advance_from(row, f"{completed} {target}")
+
+    def _advance_from(self, row: int, done: str) -> None:
+        """Select the next listed molecule after ``row`` once a decision is stored.
+
+        "Next" is the next row in list order that the list shows, so a hidden
+        (filtered-out) row is skipped and the list is never reordered (§7.5). At the
+        last shown row the selection stays and the status says the end was reached.
+        The navigation status the move produces is kept after ``done``, so an overlap
+        failure on the new molecule is still reported.
+        """
+        nxt = row + 1
+        while nxt < len(self._traces) and self._molecule_list.isRowHidden(nxt):
+            nxt += 1
+        if nxt >= len(self._traces):
+            self._status(f"{done}; end of the list reached")
+            return
+        self._molecule_list.setCurrentRow(nxt)
+        self._status(f"{done}; {self.status_message}")
+
+    @property
+    def advance_after_curation(self) -> bool:
+        """Whether a stored accept or reject selects the next listed molecule.
+
+        Set once by the ``advance_after_curation`` constructor argument, on by default.
+        """
+        return self._advance_after_curation
+
+    def _advance_note(self) -> str:
+        """The cheat-sheet line that states the advance-after-curation preference."""
+        state = "on" if self._advance_after_curation else "off"
+        return (
+            f"Advance after accept or reject: {state}. When on, Accept and Reject show "
+            "the next trace; Un-reject and the category keys keep the same trace."
+        )
 
     def _assign_category(self, integer_class: int) -> None:
         name = (

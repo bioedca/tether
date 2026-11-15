@@ -117,22 +117,23 @@ you will set aside.
 ## 6. Reject one molecule and accept two
 
 Go back to `mol-0` and press **Backspace** to reject it. The status bar confirms it with the
-molecule's 64-character ID:
+molecule's 64-character ID. Tether then shows the next molecule by itself, so the same line
+also names `mol-1`, which is now selected:
 
 ```text
-Rejected b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d
+Rejected b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d; Molecule mol-1 (2/3)
 ```
 
-Move to `mol-1` and press **Space** to accept it:
+Press **Space** to accept `mol-1`. Tether moves on to `mol-2`:
 
 ```text
-Accepted 463104a0a9ee0dca67d4eb2981655e11d79ac500d70fbb3cdc5c388de7a77392
+Accepted 463104a0a9ee0dca67d4eb2981655e11d79ac500d70fbb3cdc5c388de7a77392; Molecule mol-2 (3/3)
 ```
 
-Move to `mol-2` and press **Space** again:
+Press **Space** again to accept `mol-2`. It is the last molecule, so it stays selected:
 
 ```text
-Accepted 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057
+Accepted 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057; end of the list reached
 ```
 
 Each decision is saved into `tutorial.tether` as you make it; there is no separate save
