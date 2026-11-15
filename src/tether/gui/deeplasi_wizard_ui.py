@@ -2,38 +2,41 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The Deep-LASI re-analysis wizard UI (PRD §7.8, FR-LEGACY, M7 PR #5).
 
-:class:`DeepLasiWizardDialog` is the GUI surface for the legacy re-analysis
+[`DeepLasiWizardDialog`][] is the GUI surface for the legacy re-analysis
 workflow: point it at a folder of Deep-LASI acquisition files, review and adjust
 the proposed per-acquisition plan, then run the import — writing one ``.tether``
 per acquisition **without re-extraction**. It is a thin renderer + navigation
 shell over two already-frozen, fully-tested headless layers:
 
-* the **controller** :class:`~tether.gui.deeplasi_wizard.DeepLasiWizard` (M7 PR
+* the **controller** [`DeepLasiWizard`][tether.gui.deeplasi_wizard.DeepLasiWizard] (M7 PR
   #5a, ``#127``) — the editable plan state machine. Every plan edit routes through
   its validated mutators (``set_mode`` / ``set_coordinate_source`` /
   ``set_output_name``), so the controller stays the single source of truth for
   what an acquisition's files can support; an unsupported edit raises
-  :class:`~tether.gui.deeplasi_wizard.WizardError` and this dialog reverts the
+  [`WizardError`][tether.gui.deeplasi_wizard.WizardError] and this dialog reverts the
   widget and surfaces the reason (rather than duplicating the capability logic).
-* the **executor** :func:`~tether.gui.deeplasi_executor.execute_plan` (M7 PR #5b,
-  ``#128``) — runs a finalized :class:`~tether.gui.deeplasi_wizard.WizardPlan`.
+* the **executor** [`execute_plan`][tether.gui.deeplasi_executor.execute_plan] (M7 PR #5b,
+  ``#128``) — runs a finalized [`WizardPlan`][tether.gui.deeplasi_wizard.WizardPlan].
   It is injected (``runner=``) so tests drive the UI wiring without re-running the
   importers (whose correctness the executor's own suite already covers).
 
-Three steps, held in a :class:`~qtpy.QtWidgets.QStackedWidget`:
+Three steps, held in a [`QStackedWidget`][qtpy.QtWidgets.QStackedWidget]:
 
 1. **Intake** — choose a folder (+ optional recursive scan) →
-   :meth:`~tether.gui.deeplasi_wizard.DeepLasiWizard.from_directory` builds the
+   [`from_directory`][tether.gui.deeplasi_wizard.DeepLasiWizard.from_directory] builds the
    default plan. *Next* is enabled once a scan discovers ≥1 acquisition.
 2. **Confirm** — a per-acquisition table (mode / coordinate source / output name)
    plus the run destination. A live status line mirrors
-   :meth:`~tether.gui.deeplasi_wizard.DeepLasiWizard.summary` (mode counts,
+   [`summary`][tether.gui.deeplasi_wizard.DeepLasiWizard.summary] (mode counts,
    advisories, and the reasons a run is blocked). *Run* is enabled only when the
-   plan :attr:`~tether.gui.deeplasi_wizard.DeepLasiWizard.is_ready` and a
+   plan [`is_ready`][tether.gui.deeplasi_wizard.DeepLasiWizard.is_ready] and a
    destination is set.
-3. **Report** — the per-acquisition :class:`~tether.gui.deeplasi_executor.ExecutionReport`
+3. **Report** — the per-acquisition
+   [`ExecutionReport`][tether.gui.deeplasi_executor.ExecutionReport]
    (imported / failed, with any non-fatal warnings). The produced ``.tether``
-   paths are exposed via :meth:`produced_projects` for the shell to open live.
+   paths are exposed via
+   [`produced_projects`][tether.gui.deeplasi_wizard_ui.DeepLasiWizardDialog.produced_projects] for
+   the shell to open live.
 
 Like the other ``tether.gui`` dialogs this **holds** a ``QDialog`` rather than
 subclassing one (so importing this module costs no Qt), and imports Qt lazily
@@ -57,12 +60,12 @@ if TYPE_CHECKING:
     from tether.gui.deeplasi_executor import ExecutionReport
     from tether.gui.deeplasi_wizard import PlannedAcquisition
 
-    #: A callable with :func:`~tether.gui.deeplasi_executor.execute_plan`'s shape.
+    #: A callable with `execute_plan`'s shape.
     ExecuteRunner = Callable[..., ExecutionReport]
 
 __all__ = ["DeepLasiWizardDialog"]
 
-#: The stack index of each step (also the value of :attr:`DeepLasiWizardDialog.step`).
+#: The stack index of each step (also the value of `DeepLasiWizardDialog.step`).
 _STEP_INTAKE = 0
 _STEP_CONFIRM = 1
 _STEP_REPORT = 2
@@ -101,13 +104,13 @@ class DeepLasiWizardDialog:
         Parameters
         ----------
         wizard
-            A pre-built :class:`~tether.gui.deeplasi_wizard.DeepLasiWizard` (e.g. the
+            A pre-built [`DeepLasiWizard`][tether.gui.deeplasi_wizard.DeepLasiWizard] (e.g. the
             shell scanned the folder itself). When given the dialog opens on the
             **Confirm** step; when ``None`` it opens on **Intake** and builds the
             controller from the chosen folder.
         runner
             The executor to run the finalized plan; defaults (lazily) to
-            :func:`~tether.gui.deeplasi_executor.execute_plan`. Injected so a test can
+            [`execute_plan`][tether.gui.deeplasi_executor.execute_plan]. Injected so a test can
             drive the confirm→report transition without re-running the importers.
         parent
             The Qt parent widget (the shell window), or ``None``.
@@ -279,9 +282,9 @@ class DeepLasiWizardDialog:
 
         Once a folder is scanned, editing the folder text or the recursive toggle must
         not leave the previous folder's plan runnable — otherwise *Next* could advance
-        (or a shell caller could read via :meth:`produced_projects`) acquisitions from
+        (or a shell caller could read via [`produced_projects`][]) acquisitions from
         the folder the user just navigated away from. Clears the controller + confirm
-        table and disables *Next* until :meth:`scan` succeeds again. A no-op when no
+        table and disables *Next* until [`scan`][] succeeds again. A no-op when no
         plan is cached yet (so typing the first folder path stays quiet).
         """
         if self._wizard is None:
@@ -466,7 +469,7 @@ class DeepLasiWizardDialog:
     def run(self) -> ExecutionReport | None:
         """Finalize the plan and run the executor, advancing to the report step.
 
-        Returns the :class:`~tether.gui.deeplasi_executor.ExecutionReport`, or ``None``
+        Returns the [`ExecutionReport`][tether.gui.deeplasi_executor.ExecutionReport], or ``None``
         when the plan is not ready / has no destination (the reason is shown inline).
         The executor is fail-soft, so a per-acquisition failure still returns a report;
         only an unexpected error (e.g. the destination cannot be created) is surfaced.

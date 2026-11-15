@@ -14,11 +14,15 @@ they correspond — **not** numerical accuracy. For the accuracy evidence (the s
 NFR-VALID oracles, the frozen tolerances and the external benchmark) see
 [Validation & benchmarks](../validation.md).
 
-Tether reproduces **exactly seven tMAVEN plot types** natively (the
-*bounded plot parity* non-goal of the product specification). Any other tMAVEN plot stays reachable through the
-standalone-tMAVEN hand-off — it is **not** reimplemented. This gallery is the single
-cross-reference that ties each native plot to its tMAVEN counterpart, its Tether
-implementation, and the committed test that establishes the correspondence.
+Tether's parity with tMAVEN covers **exactly seven tMAVEN plot types** (the *bounded plot
+parity* non-goal of the product specification). Any other tMAVEN plot stays reachable
+through the standalone-tMAVEN hand-off — it is **not** reimplemented. Tether's own plot
+catalogue is wider than these seven: it is every result type that `tether.analysis`
+computes, such as the raw FRET cloud and the donor–acceptor cross-correlation. Those other
+results have no tMAVEN counterpart, so they make no parity claim and are not on this page.
+This gallery is the single cross-reference that ties each of the seven plots to its tMAVEN
+counterpart, its Tether implementation, and the committed test that establishes the
+correspondence.
 
 The seven types are enumerated from tMAVEN source at its pinned commit: six
 `controller_base_analysisplot` subclasses registered in
@@ -192,7 +196,12 @@ change ([McKinney 2006](#mckinney2006)).
 Rendering constants reproduced exactly as module defaults: `DEFAULT_TDP_NSKIP = 2`,
 `DEFAULT_TDP_SIGNAL_BINS = 101`, `DEFAULT_TDP_SIGNAL_RANGE = (-0.25, 1.25)`. The module
 stores the **raw, unsmoothed** histogram — tMAVEN's `gaussian_filter` smoothing and
-`LogNorm` log-normalization are display-only, applied at render time.
+`LogNorm` log-normalization are display-only, applied at render time. Tether's
+`render_transition_density` applies a log colour scale by default (`color_scale="log"`,
+#556). The scale is zero-safe: an empty bin gets the floor colour of the colour map, not
+`-inf`. The floor is one decade below the smallest non-empty bin, so the rarest transition
+stays visible. The scale changes only the picture, not the stored counts, and it is not
+part of the figure parity gate. Tether does not apply the smoothing.
 
 **Variants.** `density=True` (guarded against divide-by-zero all-NaN when no in-range mass)
 vs raw counts; `include_stale` / `include_rejected` on the store path.

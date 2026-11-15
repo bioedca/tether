@@ -5,22 +5,24 @@
 This is the home for PRD Appendix E **Stages 9-10** and the FR-EXTRACT §7.1
 registration contract ("support both a native bead/grid fit *and* an imported
 ``.tmap``", with a numeric RMS-residual gate). It sits one level above the raw
-fit/decode primitives in :mod:`tether.imaging.register` (which M0.5 S5/S6 landed:
-:func:`~tether.imaging.register.fit_polynomial_transform`,
-:func:`~tether.imaging.register.point_rms`,
-:func:`~tether.imaging.register.read_tmap`,
-:class:`~tether.imaging.register.PolyTransform2D`) and turns them into a single,
+fit/decode primitives in [`tether.imaging.register`][] (which M0.5 S5/S6 landed:
+[`fit_polynomial_transform`][tether.imaging.register.fit_polynomial_transform],
+[`point_rms`][tether.imaging.register.point_rms],
+[`read_tmap`][tether.imaging.register.read_tmap],
+[`PolyTransform2D`][tether.imaging.register.PolyTransform2D]) and turns them into a single,
 persistable calibration object shared by the native and imported paths.
 
 What S6 adds on top of the M0.5 primitives
 -------------------------------------------
-* :class:`RegistrationMap` -- a frozen, serialisable per-movie donor<->acceptor
+* [`RegistrationMap`][] -- a frozen, serialisable per-movie donor<->acceptor
   calibration: the degree-2 polynomial coefficients **in both directions**, the
   numeric **RMS residual**, the control-point count, the gate, the per-channel
   split geometry, and provenance (source = native | imported, bead/map file, app
-  version). It carries the **over-gate verdict** (:attr:`~RegistrationMap.low_confidence`)
-  and the molecule tag that verdict implies (:attr:`~RegistrationMap.molecule_tags`).
-* :func:`fit_registration_map` -- the native fit orchestration (Stage 9): a
+  version). It carries the **over-gate verdict**
+  ([`low_confidence`][tether.imaging.calibrate.RegistrationMap.low_confidence])
+  and the molecule tag that verdict implies
+  ([`molecule_tags`][tether.imaging.calibrate.RegistrationMap.molecule_tags]).
+* [`fit_registration_map`][] -- the native fit orchestration (Stage 9): a
   degree-2 polynomial map (with a 4-DOF *similarity fallback* when fewer than six
   control points are available), a numeric per-point RMS residual, and the
   **over-gate branch** (§7.1): a fit ``<=`` the gate (default 0.5 px, §11.2)
@@ -30,27 +32,27 @@ What S6 adds on top of the M0.5 primitives
   policy (``"warn"`` accept-with-flag-and-warn, the default, vs ``"fail"``
   fail-the-movie). The blocking GUI confirm-dialog is a later (M2) layer over this
   same verdict.
-* :func:`registration_map_from_tmap` -- the imported path (§7.1, §9 M1's
+* [`registration_map_from_tmap`][] -- the imported path (§7.1, §9 M1's
   conjunctive "native calibration **and** apply imported ``.tmap``"): build the
-  *same* :class:`RegistrationMap` from a decoded ``.tmap`` (skip the native fit),
+  *same* [`RegistrationMap`][] from a decoded ``.tmap`` (skip the native fit),
   stamping ``source = "imported"``. Because both paths yield one type, an imported
   map and a native fit are directly comparable (the apply-both parity check, §7.1).
-* :func:`save_map` / :func:`load_map` -- Stage-10 map-file persistence to ``.npz``
+* [`save_map`][] / [`load_map`][] -- Stage-10 map-file persistence to ``.npz``
   (explicit coefficients both directions + geometry + provenance; **no raw images,
   no pickled transform objects**), kept separate from the session ``.tether``
   (mirroring Deep-LASI's ``.tmap`` vs ``.tdat`` split).
-* :func:`write_calibration` / :func:`read_calibration` -- persist the calibration
+* [`write_calibration`][] / [`read_calibration`][] -- persist the calibration
   *into* a project's frozen ``/calibration`` container group as **additive data**
   (the M0 schema freeze allows data, not structure; the group is forward-declared
-  empty in :mod:`tether.io.schema`).
+  empty in [`tether.io.schema`][]).
 
 Deferred to a follow-up (logged in ADR-0014): the degree-3 polynomial *retry* rung
-of the fit-failure ladder (it needs :class:`PolyTransform2D` to become
+of the fit-failure ladder (it needs [`PolyTransform2D`][] to become
 degree-aware) and decoding the imported ``.tmap``'s per-channel rotation/flip (the
 transform coefficients and crop suffice for the S6 map + parity; rotation/flip
 matter for S7 apply-map-at-extraction).
 
-Coordinate convention follows the rest of :mod:`tether.imaging`: points are
+Coordinate convention follows the rest of [`tether.imaging`][]: points are
 ``(N, 2)`` arrays of ``[x, y] = [col, row]`` in 0-based pixels.
 """
 
@@ -106,7 +108,7 @@ _DEGREE_SIMILARITY = 1  #: a 4-DOF similarity, stored as a degree-1 polynomial.
 
 
 class RegistrationOverGateError(RuntimeError):
-    """Raised by :func:`fit_registration_map` when a fit exceeds the RMS gate.
+    """Raised by [`fit_registration_map`][] when a fit exceeds the RMS gate.
 
     Only raised under the ``on_over_gate="fail"`` batch policy (§7.1 fail-movie);
     the default ``"warn"`` policy returns the (flagged) map instead.
@@ -114,11 +116,11 @@ class RegistrationOverGateError(RuntimeError):
 
 
 class OverGateRegistrationWarning(UserWarning):
-    """Warned by :func:`fit_registration_map` when a fit exceeds the RMS gate.
+    """Warned by [`fit_registration_map`][] when a fit exceeds the RMS gate.
 
     The structured per-movie warning of the headless ``on_over_gate="warn"``
     (accept-with-flag) policy (§7.1). Its own category so callers/tests can target
-    it with :func:`warnings.catch_warnings` / :func:`pytest.warns`.
+    it with [`warnings.catch_warnings`][] / [`pytest.warns`][].
     """
 
 
@@ -133,14 +135,14 @@ class RegistrationMap:
     **both** directions (``reference -> moving`` and ``moving -> reference``,
     independently fitted, mirroring the decoded ``.tmap``), the numeric RMS
     residual and the gate it was judged against, the control-point count, optional
-    per-channel split geometry, and provenance. Built by :func:`fit_registration_map`
-    (native) or :func:`registration_map_from_tmap` (imported); both yield this one
+    per-channel split geometry, and provenance. Built by [`fit_registration_map`][]
+    (native) or [`registration_map_from_tmap`][] (imported); both yield this one
     type so the two are directly comparable (§7.1 apply-both parity).
 
     "reference" is the donor half (the registration anchor); "moving" is the
-    acceptor half mapped onto it. :meth:`apply_reference_to_moving` warps a 0-based
+    acceptor half mapped onto it. [`apply_reference_to_moving`][] warps a 0-based
     reference ``[x, y]`` into acceptor coordinates (the donor-anchored read of
-    Stage 11), :meth:`apply_moving_to_reference` the inverse.
+    Stage 11), [`apply_moving_to_reference`][] the inverse.
     """
 
     reference_channel: int
@@ -212,7 +214,7 @@ def _fit_similarity(src: np.ndarray, dst: np.ndarray) -> PolyTransform2D:
 
     The Stage-9 "similarity fallback" for fewer than six control points, solved in
     closed form (Umeyama, reflection excluded) and expressed as a degree-2
-    :class:`PolyTransform2D` with zero quadratic terms, so the calibration stays a
+    [`PolyTransform2D`][] with zero quadratic terms, so the calibration stays a
     single uniform type regardless of which rung produced it. Settled linear
     algebra (no FRET/biophysics fact -> no Consensus gate).
     """
@@ -272,7 +274,7 @@ def fit_registration_map(
 
     Fits the donor(reference)<->acceptor(moving) polynomial map in both directions
     from matched control points (e.g. the mutual-NN pairs of
-    :func:`tether.imaging.register.pair_control_points`), computes the numeric
+    [`tether.imaging.register.pair_control_points`][]), computes the numeric
     per-point RMS residual of the forward map, and applies the over-gate branch.
 
     Parameters
@@ -291,9 +293,9 @@ def fit_registration_map(
     on_over_gate:
         Batch policy when the residual exceeds the gate (§7.1): ``"warn"`` (the
         default headless accept-with-flag-and-warn -- returns the map flagged
-        :attr:`~RegistrationMap.low_confidence` and emits an
-        :class:`OverGateRegistrationWarning`) or ``"fail"`` (raise
-        :class:`RegistrationOverGateError`, the fail-the-movie policy). A fit
+        [`low_confidence`][tether.imaging.calibrate.RegistrationMap.low_confidence] and emits an
+        [`OverGateRegistrationWarning`][]) or ``"fail"`` (raise
+        [`RegistrationOverGateError`][], the fail-the-movie policy). A fit
         within the gate proceeds identically under either policy.
     app_version, bead_file:
         Provenance stamps (the Tether version, the bead/grid source file).
@@ -302,7 +304,8 @@ def fit_registration_map(
     -------
     RegistrationMap
         ``source="native"``. A within-gate fit has
-        :attr:`~RegistrationMap.low_confidence` ``False``; an over-gate fit (under
+        [`low_confidence`][tether.imaging.calibrate.RegistrationMap.low_confidence] ``False``; an
+        over-gate fit (under
         ``"warn"``) is returned flagged, **never** dropped.
     """
     reference_points = np.atleast_2d(np.asarray(reference_points, dtype=np.float64))
@@ -355,12 +358,12 @@ def _emit_over_gate(reg_map: RegistrationMap, on_over_gate: Literal["warn", "fai
     """Apply the §7.1 over-gate batch policy to an already-built calibration.
 
     A no-op for a within-gate (or unknown-residual) calibration. For a
-    low-confidence one, ``"fail"`` raises :class:`RegistrationOverGateError`
+    low-confidence one, ``"fail"`` raises [`RegistrationOverGateError`][]
     (fail-the-movie) and ``"warn"`` emits a structured
-    :class:`OverGateRegistrationWarning` (accept-with-flag); the calibration is
+    [`OverGateRegistrationWarning`][] (accept-with-flag); the calibration is
     returned flagged either way by the caller -- this never drops a molecule.
-    Shared by the native (:func:`fit_registration_map`) and imported
-    (:func:`registration_map_from_tmap`) paths so both behave identically in a
+    Shared by the native ([`fit_registration_map`][]) and imported
+    ([`registration_map_from_tmap`][]) paths so both behave identically in a
     batch run.
     """
     if not reg_map.low_confidence:
@@ -392,24 +395,24 @@ def registration_map_from_tmap(
     app_version: str | None = None,
     source_file: str | None = None,
 ) -> RegistrationMap:
-    """Build a :class:`RegistrationMap` from a decoded ``.tmap`` (the imported path).
+    """Build a [`RegistrationMap`][] from a decoded ``.tmap`` (the imported path).
 
     Reuses Deep-LASI's stored polynomial transforms instead of fitting natively
     (§7.1 "support both ... and an imported ``.tmap``"; §9 M1). ``channels`` is the
-    output of :func:`tether.imaging.register.read_tmap`. The reference channel
+    output of [`tether.imaging.register.read_tmap`][]. The reference channel
     defaults to the lowest id (the donor half, whose own map is identity); the
     moving channel defaults to the single other channel when there is exactly one.
 
     The imported transforms are the ``.tmap``'s ``reference -> channel`` and
-    ``channel -> reference`` maps (0-based via the :class:`TmapChannel` helpers).
+    ``channel -> reference`` maps (0-based via the [`TmapChannel`][] helpers).
     Each channel's crop is carried from the ``.tmap`` (reference + moving); the
     per-channel rotation/flip are not yet decoded (S7) and are left unset. When
     matched control points
     (``reference_points`` / ``moving_points``, e.g. colocalized molecule pairs) are
     supplied, the imported map's RMS residual is measured at them and the same
     over-gate policy as the native path applies (``on_over_gate``: ``"warn"`` flags
-    + emits :class:`OverGateRegistrationWarning`, ``"fail"`` raises
-    :class:`RegistrationOverGateError`); otherwise the residual is non-finite
+    + emits [`OverGateRegistrationWarning`][], ``"fail"`` raises
+    [`RegistrationOverGateError`][]); otherwise the residual is non-finite
     ("unknown", which never trips the over-gate flag).
 
     Returns
@@ -505,8 +508,8 @@ def _shift_poly(poly: PolyTransform2D, *, shift_in: float, shift_out: float) -> 
     directly, fold a ``+shift_in`` translation into ``norm_xy`` (applied to the
     input before the polynomial) and a ``+shift_out`` into ``norm_uv`` (applied to
     the output after it). With ``shift_in=+1, shift_out=-1`` this is exactly the
-    0-based wrapper the :class:`TmapChannel` helpers apply at call time, baked into
-    the coefficients so the resulting :class:`PolyTransform2D` is self-contained.
+    0-based wrapper the [`TmapChannel`][] helpers apply at call time, baked into
+    the coefficients so the resulting [`PolyTransform2D`][] is self-contained.
     """
     pre = np.eye(3)
     pre[2, 0], pre[2, 1] = shift_in, shift_in  # [x, y, 1] @ pre = [x + shift_in, y + shift_in, 1]
@@ -573,7 +576,7 @@ def _poly_from_arrays(prefix: str, data: Any) -> PolyTransform2D:
 
 
 def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
-    """Persist a :class:`RegistrationMap` to a ``.npz`` map file (Stage 10).
+    """Persist a [`RegistrationMap`][] to a ``.npz`` map file (Stage 10).
 
     Stores explicit coefficients (both directions), geometry, the RMS residual and
     gate, the control-point count, source, degree, and provenance. **No raw images
@@ -603,7 +606,7 @@ def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
 
 
 def load_map(path: str | Path) -> RegistrationMap:
-    """Load a :class:`RegistrationMap` from a ``.npz`` map file (:func:`save_map`)."""
+    """Load a [`RegistrationMap`][] from a ``.npz`` map file ([`save_map`][])."""
     with np.load(Path(path), allow_pickle=False) as data:
         return RegistrationMap(
             reference_channel=int(data["reference_channel"]),
@@ -649,7 +652,7 @@ def write_calibration(
     is untouched, so the M0 schema freeze (``schema-guard``) stays green.
 
     The target **must already be a compatible ``.tether`` project**
-    (:func:`tether.io.schema.assert_is_compatible_project`); the file is opened
+    ([`tether.io.schema.assert_is_compatible_project`][]); the file is opened
     ``r+`` (never ``a``) so this can neither create a fresh store nor graft a
     ``/calibration`` group onto a foreign HDF5 file, and it writes into the
     pre-declared frozen group rather than conjuring one. Calibrations are
@@ -698,7 +701,7 @@ def write_calibration(
 
 
 def read_calibration(project_path: str | Path, calibration_id: str) -> RegistrationMap:
-    """Read a calibration from ``/calibration/<calibration_id>`` (see :func:`write_calibration`)."""
+    """Read a calibration from ``/calibration/<calibration_id>`` (see [`write_calibration`][])."""
     import h5py  # noqa: PLC0415
 
     project_path = Path(project_path)
