@@ -3019,7 +3019,8 @@ class _MarkedMapping(dict):
     """A parsed mapping that also remembers where its ``uses:`` value ENDS in the source text.
 
     ``uses_end`` is the character index just past the ``uses:`` scalar (after its closing
-    quote, if quoted), or None when the mapping has no ``uses:`` key.
+    quote, if quoted), or None when the mapping has no ``uses:`` key or its value is not
+    written inside this mapping (see :func:`_construct_marked_mapping`).
     """
 
     uses_end: int | None = None
@@ -3044,7 +3045,11 @@ def _construct_marked_mapping(
     # key wins, matching the dict the safe loader builds from duplicate keys.
     for key, value in node.value:
         if isinstance(key, yaml.ScalarNode) and key.value == "uses":
-            data.uses_end = value.end_mark.index
+            # An alias (`uses: *setup`) or a merge key reuses a node written elsewhere, whose
+            # end mark sits on the ANCHOR's line. Reading a tag there would hand this call site
+            # another line's tag, so a value outside this mapping's own span has no mark.
+            inside = node.start_mark.index <= value.start_mark.index < node.end_mark.index
+            data.uses_end = value.end_mark.index if inside else None
 
 
 _UsesMarkLoader.add_constructor("tag:yaml.org,2002:map", _construct_marked_mapping)
@@ -3285,6 +3290,23 @@ def test_a_call_site_tag_is_read_from_its_own_uses_line() -> None:
     assert _micromamba_call_sites_in(quoted).tags == ["v1.2.3"]
     assert _micromamba_call_sites_in(composite).tags == ["v1.2.3"]
     assert _micromamba_call_sites_in(two_sites).tags == ["v1.2.3", None]
+
+
+def test_an_aliased_call_site_does_not_borrow_the_anchor_tag() -> None:
+    """A ``uses: *alias`` step has no tag of its own, even though its anchor's line has one.
+
+    An alias reuses the anchored node, end mark included, so reading the tag at that mark
+    would report the anchor's ``# v1.2.3`` for the alias step too and pass it (#510).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    aliased = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: &setup {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "      - uses: *setup\n"
+    )
+    assert _micromamba_call_sites_in(aliased).tags == ["v1.2.3", None]
 
 
 def test_a_mutable_action_ref_is_not_a_pin() -> None:
