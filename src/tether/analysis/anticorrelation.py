@@ -91,6 +91,7 @@ from tether.analysis.crosscorr import cross_correlation
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -404,7 +405,7 @@ class PopulationAnticorrelation:
 def population_anticorrelation_events(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     window: int = DEFAULT_ANTICORR_WINDOW,
     step: int = DEFAULT_ANTICORR_STEP,

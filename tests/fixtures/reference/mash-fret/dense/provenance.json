@@ -1,0 +1,159 @@
+{
+  "date": "2026-11-13T17:25:21+00:00",
+  "driver": {
+    "clean": true,
+    "commit": "72ace90afec39d6c35414773b2e4b03e150fde86"
+  },
+  "inputs": {},
+  "manual_steps": [],
+  "matlab": {
+    "release": "2023b",
+    "version": "23.2.0.2859533 (R2023b) Update 10"
+  },
+  "method": "matlab-batch",
+  "os": "Windows-11-10.0.26300-SP0",
+  "outputs": {
+    "coordinates/dense.coord": "9803503aa26da7d5c0a770316539aa3d6eb906e983803e8639cedde934740dd7",
+    "dense.sira.gz": "9a54c78479c98f7b47bf64d8b7ba6fe11e5933b001bdd6abb1b33d244218dc50",
+    "dense_param.log": "9a936a9f083f65ca428d0d8a48397844c8b6f4443b3423693e42a5c626c0acdd",
+    "dense_tether_note.txt": "67d2afd9012bfe1d11c4eac5f70ed8e9c44333f24e26c3ceb37192e18e3cc4f7",
+    "traces_ASCII/dense_mol10of60.txt": "7bae3a5b4e4ded4e4f936df99226c03f3dbe770e79473f52091182ac204a397b",
+    "traces_ASCII/dense_mol11of60.txt": "439b304db16a1464fae43ec8cbff90ae0718fcb279cfc1fde276e965d13938b2",
+    "traces_ASCII/dense_mol12of60.txt": "74db790875f7946bd5f9b372e6bd1566d4ef51414f18fc41375526c2495b6f07",
+    "traces_ASCII/dense_mol13of60.txt": "c19ea449376955b1ece10a73ad7649260d83431765e0d01359295eafe5ee953e",
+    "traces_ASCII/dense_mol14of60.txt": "27e40b7870577982aaee47aa654b579459edde748a4a9d9c02c104b904d9fd02",
+    "traces_ASCII/dense_mol15of60.txt": "382b25660d34892afaeb5a46bf13262ba0abd856975a5357e50bcd126027ed24",
+    "traces_ASCII/dense_mol16of60.txt": "51eb78fb677053c953abf1a731090f8a354a46ed83eabda7c9587eb6a0415f25",
+    "traces_ASCII/dense_mol17of60.txt": "4247d12309a363b5439cec26bd5b0e8df4ff541769cd3ea425d914daa52701fc",
+    "traces_ASCII/dense_mol18of60.txt": "655fe09d62ee3260d516655719f5f6fa49c75d8e7abe3857ceeb60407c72f092",
+    "traces_ASCII/dense_mol19of60.txt": "ae7fb7a7059f7f93e0666b0117a2ebb4570758895f50189576767b1145de85c4",
+    "traces_ASCII/dense_mol1of60.txt": "27ab60cbf6ab25d18b7cdb0e29cfd32374068fa4f909e8319dbd8a8541bd5439",
+    "traces_ASCII/dense_mol20of60.txt": "db15e115429719f9c4b447efaae5583c4abc69999129ca0be44b50917eb2705f",
+    "traces_ASCII/dense_mol21of60.txt": "90e11ea64f1fa541d0d25991c73a8994da2f83eee6c97170fdbed02bc599464f",
+    "traces_ASCII/dense_mol22of60.txt": "168e4699cbfa150c2f68a7e158da5aef36b9aa8bf0937821ba3217b5bb1e7b1b",
+    "traces_ASCII/dense_mol23of60.txt": "23967b9cf70ba737927d7162452f59b01f73608c4f7b45072e8d9b7e440d51ed",
+    "traces_ASCII/dense_mol24of60.txt": "b9d9e0e0e5bc2a42ff05021d544410c928590e9c78117aa9a04b6a84d6bd4637",
+    "traces_ASCII/dense_mol25of60.txt": "95d1c64071eaff11949004b40a1e87bec3ff8d92c2b5c9b100e60e65560f2f88",
+    "traces_ASCII/dense_mol26of60.txt": "ad8f531d5f47e4d6c8f30b6577c8ca770c74a5831b0190f8aec6d657f1209a56",
+    "traces_ASCII/dense_mol27of60.txt": "0e8bb994749e6de432d96dd66445ef7c4bd542e36fb2c4394927f90b077b108f",
+    "traces_ASCII/dense_mol28of60.txt": "14cc50e97a2f69a0f625587d6a36ae747276fb0c94d6af8f110eb2ac3c1e4ae6",
+    "traces_ASCII/dense_mol29of60.txt": "2ae649a4d64444ae23ff7242ce44ef0081a3f71bf4677398230281a0af61b1a8",
+    "traces_ASCII/dense_mol2of60.txt": "938112e31d418a2804c7e6b3ffd7f87238f56dc6e6aaf63cc0b17f1caa3299be",
+    "traces_ASCII/dense_mol30of60.txt": "dec47a5835e02df7ea9c91e959066ac09047b1cce1350e3aa12b29c7473cca41",
+    "traces_ASCII/dense_mol31of60.txt": "5549f12435e20de25f4e8d5df112842fedac3dce01cf018905becd1b1c9acc40",
+    "traces_ASCII/dense_mol32of60.txt": "4659e90683da2f9efd504efbbdd139547b432a97dd2e868aa4b23667c66a59a8",
+    "traces_ASCII/dense_mol33of60.txt": "455a4a398290d550383b5164962468dca22b77f41ec39f163f5dfedf3085f3ee",
+    "traces_ASCII/dense_mol34of60.txt": "6e09547959220ffac2b52767cf9cd915eb7ef56d151013cc4e18c82eb9542d52",
+    "traces_ASCII/dense_mol35of60.txt": "3337d9a83760e7de2be271e88278f5066f00fa811caf0c3d95bf0acd22af4d1b",
+    "traces_ASCII/dense_mol36of60.txt": "68dec90e22bbddac99cc0a395586cbfcf9419ba6733b0587af94ce8160f7195d",
+    "traces_ASCII/dense_mol37of60.txt": "bd924d8507c72df70d2f47fa12fa1041251f696291435406a83e46a0133de32a",
+    "traces_ASCII/dense_mol38of60.txt": "6d852e4d7c6669ceb27d27ffbf0d8632700ab5a6607b0568c5b230253236dbc2",
+    "traces_ASCII/dense_mol39of60.txt": "785f6a2afbc7594aebebbfb06240d96b3d63e609ddca19c179096347a15f6918",
+    "traces_ASCII/dense_mol3of60.txt": "8ad0eb62b9362b02ab5edb49fd42521bd05c9740c981bb02ff2b95ddc6740420",
+    "traces_ASCII/dense_mol40of60.txt": "5c7d886790c3cdd44d278bd1cc1d02ced95cf1c79a4c1e4a3909ce44a5cfd94d",
+    "traces_ASCII/dense_mol41of60.txt": "a0ae8954762a4268d4dcfbe11b8bf94aa408df2d2aa850887e473f011f996f60",
+    "traces_ASCII/dense_mol42of60.txt": "9b0968e459cd6111dd38a138eab65966caec577da065f0520d49aabd1f4d5e3a",
+    "traces_ASCII/dense_mol43of60.txt": "048340a4fbc7df64f4500e88cdb93846091a7373edc83d9bce35b97e8f190511",
+    "traces_ASCII/dense_mol44of60.txt": "42c0f638f83491d5c78156a53c971ce92cfccd2f2e1299741f6851ea0241f827",
+    "traces_ASCII/dense_mol45of60.txt": "15f4a5129e87e1f000713f76aeabd9d985605d352a4e1a5536517a0082c14bcf",
+    "traces_ASCII/dense_mol46of60.txt": "dbfeb4e0808a1084df6edfbd6aefc6ce3d10a8d5444d05315257308e5ff5148a",
+    "traces_ASCII/dense_mol47of60.txt": "fec65f6a4ef0ac01eb027cc2be1357c20243b24c82ed2226e15663433292ca70",
+    "traces_ASCII/dense_mol48of60.txt": "5f84a4d14da3a2c3282c511e55bc34bacb5a8fa44d80d29fd2a9015f6c3acc52",
+    "traces_ASCII/dense_mol49of60.txt": "f7f1249546348d520f54b09d26b50255a962b372173bce28bf05afc3490a3bc3",
+    "traces_ASCII/dense_mol4of60.txt": "da0821f39c5183e87ab011bde530df147a6eee3d464e5a84c6a869d2127286ac",
+    "traces_ASCII/dense_mol50of60.txt": "c111f5123969b97bd37601ab21c5705c4fc2525a00dc2360cb2da62de0d08ef6",
+    "traces_ASCII/dense_mol51of60.txt": "24d543c55f3fa186695405e58b48d34a55124543c0500bebd77319fbb14a5948",
+    "traces_ASCII/dense_mol52of60.txt": "173938db06cbdf320b7c306b91412b5b44b1c7b96a453210f537cbf3d1bda36a",
+    "traces_ASCII/dense_mol53of60.txt": "ec2ccc4f88ff2840841a5c79cf52a0a180288bcfe0655e36bbe5916d4bbdbc16",
+    "traces_ASCII/dense_mol54of60.txt": "6a6218a84c9c1b9d1434bd1f5ddea2b78e1152899bd88e3538c1e10b7934bada",
+    "traces_ASCII/dense_mol55of60.txt": "778efd7c35b146eb4675478dd2b1a6280a0d36da5bf94b64dae5235a50538d79",
+    "traces_ASCII/dense_mol56of60.txt": "dcfb2b8ad370a40c02fb5d90b86c63040514a2f216510895c23dbd957eb782b6",
+    "traces_ASCII/dense_mol57of60.txt": "e76631e1119a0c2a07b8b9abe91b138d52108f32e6d61fd04fab06ce2caa0f23",
+    "traces_ASCII/dense_mol58of60.txt": "7043bba8bb53e149d3ea120f49f86e7ed467ed7a1703ae2b4b8d33b997acf06e",
+    "traces_ASCII/dense_mol59of60.txt": "a9d62858377155802f2e997b9d7993b79a789238156cca87f5abd23495dbc8e9",
+    "traces_ASCII/dense_mol5of60.txt": "f3a595ba9dc5260b7cae8caa7a6a308c1469991f6f2a90674b6a32dc4371cd66",
+    "traces_ASCII/dense_mol60of60.txt": "1fb690edd922de47c1f80b00d50b80005fe4ccb6c0d3446b04f070631b16055a",
+    "traces_ASCII/dense_mol6of60.txt": "24a63295d8079e6fec362b84ae806fa5ecfb11f51e4d172ca8731b51bcd63be3",
+    "traces_ASCII/dense_mol7of60.txt": "932aa5ad887870e50911fa6517301824561b86df1a2abfffe6fdd0c99fd558b3",
+    "traces_ASCII/dense_mol8of60.txt": "725fe80285ae93635e0265c537829a21021e0b7d2f8148e25fbb0b561e54203e",
+    "traces_ASCII/dense_mol9of60.txt": "60b3f77a5f0baed0d932d61505be5b45be49c9a4826e4df8e451e32aef77256b"
+  },
+  "params": {
+    "export": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true
+    ],
+    "gzip_video": true,
+    "name": "dense",
+    "overrides": {
+      "Bt": [
+        0,
+        0
+      ],
+      "FRET": [
+        0.3,
+        0.7
+      ],
+      "Itot": 400,
+      "J": 2,
+      "L": 40,
+      "N": 60,
+      "bg": 1,
+      "bgDec": false,
+      "bgI": [
+        3,
+        3
+      ],
+      "bleach": false,
+      "camnoise": 1,
+      "dE": [
+        0,
+        0
+      ],
+      "defocus": false,
+      "gamma": 1,
+      "k": [
+        [
+          0,
+          2
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "pc_in": true,
+      "pixdim": 0.25,
+      "psf": true,
+      "psfW": [
+        0.32,
+        0.35
+      ],
+      "rate": 10,
+      "viddim": [
+        160,
+        80
+      ],
+      "wFRET": [
+        0,
+        0
+      ],
+      "wGamma": 0,
+      "wItot": 0
+    },
+    "seed": 714003,
+    "units": 2
+  },
+  "record_version": 1,
+  "task": "simulate",
+  "tool": {
+    "commit": "83fcadf3b7274f2eeb22591429202dda0328c05b",
+    "name": "mash-fret",
+    "url": "https://github.com/RNA-FRETools/MASH-FRET"
+  }
+}
