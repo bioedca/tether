@@ -3183,7 +3183,7 @@ class _MarkedMapping(dict):
 
     ``uses_end`` is the character index just past the ``uses:`` scalar (after its closing
     quote, if quoted), or None when the mapping has no ``uses:`` key or its value is not
-    written inside this mapping (see :func:`_construct_marked_mapping`).
+    written at this ``uses:`` key (see :func:`_construct_marked_mapping`).
     """
 
     uses_end: int | None = None
@@ -3209,10 +3209,11 @@ def _construct_marked_mapping(
     for key, value in node.value:
         if isinstance(key, yaml.ScalarNode) and key.value == "uses":
             # An alias (`uses: *setup`) or a merge key reuses a node written elsewhere, whose
-            # end mark sits on the ANCHOR's line. Reading a tag there would hand this call site
-            # another line's tag, so a value outside this mapping's own span has no mark.
-            inside = node.start_mark.index <= value.start_mark.index < node.end_mark.index
-            data.uses_end = value.end_mark.index if inside else None
+            # end mark sits on the ANCHOR's line -- in another step, or in this step's own
+            # `name:`. An anchor always precedes its alias, so a value that starts before its
+            # own key was not written here: it gets no mark rather than another line's tag.
+            written_here = value.start_mark.index > key.end_mark.index
+            data.uses_end = value.end_mark.index if written_here else None
 
 
 _UsesMarkLoader.add_constructor("tag:yaml.org,2002:map", _construct_marked_mapping)
@@ -3470,6 +3471,14 @@ def test_an_aliased_call_site_does_not_borrow_the_anchor_tag() -> None:
         "      - uses: *setup\n"
     )
     assert _micromamba_call_sites_in(aliased).tags == ["v1.2.3", None]
+    same_step = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - name: &setup {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "        uses: *setup\n"
+    )
+    assert _micromamba_call_sites_in(same_step).tags == [None]
 
 
 def test_a_mutable_action_ref_is_not_a_pin() -> None:
