@@ -249,7 +249,7 @@ capability-sequenced, with no schedule commitment anywhere).
   numeric RMS-residual gate), or apply an imported `.tmap`; donor-anchored colocalization.
 - **`tether.fret`** — photobleaching-step detection (a native, headless reimplementation of tMAVEN's Bayesian
   single-step model [Verma2024], run independently per channel — Appendix E Stage 16); correction factors (Appendix B); corrected FRET
-  over the per-trace analysis window; donor–acceptor cross-correlation (vectorized FFT).
+  over the per-trace analysis window.
 - **`tether.idealize`** — tMAVEN sidecar driver (export SMD → run vbFRET/consensus/ebFRET headless via
   `tmaven.maven.maven_class` → import); one-click hand-off to the standalone tMAVEN GUI with non-destructive
   re-import; idealization staleness tracking; dwell/rate analysis.
@@ -257,9 +257,10 @@ capability-sequenced, with no schedule commitment anywhere).
   quality, never auto-drop) [Chen2016]; similarity search; active-learning loop; model load / warm-start-retrain /
   save as a portable artifact; deep models later [Thomsen2020].
 - **`tether.analysis`** — histograms with CI [König2013], transition density plots [McKinney2006], the raw FRET
-  cloud and the successive-frame FRET cloud, the anticorrelation-event finder, per-condition population
-  statistics, and the native plot catalogue of Appendix C: every result type this package computes, the seven
-  tMAVEN plot types among them (N3).
+  cloud and the successive-frame FRET cloud, donor–acceptor cross-correlation (vectorized FFT,
+  `tether.analysis.crosscorr`), the anticorrelation-event finder, per-condition population statistics, and the
+  native plot catalogue of Appendix C: every result type this package computes, the seven tMAVEN plot types
+  among them (N3).
 - **`tether.gui`** — the PySide6 shell + embedded napari panel, the multi-movie round-trip browser,
   curation/labeling, annotation, and plot docks.
 - **`tether.project`** — the experiment/session model plus the batch runner and headless API; the GUI is a thin
@@ -840,10 +841,47 @@ or the nested form (molecules in movies in biological replicates), and each plot
 versioned *result snapshot* with its lineage to the exact analysis-set version and the active fit (§7.4). A later
 change makes a new snapshot; a historical result keeps the inputs that it was made from.
 
+**FR-PLOT — Composed and exportable plots ([#378](https://github.com/bioedca/tether/issues/378)).** Tether **shall**
+let a user compose one plot from parts of one or more projects, save the composition, open it again and export it,
+from the application and from the command line:
+
+- **The composition unit is a series.** A series is a named selection of molecules: a version of an analysis set
+  (above), or one condition group inside a version. In each project that it reads, a series names its molecules
+  through the one selection argument of the population functions (`MoleculeSelection`,
+  [ADR-0109](adr/0109-one-selection-argument-and-one-return-shape-on-the-population-functions.md)). One-click presets
+  make a series for each condition, each movie or each source file of a selection. The ADR of
+  [#373](https://github.com/bioedca/tether/issues/373) records the composition unit, the renderer and the
+  staleness policy of the plot builder.
+- **A plot is a layer list.** Each series has its own label and its own molecule count N. The user adds, renames,
+  hides and removes a series without a change to the other series or to the project data. Where an overlay has no
+  meaning (the 2-D densities, the TDP and the raw FRET cloud), the series are drawn as small multiples. Two series
+  whose grids differ (bin edges, value range or frame time) are refused with the reason and never resampled
+  ([#371](https://github.com/bioedca/tether/issues/371)).
+- **Every lever that changes a reported number is reachable.** Each series carries the selection levers of the
+  population functions (rejected molecules, stale idealizations, per-molecule equal weight), and each plot carries
+  the parameters of its plot type (for example the dwell model and its interval level, or the state count of the
+  kinetics model). Stale idealizations are excluded by default, with a visible count of the excluded molecules and
+  an opt-out that the export records ([#375](https://github.com/bioedca/tether/issues/375)). The frame time comes
+  from `/movies.frame_time` of the selected movies; a series that mixes frame times is refused, and a series with
+  no frame time is drawn on a frame-index axis that says so ([#376](https://github.com/bioedca/tether/issues/376)).
+- **One renderer.** The preview and the export use the same renderer, so the exported figure is the figure that the
+  user saw ([#373](https://github.com/bioedca/tether/issues/373), [#374](https://github.com/bioedca/tether/issues/374)).
+- **Save and open again.** A composition saves as a file that names the plot type, the series with their analysis-set
+  versions, the parameters and the styling, and holds no data. Opening it gives the same layer list.
+- **Export.** A composed plot exports as one figure with all its series (§7.9).
+- **The command line.** A **`tether plot` subcommand ships** (maintainer decision 2026-11-10, #622 question D6). It
+  renders a saved composition to PDF, SVG or PNG through the same export call as the application, with no display
+  and no GUI module imported, under the same staleness and frame-time rules. It can render one composition for
+  projects other than the ones that the composition names
+  ([#659](https://github.com/bioedca/tether/issues/659)).
+
+The milestone *M17 - Analysis & plot composition* carries this requirement; §9.3 has its bar and §9.6 carries it
+until the bar is met.
+
 **Related changes of this section.** [#368](https://github.com/bioedca/tether/issues/368) amended non-goal N3 and the
-plot-catalogue sentences of this section and §7.9; [#378](https://github.com/bioedca/tether/issues/378) adds
-FR-PLOT, the composed and exportable plot, which is not changed here. A version of an analysis set is the data input
-of a composed plot ([#373](https://github.com/bioedca/tether/issues/373)).
+plot-catalogue sentences of this section and §7.9; [#378](https://github.com/bioedca/tether/issues/378) added
+FR-PLOT above, and did not change the catalogue. A version of an analysis set is the data input of a composed plot
+([#373](https://github.com/bioedca/tether/issues/373)).
 
 ### 7.8 FR-LEGACY — Legacy import & Deep-LASI re-analysis
 
@@ -900,6 +938,12 @@ provenance, so that an exported figure traces back to its analysis-set version a
 figure carries the footer of §7.7, and the file with the numbers behind it always holds the full footer text, also
 when the footer is turned off in the figure ([#661](https://github.com/bioedca/tether/issues/661),
 [#946](https://github.com/bioedca/tether/issues/946)). Every exported figure and table names its mode (§7.2).
+
+A **composed plot** (FR-PLOT, §7.7) **shall** export as one figure that holds all its series, in the same formats
+as every plot (vector PDF/SVG + PNG) and through the same export call. The provenance of the figure records the
+parameters of each series separately, and the export records an opt-out from the staleness default
+([#377](https://github.com/bioedca/tether/issues/377), [#371](https://github.com/bioedca/tether/issues/371)). The
+`tether plot` command (§7.7) writes the same figure and the same provenance as the application.
 
 ### 7.10 FR-CONCURRENCY — File lifecycle on shared storage
 
@@ -1312,6 +1356,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Curation ranking** (FR-ML) | Reloading the saved model on a held-out (prequential) new video improves **precision@k** (k ≈ 20–50) over the file-order baseline by ≥ the agreed ship-bar (default ≥ 10 pts, §11.2), holding on the median across the condition's videos (evidenced on synthetic stores only: the uplift on real labelled videos and the §8 NFR-VALID (d) leave-one-video-out protocol are *not yet met*, §9.6); never-auto-drop is verified as a permutation invariant; active learning surfaces informative traces; the model file is portable across experiment files; a **weight-decay test** confirms a provisional label's effective weight drops below a stated fraction (e.g. < 0.2·w₀) after K human labels (decay law §7.5/§11.2); a **drift-flag test** confirms a deliberately mismatched source/target condition raises the advisory while a matched pair does not; and a **two-curator split-and-merge test** confirms split-file labels merge back on `molecule_key` with weights recomputed centrally and human-vs-human conflicts surfaced (§7.10). | M5 |
 | **Analysis suite** (FR-ANALYZE, Appendix C) | Each of the seven plot types renders from real data and visually matches its tMAVEN counterpart (D1, the per-trace viewer, has no visual oracle and matches by layout and convention, as [the parity gallery](analysis/parity-gallery.md) records) — and is reachable from the application (*not yet met*, §9.6); TDP uses only fresh idealizations; all exports carry provenance stamps. | M6 |
 | **Analysis catalogue** (FR-ANALYZE, N3, Appendix C) | Every result type that `tether.analysis` computes (the native catalogue of Appendix C) renders to a figure that exports as vector PDF/SVG + PNG with its provenance stamp, and is reachable from the application (*not yet met*, §9.6). That includes a renderer for each of the five result types with none: the per-condition overlay, the post-synchronized A2 heatmap (A2b), the alpha shape, the k-vs-RMSE elbow and the anticorrelation events. The tMAVEN parity claim stays with the seven Appendix C types of the *Analysis suite* bar; no other result type carries one. | M17 |
+| **Plot composition** (FR-PLOT) | A plot is composed from two series made from two saved selections and exports to PDF, with the parameters of each series in its provenance; the saved composition opens again to the same layer list; and `tether plot` renders it to the same figure data and provenance as the application, with no display. The evidence is a recorded run plus committed `pytest-qt` coverage of the plot builder, green headless on the required matrix (*not yet met*, §9.6). | M17 |
 | **Legacy import** (FR-LEGACY) | A full Deep-LASI acquisition reconstructs into a round-trip-ready project from `.tdat` or `.mat` coordinates; curated subset and categories survive; the intensity-match cross-check passes on the SMD subset. | M7 |
 | **Deep add-on** (FR-ML) | A deep classifier trains on the shared label store and is optional: the CPU base app is unaffected (§9.1 item 5). | M8 |
 | **Kinetics** (§8 NFR-VALID (c)) | Kinetics on the named kinSoftChallenge dataset fall within that dataset's reported inter-tool spread (§11.2) — **advisory**, never a gate (§9.5). | M8 |
@@ -1398,6 +1443,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | Category (and analysis-window) edits made in the application persist to the project | M4 | [#359](https://github.com/bioedca/tether/issues/359) (the setters it writes through: [#358](https://github.com/bioedca/tether/issues/358)) |
 | Every plot renders from the application — each Appendix C type reachable from the GUI, not only from the API | M6 | [#374](https://github.com/bioedca/tether/issues/374) |
 | Every result type of the native catalogue renders and is reachable from the application (N3 as amended). Two of the renderers it lacks are §7.7 clauses that were unmet before the amendment: the per-condition overlays of the FRET histogram, and the alpha-shape and k-vs-RMSE-elbow half of the raw FRET cloud | §7.7; M17 | [#370](https://github.com/bioedca/tether/issues/370) (the five renderers), [#374](https://github.com/bioedca/tether/issues/374) (the route from the application) |
+| A plot is composed from series of saved selections, saved, opened again and exported from the application, and `tether plot` renders a saved composition (FR-PLOT). Today the application draws one population histogram, and no composition exists | M17; §7.7, §7.9 | the plot builder: [#373](https://github.com/bioedca/tether/issues/373), [#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377); the command: [#659](https://github.com/bioedca/tether/issues/659) |
 | The multi-movie project: a second movie appends into an existing `.tether` | M2 | [#347](https://github.com/bioedca/tether/issues/347) |
 | The ranker pre-sorts a movie's traces when the movie opens in the application, and the application shows each trace's feature values next to it. The M5 *Curation ranking* bar was met on library evidence alone; no bar named the feature values | M5; §7.5 | [#639](https://github.com/bioedca/tether/issues/639) |
 | The per-condition model in the application's UC3 loop: loaded when a video opens, warm-start-retrained at the video boundary and saved. The M5 bar's reload and portability legs were met on library evidence alone | M5 | [#640](https://github.com/bioedca/tether/issues/640) (the model's `/models` reference and owner-curator lock: [#561](https://github.com/bioedca/tether/issues/561)) |
@@ -1411,7 +1457,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | The fully user-editable per-condition category list, in the application: add, rename and remove categories, and show their names (the M4 "category edits persist" row above is assignment, not the list) | §7.6 | [#633](https://github.com/bioedca/tether/issues/633) |
 | Free tags on molecules and conditions, in the application | §7.6 | [#634](https://github.com/bioedca/tether/issues/634) |
 | Idealization of the project from the application, with a manual state-count override (the application fits only the selected molecule, with no state-count choice) | §7.4, §3.2 | [#625](https://github.com/bioedca/tether/issues/625) |
-| A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#660](https://github.com/bioedca/tether/issues/660) |
+| A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#934](https://github.com/bioedca/tether/issues/934) (the plot it feeds: [#371](https://github.com/bioedca/tether/issues/371)) |
 | A fresh acquisition goes movie → `.tether` with no terminal: extraction from the application (FR-EXTRACT-UI). Today only `tether extract` and `tether batch` make a `.tether` from a new movie | M15; §7.1, G6 | the issues of milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17); the extraction section itself is [#350](https://github.com/bioedca/tether/issues/350) |
 | The overnight batch of many movies without a terminal: a multi-movie queue in the application. The M3 *Batch runner* bar was met by the library and the `tether batch` command | M3; UC7, G6 | [#645](https://github.com/bioedca/tether/issues/645) |
 | Per-trace vbFRET parity against the frozen tolerance (the row was measured on consensus `vbconhmm`; no test fits per-trace vbFRET) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
