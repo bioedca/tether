@@ -70,13 +70,18 @@ EXPORT_ROUTES: dict[str, str] = {"lab-12": "lab-11"}
 #: ``numpy.rot90(direct_frame, k=EXPORT_ROUTE_ROTATION)`` (measured on all 1700 frames, #887).
 #: The export-route check turns the vendor frames back before it compares the two routes.
 EXPORT_ROUTE_ROTATION = 3
-#: The vendor-route acquisitions of the series of ``lab-12`` (#887). All acquisitions of that
-#: series share one map file, and that map fits the direct orientation (``lab-11``, ``lab-13``).
-#: The vendor-route TIFFs are that orientation turned :data:`EXPORT_ROUTE_ROTATION` quarter
-#: turns (maintainer decision of 2026-11-14), so each one is turned back before it is
-#: registered with the map. Without the turn, each molecule pairs a donor spot with an acceptor
-#: position on the wrong side of the field of view.
-TURNED_AGAINST_MAP: frozenset[str] = frozenset({"lab-09", "lab-10", "lab-12"})
+#: The acquisitions whose movie is turned against the map of its series (#887). All acquisitions
+#: of the series of ``lab-12`` share one map file, and that map fits the direct orientation
+#: (``lab-11``, ``lab-13``; maintainer decision of 2026-11-14). The vendor-route TIFFs ``lab-10``
+#: and ``lab-12`` are that orientation turned :data:`EXPORT_ROUTE_ROTATION` quarter turns, so
+#: each one is turned back before it is registered with the map. Without the turn, each molecule
+#: pairs a donor spot with an acceptor position on the wrong side of the field of view. The
+#: third vendor-route TIFF of the series, ``lab-09``, is already in the map's orientation and is
+#: not turned: on the workstation (2026-11-15) the mean image of each movie, turned 0 to 3
+#: quarter turns, was correlated with the mean images of ``lab-11`` and ``lab-13``, and only
+#: ``k=1`` for ``lab-10`` and ``lab-12`` (r 0.997) and ``k=0`` for ``lab-09`` (r 0.79; every turn
+#: gives r below 0) agree.
+TURNED_AGAINST_MAP: frozenset[str] = frozenset({"lab-10", "lab-12"})
 #: The data acquisitions of the name table that have a golden file: every movie id except the
 #: direct route of :data:`EXPORT_ROUTES` (maintainer decisions D1-D3: the bead movie has no
 #: neutral id). The issue counted ten; the name table holds twelve (Q20: C, "ten or more").
