@@ -15,17 +15,20 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from tether.analysis.selection import resolve_selection
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS as QUANTITY_KEYS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
 
 __all__ = [
     "QUANTITY_KEYS",
+    "fresh_selection",
     "resolve_quantity",
     "windowed_channels",
     "windowed_channels_with_keys",
@@ -44,13 +47,40 @@ def resolve_quantity(quantity: str) -> tuple[str, str]:
         ) from None
 
 
+def fresh_selection(
+    project: ProjectRef,
+    model_name: str,
+    molecule_keys: Selection,
+    include_stale: bool,
+) -> list[str] | None:
+    """The selection a model-derived view reads: resolved, then cut to fresh keys.
+
+    Resolves ``molecule_keys`` (:func:`~tether.analysis.selection.resolve_selection`)
+    and, unless ``include_stale``, keeps only the keys whose
+    ``/idealization/{model_name}`` fit is still fresh
+    (:func:`~tether.project.idealize.live_molecule_keys`, PRD §5.1). ``None`` with
+    ``include_stale=False`` becomes the model's live keys. The one freshness rule of
+    every population function that reads ``/idealization`` (ADR-0109).
+    """
+    from tether.project.idealize import live_molecule_keys
+
+    keys = resolve_selection(molecule_keys, project)
+    if include_stale:
+        return keys
+    live = live_molecule_keys(project, model_name)
+    if keys is None:
+        return live
+    live_set = set(live)
+    return [k for k in keys if k in live_set]
+
+
 def _to_str(value: object) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
 
 
 def windowed_channels_with_keys(
     project: ProjectRef,
-    molecule_keys: list[str] | None,
+    molecule_keys: Selection,
     intensity_quantity: str,
     include_rejected: bool,
 ) -> list[tuple[str, np.ndarray, np.ndarray]]:
@@ -74,6 +104,7 @@ def windowed_channels_with_keys(
 
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
+    molecule_keys = resolve_selection(molecule_keys, proj)
     donor_key, acceptor_key = resolve_quantity(intensity_quantity)
 
     molecules = read_molecules(path)
@@ -113,7 +144,7 @@ def windowed_channels_with_keys(
 
 def windowed_channels(
     project: ProjectRef,
-    molecule_keys: list[str] | None,
+    molecule_keys: Selection,
     intensity_quantity: str,
     include_rejected: bool,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
@@ -138,7 +169,7 @@ def windowed_channels(
 def windowed_state_and_channels(
     project: ProjectRef,
     model_name: str,
-    molecule_keys: list[str] | None,
+    molecule_keys: Selection,
     intensity_quantity: str,
     include_rejected: bool,
 ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
@@ -202,6 +233,7 @@ def windowed_state_and_channels(
 
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
+    molecule_keys = resolve_selection(molecule_keys, proj)
     donor_key, acceptor_key = resolve_quantity(intensity_quantity)
 
     molecules = read_molecules(path)
@@ -254,7 +286,7 @@ def windowed_state_and_channels(
 def windowed_states(
     project: ProjectRef,
     model_name: str,
-    molecule_keys: list[str] | None,
+    molecule_keys: Selection,
     include_rejected: bool,
 ) -> list[np.ndarray]:
     """Per-molecule Viterbi **state-path** windows — the state alone, no ``/traces`` I/O.
@@ -303,6 +335,7 @@ def windowed_states(
 
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
+    molecule_keys = resolve_selection(molecule_keys, proj)
 
     molecules = read_molecules(path)
     if molecules.shape[0] == 0:
