@@ -103,7 +103,9 @@ def test_only_this_repositorys_main_is_rewritten() -> None:
     assert hooks.rewrite_source_links(untouched, "v9.9.9") == untouched
 
 
-@pytest.mark.parametrize("value", ["main", "1.0.0", "v1.0", "v1.0.0/../x", "v1.0.0 x", "dev"])
+@pytest.mark.parametrize(
+    "value", ["main", "1.0.0", "v1.0", "v1.0.0/../x", "v1.0.0 x", "dev", "v01.0.0", "v1.0.00"]
+)
 def test_a_value_that_is_not_a_release_tag_stops_the_build(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
@@ -114,8 +116,9 @@ def test_a_value_that_is_not_a_release_tag_stops_the_build(
         hooks.on_page_markdown("", page=None, config=None, files=None)
 
 
-@pytest.mark.parametrize("tag", ["v1.0.0", "v10.2.33", "v1.0.0-rc3"])
+@pytest.mark.parametrize("tag", ["v1.0.0", "v10.2.33", "v1.0.0-rc3", "v1.0.0-rc-1", "v0.0.0"])
 def test_release_tags_are_accepted(tag: str) -> None:
+    """The tags release.yml's `verify` job accepts (its TAG_ERE), and so ships."""
     assert hooks.source_tag({ENV: tag}) == tag
 
 

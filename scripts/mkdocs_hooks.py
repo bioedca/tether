@@ -26,10 +26,13 @@ from typing import Any
 #: The environment variable ``docs.yml`` sets to the release tag it builds from.
 SOURCE_TAG_ENV = "TETHER_DOCS_SOURCE_TAG"
 
-# A release tag as release.yml's `verify` job accepts one: vMAJOR.MINOR.PATCH, with an optional
-# pre-release part. The value comes from the workflow's ref, so it is checked rather than trusted
-# before it is written into every source link of the site.
-_TAG_RE = re.compile(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?")
+# A release tag exactly as release.yml's `verify` job accepts one (its TAG_ERE): vMAJOR.MINOR.PATCH
+# with no leading zeros, and an optional pre-release part of letters, digits, dots and hyphens.
+# The value comes from the workflow's ref, so it is checked rather than trusted before it is
+# written into every source link of the site. `[0-9]`, not `\d`, which also matches other digits.
+_TAG_RE = re.compile(
+    r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?"
+)
 
 # `blob/main` or `tree/main` on this repository, where `main` is the whole ref name: what follows
 # it cannot continue a branch name. A branch called `main-x` or `main.y` is left alone, while a
