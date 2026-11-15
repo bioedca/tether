@@ -436,7 +436,7 @@ A plot export is stamped **three** ways:
 > object, so exporting the *same* figure twice with `stamp=True` leaves two overlapping
 > footers with two different timestamps. Re-render before re-exporting.
 
-The eight renderers, and the plot each produces (Appendix-C ids as used in the
+The thirteen renderers, and the plot each produces (Appendix-C ids as used in the
 [seven-plot parity gallery](../analysis/parity-gallery.md)):
 
 | Renderer | Input dataclass | Plot | x-axis unit |
@@ -449,6 +449,11 @@ The eight renderers, and the plot each produces (Appendix-C ids as used in the
 | `render_state_number` | `StateNumberCounts` | C1 state-number distribution | Number of occupied states (a count) |
 | `render_raw_fret_cloud` | `RawFretCloud` | QC raw FRET cloud | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
 | `render_cross_correlation` | `CrossCorrelation` | Donor–acceptor cross-correlation | `Lag (frames)` — always frames; there is no seconds variant |
+| `render_per_condition_histograms` | `PerConditionHistograms` | Per-condition overlay: each condition's A1 histogram on one shared axis | Apparent FRET efficiency *E* (dimensionless) |
+| `render_transition_sync_histogram2d` | `TransitionSyncHistogram2D` | A2b post-synchronized heatmap | `Time from transition (s)` when `time_dt != 1.0`, otherwise `Frames from transition` |
+| `render_alpha_shape` | `AlphaShape` (+ optional `RawFretCloud`) | Alpha-shape support boundary of the raw FRET cloud | `Time (s)` when the frame duration is not `1.0`, otherwise `Frame` |
+| `render_state_number_elbow` | `StateNumberElbow` | k-vs-RMSE elbow state-count hint | Number of clusters *k* (a count) |
+| `render_population_anticorrelation` | `PopulationAnticorrelation` | Anticorrelation events, one row per molecule | `Frame (analysis window)` — always frames |
 
 `render_transition_density` draws the B1 colour scale as `color_scale="log"` by default, the
 log-normalized TDP that the product specification names. Use `color_scale="linear"` for a
@@ -464,6 +469,30 @@ not have to pass it. If you pass a `display` entry that does not agree with the 
 > default to `1.0`, and at that default the renderer labels the axis in frames. The same
 > applies to rates read off a B2 survival fit: `tether.analysis.dwell` reports them in
 > `1 / (frames · dt)`, i.e. **per frame** at the default.
+
+`render_per_condition_histograms` draws every condition as an unfilled outline on the
+overlay's one shared bin grid, in the overlay's own order, and labels each curve with its
+condition id and molecule count. A condition binned on another grid raises `ValueError`
+rather than being drawn with its bins in the wrong place.
+
+`render_transition_sync_histogram2d` draws time relative to the selected transition: the
+axis runs negative before it, and a dotted line marks relative time zero. The note names
+the selected states, with `any` for `-1`.
+
+`render_alpha_shape` draws the boundary segments and nothing else of the shape. When there
+is no boundary, it draws no line and the note tells you why: the cloud spans no 2-D region,
+or the alpha was too small to keep a triangle. Pass `cloud=` to draw the points underneath
+and take the axis limits and time unit from the cloud. Without a cloud, pass `time_dt=` for
+a time axis in seconds.
+
+`render_state_number_elbow` draws the RMSE curve, the chord from its first to its last
+point, and the elbow when there is one. The elbow is a hint and the figure says so: the
+state count of record is the model's.
+
+`render_population_anticorrelation` gives each scanned molecule one row, in store order. An
+event is a bar over its frames, coloured by its peak `|lag-0|`, with a tick at its peak
+frame. A molecule with no event keeps its empty row. The rows carry the `molecule_key` up
+to 30 molecules and an index above that.
 
 `render_raw_fret_cloud` decimates its scatter overlay when the population exceeds
 `max_points` (default 20 000) to keep the vector file manageable; the density surface
