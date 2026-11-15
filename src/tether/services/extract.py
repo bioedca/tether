@@ -80,7 +80,7 @@ def run(request: ExtractRequest) -> ExtractResult:
             donor_side=request.donor_side,
             # None tells "no explicit choice" from a choice; resolve it to the library
             # default here. With a .tdat, extract_movie overrides it with the decoded mode.
-            detection_mode=request.detection_mode or "wavelet",
+            detection_mode="wavelet" if request.detection_mode is None else request.detection_mode,
             detection_threshold=request.detection_threshold,
             window=request.window,
             min_separation=request.min_separation,

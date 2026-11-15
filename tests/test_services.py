@@ -279,6 +279,16 @@ def test_extract_refuses_a_detection_mode_with_a_tdat_as_a_failed_command(tmp_pa
     assert not (tmp_path / "o.tether").exists()
 
 
+def test_extract_refuses_an_empty_detection_mode_as_a_failed_command(tmp_path) -> None:
+    # Only None means "no choice": a request from text may hold "", which must not
+    # silently become the default detector.
+    request = services.ExtractRequest(
+        movie=str(tmp_path / "m.tif"), output=str(tmp_path / "m.tether"), detection_mode=""
+    )
+    with pytest.raises(services.CommandFailed, match="detection_mode must be one of"):
+        services.run(request)
+
+
 def test_batch_refuses_an_unknown_policy_before_it_writes(tmp_path) -> None:
     # Greptile finding on #1058: a recipe has no argparse `choices` to catch a typo.
     out = tmp_path / "out"
@@ -307,6 +317,8 @@ def _imports(path: Path) -> list[str]:
             found.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             found.append(node.module)
+            if node.module == "tether":  # `from tether import gui` names a subpackage
+                found.extend(f"tether.{alias.name}" for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level:
             raise AssertionError(f"{path.name}: use absolute imports in tether.services")
     return found
@@ -322,6 +334,21 @@ def test_the_service_sources_import_no_qt_and_no_gui_module() -> None:
     assert sources, SERVICES_DIR
     bad = {p.name: m for p in sources for m in _imports(p) if _is_qt(m)}
     assert bad == {}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def run():\n    from tether import gui\n",
+        "def run():\n    from tether.gui import app\n",
+        "def run():\n    import tether.gui.app\n",
+        "def run():\n    from PySide6 import QtCore\n",
+    ],
+)
+def test_the_import_scan_finds_a_gui_or_qt_import_inside_a_function(tmp_path, source) -> None:
+    path = tmp_path / "fake_command.py"
+    path.write_text(source, encoding="utf-8")
+    assert any(_is_qt(m) for m in _imports(path))
 
 
 def test_importing_the_services_and_what_they_run_loads_no_qt_module() -> None:
