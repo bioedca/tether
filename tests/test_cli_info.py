@@ -410,6 +410,26 @@ def test_malformed_model_metadata_fails_that_project_only(tmp_path: Path, capsys
     assert "could not be read" in captured.err
 
 
+def test_a_malformed_movie_row_fails_that_project_only(tmp_path: Path, capsys) -> None:
+    """A ``/movies`` table without ``frame_time`` passes the schema guard but not decoding."""
+    from numpy.lib import recfunctions
+
+    bad_dir = tmp_path / "bad"
+    bad_dir.mkdir()
+    bad = _rich_store(bad_dir)
+    with h5py.File(bad, "r+") as f:
+        rows = f["movies/table"][()]
+        del f["movies/table"]
+        f["movies"].create_dataset("table", data=recfunctions.drop_fields(rows, "frame_time"))
+    good = _rich_store(tmp_path)
+    with pytest.raises(ProjectSummaryError, match="could not be read"):
+        read_project_summary(bad)
+    assert main(["info", "--json", str(bad), str(good)]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert "could not be read" in document["projects"][0]["error"]
+    assert document["projects"][1]["n_molecules"] == 6
+
+
 def test_an_unknown_intensity_quantity_fails_the_stale_check_of_that_project_only(
     tmp_path: Path, capsys
 ) -> None:

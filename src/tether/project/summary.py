@@ -360,40 +360,45 @@ def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False
         # only, so ``tether info`` still reports the projects after it.
         raise ProjectSummaryError(f"{path}: could not be read ({exc})") from exc
 
-    # --- movies, with each movie's own curation counts ------------------------
-    labels_by_movie: dict[str, list[int]] = {}
-    for movie_id, label in zip(movie_ids, labels, strict=True):
-        labels_by_movie.setdefault(movie_id, []).append(label)
-    movies: list[MovieSummary] = []
-    for row in movies_table:
-        movie_id = _text(row["movie_id"])
-        uri = _text(row["uri"])
-        frame_time = _finite(row["frame_time"])
-        own = labels_by_movie.get(movie_id, [])
-        movies.append(
-            MovieSummary(
-                movie_id=movie_id,
-                name=_movie_name(uri) if uri else movie_id,
-                uri=uri,
-                n_frames=int(row["n_frames"]),
-                frame_time_s=frame_time if frame_time is not None and frame_time > 0 else None,
-                n_molecules=len(own),
-                curation=_curation(own),
+    # Decoding the table rows can fail on a malformed field too (a missing or
+    # non-numeric ``frame_time``); that fails this project only, like the read above.
+    try:
+        # --- movies, with each movie's own curation counts ------------------------
+        labels_by_movie: dict[str, list[int]] = {}
+        for movie_id, label in zip(movie_ids, labels, strict=True):
+            labels_by_movie.setdefault(movie_id, []).append(label)
+        movies: list[MovieSummary] = []
+        for row in movies_table:
+            movie_id = _text(row["movie_id"])
+            uri = _text(row["uri"])
+            frame_time = _finite(row["frame_time"])
+            own = labels_by_movie.get(movie_id, [])
+            movies.append(
+                MovieSummary(
+                    movie_id=movie_id,
+                    name=_movie_name(uri) if uri else movie_id,
+                    uri=uri,
+                    n_frames=int(row["n_frames"]),
+                    frame_time_s=frame_time if frame_time is not None and frame_time > 0 else None,
+                    n_molecules=len(own),
+                    curation=_curation(own),
+                )
             )
-        )
 
-    # --- conditions: the materialized rows plus every id a molecule references --
-    per_condition = Counter(cid for cid in condition_ids if cid)
-    conditions: list[ConditionSummary] = []
-    seen: set[str] = set()
-    for row in conditions_table:
-        cid = _text(row["condition_id"])
-        seen.add(cid)
-        key: dict[str, str | float | None] = {k: _text(row[k]) for k in _CONDITION_TEXT_FIELDS}
-        key.update({k: _finite(row[k]) for k in _CONDITION_NUMBER_FIELDS})
-        conditions.append(ConditionSummary(cid, True, per_condition.get(cid, 0), key))
-    for cid in sorted(set(per_condition) - seen):
-        conditions.append(ConditionSummary(cid, False, per_condition[cid]))
+        # --- conditions: the materialized rows plus every id a molecule references --
+        per_condition = Counter(cid for cid in condition_ids if cid)
+        conditions: list[ConditionSummary] = []
+        seen: set[str] = set()
+        for row in conditions_table:
+            cid = _text(row["condition_id"])
+            seen.add(cid)
+            key: dict[str, str | float | None] = {k: _text(row[k]) for k in _CONDITION_TEXT_FIELDS}
+            key.update({k: _finite(row[k]) for k in _CONDITION_NUMBER_FIELDS})
+            conditions.append(ConditionSummary(cid, True, per_condition.get(cid, 0), key))
+        for cid in sorted(set(per_condition) - seen):
+            conditions.append(ConditionSummary(cid, False, per_condition[cid]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProjectSummaryError(f"{path}: could not be read ({exc})") from exc
 
     category_counts = Counter(c for c in categories if c)
     idealizations: list[IdealizationSummary] = []
