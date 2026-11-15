@@ -677,7 +677,7 @@ is saved for a condition the project holds.
 A later save replaces the attributes of that condition's group; a project keeps one
 reference per condition. The model file has its own single-writer lock
 (`<model>.lock` beside it, the same record as a project's `.lock`), held by the
-condition's owner-curator while they retrain and save (PRD §7.10). The reference
+condition's owner-curator while they retrain and save. The reference
 carries no user or host name. Subset export copies the group verbatim
 (`src/tether/project/export.py`). A reader should treat a missing `/models` child as
 "no model recorded", and an `artifact_path` that does not exist on its machine as
