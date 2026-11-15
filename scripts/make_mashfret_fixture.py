@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Make the committed extract of a public MASH-FRET project file (#711, ADR-0087).
+"""Make the committed extracts of a public MASH-FRET project file (#711 ADR-0087, #712 ADR-0101).
 
 The source is ``eD135e_encapsulated_30mMMg_25C.mash``, the smallest of the nine MASH-FRET project
 files in ``02_smFRET.zip`` of Zenodo record 24104528 (Zelger-Paulus, Hadzic, Lindner, Börner,
@@ -18,13 +18,21 @@ It leaves out the raw intensities, which no test compares (the file holds no vid
 background subtraction cannot be repeated), and every path and free-text field of the project,
 such as ``proj_file`` and ``exp_parameters``. No value is changed. The result is a MATLAB v5 file
 that ``tests/_mashfret.py`` reads exactly as it reads the full project. Its header text is fixed,
-so the same source gives the same bytes::
+so the same source gives the same bytes.
+
+The second extract (#712, :func:`extract_path_a`) holds MASH-FRET's own analysis of one molecule
+tag, "Path A 0.2 +- 0.3" (``PATH_A_TAG``): the ``PATH_A_N`` molecules with that tag, their denoised
+intensities (from which MASH-FRET's histograms are built), ``FRET_DTA``, ``bool_intensities``,
+``coord_incl``, ``molTag`` and ``prmTT``; the tag's row of the Histogram-analysis results
+(``prmThm``) and of the Transition-analysis results (``prmTDP``), with every other row an empty
+cell so the indexes stay those of the full project; and ``frame_rate`` and ``molTagNames``. Again no
+value is changed. Both extracts::
 
     python scripts/make_mashfret_fixture.py PATH/TO/02_smFRET.zip
 
-The argument may also be the ``.mash`` file itself. The weekly workstation test
-(``tests/test_mashfret_reference.py``) calls :func:`extract` on the full archive and compares the
-result with the committed file.
+The argument may also be the ``.mash`` file itself. The weekly workstation tests
+(``tests/test_mashfret_reference.py``, ``tests/test_mashfret_analysis.py``) call :func:`extract`
+and :func:`extract_path_a` on the full archive and compare the results with the committed files.
 """
 
 from __future__ import annotations
@@ -41,6 +49,7 @@ import scipy.io as sio
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "tests" / "fixtures" / "mashfret_ed135e_30mm_extract.mat"
+PATH_A_OUT = REPO / "tests" / "fixtures" / "mashfret_ed135e_30mm_path_a.mat"
 MEMBER = "02_smFRET/eD135e_encapsulated_30mMMg_25C.mash"
 MEMBER_SHA256 = "ee448ffddad370d0ae1530a838aeca66b380d3e0f35e677d368d98583f17be42"
 N_MOLECULES = 18
@@ -54,6 +63,10 @@ PROJECT_FIELDS = (
     "FRET",
     "fix",
 )
+#: The molecule tag of the second extract: column 12 of ``molTag``, "Path A 0.2 +- 0.3".
+PATH_A_TAG = 12
+PATH_A_N = 17
+PATH_A_FIELDS = (*PROJECT_FIELDS, "frame_rate", "molTagNames")
 #: The 116 header bytes of a MATLAB v5 file are free text; scipy writes the time into them.
 HEADER = b"MATLAB 5.0 MAT-file, extract of a MASH-FRET project by scripts/make_mashfret_fixture.py"
 
@@ -82,21 +95,60 @@ def extract(data: bytes) -> bytes:
     out["FRET_DTA"] = raw["FRET_DTA"][:, : N_MOLECULES * n_pairs]
     out["bool_intensities"] = raw["bool_intensities"][:, keep]
     out["prmTT"] = raw["prmTT"][:, keep]
+    return _save(out)
+
+
+def _save(fields: dict) -> bytes:
     buf = io.BytesIO()
-    sio.savemat(buf, out, format="5", do_compression=True, oned_as="row")
+    sio.savemat(buf, fields, format="5", do_compression=True, oned_as="row")
     blob = bytearray(buf.getvalue())
     blob[:116] = HEADER.ljust(116)
     return bytes(blob)
+
+
+def _one_row(cells: np.ndarray, row: int) -> np.ndarray:
+    """*cells* with only *row* kept and every other cell empty, so the indexes do not move."""
+    out = np.empty(cells.shape, dtype=object)
+    for index in np.ndindex(cells.shape):
+        out[index] = cells[index] if index[0] == row else np.zeros((0, 0))
+    return out
+
+
+def extract_path_a(data: bytes) -> bytes:
+    """The bytes of the committed Path A extract (#712), made from the bytes of the source."""
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != MEMBER_SHA256:
+        raise ValueError(f"the source has SHA-256 {digest}, not {MEMBER_SHA256}")
+    raw = sio.loadmat(io.BytesIO(data), squeeze_me=False, struct_as_record=False)
+    n_channels = int(np.asarray(raw["nb_channel"]).ravel()[0])
+    tagged = raw["molTag"][:, PATH_A_TAG - 1].astype(bool)
+    keep = np.flatnonzero(tagged & raw["coord_incl"].ravel().astype(bool))
+    if keep.size != PATH_A_N:
+        raise ValueError(f"{keep.size} molecules have tag {PATH_A_TAG}, not {PATH_A_N}")
+    columns = (keep[:, None] * n_channels + np.arange(n_channels)).ravel()
+    out = {name: raw[name] for name in PATH_A_FIELDS}
+    out["intensities_denoise"] = raw["intensities_denoise"][:, columns, ...]
+    out["FRET_DTA"] = raw["FRET_DTA"][:, keep]  # one FRET pair in this project
+    for name in ("bool_intensities", "coord_incl", "prmTT"):
+        out[name] = raw[name][:, keep]
+    out["molTag"] = raw["molTag"][keep, :]
+    # Row 1 of prmThm and prmTDP is "all molecules"; row t + 1 is tag t.
+    out["prmThm"] = _one_row(raw["prmThm"], PATH_A_TAG)
+    out["prmTDP"] = _one_row(raw["prmTDP"], PATH_A_TAG)
+    return _save(out)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("source", type=Path, help="02_smFRET.zip, or the .mash file itself")
     parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--path-a-out", type=Path, default=PATH_A_OUT)
     args = parser.parse_args(argv)
-    blob = extract(source_bytes(args.source))
-    args.out.write_bytes(blob)
-    print(f"{args.out}: {len(blob)} B, sha256 {hashlib.sha256(blob).hexdigest()}")
+    data = source_bytes(args.source)
+    for make, out in ((extract, args.out), (extract_path_a, args.path_a_out)):
+        blob = make(data)
+        out.write_bytes(blob)
+        print(f"{out}: {len(blob)} B, sha256 {hashlib.sha256(blob).hexdigest()}")
     return 0
 
 
