@@ -1,3 +1,7 @@
+---
+description: "How to select the light or dark theme of the Tether window, and the trace colors with the checks they passed."
+---
+
 <!--
 SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
@@ -146,7 +150,7 @@ color of the window has a contrast of 4.5 : 1 or more.
 
 ### Color-vision check of the safe set
 
-The test `tests/test_gui_theme.py` simulates protanopia, deuteranopia and tritanopia.
+The test [`tests/test_gui_theme.py`](https://github.com/bioedca/tether/blob/main/tests/test_gui_theme.py) simulates protanopia, deuteranopia and tritanopia.
 It uses the model of Machado, Oliveira and Fernandes (2009), IEEE TVCG 15(6), 1291–1298,
 [doi:10.1109/TVCG.2009.113](https://doi.org/10.1109/TVCG.2009.113), at severity 1.0. The
 matrices agree with `colorspacious` 1.1.2. Then the test calculates the CIEDE2000 color

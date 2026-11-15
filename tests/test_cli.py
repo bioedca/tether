@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ import pytest
 
 from tether import __version__
 from tether.cli import build_parser, main
+from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 
 
 def test_version_flag_reports_git_version(capsys) -> None:
@@ -266,3 +268,65 @@ def test_batch_rejects_negative_max_restarts(tmp_path, capsys) -> None:
     rc = main(["batch", str(m), "--out-dir", str(tmp_path / "out"), "--max-restarts", "-1"])
     assert rc == 2
     assert "max_restarts must be >= 0" in capsys.readouterr().err
+
+
+# --- choice options of ``tether extract`` (#654) -------------------------------------
+
+_CHOICE_FLAGS = [
+    ("--donor-side", "donor_side", DONOR_SIDES),
+    ("--detection-mode", "detection_mode", DETECTION_MODES),
+    ("--prealign", "prealign", PREALIGN_MODES),
+]
+
+
+def _extract_action(dest: str) -> argparse.Action:
+    parser = build_parser()
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))  # noqa: SLF001
+    extract = sub.choices["extract"]
+    return next(a for a in extract._actions if a.dest == dest)  # noqa: SLF001
+
+
+@pytest.mark.parametrize(("flag", "dest", "allowed"), _CHOICE_FLAGS)
+def test_extract_choice_flag_uses_the_library_constants(flag, dest, allowed) -> None:
+    # The parser's choices are the very tuples ExtractOptions validates against.
+    assert _extract_action(dest).choices is allowed
+
+
+@pytest.mark.parametrize(("flag", "dest", "allowed"), _CHOICE_FLAGS)
+def test_extract_rejects_a_wrong_choice_at_parse_time(
+    tmp_path, monkeypatch, capsys, flag, dest, allowed
+) -> None:
+    # A wrong value is a usage error: exit 2 and the usage line, before the extract
+    # handler (and with it any file access) runs.
+    import tether.cli as cli  # noqa: PLC0415
+
+    def _no_extract(args):  # pragma: no cover - reached only if parsing let it through
+        raise AssertionError("the extract handler ran for a wrong choice value")
+
+    monkeypatch.setattr(cli, "_run_extract", _no_extract)
+    out = tmp_path / "out.tether"
+    with pytest.raises(SystemExit) as exc:
+        main(["extract", str(tmp_path / "movie.tif"), "-o", str(out), flag, "sideways"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("usage: tether extract")
+    assert f"argument {flag}: invalid choice: 'sideways'" in err
+    for value in allowed:
+        assert value in err
+    assert not out.exists()
+
+
+def test_extract_detection_mode_default_still_means_not_given() -> None:
+    # None tells "no flag" apart from an explicit --detection-mode for the --tdat check.
+    args = build_parser().parse_args(["extract", "m.tif", "-o", "o.tether"])
+    assert args.detection_mode is None
+    assert args.donor_side == "left"
+    assert args.prealign == "translation"
+
+
+def test_extract_help_lists_the_choices(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["extract", "--help"])
+    out = capsys.readouterr().out
+    for allowed in (DONOR_SIDES, DETECTION_MODES, PREALIGN_MODES):
+        assert "{" + ",".join(allowed) + "}" in out
