@@ -48,6 +48,7 @@ _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _SKIP_LINE = re.compile(r"^\s*(?:<|\[[^\]]+\]:\s|!!!|\?\?\?|-{3,}\s*$|\*{3,}\s*$)")
 _ABBREVIATION = re.compile(r"\b(e\.g|i\.e|etc|vs|cf|Fig|Eq|al|approx|No)\.", re.IGNORECASE)
+_QUOTE_PREFIX = re.compile(r"^\s*(?:>\s?)+")
 _SPLIT = re.compile(r"(?<=[.!?])[\"')\]*_]*\s+(?=[\"'(\[*_`]*[A-Z0-9`])")
 _QUOTED = ('"', "“", "‘", "'")
 
@@ -83,7 +84,7 @@ def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
             current.clear()
 
     for line in text.splitlines():
-        marker = _FENCE.match(line)
+        marker = _FENCE.match(_QUOTE_PREFIX.sub("", line))
         if fence:
             if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
                 fence = ""
@@ -119,7 +120,7 @@ def sentences(unit: str, *, every: bool = False) -> list[str]:
     is set: a short sentence still carries its punctuation.
     """
     text = _ABBREVIATION.sub(r"\1", _inline(unit, "CODE"))
-    return [s for s in _SPLIT.split(text) if every or len(words(s)) >= 3]
+    return [s for s in _SPLIT.split(text) if len(words(s)) >= (1 if every else 3)]
 
 
 def words(sentence: str) -> list[str]:
@@ -171,8 +172,8 @@ def measure(markdown: str, kind: str, phrases: list[str]) -> Measure:
         result.long += [s for s in found if len(words(s)) > LIMITS[kind]]
         every = sentences(unit, every=True)
         result.semicolons += [s for s in every for _ in range(s.count(";"))]
-        if len(found) > MAX_SENTENCES and not is_item:
-            result.long_paragraphs.append(found[0])
+        if len(every) > MAX_SENTENCES and not is_item:
+            result.long_paragraphs.append(every[0])
         plain = _inline(unit, "")
         result.retired += [(p, plain) for p in retired_uses(plain, phrases)]
     return result
@@ -272,6 +273,17 @@ def _long(n: int) -> str:
 def test_a_short_sentence_still_counts_its_semicolons() -> None:
     found = measure("Stop; wait.\n\n- Go; now\n", "descriptive", [])
     assert found.sentences == 0 and found.semicolons == ["Stop; wait.", "Go; now"]
+
+
+def test_short_sentences_count_toward_the_paragraph_limit() -> None:
+    found = measure(" ".join(["Stop now."] * 7), "descriptive", [])
+    assert found.sentences == 0 and found.long_paragraphs == ["Stop now."]
+
+
+def test_a_fence_inside_a_blockquote_is_code() -> None:
+    page = "> ```text\n> Error: one.\n>\n> Error: project store invalid; restart now.\n> ```\n"
+    found = measure(page, "descriptive", _PHRASES)
+    assert not found.semicolons and not found.retired
 
 
 def test_code_tables_front_matter_and_headings_are_not_prose() -> None:

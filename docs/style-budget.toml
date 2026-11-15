@@ -164,7 +164,7 @@ retired = 5
 kind = "descriptive"
 long_share = 32.2
 semicolons = 76
-long_paragraphs = 8
+long_paragraphs = 12
 retired = 8
 
 [pages."docs/ml/deep-classifier.md"]
@@ -304,7 +304,7 @@ retired = 0
 kind = "procedure"
 long_share = 19.7
 semicolons = 2
-long_paragraphs = 1
+long_paragraphs = 2
 retired = 0
 
 [pages."docs/maintainers/mutation-testing.md"]
