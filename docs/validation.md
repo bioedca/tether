@@ -1019,8 +1019,8 @@ significant digit. "—" marks a metric that has no published value.
 | `ddiscriminator` | Δ-Discriminator T-box, WT tRNA (Fig. 3) | `vbconhmm` | 2 | 164 | 6.6e-05 | 5.2e-05 | 0.0047 | 0.0063 |
 | `dncca_one_state` | tRNA-ΔNCCA One-state population (Fig. 4b-d) | `kmeans_vbhmm` | 2 | 192 | 0.0028 | — | — | 0.075 |
 | `dncca_two_state` | tRNA-ΔNCCA Two-state population (Fig. 4f-h) | `vbgmm` | 3 | 72 | 3.7e-06 | — | — | 0.00015 |
-| `linker` | Linker mutant, WT tRNA (Fig. 6) | `vbconhmm` | 3 | 197 | 0.4 | 0.48 | 0.79 | 1.3 |
-| `rag` | RAG mutant, WT tRNA (Fig. 7) | `vbconhmm` | 4 | 197 | 0.37 | 0.25 | 0.59 | 0.93 |
+| `linker` | Linker mutant, WT tRNA (Fig. 6) | `vbconhmm` | 3 | 197 | 0.4 | 0.48 | 0.79 | 0.56 |
+| `rag` | RAG mutant, WT tRNA (Fig. 7) | `vbconhmm` | 4 | 197 | 0.37 | 0.25 | 0.59 | 0.49 |
 
 **This is an advisory reference.** A limit measures how far the pinned tMAVEN is from the published
 fit, so a failure means that the sidecar fit moved, not that the article is wrong. Five fits

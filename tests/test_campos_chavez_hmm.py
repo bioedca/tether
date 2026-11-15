@@ -158,6 +158,19 @@ def test_compare_gives_each_deviation_of_a_known_model() -> None:
     assert cc.compare(_model([0.0], [[0.0, 0.0]]), pub)["state_count_differs"] is True
 
 
+def test_compare_matches_the_states_one_to_one() -> None:
+    # Two fitted states lie nearest the same published level (as for the Linker fit): their
+    # transitions must count against the published ones by rank, not fall onto the diagonal.
+    pub = {
+        "means": np.array([0.0, 0.5]),
+        "tdp_counts": np.array([[0, 3], [3, 0]]),
+        "counts": np.array([[90.0, 10.0], [10.0, 90.0]]),
+    }
+    out = cc.compare(_model([-0.1, 0.1], [[-0.1, 0.1, -0.1, 0.1]]), pub)
+    # Paths: low->high, high->low, low->high = [[0, 2], [1, 0]] against [[0, 3], [3, 0]].
+    assert out["tdp_counts_l1_rel"] == pytest.approx((1 + 2) / 6)
+
+
 def test_parse_summary_reads_a_tmaven_report() -> None:
     text = (
         "\nModel type = vb Consensus HMM\nModel ran on 3 traces\nnstates = 2\n"

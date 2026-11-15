@@ -277,7 +277,7 @@ def run_fit(
 
 
 def idealized_counts(model, means: np.ndarray) -> np.ndarray:
-    """Transitions of the model's idealized paths, between levels matched to ``means``."""
+    """Transitions of the model's idealized paths, each level matched to its nearest ``means``."""
     initial, final = [], []
     for path in model.idealized:
         path = path[np.isfinite(path)]
@@ -297,7 +297,9 @@ def compare(model, pub: dict) -> dict:
         out["state_count_differs"] = True
         return out
     out["means_max_abs"] = float(np.max(np.abs(means - pub["means"])))
-    tdp = idealized_counts(model, pub["means"])
+    # Each idealized level is a fitted mean, so matching it to the sorted fitted means gives its
+    # state; states then pair with the published ones by rank, one to one.
+    tdp = idealized_counts(model, means)
     out["tdp_counts_l1_rel"] = float(
         np.abs(tdp - pub["tdp_counts"])[off].sum() / pub["tdp_counts"][off].sum()
     )

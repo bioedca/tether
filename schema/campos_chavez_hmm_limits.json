@@ -6,7 +6,7 @@
     "means_max_abs": "Largest |fresh state mean - published state mean|, states sorted by mean. The published means are the distinct levels of the fit's transition density sheet.",
     "populations_max_abs": "Largest |fresh share - published share| of the frames in each state; a share is a row sum of the count matrix over its total. Global fits only (the sub-populations have no published count matrix).",
     "offdiag_counts_l1_rel": "Sum over the off-diagonal cells of |fresh count - published count| over the sum of the published off-diagonal counts (Kmatrix/*.txt in increasing-mean order). Global fits only.",
-    "tdp_counts_l1_rel": "Sum over the pairs of levels of |fresh transitions - published transitions| over the published total; the fresh transitions are those of the idealized paths, each level matched to the nearest published mean, and the published ones are those of the transition density sheet."
+    "tdp_counts_l1_rel": "Sum over the pairs of levels of |fresh transitions - published transitions| over the published total; the fresh transitions are those of the idealized paths between the fitted states, which pair with the published states by rank (one to one), and the published ones are those of the transition density sheet."
   },
   "limit_rule": "Each limit is the largest measurement over the seeds rounded up at the second significant digit. tests/test_campos_chavez_hmm.py enforces the rule, so a limit cannot move without a new measurement (PRD section 11.2 re-freeze policy).",
   "measured": {
@@ -59,7 +59,7 @@
         "means_max_abs": [0.391, 0.391],
         "populations_max_abs": [0.4709, 0.4709],
         "offdiag_counts_l1_rel": [0.7893, 0.7893],
-        "tdp_counts_l1_rel": [1.266, 1.266]
+        "tdp_counts_l1_rel": [0.5568, 0.5568]
       },
       "rag": {
         "seeds": 11,
@@ -67,7 +67,7 @@
         "means_max_abs": [0.364, 0.364],
         "populations_max_abs": [0.2424, 0.2424],
         "offdiag_counts_l1_rel": [0.5845, 0.5845],
-        "tdp_counts_l1_rel": [0.9272, 0.9272]
+        "tdp_counts_l1_rel": [0.4845, 0.4845]
       }
     },
     "accepted": "pending: bioedca signs off the reference and the priors on the pull request (#757, C4: B)"
@@ -138,7 +138,7 @@
           "means_max_abs": [0.4109, 0.4166],
           "populations_max_abs": [0.5395, 0.5633],
           "offdiag_counts_l1_rel": [1.292, 1.625],
-          "tdp_counts_l1_rel": [1.287, 1.293],
+          "tdp_counts_l1_rel": [0.7247, 0.8811],
           "distinct_means": [
             [-0.0637, 0.0019, 0.6341],
             [-0.0634, 0.0019, 0.6342],
@@ -159,7 +159,7 @@
           "means_max_abs": [0.3362, 0.3422],
           "populations_max_abs": [0.1775, 0.1838],
           "offdiag_counts_l1_rel": [1.241, 1.453],
-          "tdp_counts_l1_rel": [0.5465, 0.5883],
+          "tdp_counts_l1_rel": [0.4511, 0.4869],
           "distinct_means": [
             [-0.046, 0.0368, 0.424, 0.786],
             [-0.0444, 0.0376, 0.4282, 0.7868],
@@ -240,7 +240,7 @@
           "means_max_abs": [0.003564, 0.4181],
           "populations_max_abs": [2.716e-05, 0.635],
           "offdiag_counts_l1_rel": [0.000195, 6.794],
-          "tdp_counts_l1_rel": [0.0236, 1.418],
+          "tdp_counts_l1_rel": [0.0236, 3.123],
           "distinct_means": [
             [-0.1181, -0.0051, 0.6203],
             [-0.1177, 0.0015, 0.6242],
@@ -259,7 +259,7 @@
           "means_max_abs": [0.000109, 0.3901],
           "populations_max_abs": [0.01218, 0.1863],
           "offdiag_counts_l1_rel": [0.09153, 6.737],
-          "tdp_counts_l1_rel": [0.002387, 0.932],
+          "tdp_counts_l1_rel": [0.002387, 1.462],
           "distinct_means": [
             [-0.03, -0.0111, 0.4192, 0.7846],
             [-0.0287, 0.3525, 0.6765, 0.8678],
@@ -307,13 +307,13 @@
       "means_max_abs": {"measured": 0.3910374352849199, "limit": 0.4},
       "populations_max_abs": {"measured": 0.4708922241551179, "limit": 0.48},
       "offdiag_counts_l1_rel": {"measured": 0.789275163341852, "limit": 0.79},
-      "tdp_counts_l1_rel": {"measured": 1.2657342657342658, "limit": 1.3}
+      "tdp_counts_l1_rel": {"measured": 0.5568181818181818, "limit": 0.56}
     },
     "rag": {
       "means_max_abs": {"measured": 0.3639929335229569, "limit": 0.37},
       "populations_max_abs": {"measured": 0.24244223637762147, "limit": 0.25},
       "offdiag_counts_l1_rel": {"measured": 0.5845148778855002, "limit": 0.59},
-      "tdp_counts_l1_rel": {"measured": 0.9272076372315036, "limit": 0.93}
+      "tdp_counts_l1_rel": {"measured": 0.48448687350835323, "limit": 0.49}
     }
   },
   "fresh": {
