@@ -8,7 +8,8 @@ the brand splash art, the version and one status line until the main window appe
 
 This module must run *before* the slow import it covers, so it imports only PySide6
 and the standard library, never a scientific library. ``tests/test_gui_splash.py``
-asserts that in a clean interpreter.
+asserts that in a clean interpreter. That is why the Qt import is PySide6 itself, not
+``pyqtgraph.Qt``, which loads NumPy.
 
 The art follows the system colour scheme, not the application theme: the theme
 module loads with the shell, which is the slow part. A display whose device pixel

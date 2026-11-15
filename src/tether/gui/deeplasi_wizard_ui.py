@@ -20,7 +20,7 @@ shell over two already-frozen, fully-tested headless layers:
   It is injected (``runner=``) so tests drive the UI wiring without re-running the
   importers (whose correctness the executor's own suite already covers).
 
-Three steps, held in a :class:`~qtpy.QtWidgets.QStackedWidget`:
+Three steps, held in a :class:`~pyqtgraph.Qt.QtWidgets.QStackedWidget`:
 
 1. **Intake** — choose a folder (+ optional recursive scan) →
    :meth:`~tether.gui.deeplasi_wizard.DeepLasiWizard.from_directory` builds the

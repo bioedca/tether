@@ -14,6 +14,9 @@ desktop shortcut to that entry would ship a demo rather than the application.
 The Qt import is deferred into :func:`create_shell`, after the arguments are parsed,
 so that ``--version`` and ``--help`` answer without paying for PySide6/pyqtgraph,
 matching the lazy-import discipline :mod:`tether.cli` uses for the imaging stack.
+The first Qt import is PySide6 itself, not ``pyqtgraph.Qt``: importing pyqtgraph loads
+NumPy, and the splash must be on the screen before that. pyqtgraph then picks the
+binding that is already loaded.
 
 Between the ``QApplication`` and the slow import of the shell, :func:`create_shell`
 shows the startup splash (:mod:`tether.gui.splash`, #676) on a platform with a screen.
