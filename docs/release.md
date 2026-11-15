@@ -112,8 +112,14 @@ release**, not the binaries, and it is unaffected by any of the above.
     `v1.0.0.0` is rejected. The `-<prerelease>` component follows SemVer 2.0.0 §9: one or
     more identifiers separated by dots, none of them empty, each either a number with no
     leading zero or a run of letters, digits and hyphens that holds at least one letter or
-    hyphen. So `-rc1`, `-rc.1`, `-0` and `-alpha-1` are accepted, and `-01`, `-rc.01`,
-    `-rc..1`, `-.rc1` and `-rc1.` are rejected. A tag with a `-<prerelease>` component publishes as a GitHub
+    hyphen. So `-rc1`, `-rc.1` and `-alpha-1` are accepted, and `-01`, `-rc.01`,
+    `-rc..1`, `-.rc1` and `-rc1.` are rejected. The tag is then also read as a PEP 440
+    version, because the package version comes from that reading (hatch-vcs), not from
+    SemVer. A tag whose PEP 440 reading is a **post-release** is rejected: `v1.0.0-0` and
+    `v1.0.0-1` are valid SemVer prereleases, but PEP 440 reads them as `1.0.0.post0` and
+    `1.0.0.post1`, which sort *after* `1.0.0`. A tag whose prerelease component PEP 440
+    cannot read, such as `v1.0.0-foo`, is rejected too. Use the `a`, `b`, `rc`, `alpha`,
+    `beta` or `dev` forms, such as `-rc1`. A tag with a `-<prerelease>` component publishes as a GitHub
     **prerelease** and does not repoint the documentation site; that verdict is read from
     the parsed tag's prerelease component, not from a search for a hyphen. The tag must also
     be **annotated** and its signature **verified by GitHub** (your SSH signing key

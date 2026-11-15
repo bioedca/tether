@@ -2050,10 +2050,13 @@ TAG_ACCEPT = (
     "v1.0.0-rc2",
     "v1.0.0-rc3",
     # SemVer 2.0.0 §9 prerelease identifiers the grammar must keep admitting (issue #498):
-    # a numeric identifier after a dot, a lone `0`, and a hyphen inside an identifier.
+    # a numeric identifier after a dot and a hyphen inside an identifier. (`v1.0.0-0`, the
+    # lone `0`, moved to TAG_PEP440_REJECT under issue #1003: the grammar still admits it.)
     "v1.0.0-rc.1",
-    "v1.0.0-0",
     "v1.0.0-alpha-1",
+    # PEP 440 prerelease spellings the PEP 440 check must keep admitting (issue #1003).
+    "v1.0.0-beta.2",
+    "v1.0.0-dev",
 )
 #: `v1.0.0\n` is here because Python's `$` also matches before a trailing newline while bash's
 #: `[[ =~ ]]` does not; it is what makes a test built on `re.match` a red test, not a footnote.
@@ -2078,14 +2081,29 @@ TAG_REJECT = (
     "v1.0.0-.rc1",
     "v1.0.0-rc1.",
 )
+#: Tags TAG_ERE admits -- valid SemVer 2.0.0 prereleases, so #498's grammar must keep matching
+#: them -- that the resolve step's PEP 440 check then rejects (issue #1003, rule (b)). The first
+#: four read as post-releases that sort AFTER `1.0.0` (`1.0.0-0` is `1.0.0.post0`; `-r1` and
+#: `-post1` are PEP 440's other post spellings; `-rc1.post1` is a prerelease AND a post-release,
+#: and a post-release reading is what fails). The rest do not parse as PEP 440 at all.
+TAG_PEP440_REJECT = (
+    "v1.0.0-0",
+    "v1.0.0-1",
+    "v1.0.0-r1",
+    "v1.0.0-rc1.post1",
+    "v1.0.0-foo",
+    "v1.0.0-1.2",
+    "v1.0.0-rc1.0",
+)
 TAG_PRERELEASE = (
     "v1.0.0-rc1",
     "v1.0.0-rc.2",
     "v1.0.0-rc2",
     "v1.0.0-rc3",
     "v1.0.0-rc.1",
-    "v1.0.0-0",
     "v1.0.0-alpha-1",
+    "v1.0.0-beta.2",
+    "v1.0.0-dev",
 )
 TAG_STABLE = ("v1.0.0", "v0.8.0")
 
@@ -2165,13 +2183,16 @@ def test_release_tag_grammar_accepts_the_stated_form_only() -> None:
         return bool(match.group(4)) if grammar.groups >= 4 else False
 
     wrong: list[str] = []
-    for tag in TAG_ACCEPT:
+    # The PEP 440 rejects are valid SemVer: the grammar admits them and the later check refuses
+    # them (issue #1003), so #498's grammar is held to them too, as prereleases.
+    for tag in TAG_ACCEPT + TAG_PEP440_REJECT:
         if grammar.fullmatch(tag) is None:
             wrong.append(f"rejected {tag!r}, which the grammar must accept")
     for tag in TAG_REJECT:
         if grammar.fullmatch(tag) is not None:
             wrong.append(f"accepted {tag!r}, which the grammar must reject")
-    for tag, prerelease in [(t, True) for t in TAG_PRERELEASE] + [(t, False) for t in TAG_STABLE]:
+    classified = [(t, True) for t in TAG_PRERELEASE + TAG_PEP440_REJECT]
+    for tag, prerelease in classified + [(t, False) for t in TAG_STABLE]:
         match = grammar.fullmatch(tag)
         if match is not None and prerelease_of(match) is not prerelease:
             wrong.append(f"classified {tag!r} as prerelease={not prerelease}")
@@ -2263,7 +2284,7 @@ def _run_resolve(bash: str, tmp_path: Path, tag: str, event: str) -> tuple[int, 
 
 
 @pytest.mark.parametrize("event", ["workflow_dispatch", "push"])
-@pytest.mark.parametrize("tag", TAG_ACCEPT + TAG_REJECT)
+@pytest.mark.parametrize("tag", TAG_ACCEPT + TAG_REJECT + TAG_PEP440_REJECT)
 def test_release_resolve_script_enforces_the_grammar(tmp_path: Path, tag: str, event: str) -> None:
     """The resolve step's real script, under bash, on BOTH event paths, per table row.
 
@@ -2288,10 +2309,79 @@ def test_release_resolve_script_enforces_the_grammar(tmp_path: Path, tag: str, e
     else:
         assert code != 0, f"{event}: the resolve step accepted {tag!r}:\n{out}"
         errors = [ln for ln in out.splitlines() if ln.startswith("::error::")]
-        assert any("vMAJOR.MINOR.PATCH" in ln and tag.strip() in ln for ln in errors), (
-            f"{event}: rejecting {tag!r} must print an `::error::` line naming the tag and the "
-            f"`vMAJOR.MINOR.PATCH` form; got:\n{out}"
+        # A grammar reject never reaches the PEP 440 check; a PEP 440 reject names PEP 440.
+        reason = "PEP 440" if tag in TAG_PEP440_REJECT else "vMAJOR.MINOR.PATCH"
+        assert any(reason in ln and tag.strip() in ln for ln in errors), (
+            f"{event}: rejecting {tag!r} must print an `::error::` line naming the tag and "
+            f"{reason!r}; got:\n{out}"
         )
+        assert not written, f"{event}: rejected {tag!r} but wrote {written} to $GITHUB_OUTPUT"
+
+
+def test_release_tag_tables_agree_with_pep_440() -> None:
+    """The committed tag tables hold the PEP 440 readings the resolve step relies on (#1003).
+
+    Run with the ``packaging`` the test environment carries, as a check on the table rather than
+    on the runner: every accepted tag parses, none is a post-release, and PEP 440 calls it a
+    prerelease exactly when the grammar's group 4 does -- so ``prerelease`` keeps its meaning,
+    the third acceptance criterion. Every PEP 440 reject is a post-release or does not parse,
+    so no row there is rejected for a reason the step does not test.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    wrong: list[str] = []
+    for tag in TAG_ACCEPT:
+        try:
+            version = Version(tag[1:])
+        except InvalidVersion:
+            wrong.append(f"{tag!r} is in TAG_ACCEPT but does not parse as PEP 440")
+            continue
+        if version.is_postrelease:
+            wrong.append(f"{tag!r} is in TAG_ACCEPT but reads as post-release {version}")
+        if version.is_prerelease is not (tag in TAG_PRERELEASE):
+            wrong.append(f"{tag!r}: PEP 440 prerelease={version.is_prerelease} ({version})")
+    for tag in TAG_PEP440_REJECT:
+        try:
+            version = Version(tag[1:])
+        except InvalidVersion:
+            continue
+        if not version.is_postrelease:
+            wrong.append(f"{tag!r} is a PEP 440 reject but reads as {version}, not a post-release")
+    assert not wrong, "; ".join(wrong)
+
+
+def test_release_verify_installs_the_pinned_pep_440_parser() -> None:
+    """``verify`` installs the pinned ``packaging`` before the resolve step reads the tag.
+
+    The resolve step calls ``python`` and imports ``packaging.version``; on the runner that
+    import exists only because an earlier step installed it. Pinned to the base lock's version,
+    so the check reads the tag with the parser the locked environment carries.
+    """
+    steps = _job_steps(RELEASE_WORKFLOW.read_text(encoding="utf-8"), "verify")
+    names = [s.get("name") for s in steps]
+    resolve = names.index(RESOLVE_STEP_NAME)
+    installs = [
+        i
+        for i, s in enumerate(steps)
+        if re.search(r'pip install "packaging==[0-9.]+"', str(s.get("run", "")))
+    ]
+    assert len(installs) == 1 and installs[0] < resolve, (
+        "the `verify` job must install a pinned `packaging==X` exactly once, before the "
+        f"{RESOLVE_STEP_NAME!r} step (issue #1003); steps: {names}"
+    )
+    pinned = re.search(r'packaging==([0-9.]+)"', str(steps[installs[0]]["run"]))
+    lock = (Path(__file__).resolve().parents[1] / "conda-lock.yml").read_text(encoding="utf-8")
+    locked = set(re.findall(r"^- name: packaging\n  version: '([^']+)'$", lock, re.MULTILINE))
+    assert pinned is not None and locked == {pinned.group(1)}, (
+        f"`verify` pins packaging=={pinned.group(1) if pinned else '?'}; the base lock "
+        f"carries {sorted(locked)}"
+    )
+    setup = [
+        i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith("actions/setup-python@")
+    ]
+    assert setup and setup[0] < installs[0], (
+        "`verify` must set up Python before installing the parser"
+    )
 
 
 @pytest.mark.parametrize("tag", ["v1.0.0-rc1", "v1.0.0"])

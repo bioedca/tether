@@ -194,7 +194,12 @@ grammar's parsed prerelease component. (Amended 2026-11-14 by
 [#498](https://github.com/bioedca/tether/issues/498).) That prerelease component is itself held to
 SemVer 2.0.0 §9: dot-separated, non-empty identifiers, each numeric with no leading zero or
 alphanumeric-with-hyphen holding at least one non-digit, so `v1.0.0-rc.01` and `v1.0.0-rc..1` are
-rejected rather than published as prereleases. The two forms are still not identical, and this record does
+rejected rather than published as prereleases. (Amended 2026-11-15 by
+[#1003](https://github.com/bioedca/tether/issues/1003).) The same tag is also read as a PEP 440
+version, because hatch-vcs stamps the package version from that reading: `verify` rejects, on every
+run, a tag whose PEP 440 reading is a post-release (SemVer's `v1.0.0-0` is PEP 440's `1.0.0.post0`,
+which sorts after `1.0.0`) or does not parse (`v1.0.0-foo`). The SemVer grammar is unchanged and still
+decides prerelease status; the maintainer chose this check over narrowing the grammar. The two forms are still not identical, and this record does
 not say they are: the publisher admits a prerelease component, which publishes as a GitHub
 prerelease, while this decision's allowlist admits no prerelease and no build metadata. Decision 4's
 substance is unchanged; the client remains an allowlist, and remains the stricter of the two.

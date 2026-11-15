@@ -87,6 +87,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # The resolve step below reads the tag with `packaging.version.Version` (issue #1003).
+      # Pinned to the version the base lock carries (conda-lock.yml), the same parser
+      # hatch-vcs hands the tag to when it stamps the wheel's version.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the PEP 440 parser
+        run: python -m pip install "packaging==26.2"
+
       - name: Resolve target tag + publish mode
         id: resolve
         # Untrusted inputs routed through env, never inlined into the script.
@@ -106,6 +115,15 @@ jobs:
         # tests/test_marker_contract.py extracts this literal and runs its accept/reject table
         # against it. Keep $TAG_ERE UNQUOTED inside [[ =~ ]]: quoted, it matches literally and
         # rejects every real tag.
+        #
+        # A tag that passes TAG_ERE is then read as PEP 440 (issue #1003, the maintainer's
+        # rule (b)), because hatch-vcs stamps the wheel and the installer's TETHER_VERSION from
+        # that reading, not from SemVer. The two grammars disagree: SemVer calls `v1.0.0-0` a
+        # prerelease, PEP 440 normalizes `1.0.0-0` to `1.0.0.post0`, a post-release that sorts
+        # AFTER `1.0.0`; and some SemVer identifiers (`-foo`) do not parse as PEP 440 at all.
+        # So a post-release reading, or no reading, fails here, on every run. TAG_ERE itself is
+        # unchanged and still decides `prerelease`. `-P` keeps the checkout's own `packaging/`
+        # directory off sys.path; a failure to run the parser fails the step (set -e).
         env:
           EVENT: ${{ github.event_name }}
           PUSH_TAG: ${{ github.ref_name }}
@@ -129,6 +147,29 @@ jobs:
           prerelease="false"
           if [ -n "${BASH_REMATCH[4]}" ]; then
             prerelease="true"
+          fi
+          reading="$(python -P - "${tag#v}" <<'PY'
+          import sys
+
+          from packaging.version import InvalidVersion, Version
+
+          try:
+              version = Version(sys.argv[1])
+          except InvalidVersion:
+              print("unparseable")
+          else:
+              print("post-release" if version.is_postrelease else "ok")
+          PY
+          )"
+          if [ "$reading" = "unparseable" ]; then
+            printf '::error::release tag %q does not parse as a PEP 440 version, so hatch-vcs cannot stamp the package version from it\n' "$tag"
+            false
+          elif [ "$reading" = "post-release" ]; then
+            printf '::error::release tag %q reads as a PEP 440 post-release, which sorts after the stable release; use a prerelease such as -rc1\n' "$tag"
+            false
+          elif [ "$reading" != "ok" ]; then
+            printf '::error::the PEP 440 check of release tag %q gave no verdict\n' "$tag"
+            false
           fi
           {
             echo "tag=$tag"
