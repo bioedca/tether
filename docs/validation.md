@@ -1071,7 +1071,14 @@ donor traces (a correlation of 0.99 or more with a column of the sample's matrix
 see the background subtraction or one missing frame), and each stored model and model summary is
 compared with the published values and with the fresh fit of seed 757. Older tMAVEN models, which
 `read_model` cannot open yet (#1080), are read by the test's own reader. The result file holds
-numbers under neutral ids only.
+numbers under neutral ids only. The first run (2026-11-15, 24 files: 17 trace files, 4 models,
+3 summaries) found the traces of each of the five samples; three trace files of one further sample
+match no matrix of the Source Data. The stored ΔNCCA model is the published one (count matrix to
+1e-11). One of the three stored wild-type models also agrees (means to 5.8e-4, counts to 0.04 %);
+the other two do not (means to 0.042 or 0.0085). The Linker summary has the published count matrix
+exactly and means to 3.6e-3, 0.39 from the fresh fit: the published Linker fit is the one the
+authors' tMAVEN found, and the pin does not reach it. The Two-state and One-state summaries agree
+with the published means (to 4.7e-9 and 1.5e-3).
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_hmm.py` (the settings and their
 sources, the windows, the comparison on built data, the rounding rule and this table). Weekly
