@@ -90,7 +90,8 @@ per-trace model for every molecule and that one seed gives one model value for v
 of ADR-0075), and writes the cross-seed agreement of seeds 1 and 2 to the job log without
 asserting it. `"vbFRET (per-trace, M2)"` stays in `$.coverage.applied_to` (decision of
 2026-11-14); the coverage note says no test asserts a per-trace fit against that row. The §9.6
-row for per-trace vbFRET parity stays open, restated with this finding.
+row for per-trace vbFRET parity stays open, restated with this finding, and points to
+[#949](https://github.com/bioedca/tether/issues/949), the parity evidence for the per-trace HMMs.
 
 ### 2. The transition-matrix term is a fifth quantity with its own block
 
@@ -147,7 +148,7 @@ reported. A deliberate re-freeze changes both copies in one pull request, under 
   seeded check.
 - Bad: per-trace vbFRET parity is still not met, and the reason is now a measured fact about the
   pinned tMAVEN's per-trace step, not a missing test. A row for it needs a fit that reproduces —
-  for example best-of-N restarts per state count — which is new scope for a new issue.
+  for example best-of-N restarts per state count — which is new scope, carried by #949.
 - Neutral: the transition-matrix ceiling of `vbconhmm` (1e-4) is far above its measured spread
   (≈ 4e-9) because of the resolution floor; the drift limit of #737 stays the tighter regression
   check of the four bounds and does not cover this term.

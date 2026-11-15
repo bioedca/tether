@@ -200,7 +200,7 @@ milestone set built these steps as library capabilities, reachable from the Pyth
 application does not yet do all of them: the project-wide one-click idealization
 ([#625](https://github.com/bioedca/tether/issues/625)) and the histogram export
 ([#374](https://github.com/bioedca/tether/issues/374), [#377](https://github.com/bioedca/tether/issues/377)) are carried by the
-milestones **M14–M17**, and per-trace vbFRET parity is a §9.6 row ([#545](https://github.com/bioedca/tether/issues/545)).
+milestones **M14–M17**, and per-trace vbFRET parity is a §9.6 row ([#949](https://github.com/bioedca/tether/issues/949)).
 The test is a non-binding adoption aspiration, deliberately not operationalized as a calendar gate (§9 is
 capability-sequenced, with no schedule commitment anywhere).
 
@@ -708,7 +708,7 @@ effective settings ([#937](https://github.com/bioedca/tether/issues/937); the pa
   parity with tMAVEN."* This replaces the answer D4 of 2026-11-10 on
   [#622](https://github.com/bioedca/tether/issues/622), which offered only consensus VB-HMM and ebFRET. In `v1.0.0`
   the scan offers the present families (vbFRET, consensus VB-HMM, ebFRET), and their mark follows the parity
-  record of §9.2 and §9.6 (per-trace vbFRET parity is not yet met, [#545](https://github.com/bioedca/tether/issues/545)); the
+  record of §9.2 and §9.6 (per-trace vbFRET parity is not yet met, [#949](https://github.com/bioedca/tether/issues/949)); the
   other modelers are [#936](https://github.com/bioedca/tether/issues/936), and their parity evidence is
   [#948](https://github.com/bioedca/tether/issues/948) to [#950](https://github.com/bioedca/tether/issues/950).
 - **Comparison.** Fits **shall** be compared only inside one score context: the same data and the same score
@@ -1453,7 +1453,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | A condition pooled across the projects that hold it, in a plot. The M4 *Annotation & conditions* bar aggregates a condition across the movie files of one project, which the library meets | §7.6, UC3 | [#934](https://github.com/bioedca/tether/issues/934) (the plot it feeds: [#371](https://github.com/bioedca/tether/issues/371)) |
 | A fresh acquisition goes movie → `.tether` with no terminal: extraction from the application (FR-EXTRACT-UI). Today only `tether extract` and `tether batch` make a `.tether` from a new movie | M15; §7.1, G6 | the issues of milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17); the extraction section itself is [#350](https://github.com/bioedca/tether/issues/350) |
 | The overnight batch of many movies without a terminal: a multi-movie queue in the application. The M3 *Batch runner* bar was met by the library and the `tether batch` command | M3; UC7, G6 | [#645](https://github.com/bioedca/tether/issues/645) |
-| Per-trace vbFRET parity against a frozen tolerance. tMAVEN's per-trace step now runs headless, but on the pinned build it makes one random start per state count and does not reproduce across seeds (worst state-count agreement 0.0 over 20 fits per small fixture), so no row is frozen; a row needs a fit that reproduces, for example best-of-N restarts per state count (ADR-0110) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
+| Per-trace vbFRET parity against a frozen tolerance. tMAVEN's per-trace step now runs headless, but on the pinned build it makes one random start per state count and does not reproduce across seeds (worst state-count agreement 0.0 over 20 fits per small fixture), so no row is frozen; a row needs a fit that reproduces, for example best-of-N restarts per state count (ADR-0110) | M2 | [#949](https://github.com/bioedca/tether/issues/949) |
 | The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores. Oracle (d) is evidenced only on a synthetic multi-video store, which no ADR accepts (N2, §9.5) | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
 | The §8 NFR-VALID (d) leave-one-video-out protocol, implemented or settled against the prequential protocol | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
 | The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027). Until it is met, oracle (e)'s α is evidenced only on synthesized known-α traces, which no ADR accepts (N2, §9.5) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
