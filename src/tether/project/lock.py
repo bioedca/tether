@@ -67,7 +67,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     from tether.project.core import Project
 
@@ -75,20 +75,24 @@ __all__ = [
     "DEFAULT_STALENESS_TIMEOUT_S",
     "LOCK_SUFFIX",
     "CorruptLockError",
+    "FileIdentity",
     "LockError",
     "LockIdentity",
     "LockInfo",
     "LockedError",
     "ProcessReservation",
+    "PublishGuardRequiredError",
     "acquire",
     "acquire_process_reservation",
     "assert_writable",
     "assert_process_reservation",
     "conflict_copies",
     "create_split_curation",
+    "file_identity",
     "held_lock",
     "local_identity",
     "lock_path",
+    "publish_lock",
     "read_lock",
     "refresh",
     "release",
@@ -222,7 +226,45 @@ class LockedError(LockError):
         super().__init__(f"{path if path is not None else 'project'} is locked: {detail}")
 
 
+class PublishGuardRequiredError(LockError):
+    """An atomic publish would replace an existing project without its writer lock.
+
+    Every writer that publishes a complete project with ``os.replace`` must hold the
+    destination's writer lock and pass the check [`publish_lock`][] yields as its
+    ``publish_guard`` (#346, ADR-0112). Without one, the replacement could land on a
+    project another writer holds open, whose later writes would then go to the
+    replaced, orphaned file.
+    """
+
+
 # --- identity + lock record --------------------------------------------------
+
+#: The canonical identity of one existing file: ``(st_dev, st_ino)`` (ADR-0112).
+FileIdentity = tuple[int, int]
+
+
+def _stat_identity(st: os.stat_result) -> FileIdentity | None:
+    """Return ``(st_dev, st_ino)`` for ``st``, or ``None`` with no inode number."""
+    if not st.st_ino:
+        return None
+    return (int(st.st_dev), int(st.st_ino))
+
+
+def file_identity(path: str | Path) -> FileIdentity | None:
+    """The canonical identity of the existing file at ``path`` (#346, ADR-0112).
+
+    Identity is ``(st_dev, st_ino)``, so every hard-link spelling of one file has
+    the same identity, in every process. This is the one place Tether builds that
+    pair: the lock lifecycle, the guarded publish, and the GUI writer registry all
+    call it. Symbolic links are followed. Returns ``None`` when ``path`` does not
+    exist or cannot be read, and when the filesystem reports no inode number
+    (``st_ino == 0``), because such a filesystem cannot prove that two names are
+    one file.
+    """
+    try:
+        return _stat_identity(os.stat(path))
+    except OSError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -481,8 +523,8 @@ def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
             return
         if current.st_size != 0:
             return
-        entry = os.lstat(gp)
-        if (entry.st_dev, entry.st_ino) != (current.st_dev, current.st_ino):
+        identity = _stat_identity(current)
+        if identity is None or _stat_identity(os.lstat(gp)) != identity:
             return
         directory = os.stat(gp.parent)
         wanted = 0
@@ -1168,6 +1210,58 @@ def held_lock(
         yield info
     finally:
         release(project_path, info)
+
+
+@contextmanager
+def publish_lock(
+    project_path: str | Path,
+    *,
+    identity: LockIdentity | None = None,
+) -> Iterator[Callable[[], None]]:
+    """Hold ``project_path``'s writer lock for one atomic publish (#346, ADR-0112).
+
+    The claim is strict: any lock already present is refused, including one this
+    process holds, because a same-process writer (an open GUI session) has not
+    transferred its critical section to this publish. A process-local reservation
+    is held for the same span, so no other writer in this interpreter can claim the
+    destination either.
+
+    Yields the check to pass as ``publish_guard`` to
+    [`extract_movie`][tether.project.extract.extract_movie],
+    [`reconstruct_project`][tether.project.reconstruct.reconstruct_project] or
+    [`import_analysis_only_project`][tether.project.analysis_import.import_analysis_only_project].
+    It raises [`LockError`][] unless the sidecar still carries this claim's nonce,
+    so a steal during a long build stops the publish. The lock is released on exit,
+    nonce-checked, so a lock stolen in the meantime is never removed.
+
+    Raises
+    ------
+    LockedError
+        If another writer, in this process or any other, holds the destination.
+    """
+    reservation = acquire_process_reservation(project_path)
+    try:
+        held = acquire(
+            project_path,
+            identity=identity,
+            allow_existing_owner=False,
+            process_reservation=reservation,
+        )
+        try:
+
+            def guard() -> None:
+                assert_process_reservation(project_path, reservation)
+                current, corrupt = _read_tolerant(lock_path(project_path))
+                if corrupt or current is None or current.nonce != held.nonce:
+                    raise LockError(
+                        f"{lock_path(project_path)} lock ownership changed before publish"
+                    )
+
+            yield guard
+        finally:
+            release(project_path, held)
+    finally:
+        release_process_reservation(project_path, reservation)
 
 
 # --- OneDrive / SharePoint sync-conflict detection (PRD §5.4 detect-and-surface)

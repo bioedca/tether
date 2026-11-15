@@ -142,9 +142,13 @@ def _stage(name: str, args: argparse.Namespace) -> Callable[[], object]:
     if name == "extract":
         from tether.project.extract import extract_movie
 
-        return lambda: extract_movie(
-            args.movie, store, tmap=args.tmap, tdat=args.tdat, overwrite=True
-        )
+        def extract() -> object:
+            # The stage owns its store: remove it rather than time the publish lock that
+            # replacing a project another writer may hold requires (ADR-0112).
+            Path(store).unlink(missing_ok=True)
+            return extract_movie(args.movie, store, tmap=args.tmap, tdat=args.tdat)
+
+        return extract
     if name == "correct":
         from tether.project.batch import run_correct_stage
 

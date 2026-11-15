@@ -2154,3 +2154,40 @@ def test_no_defer_skips_probe_and_runs_idealize(tmp_path: Path) -> None:
     )
     assert probed["called"] is False  # no probe when deferral is disabled
     assert summary.results[0].stages[STAGE_IDEALIZE].status == STATUS_DONE
+
+
+# --- Replacing an existing output holds its writer lock (#346, ADR-0112) -----
+
+
+def test_overwrite_of_an_unextracted_output_publishes_under_its_lock(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "a")
+    create_project(jobs[0].output_path)  # exists, but holds no extraction
+    seen: list[object] = []
+    stub = _extract_stub()
+
+    def runner(movie_path, output_path, **kwargs):
+        seen.append(kwargs.get("publish_guard"))
+        assert lock.read_lock(output_path) is not None
+        return stub(movie_path, output_path, **kwargs)
+
+    summary = _run(jobs, overwrite=True, _extract=runner)
+
+    assert summary.results[0].stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert len(seen) == 1
+    assert callable(seen[0])
+    assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_of_an_output_another_writer_holds_fails_that_movie(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "a")
+    create_project(jobs[0].output_path)
+    foreign = lock.acquire(
+        jobs[0].output_path, identity=lock.LockIdentity(host="OTHER", user="bob", pid=999)
+    )
+
+    summary = _run(jobs, overwrite=True, _extract=_raising_extract)
+
+    r = summary.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "locked" in (r.stages[STAGE_EXTRACT].error or "")
+    assert lock.read_lock(jobs[0].output_path) == foreign

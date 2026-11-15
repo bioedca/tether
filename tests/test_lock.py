@@ -1452,3 +1452,82 @@ def test_split_overwrite_refused_when_destination_locked(tmp_path: Path) -> None
     lock.acquire(split_path, identity=HOST_A)  # ...and is locked by another writer
     with pytest.raises(LockedError):
         lock.create_split_curation(canonical, split_path, ["m1"], overwrite=True, identity=HOST_B)
+
+
+# --- the canonical file identity and the publish lock (#346, ADR-0112) -------
+
+
+def test_file_identity_is_shared_by_hard_links_and_distinct_otherwise(tmp_path: Path) -> None:
+    project = tmp_path / "a.tether"
+    project.write_bytes(b"x")
+    alias = tmp_path / "sub" / "b.tether"
+    alias.parent.mkdir()
+    os.link(project, alias)
+    other = tmp_path / "c.tether"
+    other.write_bytes(b"x")
+
+    assert lock.file_identity(project) is not None
+    assert lock.file_identity(alias) == lock.file_identity(project)
+    assert lock.file_identity(other) != lock.file_identity(project)
+    assert lock.file_identity(tmp_path / "missing.tether") is None
+
+
+def test_file_identity_is_none_without_an_inode_number(tmp_path: Path, monkeypatch) -> None:
+    """A filesystem that reports ``st_ino == 0`` cannot prove two names are one file."""
+    project = tmp_path / "a.tether"
+    project.write_bytes(b"x")
+    real = os.stat(project)
+    fake = os.stat_result((real.st_mode, 0, real.st_dev, *tuple(real)[3:10]))
+    monkeypatch.setattr(lock.os, "stat", lambda *_a, **_k: fake)
+    assert lock.file_identity(project) is None
+
+
+def test_only_lock_builds_the_file_identity_pair() -> None:
+    """One canonical helper: no second ``st_ino`` construction in the source (#249, #346)."""
+    src = Path(lock.__file__).resolve().parents[1]
+    offenders = sorted(
+        str(path.relative_to(src))
+        for path in src.rglob("*.py")
+        if path.name != "lock.py" and "st_ino" in path.read_text(encoding="utf-8")
+    )
+    assert offenders == []
+
+
+def test_publish_lock_holds_the_destination_and_releases_it(tmp_path: Path) -> None:
+    project = tmp_path / "p.tether"
+    project.write_bytes(b"x")
+
+    with lock.publish_lock(project) as guard:
+        held = lock.read_lock(project)
+        assert held is not None
+        guard()
+        with pytest.raises(lock.LockedError):
+            lock.acquire(project)
+
+    assert lock.read_lock(project) is None
+
+
+def test_publish_lock_refuses_a_lock_this_process_already_holds(tmp_path: Path) -> None:
+    """An open same-process session has not transferred its critical section."""
+    project = tmp_path / "p.tether"
+    project.write_bytes(b"x")
+    session = lock.acquire(project)
+
+    with pytest.raises(lock.LockedError), lock.publish_lock(project):
+        pass
+
+    assert lock.read_lock(project) == session
+
+
+def test_publish_guard_fails_after_a_steal(tmp_path: Path) -> None:
+    project = tmp_path / "p.tether"
+    project.write_bytes(b"x")
+    thief = lock.LockIdentity(host="OTHER", user="bob", pid=999)
+
+    with lock.publish_lock(project) as guard:
+        stolen, _prior = lock.steal_lock(project, identity=thief)
+        with pytest.raises(lock.LockError, match="ownership changed"):
+            guard()
+
+    # The nonce-checked release leaves the thief's lock in place.
+    assert lock.read_lock(project) == stolen

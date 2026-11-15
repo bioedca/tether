@@ -17,6 +17,9 @@ structure/round-trip, not scientific accuracy.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from dataclasses import asdict, fields, replace
 from pathlib import Path
 
@@ -1021,3 +1024,134 @@ def test_cli_warns_on_stderr_when_the_registration_exceeds_the_gate(tmp_path, ca
     captured = capsys.readouterr()
     assert rc == 0
     assert "exceeds" not in captured.err
+
+
+# --- the destination writer lock (#346, ADR-0112) ----------------------------
+
+_HOLDER_SCRIPT = """
+import sys
+from tether.project import lock
+
+held = lock.acquire(sys.argv[1])
+print(held.nonce, flush=True)
+sys.stdin.readline()
+lock.release(sys.argv[1], held)
+"""
+
+_UNGUARDED_SCRIPT = """
+import sys
+from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
+
+try:
+    extract_movie(sys.argv[1], sys.argv[2], options=ExtractOptions(window=21), overwrite=True)
+except ExtractionError as exc:
+    print(exc)
+    sys.exit(3)
+"""
+
+_CLI_SCRIPT = """
+import sys
+from tether.cli import main
+
+sys.exit(main(["extract", sys.argv[1], "-o", sys.argv[2], "--window", "21", "--overwrite"]))
+"""
+
+
+def _run_child(script: str, *args: object) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", script, *map(str, args)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def test_second_process_cannot_replace_a_project_another_process_holds(tmp_path) -> None:
+    """Writer A holds ``p.tether``; extraction in process B fails instead of replacing it.
+
+    The true-subprocess regression for the clobber #249 only reproduced conceptually:
+    before #346, process B's ``extract_movie(..., overwrite=True)`` published a new
+    inode over the project process A held open, and A's later writes went to the
+    orphaned file. Both of B's routes now fail and leave A's file and lock untouched.
+    """
+    from tether.project import lock
+
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "p.tether"
+    extract_movie(movie, out, options=ExtractOptions(window=_WINDOW))
+    # The inode number alone: on main the canonical identity helper does not exist yet.
+    original = os.stat(out).st_ino
+
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _HOLDER_SCRIPT, str(out)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        nonce = holder.stdout.readline().strip()
+        assert nonce, holder.stderr.read() if holder.stderr else ""
+
+        unguarded = _run_child(_UNGUARDED_SCRIPT, movie, out)
+        assert unguarded.returncode == 3, unguarded.stderr
+        assert "needs its writer lock" in unguarded.stdout
+
+        cli = _run_child(_CLI_SCRIPT, movie, out)
+        assert cli.returncode == 1, cli.stderr
+        assert "is locked" in cli.stderr
+
+        assert os.stat(out).st_ino == original
+        held = lock.read_lock(out)
+        assert held is not None
+        assert held.nonce == nonce
+        assert list(tmp_path.glob("p.tether.*.tmp")) == []
+    finally:
+        if holder.poll() is None:
+            holder.communicate("\n", timeout=30)
+
+    assert lock.read_lock(out) is None
+    # Once A releases, B's locked overwrite publishes a new file and releases its lock.
+    cli = _run_child(_CLI_SCRIPT, movie, out)
+    assert cli.returncode == 0, cli.stderr
+    assert os.stat(out).st_ino != original
+    assert lock.read_lock(out) is None
+
+
+def test_extract_refuses_an_unguarded_overwrite_before_any_work(tmp_path, monkeypatch) -> None:
+    from tether.project import extract as extract_module
+
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    out.write_bytes(b"existing project")
+
+    def _no_movie_io(*_a, **_k):
+        raise AssertionError("an unguarded overwrite must be refused before the movie opens")
+
+    monkeypatch.setattr(extract_module, "open_movie", _no_movie_io)
+    with pytest.raises(ExtractionError, match="needs its writer lock"):
+        extract_movie(movie, out, options=ExtractOptions(window=_WINDOW), overwrite=True)
+    assert out.read_bytes() == b"existing project"
+
+
+def test_unguarded_new_path_publish_never_replaces_a_file_that_appeared(tmp_path) -> None:
+    """Without a guard, a path another writer created during the build is not replaced."""
+    from tether.project._guarded_publish import publish_staged_project
+    from tether.project.lock import PublishGuardRequiredError
+
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+    out = tmp_path / "out.tether"
+    out.write_bytes(b"appeared meanwhile")
+
+    with pytest.raises(PublishGuardRequiredError):
+        publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"appeared meanwhile"
+    assert stage.read_bytes() == b"new project"
+
+    out.unlink()
+    publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"new project"
+    assert not stage.exists()

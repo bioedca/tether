@@ -717,6 +717,15 @@ the owner fixes it by hand with `chgrp <lab group> <path>.tether.lock.guard` and
 While locked out you can still open the project read-only and curate into your own
 split/subset `.tether`, merged back later on `molecule_key`.
 
+**Replacing a project.** `tether extract --overwrite`, `tether batch --overwrite` and the
+Deep-LASI import with overwrite on all take the destination project's writer lock before they
+replace it, so they stop with the same `is locked` message when someone has the project open.
+This includes a Tether window in the same program: close the project there first. A script that
+calls `extract_movie`, `reconstruct_project` or `import_analysis_only_project` to replace an
+existing project gets `PublishGuardRequiredError ... needs its writer lock` unless it holds
+`tether.project.lock.publish_lock` on the destination and passes the check it yields as
+`publish_guard`.
+
 ### The spot and overlap views are unavailable
 
 **Symptom.** A project opens and curates fine, histograms and idealization work, but the

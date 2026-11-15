@@ -68,7 +68,8 @@ def _store(size: str, workdir: Path) -> Path:
 
     _, tif = _movie(size, workdir)
     out = workdir / "bench.tether"
-    extract_movie(tif, out, options=ExtractOptions(window=21), overwrite=True)
+    out.unlink(missing_ok=True)  # a fresh store; replacing one needs its lock (ADR-0112)
+    extract_movie(tif, out, options=ExtractOptions(window=21))
     return out
 
 
@@ -114,7 +115,10 @@ def _extraction(size: str, workdir: Path):
     out = workdir / "bench.tether"
 
     def run() -> object:
-        return extract_movie(tif, out, options=ExtractOptions(window=21), overwrite=True)
+        # The benchmark owns this store: remove it rather than time the publish lock that
+        # replacing a project another writer may hold requires (ADR-0112).
+        out.unlink(missing_ok=True)
+        return extract_movie(tif, out, options=ExtractOptions(window=21))
 
     run()
     return run, {"tether_bytes": out.stat().st_size}

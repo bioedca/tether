@@ -45,6 +45,7 @@ import contextlib
 import json
 import logging
 import math
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -1111,18 +1112,28 @@ def _do_extract(
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
-        runner_kwargs: dict[str, Any] = {}
-        if ownership_guard is not None:
-            runner_kwargs["publish_guard"] = ownership_guard
-        summary = runner(
-            job.movie_path,
-            job.output_path,
-            options=options,
-            tmap=job.tmap,
-            tdat=job.tdat,
-            overwrite=overwrite,
-            **runner_kwargs,
-        )
+        # Replacing an existing output needs its writer lock (#346, ADR-0112). The
+        # job-level claim supplies it for a rejected checkpoint; any other overwrite of
+        # an existing path holds the lock for just this publish.
+        publish_scope: contextlib.AbstractContextManager[Callable[[], None] | None]
+        publish_scope = contextlib.nullcontext(ownership_guard)
+        if ownership_guard is None and overwrite and os.path.lexists(job.output_path):
+            from tether.project.lock import publish_lock  # noqa: PLC0415
+
+            publish_scope = publish_lock(job.output_path)
+        with publish_scope as publish_guard:
+            runner_kwargs: dict[str, Any] = {}
+            if publish_guard is not None:
+                runner_kwargs["publish_guard"] = publish_guard
+            summary = runner(
+                job.movie_path,
+                job.output_path,
+                options=options,
+                tmap=job.tmap,
+                tdat=job.tdat,
+                overwrite=overwrite,
+                **runner_kwargs,
+            )
         if ownership_guard is not None:
             ownership_guard()
     except Exception as exc:  # ExtractionError and any lower-level failure
