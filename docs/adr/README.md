@@ -1,3 +1,7 @@
+---
+description: "The architecture decision records of Tether: the reasoning, the options and the result of each consequential design choice."
+---
+
 # Architecture Decision Records (ADRs)
 
 **Who this page is for.** Anyone who wants the reasoning behind a consequential Tether design
@@ -97,7 +101,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0048](0048-kinsoft-kinetics-oracle.md) | kinSoftChallenge kinetics oracle: base-env HMM, 2-state scope, within-spread band | accepted | §8, §9 M8, §11.2 |
 | [0049](0049-m9-packaging-constructor-architecture.md) | M9 packaging: constructor installer architecture (offline base env + isolated sidecar) | accepted | §4.1, §9 M9, §12.7 |
 | [0050](0050-release-pipeline-and-code-signing.md) | Release pipeline + code-signing (tag-driven, SignPath for Windows, gated Apple) | accepted; code-signing half superseded by [0059](0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) | §9 M9, §12.7, §4.1 |
-| [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted | §7.8, §4.1, §9 M9 |
+| [0051](0051-installed-app-launch-surface.md) | The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut | accepted; amended by [ADR-0094](0094-the-launchers-get-a-folder-of-their-own.md) on the folder that holds the launchers | §7.8, §4.1, §9 M9 |
 | [0052](0052-concurrent-agent-swarm-coordination.md) | Concurrent issue-swarm coordination | superseded by 0057 (fully retired) | §12.2–§12.5 |
 | [0053](0053-structured-backlog-intake-gates-swarm-admission.md) | Structured backlog intake gates swarm admission | superseded by 0057 (admitting authority) | §12.5 |
 | [0055](0055-gui-session-writer-ownership.md) | GUI session writer ownership | accepted | §5.4, §7.3, §7.5, §7.10 |
@@ -135,6 +139,12 @@ else would make it a worse historical record in exchange for a working link.
 | [0088](0088-extraction-test-on-mash-fret-simulated-videos.md) | An extraction test on videos with known truth from the MASH-FRET simulator | accepted | §9.5 (the validation suite), §8 NFR-VALID, §8 NFR-FIXTURES |
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
 | [0090](0090-measured-vbfret-paths-are-a-dwell-reference.md) | Measured traces with a stored vbFRET path are a dwell and transition reference | accepted | §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP) |
+| [0092](0092-dirichlet-rate-bounds-from-the-count-matrix.md) | Rate constants with Dirichlet bounds come from the count matrix, as in Campos-Chavez et al. 2024 | accepted | §7.7 FR-ANALYZE, §8 NFR-VALID, NFR-REPRO |
+| [0093](0093-numpy-docstrings-and-mkdocstrings-cross-references.md) | NumPy docstrings, with cross-references in the form of mkdocstrings | accepted | §12.4 (definition of done), §12.6 (the `lint` gate), §12.9 (pre-commit) |
+| [0094](0094-the-launchers-get-a-folder-of-their-own.md) | The two launchers get a folder of their own: `<prefix>/launchers` | accepted; amends [ADR-0051](0051-installed-app-launch-surface.md) on the folder that holds the launchers | §4.1 (installers), §9 M9 (packaging & docs) |
+| [0099](0099-load-bearing-pull-requests-take-one-greptile-review.md) | Load-bearing pull requests take one Greptile review, not CodeRabbit | accepted; amends [ADR-0069](0069-one-metered-review-then-the-codex-close.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
+| [0101](0101-mash-fret-analyses-are-a-histogram-and-state-reference.md) | MASH-FRET's stored analyses are an exact histogram reference and a measured state reference | accepted | §7.7 FR-ANALYZE, §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
+| [0109](0109-one-selection-argument-and-one-return-shape-on-the-population-functions.md) | One selection argument and one return shape on the population functions | accepted | §7.7 FR-ANALYZE (population views), §5.1 (stale idealizations), §7.5 (the |
 
 <!-- gen:adr-index end -->
 

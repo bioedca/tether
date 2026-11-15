@@ -127,10 +127,10 @@ def test_the_page_states_the_newest_recorded_run() -> None:
 def test_each_file_of_video_010_is_pinned_and_agrees_with_the_provenance_table() -> None:
     """The record names the bytes it was measured on: the digests in ``tests/_oracle_a.py``.
 
-    ``tests/fixtures/PROVENANCE.md`` records the first 16 hex digits and the size of four of the
-    five files (the sources of the committed fixtures and of the ADR-0022 measurement). They
-    must be the same files, or the record and ADR-0022 would describe different data, so each
-    digest must sit beside its own size in one row, not merely appear somewhere (#1002).
+    ``tests/fixtures/PROVENANCE.md`` records the full SHA-256 and the size of all five files (the
+    sources of the committed fixtures and of the ADR-0022 measurement; full digests since #552).
+    They must be the same files, or the record and ADR-0022 would describe different data, so
+    each digest must sit beside its own size in one row, not merely appear somewhere (#1002).
     """
     assert set(FILES) == {"movie", "tmap", "tdat", "mat", "txt"}
     for role, (sha256, size) in FILES.items():
@@ -164,11 +164,9 @@ def _disagreements(files: dict[str, tuple[str, int]], table: str) -> list[str]:
     """Roles of video 010 whose digest no row names, or whose row pairs it with another size."""
     rows = _source_pairs(table)
     problems = []
-    for role in ("movie", "tmap", "tdat", "mat"):
+    for role in ("movie", "tmap", "tdat", "mat", "txt"):
         sha256, size = files[role]
-        # A row records the first 16 hex digits and an ellipsis, or (once #552 lands) all 64.
-        named = {f"`{sha256[:16]}…`", f"`{sha256}`"}
-        found = [listed for row in rows for digest, listed in row if digest in named]
+        found = [listed for row in rows for digest, listed in row if digest == f"`{sha256}`"]
         if not found:
             problems.append(f"{role}: no PROVENANCE.md row names its digest")
         problems += [
