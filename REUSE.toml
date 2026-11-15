@@ -86,6 +86,17 @@ precedence = "override"
 SPDX-FileCopyrightText = "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2)"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+# Frozen output of the FRET_cloud script on the smfret-analysis2 traces (#710, ADR-0105): values
+# computed from the GPL-3.0-only traces above, so GPL-3.0-only. The script itself is not here.
+[[annotations]]
+path = ["tests/fixtures/reference/fret-cloud-scripts/sa2-traces/*"]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2022 Michael Schamber, Vafabakhsh lab (github.com/vafabakhsh-lab/smfret-analysis2) (the traces)",
+  "2026 The Tether Authors <bioedca@u.northwestern.edu> (the reference run)",
+]
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # Source Data of Campos-Chavez et al., Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x
 # (#755, ADR-0083): unchanged copies of members of the publisher's archive
 # 41467_2024_50885_MOESM4_ESM.zip, under CC BY-NC-ND 4.0 as published, NOT GPL-3.0. Non-commercial

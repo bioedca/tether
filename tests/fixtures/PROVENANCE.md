@@ -594,6 +594,16 @@ note `<name>_tether_note.txt` (the one accepted MATLAB R2023b error, ADR-0088) a
 `provenance.json`. They are simulated, so they hold no measured data; they are outputs of a
 GPL-3.0 program and carry the repository's licence.
 
+`fret-cloud-scripts/sa2-traces` (#710, ADR-0105) is the output of
+`FRET_cloud_contours_centroids.m` of the FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos
+Chavez, 2025, unpublished), run unchanged once by the `cloud` task of
+`scripts/reference/matlab/fret_cloud.py` on MATLAB R2023b on the maintainer's workstation
+(2026-11-15), on the 76 smfret-analysis2 trace files above (column 4 replaced by
+`acceptor / (acceptor + donor)` in temporary copies). The script is pinned by its SHA-256 and is not
+in the repository. The directory holds `files.csv`, `pairs.csv`, `density.h5`, `thresholds.csv`,
+`centroids.csv`, `toolbox.csv` and `provenance.json`. The values derive from the GPL-3.0-only
+smfret-analysis2 traces, so the outputs carry GPL-3.0-only (`REUSE.toml`).
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the

@@ -755,8 +755,8 @@ Tether **shall** provide:
   masked frame or from one molecule to another, with a fixed-bandwidth Gaussian density, its
   highest-density-region contours [Hyndman1996] and optional k-means centroids. It is the plot of the laboratory's
   FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished), and Tether reproduces what
-  they compute on the smfret-analysis2 test traces. It is a different plot from the raw FRET cloud, and neither
-  replaces the other. Its defaults are in §11.2.
+  they compute on the smfret-analysis2 test traces to measured limits (`docs/validation.md`). It is a different
+  plot from the raw FRET cloud, and neither replaces the other. Its defaults are in §11.2.
 - **Real TDP**: a 2-D before/after idealized-state density (fresh idealizations only) [McKinney2006][Hadzic2018];
   dwell distributions with exponential/rate fits and CIs.
 - Native reproduction of the **seven tMAVEN plot types** (Appendix C); any other tMAVEN plot stays reachable via

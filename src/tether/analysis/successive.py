@@ -13,7 +13,8 @@ the other.
 
 The requirements come from the laboratory's scripts, "FRET_cloud scripts, Eduardo Campos Chavez,
 2025, unpublished" (``FRET_cloud_contours_centroids.m``), and Tether reproduces what they
-compute on the smfret-analysis2 test traces (``tests/test_fret_cloud_reference.py``):
+compute on the smfret-analysis2 test traces to the limits that
+``tests/test_fret_cloud_reference.py`` states (ADR-0105):
 
 * **The pairs.** ``(E[t], E[t + 1])`` for every ``t`` of one molecule. A pair never joins two
   molecules. A frame whose E is not finite is a masked frame: neither pair that touches it is
@@ -25,7 +26,9 @@ compute on the smfret-analysis2 test traces (``tests/test_fret_cloud_reference.p
   ``linspace(lo, hi, grid_points)``, and normalized so that the sum over the nodes times the
   node area is 1 (the script's ``pdfNormalized``). The bandwidth is fixed, not estimated from
   the data, so a pair outside the grid range still adds the part of its kernel that falls on the
-  grid; no pair is excluded from the estimate, as in the script.
+  grid; no pair is excluded from the estimate, as in the script. Each kernel is the whole
+  Gaussian: MATLAB's ``mvksdensity``, which the script calls, leaves out the part beyond 4
+  bandwidths on either axis, which moves the density by about 1e-4 of its peak (ADR-0105).
 * **The contour levels.** For each coverage ``p``, the density threshold whose super-level set
   holds the fraction ``p`` of the grid mass: the highest-density region [Hyndman1996] by the
   numerical-grid method [Haselsteiner2017], the same rule as the time–FRET cloud.

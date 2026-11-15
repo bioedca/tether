@@ -72,17 +72,27 @@ random?
    used: the first 51 frames of each trace (the script's `numFramesToUse = 50`, a choice of the
    script and not a Tether default). Then:
    - the 3800 pairs are equal, bit for bit;
-   - the grid agrees to MEASURED_GRID, and the density to MEASURED_DENSITY relative to its maximum;
-   - the nine contour levels agree to MEASURED_LEVELS relative;
-   - MATLAB's centroids are a fixed point of Tether's Lloyd step (to MEASURED_FIXED); and Tether's
-     best run has MATLAB's within-cluster sum of squares to MEASURED_SSE relative and its
-     centroids to MEASURED_CENTROIDS in E.
+   - with MATLAB's kernel cut applied in the test (item 6), the density agrees to 1e-14 of its peak
+     (measured 2.5e-15) and Tether's level rule gives the nine levels to 1e-14 relative (2.2e-15);
+   - Tether's own density, without the cut, agrees to 1e-3 of the peak (measured 1.1e-4) and its
+     levels to 1e-3 relative (3.2e-4);
+   - MATLAB's centroids are a fixed point of Tether's Lloyd step (measured difference 0); and
+     Tether's best run has MATLAB's within-cluster sum of squares to 1e-6 relative (4.5e-7) and its
+     centroids to 1e-3 in E (8.0e-4).
 
    The centroid limits are not round-off: the two programs draw their k-means++ starts from
-   different generators, and k-means has nearby local minima (on these pairs, Tether seeds 4, 6
-   and 8 of 0 to 9 end up to 0.003 in E from the other seven). Each limit is the measured
-   difference rounded up to the next power of ten.
-6. **Out of scope, to a follow-up issue:** the GUI entry and the export of the plot (#FOLLOWUP).
+   different generators, MATLAB's run ended in a slightly lower local minimum than Tether's with
+   seed 0, and k-means has such nearby minima (on these pairs, Tether seeds 4, 6 and 8 of 0 to 9
+   end up to 0.003 in E from the other seven). Each limit is the measured difference rounded up
+   to the next power of ten.
+6. **Tether does not copy MATLAB's kernel cut.** The frozen output shows that `mvksdensity` leaves
+   out the part of each pair's kernel that is more than 4 bandwidths from the pair on either
+   axis: with that cut the densities agree to round-off, and the 5216 grid nodes where MATLAB's
+   density is exactly 0 are exactly the nodes that no cut kernel reaches. The cut is a property of
+   MATLAB's implementation, not a choice of the script, and it moves the density by at most 1.1e-4
+   of its peak here. Tether keeps the whole Gaussian, and the test applies the cut on its side to
+   show that it is the whole difference.
+7. **Out of scope, to a follow-up issue:** the GUI entry and the export of the plot (#1085).
    The scripts' heat map, their concatenated FRET-against-time plot and their R² of the centroids
    to the diagonal are not part of this decision.
 
@@ -103,6 +113,9 @@ random?
   API and the maintainer kept the present cloud as it is (Q14: A).
 - **Silverman's or Scott's bandwidth.** Rejected as the default: the scripts use a fixed 0.05,
   and agreement with them is the requirement (Q12: C). The bandwidth stays a tunable.
+- **Copy MATLAB's 4-bandwidth kernel cut.** Rejected: it would make the two densities equal to
+  round-off, but it is an artefact of one implementation, it puts exact zeros into the density,
+  and the difference it removes (1.1e-4 of the peak here) is below anything the plot shows.
 - **Require MATLAB's exact k-means run.** Rejected: it would mean reimplementing MATLAB's random
   generator and its k-means++ draw order, which is not Tether's behaviour and gives nothing a user
   needs. The fixed-point and best-run checks test what the centroids mean.
