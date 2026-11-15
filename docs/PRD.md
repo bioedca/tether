@@ -118,8 +118,12 @@ both — Appendices B and E), HDF5 for self-describing files, and the SMD format
 - **N1 — No ALEX/PIE, no stoichiometry, no three-color.** Two-color, single-laser only. Consequently the direct-
   excitation correction δ is structurally inert (= 0): its estimator requires the acceptor-under-acceptor-excitation
   channel that only ALEX provides [Lee2005][Hohlbein2014] (Appendix B).
-- **N2 — No data simulator in v1.** Validation uses real labeled traces and the kinSoftChallenge benchmark
-  [Götz2022]; a simulator is deferred.
+- **N2 — No data simulator in v1.** Tether ships no simulator of smFRET data; a simulator is deferred. Validation
+  against real data uses real labeled traces and the kinSoftChallenge benchmark [Götz2022]. N2 does not stop a test
+  from synthesizing an input with a known truth to check an implementation. Such a fixture shows that the code
+  recovers the truth it was given. It does not show that the method holds on real data, and it never stands in for
+  a missing real reference (§9.4). Where an oracle rests on synthesized fixtures, §9.5 says so, and the real-data leg
+  is either accepted by an ADR or carried in §9.6.
 - **N3 — Bounded plot parity.** The native analysis surface reproduces exactly the seven tMAVEN plot types
   (Appendix C); any other tMAVEN plot is reachable via the standalone hand-off, not reimplemented.
 - **N4 — Out-of-scope legacy formats.** Supported legacy inputs are Deep-LASI (`.tdat` + `.tmap` + `.txt` + `.mat`)
@@ -142,8 +146,8 @@ test use that data and give the product no new feature. Each data set still foll
 2. **Old formats through test-only readers.** A test can read an old file format, such as a `.dat` trace file or a
    vbFRET `.mat` file, with a small reader that lives under `tests/`. The product gets no importer, and N4 stays as
    it is. The test starts from the original bytes of the reference file, not from a converted copy.
-3. **Simulated data.** This subsection adds no rule for simulated data. The N2 text governs it, and
-   [#550](https://github.com/bioedca/tether/issues/550) settles that text.
+3. **Simulated data.** This subsection adds no rule for simulated data. The N2 text governs it: a test can
+   synthesize a known-truth input, and the product ships no simulator.
 
 ---
 
@@ -1125,7 +1129,10 @@ boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) s
   reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the
   **§11.2 bleach-frame tolerance** — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground
   truth (§9 M3 — validating the Bayesian single-step detector).
-  **No synthetic-data simulator is introduced** — validation stays on real labeled fixtures (N2 holds).
+  **No synthetic-data simulator is shipped** (N2). Oracles (a) and (b) compare against real labeled fixtures, and
+  the headline leg of (c) against the kinSoftChallenge benchmark. Oracles (d), (e) and (g) also use synthesized
+  known-truth inputs, which N2 allows in tests; §9.5 says what those inputs establish, and §9.6 carries the
+  real-data legs that no ADR accepts.
 - **NFR-FIXTURES — Test fixtures.** Because the lab holds redistribution rights, a small cropped UCKOPSB movie
   slice + a few molecules are committed for unit/CI; a **redistributable ≥ 50-molecule curated SMD**
   (`example-data/tmaven-model/model-source-smd-281mol.hdf5` — the 281-molecule population that
@@ -1298,10 +1305,18 @@ tolerance), is release-acceptance work owned by its GitHub milestone.
 | **(a)** Extraction vs Deep-LASI | recall, donor intensity Pearson, registration RMS | `large` — the headline leg **skips on every runner** (the ≈ 0.9 GB movie is on none), so its numbers come from a local run of the enforcing test `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb` with `TETHER_UCKOPSB_DIR` set, which supplies the `.tdat` detector settings and the 2 px gate (recorded in ADR-0022; `scripts/run_m1_oracle.py` reproduces the same configuration as a one-shot report, [#555](https://github.com/bioedca/tether/issues/555)) | scorer unit tests, the committed 4-molecule slice, the registration RMS gate (`tests/test_register.py::test_native_fit_reproduces_tmap_within_tolerance`; the headline run imports the `.tmap`, so its RMS is not applicable) | UCKOPSB pair (gated full movie + committed slice) | the §9.2 extraction gate (reframed — ADR-0022); constants in `src/tether/project/oracle.py` | gate; evidence is a recorded run until a runner holds the movie |
 | **(b)** Idealization parity vs tMAVEN | state count, state means, Viterbi path, ELBO | `sidecar` — required, but **path-filtered**: it fits only when a pull request touches an idealization path | the frozen artifact checked against its own recorded evidence | `tests/fixtures/smd_4mol.hdf5`; LFS `smd_281mol.hdf5` + `model_281mol.hdf5` | `schema/parity_tolerance.json` (`$.tolerance`; ebFRET `$.tolerance_by_method.ebhmm`, ADR-0043); per-trace vbFRET, the transition-matrix term and the default row's re-freeze on the pinned tMAVEN build are not yet evidenced (§9.6); the ebFRET gate fits two fixed seeds, so it gives one answer per commit ([#311](https://github.com/bioedca/tether/issues/311), ADR-0075) | gate |
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
-| **(d)** Ranker held-out cross-validation | prequential precision@k uplift over file order, median across videos | required matrix | yes (synthetic stores only) | synthetic and programmatic stores | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`; the real-video uplift and leave-one-video-out legs are not yet evidenced (§9.6) | gate on the protocol; the real-data legs are *not yet met* |
-| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E never NaN | required matrix | yes | synthetic known-α/known-γ and edge-case traces | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
+| **(d)** Ranker held-out cross-validation | prequential precision@k uplift over file order, median across videos | required matrix | yes (synthetic stores only) | synthetic separable multi-video and programmatic stores (no ADR accepts them; §9.6) | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`; the real-video uplift and leave-one-video-out legs are not yet evidenced (§9.6) | gate on the protocol; the real-data legs are *not yet met* |
+| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E never NaN | required matrix | yes | synthetic known-α/known-γ and edge-case traces (known-γ accepted by ADR-0028; known-α by no ADR, §9.6) | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
 | **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); the schema-migration leg §8 and §5.4 name has no test (§9.6) | gate |
 | **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
+
+**What a synthesized fixture establishes.** A row whose fixture is synthesized ((d), (e), (g), and the synthetic
+rate recovery that (c) runs on the required matrix) shows that the implementation recovers a truth it was given
+(N2). It does not show agreement with real data. Two substitutions are accepted by an ADR:
+[ADR-0026](adr/0026-photobleach-detection-and-window-default.md) option C makes synthesized known steps the ground
+truth for (g), and [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md) option D accepts γ's known-γ
+recovery for (e), with its Deep-LASI leg still in §9.6. No ADR accepts (e)'s synthesized known-α traces or (d)'s
+synthetic multi-video store, so §9.6 carries both as not yet validated on real data.
 
 **What "runs end to end" means.** Every *gate* row has passing evidence bound to the release commit, and (c) may be
 recorded advisory; no other oracle may. Binding that evidence (one artifact per oracle naming the commit it was
@@ -1351,10 +1366,10 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | The transition-matrix term of consensus VB-HMM / ebFRET parity on the ≥ 50-molecule SMD (the parity metrics have no transition-matrix term) | M6 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The default idealization-parity row re-measured and re-frozen on the pinned tMAVEN `10f4230b` / CPython 3.12.13 build (it was measured on `71cfa1af` / CPython 3.9.23) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
 | A check that fails when a frozen `$.tolerance` bound is loosened (the artifact self-checks catch only tightening below the evidence, or its removal) | M0.5(a) | [#545](https://github.com/bioedca/tether/issues/545) |
-| The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
+| The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores. Oracle (d) is evidenced only on a synthetic multi-video store, which no ADR accepts (N2, §9.5) | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
 | The §8 NFR-VALID (d) leave-one-video-out protocol, implemented or settled against the prequential protocol | M5 | [#548](https://github.com/bioedca/tether/issues/548) |
 | Oracle (f)'s schema-migration leg: §8 NFR-VALID (f) and §5.4 name migration tests that the additive-only freeze has never needed | M0, §8 | [#547](https://github.com/bioedca/tether/issues/547) |
-| The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
+| The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027). Until it is met, oracle (e)'s α is evidenced only on synthesized known-α traces, which no ADR accepts (N2, §9.5) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
 | γ agreement with the Deep-LASI median on a shared frame set — withheld: the vendored export carries no per-frame classification (ADR-0028) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
 
 **Requirements of the workflow design of 2026-11-14, not yet met.** These are new requirements (§7.1, §7.2, §7.4,
@@ -1979,6 +1994,10 @@ namespaces; pin-and-hold means the lock rarely changes, so hit-rate is high and 
   | `feat!:` / `BREAKING CHANGE:` | minor (documented as breaking) | **major** | ⚠ Breaking Changes |
   | `perf:` | patch | patch | Performance |
   | `docs/test/ci/build/chore/refactor:` | no release bump (changelog "Internal") | same | — |
+
+  *Superseded by [ADR-0067](adr/0067-github-releases-are-the-only-change-record.md) for the changelog grouping:
+  Documentation, Refactoring, Build & packaging and CI have their own sections; Internal holds `test` and `chore`.
+  The bump columns are unaffected.*
 
 - **Milestone → tag.** Each release checkpoint is cut as an **annotated, SSH-signed** tag `vMAJOR.MINOR.PATCH`
   (e.g. `v0.3.0` at M3, `v1.0.0` at the stable release). A GitHub milestone that is not a release checkpoint cuts no
