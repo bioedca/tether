@@ -28,7 +28,7 @@ with `--strict-markers`. Where a test runs follows from its marker:
 | Tier | Marker | Where it runs | Gates `main`? |
 | --- | --- | --- | --- |
 | Required matrix | *(unmarked)* | `.github/workflows/ci.yml`, `pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"` on Ubuntu, macOS and Windows | Yes — `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)` |
-| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate [`_sidecar_gate.py`](https://github.com/bioedca/tether/blob/main/tests/_sidecar_gate.py) and the RF2-ArfA child [`_rf2_arfa_child.py`](https://github.com/bioedca/tether/blob/main/tests/_rf2_arfa_child.py) in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
+| Live sidecar | `@pytest.mark.sidecar` | `.github/workflows/sidecar.yml` — nightly cron, manual dispatch, and pull requests, in the isolated tMAVEN env | Yes — `sidecar / parity`, but **path-filtered**: a pull request that touches none of `src/tether/idealize/`, `src/tether/fret/photobleach.py`, `src/tether/fret/efficiency.py`, `src/tether/analysis/`, `sidecar/`, `scripts/setup_sidecar.py`, `pyproject.toml`, `schema/parity_tolerance.json`, `tests/test_*sidecar*.py`, `tests/test_fret_photobleach.py`, the shared gate [`_sidecar_gate.py`](https://github.com/bioedca/tether/blob/main/tests/_sidecar_gate.py) and the RF2-ArfA child [`_rf2_arfa_child.py`](https://github.com/bioedca/tether/blob/main/tests/_rf2_arfa_child.py) in `tests/`, the fixtures those tests read (`tests/fixtures/smd_4mol.hdf5`, `tests/fixtures/rf2_core_wtprensec_smd.hdf5`, `tests/fixtures/rf2_core_wtprensec_model.hdf5`, `tests/fixtures/large/smd_281mol.hdf5`, `tests/fixtures/large/model_281mol.hdf5`), the workflow or the setup action reports a fast "not applicable" pass **without running the fits**. Where it does run them, the job sets `TETHER_REQUIRE_SIDECAR`, so a missing interpreter fails the tests instead of skipping them |
 | Upstream tMAVEN | `@pytest.mark.sidecar` | `.github/workflows/sidecar-upstream.yml` — weekly cron and manual dispatch, the same tests with tMAVEN at the newest commit of its default branch instead of the pin (#704), also with `TETHER_REQUIRE_SIDECAR` | No — it only reports. It has no pull-request or push trigger, so it cannot be a required check |
 | Large fixtures | `@pytest.mark.large` | `.github/workflows/large-fixtures.yml` — manual dispatch + weekly cron, Git-LFS checkout; the job fails first if any file under `tests/fixtures/large/` is still an LFS pointer | No — deliberately not a required check: it is manual and weekly, and an LFS outage must never block `main` |
 | Deep add-on | `@pytest.mark.deep` | `.github/workflows/deep.yml` (CPU) and `deep-gpu.yml` (manual dispatch, self-hosted CUDA) | No |
@@ -747,10 +747,16 @@ tMAVEN's own loader in `tests/test_handoff_sidecar.py::test_tether_smd_opens_in_
 `test_coordinate_superset_intact_after_tmaven_open` — `sidecar`-marked, so they run in the
 required `sidecar / parity` job under its path filter rather than on the 3-OS matrix.
 
-> Gap, stated plainly. There are **no schema-migration tests**, because there is no
-> migration machinery: the freeze is additive-only by construction (ADR-0005), so there is
-> no version step to migrate across. A search for `migrate`/`migration` in `tests/`,
-> `src/tether/io/` and the workflows returns nothing.
+**Schema migration is not part of (f) yet.** There is no migration machinery and no
+migration test, and none is needed: the freeze is additive-only by construction (ADR-0005)
+and `SCHEMA_VERSION` has never been raised, so there is no version step to migrate across.
+A search for `migrate`/`migration` in `tests/`, `src/tether/io/` and the workflows returns
+nothing. The specification's project-lifecycle rules name the condition that changes this:
+the **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an
+ADR, carries the backup-and-migrate path and a test that exercises it, and that test joins
+(f) in the same pull request. The other half of those rules, that a file newer than the app
+is refused, is tested now (`test_assert_compatible_refuses_newer_file`). Maintainer decision
+of 2026-11-13 on [#547](https://github.com/bioedca/tether/issues/547).
 
 ## (g) Photobleaching detector
 
@@ -1353,9 +1359,10 @@ evidence about the size of the difference and not a tolerance.
   comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no leave-one-video-out protocol and no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
-  Deep-LASI-median oracle, and (f) has no migration tests. Each is stated in its own section
-  above with the ADR that deferred it.
-- The specification states that no synthetic-data simulator is introduced. In practice (e) and (g) are
+  Deep-LASI-median oracle. Each is stated in its own section above with the ADR that
+  deferred it. (f) has no migration tests, which is not a gap: the specification makes them
+  required only at the first schema-version step (see (f) above).
+- The specification states that Tether ships no synthetic-data simulator. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
   synthetic separable multi-video store, because the real fixtures do not carry the required
   ground-truth field. Two of those substitutions were ratified in an ADR and two were not:
@@ -1367,8 +1374,12 @@ evidence about the size of the difference and not a tolerance.
   [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md) defers the donor-only α cross-check
   but never mentions synthetic data, and neither ranker ADR
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
-  [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all. The
-  real-data comparisons that do exist (oracles (a), (b), (c)) stay on real fixtures.
+  [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all.
+  The specification allows synthesized known-truth fixtures in tests, and it lists these two
+  among its criteria not yet met, as not yet validated on real data
+  ([#546](https://github.com/bioedca/tether/issues/546),
+  [#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
+  exist (oracles (a), (b), (c)) stay on real fixtures.
 - A reference that comes from an ALEX data set compares **apparent FRET from the
   donor-excitation channels only** — the donor and acceptor intensities under donor
   excitation. It does not check direct excitation (δ), stoichiometry or any other quantity

@@ -126,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     First, on Windows, it puts the env's own DLL folders at the front of ``PATH``
     (:func:`tether.gui.env_path.put_env_folders_first`, issue #579), before PySide6 or
-    NumPy loads. That is the step ``bin\\tether-gui.bat`` used to be needed for (issue
+    NumPy loads. That is the step ``launchers\\tether-gui.bat`` used to be needed for (issue
     #553), so the Start Menu shortcut can start the console-less ``tether-gui.exe``
     directly and no console window flashes (ADR-0076).
 

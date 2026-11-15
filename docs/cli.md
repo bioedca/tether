@@ -6,10 +6,17 @@ description: "Run tether extract and tether batch without the window: script the
 
 **Who this page is for.** Anyone driving Tether without the window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. `tether extract` and `tether batch` are the whole
-headless surface — there is no third subcommand. If you are curating traces by hand,
-picking states by eye, or reading plots, you want the desktop application instead; this
-page only tells you how to start it.
+extraction from recorded settings. Today the command line has two subcommands,
+`tether extract` and `tether batch`.
+
+**A new movie starts here, for now.** The desktop application does not extract a movie
+yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
+traces by hand, pick states by eye and read plots, but only `tether extract` and
+`tether batch` make a `.tether` project from a raw movie. So, for a fresh acquisition, run
+one of them first, then open its output in the application; this page tells you how to
+start the application too. The extraction section of the application, which takes a movie
+to a `.tether` project with no terminal, is planned work: see
+[its milestone on GitHub](https://github.com/bioedca/tether/milestone/17).
 
 Everything below was transcribed from the live argparse parser in `src/tether/cli.py` —
 the same parser `--help` prints from — and a guard test ([`tests/test_cli_reference.py`](https://github.com/bioedca/tether/blob/main/tests/test_cli_reference.py))
@@ -35,11 +42,16 @@ the install root you chose during installation:
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
 | macOS | `<install-root>/bin/tether` | `<install-root>/bin/tether-gui` |
 
+From the next release, the two launchers are in `launchers/` (`launchers\` on Windows) under
+the install root instead, a folder that holds nothing else
+([#492](https://github.com/bioedca/tether/issues/492)): read `launchers` for `bin` in the
+table.
+
 Add that one directory to the **end** of your `PATH`, and you can copy every example on
 this page as it is. [Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)
-gives the line for each system. It also tells why the folder goes at the end: on Linux and
-macOS the folder also holds the installer's own `python`, `pip` and `conda`, and these must
-not hide your own.
+gives the line for each system. It also tells why the folder goes at the end: in rc3, on Linux
+and macOS, the `bin` folder also holds the installer's own `python`, `pip` and `conda`, and
+these must not hide your own.
 
 Without that step, substitute the full launcher path from the table for `tether` in
 every command below; nothing else changes. Verify the install with:
