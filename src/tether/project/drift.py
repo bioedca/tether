@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Store-integrated cross-condition drift advisory (PRD §7.5, §9 M5; FR-ML).
 
-Wires the pure drift signal (:mod:`tether.ml.drift`) to a ``.tether``: it reads the engineered
+Wires the pure drift signal ([`tether.ml.drift`][]) to a ``.tether``: it reads the engineered
 ``/features`` matrix, groups its rows by each molecule's ``condition_id`` (``/molecules``), and
 compares two conditions' feature distributions — the advisory the seeding path raises when a model
 is seeded from a dissimilar condition (PRD §7.5). Features are grouped over **every** featured
@@ -14,8 +14,8 @@ change (``schema-guard`` holds), and nothing is persisted or mutated.
 
 Cross-file seeding. Comparing conditions that live in **different** ``.tether`` files (seeding from
 another experiment) is the seeding PR's job; it composes the same primitives — call
-:func:`condition_feature_matrices` on each file and pass the two matrices to
-:func:`tether.ml.drift.condition_drift` (which is store- and file-agnostic).
+[`condition_feature_matrices`][] on each file and pass the two matrices to
+[`tether.ml.drift.condition_drift`][] (which is store- and file-agnostic).
 """
 
 from __future__ import annotations
@@ -85,17 +85,17 @@ def _grouped(project: ProjectRef) -> tuple[StoredFeatures, dict[str, list[int]]]
 def condition_feature_matrices(project: ProjectRef) -> dict[str, np.ndarray]:
     """``condition_id -> (n_molecules, n_features)`` feature matrix for every condition (PRD §7.5).
 
-    Reads ``/features`` (:func:`tether.project.features.feature_matrix`) and groups its rows by each
+    Reads ``/features`` ([`tether.project.features.feature_matrix`][]) and groups its rows by each
     molecule's ``condition_id`` (``/molecules``), including uncurated molecules — drift is a
     property of the full feature distribution. Column order is the stored feature order
-    (:data:`tether.ml.features.FEATURE_NAMES`). Read-only.
+    ([`tether.ml.features.FEATURE_NAMES`][]). Read-only.
 
     Cost / reuse. Each call performs **one** store read (``/features`` + ``/molecules``). A caller
     that needs both this grouping and a drift comparison — or that compares many condition pairs —
     should read once here and pass two of the returned matrices straight to the store-free
-    :func:`tether.ml.drift.condition_drift` (its column contract is this same
-    :data:`~tether.ml.features.FEATURE_NAMES` order), rather than also calling
-    :func:`cross_condition_drift`, which re-reads the store.
+    [`tether.ml.drift.condition_drift`][] (its column contract is this same
+    [`FEATURE_NAMES`][tether.ml.features.FEATURE_NAMES] order), rather than also calling
+    [`cross_condition_drift`][], which re-reads the store.
 
     Raises
     ------
@@ -120,21 +120,21 @@ def cross_condition_drift(
 
     The store-integrated cross-condition drift flag PRD §7.5 requires before seeding a condition's
     ranker from another: compares the two conditions' ``/features`` distributions
-    (:func:`tether.ml.drift.condition_drift`) and returns the per-feature verdicts plus the overall
+    ([`tether.ml.drift.condition_drift`][]) and returns the per-feature verdicts plus the overall
     **advisory, overridable** flag. Read-only, one store read per call — a caller comparing many
-    pairs should instead read once via :func:`condition_feature_matrices` and call
-    :func:`tether.ml.drift.condition_drift` per pair (see that function's "Cost / reuse" note).
+    pairs should instead read once via [`condition_feature_matrices`][] and call
+    [`tether.ml.drift.condition_drift`][] per pair (see that function's "Cost / reuse" note).
 
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     source_condition, target_condition:
         The two ``condition_id`` values to compare (as on ``/molecules``). The KS statistic is
         symmetric, so the order only labels the report.
     alpha:
         The overall family-wise significance level of the advisory (default
-        :data:`tether.ml.drift.DEFAULT_DRIFT_ALPHA`, the PRD §11.2 tunable).
+        [`tether.ml.drift.DEFAULT_DRIFT_ALPHA`][], the PRD §11.2 tunable).
 
     Returns
     -------
@@ -147,7 +147,7 @@ def cross_condition_drift(
         No ``/features/table`` exists, or a named condition has no featured molecules.
     ValueError
         The store is inconsistent, or drift is undefined (no testable feature — propagated from
-        :func:`tether.ml.drift.condition_drift`).
+        [`tether.ml.drift.condition_drift`][]).
     """
     stored, groups = _grouped(project)
     for cond in (source_condition, target_condition):

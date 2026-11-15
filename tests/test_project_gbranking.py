@@ -39,6 +39,7 @@ from tether.ml.features import FEATURE_NAMES  # noqa: E402
 from tether.project.core import Project  # noqa: E402
 from tether.project.features import compute_features  # noqa: E402
 from tether.project.gbranking import (  # noqa: E402
+    FeatureCacheIncompleteError,
     ranker_precision_at_k,
     ranker_ranking,
     train_ranker,
@@ -261,3 +262,25 @@ def test_before_compute_features_raises(tmp_path) -> None:
         train_ranker(proj)
     with pytest.raises(KeyError, match="features"):
         ranker_precision_at_k(proj, 2)
+
+
+def test_a_human_label_with_no_feature_row_stops_the_fit(tmp_path) -> None:
+    # #880: a partial feature cache left a human label out of the fit with no message, and it still
+    # counted in n_human. Every fit path now stops and names the project and the molecule.
+    proj, keys = _labeled_store(tmp_path / "x.tether")
+    compute_features(proj, molecule_keys=keys[1:])  # keys[0] is accepted but has no feature row
+    missing_id = read_molecules(proj.path)["molecule_id"][0]
+    missing_id = missing_id.decode() if isinstance(missing_id, bytes) else str(missing_id)
+
+    for fit in (train_ranker, ranker_ranking, lambda p: ranker_precision_at_k(p, 2)):
+        with pytest.raises(FeatureCacheIncompleteError) as info:
+            fit(proj)
+        assert info.value.path == proj.path
+        assert info.value.molecule_ids == (missing_id,)
+        message = str(info.value)
+        assert str(proj.path) in message
+        assert missing_id in message
+        assert "compute_features" in message
+
+    compute_features(proj)  # the instruction the message gives: a full cache fits again
+    assert train_ranker(proj).n_train == 4

@@ -1,0 +1,25 @@
+{
+  "schema": "tether-oracle-a-record/1",
+  "mode": "by-hand",
+  "commit": "3697f8071d70f5ad55fc673609107008216e5870",
+  "on_main": false,
+  "finished": "2026-11-13T17:03:27Z",
+  "result_file": null,
+  "check": {
+    "check": "tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb",
+    "outcome": "passed",
+    "duration_s": 27.144,
+    "datasets": {
+      "lab-01": {
+        "matched_fraction": 0.984,
+        "position_rms_px": 0.38163772926621825,
+        "donor_pearson_median": 0.9822636462331209,
+        "acceptor_pearson_median": 0.853916315325352,
+        "precision": 0.36123348017621143,
+        "n_ground_truth": 250,
+        "n_extracted": 681,
+        "n_matched": 246
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+VIDEO PARAMETERS
+> frame rate (s-1): 10
+> trace length (frames): 40
+> movie dimension (pixels): 160,80
+> pixel dimension (um): 0.25
+> bit rate: 14
+> camera noise model: P- or Poisson Model
+	parameter mu_ic,dark: 113
+	parameter eta: 0.95
+	parameter K: 1
+
+MOLECULES
+> number of traces: 60
+> number of states: 2
+> state values:
+	state1: 0.3, deviation: 0
+	state2: 0.7, deviation: 0
+> transitions rates (frame-1):
+	0.000	20.000
+	20.000	0.000
+> total intensity (pc): 400, deviation (pc): 0
+> gamma factor: 1, deviation: 0
+> donor bleedthrough coefficient: 0%
+> acceptor bleedthrough coefficient: 0%
+> donor direct excitation coefficient: 0% of total intensity
+> acceptor direct excitation coefficient: 0% of total intensity
+
+EXPERIMENTAL SETUP
+> donor PSF standard deviation (um): 0.32
+> acceptor PSF standard deviation (um): 0.35
+> background type: Uniform
+> fluorescent background intensity in donor channel(pc): 3
+> fluorescent background intensity in acceptor channel (pc): 3
+
+EXPORT OPTIONS
+> export ASCII traces (in image counts): yes
+> export *.sira video: yes
+> export *.avi video: no
+> export *.mat traces: no
+> export ASCII dwell-times: no
+> export ASCII coordinates: yes
