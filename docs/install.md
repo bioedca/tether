@@ -266,10 +266,12 @@ Windows PowerShell. To start the desktop application:
   find a **Tether** entry in the Start menu, you can also choose it there. From the next
   release, that entry also opens no console window
   ([#579](https://github.com/bioedca/tether/issues/579)).
-- **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
-  (A desktop that was already running may only show the menu entry after you log out and back
+- **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal
+  (`~/tether/bin/tether-gui` if you skipped the optional PATH step; `~/tether/launchers/tether-gui`
+  from the next release). (A desktop that was already running may only show the menu entry after you log out and back
   in.)
-- **macOS:** run `tether-gui` in Terminal. The Dock shows the Tether icon while the
+- **macOS:** run `tether-gui` in Terminal (`~/Tether/bin/tether-gui` if you skipped the
+  optional PATH step; `~/Tether/launchers/tether-gui` from the next release). The Dock shows the Tether icon while the
   application runs, but there is no Launchpad entry yet.
 
 While the application loads, a splash window shows the Tether name, the version and
