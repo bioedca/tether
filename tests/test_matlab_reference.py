@@ -32,7 +32,7 @@ def _load(name: str):
 
 
 harness = _load("harness")
-DRIVERS = {m.TOOL: m for m in (_load("smfret_analysis2"), _load("mash_fret"))}
+DRIVERS = {m.TOOL: m for m in (_load("smfret_analysis2"), _load("mash_fret"), _load("fret_cloud"))}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -275,6 +275,13 @@ def test_every_committed_output_matches_its_record(record: Path) -> None:
 def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
     pins = harness.load_pins()
     for tool in DRIVERS:
+        if pins[tool]["kind"] == "files":
+            # A tool with no public commit (#710): each script by its SHA-256, and a citation.
+            assert pins[tool]["files"], tool
+            for name, digest in pins[tool]["files"].items():
+                assert re.fullmatch(r"[0-9a-f]{64}", digest), (tool, name)
+            assert pins[tool]["citation"], tool
+            continue
         assert pins[tool]["kind"] == "git"
         assert re.fullmatch(r"[0-9a-f]{40}", pins[tool]["commit"]), tool
         assert pins[tool]["url"].startswith("https://github.com/")
