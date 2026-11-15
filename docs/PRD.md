@@ -75,9 +75,9 @@ tMAVEN [Verma2024]), and population-level histogram/kinetics analysis. Three pro
    metadata slot and its exporter applies the GUI selection mask, so coordinates in a *tMAVEN-written* SMD are not
    trusted or required (§5.3, §7.4).
 
-2. **Model-free lenses are first-class.** Donor–acceptor cross-correlation and the raw successive-frame FRET
-   "cloud" are surfaced prominently. They reveal dynamics *without* committing to an HMM — a capability neither
-   tMAVEN nor Deep-LASI offers.
+2. **Model-free lenses are first-class.** Donor–acceptor cross-correlation and the **successive-frame FRET
+   cloud** (apparent E at frame *i* against apparent E at frame *i* + 1, §7.7) are surfaced prominently. They
+   reveal dynamics *without* committing to an HMM — a capability neither tMAVEN nor Deep-LASI offers.
 
 3. **Statistics derive from provenance.** Because every molecule's contribution is retained, error bars, bootstrap
    confidence intervals [König2013], per-condition splits, and the click-bin → molecules → movie drill-down are
@@ -241,7 +241,7 @@ capability-sequenced, with no schedule commitment anywhere).
   quality, never auto-drop) [Chen2016]; similarity search; active-learning loop; model load / warm-start-retrain /
   save as a portable artifact; deep models later [Thomsen2020].
 - **`tether.analysis`** — histograms with CI [König2013], transition density plots [McKinney2006], the raw FRET
-  cloud, the anticorrelation-event finder, per-condition population statistics, and the seven tMAVEN plot types
+  cloud and the successive-frame FRET cloud, the anticorrelation-event finder, per-condition population statistics, and the seven tMAVEN plot types
   (Appendix C).
 - **`tether.gui`** — the PySide6 shell + embedded napari panel, the multi-movie round-trip browser,
   curation/labeling, annotation, and plot docks.
@@ -748,8 +748,15 @@ Tether **shall** provide:
   toggle, computed over the analysis window (rejected traces excluded by default via the toggleable filter, §7.5).
 - Donor–acceptor **cross-correlation**: vectorized FFT with principled Pearson normalization, a population curve,
   and a lag-1 magnitude feeding the anticorrelation-event finder.
-- The **raw FRET cloud**: a consolidated pre-idealization QC view (KDE + highest-density-region percentile contours
-  [Hyndman1996] + alpha-shape + k-vs-RMSE elbow).
+- The **raw FRET cloud** (apparent E against **time**): a consolidated pre-idealization QC view (KDE +
+  highest-density-region percentile contours [Hyndman1996] + alpha-shape + k-vs-RMSE elbow).
+- The **successive-frame FRET cloud** (apparent E at frame *i* against apparent E at frame *i* + 1; #710,
+  ADR-0105): the pairs of successive frames of each molecule, inside its analysis window and never across a
+  masked frame or from one molecule to another, with a fixed-bandwidth Gaussian density, its
+  highest-density-region contours [Hyndman1996] and optional k-means centroids. It is the plot of the laboratory's
+  FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished), and Tether reproduces what
+  they compute on the smfret-analysis2 test traces. It is a different plot from the raw FRET cloud, and neither
+  replaces the other. Its defaults are in §11.2.
 - **Real TDP**: a 2-D before/after idealized-state density (fresh idealizations only) [McKinney2006][Hadzic2018];
   dwell distributions with exponential/rate fits and CIs.
 - Native reproduction of the **seven tMAVEN plot types** (Appendix C); any other tMAVEN plot stays reachable via
@@ -1510,6 +1517,7 @@ this section.
 | `min_qualifying_traces` (per-dataset minimum before manual entry) | ≈ 10 molecules | Tether default |
 | Analysis window | auto = both-dyes-active (start → first bleach on summed intensity); manual per-trace override | Appendix B step 6 |
 | FRET-histogram bootstrap | 1000 resamples; 95% percentile CI (2.5/97.5); resample unit = **molecule**; default seed = 0 | [König2013] BOBA-FRET (also in MASH-FRET [Börner2018]); cross-sample variability ⇒ molecule is the resampled unit (§7.7, §9 M3) |
+| Successive-frame FRET cloud (§7.7) | grid of 200 × 200 nodes on [0, 1] on both axes; Gaussian kernel bandwidth 0.05 (apparent-E units, both axes); contour coverages 10 %, 20 %, …, 90 %; k-means with 4 centroids, the best of 5 k-means++ starts, at most 100 iterations, seed 0 | FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished (`FRET_cloud_contours_centroids.m`, SHA-256 in `scripts/reference/matlab/pins.toml`); the seed and the iteration cap are Tether's (ADR-0105) |
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
 | Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |

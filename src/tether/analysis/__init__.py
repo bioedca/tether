@@ -92,6 +92,13 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   values with the knee of the within-cluster RMSE(k) curve [Satopaa2011][Thorndike1953]
   as a pre-idealization suggestion — a heuristic subordinate to the HMM/BIC state count
   [Schubert2022][McKinney2006].
+- :func:`~tether.analysis.successive.successive_frame_cloud` /
+  :func:`~tether.analysis.successive.population_successive_frame_cloud` — the
+  **successive-frame FRET cloud** (#710, ADR-0105): E at frame ``i`` against E at frame
+  ``i + 1`` within each molecule, never across a masked frame, with a fixed-bandwidth
+  Gaussian density, its highest-density-region contour levels and optional k-means
+  centroids — the plot of the laboratory's FRET_cloud scripts. It is a different plot from
+  the time–FRET cloud above (:func:`~tether.analysis.cloud.raw_fret_cloud`).
 - :func:`~tether.analysis.anticorrelation.find_anticorrelation_events` /
   :func:`~tether.analysis.anticorrelation.population_anticorrelation_events` — the
   **anticorrelation-event finder** (PR-6): a sliding window sweeps each donor/acceptor
@@ -225,6 +232,21 @@ from tether.analysis.state_number import (
     population_state_number,
     state_number_counts,
 )
+from tether.analysis.successive import (
+    DEFAULT_SUCCESSIVE_BANDWIDTH,
+    DEFAULT_SUCCESSIVE_GRID_POINTS,
+    DEFAULT_SUCCESSIVE_HDR_COVERAGES,
+    DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER,
+    DEFAULT_SUCCESSIVE_KMEANS_RESTARTS,
+    DEFAULT_SUCCESSIVE_N_CENTROIDS,
+    DEFAULT_SUCCESSIVE_RANGE,
+    DEFAULT_SUCCESSIVE_SEED,
+    SuccessiveFrameCloud,
+    SuccessiveFramePairs,
+    population_successive_frame_cloud,
+    successive_frame_cloud,
+    successive_frame_pairs,
+)
 from tether.analysis.tdp import (
     DEFAULT_TDP_NSKIP,
     DEFAULT_TDP_SIGNAL_BINS,
@@ -274,6 +296,14 @@ __all__ = [
     "DEFAULT_SIGNAL_BINS",
     "DEFAULT_SIGNAL_RANGE",
     "DEFAULT_STATE_NUMBER_LOW",
+    "DEFAULT_SUCCESSIVE_BANDWIDTH",
+    "DEFAULT_SUCCESSIVE_GRID_POINTS",
+    "DEFAULT_SUCCESSIVE_HDR_COVERAGES",
+    "DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER",
+    "DEFAULT_SUCCESSIVE_KMEANS_RESTARTS",
+    "DEFAULT_SUCCESSIVE_N_CENTROIDS",
+    "DEFAULT_SUCCESSIVE_RANGE",
+    "DEFAULT_SUCCESSIVE_SEED",
     "DEFAULT_SYNC_PREFRAME",
     "DEFAULT_TDP_NSKIP",
     "DEFAULT_TDP_SIGNAL_BINS",
@@ -307,6 +337,8 @@ __all__ = [
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
+    "SuccessiveFrameCloud",
+    "SuccessiveFramePairs",
     "TransitionDensityPlot",
     "TransitionProbHistogram",
     "TransitionSyncHistogram2D",
@@ -336,6 +368,7 @@ __all__ = [
     "population_model_gaussian_overlay",
     "population_raw_fret_cloud",
     "population_state_number",
+    "population_successive_frame_cloud",
     "population_time_signal_histogram2d",
     "population_transition_density",
     "population_transition_prob_histogram",
@@ -344,6 +377,8 @@ __all__ = [
     "raw_fret_cloud",
     "state_dwells",
     "state_number_counts",
+    "successive_frame_cloud",
+    "successive_frame_pairs",
     "survival_curve",
     "time_signal_histogram2d",
     "transition_density",
