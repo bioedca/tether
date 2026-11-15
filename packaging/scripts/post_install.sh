@@ -41,6 +41,11 @@ SIDECAR_PY="$PREFIX/envs/sidecar/bin/python"
 # tMAVEN wheel -> the ISOLATED sidecar env (PyQt5/numpy<2); never the GUI env.
 "$SIDECAR_PY" -m pip install --no-index --no-deps "$WHEELHOUSE"/tmaven-*.whl
 
+# The bundled update verifier (issue #332): constructor's extra_files copies files without
+# promising their mode, so make the gh binary executable here. It stays in its own folder,
+# $PREFIX/verifier/gh, never on PATH; the app finds it from sys.prefix (tether._verifier).
+chmod 755 "$PREFIX/verifier/gh/gh"
+
 # Best-effort: point the app at its bundled sidecar interpreter when the GUI env is
 # conda-activated (tether.idealize.driver reads $TETHER_SIDECAR_PYTHON). envs/sidecar
 # is a sibling of envs/tether, so resolve it relative to $CONDA_PREFIX at activation
