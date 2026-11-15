@@ -106,6 +106,16 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 Ting-Wei Liao, Ha Single-Molecule Lab (Zenodo 10.5281/zenodo.8088172)"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# Group IIB intron smFRET data (#711, ADR-0087): an extract of one MASH-FRET project file of
+# Zelger-Paulus, Hadzic, Lindner, Börner, Steffen, Fazliji, Johannsen & Sigel, Zenodo
+# doi:10.5281/zenodo.24104528, CC-BY-4.0 (scripts/make_mashfret_fixture.py says what it keeps).
+# See NOTICE and tests/fixtures/PROVENANCE.md.
+[[annotations]]
+path = "tests/fixtures/mashfret_ed135e_30mm_extract.mat"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Susann Zelger-Paulus, Mélodie C.A.S. Hadzic, Lennart Lindner, Richard Börner, Fabio Steffen, Besim Fazliji, Silke Johannsen and Roland Sigel"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Tether brand kit from mark 42a (#671): the mark, the icons, the installer and site images,
 # the colour tokens and the 16 px review image. CC-BY-4.0, not GPL, so anyone may use the mark
 # with credit (docs/brand.md gives the rules). `override` beats the blanket GPL entry above.
