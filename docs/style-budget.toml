@@ -50,8 +50,8 @@ phrases = [
 
 [pages."README.md"]
 kind = "descriptive"
-long_share = 12.4
-semicolons = 5
+long_share = 12.2
+semicolons = 6
 long_paragraphs = 0
 retired = 1
 
@@ -78,7 +78,7 @@ retired = 13
 
 [pages."docs/install.md"]
 kind = "procedure"
-long_share = 31.4
+long_share = 31.7
 semicolons = 16
 long_paragraphs = 0
 retired = 0
@@ -92,7 +92,7 @@ retired = 0
 
 [pages."docs/packaging.md"]
 kind = "descriptive"
-long_share = 10.8
+long_share = 9.8
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -162,7 +162,7 @@ retired = 5
 
 [pages."docs/validation.md"]
 kind = "descriptive"
-long_share = 32.0
+long_share = 32.2
 semicolons = 76
 long_paragraphs = 8
 retired = 8
@@ -176,7 +176,7 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 26.0
+long_share = 26.7
 semicolons = 10
 long_paragraphs = 0
 retired = 10
