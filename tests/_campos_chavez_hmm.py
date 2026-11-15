@@ -31,6 +31,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -364,6 +365,80 @@ def parse_summary(text: str) -> dict | None:
         if numbers.size == nstates * nstates:
             out["counts"] = numbers.reshape(nstates, nstates)
     return out
+
+
+MATCH_CORRELATION = 0.99
+"""A stored donor trace is a column of a Source Data matrix when the two correlate this well."""
+
+
+def smd_groups(path: Path) -> list[str]:
+    """The top-level groups of an SMD file that hold traces.
+
+    Tether writes one group named ``dataset``; tMAVEN names its group after the data set.
+    """
+    import h5py
+
+    with h5py.File(path, "r") as f:
+        return [
+            k
+            for k, g in f.items()
+            if isinstance(g, h5py.Group) and "data" in g and "raw" in g["data"]
+        ]
+
+
+def _zscore(x: np.ndarray) -> np.ndarray:
+    x = x - x.mean(axis=1, keepdims=True)
+    sd = x.std(axis=1, keepdims=True)
+    return np.divide(x, sd, out=np.zeros_like(x), where=sd > 0)
+
+
+def match_share(raw: np.ndarray, donor: np.ndarray, max_shift: int = 2) -> tuple[float, float]:
+    """``(share, median)``: how many stored molecules have their donor trace in ``donor``.
+
+    ``raw`` is ``(molecules, frames, colors)`` and ``donor`` ``(frames, molecules)``. A molecule
+    matches when its donor trace correlates with a column to :data:`MATCH_CORRELATION` or better
+    over the frames the two have in common, at the best alignment when their lengths differ by at
+    most ``max_shift`` frames. A correlation does not see an offset or a scale, such as the
+    background subtraction of the published matrices. ``median`` is the median of the best
+    correlation of each molecule; ``(0.0, 0.0)`` when the lengths differ by more.
+    """
+    stored = np.asarray(raw[:, :, 0], dtype=np.float64)
+    columns = np.asarray(donor, dtype=np.float64).T
+    frames = min(stored.shape[1], columns.shape[1])
+    if max(stored.shape[1], columns.shape[1]) - frames > max_shift or not stored.size:
+        return 0.0, 0.0
+    best = np.full(stored.shape[0], -1.0)
+    for a in range(stored.shape[1] - frames + 1):
+        s = _zscore(stored[:, a : a + frames])
+        for b in range(columns.shape[1] - frames + 1):
+            corr = s @ _zscore(columns[:, b : b + frames]).T / frames
+            best = np.maximum(best, corr.max(axis=1))
+    return float(np.mean(best >= MATCH_CORRELATION)), float(np.median(best))
+
+
+def read_stored_model(path: Path) -> SimpleNamespace:
+    """The members of a stored tMAVEN model that the comparison needs, read without Tether.
+
+    For model files that ``tether.idealize.driver.read_model`` cannot open: older tMAVEN saves
+    ``rates`` as an empty group (#1080). Only datasets are read.
+    """
+    import h5py
+
+    with h5py.File(path, "r") as f:
+        g = f["model"]
+
+        def member(name: str):
+            return g[name][()] if isinstance(g.get(name), h5py.Dataset) else None
+
+        means = np.asarray(member("mean"), dtype=np.float64).reshape(-1)
+        tmatrix = member("tmatrix")
+        ran = member("ran")
+    return SimpleNamespace(
+        nstates=means.size,
+        means=means,
+        tmatrix=None if tmatrix is None else np.asarray(tmatrix, dtype=np.float64),
+        ran=np.asarray([] if ran is None else ran, dtype=np.int64).reshape(-1),
+    )
 
 
 def fit_of(nstates: int, traces: int) -> str | None:

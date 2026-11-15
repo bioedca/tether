@@ -158,6 +158,35 @@ def test_compare_gives_each_deviation_of_a_known_model() -> None:
     assert cc.compare(_model([0.0], [[0.0, 0.0]]), pub)["state_count_differs"] is True
 
 
+def test_a_stored_trace_matches_its_column_through_an_offset_and_a_dropped_frame() -> None:
+    # The stored files of the workstation leg (step 4): a tMAVEN trace is the published column
+    # before background subtraction, and one matrix of the archive has one frame fewer.
+    rng = np.random.default_rng(0)
+    donor = rng.normal(100.0, 10.0, (1499, 6))
+    raw = np.zeros((4, 1500, 2))
+    raw[:, 1:, 0] = 2.0 * donor[:, [1, 3, 5, 0]].T + 40.0
+    assert cc.match_share(raw, donor) == (1.0, pytest.approx(1.0))
+    other = rng.normal(100.0, 10.0, (1500, 6))
+    share, median = cc.match_share(raw, other)
+    assert share == 0.0 and median < 0.5
+    assert cc.match_share(raw, donor[:1400]) == (0.0, 0.0)
+
+
+def test_the_stored_model_reader_skips_an_empty_rates_group(tmp_path: Path) -> None:
+    import h5py
+
+    path = tmp_path / "model.hdf5"
+    with h5py.File(path, "w") as f:
+        g = f.create_group("model")
+        g["mean"] = np.array([0.1, 0.5])
+        g["tmatrix"] = np.array([[9.0, 1.0], [2.0, 8.0]])
+        g["ran"] = np.arange(3)
+        g.create_group("rates")
+    model = cc.read_stored_model(path)
+    assert model.nstates == 2 and model.ran.tolist() == [0, 1, 2]
+    assert model.tmatrix.tolist() == [[9.0, 1.0], [2.0, 8.0]]
+
+
 def test_compare_matches_the_states_one_to_one() -> None:
     # Two fitted states lie nearest the same published level (as for the Linker fit): their
     # transitions must count against the published ones by rank, not fall onto the diagonal.

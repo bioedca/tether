@@ -7,11 +7,17 @@ S5: A) and reach this test only through neutral ids of the workstation runner (A
 id whose name starts with ``tbox-`` and whose role is ``smd``, ``model`` or ``summary``.
 
 * Each trace file is matched to a sample by comparison with the Source Data (C3: A): the share of
-  its molecules whose donor trace equals one of the sample's matrix columns.
+  its molecules whose donor trace correlates with a column of the sample's matrix
+  (``_campos_chavez_hmm.match_share``). A tMAVEN trace file names its group after its data set,
+  so every group that holds traces is read.
 * Each stored model, and each summary that names a model, is matched to the fit with its number
   of states and of traces, and compared with the published values and with the frozen fresh fit
   of the limits file. The published Source Data is the authority: a stored model that does not
   agree is reported, not failed (C1: C; the two wild-type models are reported, as is every model).
+  A model that Tether's reader cannot open (older tMAVEN, #1080) is read with the test's own
+  reader, and ``tether_reader`` records which one read it.
+* Every id is tried; a file that no reader opens is recorded as ``readable`` 0 and fails the test
+  after the others are recorded.
 
 The result file gets numbers only, under the neutral ids. No file name, path or trace leaves.
 """
@@ -66,37 +72,68 @@ def test_each_stored_trace_file_is_matched_to_a_sample(private_data) -> None:
     from tether.idealize.smd import read_smd
 
     matrices = sorted({f["matrix"] for f in FITS.values()})
+    donors = [cc.read_traces(_archive(), name)[0] for name in matrices]
+    unreadable = []
     for neutral_id in _ids(private_data, "smd"):
-        raw = read_smd(private_data.path(neutral_id, "smd")).raw
-        best = (0.0, -1)
-        for index, name in enumerate(matrices):
-            donor, _ = cc.read_traces(_archive(), name)
-            if donor.shape[0] != raw.shape[1]:
-                continue
-            columns = {tuple(np.round(c, 3)) for c in donor.T}
-            hits = sum(tuple(np.round(m[:, 0], 3)) in columns for m in raw)
-            if hits / raw.shape[0] > best[0]:
-                best = (hits / raw.shape[0], index)
+        path = private_data.path(neutral_id, "smd")
+        try:
+            raws = [read_smd(path, group).raw for group in cc.smd_groups(path)]
+        except Exception as exc:  # the local log keeps the error; the result keeps the id
+            print(neutral_id, type(exc).__name__)
+            raws = []
+        if not raws:
+            unreadable.append(neutral_id)
+            private_data.record(neutral_id, readable=0)
+            continue
+        best = (0.0, 0.0, -1, 0)
+        for group_index, raw in enumerate(raws):
+            for index, donor in enumerate(donors):
+                share, median = cc.match_share(raw, donor)
+                if (share, median) > best[:2]:
+                    best = (share, median, index, group_index)
+        raw = raws[best[3]]
         private_data.record(
             neutral_id,
+            readable=1,
+            groups=len(raws),
             molecules=raw.shape[0],
             frames=raw.shape[1],
             matched_share=best[0],
-            sample_index=best[1],
+            best_correlation_median=best[1],
+            sample_index=best[2] if best[0] > 0 else -1,
         )
+    assert not unreadable, unreadable
 
 
 def test_each_stored_model_is_compared_with_the_published_fit(private_data) -> None:
     from tether.idealize.driver import read_model
 
+    unreadable = []
     for neutral_id in _ids(private_data, "model"):
-        model = read_model(private_data.path(neutral_id, "model"))
+        path = private_data.path(neutral_id, "model")
+        try:
+            model, tether_reader = read_model(path), 1
+        except Exception as exc:  # older tMAVEN models, #1080
+            print(neutral_id, type(exc).__name__)
+            try:
+                model, tether_reader = cc.read_stored_model(path), 0
+            except Exception as exc2:
+                print(neutral_id, type(exc2).__name__)
+                unreadable.append(neutral_id)
+                private_data.record(neutral_id, readable=0)
+                continue
         key = cc.fit_of(int(model.nstates), int(model.ran.size))
-        numbers = {"nstates": int(model.nstates), "traces": int(model.ran.size)}
+        numbers = {
+            "readable": 1,
+            "tether_reader": tether_reader,
+            "nstates": int(model.nstates),
+            "traces": int(model.ran.size),
+        }
         if key is not None:
             numbers["fit_index"] = KEYS.index(key)
             numbers.update(_deviations(np.asarray(model.means), model.tmatrix, key))
         private_data.record(neutral_id, **numbers)
+    assert not unreadable, unreadable
 
 
 def test_each_stored_summary_is_compared_with_the_published_fit(private_data) -> None:

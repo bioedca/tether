@@ -1067,8 +1067,11 @@ sidecar has no key for; the test adds one for itself. The sidecar key `vbgmm_vbh
 state on these traces; the weekly job prints its result and does not gate it.
 
 **Stored models** (`workstation`): each private tMAVEN trace file is matched to a sample by its
-donor traces, and each stored model and model summary is compared with the published values and
-with the fresh fit of seed 757. The result file holds numbers under neutral ids only.
+donor traces (a correlation of 0.99 or more with a column of the sample's matrix, which does not
+see the background subtraction or one missing frame), and each stored model and model summary is
+compared with the published values and with the fresh fit of seed 757. Older tMAVEN models, which
+`read_model` cannot open yet (#1080), are read by the test's own reader. The result file holds
+numbers under neutral ids only.
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_hmm.py` (the settings and their
 sources, the windows, the comparison on built data, the rounding rule and this table). Weekly
