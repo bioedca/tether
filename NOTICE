@@ -330,9 +330,12 @@ Group IIB intron smFRET data  (CC-BY-4.0)  — Zelger-Paulus S, Hadzic MCAS,
   tests/fixtures/mashfret_ed135e_30mm_extract.mat (scripts/make_mashfret_fixture.py
   keeps 18 of its 119 molecules and leaves out the raw intensities and the
   project's paths; it changes no value), used only as a MASH-FRET reference for
-  Tether's leakage and gamma-corrected FRET (#711, ADR-0087). This file is licensed
-  CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
-  GPL-3.0; attribution to the authors travels with it.
+  Tether's leakage and gamma-corrected FRET (#711, ADR-0087), and a second extract,
+  tests/fixtures/mashfret_ed135e_30mm_path_a.mat (the 17 molecules of one tag with
+  MASH-FRET's histogram, state and dwell results for it; it changes no value), used
+  only as a MASH-FRET reference for Tether's FRET histogram and idealization (#712,
+  ADR-0101). These files are licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; attribution to the authors travels with them.
 
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)

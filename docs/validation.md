@@ -102,6 +102,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
 | (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
+| MASH-FRET analyses: histogram, states, rates | required matrix (exact histogram) and `sidecar` (state limits), on a committed extract | the 37 stored histograms of the archive are checked by the workstation run |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
 | Extraction vs MASH-FRET simulated truth | required matrix | yes |
@@ -892,6 +893,43 @@ molecules, values unchanged). The archive (236 MB) is larger than the `download`
 `workstation` entry of the manifest: the nightly workstation run verifies it, makes the extract again
 and compares it byte for byte, and runs both checks on every file of the archive that has the
 layout of that MASH-FRET generation.
+
+## MASH-FRET analyses: histogram, states and rates
+
+The MASH-FRET project files of oracle (i) also keep MASH-FRET's own analyses of each molecule tag
+([#712](https://github.com/bioedca/tether/issues/712)): the FRET histogram of its Histogram
+analysis and the Gaussian fit of it, the state sequence of each trace from its per-trace vbFRET
+(1 to 5 states), and the dwell table of its Transition analysis.
+[ADR-0101](adr/0101-mash-fret-analyses-are-a-histogram-and-state-reference.md) records what each
+comparison can prove. A second committed extract holds the 17 molecules of one tag, "Path A 0.2 +-
+0.3", of the smallest project file, with that tag's analyses (values unchanged).
+
+- **Histogram, exact (a gate).**
+  `tests/test_mashfret_analysis.py::test_tether_gives_mashfret_s_fret_histogram_exactly` bins
+  Tether's γ-corrected FRET of the included frames on MASH-FRET's bins and requires every count to
+  equal MASH-FRET's. It does, in the required matrix on the extract (49 bins, 10,086 frames) and on
+  the workstation for all 37 FRET histograms that the eight readable files store. Without γ the
+  test fails.
+- **States, measured limits (a gate in the `sidecar` job).**
+  `tests/test_mashfret_analysis_sidecar.py::test_tether_s_states_agree_with_mashfret_s_within_the_frozen_limits`
+  runs Tether's idealization (`vbconhmm_modelselection`, seed 712) on the same traces. The limits
+  are in `schema/mashfret_analysis_limits.json` with their measurements:
+
+  | Measure | Measured | Limit |
+  |---|---|---|
+  | Frames whose Tether level, matched to the nearest MASH-FRET state of the molecule, is MASH-FRET's state | 0.848 | at least 0.84 |
+  | Mean absolute difference of the number of states in a trace (11 of 17 equal, 5 one fewer, 1 one more) | 0.353 | at most 0.36 |
+
+- **Populations, report only.** Tether's state fractions are 0.333, 0.384 and 0.283 (means 0.074,
+  0.201, 0.374). MASH-FRET's Gaussian populations are 0.415, 0.246 and 0.340 (means 0.081, 0.200,
+  0.351), each with a bootstrap SD of about 0.11. The two are different models, so no limit applies.
+- **Rates, report only.** No file of the record stores a fitted MASH-FRET rate. The test prints
+  Tether's exit rate of each state beside `1 / mean` of the dwell times that MASH-FRET's dwell
+  table holds for the matched transition cluster: the ratio is 1.04 to 1.77, Tether faster.
+
+**What it does not check.** The state limits hold for the pinned sidecar build and seed; a new
+measurement and the maintainer's acceptance are needed to move them. No MASH-FRET rate is compared,
+because none is stored.
 
 ## RF2-ArfA data set of the tMAVEN authors
 
