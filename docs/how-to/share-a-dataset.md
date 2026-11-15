@@ -1,3 +1,7 @@
+---
+description: "Choose the files to deposit, check what a project file reveals, then describe, license and cite a Tether dataset so that others can find and reuse it."
+---
+
 # Share and deposit a dataset
 
 ## Who this page is for
