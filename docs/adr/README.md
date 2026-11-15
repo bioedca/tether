@@ -142,6 +142,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0094](0094-the-launchers-get-a-folder-of-their-own.md) | The two launchers get a folder of their own: `<prefix>/launchers` | accepted; amends [ADR-0051](0051-installed-app-launch-surface.md) on the folder that holds the launchers | §4.1 (installers), §9 M9 (packaging & docs) |
 | [0099](0099-load-bearing-pull-requests-take-one-greptile-review.md) | Load-bearing pull requests take one Greptile review, not CodeRabbit | accepted; amends [ADR-0069](0069-one-metered-review-then-the-codex-close.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
 | [0101](0101-mash-fret-analyses-are-a-histogram-and-state-reference.md) | MASH-FRET's stored analyses are an exact histogram reference and a measured state reference | accepted | §7.7 FR-ANALYZE, §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
+| [0109](0109-one-selection-argument-and-one-return-shape-on-the-population-functions.md) | One selection argument and one return shape on the population functions | accepted | §7.7 FR-ANALYZE (population views), §5.1 (stale idealizations), §7.5 (the |
 
 <!-- gen:adr-index end -->
 

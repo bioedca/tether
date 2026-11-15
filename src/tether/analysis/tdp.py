@@ -38,6 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -244,7 +245,7 @@ def population_transition_density(
     project: ProjectRef,
     model_name: str,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     nskip: int = DEFAULT_TDP_NSKIP,
     signal_bins: int = DEFAULT_TDP_SIGNAL_BINS,
     signal_range: tuple[float, float] = DEFAULT_TDP_SIGNAL_RANGE,
@@ -286,21 +287,14 @@ def population_transition_density(
     KeyError
         No ``/idealization/{model_name}`` in the store.
     """
-    from tether.analysis._store import windowed_states
+    from tether.analysis._store import fresh_selection, windowed_states
     from tether.idealize import NO_STATE
-    from tether.project.idealize import live_molecule_keys, read_idealization
+    from tether.project.idealize import read_idealization
 
     stored = read_idealization(project, model_name)
     means = np.asarray(stored.means, dtype="float64")
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     idealized_chunks = [_levels_from_states(state, means, NO_STATE) for state in states]
