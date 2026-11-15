@@ -109,7 +109,7 @@ random?
 - The frozen inputs and outputs are GPL-3.0-only, the licence of the smfret-analysis2 traces they
   derive from.
 
-## Alternatives considered
+## Considered options
 
 - **Rename the time cloud and give its name to the new plot.** Rejected: it changes an existing
   API and the maintainer kept the present cloud as it is (Q14: A).
