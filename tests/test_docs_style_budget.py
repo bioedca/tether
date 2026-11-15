@@ -112,10 +112,14 @@ def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
     return units, headings
 
 
-def sentences(unit: str) -> list[str]:
-    """The sentences of one unit with three words or more; a code span counts as one word."""
+def sentences(unit: str, *, every: bool = False) -> list[str]:
+    """The sentences of one unit; a code span counts as one word.
+
+    Sentences of fewer than three words are dropped from the length counts, unless ``every``
+    is set: a short sentence still carries its punctuation.
+    """
     text = _ABBREVIATION.sub(r"\1", _inline(unit, "CODE"))
-    return [s for s in _SPLIT.split(text) if len(words(s)) >= 3]
+    return [s for s in _SPLIT.split(text) if every or len(words(s)) >= 3]
 
 
 def words(sentence: str) -> list[str]:
@@ -165,7 +169,8 @@ def measure(markdown: str, kind: str, phrases: list[str]) -> Measure:
         found = sentences(unit)
         result.sentences += len(found)
         result.long += [s for s in found if len(words(s)) > LIMITS[kind]]
-        result.semicolons += [s for s in found for _ in range(s.count(";"))]
+        every = sentences(unit, every=True)
+        result.semicolons += [s for s in every for _ in range(s.count(";"))]
         if len(found) > MAX_SENTENCES and not is_item:
             result.long_paragraphs.append(found[0])
         plain = _inline(unit, "")
@@ -262,6 +267,11 @@ _PHRASES = ["project store", "out of the box"]
 
 def _long(n: int) -> str:
     return " ".join(["word"] * (n - 1)) + " end."
+
+
+def test_a_short_sentence_still_counts_its_semicolons() -> None:
+    found = measure("Stop; wait.\n\n- Go; now\n", "descriptive", [])
+    assert found.sentences == 0 and found.semicolons == ["Stop; wait.", "Go; now"]
 
 
 def test_code_tables_front_matter_and_headings_are_not_prose() -> None:
