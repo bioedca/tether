@@ -55,7 +55,7 @@ _ZENODO_DOI_RE = re.compile(r"10\.5281/zenodo\.\d+")
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 #: The pages the file's own comment says "carry the same value" as its ``doi``.
-_DOI_MIRRORS = ("README.md", "docs/citing.md")
+_DOI_MIRRORS = ("README.md", "docs/citing.md", "docs/index.md")
 
 
 def _citation() -> dict:
@@ -178,7 +178,7 @@ def test_release_fields_hold_usable_values() -> None:
 
 
 def test_the_doi_matches_the_pages_that_repeat_it() -> None:
-    """README.md and docs/citing.md cite the same concept DOI as ``CITATION.cff``.
+    """README.md, docs/citing.md and docs/index.md cite the same concept DOI as ``CITATION.cff``.
 
     The file's own comment says these pages "carry the same value". Nothing else reads
     the file, so a changed DOI in one place and not the others would publish two
