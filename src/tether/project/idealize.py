@@ -103,6 +103,7 @@ __all__ = [
     "read_idealization",
     "reidealize",
     "stale_molecule_keys",
+    "stale_row_ids",
     "write_idealization_model",
 ]
 
@@ -1032,10 +1033,24 @@ def _stale_keys_for(
 ) -> list[str]:
     """Staleness recompute for an **already-loaded** model (the shared body of
     :func:`stale_molecule_keys` and :func:`live_molecule_keys`, so the model is read
-    once). Recomputes each row's :func:`input_provenance_hash` from the current
-    ``/traces`` + ``/molecules`` and returns the diverging molecule keys, de-duplicated
-    in first-seen order (a row absent from the store, or a vanished trace layer, is
-    reported stale).
+    once). Returns the molecule keys of the rows :func:`stale_row_ids` reports,
+    de-duplicated in first-seen order.
+    """
+    stale_ids = set(stale_row_ids(project, stored))
+    stale: list[str] = []
+    for key, mid in zip(stored.molecule_keys, stored.molecule_ids, strict=True):
+        if mid in stale_ids and key not in stale:
+            stale.append(key)
+    return stale
+
+
+def stale_row_ids(project: Project | str | PathLike[str], stored: StoredIdealization) -> list[str]:
+    """The ``molecule_id`` of every stale row of an already-loaded model, in model order.
+
+    Recomputes each row's :func:`input_provenance_hash` from the current ``/traces`` +
+    ``/molecules`` (a row absent from the store, or a vanished trace layer, is stale).
+    Unlike the key list, this counts molecules: two stale rows that share a quantized
+    ``molecule_key`` (§7.10) are two ids here and one key there.
     """
     from tether.project.core import Project as _Project
 
@@ -1056,14 +1071,11 @@ def _stale_keys_for(
     method_all = molecules["correction_method"]
 
     stale: list[str] = []
-    for key, mid, recorded in zip(
-        stored.molecule_keys, stored.molecule_ids, stored.input_hashes, strict=True
-    ):
+    for mid, recorded in zip(stored.molecule_ids, stored.input_hashes, strict=True):
         row = row_by_id.get(mid)
         if row is None or donor_all is None or acceptor_all is None:
             # the fitted row is gone from the store (or the trace layer vanished)
-            if key not in stale:
-                stale.append(key)
+            stale.append(mid)
             continue
         lo, hi = int(pre_all[row][0]), int(pre_all[row][1])
         if hi <= lo:
@@ -1078,8 +1090,8 @@ def _stale_keys_for(
             pre=lo,
             post=hi,
         )
-        if current != recorded and key not in stale:
-            stale.append(key)
+        if current != recorded:
+            stale.append(mid)
     return stale
 
 
