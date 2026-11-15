@@ -62,6 +62,7 @@ from tether.project.labels import CurationLabel
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 __all__ = [
+    "USER_NAME_FIELDS",
     "ExportResult",
     "export_deeplasi_txt",
     "export_molecule_table_csv",
@@ -591,40 +592,162 @@ def _copy_idealization(
     return written, skipped
 
 
-def _copy_labels(src: object, dst: object, selected_keys: set[str]) -> int:
-    """Copy the ``/labels`` provenance rows whose molecule is in the subset.
+#: Compound-dataset fields that store a **person's name** (#620). The curator who
+#: labeled a molecule (``/labels`` ``labeler``) and who re-keyed or merged a condition
+#: (``/settings/condition_audit`` ``labeler``) are the two stores today; a field added
+#: later that records a person (an approver, a reviewer) must be added here, and
+#: ``tests/test_export_subset_aliases.py`` fails until it is.
+USER_NAME_FIELDS: frozenset[str] = frozenset({"labeler"})
+
+
+def _name_fields(dtype: np.dtype) -> list[str]:
+    """The :data:`USER_NAME_FIELDS` a compound ``dtype`` carries (``[]`` if none)."""
+    return [name for name in (dtype.names or ()) if name in USER_NAME_FIELDS]
+
+
+class _CuratorAliases:
+    """Map each distinct source user name to a stable ``<prefix>-<n>`` alias (#620).
+
+    The names are numbered in the order they are first met, so two labels by one
+    person keep one alias. An alias that would equal a source name is skipped, so no
+    stored value in the copy equals a name of the source. ``""`` (no name recorded)
+    stays ``""``: it names nobody, and an alias would invent a curator.
+    """
+
+    def __init__(self, prefix: str, names: list[str]) -> None:
+        self._map: dict[str, str] = {}
+        taken = set(names)
+        n = 0
+        for name in names:
+            if name == "" or name in self._map:
+                continue
+            n += 1
+            while f"{prefix}-{n}" in taken:
+                n += 1
+            self._map[name] = f"{prefix}-{n}"
+
+    @property
+    def count(self) -> int:
+        """The number of distinct names replaced."""
+        return len(self._map)
+
+    def apply(self, rows: np.ndarray) -> np.ndarray:
+        """Return a copy of compound ``rows`` with every name field aliased."""
+        out = rows.copy()
+        for field in _name_fields(rows.dtype):
+            out[field] = [self._map.get(_to_str(v), _to_str(v)) for v in rows[field]]
+        return out
+
+
+def _iter_name_datasets(group: object) -> list[object]:
+    """Every compound dataset under ``group`` that carries a name field."""
+    import h5py  # noqa: PLC0415
+
+    found: list[object] = []
+
+    def visit(_name: str, obj: object) -> None:
+        if isinstance(obj, h5py.Dataset) and _name_fields(obj.dtype):
+            found.append(obj)
+
+    group.visititems(visit)  # type: ignore[attr-defined]
+    return found
+
+
+def _source_user_names(src: object, label_rows: np.ndarray) -> list[str]:
+    """Every user name the copy would carry, in the order the copy writes them:
+    the exported ``/labels`` rows first, then the verbatim metadata groups."""
+    names: list[str] = []
+    for field in _name_fields(label_rows.dtype):
+        names += [_to_str(v) for v in label_rows[field]]
+    for grp in _SUBSET_VERBATIM_GROUPS:
+        if grp not in src:  # type: ignore[operator]
+            continue
+        for ds in _iter_name_datasets(src[grp]):  # type: ignore[index]
+            rows = ds[()]
+            for field in _name_fields(rows.dtype):
+                names += [_to_str(v) for v in rows[field]]
+    return names
+
+
+def _copy_group_aliased(src_group: object, dst_parent: object, aliases: _CuratorAliases) -> None:
+    """Copy ``src_group`` under ``dst_parent``, writing name-bearing datasets aliased.
+
+    A name-bearing dataset is built from its aliased rows (never copied and then
+    overwritten, because HDF5 does not reclaim the old string bytes); everything
+    else is copied verbatim with :meth:`h5py.Group.copy`.
+    """
+    import h5py  # noqa: PLC0415
+
+    name = src_group.name.rsplit("/", 1)[-1]  # type: ignore[attr-defined]
+    dst_group = dst_parent.create_group(name)  # type: ignore[attr-defined]
+    for key, val in src_group.attrs.items():  # type: ignore[attr-defined]
+        dst_group.attrs[key] = val
+    for member in src_group:  # type: ignore[attr-defined]
+        item = src_group[member]  # type: ignore[index]
+        if isinstance(item, h5py.Group):
+            _copy_group_aliased(item, dst_group, aliases)
+        elif isinstance(item, h5py.Dataset) and _name_fields(item.dtype):
+            ds = dst_group.create_dataset(
+                member,
+                data=aliases.apply(item[()]),
+                dtype=item.dtype,
+                maxshape=item.maxshape,
+                chunks=item.chunks,
+                compression=item.compression,
+            )
+            for key, val in item.attrs.items():
+                ds.attrs[key] = val
+        else:
+            src_group.file.copy(item, dst_group, name=member)  # type: ignore[attr-defined]
+
+
+def _kept_labels(src: object, selected_keys: set[str]) -> np.ndarray:
+    """The source ``/labels`` rows whose molecule is in the subset (store order)."""
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    labels = src["labels"][TABLE][()]  # type: ignore[index]
+    if labels.shape[0] == 0:
+        return labels
+    mask = np.array([_to_str(k) in selected_keys for k in labels["molecule_key"]], dtype=bool)
+    return labels[mask]
+
+
+def _copy_labels(dst: object, kept: np.ndarray, aliases: _CuratorAliases | None) -> int:
+    """Write the subset's ``/labels`` provenance rows (``kept``, from :func:`_kept_labels`).
 
     ``molecule_key`` travels so a labeled subset row always resolves to its canonical
-    molecule on merge-back (§5.1/§7.10). Returns the number of label rows copied.
+    molecule on merge-back (§5.1/§7.10). With ``aliases`` the ``labeler`` names are
+    replaced before the write. Returns the number of label rows copied.
     """
     from tether.io.schema import TABLE  # noqa: PLC0415
 
-    labels = src["labels"][TABLE][()]
-    if labels.shape[0] == 0:
-        return 0
-    mask = np.array([_to_str(k) in selected_keys for k in labels["molecule_key"]], dtype=bool)
-    kept = labels[mask]
     if kept.shape[0] == 0:
         return 0
-    table = dst["labels"][TABLE]
+    if aliases is not None:
+        kept = aliases.apply(kept)
+    table = dst["labels"][TABLE]  # type: ignore[index]
     table.resize((kept.shape[0],))
     table[:] = kept
     return int(kept.shape[0])
 
 
-def _copy_verbatim_groups(src: object, dst: object) -> None:
+def _copy_verbatim_groups(src: object, dst: object, aliases: _CuratorAliases | None) -> None:
     """Replace the fresh subset's empty metadata groups with the source's verbatim.
 
     Preserves ``/conditions`` (+ its per-condition category lists and re-key audit),
     ``/settings`` (extraction provenance), ``/calibration``, and ``/models`` intact —
     small metadata that keeps the subset self-describing and referentially complete.
+    With ``aliases`` every user name in them (the condition audit log) is replaced.
     """
     for grp in _SUBSET_VERBATIM_GROUPS:
         if grp not in src:
             continue
         if grp in dst:
             del dst[grp]
-        src.copy(grp, dst, name=grp)
+        if aliases is None:
+            src.copy(grp, dst, name=grp)
+        else:
+            _copy_group_aliased(src[grp], dst, aliases)
 
 
 def _preflight_source(src: object, n_molecules: int, include_raw: bool) -> None:
@@ -685,6 +808,7 @@ def export_subset_tether(
     include_rejected: bool = False,
     include_raw: bool = False,
     overwrite: bool = False,
+    curator_alias: str | None = None,
 ) -> ExportResult:
     """Export a **movie-less subset ``.tether``** (PRD §7.9, §5.3, §5.4).
 
@@ -725,6 +849,15 @@ def export_subset_tether(
     before staging). A ``<out_path>.provenance.json`` sidecar is written and the same
     provenance is stamped into the subset's root attributes.
 
+    Copy for sharing (#620). The ``/labels`` rows and the condition audit log record
+    the curator's user name (by default the operating-system login). With
+    ``curator_alias`` set, every stored user name (:data:`USER_NAME_FIELDS`) is
+    replaced by ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first
+    met, so one person keeps one alias and multi-curator analysis still works. The
+    provenance records that names were replaced and how many, never the names. The
+    option does not remove ``source_filename`` (a file name, not a path): a file name
+    can still identify a sample.
+
     Parameters
     ----------
     project:
@@ -740,6 +873,9 @@ def export_subset_tether(
         non-reconstructable).
     overwrite:
         Replace an existing ``out_path`` (default refuses to clobber).
+    curator_alias:
+        Replace each stored user name with ``<curator_alias>-<n>`` (default ``None``
+        keeps the names, and the output is the same as without the option).
 
     Returns
     -------
@@ -754,10 +890,14 @@ def export_subset_tether(
         If ``out_path`` already exists and ``overwrite`` is ``False``.
     ValueError
         If the source is not a valid or complete ``.tether`` (missing corrupt/incomplete
-        corrected traces or patches); the selection is empty (nothing to export); or
-        ``out_path`` is the source project (same path or a hard-linked alias).
+        corrected traces or patches); the selection is empty (nothing to export);
+        ``out_path`` is the source project (same path or a hard-linked alias); or
+        ``curator_alias`` is given but empty or blank.
     """
     import h5py  # noqa: PLC0415
+
+    if curator_alias is not None and not str(curator_alias).strip():
+        raise ValueError("curator_alias must be a non-empty prefix such as 'curator'")
 
     from tether.io.schema import assert_is_compatible_project, create_project  # noqa: PLC0415
 
@@ -789,6 +929,12 @@ def export_subset_tether(
     created_utc = datetime.now(UTC).isoformat()
     with h5py.File(path, "r") as src:
         _preflight_source(src, int(molecules.shape[0]), include_raw)
+        kept_labels = _kept_labels(src, selected_keys)
+        aliases = (
+            None
+            if curator_alias is None
+            else _CuratorAliases(str(curator_alias), _source_user_names(src, kept_labels))
+        )
         # Stage into a temp sibling, then atomically replace, so a mid-copy HDF5/IO
         # failure never truncates an existing subset (writing straight to out_path with
         # create_project(overwrite=True) would destroy it before the copy could finish).
@@ -807,14 +953,17 @@ def export_subset_tether(
                 # input trace layers present; labels join on molecule_key (the cross-file
                 # merge-back key, §5.1/§7.10) — deliberately different keys.
                 models, skipped_models = _copy_idealization(src, dst, selected_ids, set(layers))
-                n_labels = _copy_labels(src, dst, selected_keys)
-                _copy_verbatim_groups(src, dst)
+                n_labels = _copy_labels(dst, kept_labels, aliases)
+                _copy_verbatim_groups(src, dst, aliases)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.
                 dst.attrs["tether_subset_of"] = path.name
                 dst.attrs["tether_subset_created_utc"] = created_utc
                 dst.attrs["tether_subset_include_raw"] = int(bool(include_raw))
                 dst.attrs["tether_subset_n_molecules"] = int(len(rows))
+                if aliases is not None:
+                    dst.attrs["tether_subset_names_aliased"] = 1
+                    dst.attrs["tether_subset_n_aliased_names"] = aliases.count
             os.replace(staged, out_path)  # atomic within out_path's directory
         except BaseException:
             staged.unlink(missing_ok=True)
@@ -836,6 +985,15 @@ def export_subset_tether(
             "skipped_idealization_models": skipped_models,
             "n_label_rows": n_labels,
             "molecule_keys": None if molecule_keys is None else [str(k) for k in molecule_keys],
+            **(
+                {}
+                if aliases is None
+                else {
+                    "curator_alias": str(curator_alias),
+                    "names_aliased": True,
+                    "n_aliased_names": aliases.count,
+                }
+            ),
         },
     )
     return ExportResult(path=out_path, provenance_path=provenance, n_molecules=len(rows))

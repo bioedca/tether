@@ -328,6 +328,7 @@ result = export_subset_tether(
     include_rejected=False,
     include_raw=False,
     overwrite=False,
+    curator_alias=None,        # or a prefix such as "curator"; see below
 )
 ```
 
@@ -358,8 +359,28 @@ row counts consistent, both patch channels present) **before** anything is writt
 | Raw **and** background traces, when `include_raw=False` | They ride as a set of four. Because `corrected = raw − background` exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too |
 | Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the sidecar's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
+**User names (`curator_alias`).** A project records a person's user name in two places:
+the `labeler` of each `/labels` row and the `labeler` of each `/settings/condition_audit`
+row (a condition re-key or merge). By default this is the operating-system login. The
+list of name fields is `tether.project.export.USER_NAME_FIELDS`.
+
+| `curator_alias` | Result |
+|---|---|
+| `None` (default) | The names are copied as they are. The output is the same as before the option existed |
+| A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the `/labels` rows in store order, then the audit log. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that is equal to a name in the source is skipped. An empty `labeler` stays empty. The source project does not change |
+
+A name-bearing table is written from its aliased rows, not copied and then changed, so the
+names are not in the bytes of the file. The count of names includes only the names in the
+copy: a name whose labels stay behind (for example on a rejected molecule) is not counted.
+A blank prefix raises `ValueError`.
+
+The option does **not** remove `source_filename` or `tether_subset_of`. They are file
+names, not paths, and they are the origin record of each molecule. A file name can
+identify a sample, so read them before you share the copy. Free text, such as the `reason`
+of an audit row, is also copied as it is.
+
 **Embedded provenance.** Besides the sidecar, the subset stamps four root attributes
-(readable with `h5py`):
+(readable with `h5py`), and two more with `curator_alias`:
 
 | Attribute | Value |
 |---|---|
@@ -367,6 +388,8 @@ row counts consistent, both patch channels present) **before** anything is writt
 | `tether_subset_created_utc` | Offset-aware ISO-8601 UTC — byte-identical to the sidecar's `created_utc` |
 | `tether_subset_include_raw` | `0` or `1` — an integer, not a bool |
 | `tether_subset_n_molecules` | The exported count |
+| `tether_subset_names_aliased` | `1`, only with `curator_alias` |
+| `tether_subset_n_aliased_names` | The count of distinct names replaced, only with `curator_alias`. No name is recorded |
 
 The root also carries `create_project`'s own `format="tether-project"`, `schema_version`
 and `app_version`; the last is the version of the build that performed the *export*, not
@@ -374,11 +397,13 @@ the source's.
 
 **Refusals.** `FileExistsError` when `out_path` exists and `overwrite=False`; `ValueError`
 when the output resolves to (or is a hard link of) the source, when the selection is
-empty, or when the preflight fails.
+empty, when the preflight fails, or when `curator_alias` is blank.
 
 Sidecar `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
-`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`.
+`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`. With
+`curator_alias` also `curator_alias` (the prefix), `names_aliased` (`true`) and
+`n_aliased_names`; never the names.
 
 ## 4. Plot export (PDF + SVG + PNG)
 
@@ -506,7 +531,7 @@ The sidecar exists because flat text has no metadata slot and the Deep-LASI `.tx
 stay header-free — so the stamp travels beside the file rather than inside it (ADR-0001). Keep it with the data file when you move or share the export. For
 the CSV and the `.txt` it is the **only** record of which build, which project and which
 parameters produced those numbers. A subset `.tether` and a plot export also carry a stamp
-*inside* the file — the subset's four `tether_subset_*` root attributes plus
+*inside* the file — the subset's `tether_subset_*` root attributes plus
 `create_project`'s `app_version`, and a plot's on-figure footer plus its embedded document
 metadata (both above) — but only the sidecar carries the full parameter set.
 
