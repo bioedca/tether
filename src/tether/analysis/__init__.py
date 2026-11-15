@@ -113,6 +113,17 @@ Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
   and the archetypal 2-state level's rates are checked against that dataset's
   reported inter-tool spread (``schema/kinsoft_reference.json``) — an **advisory**
   gate [Götz2022].
+
+Changed at M17 (#369, ADR-0109):
+
+- Every population function takes its selection through one keyword, ``molecule_keys``,
+  which also accepts a :class:`~tether.analysis.selection.MoleculeSelection` — the
+  protocol a frozen analysis-set version implements (#934). The six that read
+  ``/idealization`` take ``include_stale``; the nine that read none do not.
+- :func:`~tether.analysis.dwell.population_dwell_times` always returns the mapping, and
+  :func:`~tether.analysis.cloud.population_fret_cloud_alpha_shape` always an
+  :class:`~tether.analysis.cloud.AlphaShape` (:meth:`~tether.analysis.cloud.AlphaShape.no_region`
+  when the cloud has no 2-D region).
 """
 
 from __future__ import annotations
@@ -218,6 +229,7 @@ from tether.analysis.query import (
     MoleculeMatch,
     query_molecules,
 )
+from tether.analysis.selection import MoleculeSelection, Selection, resolve_selection
 from tether.analysis.state_number import (
     DEFAULT_STATE_NUMBER_LOW,
     StateNumberCounts,
@@ -298,12 +310,14 @@ __all__ = [
     "HistogramBootstrapCI",
     "KinsoftKineticsResult",
     "KinsoftReference",
+    "MoleculeSelection",
     "ModelGaussianOverlay",
     "MoleculeAnticorrelation",
     "MoleculeMatch",
     "PerConditionHistograms",
     "PopulationAnticorrelation",
     "RawFretCloud",
+    "Selection",
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
@@ -342,6 +356,7 @@ __all__ = [
     "population_transition_sync_histogram2d",
     "query_molecules",
     "raw_fret_cloud",
+    "resolve_selection",
     "state_dwells",
     "state_number_counts",
     "survival_curve",
