@@ -253,10 +253,16 @@ frames back. Then it extracts both files with the map file of `lab-11`. It passe
 give the same molecules, the same number of frames and the same raw traces. It records the
 counts and the largest difference.
 
+All acquisitions of the series of `lab-12` share one map file, and that map fits the direct
+TIFFs (`lab-11` and `lab-13`). The vendor-route TIFFs of that series (`lab-09`, `lab-10` and
+`lab-12`) are turned 90° clockwise against it, as the export-route check measured on `lab-12`.
+The maintainer decided on 2026-11-14 that the direct orientation is correct (#887). So the
+check and the update script turn the frames of these three ids back before they extract them
+with the map. The list of these ids is `TURNED_AGAINST_MAP` in `tests/_lab_golden.py`. The
+turned copy goes into the temporary folder of the run and is deleted after the extraction.
+
 The numbers in a golden file are what Tether computed when the file was written. They are not
-reference values. #887 tracks the three vendor-route acquisitions of the series of `lab-12`,
-which share a map file with the direct-route `lab-13` and are probably registered with a map
-turned against their frames.
+reference values.
 
 To write or update the golden files, run this on the workstation, in the environment of the
 state folder, from a clone of the commit to freeze:

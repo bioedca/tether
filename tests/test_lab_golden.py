@@ -35,6 +35,7 @@ def test_lab_numbers_match_the_golden_file(private_data, neutral_id: str, tmp_pa
         private_data.path(neutral_id, _lab_golden.movie_role(private_data.roles(neutral_id))),
         private_data.path(neutral_id, _lab_golden.MAP_ROLE),
         tmp_path,
+        turns=_lab_golden.map_turns(neutral_id),
     )
     diffs = _golden.compare(golden, actual)
     relative = [d.relative for d in diffs if d.relative is not None]
@@ -64,9 +65,7 @@ def test_export_routes_give_the_same_molecules_and_traces(private_data, tmp_path
     vendor = private_data.path(nid, _lab_golden.movie_role(private_data.roles(nid)))
     (tmp_path / "turned").mkdir()
     movies = {
-        nid: _lab_golden.rotate_movie(
-            vendor, tmp_path / "turned", -_lab_golden.EXPORT_ROUTE_ROTATION
-        ),
+        nid: _lab_golden.rotate_movie(vendor, tmp_path / "turned", _lab_golden.map_turns(nid)),
         direct: private_data.path(direct, _lab_golden.movie_role(private_data.roles(direct))),
     }
     projects = []
