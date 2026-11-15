@@ -44,7 +44,8 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
 > **There is no CLI or GUI export command, and this page will not invent one.**
-> `tether.cli` registers exactly two subcommands, `extract` and `batch`, and no module
+> `tether.cli` registers three subcommands, `extract`, `batch` and `info`, and none of
+> them exports; no module
 > under `src/tether/gui/` references any of the four functions above. They are a Python
 > API today. Every snippet on this page is therefore the call you actually run.
 
@@ -474,6 +475,16 @@ The eight renderers, and the plot each produces (Appendix-C ids as used in the
 | `render_state_number` | `StateNumberCounts` | C1 state-number distribution | Number of occupied states (a count) |
 | `render_raw_fret_cloud` | `RawFretCloud` | QC raw FRET cloud | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
 | `render_cross_correlation` | `CrossCorrelation` | Donor–acceptor cross-correlation | `Lag (frames)` — always frames; there is no seconds variant |
+
+`render_transition_density` draws the B1 colour scale as `color_scale="log"` by default, the
+log-normalized TDP that the product specification names. Use `color_scale="linear"` for a
+linear scale.
+The log scale is zero-safe: an empty bin gets the floor colour of the colour map. The floor
+is one decade below the smallest non-empty bin, so a rare transition does not disappear next
+to a frequent one. The scale is display-only: the drawn array is the stored histogram.
+`export_figure` writes the scale to the sidecar as `parameters.display.color_scale`. You do
+not have to pass it. If you pass a `display` entry that does not agree with the figure,
+`export_figure` raises `ValueError`.
 
 > **A time axis says seconds only if you supplied a frame duration.** `dt` / `time_dt`
 > default to `1.0`, and at that default the renderer labels the axis in frames. The same

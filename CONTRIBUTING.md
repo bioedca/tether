@@ -14,7 +14,8 @@ requires a substantive final-head review on one fixed lane, cheapest provider fi
 **Codex on the green diff until nothing blocking remains, then optionally one metered
 Greptile review, then CodeRabbit with no actionable comments before merge — or, when
 CodeRabbit's one-review cap is spent and every finding is disposed of, a fresh Codex
-review of the final head closing the gate in its place.**
+review of the final head closing the gate in its place.** A load-bearing PR takes one
+Greptile review in CodeRabbit's place (ADR-0099).
 Copilot is advisory only and never satisfies a leg. The ruleset still requires zero GitHub approval
 reviews; load-bearing changes additionally need any qualified human/domain judgment
 specified in `AGENTS.md`. This scales to required human reviews + `CODEOWNERS` if
@@ -150,6 +151,11 @@ QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 pytest -m "not gui and not large and not sidecar and not deep and not workstation"
 ```
 
+The shell keyboard-shortcut tests in `tests/test_shell_basics.py` need a window that
+the platform plugin activates. Where it does not, they skip, unless
+`TETHER_REQUIRE_WINDOW_ACTIVATION=1` is set: then they fail. The required `test` job sets
+it on all three operating systems, so that gate cannot go green without the key path (#855).
+
 `--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
 **not** protect a negated expression: `-m "not largge"` is a perfectly valid filter that
 happens to exclude nothing, so a typo there silently pulls the optional tiers back into
@@ -275,6 +281,11 @@ words, terms, warnings and page shape, and the files that the rules apply to. A 
 cite a rule by its number. To build the site and run its checks, see
 [Building the docs locally](#building-the-docs-locally).
 
+Write each docstring in `src/tether` to the
+[docstring standard](docs/maintainers/docstring-style.md): NumPy style, a one-line imperative
+summary, the unit of each physical quantity, and Markdown cross-references in the form of
+mkdocstrings. Ruff checks the shape in the `lint` job (ADR-0093).
+
 ## Licensing — SPDX / REUSE (PRD §12.1)
 
 Tether is `GPL-3.0-or-later`. **Every source file carries** an
@@ -366,10 +377,10 @@ Before requesting review / merging, confirm:
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
 - [ ] **Risk recorded, and the review lane complete** — `low`, `standard`, or `high`, which
-      routes nothing; the round; and a
+      routes nothing except the load-bearing Greptile route of ADR-0099; the round; and a
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
-      **CodeRabbit with no actionable comments is required — or, if its one-review cap is spent
+      **CodeRabbit (on a load-bearing PR, Greptile) with no actionable comments is required — or, if its one-review cap is spent
       and every finding is disposed of, the Codex review of the final head that closed the gate in
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, and the
@@ -395,7 +406,9 @@ Before requesting review / merging, confirm:
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Where a Greptile review
       stood in for a CodeRabbit that refused for more than 30 minutes, record the refusal and
-      record that review as this item asks of CodeRabbit's. Blocking
+      record that review as this item asks of CodeRabbit's. On a load-bearing PR (ADR-0099) record
+      the one Greptile review the same way, its summary comment's `Last reviewed commit` being the
+      head it read; after its findings, record the one CodeRabbit review and the Codex close. Blocking
       findings fixed, non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
@@ -441,7 +454,8 @@ seat has budget, a review being one credit as a standard and three as a TREX; th
 CodeRabbit with no actionable comments, which is the last metered gate before merge — and
 when its one-review cap is spent with every finding disposed of, a fresh posted Codex review of the final head
 closes the gate in its place rather than a maintainer doing it — under conditions `AGENTS.md`
-§Review sets and this summary does not restate.** **Open as a draft and get it green there** — every
+§Review sets and this summary does not restate.** A load-bearing PR takes one Greptile review in
+CodeRabbit's place, on the route `AGENTS.md` §Review and ADR-0099 set. **Open as a draft and get it green there** — every
 required check runs on a draft, so the diff reaches fully green before anyone is asked to
 read it, and that is what makes the sequence affordable rather than a policy nobody keeps.
 Opening ready is not forbidden, but it spends a metered provider on a diff no cheap one has
@@ -517,8 +531,8 @@ requests rather than batching them.
 minutes**, `AGENTS.md` §Review lets one standard Greptile review stand in as the metered
 gate: the one already on the pull request, or else a new one, asked only when
 `<py> .agents/bin/greptile_usage.py` — read at that moment — shows credits left on the seat and
-Tether under its share of 15 a month. Count each TREX review as three when you read it: the
-script counts a submission as one credit. A balance the script cannot read is a no, and the
+Tether under its share of 45 a cycle from the 17th (ADR-0099). The script counts a TREX run asked on demand at
+three credits; add three for any TREX run an account rule started, which it cannot see. A balance the script cannot read is a no, and the
 refusal is then the wait it always was. The stand-in is held to everything asked of
 CodeRabbit's review, CodeRabbit is not asked again on that pull request, and Codex never
 stands in — a refusal still opens no Codex close.
@@ -593,7 +607,7 @@ Codex close is what confirms the fixes — and it
 does not license hammering: honour the retry interval the refusal names, and never
 re-request while the status check reads `pending`. **A Greptile review is not always one
 credit** — a standard review costs one, a TREX review three — and Tether's share of the seat is
-15 a month, the optional review and the stand-in together. **A spent cap
+45 a cycle from the 17th, every Greptile review together (ADR-0099). **A spent cap
 is not a stuck PR**: when **no finding that review raised is left outstanding** — cleared by
 being fixed, deferred-and-tracked, dropped sub-floor, or **withdrawn by the provider that raised
 it**, that last quoted on the thread like any other disposition — and every thread resolved, a fresh posted Codex review of the final head closes the gate in its place, so the

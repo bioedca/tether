@@ -19,7 +19,8 @@ version ran in. The record is not complete: some steps and some settings are nev
 and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
 [project store reference](reference/tether-format.md) documents every group and dataset in a
 `.tether` file, and the [exports reference](reference/exports.md) documents every column of
-every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis).
+every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis). Which
+files to deposit with a paper is on [Share and deposit a dataset](how-to/share-a-dataset.md).
 
 ## What is recorded
 
@@ -71,7 +72,8 @@ acceptor channel after the acceptor bleaches (`source` = `post-acceptor-bleach-t
 that decision: `n_qualifying`, `n_molecules`, `min_window_frames`, `ceiling`,
 `min_qualifying_traces` and `intensity_quantity`, plus `app_version` and `created_utc`.
 
-**`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass. The
+**`/settings/gamma`** — `src/tether/project/gamma.py`. Rewritten on every γ pass, and removed
+by a leakage pass that withholds α, because that pass clears the processed `gamma` rows. The
 detection-efficiency and quantum-yield ratio γ is estimated **per molecule** at its acceptor
 bleach step (`source` = `acceptor-bleach-step`), and each molecule that passes the gates
 stores its own value in the `gamma` column of `/molecules`, unless the population value

@@ -510,22 +510,22 @@ def test_population_matches_pure_core(tmp_path) -> None:
 def test_population_known_dwells(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS)
-    a2 = population_dwell_times(proj, "vbconhmm", state=2)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2)[2]
     assert isinstance(a2, DwellTimeAnalysis)
     assert sorted(a2.dwell_lengths.tolist()) == [3, 4]  # mol0 2x3, mol1 2x4
     assert a2.n_dwells == 2
     assert a2.n_molecules == 2
     assert a2.level == pytest.approx(0.85)  # means[2]
-    a1 = population_dwell_times(proj, "vbconhmm", state=1)
+    a1 = population_dwell_times(proj, "vbconhmm", state=1)[1]
     assert a1.dwell_lengths.tolist() == [2]
-    a0 = population_dwell_times(proj, "vbconhmm", state=0)
+    a0 = population_dwell_times(proj, "vbconhmm", state=0)[0]
     assert a0.dwell_lengths.tolist() == [3]
 
 
 def test_population_dt_applied_to_tau(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS)
-    a2 = population_dwell_times(proj, "vbconhmm", state=2, dt=0.1)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2, dt=0.1)[2]
     # tau is arange(max_dwell) * dt (frames -> seconds)
     assert a2.dt == 0.1
     np.testing.assert_allclose(a2.tau, np.arange(a2.tau.size) * 0.1)
@@ -535,30 +535,30 @@ def test_population_stale_excluded_by_default(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS, stale=[False, True])
     # only mol0 contributes: interior 1x2, 2x3 ; state0 (mol1-only) now absent
-    a2 = population_dwell_times(proj, "vbconhmm", state=2)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2)[2]
     assert a2.dwell_lengths.tolist() == [3]
     assert a2.n_molecules == 1
-    a0 = population_dwell_times(proj, "vbconhmm", state=0)
+    a0 = population_dwell_times(proj, "vbconhmm", state=0)[0]
     assert a0.n_dwells == 0
     assert a0.fit is None
     # include_stale restores mol1
-    a2_all = population_dwell_times(proj, "vbconhmm", state=2, include_stale=True)
+    a2_all = population_dwell_times(proj, "vbconhmm", state=2, include_stale=True)[2]
     assert sorted(a2_all.dwell_lengths.tolist()) == [3, 4]
 
 
 def test_population_rejected_excluded_by_default(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS, rejected=[False, True])
-    a2 = population_dwell_times(proj, "vbconhmm", state=2)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2)[2]
     assert a2.dwell_lengths.tolist() == [3]  # only mol0
-    a2_inc = population_dwell_times(proj, "vbconhmm", state=2, include_rejected=True)
+    a2_inc = population_dwell_times(proj, "vbconhmm", state=2, include_rejected=True)[2]
     assert sorted(a2_inc.dwell_lengths.tolist()) == [3, 4]
 
 
 def test_population_missing_state_is_empty_never_raises(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS)
-    a = population_dwell_times(proj, "vbconhmm", state=99)
+    a = population_dwell_times(proj, "vbconhmm", state=99)[99]
     assert a.n_dwells == 0
     assert a.n_molecules == 0  # no molecule contributes (#739 ANB-F10, dwell.py:586)
     assert a.dwell_lengths.size == 0
@@ -588,7 +588,7 @@ def test_analysis_histogram_density_and_dt_scaled_centres(tmp_path) -> None:
     s = np.array([frames], dtype="int64")
     means = np.array([0.3, 0.7])
     proj, _keys = build_store_with_model(tmp_path, s, means, name="hist.tether")
-    a = population_dwell_times(proj, "vbconhmm", state=1)  # dt = 1 (frames)
+    a = population_dwell_times(proj, "vbconhmm", state=1)[1]  # dt = 1 (frames)
     centres, density = a.histogram(nbins=10)
     assert centres.size == 10
     width = centres[1] - centres[0]
@@ -603,7 +603,7 @@ def test_analysis_histogram_density_and_dt_scaled_centres(tmp_path) -> None:
 
     # a 10x-smaller dt scales every bin centre by 10x (a dt bug on the histogram would
     # cancel out of the density check but shifts the centres).
-    a_dt = population_dwell_times(proj, "vbconhmm", state=1, dt=0.1)
+    a_dt = population_dwell_times(proj, "vbconhmm", state=1, dt=0.1)[1]
     centres_dt, _ = a_dt.histogram(nbins=10)
     np.testing.assert_allclose(centres_dt, centres * 0.1)
 
