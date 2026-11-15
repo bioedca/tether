@@ -354,7 +354,10 @@ def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False
                         )
                     )
             models = sorted(f["models"]) if "models" in f else []
-    except OSError as exc:
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        # OSError: HDF5 could not read it. The others: a group, field or attribute that
+        # is missing or malformed (e.g. ``nstates="invalid"``). Each fails this project
+        # only, so ``tether info`` still reports the projects after it.
         raise ProjectSummaryError(f"{path}: could not be read ({exc})") from exc
 
     # --- movies, with each movie's own curation counts ------------------------
@@ -402,7 +405,9 @@ def read_project_summary(path: str | PathLike[str], *, check_stale: bool = False
             # Rows, not keys: two stale molecules may share one quantized key (§7.10).
             try:
                 stale = len(stale_row_ids(path, read_idealization(path, name)))
-            except (KeyError, OSError) as exc:  # e.g. the model was removed meanwhile
+            # KeyError: the model was removed meanwhile; ValueError/TypeError: its
+            # metadata is malformed (e.g. an unknown ``intensity_quantity``).
+            except (KeyError, OSError, TypeError, ValueError) as exc:
                 raise ProjectSummaryError(
                     f"{path}: could not check model {name!r} for stale molecules ({exc})"
                 ) from exc

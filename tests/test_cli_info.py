@@ -391,6 +391,43 @@ def test_a_stale_check_that_cannot_read_a_model_is_a_per_project_error(
     assert "could not check model 'vbconhmm'" in capsys.readouterr().err
 
 
+def test_malformed_model_metadata_fails_that_project_only(tmp_path: Path, capsys) -> None:
+    """A malformed project listed first must not stop the valid one after it (#999)."""
+    bad_dir = tmp_path / "bad"
+    bad_dir.mkdir()
+    bad = _rich_store(bad_dir)
+    with h5py.File(bad, "r+") as f:
+        f["idealization/vbconhmm"].attrs["nstates"] = "invalid"
+    good = _rich_store(tmp_path)
+    with pytest.raises(ProjectSummaryError, match="could not be read"):
+        read_project_summary(bad)
+    assert main(["info", "--json", str(bad), str(good)]) == 1
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+    assert [p["path"] for p in document["projects"]] == [str(bad), str(good)]
+    assert "could not be read" in document["projects"][0]["error"]
+    assert document["projects"][1]["n_molecules"] == 6
+    assert "could not be read" in captured.err
+
+
+def test_an_unknown_intensity_quantity_fails_the_stale_check_of_that_project_only(
+    tmp_path: Path, capsys
+) -> None:
+    bad_dir = tmp_path / "bad"
+    bad_dir.mkdir()
+    bad = _rich_store(bad_dir)
+    with h5py.File(bad, "r+") as f:
+        f["idealization/vbconhmm"].attrs["intensity_quantity"] = "bogus"
+    good = _rich_store(tmp_path)
+    with pytest.raises(ProjectSummaryError, match="could not check model 'vbconhmm'"):
+        read_project_summary(bad, check_stale=True)
+    assert read_project_summary(bad).idealizations  # without --stale it still reads
+    assert main(["info", "--stale", "--json", str(bad), str(good)]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert "could not check model 'vbconhmm'" in document["projects"][0]["error"]
+    assert document["projects"][1]["idealizations"][0]["stale"] is not None
+
+
 def test_no_project_argument_is_a_usage_error() -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["info"])
