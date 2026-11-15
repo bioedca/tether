@@ -484,12 +484,14 @@ class TetherShell:
         # field. The category field is the text-entry exempt from the keymap.
         panel = QtWidgets.QWidget()
         vbox = QtWidgets.QVBoxLayout(panel)
+        # No invented movie id: the box stays empty, and it is disabled while no
+        # project is open (#1031). Filling it from /movies is #356.
         self._movie_switcher = QtWidgets.QComboBox()
-        self._movie_switcher.addItems(["movie-0"])
+        self._movie_switcher.setEnabled(False)
         self._molecule_list = QtWidgets.QListWidget()
         self._molecule_list.currentRowChanged.connect(self._on_list_row_changed)
         self._category_field = QtWidgets.QLineEdit()
-        self._category_field.setPlaceholderText("category name (text-entry — keymap exempt)")
+        self._category_field.setPlaceholderText("Type a category name")
         self._category_field.setProperty("tetherTextEntry", True)
         self._unreject_button = QtWidgets.QPushButton("Un-reject selected")
         self._unreject_button.setToolTip(
@@ -1119,6 +1121,7 @@ class TetherShell:
         self._reset_store_docks()
         self._project_path = Path(proj_path)
         self._act_close_project.setEnabled(True)
+        self._movie_switcher.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
@@ -1376,6 +1379,7 @@ class TetherShell:
         self._reset_store_docks()
         self._project_path = None
         self._act_close_project.setEnabled(False)
+        self._movie_switcher.setEnabled(False)
         self.set_molecules([])
         self._retry_session_release()
         self._status(f"Closed {name}")
