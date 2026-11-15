@@ -125,6 +125,10 @@ _IDEALIZE_POLL_MS = 25
 #: Retry a failed nonce-safe session-lock release without waiting for staleness.
 _LOCK_RELEASE_RETRY_MS = 1000
 
+#: Upper bound (ms) on one wait before the shell judges a refused lock again (#626).
+#: A foreign holder can refresh while the shell waits, so the wait is re-armed.
+_LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
+
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
 _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 
@@ -334,6 +338,41 @@ class CheatSheetOverlay:
         self._dialog.show()
 
 
+def _read_lock_recovery(path: str | PathLike[str]) -> Any | None:
+    """[`lock_recovery`][tether.project.lock.lock_recovery], or ``None`` if unreadable."""
+    from tether.project.lock import lock_recovery
+
+    try:
+        return lock_recovery(path)
+    except OSError:
+        return None
+
+
+def _lock_reason(refusal: str, recovery: Any | None) -> str:
+    """The read-only banner text for a refused lock and its recovery verdict (#626)."""
+    from tether.project.lock import RecoveryAction
+
+    if recovery is None:
+        return refusal
+    owner = recovery.owner
+    if recovery.action is RecoveryAction.RECOVER:
+        hint = "a Tether session of yours on this computer stopped; Recover reopens it writable"
+    elif recovery.action is RecoveryAction.TAKE_OVER:
+        hint = "the holder is idle past the staleness timeout; Take over… is available"
+    elif recovery.holder_running:
+        assert owner is not None  # a running holder is a parsed record
+        hint = (
+            f"a running Tether process on this computer holds it (pid {owner.pid}); "
+            "close that window to write here"
+        )
+    elif recovery.available_at is not None:
+        when = recovery.available_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        hint = f"a takeover becomes possible at {when} if the holder stays idle"
+    else:  # pragma: no cover - every NONE verdict carries one of the two facts above
+        hint = "no takeover is available"
+    return f"{refusal}; {hint}"
+
+
 class TetherShell:
     """The minimal PySide6 shell hosting the trace dock + the focus contract.
 
@@ -401,6 +440,11 @@ class TetherShell:
         # _curation_project so a blocked writer gets an actionable status instead
         # of the bare-shell "load a writable project" message.
         self._curation_read_only_reason: str | None = None
+        # What the read-only banner may offer for a lock the open could not take
+        # (#626): one-click Recover, typed Take over, or nothing yet.
+        self._lock_recovery: Any | None = None
+        # The open's refusal text, kept so a timed re-check can rebuild the banner.
+        self._lock_refusal: str | None = None
         # The one-click-idealize seam: a molecule_key -> idealized-path callable.
         # None (the synthetic/no-project default) makes ``I`` report that a project
         # must be loaded; make_store_idealizer(project) wires the real pipeline.
@@ -457,6 +501,11 @@ class TetherShell:
         self._lock_release_timer = QtCore.QTimer()
         self._lock_release_timer.setInterval(_LOCK_RELEASE_RETRY_MS)
         self._lock_release_timer.timeout.connect(self._retry_session_release)
+        # Judge a refused lock again once it can become stale (#626), so the banner
+        # offers Take over without a reopen.
+        self._lock_recovery_timer = QtCore.QTimer()
+        self._lock_recovery_timer.setSingleShot(True)
+        self._lock_recovery_timer.timeout.connect(self._recheck_lock_recovery)
         self._histogram_refresh_timer = QtCore.QTimer()
         self._histogram_refresh_timer.setSingleShot(True)
         self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
@@ -501,6 +550,23 @@ class TetherShell:
         # The theme's style sheet draws it in the "caution" state token.
         self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
+        # The banner's lock actions (#626), shown only when the lock allows one.
+        self._recover_button = QtWidgets.QPushButton("Recover")
+        self._recover_button.setAccessibleName("Recover the project lock")
+        self._recover_button.setToolTip(
+            "A Tether session of yours on this computer stopped without releasing the "
+            "lock. Take the lock and reopen the project writable."
+        )
+        self._recover_button.clicked.connect(lambda: self.recover_project_lock())
+        self._recover_button.hide()
+        self._take_over_button = QtWidgets.QPushButton("Take over…")
+        self._take_over_button.setAccessibleName("Take over the project lock")
+        self._take_over_button.setToolTip(
+            "The lock holder has been idle past the staleness timeout. Take the lock "
+            "after a typed confirmation; the holder's unsaved work can be lost."
+        )
+        self._take_over_button.clicked.connect(lambda: self.take_over_project_lock())
+        self._take_over_button.hide()
         # Section titles use the heading font (Red Hat Display, else the system font).
         self._section_titles = [
             QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Category name")
@@ -511,6 +577,11 @@ class TetherShell:
         vbox.addWidget(movie_title)
         vbox.addWidget(self._movie_switcher)
         vbox.addWidget(self._read_only_banner)
+        lock_actions = QtWidgets.QHBoxLayout()
+        lock_actions.addWidget(self._recover_button)
+        lock_actions.addWidget(self._take_over_button)
+        lock_actions.addStretch(1)
+        vbox.addLayout(lock_actions)
         vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
@@ -772,6 +843,25 @@ class TetherShell:
         return self._read_only_banner
 
     @property
+    def recover_button(self) -> QtWidgets.QPushButton:
+        """The banner's one-click **Recover** action, shown only after a crash (#626)."""
+        return self._recover_button
+
+    @property
+    def take_over_button(self) -> QtWidgets.QPushButton:
+        """The banner's **Take over…** action, shown only for a stale foreign lock (#626)."""
+        return self._take_over_button
+
+    @property
+    def lock_recovery(self) -> Any | None:
+        """The [`LockRecovery`][tether.project.lock.LockRecovery] verdict the banner shows.
+
+        ``None`` when the project is writable, nothing is open, or browse-only for a
+        reason other than a lock this shell could not take.
+        """
+        return self._lock_recovery
+
+    @property
     def controller(self) -> CurationController:
         """The `CurationController` each command is routed to."""
         return self._controller
@@ -888,6 +978,7 @@ class TetherShell:
         if reason is None:
             self._read_only_banner.clear()
             self._read_only_banner.hide()
+            self._set_lock_recovery(None)
         else:
             self._read_only_banner.setText(f"Read-only project: {reason}")
             self._read_only_banner.show()
@@ -991,6 +1082,8 @@ class TetherShell:
             self._status(f"Open project failed: {exc}")
             return None
 
+        recovery = None
+        refusal = None
         if reusing_session:
             self._refresh_project_lock()
             if self._curation_project is None or self._session_project is None:
@@ -1014,7 +1107,10 @@ class TetherShell:
                     _release_gui_project(claimed_key, self._project_owner_token)
                     claimed_key = None
                     writable = False
-                    read_only_reason = f"write lock unavailable: {exc}"
+                    refusal = f"write lock unavailable: {exc}"
+                    if isinstance(exc, LockedError):
+                        recovery = _read_lock_recovery(proj_path)
+                    read_only_reason = _lock_reason(refusal, recovery)
                     idealizer = None
                 else:
                     session_project = project
@@ -1102,6 +1198,8 @@ class TetherShell:
         self._session_project = session_project
         self._claimed_project_key = claimed_key if session_project is not None else None
         self._set_read_only_reason(read_only_reason)
+        self._lock_refusal = refusal
+        self._set_lock_recovery(recovery)
         self._idealizer = idealizer
         self._histogram_seam = histogram
         self._handoff = handoff
@@ -1140,6 +1238,140 @@ class TetherShell:
             detail = f"{detail}; {read_only_reason}"
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
+
+    # --- lock recovery from the read-only banner (#626) -----------------------
+
+    def _set_lock_recovery(self, recovery: Any | None) -> None:
+        """Show the banner action ``recovery`` allows and arm its timed re-check."""
+        from tether.project.lock import RecoveryAction
+
+        self._lock_recovery = recovery
+        self._lock_recovery_timer.stop()
+        action = None if recovery is None else recovery.action
+        self._recover_button.setVisible(action is RecoveryAction.RECOVER)
+        self._take_over_button.setVisible(action is RecoveryAction.TAKE_OVER)
+        if recovery is not None and recovery.available_at is not None:
+            from datetime import UTC, datetime
+
+            wait_s = (recovery.available_at - datetime.now(UTC)).total_seconds()
+            wait_ms = int(max(0.0, wait_s) * 1000) + 1000
+            self._lock_recovery_timer.start(min(wait_ms, _LOCK_RECOVERY_RECHECK_MAX_MS))
+
+    def _recheck_lock_recovery(self) -> None:
+        """Judge the refused lock again and refresh the banner and its actions."""
+        if (
+            self._closed
+            or self._project_path is None
+            or self._lock_recovery is None
+            or self._curation_project is not None
+        ):
+            return
+        recovery = _read_lock_recovery(self._project_path)
+        if recovery is None:
+            reason = "the lock was released; open the project again to write"
+        else:
+            reason = _lock_reason(self._lock_refusal or "write lock unavailable", recovery)
+        self._set_read_only_reason(reason)
+        self._set_lock_recovery(recovery)
+
+    def recover_project_lock(self) -> Project | None:
+        """Take a lock left by a stopped session of this user here, and reopen writable.
+
+        The banner's one-click **Recover** (#626). It is available only when
+        [`lock_recovery`][] reports
+        [`RecoveryAction.RECOVER`][tether.project.lock.RecoveryAction]: the lock names
+        this computer and this user, and its process no longer runs. Returns the
+        reopened writable project, or ``None`` with a status message.
+        """
+        from tether.project.lock import RecoveryAction
+
+        return self._take_project_lock(RecoveryAction.RECOVER, confirmation=None)
+
+    def take_over_project_lock(self, confirmation: str | None = None) -> Project | None:
+        """Take a stale foreign lock after a typed confirmation, and reopen writable.
+
+        The banner's **Take over…** (#626). It is available only when
+        [`lock_recovery`][] reports
+        [`RecoveryAction.TAKE_OVER`][tether.project.lock.RecoveryAction]: another
+        computer, another user or a corrupt lock, idle past the staleness timeout
+        (PRD §11.2). ``confirmation`` is the typed text; ``None`` asks for it in a
+        dialog that warns that the holder's unsaved work can be lost. The text must
+        equal the project file name. Returns the reopened writable project, or
+        ``None`` with a status message.
+        """
+        from tether.project.lock import RecoveryAction
+
+        return self._take_project_lock(RecoveryAction.TAKE_OVER, confirmation=confirmation)
+
+    def _take_project_lock(self, action: Any, *, confirmation: str | None) -> Project | None:
+        """Shared body of [`recover_project_lock`][] and [`take_over_project_lock`][]."""
+        from tether.project import lock
+        from tether.project.lock import LockedError, RecoveryAction
+
+        label = "Recover" if action is RecoveryAction.RECOVER else "Take over"
+        if self._idealize_future is not None:
+            self._status(f"{label} unavailable: wait for idealization to finish")
+            return None
+        recovery = self._lock_recovery
+        path = self._project_path
+        if path is None or recovery is None or recovery.action is not action:
+            self._status(f"{label} unavailable: the project lock does not allow it")
+            return None
+        if action is RecoveryAction.TAKE_OVER:
+            if confirmation is None:
+                confirmation = self._ask_take_over_confirmation(path, recovery)
+                if confirmation is None:
+                    self._status("Take over cancelled")
+                    return None
+            if confirmation.strip() != path.name:
+                self._status(f"Take over cancelled: the typed text does not match {path.name}")
+                return None
+        try:
+            taken, ousted = lock.recover_lock(path, recovery)
+        except LockedError as exc:
+            self._status(f"{label} refused: the lock changed ({exc})")
+            self._recheck_lock_recovery()
+            return None
+        except OSError as exc:
+            self._status(f"{label} failed: {exc}")
+            return None
+        # Re-run the open path so every write seam binds to the new session.
+        opened = self.load_project(path)
+        if self._session_project is None:
+            # The reopen did not take a session; give back the lock just taken.
+            with suppress(OSError):
+                lock.release(path, taken)
+            self._status(f"{label} failed: {self._curation_read_only_reason or 'reopen failed'}")
+            return None
+        holder = (
+            "an unknown holder (corrupt lock)"
+            if ousted is None
+            else f"{ousted.user}@{ousted.host} (pid {ousted.pid})"
+        )
+        warning = "" if action is RecoveryAction.RECOVER else "; their unsaved work is not merged"
+        self._status(f"{label}: took the lock from {holder}; {path.name} is writable{warning}")
+        return opened
+
+    def _ask_take_over_confirmation(self, path: Path, recovery: Any) -> str | None:
+        """Ask the user to type the project file name; ``None`` when cancelled."""
+        from pyqtgraph.Qt import QtWidgets
+
+        holder = (
+            "The lock file is corrupt, so its holder is unknown."
+            if recovery.owner is None
+            else (
+                f"{recovery.owner.user}@{recovery.owner.host} holds this lock "
+                f"(pid {recovery.owner.pid}, last refreshed {recovery.owner.timestamp})."
+            )
+        )
+        text, ok = QtWidgets.QInputDialog.getText(
+            self._window,
+            "Take over the project lock",
+            f"{holder}\n\nIf you take over, this window becomes the only writer. Work "
+            "that the holder did not save is lost. It is not merged.\n\n"
+            f"Type the project file name, {path.name}, to confirm.",
+        )
+        return str(text) if ok else None
 
     # --- session-lock state (read-only) ---------------------------------------
     #
