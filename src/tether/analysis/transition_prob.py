@@ -54,6 +54,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -292,7 +293,7 @@ def population_transition_prob_histogram(
     init_state: int,
     final_state: int,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     prob_bins: int = DEFAULT_TPROB_NBINS,
     prob_range: tuple[float, float] = DEFAULT_TPROB_RANGE,
     density: bool = True,
@@ -341,8 +342,8 @@ def population_transition_prob_histogram(
     ValueError
         ``init_state`` or ``final_state`` is not a valid state index of the model.
     """
-    from tether.analysis._store import windowed_states
-    from tether.project.idealize import live_molecule_keys, read_idealization
+    from tether.analysis._store import fresh_selection, windowed_states
+    from tether.project.idealize import read_idealization
 
     stored = read_idealization(project, model_name)
     nstates = int(stored.nstates)
@@ -353,14 +354,7 @@ def population_transition_prob_histogram(
                 f"with {nstates} states (valid 0..{nstates - 1})"
             )
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     return transition_prob_histogram(

@@ -124,6 +124,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Sequence
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -493,7 +494,7 @@ def raw_fret_cloud(
 def population_raw_fret_cloud(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     time_bins: int = DEFAULT_CLOUD_TIME_BINS,
     signal_bins: int = DEFAULT_CLOUD_SIGNAL_BINS,
@@ -579,6 +580,13 @@ class AlphaShape:
     [`n_triangles`][] Delaunay triangles fell inside the shape; an empty
     [`boundary_edges`][] with ``n_kept == 0`` means ``alpha`` was too small to keep any
     triangle (an honest "no support at this α", never a fabricated boundary).
+
+    A cloud that cannot span a 2-D region at all (fewer than three finite points, one
+    time or one E only, or a collinear set) is [`no_region`][]: ``n_triangles == 0``
+    and [`spans_region`][] is ``False``. The pure [`alpha_shape`][] returns ``None``
+    for it; [`population_fret_cloud_alpha_shape`][] returns this value instead, so a
+    driver draws one type and tells the three states apart without an ``isinstance``
+    check (ADR-0109): no region, no support at this α, or a boundary.
     """
 
     alpha: float  # circumradius threshold actually used (normalized coordinates)
@@ -592,6 +600,32 @@ class AlphaShape:
     def n_boundary_edges(self) -> int:
         """Number of boundary edges (segments) of the α-shape."""
         return int(self.boundary_edges.shape[0])
+
+    @property
+    def spans_region(self) -> bool:
+        """``False`` when the cloud could not be triangulated ([`no_region`][])."""
+        return self.n_triangles > 0
+
+    @property
+    def is_empty(self) -> bool:
+        """``True`` when there is no boundary to draw (no region, or no support at α)."""
+        return self.n_boundary_edges == 0
+
+    @classmethod
+    def no_region(cls, n_points: int) -> AlphaShape:
+        """The shape of a cloud with no 2-D region: no triangle, no edge, ``alpha`` NaN.
+
+        ``alpha`` is NaN because no threshold was applied — none could be, with no
+        triangle to measure. Never a fabricated boundary.
+        """
+        return cls(
+            alpha=float("nan"),
+            boundary_edges=np.empty((0, 2, 2), dtype=np.float64),
+            area=0.0,
+            n_points=int(n_points),
+            n_triangles=0,
+            n_kept=0,
+        )
 
 
 def _triangle_circumradii(tri_pts: np.ndarray) -> np.ndarray:
@@ -883,7 +917,7 @@ def _in_grid_points(cloud: RawFretCloud) -> np.ndarray:
 def population_fret_cloud_alpha_shape(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     signal_range: tuple[float, float] = DEFAULT_CLOUD_SIGNAL_RANGE,
     time_range: tuple[float, float] | None = None,
@@ -891,7 +925,7 @@ def population_fret_cloud_alpha_shape(
     alpha: float | None = None,
     include_rejected: bool = False,
     in_grid_only: bool = True,
-) -> AlphaShape | None:
+) -> AlphaShape:
     """α-shape support boundary of a ``.tether`` store's raw FRET cloud (§10 PR-5b).
 
     Pools the same pre-idealization ``(time, apparent-E)`` cloud as
@@ -901,7 +935,14 @@ def population_fret_cloud_alpha_shape(
 
     Parameters mirror [`population_raw_fret_cloud`][] (plus ``alpha`` from
     [`alpha_shape`][]); ``in_grid_only=False`` bounds the full scatter including
-    off-grid outliers. Returns ``None`` when the cloud cannot span a 2-D region.
+    off-grid outliers. ``molecule_keys`` is the selection (ADR-0109): ``molecule_key``
+    values or a [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection].
+
+    Always returns an [`AlphaShape`][]. When the cloud cannot span a 2-D region it is
+    [`AlphaShape.no_region`][] (``spans_region`` is ``False``), where the pure
+    [`alpha_shape`][] returns ``None``; an α too small to keep a triangle stays the
+    shape with ``n_triangles > 0`` and ``n_kept == 0``. Neither is ever a fabricated
+    boundary.
     """
     cloud = population_raw_fret_cloud(
         project,
@@ -914,13 +955,18 @@ def population_fret_cloud_alpha_shape(
         kde=False,
     )
     pts = _in_grid_points(cloud) if in_grid_only else cloud.points
-    return alpha_shape(pts, alpha=alpha)
+    shape = alpha_shape(pts, alpha=alpha)
+    if shape is None:
+        finite = np.asarray(pts, dtype=np.float64)
+        n_finite = int(np.all(np.isfinite(finite), axis=1).sum()) if finite.size else 0
+        return AlphaShape.no_region(n_finite)
+    return shape
 
 
 def population_fret_cloud_state_number_elbow(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     signal_range: tuple[float, float] = DEFAULT_CLOUD_SIGNAL_RANGE,
     time_range: tuple[float, float] | None = None,

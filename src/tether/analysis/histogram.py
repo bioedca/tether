@@ -120,13 +120,20 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from tether.analysis._store import windowed_channels, windowed_state_and_channels
+from tether.analysis._store import (
+    fresh_selection,
+    windowed_channels,
+    windowed_state_and_channels,
+    windowed_states,
+)
+from tether.analysis.selection import resolve_selection
 from tether.fret.efficiency import apparent_fret
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
 
     from tether.analysis._store import ProjectRef
+    from tether.analysis.selection import Selection
 
 __all__ = [
     "DEFAULT_BOOTSTRAP_RESAMPLES",
@@ -542,7 +549,7 @@ def _per_molecule_apparent_e(
 def population_apparent_e_histogram(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     bins: int = DEFAULT_NBINS,
     value_range: tuple[float, float] = DEFAULT_RANGE,
@@ -607,7 +614,7 @@ def population_apparent_e_histogram(
 def population_apparent_e_histogram_ci(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     bins: int = DEFAULT_NBINS,
     value_range: tuple[float, float] = DEFAULT_RANGE,
@@ -760,6 +767,7 @@ def per_condition_apparent_e_histograms(
     categories: Iterable[str] | None = None,
     tags: Iterable[str] | None = None,
     match_all_tags: bool = True,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     bins: int = DEFAULT_NBINS,
     value_range: tuple[float, float] = DEFAULT_RANGE,
@@ -797,6 +805,12 @@ def per_condition_apparent_e_histograms(
         narrow which molecules of each condition are pooled (e.g. overlay only the
         ``docked`` category, or a ligand-only ``key``). ``key`` needs materialized
         ``/conditions`` rows (see that function).
+    molecule_keys
+        The selection (ADR-0109): ``molecule_key`` values or a
+        [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection]; ``None`` = no further
+        narrowing. It is ANDed with the query, so a condition keeps only its selected
+        molecules, and a condition with none selected is not overlaid — the same rule
+        as a condition the query does not match.
     intensity_quantity, bins, value_range, density, per_molecule_equal_weight,
     include_rejected
         Binning / pooling parameters, applied identically to every condition (see
@@ -836,11 +850,16 @@ def per_condition_apparent_e_histograms(
         match_all_tags=match_all_tags,
     )
     grouped = result.by_condition()
+    wanted = resolve_selection(molecule_keys, proj)
+    if wanted is not None:
+        wanted_set = set(wanted)
+        narrowed = {cid: tuple(k for k in ks if k in wanted_set) for cid, ks in grouped.items()}
+        grouped = {cid: ks for cid, ks in narrowed.items() if ks}
 
     # Overlay order: the caller's requested order (restricted to conditions actually
     # present, de-duplicated) when given, else the query's first-seen store order.
     if requested is None:
-        order: list[str] = list(result.condition_ids)
+        order: list[str] = [cid for cid in result.condition_ids if cid in grouped]
     else:
         seen: set[str] = set()
         order = []
@@ -1033,6 +1052,9 @@ def population_model_gaussian_overlay(
     *,
     value_range: tuple[float, float] = DEFAULT_RANGE,
     n_points: int = DEFAULT_OVERLAY_POINTS,
+    molecule_keys: Selection = None,
+    include_rejected: bool = False,
+    include_stale: bool = False,
 ) -> ModelGaussianOverlay:
     """Model-Gaussian overlay for a persisted ``/idealization`` model (§10 A1).
 
@@ -1053,6 +1075,14 @@ def population_model_gaussian_overlay(
     value_range, n_points
         Forwarded to [`model_gaussian_overlay`][] (defaults match the A1
         histogram).
+    molecule_keys, include_rejected, include_stale
+        The selection the overlay is drawn for (ADR-0109) and the curation and
+        freshness overrides of every model-derived view. They decide **whether** the
+        overlay is drawn, never its numbers: the curves are the model's own fitted
+        ``means`` / ``variances`` / ``frac`` (ADR-0042), so a selection does not re-fit
+        or re-weight them. The overlay is withheld when the model describes no molecule
+        of the selection — none selected, accepted (unless ``include_rejected``) and
+        fresh (unless ``include_stale``) has an idealized window in the model.
 
     Returns
     -------
@@ -1068,7 +1098,9 @@ def population_model_gaussian_overlay(
         threshold or k-means model (or a legacy model written before the
         population members landed) has no Gaussian emissions to overlay. The
         overlay needs a population model (vbFRET / vbconhmm / ebFRET); the missing
-        spread is **withheld, never fabricated**.
+        spread is **withheld, never fabricated**. Also when the model describes no
+        molecule of the selection: a curve fitted on other molecules is withheld
+        rather than drawn as if it described these.
     """
     from tether.project.core import Project as _Project  # noqa: PLC0415
 
@@ -1089,6 +1121,13 @@ def population_model_gaussian_overlay(
             f"{' / '.join(missing)}; the A1 model-Gaussian overlay needs a population "
             "model (vbFRET / vbconhmm / ebFRET), not a threshold/k-means model — "
             "the missing spread is withheld rather than fabricated"
+        )
+    keys = fresh_selection(proj, model_name, molecule_keys, include_stale)
+    if not windowed_states(proj, model_name, keys, include_rejected):
+        raise ValueError(
+            f"model {model_name!r} describes no molecule of this selection (none "
+            "selected, accepted and fresh has an idealized window in it); the A1 "
+            "model-Gaussian overlay is withheld rather than drawn for other molecules"
         )
     return model_gaussian_overlay(
         stored.means,
@@ -1294,7 +1333,7 @@ def time_signal_histogram2d(
 def population_time_signal_histogram2d(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     time_bins: int = DEFAULT_TIME_BINS,
     signal_bins: int = DEFAULT_SIGNAL_BINS,
@@ -1650,9 +1689,10 @@ def population_transition_sync_histogram2d(
     signal_range: tuple[float, float] = DEFAULT_SIGNAL_RANGE,
     time_dt: float = DEFAULT_TIME_DT,
     density: bool = False,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     include_rejected: bool = False,
+    include_stale: bool = False,
 ) -> TransitionSyncHistogram2D:
     """A2 transition-aligned heatmap from a ``.tether`` store (§10 A2; Appendix C A2).
 
@@ -1683,6 +1723,9 @@ def population_transition_sync_histogram2d(
         ``"raw"``.
     include_rejected
         If ``True``, keep rejected molecules; else exclude them (§7.5 default).
+    include_stale
+        Keep STALE idealizations (default excludes them, PRD §5.1) — the freshness
+        rule of every view that reads ``/idealization`` (ADR-0109).
 
     Returns
     -------
@@ -1690,8 +1733,9 @@ def population_transition_sync_histogram2d(
     """
     from tether.idealize import NO_STATE  # noqa: PLC0415
 
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
     triples = windowed_state_and_channels(
-        project, model_name, molecule_keys, intensity_quantity, include_rejected
+        project, model_name, keys, intensity_quantity, include_rejected
     )
     trace_pairs = [(state, apparent_fret(donor, acceptor)) for state, donor, acceptor in triples]
     return transition_sync_histogram2d(

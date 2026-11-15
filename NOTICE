@@ -12,7 +12,7 @@ Third-party software interoperation & attribution
 ================================================================================
 
 tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
-  Biophysical Journal 123(14):2179–2193, doi:10.1016/j.bpj.2024.01.022.
+  Biophysical Journal 123(17):2765–2780, doi:10.1016/j.bpj.2024.01.022.
   Upstream: https://github.com/GonzalezBiophysicsLab/tmaven  (pinned commit
   10f4230b6d13c6d2ad67b05d801696b4a40eff4a).
   Tether DOES NOT vendor tMAVEN. It runs an *isolated tMAVEN sidecar* in its own
@@ -20,6 +20,17 @@ tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
   (PRD §4.3). A future M9 signed installer that BUNDLES the sidecar ships tMAVEN's
   own GPL-3.0 license text alongside Tether's, and the SBOM lists the sidecar as a
   distinct, attributed component (PRD §12.1, §12.8, §9 M9).
+
+GitHub CLI (`gh`)  (MIT)  — Copyright (c) 2019 GitHub Inc.
+  Upstream: https://github.com/cli/cli . The desktop installers BUNDLE the unmodified
+  upstream release binary for each platform as the in-app updater's verifier
+  (`gh attestation verify --bundle`, ADR-0060; issue #332). It is installed to
+  <prefix>/verifier/gh/ and is never put on PATH. The version and the SHA-256 of each
+  upstream archive are pinned in packaging/gh-verifier.toml. Beside the binary the
+  installer ships gh's own MIT LICENSE and THIRD-PARTY-LICENSES.txt, the license
+  notices of the Go modules compiled into it, as `gh licenses` prints them at build
+  time. gh is not part of Tether's source tree, and nothing of it is in this
+  repository.
 
 --------------------------------------------------------------------------------
 Bundled reference data (redistributed under its own license)
@@ -330,9 +341,12 @@ Group IIB intron smFRET data  (CC-BY-4.0)  — Zelger-Paulus S, Hadzic MCAS,
   tests/fixtures/mashfret_ed135e_30mm_extract.mat (scripts/make_mashfret_fixture.py
   keeps 18 of its 119 molecules and leaves out the raw intensities and the
   project's paths; it changes no value), used only as a MASH-FRET reference for
-  Tether's leakage and gamma-corrected FRET (#711, ADR-0087). This file is licensed
-  CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
-  GPL-3.0; attribution to the authors travels with it.
+  Tether's leakage and gamma-corrected FRET (#711, ADR-0087), and a second extract,
+  tests/fixtures/mashfret_ed135e_30mm_path_a.mat (the 17 molecules of one tag with
+  MASH-FRET's histogram, state and dwell results for it; it changes no value), used
+  only as a MASH-FRET reference for Tether's FRET histogram and idealization (#712,
+  ADR-0101). These files are licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; attribution to the authors travels with them.
 
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)

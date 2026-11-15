@@ -107,8 +107,9 @@ so this migration does not touch them. #179 meets them.
 Ruff runs its `D` rules with the NumPy convention on `src/tether` only (`"!src/tether/**" =
 ["D"]`). Ruff cannot limit the shape rules to public names, so a private docstring that exists
 is checked too. The missing-docstring rules (`D1`) apply to public names only. On `main` at
-`952b411`, 101 file and rule pairs in 65 files broke the convention. They are the allowlist in
-`[tool.ruff.lint.per-file-ignores]`, and it can only become shorter:
+`952b411`, 101 file and rule pairs in 65 files broke the convention. Three files that `main`
+gained before this record merged add one pair each (D401). These 104 pairs in 68 files are the
+allowlist in `[tool.ruff.lint.per-file-ignores]`, and it can only become shorter:
 `tests/test_docstring_standard.py` fails on an entry that `main` does not have, and
 `scripts/check_docstring_allowlist.py`, in the `lint` job, fails on an entry that hides no
 violation.

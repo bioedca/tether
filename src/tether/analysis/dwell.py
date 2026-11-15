@@ -51,6 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -500,13 +501,13 @@ def population_dwell_times(
     *,
     state: int | None = None,
     dt: float = DEFAULT_DWELL_DT,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     include_first: bool = False,
     model: str = "single",
     ci_level: float = DEFAULT_DWELL_CI_LEVEL,
     include_rejected: bool = False,
     include_stale: bool = False,
-) -> dict[int, DwellTimeAnalysis] | DwellTimeAnalysis:
+) -> dict[int, DwellTimeAnalysis]:
     """Dwell-time analyses from a ``.tether`` store (§10 B2; Appendix C B2; PRD §7.7).
 
     Extracts each accepted, **fresh** molecule's dwells from the
@@ -524,12 +525,16 @@ def population_dwell_times(
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths + means.
     state
-        A single state index to analyse; ``None`` returns every state that has dwells.
+        A single state index to analyse: the mapping then holds that one state (an
+        empty analysis — no dwells, ``fit = None`` — if it never dwells). ``None``
+        returns every state that has dwells. The return shape is the mapping either way
+        (ADR-0109), so a caller that reads one state indexes it: ``result[state]``.
     dt
         Seconds per frame (rates come out in ``1/second``); default per-frame.
     molecule_keys
-        Restrict to these ``molecule_key`` values (``None`` = all), intersected with
-        the fresh + curation filters.
+        The selection (``None`` = all): ``molecule_key`` values or a
+        [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection] (ADR-0109), intersected
+        with the fresh + curation filters.
     include_first
         Keep each molecule's first (start not observed) dwell (default drops it).
     model
@@ -541,31 +546,23 @@ def population_dwell_times(
 
     Returns
     -------
-    dict[int, DwellTimeAnalysis] or DwellTimeAnalysis
-        A mapping ``state -> analysis`` (ascending states), or the single
-        [`DwellTimeAnalysis`][] when ``state`` is given (an empty analysis — no
-        dwells, ``fit = None`` — if that state never dwells).
+    dict[int, DwellTimeAnalysis]
+        A mapping ``state -> analysis``: every state that dwells, ascending, or the one
+        key ``state`` when it is given.
 
     Raises
     ------
     KeyError
         No ``/idealization/{model_name}`` in the store.
     """
-    from tether.analysis._store import windowed_states
+    from tether.analysis._store import fresh_selection, windowed_states
     from tether.idealize import NO_STATE
-    from tether.project.idealize import live_molecule_keys, read_idealization
+    from tether.project.idealize import read_idealization
 
     stored = read_idealization(project, model_name)
     means = np.asarray(stored.means, dtype="float64")
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     dwells = state_dwells(states, no_state=NO_STATE, include_first=include_first)
@@ -591,5 +588,5 @@ def population_dwell_times(
         )
 
     if state is not None:
-        return _analysis(int(state))
+        return {int(state): _analysis(int(state))}
     return {st: _analysis(st) for st in sorted(dwells.lengths)}
