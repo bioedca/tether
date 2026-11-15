@@ -92,7 +92,7 @@ retired = 0
 
 [pages."docs/packaging.md"]
 kind = "descriptive"
-long_share = 12.5
+long_share = 10.8
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -162,7 +162,7 @@ retired = 5
 
 [pages."docs/validation.md"]
 kind = "descriptive"
-long_share = 31.8
+long_share = 32.0
 semicolons = 76
 long_paragraphs = 8
 retired = 8
@@ -288,9 +288,9 @@ retired = 0
 
 [pages."docs/maintainers/building-installers.md"]
 kind = "procedure"
-long_share = 14.3
+long_share = 16.7
 semicolons = 2
-long_paragraphs = 0
+long_paragraphs = 1
 retired = 0
 
 [pages."docs/maintainers/standalone-tmaven-cross-os-record.md"]
