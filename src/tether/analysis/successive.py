@@ -7,9 +7,9 @@ The **successive-frame FRET cloud** plots, for each molecule, the apparent E of 
 its pairs on the diagonal ``E(i+1) = E(i)``, at that state's E; a transition between two frames
 puts one pair off the diagonal. The cloud therefore shows the states *and* the jumps between
 them without an idealization, which is why PRD §1 counts it among the model-free lenses. It is a
-different plot from the **time–FRET cloud** of :mod:`tether.analysis.cloud`
-(:func:`~tether.analysis.cloud.raw_fret_cloud`), which plots E against time; neither replaces
-the other.
+different plot from the **time–FRET cloud** of [`tether.analysis.cloud`][tether.analysis.cloud]
+([`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud]), which plots E against time;
+neither replaces the other.
 
 The requirements come from the laboratory's scripts, "FRET_cloud scripts, Eduardo Campos Chavez,
 2025, unpublished" (``FRET_cloud_contours_centroids.m``), and Tether reproduces what they
@@ -38,10 +38,13 @@ compute on the smfret-analysis2 test traces to the limits that
   cloud is dense, not a state determination: the state count of record stays the HMM model view
   [McKinney2006], as for the elbow hint of the time–FRET cloud.
 
-:func:`successive_frame_pairs` and :func:`successive_frame_cloud` are the pure-array core;
-:func:`population_successive_frame_cloud` is the ``.tether`` store entry point. Every result
-carries :attr:`SuccessiveFrameCloud.provenance`, the analysis name, the Tether version and every
-parameter that made it (NFR-REPRO).
+[`successive_frame_pairs`][tether.analysis.successive.successive_frame_pairs] and
+[`successive_frame_cloud`][tether.analysis.successive.successive_frame_cloud] are the
+pure-array core, and
+[`population_successive_frame_cloud`][tether.analysis.successive.population_successive_frame_cloud]
+is the ``.tether`` store entry point. Every result carries
+[`SuccessiveFrameCloud.provenance`][tether.analysis.successive.SuccessiveFrameCloud.provenance], the
+analysis name, the Tether version and every parameter that made it (NFR-REPRO).
 
 References
 ----------
@@ -72,6 +75,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Sequence
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -132,8 +136,8 @@ _BLOCK = 8192
 class SuccessiveFramePairs:
     """The ``(E(i), E(i+1))`` pairs of a set of molecules.
 
-    Row ``r`` of :attr:`pairs` is ``(E[t], E[t + 1])`` of molecule :attr:`molecule_index` ``[r]``
-    (its position in the input) at frame ``t =`` :attr:`frame_index` ``[r]``, the frame index
+    Row ``r`` of ``pairs`` is ``(E[t], E[t + 1])`` of molecule ``molecule_index[r]``
+    (its position in the input) at frame ``t = frame_index[r]``, the frame index
     within that molecule's array. Rows are in input order, then frame order.
     """
 
@@ -156,14 +160,14 @@ class SuccessiveFramePairs:
 class SuccessiveFrameCloud:
     """The successive-frame FRET cloud of a set of molecules (#710).
 
-    :attr:`density` ``[i, j]`` is the normalized density at ``(E(i), E(i+1)) =``
-    ``(``:attr:`grid` ``[i],`` :attr:`grid` ``[j])``, so its first axis is E at frame ``i``;
+    ``density[i, j]`` is the normalized density at
+    ``(E(i), E(i+1)) = (grid[i], grid[j])``, so its first axis is E at frame ``i``;
     ``density.sum() * node_area == 1``. It is ``None`` when there is no pair, or when every pair is
-    so far from the grid that no kernel mass reaches it; :attr:`hdr_levels` is ``None`` exactly
-    then. The levels are aligned with :attr:`hdr_coverages` (ascending) and so decrease.
-    :attr:`centroids` holds the k-means centroids sorted by E(i) and then E(i+1), or ``None`` when
-    none were asked for or there is no pair; :attr:`n_centroids` is how many were found, which is
-    fewer than asked when there are fewer distinct pairs. :attr:`centroid_sse` is the
+    so far from the grid that no kernel mass reaches it; ``hdr_levels`` is ``None`` exactly
+    then. The levels are aligned with ``hdr_coverages`` (ascending) and so decrease.
+    ``centroids`` holds the k-means centroids sorted by E(i) and then E(i+1), or ``None`` when
+    none were asked for or there is no pair; ``n_centroids`` is how many were found, which is
+    fewer than asked when there are fewer distinct pairs. ``centroid_sse`` is the
     within-cluster sum of squared distances of the kept run.
     """
 
@@ -201,7 +205,7 @@ class SuccessiveFrameCloud:
 
 
 def successive_frame_pairs(fret_chunks: Iterable[np.ndarray]) -> SuccessiveFramePairs:
-    """The ``(E(i), E(i+1))`` pairs of each molecule's apparent-E array.
+    """Return the ``(E(i), E(i+1))`` pairs of each molecule's apparent-E array.
 
     Each element of ``fret_chunks`` is one molecule's per-frame apparent E, already cut to the
     frames that may be analysed (the analysis window). A pair is formed only between two
@@ -246,7 +250,7 @@ def successive_frame_pairs(fret_chunks: Iterable[np.ndarray]) -> SuccessiveFrame
 
 
 def _density(points: np.ndarray, grid: np.ndarray, bandwidth: float) -> np.ndarray | None:
-    """The normalized product-Gaussian density at the grid nodes, or ``None`` with no mass."""
+    """Return the normalized product-Gaussian density at the nodes, or ``None`` with no mass."""
     if points.shape[0] == 0:
         return None
     raw = np.zeros((grid.size, grid.size), dtype=np.float64)
@@ -347,13 +351,13 @@ def successive_frame_cloud(
     kmeans_max_iter: int = DEFAULT_SUCCESSIVE_KMEANS_MAX_ITER,
     seed: int = DEFAULT_SUCCESSIVE_SEED,
 ) -> SuccessiveFrameCloud:
-    """The successive-frame FRET cloud of per-molecule apparent-E arrays (the pure core).
+    """Compute the successive-frame FRET cloud of per-molecule apparent-E arrays (pure core).
 
     Parameters
     ----------
     fret_chunks
         One 1-D apparent-E array per molecule, cut to its analysis window; a non-finite frame is
-        masked (:func:`successive_frame_pairs`).
+        masked ([`successive_frame_pairs`][tether.analysis.successive.successive_frame_pairs]).
     grid_points
         Nodes on each axis (``>= 2``).
     value_range
@@ -447,7 +451,7 @@ def successive_frame_cloud(
 def population_successive_frame_cloud(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     include_rejected: bool = False,
     grid_points: int = DEFAULT_SUCCESSIVE_GRID_POINTS,
@@ -461,12 +465,17 @@ def population_successive_frame_cloud(
 ) -> SuccessiveFrameCloud:
     """Successive-frame FRET cloud from a ``.tether`` store (#710, PRD §7.7).
 
-    Each accepted molecule's apparent E (:func:`tether.fret.efficiency.apparent_fret` of the
-    ``intensity_quantity`` channels) is cut to its analysis window — which by default ends at the
-    first photobleach — and its frames are paired within the window only. Rejected molecules are
-    left out unless ``include_rejected`` (§7.5). The view reads ``/traces`` only, never an
-    idealization. :attr:`SuccessiveFramePairs.molecule_index` counts the molecules that the
-    filter kept, in store order. The other parameters go to :func:`successive_frame_cloud`.
+    Each accepted molecule's apparent E
+    ([`apparent_fret`][tether.fret.efficiency.apparent_fret] of the ``intensity_quantity``
+    channels) is cut to its analysis window — which by default ends at the first photobleach — and
+    its frames are paired within the window only. Rejected molecules are left out unless
+    ``include_rejected`` (§7.5). The view reads ``/traces`` only, never an idealization.
+    [`SuccessiveFramePairs.molecule_index`][tether.analysis.successive.SuccessiveFramePairs.molecule_index]
+    counts the molecules that the filter kept, in store order. ``molecule_keys`` is the selection
+    (ADR-0109): ``None`` for all, ``molecule_key`` strings, or a
+    [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection]; it is intersected with
+    the curation filter. The other parameters go to
+    [`successive_frame_cloud`][tether.analysis.successive.successive_frame_cloud].
     """
     from tether.analysis._store import windowed_channels
     from tether.fret.efficiency import apparent_fret
@@ -487,7 +496,6 @@ def population_successive_frame_cloud(
         {
             "intensity_quantity": intensity_quantity,
             "include_rejected": bool(include_rejected),
-            "molecule_keys": None if molecule_keys is None else list(molecule_keys),
         }
     )
     return cloud

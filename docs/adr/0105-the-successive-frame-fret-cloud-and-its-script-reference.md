@@ -43,7 +43,9 @@ random?
    `(E[t], E[t + 1])` for each molecule's array, only where both frames are finite: a pair never
    crosses a masked (non-finite) frame and never joins two molecules.
    `population_successive_frame_cloud` cuts each molecule to its analysis window first and leaves
-   rejected molecules out by default, as the other population analyses do (PRD §7.5). The
+   rejected molecules out by default, as the other population analyses do (PRD §7.5). It is a
+   sixteenth population entry point under ADR-0109: `molecule_keys` takes the one selection
+   argument, and a test holds it to that contract with the fifteen others. The
    existing time cloud is unchanged, and the PRD calls it the raw FRET cloud "(apparent E against
    time)".
 2. **The density, the contours and the centroids are the scripts' method.** A Gaussian product

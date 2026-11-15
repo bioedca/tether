@@ -313,4 +313,3 @@ def test_population_cloud_excludes_rejected_by_default(tmp_path) -> None:
     assert everyone.n_molecules == 3
     one = population_successive_frame_cloud(project, molecule_keys=keys[1:2], n_centroids=None)
     assert one.n_molecules == 1
-    assert one.provenance["parameters"]["molecule_keys"] == keys[1:2]

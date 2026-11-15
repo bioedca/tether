@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Curation keymap + controller + the application-level focus contract (PRD §7.3).
 
-The trace dock (:mod:`tether.gui.trace_dock`) is a keyboard-driven surface stepped
+The trace dock ([`tether.gui.trace_dock`][]) is a keyboard-driven surface stepped
 at ≈1–2 s/trace. Its four **bare** curation keys — ``Space`` (accept),
 ``Backspace``/``Delete`` (reject), ``Enter`` (jump to the movie spot) — collide
 with the default Qt bindings of whatever child widget holds focus (a molecule
@@ -15,20 +15,20 @@ text-entry widget (notably the editable category field, §7.6) is exempted so th
 keys keep their text semantics there.
 
 This module is split so the pure decision logic stays importable and testable
-without Qt (mirroring :mod:`tether.gui.trace_dock`):
+without Qt (mirroring [`tether.gui.trace_dock`][]):
 
-* :class:`CurationAction` / :class:`Command` — the vocabulary of curation actions.
-* :class:`Keymap` — the key-chord → :class:`Command` table: the tMAVEN-inherited
+* [`CurationAction`][] / [`Command`][] — the vocabulary of curation actions.
+* [`Keymap`][] — the key-chord → [`Command`][] table: the tMAVEN-inherited
   bindings (``←``/``→`` prev/next with ``↑``/``↓`` aliases, ``1``–``9`` categories,
   ``0`` clears to *uncategorized*, ``-``/``=`` window start, ``[``/``]`` window
   end, ``R``/``P``/``G``) plus the Tether-only ``Space``/``Backspace``/``Delete``/
   ``Enter``/``I`` and the reserved ``C``/``V`` no-ops. Rebindable and
   JSON-persistable; renders a cheat-sheet.
-* :class:`CurationController` — routes a :class:`Command` to injected handler
+* [`CurationController`][] — routes a [`Command`][] to injected handler
   callbacks (the shell wires loaded-project accept/reject/un-reject to real
   ``/labels`` writes) and keeps the integer↔category contract
   (tMAVEN class ``0`` ↔ Tether *uncategorized*, ``≥ 1`` ↔ named categories).
-* :class:`CurationEventFilter` — the ``QObject`` installed on the ``QApplication``
+* [`CurationEventFilter`][] — the ``QObject`` installed on the ``QApplication``
   that implements the focus contract. Qt is imported lazily in ``__init__`` so
   importing this module costs no Qt.
 """
@@ -75,7 +75,7 @@ CATEGORY_SLOTS = 9
 class CurationAction(StrEnum):
     """A single curation action the keymap can dispatch to the controller.
 
-    A :class:`~enum.StrEnum` so an action round-trips through JSON as its value
+    A [`StrEnum`][enum.StrEnum] so an action round-trips through JSON as its value
     (the keymap is user-persistable) and reads cleanly in logs/tests.
     """
 
@@ -100,15 +100,15 @@ class CurationAction(StrEnum):
 
 @dataclass(frozen=True)
 class Command:
-    """A resolved curation command: an :class:`CurationAction` and optional arg.
+    """A resolved curation command: an [`CurationAction`][] and optional arg.
 
-    ``arg`` carries the integer class for :attr:`CurationAction.ASSIGN_CATEGORY`
+    ``arg`` carries the integer class for [`CurationAction.ASSIGN_CATEGORY`][]
     (slot key ``n`` → class ``n``; the overflow picker → the chosen class, which
-    may exceed :data:`CATEGORY_SLOTS`); it is ``None`` for every other action.
+    may exceed [`CATEGORY_SLOTS`][]); it is ``None`` for every other action.
 
     The contract is enforced at construction (and therefore on JSON load): an
     ``ASSIGN_CATEGORY`` **must** carry an integer class ``>= 1`` — class ``0`` is
-    reserved for the *uncategorized* null state (:attr:`CurationAction.CLEAR_CATEGORY`)
+    reserved for the *uncategorized* null state ([`CurationAction.CLEAR_CATEGORY`][])
     — and every other action must carry no arg. This keeps an out-of-range or
     ``0`` class from ever reaching a handler as a named-category assignment.
     """
@@ -165,7 +165,7 @@ class CurationHandlers:
     """Injected callbacks the controller invokes for each dispatched command.
 
     Every hook remains optional so the Qt-free controller is independently
-    injectable; an unset hook is a silent no-op. :class:`~tether.gui.shell.TetherShell`
+    injectable; an unset hook is a silent no-op. [`TetherShell`][tether.gui.shell.TetherShell]
     wires loaded-project accept/reject/un-reject to the real labels writer and
     reports unavailable store commands explicitly. ``assign_category`` receives
     the integer class; ``window_start``/``window_end`` receive the ``±1`` nudge
@@ -190,9 +190,9 @@ class CurationHandlers:
 
 
 class CurationController:
-    """Routes a :class:`Command` to its :class:`CurationHandlers` callback.
+    """Routes a [`Command`][] to its [`CurationHandlers`][] callback.
 
-    Keeps a :attr:`history` of every dispatched command (and :attr:`last`) so the
+    Keeps a [`history`][] of every dispatched command (and [`last`][]) so the
     focus contract can be asserted at the controller level without pixels. The
     routing is pure Python — no Qt — so it is exercised in the default matrix.
     """
@@ -203,7 +203,7 @@ class CurationController:
 
     @property
     def handlers(self) -> CurationHandlers:
-        """The injected :class:`CurationHandlers` callbacks this controller routes to."""
+        """The injected [`CurationHandlers`][] callbacks this controller routes to."""
         return self._handlers
 
     @property
@@ -285,12 +285,12 @@ def _as_int(value: Any) -> int:
 
 @dataclass
 class Keymap:
-    """The key-chord → :class:`Command` table (rebindable, JSON-persistable).
+    """The key-chord → [`Command`][] table (rebindable, JSON-persistable).
 
-    Construct empty (``Keymap()`` — Qt-free) or via :meth:`default` (needs Qt for
-    the ``Qt.Key`` constants). :meth:`command_for` resolves an event's
-    ``(key, modifiers)``; :meth:`rebind` moves an action to a new chord (leaving
-    the old chord unbound, i.e. a controller-level no-op); :meth:`cheatsheet`
+    Construct empty (``Keymap()`` — Qt-free) or via [`default`][] (needs Qt for
+    the ``Qt.Key`` constants). [`command_for`][] resolves an event's
+    ``(key, modifiers)``; [`rebind`][] moves an action to a new chord (leaving
+    the old chord unbound, i.e. a controller-level no-op); [`cheatsheet`][]
     renders the current bindings for the shipped help overlay.
     """
 
@@ -299,7 +299,7 @@ class Keymap:
     # --- lookup / mutation ---------------------------------------------------
 
     def command_for(self, key: int, modifiers: int = 0) -> Command | None:
-        """The :class:`Command` bound to ``(key, modifiers)``, or ``None``."""
+        """The [`Command`][] bound to ``(key, modifiers)``, or ``None``."""
         return self.bindings.get((_as_int(key), _as_int(modifiers)))
 
     def chords_for(self, command: Command) -> list[KeyChord]:
@@ -320,7 +320,7 @@ class Keymap:
         self.bind(key, command, modifiers)
 
     def restore_defaults(self) -> None:
-        """Reset every binding to the :meth:`default` table."""
+        """Reset every binding to the [`default`][] table."""
         self.bindings = Keymap.default().bindings
 
     # --- construction --------------------------------------------------------
@@ -398,7 +398,7 @@ class Keymap:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Keymap:
-        """Rebuild a keymap from :meth:`to_dict` output."""
+        """Rebuild a keymap from [`to_dict`][] output."""
         km = cls()
         for row in data.get("bindings", []):
             cmd = Command(CurationAction(row["action"]), row.get("arg"))
@@ -413,7 +413,7 @@ class Keymap:
 
     @classmethod
     def load(cls, path: str | Path) -> Keymap:
-        """Load a keymap saved by :meth:`save`."""
+        """Load a keymap saved by [`save`][]."""
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
     # --- cheat-sheet ---------------------------------------------------------
@@ -501,10 +501,10 @@ class CurationEventFilter:
     """The ``QApplication`` event filter implementing the §7.3 focus contract.
 
     Composes a lazily-created ``QObject`` (so importing this module needs no Qt,
-    matching :mod:`tether.gui.trace_dock`). On a ``KeyPress`` for a chord in the
+    matching [`tether.gui.trace_dock`][]). On a ``KeyPress`` for a chord in the
     keymap, and only when the event remains inside the registered curation window
     and the **focused** widget is not a text editor, it dispatches the
-    :class:`Command` to the controller and **consumes** the event (returning
+    [`Command`][] to the controller and **consumes** the event (returning
     ``True``) so the native list/canvas binding never fires; the matching
     ``KeyRelease`` is consumed too. Dialogs and popup menus remain outside that
     scope. After a ``JUMP`` (camera round-trip) focus is returned to the
@@ -517,8 +517,8 @@ class CurationEventFilter:
     focus widget (which stays the text field throughout propagation) keeps the
     category field fully exempt, so editing text never fires a curation action.
 
-    Install with :meth:`install` (defaults to the running ``QApplication``) and
-    tear down with :meth:`remove` — important under pytest-qt, whose
+    Install with [`install`][] (defaults to the running ``QApplication``) and
+    tear down with [`remove`][] — important under pytest-qt, whose
     ``QApplication`` is shared across the session.
     """
 
@@ -570,12 +570,12 @@ class CurationEventFilter:
 
     @property
     def controller(self) -> CurationController:
-        """The :class:`CurationController` a matched chord's command is dispatched to."""
+        """The [`CurationController`][] a matched chord's command is dispatched to."""
         return self._controller
 
     @property
     def keymap(self) -> Keymap:
-        """The key-chord → :class:`Command` table this filter resolves key events against."""
+        """The key-chord → [`Command`][] table this filter resolves key events against."""
         return self._keymap
 
     @property
@@ -689,7 +689,7 @@ def default_keymap_path() -> Path:
 
     Uses Qt's ``AppConfigLocation`` so it lands in the platform-native config dir
     (``%LOCALAPPDATA%`` on Windows, ``~/.config`` on Linux, ``~/Library`` on
-    macOS). The file is written on demand by :meth:`Keymap.save`.
+    macOS). The file is written on demand by [`Keymap.save`][].
     """
     from pyqtgraph.Qt import QtCore
 

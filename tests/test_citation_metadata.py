@@ -198,3 +198,112 @@ def test_the_doi_matches_the_pages_that_repeat_it() -> None:
         f"CITATION.cff cites {doi}, but these pages cite other or no Zenodo DOIs "
         f"(page: DOIs found): {mismatched}"
     )
+
+
+def test_references_list_every_author() -> None:
+    """No ``references:`` entry stands in for a cut author list with "et al." (#529).
+
+    CFF readers such as cffconvert and GitHub's citation export take ``authors`` as the
+    complete list and ignore ``notes``, so an entry that names three authors and says
+    "abbreviated" in its notes exports a three-author citation. Each entry must carry
+    every author on its published record instead.
+    """
+    offenders = []
+    for ref in _citation().get("references") or []:
+        names = " ".join(
+            str(a.get(key, ""))
+            for a in ref.get("authors") or []
+            for key in ("family-names", "name")
+        )
+        notes = str(ref.get("notes", ""))
+        if re.search(r"\bet al\b", names, re.IGNORECASE) or re.search(
+            r"\bet al\b|\babbreviated\b", notes, re.IGNORECASE
+        ):
+            offenders.append(ref.get("doi") or ref.get("title"))
+    assert not offenders, (
+        f"these CITATION.cff references cut their author list with 'et al.': {offenders}"
+    )
+
+
+#: A journal locator as the attribution pages write it: ``123(17):2765–2780``, ``16:3``,
+#: ``13(4):e0195277``. Groups: volume, issue, first page, last page (the last two optional
+#: pieces come back as ``""``). The look-arounds keep it off DOIs and dotted numbers, but a
+#: sentence-ending period after the locator is allowed. The range is possessive (``?+``), so a
+#: range that fails the look-ahead is not cut back to its first page.
+_LOCATOR_RE = re.compile(r"(?<![\w.])(\d+)(?:\((\d+)\))?:(e?\d+)(?:[–-](\d+))?+(?!\w|\.\w)")
+
+#: A line that starts a new entry: a blank line, a list item or a table row. NOTICE has no
+#: lists, so there an entry is a paragraph.
+_ENTRY_BREAK_RE = re.compile(r"^\s*$|^\s*(?:[-*+]|\d+\.)\s|^\s*\|")
+
+
+def _entries(text: str) -> list[str]:
+    """Split a page into the entries (paragraph, list item, table row) a reference sits in."""
+    out: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if _ENTRY_BREAK_RE.match(line):
+            if current:
+                out.append("\n".join(current))
+            current = [line] if line.strip() else []
+        else:
+            current.append(line)
+    if current:
+        out.append("\n".join(current))
+    return out
+
+
+def _cff_locator(ref: dict) -> tuple[str, str, str, str]:
+    def text(key: str) -> str:
+        value = ref.get(key)
+        return "" if value is None else str(value).strip()
+
+    return text("volume"), text("issue"), text("start"), text("end")
+
+
+def test_reference_locators_match_the_pages_that_repeat_them() -> None:
+    """Volume, issue and pages next to a cited DOI agree with ``CITATION.cff``.
+
+    ``NOTICE`` once gave tMAVEN as 123(14):2179–2193 while ``CITATION.cff``, the PRD and
+    the citing page gave the same DOI as 123(17):2765–2780 (#536). A reader comparing the
+    attribution with the citing page saw two different records for one paper. Wherever an
+    entry in ``NOTICE``, ``README.md`` or ``docs/`` names a reference's DOI, every journal
+    locator in that entry must be the one ``CITATION.cff`` records. An entry that names the
+    DOI without a locator is not checked: not every page repeats the full reference.
+    """
+    root = CITATION.parent
+    pages = [root / "NOTICE", root / "README.md", *sorted((root / "docs").rglob("*.md"))]
+    texts = {page.relative_to(root).as_posix(): page.read_text(encoding="utf-8") for page in pages}
+    mismatched = []
+    for ref in _citation().get("references") or []:
+        doi = str(ref.get("doi") or "").strip().lower()
+        if not doi or not _filled(ref.get("volume")):
+            continue
+        expected = _cff_locator(ref)
+        for rel, text in texts.items():
+            for entry in _entries(text):
+                if doi not in entry.lower():
+                    continue
+                for found in _LOCATOR_RE.findall(entry):
+                    if found != expected:
+                        mismatched.append(f"{rel}: {doi} written as {found}, CFF has {expected}")
+    assert not mismatched, "\n".join(mismatched)
+
+
+def test_locator_pattern_reads_whole_locators() -> None:
+    """The locator pattern reads a whole locator and nothing that only looks like one.
+
+    A locator can end a sentence (``123(17):2765–2780.``). The pattern once rejected the full
+    range there and matched only the first page, and it did not see a single-page locator
+    before a period at all, so a wrong article number could pass unseen.
+    """
+    cases = {
+        "123(17):2765–2780. doi:10.1016/j.bpj.2024.01.022": [("123", "17", "2765", "2780")],
+        "*BMC Bioinformatics* 16:3. doi:10.1186/s12859-014-0429-4": [("16", "", "3", "")],
+        "*PLoS ONE* 13(4):e0195277 (2018).": [("13", "4", "e0195277", "")],
+        "123(17):2765–2780.5": [],
+        "16:3.5": [],
+        "doi:10.1016/j.bpj.2024.01.022": [],
+    }
+    for text, expected in cases.items():
+        assert _LOCATOR_RE.findall(text) == expected, text
