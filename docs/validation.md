@@ -104,6 +104,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 | MASH-FRET analyses: histogram, states, rates | required matrix (exact histogram) and `sidecar` (state limits), on a committed extract | the 37 stored histograms of the archive are checked by the workstation run |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
+| Campos-Chavez et al. 2024: the tMAVEN fits | `reference_download` — weekly, with the sidecar env; **advisory** | the settings, the windows, the comparison and the limit rule; the stored models are checked by the workstation run |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
 | Extraction vs MASH-FRET simulated truth | required matrix | yes |
 
@@ -982,6 +983,88 @@ and `test_the_stored_rates_are_the_authors_rule_on_the_stored_transition_matrix`
 `test_the_settings_the_child_used_are_the_authors`,
 `test_the_start_synchronized_histogram_equals_tmavens` and
 `test_the_post_synchronized_histogram_equals_tmavens_on_the_window_frames`.
+
+## Campos-Chavez et al. 2024: the tMAVEN fits
+
+This check fits the measured traces of Campos-Chavez et al. (*Nat Commun* **15**:6592, 2024,
+doi `10.1038/s41467-024-50885-x`) again in Tether's sidecar and compares each fit with the fit the
+authors published. The Source Data archive is the manifest entry `campos2024-source-data`
+(CC BY-NC-ND 4.0). The test reads the published values from the archive each time and never
+commits them ([ADR-0083](adr/0083-unchanged-copies-of-cc-by-nc-nd-reference-data.md)).
+[ADR-0106](adr/0106-campos-chavez-tmaven-fits-are-an-advisory-reference.md) records the decisions.
+
+**What is compared.** Seven fits: the consensus vbHMM of five samples, and the two
+sub-populations of the ΔNCCA sample (Fig. 4: the composite HMM with K-means, and vbGMM). For each
+fit, the published state means are the levels of its transition density sheet, and the published
+populations and transitions come from its count matrix (`Kmatrix/*.txt`, global fits only). The
+frames that each fit read are the frames whose FRET values its histogram sheet pools. The priors
+are those of the Methods (α 1.0, β 0.25, π 1.0, a 2.5, b 0.01; b 0.4 for the Linker and 0.2 for
+the RAG mutant), and the tMAVEN 0.2.3 defaults where the Methods give none.
+`tests/reference_data/campos_chavez_2024_hmm.json` gives each setting with its source.
+
+**Limits** (`schema/campos_chavez_hmm_limits.json`): the largest deviation over seeds 0 to 9 and
+757 at the pin (tMAVEN `10f4230`, the sidecar lock, 2026-11-15), rounded up at the second
+significant digit. "—" marks a metric that has no published value.
+
+| Fit | Sample | Key | States | Molecules | Means | Populations | Counts off the diagonal | Transitions |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `wt` | WT T-box, WT tRNA (Fig. 2) | `vbconhmm` | 3 | 348 | 3.8e-06 | 0.00092 | 0.015 | 0.023 |
+| `dncca` | WT T-box, tRNA-ΔNCCA, all traces (Fig. 3) | `vbconhmm` | 2 | 264 | 0.00024 | 1.3e-05 | 0.0011 | 0.033 |
+| `ddiscriminator` | Δ-Discriminator T-box, WT tRNA (Fig. 3) | `vbconhmm` | 2 | 164 | 6.6e-05 | 5.2e-05 | 0.0047 | 0.0063 |
+| `dncca_one_state` | tRNA-ΔNCCA One-state population (Fig. 4b-d) | `kmeans_vbhmm` | 2 | 192 | 0.0028 | — | — | 0.075 |
+| `dncca_two_state` | tRNA-ΔNCCA Two-state population (Fig. 4f-h) | `vbgmm` | 3 | 72 | 3.7e-06 | — | — | 0.00015 |
+| `linker` | Linker mutant, WT tRNA (Fig. 6) | `vbconhmm` | 3 | 197 | 0.4 | 0.48 | 0.79 | 1.3 |
+| `rag` | RAG mutant, WT tRNA (Fig. 7) | `vbconhmm` | 4 | 197 | 0.37 | 0.25 | 0.59 | 0.93 |
+
+**This is an advisory reference.** A limit measures how far the pinned tMAVEN is from the published
+fit, so a failure means that the sidecar fit moved, not that the article is wrong. Five fits
+reproduce the article: wild type, ΔNCCA, ΔDiscriminator and the two sub-populations. For the
+Linker and RAG mutants, the pin finds a different optimum, and their limits hold that difference.
+
+**Seed and version.** The consensus vbHMM of `10f4230` and of 0.2.3 starts from percentiles of the
+data, so the seeds change its fit by less than 2e-8. The K-means start of the One-state
+population depends on the seed (means 1.0e-3 to 2.7e-3 from the published ones). The same fits
+with older tMAVEN, in a separate environment with the same numerical stack (the largest mean
+difference, over the seeds):
+
+| Fit | `10f4230` (pin) | 0.2.3 (`62422f9`, 2024-10-24) | 0.2.0 (`8beaeb1`, 2023-08-14) |
+| --- | --- | --- | --- |
+| `wt` | 3.8e-06 | 3.8e-06 | 1.6e-07 |
+| `dncca` | 0.00024 | 0.00024 | 0.00024 |
+| `ddiscriminator` | 6.6e-05 | 6.6e-05 | 5.2e-10 |
+| `dncca_one_state` | 0.00098 to 0.0027 | 0.0003 to 0.0019 | 0.0003 to 0.0019 |
+| `dncca_two_state` | 3.6e-06 | 3.6e-06 | 3.6e-06 |
+| `linker` | 0.39 | 0.41 to 0.42 | 0.0036 to 0.42 |
+| `rag` | 0.36 | 0.34 | 0.00011 to 0.39 |
+
+Three results follow. (1) tMAVEN 0.2.0 reproduces the published fits most closely: the
+ΔDiscriminator count matrix to 8e-10, the wild-type means to 1.6e-7 with the same transitions,
+and, for 3 of the 11 seeds, the Linker count matrix to 2e-4 (for 2 seeds, the RAG means to
+1.1e-4). Its consensus fit starts from K-means, so the seed decides which optimum it reaches.
+Commit `62422f9` (0.2.3) is dated after the article, so the published fits were probably made
+with 0.2.0 or a build near it. (2) For the five reproduced fits, the version changes the means by
+less than 7e-5, and `10f4230` changes the transitions of the idealized paths (2.2 % for the
+wild type, where 0.2.0 and 0.2.3 give exactly the published ones). (3) For the Linker and RAG
+mutants, the percentile start of 0.2.3 and `10f4230` reaches another optimum on every seed. The
+wild-type count matrix differs by 1.5 % off the diagonal in all three versions.
+
+**The two sub-populations.** Each of their windows lies inside the window of the same molecule in
+the whole ΔNCCA fit, but the two do not split that fit: 26 molecules are in both and 26 in
+neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM, which the
+sidecar has no key for; the test adds one for itself. The sidecar key `vbgmm_vbhmm` selects one
+state on these traces; the weekly job prints its result and does not gate it.
+
+**Stored models** (`workstation`): each private tMAVEN trace file is matched to a sample by its
+donor traces, and each stored model and model summary is compared with the published values and
+with the fresh fit of seed 757. The result file holds numbers under neutral ids only.
+
+**Enforcing tests.** Required matrix: `tests/test_campos_chavez_hmm.py` (the settings and their
+sources, the windows, the comparison on built data, the rounding rule and this table). Weekly
+(`reference_download`, with the sidecar env of the `reference-data` job):
+`test_each_window_is_the_published_histogram_values`,
+`test_the_sidecar_fit_is_within_its_frozen_limits` and
+`test_the_vbgmm_vbhmm_key_on_the_two_state_population_is_reported`. Workstation:
+`tests/test_campos_chavez_hmm_stored.py`.
 
 ## Ha-laboratory SAM/SAH snapshot histogram
 
