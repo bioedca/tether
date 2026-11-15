@@ -24,8 +24,9 @@ a per-condition α is only trustworthy with enough donor-only tails behind it, a
 fabricated one would silently bias every corrected E (PRD §7.2 total-failure path;
 §Data-gaps). Because γ is derived from leakage-corrected intensities, withholding α
 also resets processed ``/molecules.gamma`` rows to ``NaN`` so a downstream factor
-from the superseded α cannot remain applied. The provenance group is still stamped
-(``withheld = True``) so the attempt is auditable.
+from the superseded α cannot remain applied, and removes ``/settings/gamma`` so no
+provenance remains for that factor (#549). The leakage provenance group is still
+stamped (``withheld = True``) so the attempt is auditable.
 
 The separate Cy3-only donor-only *sample* path (a global α from a dedicated
 calibration acquisition, cross-checked against this tail α under the §11.2
@@ -67,6 +68,9 @@ _MOLECULES = "molecules"
 _TRACES = "traces"
 _SETTINGS = "settings"
 _LEAKAGE_SETTINGS = "leakage"
+#: The γ pass's provenance group, removed when a withheld α invalidates γ (#549);
+#: same name as ``tether.project.gamma._GAMMA_SETTINGS``.
+_GAMMA_SETTINGS = "gamma"
 
 #: ``/settings/leakage`` ``source`` value — the tail estimator's provenance tag.
 LEAKAGE_SOURCE_TAIL = "post-acceptor-bleach-tail"
@@ -88,7 +92,7 @@ class LeakageAlphaSummary:
     applied
         Whether an estimated factor was applied (i.e. ``alpha is not None``). When
         false, processed ``/molecules.alpha`` and downstream ``gamma`` rows are
-        cleared to ``NaN``.
+        cleared to ``NaN`` and ``/settings/gamma`` is removed.
     source
         Estimator provenance tag stamped into ``/settings/leakage``.
     intensity_quantity
@@ -142,9 +146,10 @@ def compute_leakage_alpha(
         default 10).
     write_guard
         Optional caller-owned lock/lease check. With a guard, the complete
-        ``/molecules.alpha`` update, any downstream ``gamma`` invalidation, and
-        ``/settings/leakage`` stamp are written to a same-directory sibling project
-        and published together by one final guarded atomic replace. Without a guard,
+        ``/molecules.alpha`` update, any downstream ``gamma`` invalidation (rows and
+        ``/settings/gamma``), and ``/settings/leakage`` stamp are written to a
+        same-directory sibling project and published together by one final guarded
+        atomic replace. Without a guard,
         the established in-place write path remains.
 
     Returns
@@ -238,6 +243,11 @@ def compute_leakage_alpha(
             write_guard()
         f[_MOLECULES][TABLE][:] = table
 
+        if not applied:
+            if write_guard is not None:
+                write_guard()
+            _drop_gamma_settings(f)
+
         if write_guard is not None:
             write_guard()
         _stamp_leakage_settings(
@@ -259,6 +269,21 @@ def compute_leakage_alpha(
         source=LEAKAGE_SOURCE_TAIL,
         intensity_quantity=intensity_quantity,
     )
+
+
+def _drop_gamma_settings(f: object) -> None:
+    """Remove ``/settings/gamma`` after a withheld pass has invalidated γ (#549).
+
+    The withheld pass resets processed ``/molecules.gamma`` rows to ``NaN`` and the
+    documented workflow then skips :func:`~tether.project.gamma.compute_gamma`, so the
+    previous γ pass's group would otherwise describe a factor no molecule carries.
+    The group is optional and recomputable (absent in a fresh store, rewritten by every
+    γ pass), so removing it changes no frozen structure; an invalidated marker would
+    have been a new schema field. Absence keeps its existing meaning: no current γ pass.
+    """
+    settings = f[_SETTINGS]  # type: ignore[index]
+    if _GAMMA_SETTINGS in settings:
+        del settings[_GAMMA_SETTINGS]
 
 
 def _stamp_leakage_settings(

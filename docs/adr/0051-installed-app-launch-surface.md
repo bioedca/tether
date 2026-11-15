@@ -1,6 +1,6 @@
 # 0051 — The installed app's launch surface: a real GUI entry point, prefix shims, and a menu shortcut
 
-- **Status:** accepted
+- **Status:** accepted; amended by [ADR-0094](0094-the-launchers-get-a-folder-of-their-own.md) on the folder that holds the launchers, now `<prefix>/launchers`
 - **Date:** 2026-07-20
 - **Deciders:** bioedca
 - **PRD anchor:** §7.8 (shell / project open), §4.1 (installers), §9 M9 (packaging & docs)
