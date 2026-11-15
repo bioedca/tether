@@ -422,6 +422,34 @@ def test_a_hard_linked_guard_is_not_widened(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX mode/umask semantics")
+def test_a_file_renamed_onto_the_guard_path_is_not_widened(tmp_path: Path) -> None:
+    """#257 review: a co-writer can rename the owner's private file onto the guard path.
+
+    Rename keeps one link and the path then names that inode, so only the rule
+    that a guard holds no data keeps the file's mode and group unchanged.
+    """
+    project_dir = tmp_path / "shared"
+    project_dir.mkdir()
+    project_dir.chmod(0o0777)
+    path = project_dir / "exp.tether"
+    victim = project_dir / "private.txt"
+    victim.write_text("secret", encoding="utf-8")
+    victim.chmod(0o600)
+    before = victim.stat()
+    guard = lock._guard_path(lock.lock_path(path))
+    os.rename(victim, guard)
+
+    info = lock.acquire(path, identity=HOST_A)
+    assert lock.release(path, info)
+
+    after = guard.stat()
+    assert after.st_ino == before.st_ino
+    assert stat.S_IMODE(after.st_mode) == 0o600
+    assert after.st_gid == before.st_gid
+    assert guard.read_text(encoding="utf-8") == "secret"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode/umask semantics")
 def test_the_guard_takes_the_group_of_a_group_writable_directory(
     tmp_path: Path, monkeypatch
 ) -> None:

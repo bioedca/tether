@@ -33,7 +33,7 @@ max_skipped = 29
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 26
+max_skipped = 27
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -228,6 +228,13 @@ reason = "POSIX flock semantics"
 jobs = ["test (windows-latest)"]
 why = """The test drives the POSIX flock path of the lock lifecycle guard (#257); Windows uses a \
 byte-range lock instead. test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_file_renamed_onto_the_guard_path_is_not_widened"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks POSIX mode bits on the lock lifecycle guard (#257); Windows has none. \
+test (ubuntu-latest) and test (macos-latest) run it."""
 
 [[skip]]
 test = "tests/test_lock.py::test_a_fifo_at_the_guard_path_fails_closed_without_blocking*"

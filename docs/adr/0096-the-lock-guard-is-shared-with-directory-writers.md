@@ -63,9 +63,11 @@ Chosen option: **2**.
   group, which need not be the group the project is shared with, and the mode bits alone would
   then admit nobody.
 - The guard is opened with `O_NOFOLLOW`, and its permissions or group change only when the
-  descriptor is a regular file with one link that the guard path itself names. A directory writer
-  can plant a symlink or a hard link at the guard path; a symlink now fails the operation closed,
-  and neither can make Tether widen access to an unrelated file the caller owns.
+  descriptor is an **empty** regular file with one link that the guard path itself names. A
+  directory writer can plant a symlink or a hard link at the guard path, or rename a file the
+  caller owns onto it; a symlink now fails the operation closed, and no such file is widened while
+  it holds any data. A POSIX guard never holds data, so the only files sharing can change are empty
+  ones, which have no contents to disclose.
 - On POSIX both opens are non-blocking, and a guard that is not a regular file fails the operation
   closed (`OSError`, `EINVAL`). A FIFO planted at the guard path would otherwise block the
   read-only open indefinitely, while the process-wide guard registry lock is held.
@@ -87,7 +89,8 @@ Chosen option: **2**.
   group, symlinked and hard-linked guards, the read-only fallback, its `EBADF` message, and (when
   run as root) two real users with different primary groups end to end.
 - Good: the guard never grants a class write access that the directory does not already grant.
-- Good: sharing the guard cannot change the mode or group of any file but the guard itself.
+- Good: sharing the guard cannot change the mode or group of any file that holds data; at most an
+  empty file a co-writer renamed onto the guard path is shared, as a guard would be.
 - Neutral: a guard path that is a symlink or another non-regular file — which no release of
   Tether creates — now fails every lifecycle operation with `OSError` (`ELOOP` or `EINVAL`) until
   it is removed.

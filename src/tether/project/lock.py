@@ -465,17 +465,21 @@ def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
     gives a new file its creator's primary group, which need not be the group that
     shares the project.
 
-    Nothing is changed unless the descriptor is a regular file with one link that
-    the guard path itself names. An entry another directory writer planted — a
-    hard link to a file the caller owns elsewhere — is left alone, so sharing the
-    guard can never widen access to an unrelated file. Best effort: a filesystem
-    that refuses ``fchmod`` still has the read-only fallback in :func:`_open_guard`.
+    Nothing is changed unless the descriptor is an empty regular file with one
+    link that the guard path itself names. An entry another directory writer
+    planted — a hard link to a file the caller owns elsewhere, or such a file
+    renamed onto the guard path — is left alone whenever it holds any data: a
+    POSIX guard never holds data, so sharing the guard can never disclose the
+    contents of an unrelated file. Best effort: a filesystem that refuses
+    ``fchmod`` still has the read-only fallback in :func:`_open_guard`.
     """
     try:
         current = os.fstat(fd)
         if current.st_uid != os.geteuid():
             return
         if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1:
+            return
+        if current.st_size != 0:
             return
         entry = os.lstat(gp)
         if (entry.st_dev, entry.st_ino) != (current.st_dev, current.st_ino):
