@@ -450,7 +450,7 @@ def test_export_refuses_a_display_record_that_contradicts_the_figure(tmp_path):
 
 def test_render_dwell_survival(tmp_path):
     proj, _keys = build_store_with_model(tmp_path, STATES, MEANS)
-    analysis = population_dwell_times(proj, "vbconhmm", state=1)
+    analysis = population_dwell_times(proj, "vbconhmm", state=1)[1]
     fig = pe.render_dwell_survival(analysis)
     ax = fig.axes[0]
     # The survival markers are S(t) at each dwell time (clipped at 1e-6 for the log axis).
