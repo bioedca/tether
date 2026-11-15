@@ -602,7 +602,7 @@ USER_NAME_FIELDS: frozenset[str] = frozenset({"labeler"})
 
 
 def _name_fields(dtype: np.dtype) -> list[str]:
-    """The :data:`USER_NAME_FIELDS` a compound ``dtype`` carries (``[]`` if none)."""
+    """The [`USER_NAME_FIELDS`][] a compound ``dtype`` carries (``[]`` if none)."""
     return [name for name in (dtype.names or ()) if name in USER_NAME_FIELDS]
 
 
@@ -693,7 +693,7 @@ def _copy_group_aliased(src_group: object, dst_parent: object, aliases: _Curator
 
     A name-bearing dataset is built from its aliased rows (never copied and then
     overwritten, because HDF5 does not reclaim the old string bytes); everything
-    else is copied verbatim with :meth:`h5py.Group.copy`.
+    else is copied verbatim with [`h5py.Group.copy`][].
     """
     import h5py  # noqa: PLC0415
 
@@ -732,7 +732,7 @@ def _kept_labels(src: object, selected_keys: set[str]) -> np.ndarray:
 
 
 def _copy_labels(dst: object, kept: np.ndarray, aliases: _CuratorAliases | None) -> int:
-    """Write the subset's ``/labels`` provenance rows (``kept``, from :func:`_kept_labels`).
+    """Write the subset's ``/labels`` provenance rows (``kept``, from `_kept_labels`).
 
     ``molecule_key`` travels so a labeled subset row always resolves to its canonical
     molecule on merge-back (§5.1/§7.10). With ``aliases`` the ``labeler`` names are
@@ -870,7 +870,7 @@ def export_subset_tether(
 
     Copy for sharing (#620). The ``/labels`` rows and the condition audit log record
     the curator's user name (by default the operating-system login). With
-    ``curator_alias`` set, every stored user name (:data:`USER_NAME_FIELDS`) is
+    ``curator_alias`` set, every stored user name ([`USER_NAME_FIELDS`][]) is
     replaced by ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first
     met, so one person keeps one alias and multi-curator analysis still works. The
     provenance records that names were replaced and how many, never the names. The
