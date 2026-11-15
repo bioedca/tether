@@ -140,6 +140,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) | The similarity prealign samples a square, padded, emphasised spectrum | accepted; amends [ADR-0013](0013-fourier-mellin-similarity-prealign.md) on the spectrum sampling, the band-pass default and the stated regime | App E §7, §11.2 |
 | [0090](0090-measured-vbfret-paths-are-a-dwell-reference.md) | Measured traces with a stored vbFRET path are a dwell and transition reference | accepted | §2.2 (rule 2), §8 (NFR-VALID (b), NFR-FIXTURES), §7.7 (dwell times and the TDP) |
 | [0099](0099-load-bearing-pull-requests-take-one-greptile-review.md) | Load-bearing pull requests take one Greptile review, not CodeRabbit | accepted; amends [ADR-0069](0069-one-metered-review-then-the-codex-close.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
+| [0101](0101-mash-fret-analyses-are-a-histogram-and-state-reference.md) | MASH-FRET's stored analyses are an exact histogram reference and a measured state reference | accepted | §7.7 FR-ANALYZE, §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
 
 <!-- gen:adr-index end -->
 
