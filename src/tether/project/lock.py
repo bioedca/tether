@@ -471,7 +471,7 @@ def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
     renamed onto the guard path — is left alone whenever it holds any data: a
     POSIX guard never holds data, so sharing the guard can never disclose the
     contents of an unrelated file. Best effort: a filesystem that refuses
-    ``fchmod`` still has the read-only fallback in :func:`_open_guard`.
+    ``fchmod`` still has the read-only fallback in `_open_guard`.
     """
     try:
         current = os.fstat(fd)
