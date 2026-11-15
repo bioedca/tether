@@ -609,21 +609,39 @@ class _CuratorAliases:
     """Map each distinct source user name to a stable ``<prefix>-<n>`` alias (#620).
 
     The names are numbered in the order they are first met, so two labels by one
-    person keep one alias. An alias that would equal a source name is skipped, so no
-    stored value in the copy equals a name of the source. ``""`` (no name recorded)
-    stays ``""``: it names nobody, and an alias would invent a curator.
+    person keep one alias. An alias that would **contain** a source name is skipped
+    (re-sharing a copy whose names are ``curator-1`` … must not write ``curator-10``,
+    whose bytes hold ``curator-1``), so no source name is in the copy's bytes. ``""``
+    (no name recorded) stays ``""``: it names nobody, and an alias would invent a
+    curator.
+
+    Raises
+    ------
+    ValueError
+        If ``<prefix>-`` itself contains a source name, or no alias free of every
+        source name is found within a bounded search; another prefix is needed.
     """
 
     def __init__(self, prefix: str, names: list[str]) -> None:
         self._map: dict[str, str] = {}
-        taken = set(names)
+        taken = {name for name in names if name}
+        if any(name in f"{prefix}-" for name in taken):
+            raise ValueError(
+                "curator_alias contains a user name stored in the source; choose another prefix"
+            )
+        limit = 10 * (len(taken) + 1) + 1000
         n = 0
         for name in names:
             if name == "" or name in self._map:
                 continue
             n += 1
-            while f"{prefix}-{n}" in taken:
+            while any(other in f"{prefix}-{n}" for other in taken):
                 n += 1
+                if n > limit:
+                    raise ValueError(
+                        "cannot make aliases that contain no user name of the source; "
+                        "choose another curator_alias"
+                    )
             self._map[name] = f"{prefix}-{n}"
 
     @property

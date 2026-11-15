@@ -184,6 +184,43 @@ def test_an_alias_never_equals_a_source_name(tmp_path):
     assert _label_labelers(out) == ["curator-2", "curator-3"]
 
 
+def test_no_alias_contains_a_source_name(tmp_path):
+    """Codex P1 on #1067: ``curator-1`` in the source must not reappear in ``curator-10``."""
+    project, keys = build_store_with_model(tmp_path, _state_matrix(), MEANS)
+    project.accept(keys[0], labeler="curator-1")
+    project.accept(keys[1], labeler=ALICE)
+    project.accept(keys[2], labeler=BOB)
+    out = tmp_path / "shared.tether"
+
+    export_subset_tether(project, out, curator_alias="curator")
+
+    aliases = _label_labelers(out)
+    assert len(set(aliases)) == 3
+    assert not any("curator-1" in a for a in aliases)
+    assert b"curator-1" not in out.read_bytes()
+
+
+def test_aliases_skip_every_number_that_holds_a_source_name():
+    """Ten names, one of them ``curator-1``: the aliases skip 1 and 10 to 19."""
+    names = ["curator-1"] + [f"person-{i}" for i in range(11)]
+
+    aliases = E._CuratorAliases("curator", names)
+
+    written = [aliases._map[n] for n in names]
+    assert len(set(written)) == len(names)
+    assert not any(src in a for src in names for a in written)
+
+
+def test_a_prefix_that_holds_a_source_name_is_refused(tmp_path):
+    project, keys = build_store_with_model(tmp_path, _state_matrix(), MEANS)
+    project.accept(keys[0], labeler=ALICE)
+    out = tmp_path / "shared.tether"
+
+    with pytest.raises(ValueError, match="curator_alias"):
+        export_subset_tether(project, out, curator_alias=f"team-{ALICE}")
+    assert not out.exists()
+
+
 def test_an_empty_labeler_stays_empty(tmp_path):
     project, keys = build_store_with_model(tmp_path, _state_matrix(), MEANS)
     project.accept(keys[0], labeler="")
