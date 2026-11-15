@@ -201,7 +201,7 @@ def test_no_alias_contains_a_source_name(tmp_path):
 
 
 def test_aliases_skip_every_number_that_holds_a_source_name():
-    """Ten names, one of them ``curator-1``: the aliases skip 1 and 10 to 19."""
+    """Twelve names, one of them ``curator-1``: the aliases skip 1 and 10 to 19."""
     names = ["curator-1"] + [f"person-{i}" for i in range(11)]
 
     aliases = E._CuratorAliases("curator", names)

@@ -397,7 +397,8 @@ the source's.
 
 **Refusals.** `FileExistsError` when `out_path` exists and `overwrite=False`; `ValueError`
 when the output resolves to (or is a hard link of) the source, when the selection is
-empty, when the preflight fails, or when `curator_alias` is blank.
+empty, when the preflight fails, or when `curator_alias` is blank, contains a user name
+stored in the source, or leaves no alias that is free of every source user name.
 
 Sidecar `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and

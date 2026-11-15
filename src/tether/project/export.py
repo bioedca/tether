@@ -910,7 +910,8 @@ def export_subset_tether(
         If the source is not a valid or complete ``.tether`` (missing corrupt/incomplete
         corrected traces or patches); the selection is empty (nothing to export);
         ``out_path`` is the source project (same path or a hard-linked alias); or
-        ``curator_alias`` is given but empty or blank.
+        ``curator_alias`` is given but empty or blank, contains a user name stored
+        in the source, or leaves no alias free of every source user name.
     """
     import h5py  # noqa: PLC0415
 
