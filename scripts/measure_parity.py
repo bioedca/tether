@@ -46,14 +46,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from tether.idealize.parity import (
-    PROVISIONAL,
-    TRANSITION_MATRIX_BOUND,
-    SpreadSummary,
-    freeze,
-    freeze_transition_matrix,
-    measure_spread,
-)
+from tether.idealize.parity import PROVISIONAL, freeze, measure_spread
 
 #: Run inside the *sidecar* interpreter to identify the tMAVEN build that was
 #: compared against. ``direct_url.json`` is PEP 610 metadata that ``pip install
@@ -89,23 +82,6 @@ _FIXTURES = {
     },
 }
 
-# Per-trace vbFRET (ADR-0110) is measured on the two small fixtures, cross-seed. Its
-# ``nstates`` is the largest state count each trace may choose: the ``{1, 2, 3, 4}`` of
-# the PRD 11.2 auto state-count selection.
-_PER_TRACE_FIXTURES = {
-    "smd_2mol": {
-        "smd": "tests/fixtures/smd_2mol.hdf5",
-        "reference": None,
-        "nstates": 4,
-    },
-    "smd_4mol": {
-        "smd": "tests/fixtures/smd_4mol.hdf5",
-        "reference": None,
-        "nstates": 4,
-    },
-}
-#: The population methods, which also carry the transition-matrix term (ADR-0110).
-_POPULATION_METHODS = ("vbconhmm", "ebhmm")
 
 _REDACTED = "$TETHER_SIDECAR_PYTHON"
 _BUILD_PROVENANCE = (
@@ -213,10 +189,9 @@ def main() -> int:
     ap.add_argument(
         "--fixtures",
         nargs="+",
-        default=None,
-        choices=sorted(set(_FIXTURES) | set(_PER_TRACE_FIXTURES)),
-        help="which fixtures to measure (default: smd_4mol and smd_281mol; for "
-        "--model-type vbfret, the small fixtures smd_2mol and smd_4mol)",
+        default=list(_FIXTURES),
+        choices=list(_FIXTURES),
+        help="which fixtures to measure",
     )
     ap.add_argument(
         "--model-type",
@@ -234,19 +209,13 @@ def main() -> int:
         "ELBO is not commensurable with the vbconhmm reference model's.",
     )
     args = ap.parse_args()
-    table = _PER_TRACE_FIXTURES if args.model_type == "vbfret" else _FIXTURES
-    if args.fixtures is None:
-        args.fixtures = list(table)
-    unknown = [name for name in args.fixtures if name not in table]
-    if unknown:
-        ap.error(f"--model-type {args.model_type} has no fixture configuration for {unknown}")
 
     # A non-vbconhmm method compared to the committed (vbconhmm) reference model is
     # not commensurable — its ELBO is a different model's variational bound — so
     # measuring it against that reference silently corrupts the freeze. Enforce the
     # cross-seed anchor the --model-type help promises, rather than only documenting it.
     if args.model_type != "vbconhmm" and not args.cross_seed:
-        referenced = [name for name in args.fixtures if table[name]["reference"] is not None]
+        referenced = [name for name in args.fixtures if _FIXTURES[name]["reference"] is not None]
         if referenced:
             ap.error(
                 f"--cross-seed is required for --model-type {args.model_type}: fixtures "
@@ -267,12 +236,8 @@ def main() -> int:
         "relative_elbo": [],
     }
 
-    # The transition-matrix term of a population method (ADR-0110), per fixture.
-    transition_by_fixture: dict[str, dict] = {}
-    transition_values: list[float] = []
-
     for name in args.fixtures:
-        cfg = table[name]
+        cfg = _FIXTURES[name]
         reference = None if args.cross_seed else cfg["reference"]
         mode = "cross-seed" if reference is None else "vs-reference"
         print(
@@ -296,21 +261,10 @@ def main() -> int:
         }
         for k, summ in spread.items():
             combined[k].extend(summ.values)
-        if args.model_type in _POPULATION_METHODS:
-            term = SpreadSummary(
-                "transition_matrix_abs_delta",
-                "ceiling",
-                [m.transition_matrix_abs_delta for m in per_run],
-            )
-            transition_values.extend(term.values)
-            transition_by_fixture[name] = {
-                key: per_fixture[name][key] for key in ("smd", "reference", "nstates")
-            } | {
-                "n_comparisons": len(per_run),
-                "metrics": {"transition_matrix_abs_delta": term.as_dict()},
-            }
 
     # Re-summarise the pooled values to feed freeze().
+    from tether.idealize.parity import SpreadSummary
+
     pooled = {
         "state_count_fraction": SpreadSummary(
             "state_count_fraction", "floor", combined["state_count_fraction"]
@@ -360,21 +314,6 @@ def main() -> int:
         "pooled_worst": {k: v.worst for k, v in pooled.items()},
         "spread_by_fixture": per_fixture,
     }
-    if transition_by_fixture:
-        # Not merged into the four-bound row: the term has its own block in the
-        # committed artifact, `$.transition_matrix` (ADR-0110). Carry it there by hand.
-        term = SpreadSummary("transition_matrix_abs_delta", "ceiling", transition_values)
-        try:
-            ceiling: float | None = freeze_transition_matrix(term, margin=args.margin)
-        except ValueError as exc:  # a non-finite run: keep the evidence, freeze nothing
-            print(f"transition-matrix term not frozen: {exc}")
-            ceiling = None
-        out["transition_matrix"] = {
-            "model_type": args.model_type,
-            TRANSITION_MATRIX_BOUND: ceiling,
-            "pooled_worst": {"transition_matrix_abs_delta": term.worst},
-            "spread_by_fixture": transition_by_fixture,
-        }
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")

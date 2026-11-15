@@ -305,8 +305,7 @@ means the same tMAVEN commit on the same CPython, not an identical dependency se
 > such gap: it was measured on this build from the start. The script writes a full replacement of its `--out` file, so it was pointed at a
 > scratch file and only the re-measured `method`, `spread_by_fixture` and `pooled_worst` were
 > carried into the artifact; everything else in it — the per-method blocks, `$.coverage` with
-> its committed `"vbconhmm (vb Consensus HMM)"` quoted below, and `$.transition_matrix` — was
-> kept by hand.
+> its committed `"vbconhmm (vb Consensus HMM)"` quoted below — was kept by hand.
 
 **When upstream tMAVEN changes.** The parity tests use the pinned commit.
 `.github/workflows/sidecar-upstream.yml` runs the same tests each week with tMAVEN at the newest
@@ -326,9 +325,7 @@ the required `sidecar / parity` job — which executes them on every nightly run
 pull request touching an idealization path, and reports a "not applicable" pass otherwise):
 `test_281mol_fresh_fit_matches_reference_within_frozen_tolerance`,
 `test_4mol_cross_seed_matches_within_frozen_tolerance`,
-`test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`, which also assert the
-transition-matrix term (below), and `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model`.
-On the required matrix,
+`test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`. On the required matrix,
 `tests/test_parity.py` checks the artifact against itself:
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
 value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
@@ -383,29 +380,12 @@ than the magnitude of any bound inside it, plus one ordering between two blocks:
 Widening any of the eight bounds to some *other* finite value was caught by nothing until #545,
 as long as the default state-count floor stayed above `0.5249`. Now
 `test_frozen_bounds_match_the_accepted_copy` holds a literal copy of every frozen bound — the
-eight above and the two transition-matrix ceilings — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+eight above — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
 `tests/test_parity.py`, outside the file, and fails on any difference; it names a widened bound
 `WIDENED`. `test_widening_any_one_frozen_bound_fails` widens each bound alone by 1e-4 and checks
 that it is reported. A deliberate re-freeze changes both copies in one pull request, under an ADR
 ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md)).
 
-**Transition matrix.** Consensus VB-HMM and ebFRET are also compared on their transition
-matrix: `transition_matrix_abs_delta` is the largest `|Δ|` between the two row-normalized
-matrices (`norm_tmatrix`, the per-frame transition probabilities), both in canonical
-mean-sorted order, and `inf` when the state counts differ or a matrix is missing. It is frozen
-apart from the four-bound rows, under `$.transition_matrix`, because the specification gives no
-provisional default for it: the measured worst case × 1.5, rounded up to the four decimal places
-of the other bounds and never below `0.0001` (`freeze_transition_matrix`).
-
-| Method | Evidence | Pooled worst | Frozen `transition_matrix_abs_delta_max` |
-| --- | --- | --- | --- |
-| `vbconhmm` | the re-measure above: 19 cross-seed comparisons on `smd_4mol`, 20 against `model_281mol.hdf5` | 3.915569757317883e-09 | 0.0001 |
-| `ebhmm` | 20 unseeded fits of `smd_281mol`, 19 cross-seed comparisons (2026-11-15) | 0.029381270392564246 | 0.0441 |
-
-The ebFRET four-bound row is not re-measured by this; its 2026-07-08 evidence is unchanged.
-The three population arms of `tests/test_parity_sidecar.py` assert the term against these
-ceilings, and `test_transition_matrix_block_covers_its_own_evidence` checks the block against its
-own recorded runs on the required matrix.
 
 **Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
 also assert a second bound, much tighter than the frozen default row: a state-mean difference of
@@ -424,17 +404,11 @@ selection changes from seed to seed (ADR-0043). The live tests also check that e
 requested model type with the requested state count, which a cross-seed comparison of two
 equally wrong fits cannot see.
 
-> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small
-> fixtures as well as the consensus fit. `model_type="vbfret"` now runs tMAVEN's own per-trace
-> step (`tracelevel_vbhmm_modelselection`, 1 to 4 states per trace, the highest evidence kept),
-> but it does not reproduce across seeds on the pinned build: over 20 unseeded fits per fixture
-> the worst state-count agreement was 0.0 on both `smd_2mol` and `smd_4mol`, and on
-> `smd_281mol` two fits differed by up to 0.96 FRET in a state mean. A row frozen from that
-> spread would have floors of 0.0, so none is frozen (maintainer decision, 2026-11-15; ADR-0110).
-> `test_4mol_per_trace_vbfret_same_seed_gives_the_same_model` checks that one seed gives one
-> model and writes the cross-seed agreement to the job log. `$.coverage.measured_methods`
-> records only `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` still lists
-> per-trace vbFRET, and no test asserts a per-trace fit against `$.tolerance`.
+> Gap, stated plainly. The specification asks for per-trace **vbFRET** parity on the small fixtures as
+> well as the consensus fit. `$.coverage.measured_methods` records only
+> `"vbconhmm (vb Consensus HMM)"`, while `$.coverage.applied_to` lists per-trace vbFRET. The
+> vbconhmm-measured tolerance is therefore *applied* to per-trace vbFRET without a per-trace
+> measurement, and no committed test fits `model_type="vbfret"` against it.
 
 ### Measured traces with a stored vbFRET path
 
@@ -1311,9 +1285,9 @@ evidence about the size of the difference and not a tolerance.
   actually run. The re-measure on the pinned build of 2026-11-15 closed that gap without moving
   a bound ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md));
   the ebFRET block has no such gap.
-- A frozen bound — in `$.tolerance`, a per-method row or a transition-matrix ceiling — can now
-  be loosened only by a pull request that edits both `schema/parity_tolerance.json` and the
-  literal copy [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+- A frozen bound — in `$.tolerance` or a per-method row — can now be loosened only by a pull
+  request that edits both `schema/parity_tolerance.json` and the literal copy
+  [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
   `tests/test_parity.py`; `test_frozen_bounds_match_the_accepted_copy` fails on either edit
   alone (see §(b)). Nothing pins `$.provisional` to its committed values.
 - The ebFRET gate tests **one fixed pair of seeds** (1 and 2,
@@ -1325,10 +1299,8 @@ evidence about the size of the difference and not a tolerance.
   (see above), and **not blind** — the ground truth is committed and the fit is
   retrospective. Levels 2 and 3 are reported, not band-checked, and the present method does
   not recover the level-2 rates.
-- (b) has no per-trace vbFRET *parity* row: tMAVEN's per-trace step does not reproduce
-  across seeds on the pinned build, so no row is frozen, and the seeded test checks only that
-  one seed gives one model (ADR-0110). Its comparison with the original vbFRET_nov12 on
-  measured traces is advisory, with no frozen
+- (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
+  comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no leave-one-video-out protocol and no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle. Each is stated in its own section above with the ADR that
