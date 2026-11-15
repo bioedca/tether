@@ -145,6 +145,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0099](0099-load-bearing-pull-requests-take-one-greptile-review.md) | Load-bearing pull requests take one Greptile review, not CodeRabbit | accepted; amends [ADR-0069](0069-one-metered-review-then-the-codex-close.md), whose other decisions govern unchanged | §12 (development & version-control protocol) |
 | [0101](0101-mash-fret-analyses-are-a-histogram-and-state-reference.md) | MASH-FRET's stored analyses are an exact histogram reference and a measured state reference | accepted | §7.7 FR-ANALYZE, §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
 | [0109](0109-one-selection-argument-and-one-return-shape-on-the-population-functions.md) | One selection argument and one return shape on the population functions | accepted | §7.7 FR-ANALYZE (population views), §5.1 (stale idealizations), §7.5 (the |
+| [0111](0111-the-api-reference-links-only-tether-objects.md) | The API reference is built offline and links only Tether objects | accepted; amends [ADR-0093](0093-numpy-docstrings-and-mkdocstrings-cross-references.md) | §12.4 (definition of done), §12.6 (the `docs-build` gate), §4.1 (pin-and-hold) |
 
 <!-- gen:adr-index end -->
 
