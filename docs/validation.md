@@ -1057,6 +1057,12 @@ fault injections each break a limit: an aperture moved by 2 px lowers the donor 
 to 0.689, and an acceptor position moved by 2 px after the channel mapping raises its largest
 acceptor error to 2.390 px.
 
+The test also counts duplicates: Tether molecules that match a true molecule which an earlier
+Tether molecule already matched (#1006,
+[ADR-0107](adr/0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md)). The count is 0
+in each scenario, and the limit is that count, so a molecule written twice breaks it; a test
+repeats each molecule and trace row of `easy` and requires the duplicate limit to break.
+
 ## External benchmark
 
 Tether's rate constants were compared against the ground truth and the reported inter-tool
