@@ -174,6 +174,18 @@ def test_the_allowlist_is_the_package_entries_with_d_rules_only():
     assert allow.allowlist(_BASE) == {("src/tether/a.py", "D401"), ("src/tether/a.py", "D205")}
 
 
+def test_a_d_code_on_a_pattern_key_is_an_entry_and_is_never_needed():
+    """A ``D`` code added to the ``"__init__.py"`` pattern is growth, and no violation needs it."""
+    grown = _BASE.replace('"__init__.py" = ["F401"]', '"__init__.py" = ["F401", "D401"]')
+    assert allow.added_entries(_BASE, grown) == [("__init__.py", "D401")]
+    found = {
+        ("src/tether/a.py", "D401"),
+        ("src/tether/a.py", "D205"),
+        ("src/tether/__init__.py", "D401"),
+    }
+    assert allow.stale_entries(allow.allowlist(grown), found) == [("__init__.py", "D401")]
+
+
 def test_an_added_entry_is_named_and_a_removed_one_is_not():
     grown = _BASE + '"src/tether/b.py" = ["D102"]\n'
     shrunk = _BASE.replace('"D401", ', "")

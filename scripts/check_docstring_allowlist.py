@@ -4,8 +4,11 @@
 
 Ruff checks the docstrings of ``src/tether`` with its ``D`` rules and the NumPy convention. The
 violations that existed when the check was turned on are allowed by file and by rule, as
-entries of ``[tool.ruff.lint.per-file-ignores]`` in ``pyproject.toml`` whose path is under
-``src/tether/``. This script and ``tests/test_docstring_standard.py`` keep that allowlist honest:
+entries of ``[tool.ruff.lint.per-file-ignores]`` in ``pyproject.toml``. Every ``D`` code in that
+table counts, whatever its key, except the one entry that limits the check to the package
+(``OUTSIDE``). A key that is not a package file, such as the ``"__init__.py"`` pattern, matches no
+violation by its own name, so its ``D`` code is reported stale and fails the check. This script and
+``tests/test_docstring_standard.py`` keep that allowlist honest:
 
 * ``stale_entries`` names each allowed ``(file, rule)`` that ruff no longer finds. The CI
   ``lint`` job runs this script, which fails (exit 1) on a stale entry, so the entry is removed
@@ -30,8 +33,10 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
 PYPROJECT = _REPO / "pyproject.toml"
-#: The allowlist is every per-file-ignores entry for a path under this prefix.
+#: The package that the docstring check covers.
 PREFIX = "src/tether/"
+#: The per-file-ignores entry that limits the check to the package. It is not an allowlist entry.
+OUTSIDE = ("!src/tether/**", "D")
 
 Entry = tuple[str, str]  # (file path from the repository root, rule code)
 
@@ -43,9 +48,8 @@ def allowlist(pyproject_text: str) -> set[Entry]:
     return {
         (path, code)
         for path, codes in ignores.items()
-        if path.startswith(PREFIX)
         for code in codes
-        if code.startswith("D")
+        if code.startswith("D") and (path, code) != OUTSIDE
     }
 
 
@@ -91,7 +95,10 @@ def main() -> int:
     allowed = allowlist(PYPROJECT.read_text(encoding="utf-8"))
     stale = stale_entries(allowed, violations())
     for path, code in stale:
-        print(f"{path}: {code} is allowed but no longer occurs; remove it from the allowlist")
+        if path.startswith(PREFIX):
+            print(f"{path}: {code} is allowed but no longer occurs; remove it from the allowlist")
+        else:
+            print(f"{path}: {code} exempts files by a pattern; allow a package file by its path")
     print(f"{len(allowed)} allowed pairs, {len(stale)} stale")
     return 1 if stale else 0
 
