@@ -854,7 +854,11 @@ in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
   `prmTT`; row 13 (that tag) of the Histogram-analysis results `prmThm` and of the
   Transition-analysis results `prmTDP`, with every other row an empty cell; and the project fields
   above plus `frame_rate` and `molTagNames`, all unchanged. `tests/test_mashfret_analysis.py` and
-  `tests/test_mashfret_analysis_sidecar.py` read it.
+  `tests/test_mashfret_analysis_sidecar.py` read it. Its `prmThm` row also holds MASH-FRET's
+  BOBA-FRET bootstrap of the tag (#713, ADR-0108): the settings `thm_start` (100 samples of 17
+  molecules, weighted) and, in `thm_res{2,2}` and `thm_res{2,3}`, each sample's Gaussian fit and
+  histogram. These stored values, made by MASH-FRET at commit `1a1f465` when its authors saved the
+  project, are the reference of `tests/test_mashfret_bootstrap.py`; no MATLAB run made them.
 
 | Source (in the Zenodo record) | Size | SHA-256 |
 |---|---|---|
