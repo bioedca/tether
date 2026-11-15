@@ -611,8 +611,8 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
                             "lock lifecycle guard is not writable by this user and this "
                             "filesystem cannot lock it read-only; ask its owner to give "
                             "it the project directory's group and make it group-writable "
-                            "(chgrp <group> and chmod g+rw), or to run Tether on the "
-                            "project once, which does both",
+                            "(chgrp <group> and chmod g+rw); its owner running Tether "
+                            "on the project once attempts both",
                             str(gp),
                         ) from exc
                     if exc.errno not in {errno.EACCES, errno.EAGAIN}:

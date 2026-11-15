@@ -527,7 +527,7 @@ def test_read_only_guard_on_a_filesystem_that_needs_write_names_the_remedy(
     with pytest.raises(PermissionError, match="chgrp <group> and chmod g\\+rw") as caught:
         lock.steal_lock(path, identity=HOST_B)
 
-    assert "run Tether on the project once" in str(caught.value)
+    assert "running Tether on the project once attempts both" in str(caught.value)
     assert read_only_fds
     assert lock.read_lock(path) == first
 

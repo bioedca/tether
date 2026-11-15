@@ -707,9 +707,9 @@ Tether gives that file read and write access for each group of users who can wri
 folder, so another lab member can run the steal above. A guard made by a release before #257 is
 corrected the next time its owner opens the project. On some network filesystems a user who cannot
 write the guard gets `PermissionError: ... lock lifecycle guard is not writable by this user`;
-the guard's owner fixes that once by opening the project in Tether, or by hand with
-`chgrp <lab group> <path>.tether.lock.guard` and then `chmod g+rw <path>.tether.lock.guard`,
-where `<lab group>` is the project folder's group.
+the guard's owner can open the project in Tether once, which attempts the fix. If the error stays,
+the owner fixes it by hand with `chgrp <lab group> <path>.tether.lock.guard` and then
+`chmod g+rw <path>.tether.lock.guard`, where `<lab group>` is the project folder's group.
 
 While locked out you can still open the project read-only and curate into your own
 split/subset `.tether`, merged back later on `molecule_key`.

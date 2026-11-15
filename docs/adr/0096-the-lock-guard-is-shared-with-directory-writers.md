@@ -77,7 +77,7 @@ Chosen option: **2**.
 - Some network filesystems emulate `flock()` with byte-range locks, which need a writable
   descriptor. There the read-only lock fails with `EBADF`, and Tether raises a `PermissionError`
   that names the guard and the remedy (its owner gives it the directory's group and makes it
-  group-writable, or runs Tether on the project once, which does both), instead of an
+  group-writable; the owner running Tether on the project once attempts both, best effort), instead of an
   unexplained `OSError`.
 - Windows is unchanged: it has no POSIX mode bits, and its guard is a byte-range lock that needs a
   writable descriptor.
