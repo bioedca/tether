@@ -450,7 +450,8 @@ The eight renderers, and the plot each produces (Appendix-C ids as used in the
 | `render_cross_correlation` | `CrossCorrelation` | Donor–acceptor cross-correlation | `Lag (frames)` — always frames; there is no seconds variant |
 
 `render_transition_density` draws the B1 colour scale as `color_scale="log"` by default, the
-log-normalized TDP that PRD Appendix C names. Use `color_scale="linear"` for a linear scale.
+log-normalized TDP that the product specification names. Use `color_scale="linear"` for a
+linear scale.
 The log scale is zero-safe: an empty bin gets the floor colour of the colour map. The floor
 is one decade below the smallest non-empty bin, so a rare transition does not disappear next
 to a frequent one. The scale is display-only: the drawn array is the stored histogram.
