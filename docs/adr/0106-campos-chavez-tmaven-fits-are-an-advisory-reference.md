@@ -47,9 +47,11 @@ Reading the article, the archive and three tMAVEN versions (2026-11-15) showed:
 4. **Five fits are reproduced at the pin.** Wild type, ΔNCCA, ΔDiscriminator and the two
    sub-populations agree with the published means to 2.8e-3 or better; the count matrices of the
    three global ones agree to 1.5 % (off-diagonal, L1) or better. The consensus vbHMM starts from
-   data percentiles, so its fit does not depend on the seed (11 seeds agree to 2e-8).
+   data percentiles, so at the pin its fit does not depend on the seed: 11 seeds agree to 2e-8 on
+   these three fits and to 1.2e-6 on Linker and RAG.
 5. **Two fits are not reproduced by `10f4230` or by 0.2.3.** For the Linker and RAG mutants both
-   versions converge to another optimum (means up to 0.39 and 0.36 from the published ones).
+   versions converge to another optimum (means up to 0.39 and 0.36 from the published ones); in
+   0.2.3 the seeds move those means by up to 0.020 and 0.017.
    tMAVEN 0.2.0 (`8beaeb1`, 2023-08-14) starts the consensus fit from K-means, which depends on the
    seed: 3 of 11 seeds give the published Linker count matrix to 2e-4, and 2 give the RAG means
    to 1.1e-4. 0.2.0 also gives the ΔDiscriminator count matrix to 8e-10 and the wild-type means
@@ -73,9 +75,11 @@ Reading the article, the archive and three tMAVEN versions (2026-11-15) showed:
 
 1. **Gate all seven fits at the pin, each metric at its measured deviation from the published
    values; record the seed and version evidence (chosen).** The test fails when the sidecar fit
-   moves; the documentation says which fits reproduce the article and which do not.
+   moves further from the published values than its limit; the documentation says which fits
+   reproduce the article and which do not.
 2. **Gate the five reproduced fits only and report Linker and RAG.** Rejected: a change of the
-   sidecar that moves those two fits would pass silently, and S1 asks for all seven.
+   sidecar that moves those two fits further from the article would pass silently, and S1 asks
+   for all seven.
 3. **Fit Linker and RAG with tMAVEN 0.2.0 in the test.** Rejected: it tests an old tMAVEN, not
    Tether's sidecar, and the K-means start makes the result depend on the seed.
 4. **Hold the two sub-populations with the sidecar keys `kmeans_vbhmm` and `vbgmm_vbhmm`.** Kept
@@ -119,10 +123,12 @@ Chosen option 1.
 
 - Good: five published fits of measured data are a reference for the sidecar's consensus vbHMM,
   composite K-means vbHMM and vbGMM, read directly from the authors' Source Data.
-- Good: a change of the sidecar that moves any of the seven fits fails the weekly job.
-- Bad: the Linker and RAG limits measure a disagreement (up to 0.4 in a mean), so they hold the
-  pin in place and say nothing about agreement with the article. A tMAVEN update that reaches the
-  published fits fails them too, and needs a new measurement and the maintainer's acceptance.
+- Good: a change of the sidecar that moves any of the seven fits further from the article than its
+  limit fails the weekly job.
+- Bad: the Linker and RAG limits measure a disagreement (up to 0.4 in a mean), so they say nothing
+  about agreement with the article. Each limit is an upper bound: a tMAVEN update that moves these
+  fits nearer to the published ones passes, and shows only in the printed numbers; the limits then
+  need a new measurement and the maintainer's acceptance.
 - Bad: the global fits are deterministic, so their limits sit within 0.1 % of the measurement; a
   change of the numerical stack can fail them, and the answer is a new measurement, not a wider
   limit (PRD §11.2).

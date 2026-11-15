@@ -75,7 +75,8 @@ def test_each_stored_trace_file_is_matched_to_a_sample(private_data) -> None:
                 continue
             columns = {tuple(np.round(c, 3)) for c in donor.T}
             hits = sum(tuple(np.round(m[:, 0], 3)) in columns for m in raw)
-            best = max(best, (hits / raw.shape[0], index))
+            if hits / raw.shape[0] > best[0]:
+                best = (hits / raw.shape[0], index)
         private_data.record(
             neutral_id,
             molecules=raw.shape[0],

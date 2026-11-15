@@ -1025,10 +1025,15 @@ significant digit. "—" marks a metric that has no published value.
 **This is an advisory reference.** A limit measures how far the pinned tMAVEN is from the published
 fit, so a failure means that the sidecar fit moved, not that the article is wrong. Five fits
 reproduce the article: wild type, ΔNCCA, ΔDiscriminator and the two sub-populations. For the
-Linker and RAG mutants, the pin finds a different optimum, and their limits hold that difference.
+Linker and RAG mutants, the pin finds a different optimum. Each limit is an upper bound: a change
+that moves a fit further from the article fails it, and a change that moves a fit nearer to the
+article passes it and shows only in the printed numbers.
 
 **Seed and version.** The consensus vbHMM of `10f4230` and of 0.2.3 starts from percentiles of the
-data, so the seeds change its fit by less than 2e-8. The K-means start of the One-state
+data. At the pin, the 11 seeds change the means of the wild-type, ΔNCCA and ΔDiscriminator fits by
+less than 2e-8, and those of the Linker and RAG fits by less than 1.2e-6. In 0.2.3 the three
+reproduced fits are the same, but the seeds move the Linker and RAG means by up to 0.020 and
+0.017. The K-means start of the One-state
 population depends on the seed (means 1.0e-3 to 2.7e-3 from the published ones). The same fits
 with older tMAVEN, in a separate environment with the same numerical stack (the largest mean
 difference, over the seeds):
@@ -1048,8 +1053,9 @@ Three results follow. (1) tMAVEN 0.2.0 reproduces the published fits most closel
 and, for 3 of the 11 seeds, the Linker count matrix to 2e-4 (for 2 seeds, the RAG means to
 1.1e-4). Its consensus fit starts from K-means, so the seed decides which optimum it reaches.
 Commit `62422f9` (0.2.3) is dated after the article, so the published fits were probably made
-with 0.2.0 or a build near it. (2) For the five reproduced fits, the version changes the means by
-less than 7e-5, and `10f4230` changes the transitions of the idealized paths (2.2 % for the
+with 0.2.0 or a build near it. (2) For the wild-type, ΔNCCA, ΔDiscriminator and Two-state fits, the
+version changes the means by less than 7e-5 (the One-state population depends on the seed in
+each version, above), and `10f4230` changes the transitions of the idealized paths (2.2 % for the
 wild type, where 0.2.0 and 0.2.3 give exactly the published ones). (3) For the Linker and RAG
 mutants, the percentile start of 0.2.3 and `10f4230` reaches another optimum on every seed. The
 wild-type count matrix differs by 1.5 % off the diagonal in all three versions.
