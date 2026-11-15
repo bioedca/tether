@@ -1,3 +1,7 @@
+---
+description: "Draw a FRET-efficiency histogram, a transition-density plot and dwell-time survival curves from an idealized project, and save each as a figure."
+---
+
 # Draw a FRET histogram, a TDP and dwell-time survival plots
 
 ## Who this page is for
@@ -138,6 +142,9 @@ for state, analysis in dwells.items():
 Each plot is written three times, as `histogram.pdf`, `histogram.svg` and `histogram.png`,
 with a `histogram.provenance.json` beside them recording what made it; likewise `tdp.*` and
 one `dwell-state-N.*` set per state.
+The TDP uses a log colour scale, so a rare transition stays visible next to a frequent one.
+The `tdp.provenance.json` file records the scale. To get a linear scale, call
+`render_transition_density(tdp, color_scale="linear")`.
 The histogram carries a shaded 95% confidence band, drawn from 1000 bootstrap resamples of
 the molecules. The resampling is seeded, so the band is the same every time the script runs
 ([`n_resamples`](../reference/parameters.md#param-n-resamples),

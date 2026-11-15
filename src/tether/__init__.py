@@ -8,9 +8,9 @@ backed by a single self-describing HDF5 (``.tether``) project store that carries
 full provenance for every datum. See ``docs/PRD.md`` for the product spec.
 
 The package is organized into the eight modules described in PRD §4.2:
-:mod:`tether.io`, :mod:`tether.imaging`, :mod:`tether.fret`,
-:mod:`tether.idealize`, :mod:`tether.ml`, :mod:`tether.analysis`,
-:mod:`tether.gui`, and :mod:`tether.project`.
+[`tether.io`][], [`tether.imaging`][], [`tether.fret`][],
+[`tether.idealize`][], [`tether.ml`][], [`tether.analysis`][],
+[`tether.gui`][], and [`tether.project`][].
 """
 
 from __future__ import annotations

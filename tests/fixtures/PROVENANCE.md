@@ -18,32 +18,36 @@ uv run --no-project --with h5py --with tifffile --with numpy \
 
 | Fixture | Purpose | Source file | Source size | Fixture size | Source SHA-256 | Notes |
 |---|---|---|---|---|---|---|
-| `tests/fixtures/movie_be_64x64x50.tif` | big-endian movie crop (M0 open; M1/M2 smoke) | `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` | 891,955,083 B | 417,990 B | `c4293f00ed2ac72d…` | cropped |
-| `tests/fixtures/smd_4mol.hdf5` | 4-molecule tMAVEN SMD (M0.5/M2 parity) | `video10.hdf5` | 87,551 B | 87,551 B | `227930deeb3ca03d…` | verbatim copy |
-| `tests/fixtures/smd_2mol.hdf5` | 2-molecule tMAVEN SMD (import round-trip) | `video 25,26,27,28.hdf5` | 61,780 B | 61,780 B | `95439c4bc54063a9…` | verbatim copy |
-| `tests/fixtures/large/smd_281mol.hdf5` | 281-molecule population SMD (parity gate) | `model-source-smd-281mol.hdf5` | 3,925,718 B | 3,925,718 B | `286130c45a679263…` | verbatim · **LFS** |
-| `tests/fixtures/large/model_281mol.hdf5` | 4-state vbHMM model (parity gate) | `model.hdf5` | 2,621,011 B | 2,621,011 B | `8f78fa48ad0311fd…` | verbatim · **LFS** |
-| `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` | 6 donor crops + `don` oracle |
-| `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization + detection slice (M0.5 S6 / M1 S9 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 131,296 B | `b6a911d48bc27cd1…` | coloc table + `ParticleDetectionMode` + MCOS `Channel` blob (per-channel `DetectionThreshold`) |
-| `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e…` | decoded degree-2 coeffs only |
-| `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d…` + `af1b5be33aa63f87…` + `7db0cf80d161847e…` | 6 acceptor crops + `acc` oracle |
-| `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 3,884,619 B + 792,946 B | 104,307 B | `a993036a53d1d492…` + `b538b539ee75add3…` | 2 bead-channel crops + `.tmap` ground truth |
-| `tests/fixtures/large/bead_prealign.tmap` | Deep-LASI `.tmap` decoder input (`read_tmap`, #733) | `…20250721…15-36.tmap` | 3,884,619 B | 3,853,675 B | `a993036a53d1d492…` | acquisition directory redacted (same length) · **LFS** |
-| `tests/fixtures/deeplasi_export_slice.mat` | Deep-LASI `.mat` reader slice (M1 S9 oracle) | `…010.mat` | 9,053,155 B | 8,127 B | `af1b5be33aa63f87…` | 4 mol × 80 frames: `fret_pairs` + 6 trace arrays; v5, real `movie_name` filename + redacted `movie_path` directory |
-| `tests/fixtures/deeplasi_traces_slice.txt` | Deep-LASI `…-donc-accc-w.txt` reader slice (M1 S9 oracle) | `…010-donc-accc-w.txt` | 7,739,364 B | 6,412 B | `0892ae965a947003…` | first 80 frames × 8 cols (4 mol, donor/acc interleaved) |
+| `tests/fixtures/movie_be_64x64x50.tif` | big-endian movie crop (M0 open; M1/M2 smoke) | `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` | 891,955,083 B | 417,990 B | `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448` | cropped |
+| `tests/fixtures/smd_4mol.hdf5` | 4-molecule tMAVEN SMD (M0.5/M2 parity) | `video10.hdf5` | 87,551 B | 87,551 B | `227930deeb3ca03d9ec437d37d72432944028f2bf2ceb07b00e2b7fd35301fe8` | verbatim copy |
+| `tests/fixtures/smd_2mol.hdf5` | 2-molecule tMAVEN SMD (import round-trip) | `video 25,26,27,28.hdf5` | 61,780 B | 61,780 B | `95439c4bc54063a9abb753148e8ac6393396b095c4011c16818592dc3b5114db` | verbatim copy |
+| `tests/fixtures/large/smd_281mol.hdf5` | 281-molecule population SMD (parity gate) | `model-source-smd-281mol.hdf5` | 3,925,718 B | 3,925,718 B | `286130c45a6792636689eb4e60d111439a5a3a7d1b0bb5dcfb5254e3f9e02263` | verbatim · **LFS** |
+| `tests/fixtures/large/model_281mol.hdf5` | 4-state vbHMM model (parity gate) | `model.hdf5` | 2,621,011 B | 2,621,011 B | `8f78fa48ad0311fd75cc97a9e042adcf8e46032e275bef453b633e1cbef022a2` | verbatim · **LFS** |
+| `tests/fixtures/aperture_oracle.npz` | aperture Sum-integration oracle (M0.5 S5) | `…010.tif` + `…010.mat` | 891,955,083 B + 9,053,155 B | 460,472 B | `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448` + `af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886` | 6 donor crops + `don` oracle |
+| `tests/fixtures/tdat_coloc_slice.tdat` | TIRFdata colocalization + detection slice (M0.5 S6 / M1 S9 decode) | `…010.tif…00-00.tdat` | 37,039,831 B | 131,296 B | `b6a911d48bc27cd1b5f43a4a4713c659c73b834cdbbc769e38176da24bfab47a` | coloc table + `ParticleDetectionMode` + MCOS `Channel` blob (per-channel `DetectionThreshold`) |
+| `tests/fixtures/tmap_coeffs.npz` | Deep-LASI `.tmap` registration coefficients (M0.5 S6 registration) | `…20250718…13-40.tmap` | 3,872,385 B | 5,905 B | `7db0cf80d161847e620d820060dbbf856a3dca3dc3f1e5e8b8c44f9aa124f13f` | decoded degree-2 coeffs only |
+| `tests/fixtures/acceptor_oracle.npz` | acceptor aperture-integration oracle via `.tmap` apply (M0.5 S5/S6) | `…010.tif` + `…010.mat` + `…13-40.tmap` | 891,955,083 B + 9,053,155 B + 3,872,385 B | 271,214 B | `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448` + `af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886` + `7db0cf80d161847e620d820060dbbf856a3dca3dc3f1e5e8b8c44f9aa124f13f` | 6 acceptor crops + `acc` oracle |
+| `tests/fixtures/bead_prealign_oracle.npz` | 4-DOF prealign oracle (M1 S5b registration) | `…20250721…15-36.tmap` + `map.tif` | 3,884,619 B + 792,946 B | 104,307 B | `a993036a53d1d4920fe2a1f8409a33889d0f72ca417162efc910845bc9c3f462` + `b538b539ee75add3509f2540c6182df80608b4f047c432588a5829eecf1d5d90` | 2 bead-channel crops + `.tmap` ground truth |
+| `tests/fixtures/large/bead_prealign.tmap` | Deep-LASI `.tmap` decoder input (`read_tmap`, #733) | `…20250721…15-36.tmap` | 3,884,619 B | 3,853,675 B | `a993036a53d1d4920fe2a1f8409a33889d0f72ca417162efc910845bc9c3f462` | acquisition directory redacted (same length) · **LFS** |
+| `tests/fixtures/deeplasi_export_slice.mat` | Deep-LASI `.mat` reader slice (M1 S9 oracle) | `…010.mat` | 9,053,155 B | 8,127 B | `af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886` | 4 mol × 80 frames: `fret_pairs` + 6 trace arrays; v5, real `movie_name` filename + redacted `movie_path` directory |
+| `tests/fixtures/deeplasi_traces_slice.txt` | Deep-LASI `…-donc-accc-w.txt` reader slice (M1 S9 oracle) | `…010-donc-accc-w.txt` | 7,739,364 B | 6,412 B | `0892ae965a947003b5a131a2172fbfeef0967f5a5aa579cf591e45cae59b43af` | first 80 frames × 8 cols (4 mol, donor/acc interleaved) |
 
 **Accessed:** 2026-06-22 (date `example-data/` was gathered onto this
-workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
+workstation; see its `README.md`). The full source SHA-256 values above were computed from the
+`example-data/` originals on 2026-11-14 (#552); every size and every earlier 16-hex prefix
+matched. **Origin:** Mondragón Lab (Northwestern)
 smFRET acquisitions — the project's own data, vendored here as test fixtures.
 **License:** `GPL-3.0-or-later`, with the rest of the repository (REUSE blanket).
 
 ## Movie crop
 
+<!-- make_fixtures.py: movie crop, begin -->
 `movie_be_64x64x50.tif` is the **brightest 64×64 window**
 (top-left pixel `(row=375, col=432)`) of the first
 50 frames of the source movie, kept **big-endian uint16**
 (shape `(50, 64, 64)`, axes `TYX`) so it exercises the M0 S7 big-endian reader and
 the napari open path, and contains real molecules for M1/M2 extraction smoke.
+<!-- make_fixtures.py: movie crop, end -->
 
 ## Aperture-integration oracle
 
@@ -178,7 +182,7 @@ Regenerate with `scripts/make_bead_prealign_fixture.py`.
 
 `tests/fixtures/large/bead_prealign.tmap` (3,853,675 B, sha256
 `8dc33e5c08ff765cf34940ec2e89b72cad3c19abecb7fa2f718f544a4aa46b9b`, Git LFS) is the bead
-`.tmap` of the section above (source sha256 `a993036a…`, verified when it was copied from the
+`.tmap` of the section above (source sha256 `a993036a53d1d4920fe2a1f8409a33889d0f72ca417162efc910845bc9c3f462`, verified when it was copied from the
 maintainer's workstation on 2026-11-11). It lets `read_tmap` run on a real file: the
 `large-fixtures` job decodes it and compares the result with `bead_prealign_oracle.npz`
 (`tests/test_register.py`), and runs one `tether extract --tmap` end to end
@@ -262,6 +266,53 @@ Both files, and the three source zips, have entries in `tests/reference_data/man
 ADR-0073). The weekly `reference-data` job downloads the zips, verifies the checksums above, and
 compares `kinsoft_trace_sample.txt` with its member of `sim_dataset_Fig4.zip` (verified again on
 2026-11-11).
+
+### Measured traces with a per-trace vbFRET path (Marzano et al., #797)
+
+Two condition folders of measured two-colour smFRET traces by **Nicholas Marzano et al.**, each
+trace with the per-trace vbFRET_nov12 idealization the authors analysed, under **CC-BY-4.0**
+(annotated in `REUSE.toml`, attributed in `NOTICE`; ADR-0090). Each `.dat` member has five
+columns: frame, donor, acceptor, FRET (= A / (D + A)), idealized FRET.
+
+- `tests/fixtures/marzano_ppr_rnaanticognate.tar.xz` (482,520 B · plain git) — every `.dat`
+  file of `Figure_2/Validation_data/RNAanticognate` in `Figure_2.zip` (114 traces), byte for
+  byte. Marzano N, et al., Nucleic Acids Res 52(22):14154-14170 (2024),
+  doi:10.1093/nar/gkae984 (PMC11662938). One 532 nm laser, 200 ms frames, MASH-FRET v1.2.2 with
+  cross-talk correction, vbFRET_nov12 (hyperparameters 1.5 and 0.5).
+- `tests/fixtures/marzano_chaperone_kjg_231027.tar.xz` (465,640 B · plain git) — every `.dat`
+  file of `Fig1_FigS1_FigS2/single-molecule/KJG/KJG_231027` in `Fig1_FigS1_FigS2.7z` (68
+  traces), byte for byte. Marzano NR, et al., Sci Adv 12(31):eaeg5464 (2026),
+  doi:10.1126/sciadv.aeg5464 (PMC13418734). vbFRET_nov12 with at most 5 states, mu 1.5,
+  beta 0.5. #797 names `KJE/KJE_231212` first; that folder is 925 kB even as `.tar.xz`, over
+  the 512 KiB plain-git limit, so the smaller whole folder is used.
+- `tests/fixtures/reference/marzano/ppr_dwells.csv`,
+  `tests/fixtures/reference/marzano/ppr_transitions.csv`,
+  `tests/fixtures/reference/marzano/chaperone_dwells.csv` and
+  `tests/fixtures/reference/marzano/chaperone_transitions.csv` — the dwell and transition tables of `nmarzano/smFRET_module` v1.0.3 (MIT, Zenodo doi:10.5281/zenodo.16791519,
+  archive SHA-256 `54f17fe4e0bd7bccaca172856cbe58fc4107034e378ea0b99cc01cb4ed2ab8a6`), run once
+  outside the product on the two fixtures. `smfret_module_run.json` beside them (Tether's own
+  record) names the functions, the Python 3.12.13 and pandas 3.0.3 versions, and the SHA-256 of
+  every input and output.
+
+| Source (in the Zenodo record) | Size | MD5 | SHA-256 |
+|---|---|---|---|
+| `Figure_2.zip` (doi:10.5281/zenodo.11323228) | 21,570,519 B | `79369fb2c4928eada9faaab0e7a79d3e` | `f6f8beffac601d933d6e897ce808c1fcb45f27dc226ab6f11de6118bb50fcd10` |
+| `Fig1_FigS1_FigS2.7z` (doi:10.5281/zenodo.17118152) | 44,432,881 B | `ddd668077b669fffc5f15551ec9ed184` | `92f94bbd6373edab7875b4dc21e6e2cfa00efaf39a8a45e5bbc74573abd2aac7` |
+
+**Accessed:** 2026-11-13 (downloaded from Zenodo; checksums verified). **License:** CC-BY-4.0
+(Marzano et al.) — **not** GPL-3.0. Regenerate by downloading both archives and the
+smFRET_module v1.0.3 archive, then:
+
+```sh
+uv run --no-project --with py7zr python scripts/make_marzano_fixture.py fixtures \
+    --source <dir with Figure_2.zip and Fig1_FigS1_FigS2.7z>
+uv run --no-project --with pandas python scripts/make_marzano_fixture.py tables \
+    --module <nmarzano-smFRET_module-v1.0.3.zip from Zenodo 16791519>
+```
+
+The member bytes are the reference; the `.tar.xz` bytes can differ with another liblzma build.
+All six files and the two archives have entries in `tests/reference_data/manifest.toml` (ids
+starting with `marzano-`).
 
 ### kinSoftChallenge ground-truth kinetic models (M8 kinetics oracle)
 
@@ -414,12 +465,12 @@ verifies it there with the archive checksum.
 
 The trace matrix is the smallest file of `smFRET_SourceData/`. Two members have that size,
 `intraFRET_WT+WT_13uM.txt` and `intraFRET_WT+WT_5uM.txt`, and they are byte-identical in the
-publisher's archive (both `0f4c8902…a58839`); the first in archive order is committed. A check that
+publisher's archive (both `0f4c89027159593e885e02cdc7800218aed540bc1b44ccdd29d4846064a58839`); the first in archive order is committed. A check that
 reads both files from the downloaded archive gets the same traces twice.
 
 **`Kmatrix/CalculateKbounds.py` does not parse** (`IndentationError` at line 51: five spaces where
 its block has four). The publisher's file and the copy that the audit of #695 read are
-byte-identical (`81d06b5b…3320`), so the fault is in the published file. The licence forbids a
+byte-identical (`81d06b5b1be8ef29558ff9e7c91c932d9fda871bdb28aab642398c62f77e3320`), so the fault is in the published file. The licence forbids a
 corrected copy, so tests use the `.txt` inputs and `.out` outputs and never import the script.
 
 Every file has an entry in `tests/reference_data/manifest.toml` (ids `campos2024-…`, with
@@ -488,8 +539,8 @@ gated UCKOPSB pair via `scripts/run_m1_oracle.py` (imported `.tmap` leg), record
 as the durable measurement (the movie is never committed — PRD §8 NFR-FIXTURES):
 
 - **Source:** `Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif` (1700×512×512, 891,955,083 B,
-  SHA-256 `c4293f00ed2ac72d…`) + `DeepLASI_MAP_…20250718…13-40.tmap`
-  (`7db0cf80d161847e…`) + `DeepLASI_MAT_export_…010.mat` (`af1b5be33aa63f87…`, 250 mol).
+  SHA-256 `c4293f00ed2ac72d0aa6c55f0c3fbb4910e928eed8f2c4c73a3087cf109e8448`) + `DeepLASI_MAP_…20250718…13-40.tmap`
+  (`7db0cf80d161847e620d820060dbbf856a3dca3dc3f1e5e8b8c44f9aa124f13f`) + `DeepLASI_MAT_export_…010.mat` (`af1b5be33aa63f87378df19a4a288cd23001409b5c40473201d1e7d19fb11886`, 250 mol).
 - **Measured (raw integrated intensity, 1 px match):** recall **0.204** (51/250);
   donor Pearson r median 0.988, acceptor 0.876; coord RMS of the 51 matched 0.289 px.
 - **Verdict: §9 M1 acceptance NOT met.** Diagnosed to the **detection stage** (coordinate
@@ -527,6 +578,28 @@ python scripts/make_tutorial_movie.py --check
 `tests/test_docs_tutorial.py` runs the `--check` derivation on every OS in the
 required matrix.
 
+## Docs-site root snapshot (docs-site guard, #509)
+
+`tests/fixtures/docs_site/gh_pages_index.html` is not derived from `example-data/`. It is the
+root page of the published documentation site, copied verbatim so that
+`tests/test_docs_site_guard.py` tests `scripts/check_docs_site.py` against the real bytes and not
+a hand-typed stub (the real `location.replace` call is wrapped across lines). The test pins the
+same digest as `ROOT_STUB_SHA256`.
+
+| Fixture | Source | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/docs_site/gh_pages_index.html` | `index.html` at `gh-pages` commit `e080cf6175a7b40cdc33f91d12bc28ffa4dbcc04` (the redirect page that mike 2.2.0 writes; the live site root served the same bytes on 2026-08-13) | 374 B | `36a4bad7470e9a2ae9067a0d61bc99040f4d993c9319213812640ee0169136fd` |
+
+The file is text (`.gitattributes` `text=auto`), so its digest is taken over the LF form, as the
+test does. Regenerate, or verify, with:
+
+```sh
+git fetch origin e080cf6175a7b40cdc33f91d12bc28ffa4dbcc04
+git show e080cf6175a7b40cdc33f91d12bc28ffa4dbcc04:index.html > tests/fixtures/docs_site/gh_pages_index.html
+```
+
+**License:** the repository's REUSE blanket entry, `GPL-3.0-or-later`.
+
 ## MATLAB reference outputs (#700, ADR-0074)
 
 Outputs of the MATLAB reference tools live under `tests/fixtures/reference/<tool>/<run>/`, each
@@ -535,6 +608,17 @@ output SHA-256 values and the method (`scripts/reference/matlab/`). `tests/test_
 verifies every committed record. `stand-in/selftest` is not a reference: the `matlab` stand-in of
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
+
+`mash-fret/easy`, `mash-fret/low-snr`, `mash-fret/dense` and `mash-fret/uneven` (#714,
+ADR-0088) are four simulated two-channel videos with their truth, made by the `simulate` task of
+`scripts/reference/matlab/mash_fret.py` with the parameters and seeds of
+`scripts/reference/matlab/mash_fret_extraction_set.py`, on MASH-FRET v1.3.6 (`83fcadf`) and
+MATLAB R2023b on the maintainer's workstation (2026-11-13). Each directory holds the video
+(`<name>.sira.gz`, MASH-FRET's own format compressed with gzip), `coordinates/<name>.coord`,
+one `traces_ASCII/<name>_mol<n>of<N>.txt` for each molecule, MASH-FRET's `<name>_param.log`, the
+note `<name>_tether_note.txt` (the one accepted MATLAB R2023b error, ADR-0088) and
+`provenance.json`. They are simulated, so they hold no measured data; they are outputs of a
+GPL-3.0 program and carry the repository's licence.
 
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
@@ -771,3 +855,48 @@ downloading the archive and copying the members above; every file has an entry i
 `tests/reference_data/manifest.toml` (ids `ha-sam-sah-fig1` for the archive and
 `ha-sam-sah-hel1` to `ha-sam-sah-hel53`, `ha-sam-sah-frets`, `ha-sam-sah-test3`,
 `ha-sam-sah-counts2`), and the weekly `reference-data` job compares each copy with its member.
+
+## MASH-FRET project extract (#711, ADR-0087) — **CC-BY-4.0**
+
+External third-party data under a different licence: the smFRET data of the group IIB intron study
+of **Zelger-Paulus, Hadzic, Lindner, Börner, Steffen, Fazliji, Johannsen & Sigel**, deposited at
+Zenodo **doi:10.5281/zenodo.24104528** (published 2026-11-10) under **CC-BY-4.0**. The record's
+`02_smFRET.zip` holds nine MASH-FRET project files (`.mash`). The extract is annotated CC-BY-4.0
+in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
+
+- `tests/fixtures/mashfret_ed135e_30mm_extract.mat` (498,472 B · plain git) — made by
+  `scripts/make_mashfret_fixture.py` from `02_smFRET/eD135e_encapsulated_30mMMg_25C.mash`
+  (4,872,042 B, SHA-256 `ee448ffddad370d0ae1530a838aeca66b380d3e0f35e677d368d98583f17be42`,
+  written by MASH-FRET "1.1.2 (prev. commit: 1a1f465)"). It keeps the first 18 of the 119
+  molecules with every frame and both lasers: their background-corrected, cross-talk-corrected and
+  denoised intensities, `FRET_DTA`, `bool_intensities` and `prmTT`, and the project fields
+  `MASH_version`, `nb_channel`, `nb_excitations`, `excitations`, `chanExc`, `labels`, `FRET` and
+  `fix`, all unchanged. It leaves out the raw intensities and every path and free-text field
+  (`proj_file`, `exp_parameters`). The 116-byte MATLAB header text is fixed, so the same source
+  gives the same bytes. `tests/test_mashfret_reference.py` reads it through `tests/_mashfret.py`.
+- `tests/fixtures/mashfret_ed135e_30mm_path_a.mat` (204,676 B · plain git, #712) — made by the
+  same script from the same project file. It keeps the 17 molecules with tag 12, "Path A 0.2 +-
+  0.3": their denoised intensities, `FRET_DTA`, `bool_intensities`, `coord_incl`, `molTag` and
+  `prmTT`; row 13 (that tag) of the Histogram-analysis results `prmThm` and of the
+  Transition-analysis results `prmTDP`, with every other row an empty cell; and the project fields
+  above plus `frame_rate` and `molTagNames`, all unchanged. `tests/test_mashfret_analysis.py` and
+  `tests/test_mashfret_analysis_sidecar.py` read it.
+
+| Source (in the Zenodo record) | Size | SHA-256 |
+|---|---|---|
+| `02_smFRET.zip` | 236,278,098 B | `0a30d78ab7c67a3bc716afc760fa5f5b7bf54bc60cce5bde8ccac5a41c4605c7` |
+
+The record also gives MD5 `48096e03a7fbef53614f7148da328281` for the archive, which the download
+matched. **Accessed:** 2026-11-13 (downloaded from Zenodo). **License:** CC-BY-4.0 — **not**
+GPL-3.0. Regenerate with:
+
+```sh
+python scripts/make_mashfret_fixture.py <path>/02_smFRET.zip
+```
+
+The three files have entries in `tests/reference_data/manifest.toml` (ids
+`mashfret-group-iib-intron-archive`, `mashfret-ed135e-30mm-extract`, `mashfret-ed135e-30mm-path-a`;
+ADR-0073). The archive is
+larger than the 200 MB download limit, so it is a `workstation` entry: the weekly workstation run
+reads it from `$TETHER_PRIVATE_DATA`, verifies the checksum above, makes both extracts again and
+compares them byte for byte with the committed files.
