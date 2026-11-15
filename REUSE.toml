@@ -12,6 +12,21 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
+# The three files the docs site serves for a data deposit (#612): the project schema, the
+# molecule-table column dictionary and the provenance JSON Schema. The maintainer licensed them
+# CC0-1.0 on 2026-11-10 so that anyone can copy them into a deposit with no conditions; the code
+# and the documentation pages keep their licenses. docs/reference/exports.md states it, and
+# tests/test_docs_published_data.py checks this entry.
+[[annotations]]
+path = [
+    "schema/schema_frozen.json",
+    "docs/reference/molecule-table-columns.csv",
+    "docs/reference/tether-provenance-schema.json",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 The Tether Authors <bioedca@u.northwestern.edu>"
+SPDX-License-Identifier = "CC0-1.0"
+
 # kinSoftChallenge simulated datasets — third-party reference data, CC-BY-4.0
 # (Götz & Schmid, Zenodo 10.5281/zenodo.5701310), aggregated as gated-tier test
 # fixtures. `override` beats the blanket GPL entry above for these specific data
