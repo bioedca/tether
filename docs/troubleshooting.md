@@ -704,8 +704,8 @@ CorruptLockError: unparseable lock file: <path>.tether.lock
 
 **Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
 Tether gives that file read and write access for each group of users who can write the project
-folder, so another lab member can run the steal above. A guard made by a release before #257 is
-corrected the next time its owner opens the project. On some network filesystems a user who cannot
+folder, so another lab member can run the steal above. For a guard made by a release before #257,
+Tether attempts the same correction the next time its owner opens the project. On some network filesystems a user who cannot
 write the guard gets `PermissionError: ... lock lifecycle guard is not writable by this user`;
 the guard's owner can open the project in Tether once, which attempts the fix. If the error stays,
 the owner fixes it by hand with `chgrp <lab group> <path>.tether.lock.guard` and then

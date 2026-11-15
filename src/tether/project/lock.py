@@ -459,11 +459,11 @@ def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
     remove the lock sidecar, so the guard grants them nothing new; without it, a
     guard created ``0644`` under ``umask 022`` admits only its first creator to
     ``O_RDWR``. Bits are only added, never removed, and only the guard's owner can
-    change them, so a guard an earlier release created is repaired the next time
-    its owner runs a lifecycle operation. Where the directory is group-writable,
-    the guard also takes the directory's group: without a setgid directory Linux
-    gives a new file its creator's primary group, which need not be the group that
-    shares the project.
+    change them, so the repair of a guard an earlier release created is attempted
+    the next time its owner runs a lifecycle operation. Where the directory is
+    group-writable, the guard also takes the directory's group: without a setgid
+    directory Linux gives a new file its creator's primary group, which need not
+    be the group that shares the project.
 
     Nothing is changed unless the descriptor is an empty regular file with one
     link that the guard path itself names. An entry another directory writer

@@ -55,9 +55,10 @@ Chosen option: **2**.
 - After opening the guard on POSIX, its **owner** adds read and write for the group if the project
   directory is group-writable, and for others if the directory is other-writable. Bits are only
   added, never removed; nothing changes for a directory only its owner can write. Because the
-  owner does this on every lifecycle operation, a `0644` guard left by an earlier release is
-  repaired the next time its owner acquires, refreshes, steals or releases. `fchmod` is best
-  effort — a filesystem that refuses it does not fail the lock.
+  owner tries this on every lifecycle operation, Tether attempts to repair a `0644` guard left by
+  an earlier release the next time its owner acquires, refreshes, steals or releases. `fchmod`
+  (and `fchown`, below) are best effort — a filesystem that refuses them does not fail the lock,
+  and the guard then stays as it was.
 - Where the directory is group-writable, the owner also gives the guard the **directory's group**
   (`fchown`, best effort). Without a setgid directory Linux gives a new file its creator's primary
   group, which need not be the group the project is shared with, and the mode bits alone would
