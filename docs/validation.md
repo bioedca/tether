@@ -501,7 +501,8 @@ vbFRET_nov12 replaced none. On these fixtures it changes 1 PPR frame (frame 962 
 `079_PATH_D041322_T1157.dat`) and no chaperone frame. Two chaperone frames have a
 donor-plus-acceptor total of zero. tMAVEN computes FRET there as 0, not NaN, so the clip keeps
 them and the fit reads FRET 0. The test prints its report, with these frames named, on every
-run, passing or failing.
+run that completes the comparison, a passing run included. A failing assertion stops the test
+before the report is printed.
 
 ### ebFRET against stored ebFRET sessions (report only)
 
