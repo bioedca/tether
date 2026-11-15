@@ -8,8 +8,8 @@ cell array, referenced from the data tree by *object-reference markers*: a
 ``[0xDD000000, ndims, dims…, object_id, class_id]`` ``uint32`` vector carrying an
 HDF5 ``MATLAB_class`` attribute naming the class. The bulk numeric leaves of a
 ``.tdat`` sit in plain ``#refs#`` datasets and are read without this module
-(:mod:`tether.io.tdat`), but a handful of payloads M1 import needs — here the
-per-channel :class:`~tether.io.tdat.TdatDetectionSettings` ``DetectionThreshold``
+([`tether.io.tdat`][]), but a handful of payloads M1 import needs — here the
+per-channel [`TdatDetectionSettings`][tether.io.tdat.TdatDetectionSettings] ``DetectionThreshold``
 (``TIRFdata.m:63``, "% of max") — are MCOS object *properties*, reachable only
 through the ``FileWrapper__`` blob.
 
@@ -19,7 +19,7 @@ whole object graph. The ``FileWrapper__`` metadata format is undocumented by
 MathWorks; the layout below was reverse-engineered against the real UCKOPSB
 ``.tdat`` and cross-checked against independent anchors (each channel's colour
 index ``'G'``/``'R'``, its crop rectangle, and empty rotation/flip — all matching
-the companion ``.tmap`` decoded in :mod:`tether.io.register`).
+the companion ``.tmap`` decoded in `tether.io.register`).
 
 FileWrapper metadata layout (the FileWrapper's first cell, a ``uint8`` blob; all
 values little-endian ``uint32`` unless noted):
@@ -70,7 +70,7 @@ def object_reference_id(marker: object) -> int:
     ``marker`` is the ``[0xDD000000, ndims, dim1…, obj_id…, class_id]`` ``uint32``
     vector stored where a MATLAB v7.3 file references an MCOS object. Only **scalar**
     (1×1) object references are read here; a non-integer, non-scalar, or otherwise
-    malformed marker raises :class:`ValueError` so callers degrade to a default
+    malformed marker raises [`ValueError`][] so callers degrade to a default
     rather than decode the wrong object.
     """
     raw = np.asarray(marker).reshape(-1)
@@ -119,7 +119,7 @@ def _decode_matlab_value(file: h5py.File, node: object) -> object:
     type) becomes a ``list`` of its recursively-decoded elements — so a nested cell
     like ``FilePath = {dir, {file}}`` round-trips to ``['dir', ['file']]``; a
     **char array** becomes its ``str``; anything else (a numeric leaf, an
-    object/struct :class:`h5py.Group`, a null reference) becomes ``None``. Pure over
+    object/struct [`h5py.Group`][], a null reference) becomes ``None``. Pure over
     ``(file, node)`` so it is unit-testable against a synthetic HDF5 file without any
     MCOS metadata.
     """
@@ -135,8 +135,8 @@ def _decode_matlab_value(file: h5py.File, node: object) -> object:
 class McosDecoder:
     """Resolve named properties of MCOS objects in a MATLAB v7.3 ``FileWrapper__``.
 
-    Construct via :meth:`from_file` (returns ``None`` when the file carries no MCOS
-    subsystem). The decoder holds a reference to the open :class:`h5py.File`; use it
+    Construct via [`from_file`][] (returns ``None`` when the file carries no MCOS
+    subsystem). The decoder holds a reference to the open [`h5py.File`][]; use it
     only while that file is open.
     """
 
@@ -238,10 +238,10 @@ class McosDecoder:
     def property_value(self, object_id: int, field_name: str) -> object:
         """Return ``object_id``'s ``field_name`` decoded to plain Python, or ``None``.
 
-        The string/cell counterpart to :meth:`property_scalar`: a ``char`` property
+        The string/cell counterpart to [`property_scalar`][]: a ``char`` property
         decodes to ``str``, a MATLAB ``cell`` (including a nested one) to a ``list``,
         and an absent/unset/non-character property to ``None`` (see
-        :func:`_decode_matlab_value`). Used to recover the ``TIRFdata`` per-channel
+        `_decode_matlab_value`). Used to recover the ``TIRFdata`` per-channel
         ``FilePath = {dir, {movie}}`` embedded movie reference (PRD §7.8).
         """
         return _decode_matlab_value(self._file, self.property_dataset(object_id, field_name))
@@ -249,7 +249,7 @@ class McosDecoder:
     def property_scalar(self, object_id: int, field_name: str) -> float | None:
         """Return ``object_id``'s ``field_name`` as a finite scalar ``float``, or ``None``.
 
-        ``None`` when the property is absent/unset (see :meth:`property_dataset`) or
+        ``None`` when the property is absent/unset (see [`property_dataset`][]) or
         is not a single finite number — an empty ``[]`` default, a non-numeric, or a
         non-scalar value never yields a bogus threshold.
         """

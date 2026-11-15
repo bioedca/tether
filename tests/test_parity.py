@@ -438,9 +438,11 @@ def test_frozen_artifact_covers_its_own_measured_evidence():
     lowering a floor) only leaves the recorded values further inside it. The
     ``$.provisional`` assertion is a *drift* check, not a pin to literals: editing
     the artifact or ``PROVISIONAL`` alone fails, but a PR that moves both in
-    lockstep does not. Loosening, and the PRD 11.2 defaults themselves, are held
-    by review plus the deliberate re-freeze rule (``$.freeze_policy``, PRD 11.2,
-    ADR-0009), not by this test. Same caveat applies to the per-method check below.
+    lockstep does not. Loosening is caught by
+    :func:`test_frozen_bounds_match_the_accepted_copy` instead, which pins every bound
+    to a copy outside the file (#545, ADR-0110); the PRD 11.2 defaults themselves are
+    held by review plus the deliberate re-freeze rule (``$.freeze_policy``, PRD 11.2,
+    ADR-0009). Same caveat applies to the per-method check below.
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
     # Provisional defaults are the documented floor/ceiling design intent.
@@ -451,6 +453,103 @@ def test_frozen_artifact_covers_its_own_measured_evidence():
         expected_evidence=_EXPECTED_EVIDENCE,
         n_runs=data["method"]["n_runs_per_fixture"],
     )
+
+
+#: THE ACCEPTED FROZEN BOUNDS, copied out of ``schema/parity_tolerance.json`` (#545, ADR-0110).
+#:
+#: The checks above assert *recorded value within bound*, so they cannot see a bound that was
+#: widened: a wider bound only leaves every recorded value further inside it. This copy can.
+#: Every frozen bound of the artifact must equal its accepted value here, so a bound widened
+#: (or tightened, or added, or removed) in the file alone fails. A deliberate re-freeze changes
+#: both copies in one pull request, under an ADR (ADR-0009, ADR-0043, ADR-0110), which is then
+#: a visible two-file edit for review rather than a one-number edit nothing reads.
+_ACCEPTED_BOUNDS = {
+    "$.tolerance": {
+        "state_count_min_fraction": 0.9,
+        "state_mean_abs_delta_max": 0.02,
+        "viterbi_min_agreement": 0.95,
+        "relative_elbo_max": 0.01,
+    },
+    "$.tolerance_by_method.ebhmm": {
+        "state_count_min_fraction": 0.5249,
+        "state_mean_abs_delta_max": 0.0518,
+        "viterbi_min_agreement": 0.9034,
+        "relative_elbo_max": 0.01,
+    },
+}
+
+
+def _frozen_bound_rows(data: dict) -> dict[str, dict]:
+    """Every frozen bound row of the artifact, by JSON pointer."""
+    rows = {"$.tolerance": data["tolerance"]}
+    for method, row in data.get("tolerance_by_method", {}).items():
+        rows[f"$.tolerance_by_method.{method}"] = row
+    return rows
+
+
+def _bound_changes(data: dict) -> list[str]:
+    """Each way the artifact's frozen bounds differ from the accepted copy, named."""
+    rows = _frozen_bound_rows(data)
+    changes = [f"{ptr}: row added" for ptr in sorted(set(rows) - set(_ACCEPTED_BOUNDS))]
+    changes += [f"{ptr}: row removed" for ptr in sorted(set(_ACCEPTED_BOUNDS) - set(rows))]
+    for ptr in sorted(set(rows) & set(_ACCEPTED_BOUNDS)):
+        frozen, accepted = rows[ptr], _ACCEPTED_BOUNDS[ptr]
+        for key in sorted(set(frozen) | set(accepted)):
+            if key not in frozen or key not in accepted:
+                changes.append(f"{ptr}.{key}: bound added or removed")
+                continue
+            was, now = accepted[key], frozen[key]
+            if now == was:
+                continue
+            floor = key.endswith("_min_fraction") or key.endswith("_min_agreement")
+            widened = now < was if floor else now > was
+            changes.append(
+                f"{ptr}.{key}: {'WIDENED' if widened else 'tightened'} from {was!r} to {now!r}"
+            )
+    return changes
+
+
+def test_frozen_bounds_match_the_accepted_copy():
+    """No frozen bound changes without the accepted copy changing with it (#545, item 4)."""
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    assert _bound_changes(data) == [], (
+        "a frozen parity bound differs from its accepted copy in tests/test_parity.py; a "
+        "re-freeze updates both under an ADR"
+    )
+
+
+def test_widening_any_one_frozen_bound_fails():
+    """Each bound, widened alone by a small step, is reported as widened."""
+    import copy
+
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    pointers = _frozen_bound_rows(data)
+    assert set(pointers) == set(_ACCEPTED_BOUNDS)
+    widened_any = 0
+    for ptr, row in pointers.items():
+        for key in row:
+            mutated = copy.deepcopy(data)
+            target = _frozen_bound_rows(mutated)[ptr]
+            floor = key.endswith("_min_fraction") or key.endswith("_min_agreement")
+            target[key] = target[key] - 1e-4 if floor else target[key] + 1e-4
+            changes = _bound_changes(mutated)
+            assert changes == [f"{ptr}.{key}: WIDENED from {row[key]!r} to {target[key]!r}"]
+            widened_any += 1
+    assert widened_any == sum(len(r) for r in _ACCEPTED_BOUNDS.values())
+
+
+def test_a_removed_or_added_bound_fails():
+    import copy
+
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    removed = copy.deepcopy(data)
+    del removed["tolerance_by_method"]["ebhmm"]["relative_elbo_max"]
+    assert _bound_changes(removed) == [
+        "$.tolerance_by_method.ebhmm.relative_elbo_max: bound added or removed"
+    ]
+    added = copy.deepcopy(data)
+    added["tolerance_by_method"]["vbfret"] = dict(data["tolerance"])
+    assert _bound_changes(added) == ["$.tolerance_by_method.vbfret: row added"]
 
 
 def test_load_frozen_tolerance_returns_the_four_bounds():
@@ -475,7 +574,8 @@ def test_per_method_tolerances_cover_their_own_measured_evidence():
     in the base matrix. It fails on a per-method tolerance with no recorded evidence,
     on a missing bound, on evidence deleted or truncated from under a bound, on a
     re-labelled fixture path, reference anchor or state count, and on a tolerance
-    tightened below its evidence — not on a loosened one (see the direction caveat
+    tightened below its evidence — not on a loosened one, which
+    :func:`test_frozen_bounds_match_the_accepted_copy` catches (see the direction caveat
     above).
     """
     data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))

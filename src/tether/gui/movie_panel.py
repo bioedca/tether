@@ -2,23 +2,30 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Embedded napari movie panel — the FR-ROUNDTRIP movie surface (PRD §4.1, §7.3).
 
-:class:`NapariMoviePanel` wraps a single :class:`napari.Viewer` that displays a
-lazy TIRF movie (:class:`tether.io.movie.MovieReader`) as a 2-D image layer with
+[`NapariMoviePanel`][] wraps a single [`napari.Viewer`][] that displays a
+lazy TIRF movie ([`tether.io.movie.MovieReader`][]) as a 2-D image layer with
 **donor/acceptor spot points + integration-aperture overlays**, and switches
 between **multiple movies** for a multi-movie experiment (PRD §7.3: "an embedded
 napari movie panel showing the lazy movie + donor/acceptor points + aperture
 overlays, with a movie switcher for multi-movie experiments").
 
-* :meth:`set_movie` displays one movie (the M0 single-movie contract, unchanged).
-* :meth:`add_movie` registers a movie — optionally with a :class:`MovieOverlay` of
-  donor/acceptor spot coordinates — and :meth:`set_active_movie` switches which is
-  shown; :attr:`switcher` is a ready :class:`~qtpy.QtWidgets.QComboBox` a host can
-  place to drive the switch. The napari Qt window is exposed as :attr:`qt_window`
+* [`set_movie`][tether.gui.movie_panel.NapariMoviePanel.set_movie] displays one movie (the M0
+  single-movie contract, unchanged).
+* [`add_movie`][tether.gui.movie_panel.NapariMoviePanel.add_movie] registers a movie — optionally
+  with a [`MovieOverlay`][] of
+  donor/acceptor spot coordinates — and
+  [`set_active_movie`][tether.gui.movie_panel.NapariMoviePanel.set_active_movie] switches which is
+  shown; [`switcher`][tether.gui.movie_panel.NapariMoviePanel.switcher] is a ready
+  [`QComboBox`][qtpy.QtWidgets.QComboBox] a host can
+  place to drive the switch. The napari Qt window is exposed as
+  [`qt_window`][tether.gui.movie_panel.NapariMoviePanel.qt_window]
   so the Tether shell can embed it (the shell embed lands at M2 S4).
-* :meth:`center_on` and :meth:`connect_spot_click` are the napari half of the
+* [`center_on`][tether.gui.movie_panel.NapariMoviePanel.center_on] and
+  [`connect_spot_click`][tether.gui.movie_panel.NapariMoviePanel.connect_spot_click] are the napari
+  half of the
   M2 S4 trace↔movie round-trip (PRD §7.3, §5.2): centre the camera on a spot
   (trace → movie) and receive a canvas click (movie → trace). The resolver that
-  drives them lives in :mod:`tether.gui.roundtrip`.
+  drives them lives in [`tether.gui.roundtrip`][].
 
 **Overlays.** Molecule spot positions are frame-independent, so a plain **2-D**
 Points layer (``[row, col]``) rides over every frame of the ``(T, H, W)`` movie as
@@ -28,15 +35,15 @@ integration-aperture PSF-disk radius (default 3 px, PRD Appendix E / §11.2). A
 movie switch replaces the single image layer and updates the overlay layers in
 place, so switching never piles up layers and only the active movie's ``memmap``
 is displayed. Resolving a molecule to a displayed spot (and back) is the
-round-trip resolver's job (:mod:`tether.gui.roundtrip`); the panel stays
+round-trip resolver's job ([`tether.gui.roundtrip`][]); the panel stays
 presentational, exposing only the camera-centre / click seam it drives.
 
 **Byte order.** The reference acquisitions are big-endian ``>u2`` (PRD Appendix A);
-:class:`MovieReader` preserves that on-disk order so the lazy ``memmap`` stays
+[`MovieReader`][] preserves that on-disk order so the lazy ``memmap`` stays
 zero-copy. GL textures, however, interpret 16-bit pixel bytes in the host's
 **native** order, so uploading big-endian bytes would render garbled. The panel
 therefore converts to native order **at the display boundary**, and does so
-**lazily, one frame at a time** (:class:`_NativeDisplayArray`): napari slices a
+**lazily, one frame at a time** (`_NativeDisplayArray`): napari slices a
 single frame per redraw, so only that frame is byte-swapped and the ≈0.9 GB stack
 never materializes. Movies already in native order are passed through untouched
 (zero copy). Explicit ``contrast_limits`` (sampled from the first frame) keep
@@ -156,7 +163,7 @@ def _first_frame_contrast(data: np.ndarray) -> list[int]:
 def _validate_xy(xy: object, name: str) -> np.ndarray:
     """Validate an ``(N, 2)`` ``[x, y]`` spot-coordinate array (empty allowed).
 
-    Returns a read-only ``float64`` copy so the immutable :class:`MovieOverlay`
+    Returns a read-only ``float64`` copy so the immutable [`MovieOverlay`][]
     never aliases the caller's buffer. An empty 1-D input (e.g. ``[]``) normalises
     to a read-only ``(0, 2)``; any other non-``(N, 2)`` shape — including a
     malformed empty like ``(0, 3)`` — is rejected rather than silently normalised.
@@ -192,7 +199,7 @@ class MovieOverlay:
 
     Coordinates are ``[x, y]`` = ``[column, row]`` in the **displayed movie's**
     pixel frame (the full dual-channel frame the panel shows) — the same ``[x, y]``
-    convention as :func:`tether.imaging.detect.detect_spots` and the ``/molecules``
+    convention as [`tether.imaging.detect.detect_spots`][] and the ``/molecules``
     ``donor_xy`` / ``acceptor_xy`` fields (§5.1). The panel draws a small centre
     marker at each spot plus a ring at the integration-aperture (PSF-disk) radius.
 
@@ -232,10 +239,10 @@ class NapariMoviePanel:
     """A napari viewer showing lazy TIRF movies with donor/acceptor overlays.
 
     Create the panel (optionally headless with ``show=False``), then either
-    :meth:`set_movie` a single :class:`MovieReader` or :meth:`add_movie` several
-    (each optionally with a :class:`MovieOverlay`) and :meth:`set_active_movie`
-    between them. Use as a context manager or call :meth:`close`. The napari Qt
-    main window is exposed as :attr:`qt_window` for embedding into the Tether shell
+    [`set_movie`][] a single [`MovieReader`][] or [`add_movie`][] several
+    (each optionally with a [`MovieOverlay`][]) and [`set_active_movie`][]
+    between them. Use as a context manager or call [`close`][]. The napari Qt
+    main window is exposed as [`qt_window`][] for embedding into the Tether shell
     (M2 S4).
     """
 
@@ -291,7 +298,7 @@ class NapariMoviePanel:
 
     @property
     def viewer(self) -> napari.Viewer:
-        """The underlying :class:`napari.Viewer`."""
+        """The underlying [`napari.Viewer`][]."""
         return self._viewer
 
     @property
@@ -341,7 +348,7 @@ class NapariMoviePanel:
 
     @property
     def active_overlay(self) -> MovieOverlay | None:
-        """The :class:`MovieOverlay` of the active movie (``None`` if none/plain)."""
+        """The [`MovieOverlay`][] of the active movie (``None`` if none/plain)."""
         if 0 <= self._active_index < len(self._movies):
             return self._movies[self._active_index].overlay
         return None
@@ -353,10 +360,10 @@ class NapariMoviePanel:
 
     @property
     def switcher(self) -> QComboBox:
-        """A :class:`~qtpy.QtWidgets.QComboBox` that switches the active movie.
+        """A [`QComboBox`][qtpy.QtWidgets.QComboBox] that switches the active movie.
 
-        Lazily created and kept in sync with :meth:`add_movie` /
-        :meth:`set_active_movie`; selecting an entry calls :meth:`set_active_movie`.
+        Lazily created and kept in sync with [`add_movie`][] /
+        [`set_active_movie`][]; selecting an entry calls [`set_active_movie`][].
         A host (the Tether shell, M2 S4) places it in its chrome.
         """
         from qtpy.QtWidgets import QComboBox
@@ -377,7 +384,7 @@ class NapariMoviePanel:
 
         The single-movie M0 contract: shows one image layer (no overlays). Returns
         the napari image layer. To overlay spots or hold several movies, use
-        :meth:`add_movie` + :meth:`set_active_movie` instead.
+        [`add_movie`][] + [`set_active_movie`][] instead.
         """
         if not isinstance(movie, MovieReader):
             raise TypeError(f"set_movie expects a MovieReader, got {type(movie).__name__}")
@@ -397,8 +404,8 @@ class NapariMoviePanel:
         The movie's lazy ``memmap`` is prepared for native-order display and its
         first-frame contrast is sampled now, so a later switch is a cheap layer
         swap. The **first** movie added becomes active immediately. Its ``memmap``
-        must stay open (the caller owns the :class:`MovieReader` lifetime, as with
-        :meth:`set_movie`).
+        must stay open (the caller owns the [`MovieReader`][] lifetime, as with
+        [`set_movie`][]).
         """
         if not isinstance(movie, MovieReader):
             raise TypeError(f"add_movie expects a MovieReader, got {type(movie).__name__}")
@@ -447,7 +454,7 @@ class NapariMoviePanel:
         """Forget every registered movie and remove the panel-owned layers.
 
         Removing the image + overlay layers (not just blanking them) resets the
-        viewer to a pristine state, so :meth:`set_movie` after an overlay session
+        viewer to a pristine state, so [`set_movie`][] after an overlay session
         restores the M0 single-image-layer contract rather than leaving empty
         Points layers behind.
         """
@@ -482,7 +489,7 @@ class NapariMoviePanel:
         """Replace the movie image layer with ``display`` (kept beneath overlays).
 
         The image layer is removed and re-added rather than having its ``.data``
-        swapped: a fresh :meth:`add_image` sets ``contrast_limits`` for the new
+        swapped: a fresh `add_image` sets ``contrast_limits`` for the new
         movie atomically at creation, sidestepping napari's thumbnail update
         clipping the new (differently-scaled) data against the previous movie's
         limits. The re-added layer lands on top of the layer stack, so it is moved
@@ -588,7 +595,7 @@ class NapariMoviePanel:
 
         The napari half of the trace → movie leg: given a molecule's spot in napari
         ``[row, col]`` world coordinates (from
-        :meth:`~tether.gui.roundtrip.RoundTripIndex.camera_target`), pan the camera
+        [`camera_target`][tether.gui.roundtrip.RoundTripIndex.camera_target]), pan the camera
         so the spot is centred, optionally setting ``zoom`` (canvas px per world px).
 
         ``napari.components.Camera.center`` is always a 3-tuple ``(depth, row, col)``
@@ -627,7 +634,7 @@ class NapariMoviePanel:
         self._spot_click_callbacks.append(_on_mouse_drag)
 
     def disconnect_spot_clicks(self) -> None:
-        """Detach every callback registered by :meth:`connect_spot_click`."""
+        """Detach every callback registered by [`connect_spot_click`][]."""
         for cb in self._spot_click_callbacks:
             if cb in self._viewer.mouse_drag_callbacks:
                 self._viewer.mouse_drag_callbacks.remove(cb)
