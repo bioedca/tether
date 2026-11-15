@@ -155,7 +155,7 @@ retired = 0
 
 [pages."docs/analysis/parity-gallery.md"]
 kind = "descriptive"
-long_share = 29.5
+long_share = 29.7
 semicolons = 71
 long_paragraphs = 1
 retired = 5
@@ -239,7 +239,7 @@ retired = 0
 
 [pages."docs/roadmap.md"]
 kind = "descriptive"
-long_share = 6.2
+long_share = 8.6
 semicolons = 9
 long_paragraphs = 0
 retired = 1
