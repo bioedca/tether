@@ -1049,7 +1049,7 @@ frame for 26 channels. Each molecule's pair is acceptor first: the record's READ
 "acceptor and donor pairs in series", and the laboratory's MATLAB reader takes row 1 as time,
 then the acceptor and the donor of each molecule. The test reader finds the variant from the
 file size and takes the channel order as a stated parameter; the product has no importer for
-`.traces` files (PRD N4).
+`.traces` files (the specification leaves this legacy format out of scope).
 
 **Checks** (all in the required 3-OS matrix):
 
