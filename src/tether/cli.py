@@ -10,7 +10,7 @@ extract -> correct -> idealize pipeline over many movies — see
 [`tether.project.batch`][]; ``tether info`` prints a read-only summary of what a
 project holds — see [`tether.project.summary`][].
 
-The CLI deliberately uses the standard-library [`argparse`][] rather than a
+The CLI deliberately uses the standard-library `argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
 not justified by the current command surface (the pin-and-hold invariant). The
 heavy imaging/IO stack is imported lazily inside the ``extract`` handler so that

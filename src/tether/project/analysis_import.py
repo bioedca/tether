@@ -53,7 +53,7 @@ under the M0-frozen skeleton (``schema-guard`` stays green — no ``schema.py`` 
 * **``/conditions``** materialized (+ an optional seeded category vocabulary) so
   condition-scoped analysis works.
 
-The build is atomic — a sibling temp file → [`os.replace`][] — and re-asserts the
+The build is atomic — a sibling temp file → `os.replace` — and re-asserts the
 single-writer lock when ``overwrite`` replaces an existing project (§5.4), mirroring
 [`tether.project.reconstruct.reconstruct_project`][].
 """
@@ -415,7 +415,7 @@ def import_analysis_only_project(
 ) -> AnalysisOnlyImportSummary:
     """Import a coordinate-less SMD/``.txt`` source as an analysis-only ``.tether`` (§7.8).
 
-    Builds the project atomically at a sibling temp path and [`os.replace`][]\\ s it
+    Builds the project atomically at a sibling temp path and `os.replace`\\ s it
     into place only on full success, mirroring
     [`tether.project.reconstruct.reconstruct_project`][]. The result is **movie-less**
     and **coordinate-less** by construction: idealization / histograms / TDP / kinetics

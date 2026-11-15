@@ -257,7 +257,7 @@ class LockInfo:
         return LockIdentity(self.host, self.user, self.pid)
 
     def acquired_at(self) -> datetime:
-        """Parse [`timestamp`][] into an offset-aware [`datetime`][]."""
+        """Parse [`timestamp`][] into an offset-aware `datetime`."""
         parsed = datetime.fromisoformat(self.timestamp)
         if parsed.tzinfo is None:  # defensive: we only ever write offset-aware stamps
             parsed = parsed.replace(tzinfo=UTC)
@@ -288,7 +288,7 @@ class LockInfo:
     def from_dict(cls, data: dict[str, object]) -> LockInfo:
         """Reconstruct from a parsed JSON mapping.
 
-        Raises [`KeyError`][] on a missing field, ``TypeError`` on an ill-typed
+        Raises `KeyError` on a missing field, ``TypeError`` on an ill-typed
         one, and ``ValueError`` on an unparseable ``timestamp`` — callers map all of
         these to [`CorruptLockError`][], so a malformed record is treated as a
         corrupt lock up front rather than escaping as a valid-looking foreign lock or

@@ -4,7 +4,7 @@
 
 The reference acquisitions are multi-page TIFFs — 512×512, 16-bit **big-endian**
 (byteorder ``>``), uint16, ~1700 frames, ≈0.9 GB uncompressed (PRD Appendix A).
-[`MovieReader`][] backs frame access with a [`numpy.memmap`][], so a single
+[`MovieReader`][] backs frame access with a `numpy.memmap`, so a single
 frame is an O(1) slice into the OS page cache and the whole movie **never
 materializes in RAM** — the ``trace → movie`` leg of the round-trip is a
 ``memmap`` seek + slice (PRD §5.2).
@@ -17,7 +17,7 @@ byte order; downstream math that wants native order converts per frame. The
 decide.
 
 Only uncompressed, contiguous movies are memory-mappable (the reference format,
-Appendix A); a compressed or tiled TIFF raises a clear [`ValueError`][] rather
+Appendix A); a compressed or tiled TIFF raises a clear `ValueError` rather
 than silently loading the stack.
 """
 
@@ -42,7 +42,7 @@ class MovieReader:
     """Lazy, memory-mapped reader for a multi-page TIRF movie TIFF.
 
     Open with [`open_movie`][] (or directly) and read frames with
-    [`frame`][]; the backing [`numpy.memmap`][] is exposed as [`data`][]
+    [`frame`][]; the backing `numpy.memmap` is exposed as [`data`][]
     for advanced lazy slicing. Use as a context manager (or call [`close`][])
     to drop the reader's reference to the map once done; the OS reclaims it when
     no frame views remain (see [`close`][]).

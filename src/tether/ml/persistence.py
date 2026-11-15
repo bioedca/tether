@@ -423,7 +423,7 @@ def save_model(model: PortableRankerModel, path: PathRef) -> None:
     """Write the portable model to ``path`` atomically (PRD §7.5).
 
     Writes a zip container (``manifest.json`` + the pickled ranker) to a temporary file in the
-    destination directory, then [`os.replace`][] s it into place, so a reader never sees a
+    destination directory, then `os.replace` s it into place, so a reader never sees a
     half-written artifact and a crash mid-write leaves the previous model intact. The
     ``.tethermodel`` extension is the convention, but any ``path`` is accepted.
     """
@@ -579,7 +579,7 @@ def _unpickle_ranker(payload: bytes) -> QualityRanker:
     """Unpickle the model member, re-surfacing a scikit-learn version mismatch as a warning.
 
     scikit-learn raises
-    [`InconsistentVersionWarning`][sklearn.exceptions.InconsistentVersionWarning] when an estimator
+    `InconsistentVersionWarning` when an estimator
     is unpickled under a different scikit-learn version ([sklearn-persistence]); we let the model
     load but re-emit a Tether-scoped warning so the mismatch is visible, not silent.
     """

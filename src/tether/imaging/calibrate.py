@@ -120,7 +120,7 @@ class OverGateRegistrationWarning(UserWarning):
 
     The structured per-movie warning of the headless ``on_over_gate="warn"``
     (accept-with-flag) policy (§7.1). Its own category so callers/tests can target
-    it with [`warnings.catch_warnings`][] / [`pytest.warns`][].
+    it with `warnings.catch_warnings` / `pytest.warns`.
     """
 
 

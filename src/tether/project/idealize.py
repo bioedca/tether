@@ -371,7 +371,7 @@ def _select_by_elbo(
     Returns ``(winning_result, chosen_nstates, elbo_by_nstates)``. A fit whose model
     reports a **non-finite** ELBO (``None``, ``NaN`` or ``inf`` — a degenerate/failed
     fit) is scored ``-inf`` so it never wins over a comparable finite fit; a raw NaN
-    must never reach [`max`][] (NaN comparisons are always ``False``, which would
+    must never reach `max` (NaN comparisons are always ``False``, which would
     make the winner order-dependent and could select the degenerate model). Ties in
     ELBO break toward the **smallest** state count (parsimony), so an all-``-inf``
     grid deterministically keeps the simplest model.

@@ -9,7 +9,7 @@ which conformational transitions a system makes and how often. Tether builds the
 change contributes one ``(initial_E, final_E)`` point taken ``nskip`` frames apart,
 and the pooled points are binned into a square ``E × E`` grid the GUI and the plot
 export ([`tether.analysis.plot_export.render_transition_density`][]) render
-log-normalized [McKinney2006][Hadzic2018].
+log-normalized [McKinney2006], [Hadzic2018].
 
 Two invariants distinguish it from a naive 2-D histogram:
 
@@ -141,7 +141,7 @@ def transition_density(
     signal_range
         ``(lo, hi)`` E range for both axes (``hi > lo``).
     density
-        If ``True``, normalize like [`numpy.histogram2d`][] ``density`` (the 2-D
+        If ``True``, normalize like `numpy.histogram2d` ``density`` (the 2-D
         integral is 1); else raw counts.
 
     Returns

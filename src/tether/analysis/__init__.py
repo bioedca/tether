@@ -94,20 +94,20 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   cloud QC view
   (PR-5a): the pooled pre-idealization ``(time, apparent-E)`` scatter with a 2-D
   Gaussian-KDE surface and highest-density-region percentile contours (the
-  numerical-grid density-quantile method) [Hyndman1996][Haselsteiner2017].
+  numerical-grid density-quantile method) [Hyndman1996], [Haselsteiner2017].
 - [`alpha_shape`][tether.analysis.cloud.alpha_shape] /
   [`population_fret_cloud_alpha_shape`][tether.analysis.cloud.population_fret_cloud_alpha_shape] —
   the raw FRET cloud's
   **α-shape support boundary** (PR-5b): the concave hull of the pooled ``(time, E)`` cloud
   from its Delaunay triangulation (circumradius ``<= alpha`` in axis-normalized
-  coordinates), tracing where the population's signal lives [Edelsbrunner1983][PateiroLopez2010].
+  coordinates), tracing where the population's signal lives [Edelsbrunner1983], [PateiroLopez2010].
 - [`k_rmse_elbow`][tether.analysis.cloud.k_rmse_elbow] /
   [`population_fret_cloud_state_number_elbow`][tether.analysis.cloud.population_fret_cloud_state_number_elbow]
   — the
   **k-vs-RMSE elbow** state-count *hint* (PR-5b): k-means over the pooled apparent-E
-  values with the knee of the within-cluster RMSE(k) curve [Satopaa2011][Thorndike1953]
+  values with the knee of the within-cluster RMSE(k) curve [Satopaa2011], [Thorndike1953]
   as a pre-idealization suggestion — a heuristic subordinate to the HMM/BIC state count
-  [Schubert2022][McKinney2006].
+  [Schubert2022], [McKinney2006].
 - [`find_anticorrelation_events`][tether.analysis.anticorrelation.find_anticorrelation_events] /
   [`population_anticorrelation_events`][tether.analysis.anticorrelation.population_anticorrelation_events]
   — the
@@ -117,7 +117,7 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   threshold, which rejects white shot-noise anticorrelation) into time-localized events —
   the model-free lens that says *when* within a trace the donor and acceptor
   anticorrelate, subordinate to the HMM/TDP transition count
-  [Felekyan2012][Torres2007][Chung2010][McKinney2006].
+  [Felekyan2012], [Torres2007], [Chung2010], [McKinney2006].
 
 Added at M8 (FR-ML / NFR-VALID(c), PRD §8/§9 M8):
 

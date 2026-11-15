@@ -11,7 +11,7 @@ have.
 This module only *finds* the binary. Calling it is the verification issue's work, not this one's.
 
 The path is derived the way the sidecar interpreter's is (ADR-0049/0051,
-[`tether.idealize.driver.bundled_sidecar_python`][]): from [`sys.prefix`][], never from
+[`tether.idealize.driver.bundled_sidecar_python`][]): from `sys.prefix`, never from
 ``PATH`` and never from a hard-coded location. The app runs in ``<prefix>/envs/tether``, so the
 install prefix is two levels up, and the verifier sits in ``<prefix>/verifier/gh/`` — a folder of
 its own. It is deliberately NOT in a folder the install guide asks the user to put on ``PATH``: a
@@ -34,7 +34,7 @@ GH_VERIFIER_DIR = "verifier/gh"
 def install_prefix(prefix: str | os.PathLike[str] | None = None) -> Path:
     """The installer's root prefix, two levels above the app env (``<prefix>/envs/tether``).
 
-    ``prefix`` is the app env to start from; it defaults to [`sys.prefix`][]. Outside an
+    ``prefix`` is the app env to start from; it defaults to `sys.prefix`. Outside an
     installed copy the result is simply some folder that holds no verifier, which
     `bundled_gh` reports as ``None``.
     """
@@ -45,7 +45,7 @@ def install_prefix(prefix: str | os.PathLike[str] | None = None) -> Path:
 def bundled_gh(prefix: str | os.PathLike[str] | None = None) -> Path | None:
     """The bundled ``gh`` executable, or ``None`` when this is not an installed copy.
 
-    ``prefix`` is the app env (default [`sys.prefix`][]). A development checkout or a
+    ``prefix`` is the app env (default `sys.prefix`). A development checkout or a
     conda environment built from the lock has no ``verifier/gh`` beside it and gets ``None``,
     so a caller can treat "no verifier" as "this copy cannot update itself" rather than as a
     verification failure.

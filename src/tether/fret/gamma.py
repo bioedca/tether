@@ -7,7 +7,7 @@ The **γ factor** is the fourth and last step of the accurate-FRET procedure
 It normalises the imbalance between the donor and acceptor dyes in their quantum
 yield and detection efficiency, turning the leakage-corrected proximity ratio into
 an absolute efficiency ``E = I_A,corr / (I_A,corr + γ · I_D,corr)``
-[McCann2010][Hellenkamp2018].
+[McCann2010], [Hellenkamp2018].
 
 The most effective, per-molecule route to γ is single-molecule **photobleaching**
 [McCann2010]: at the frame the **acceptor** photobleaches (but before the donor

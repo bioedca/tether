@@ -236,7 +236,7 @@ def match_smd_to_coordinates(
     ----------
     smd_raw:
         ``(M, T_s, 2)`` SMD trace array (donor, acceptor), e.g.
-        [`tether.idealize.SMDData.raw`][].
+        [`tether.idealize.SMDData.raw`][tether.idealize.smd.SMDData.raw].
     reference_traces:
         ``(N, T_r, 2)`` acquisition traces (donor, acceptor) index-aligned with
         ``recovered`` — ``N`` must equal ``recovered.n_molecules``.

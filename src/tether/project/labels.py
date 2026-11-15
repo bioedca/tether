@@ -89,7 +89,7 @@ _LABELS = "labels"
 class CurationLabel(IntEnum):
     """The signed curation-label codec shared by ``curation_label`` + ``label_value``.
 
-    An [`IntEnum`][enum.IntEnum] so a member writes straight into the frozen ``<i4``
+    An `IntEnum` so a member writes straight into the frozen ``<i4``
     fields and reads back comparably as a plain int (ADR-0023).
     """
 
@@ -310,7 +310,7 @@ def unreject(path: str | Path, molecule_key: str, **provenance: object) -> np.nd
     audit trail rather than erasing the prior reject. On any other current state it
     is a **no-op returning ``None``** (nothing written) — so it never clobbers an
     accept (§7.5 "never silently drop") and never pollutes the append-only ML log
-    with spurious clear rows. Raises [`KeyError`][] if ``molecule_key`` is absent.
+    with spurious clear rows. Raises `KeyError` if ``molecule_key`` is absent.
     """
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None

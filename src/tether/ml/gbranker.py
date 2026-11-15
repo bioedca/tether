@@ -23,7 +23,7 @@ model specifically.
 Model choice — ``HistGradientBoostingClassifier``. Both scikit-learn's histogram gradient
 boosting and XGBoost [Chen2016] are in the base lock (added in #92) and either satisfies the
 "gradient-boosting ranker" spec; this module uses scikit-learn's
-[`HistGradientBoostingClassifier`][sklearn.ensemble.HistGradientBoostingClassifier] for three
+`HistGradientBoostingClassifier` for three
 properties this problem
 needs (ADR-0034):
 

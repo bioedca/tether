@@ -36,9 +36,9 @@ stamp travels in the sidecar rather than inline.
 
 The table exports are the orchestration layer: they read the store, derive E, and
 feed pure serializers ([`tether.io.deeplasi.write_deeplasi_txt`][], the stdlib
-[`csv`][]) — mirroring how [`tether.project.handoff`][] drives the SMD
+`csv`) — mirroring how [`tether.project.handoff`][] drives the SMD
 [`tether.idealize.write_smd`][] primitive. They are read-only on the store. The
-subset export is a filtered store-to-store copy ([`h5py`][]), also read-only on
+subset export is a filtered store-to-store copy (`h5py`), also read-only on
 the source.
 """
 
