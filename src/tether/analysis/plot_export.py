@@ -133,7 +133,8 @@ _DISPLAY_ATTR = "_tether_display_parameters"
 _STATE_COLORS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
 
 #: Line styles the per-condition overlay steps through once it has used every colour of
-#: the ``tab10`` palette, so condition 11 is never drawn identical to condition 1.
+#: the ``tab10`` palette, so condition 11 is never drawn identical to condition 1. Ten
+#: colours by four styles give 40 distinct curves; condition 41 repeats condition 1.
 _CONDITION_LINESTYLES = ("-", "--", "-.", ":")
 
 #: The most molecule rows the anticorrelation event raster labels by ``molecule_key``;
@@ -828,8 +829,10 @@ def render_per_condition_histograms(
     Each condition is drawn as an unfilled step outline on the overlay's shared
     [`bin_edges`][tether.analysis.histogram.PerConditionHistograms.bin_edges] grid, in
     the overlay's own (deterministic) order, and labelled with its condition id and its
-    molecule count ``N``. Colours follow the ``tab10`` palette; past ten conditions the
-    line style changes too, so no two conditions are drawn alike.
+    molecule count ``N``. Colours follow the ``tab10`` palette, and past ten conditions
+    the line style changes too, so up to 40 conditions no two curves share both a colour
+    and a line style. Past 40 the pairs repeat (condition 41 is drawn like condition 1),
+    and only the legend labels tell those curves apart.
 
     Parameters
     ----------

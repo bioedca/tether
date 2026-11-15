@@ -623,10 +623,10 @@ def test_render_per_condition_histograms_overlays_conditions_on_one_axis(tmp_pat
     _assert_valid(result)
 
 
-def test_render_per_condition_histograms_keeps_many_conditions_distinct():
+def test_render_per_condition_histograms_keeps_forty_conditions_distinct():
     base = apparent_e_histogram(np.linspace(0.1, 0.9, 50), bins=20)
     overlay = PerConditionHistograms(
-        histograms=tuple(ConditionHistogram(f"c{i}", base) for i in range(12)),
+        histograms=tuple(ConditionHistogram(f"c{i}", base) for i in range(41)),
         bin_edges=base.bin_edges,
         value_range=base.value_range,
         density=True,
@@ -638,8 +638,13 @@ def test_render_per_condition_histograms_keeps_many_conditions_distinct():
         for p in pe.render_per_condition_histograms(overlay).axes[0].patches
         if isinstance(p, StepPatch)
     ]
-    styles = {(tuple(s.get_edgecolor()), str(s.get_linestyle())) for s in steps}
-    assert len(styles) == 12
+    styles = [(tuple(s.get_edgecolor()), str(s.get_linestyle())) for s in steps]
+    # The documented bound: 10 colours x 4 line styles give 40 distinct curves, and
+    # condition 41 is drawn like condition 1 (only its legend label tells them apart).
+    assert len(set(styles[:40])) == 40
+    assert styles[40] == styles[0]
+    labels = [t.get_text() for t in steps[0].axes.get_legend().get_texts()]
+    assert labels[0] != labels[40]
 
 
 def test_render_per_condition_histograms_refuses_a_curve_off_the_shared_grid():
