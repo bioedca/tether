@@ -46,13 +46,15 @@ does the test compare with the published output?
   are not rate constants.
 - **Evidence for the relation between `p` and `k`.** Consensus search, 2026-11-14, query "rate
   constant from hidden Markov model transition probability k = −ln(1−p)/dt single-molecule FRET
-  Dirichlet posterior uncertainty". Götz et al., *Nat Commun* 13:5402 (2022),
-  doi:10.1038/s41467-022-33023-3, state that the transition matrix of an HMM "can directly be
-  converted to kinetic rate constants". Kilic et al., *Cell Rep Phys Sci* 2:100409 (2021),
-  doi:10.1016/j.xcrp.2021.100409, give the exact relation, the matrix exponential of the
-  generator, and the entry-wise conversion as its approximation for kinetics slower than the frame
-  rate. Bronson et al., *Biophys J* 97:3196 (2009), doi:10.1016/j.bpj.2009.09.031 (vbFRET, the
-  base of tMAVEN's VB-HMM), place Dirichlet distributions on the rows of the transition matrix.
+  Dirichlet posterior uncertainty".
+  - Götz et al., *Nat Commun* 13:5402 (2022), doi:10.1038/s41467-022-33023-3, state that the
+    transition matrix of an HMM "can directly be converted to kinetic rate constants".
+  - Kilic et al., *Cell Rep Phys Sci* 2:100409 (2021), doi:10.1016/j.xcrp.2021.100409, give the
+    exact relation, the matrix exponential of the generator, and the entry-wise conversion as its
+    approximation for kinetics slower than the frame rate.
+  - Bronson et al., *Biophys J* 97(12):3196–3205 (2009), doi:10.1016/j.bpj.2009.09.031 (vbFRET,
+    the base of tMAVEN's VB-HMM), place Dirichlet distributions on the rows of the transition
+    matrix.
 
 ## Considered options
 
@@ -114,5 +116,5 @@ Chosen option: **option 1**.
   [doi:10.1038/s41467-022-33023-3](https://doi.org/10.1038/s41467-022-33023-3).
 - Kilic Z, Sgouralis I, et al. *Cell Reports Physical Science* 2:100409 (2021).
   [doi:10.1016/j.xcrp.2021.100409](https://doi.org/10.1016/j.xcrp.2021.100409).
-- Bronson JE, Fei J, Hofman JM, Gonzalez RL Jr, Wiggins CH. *Biophysical Journal* 97:3196 (2009).
+- Bronson JE, Fei J, Hofman JM, Gonzalez RL Jr, Wiggins CH. *Biophysical Journal* 97(12):3196–3205 (2009).
   [doi:10.1016/j.bpj.2009.09.031](https://doi.org/10.1016/j.bpj.2009.09.031).

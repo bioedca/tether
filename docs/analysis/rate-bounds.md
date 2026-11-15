@@ -1,3 +1,7 @@
+---
+description: "How Tether gives the rate constants of an HMM model with a lower and an upper bound, by the method of Campos-Chavez et al. 2024."
+---
+
 # Rate constants with error bounds
 
 **Who this page is for.** Anyone who has an HMM model in a Tether project and wants its rate
@@ -80,7 +84,7 @@ the authors' script printed for each (`Kmatrix/*.out`). For every entry of the t
 the variance, the normalized matrix, the rates, the two bounds and the two bound differences,
 Tether prints the same digits as the published file. These files are under CC BY-NC-ND 4.0, and
 [Validation & benchmarks](../validation.md) gives their terms. The test is
-`tests/test_rate_bounds.py`.
+[`tests/test_rate_bounds.py`](https://github.com/bioedca/tether/blob/main/tests/test_rate_bounds.py).
 
 If you use these rate bounds in a publication, cite the article above as the source of the method,
 and cite Tether as [Citing](../citing.md) shows.
