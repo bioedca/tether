@@ -260,10 +260,11 @@ environment/subprocess. Its computational core is GUI-free: `tmaven.maven.maven_
 imports no Qt and exposes `io` (SMD read/write) plus a `modeler` whose `run_vbhmm` (vbFRET), `run_vbconhmm`
 (consensus VB-HMM), and `run_ebhmm` (ebFRET) methods are pure NumPy/Numba and therefore callable headlessly. The
 SMD container the standalone GUI reads/writes is the same `dataset/{data,sources,tMAVEN}` structure Tether exports
-(Appendix D), so a hand-off SMD opens directly in standalone tMAVEN. If the headless `maven_class` cannot be driven
-reproducibly across OSes, the **pre-committed escalation** is a prebuilt **bundled sidecar invoked over a stable
-IPC** (preserving the numpy isolation the sidecar exists for) — not an in-process embed and not a hand-off-only MVP
-(§9 M0.5, §10).
+(Appendix D), so a hand-off SMD opens directly in standalone tMAVEN. Headless `maven_class` is the shipped mechanism
+([ADR-0006](adr/0006-sidecar-ipc-escalation.md), §9.2). The escalation pre-committed for a headless failure, a
+prebuilt **bundled sidecar invoked over a stable IPC**, was never needed and is **not built**; it is a possible
+future escalation only and would need its own ADR. Neither an in-process embed nor a hand-off-only MVP is an
+acceptable fallback (§9 M0.5, §10).
 
 ---
 
@@ -1435,12 +1436,15 @@ this section.
 
 - **Two riskiest pieces are early (extraction-first + tMAVEN-from-MVP).** Mitigation: front-loaded M0.5 validation,
   sidecar validation first.
-- **tMAVEN sidecar cannot be driven headlessly / bundled.** Mitigation: the **pre-committed escalation** is a
-  prebuilt **bundled sidecar invoked over a stable IPC** (not an in-process embed, which would reintroduce the
-  `numpy<2` conflict). The sidecar ships a **trimmed/pinned** dependency subset (omit `biasd @ git+main`, bound
-  `numba`) so it fits an offline installer (§4.1/§4.3, §9 M9). In-app idealization stays in the MVP;
-  hand-off-only is not an acceptable fallback (FR-IDEALIZE). The standalone hand-off remains a *feature*, not the
-  mechanism.
+- **tMAVEN sidecar cannot be driven headlessly / bundled.** Status: **resolved**
+  ([ADR-0006](adr/0006-sidecar-ipc-escalation.md)). Headless `maven_class` in the isolated sidecar environment is
+  the shipped mechanism (§9.2). A prebuilt sidecar over a stable IPC was the pre-committed escalation; it was never
+  needed and is **not built**. It stays only a possible future escalation if a new OS or tMAVEN version breaks
+  headless driving, and building it would need its own ADR. An in-process embed stays excluded, because it would
+  reintroduce the `numpy<2` conflict. The sidecar ships a **trimmed/pinned** dependency subset (omit
+  `biasd @ git+main`, bound `numba`) so it fits an offline installer (§4.1/§4.3, §9 M9). In-app idealization
+  stays in the MVP; hand-off-only is not an acceptable fallback (FR-IDEALIZE). The standalone hand-off remains a
+  *feature*, not the mechanism.
 - **tMAVEN is not bit-reproducible — it self-reseeds its RNG.** Mitigation: parity is defined as **statistical
   agreement within a stated tolerance** (state count / means / Viterbi-path / ELBO), not bit-exactness — the same
   stance as the extraction tolerance (§7.4, §9).
@@ -1917,9 +1921,9 @@ small fixtures + consensus VB-HMM / ebFRET on the committed ≥ 50-molecule SMD 
 model-source-smd-281mol.hdf5`) meet the **§11.2 idealization-parity tolerance** (state count ≥ 90% exact, per-state
 |ΔE| ≤ 0.02, Viterbi ≥ 95%, relative ΔELBO ≤ 0.01). The tolerance is a **frozen input ratified once at M0.5
 (§9)** — CI asserts *against* the frozen numbers, never recomputes them; because tMAVEN self-reseeds, CI uses
-statistical tolerance (never bit-exactness) over seed-averaged replicates. If headless `maven_class` proves
-non-reproducible cross-OS, the same job exercises the pre-committed IPC-bundled-sidecar fallback instead (§4.3,
-§10).
+statistical tolerance (never bit-exactness) over seed-averaged replicates. The job drives headless `maven_class`
+only: the IPC-bundled-sidecar escalation is not built ([ADR-0006](adr/0006-sidecar-ipc-escalation.md), §4.3, §10),
+so there is no fallback path for it to exercise.
 
 **schema-guard — the M0 freeze gate (strongest governance fit).** M0 freezes the full HDF5 group skeleton + the
 specific fields (§5/§9 M0): `molecule_id` UUID + `molecule_key`, the `/labels` provenance fields, the metadata-only
