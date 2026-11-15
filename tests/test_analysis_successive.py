@@ -226,6 +226,24 @@ def test_an_empty_cluster_takes_the_farthest_point() -> None:
     assert sorted(map(tuple, centres.round(12))) == sorted(map(tuple, points))
 
 
+def test_a_repaired_cluster_does_not_end_the_run_at_a_stale_mean() -> None:
+    # Review finding on #1087: the repair of an empty cluster moves a point after the cluster
+    # that lost it had its mean computed. If the next assignment then equals the repaired
+    # labels, the run must not stop: that cluster's centre is not the mean of its members yet.
+    points = np.array(
+        [
+            [0.6, 0.6], [1.0, 0.3], [0.3, 0.3], [1.0, 0.4], [1.0, 0.7], [1.0, 0.8],
+            [0.2, 0.3], [0.2, 0.1], [1.0, 0.0], [0.2, 0.2], [0.5, 0.7], [0.0, 0.7],
+        ]
+    )  # fmt: skip
+    start = np.array([[0.5, 0.7], [1.0, 0.4], [0.6, 0.6], [0.0, 0.7]])
+    centres, sse, _ = _lloyd(points, start, 100)
+    labels = np.argmin(((points[:, None, :] - centres[None, :, :]) ** 2).sum(axis=2), axis=1)
+    for c in range(centres.shape[0]):
+        np.testing.assert_allclose(centres[c], points[labels == c].mean(axis=0), atol=1e-15)
+    assert sse == pytest.approx(float(((points - centres[labels]) ** 2).sum()), rel=1e-12)
+
+
 # --- parameters and provenance ----------------------------------------------------
 
 

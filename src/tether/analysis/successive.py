@@ -291,13 +291,17 @@ def _assign(points: np.ndarray, centers: np.ndarray) -> tuple[np.ndarray, np.nda
 def _lloyd(points: np.ndarray, centers: np.ndarray, max_iter: int) -> tuple[np.ndarray, float, int]:
     """Batch k-means from ``centers`` [Lloyd1982]; returns ``(centers, sse, iterations)``.
 
-    Stops when no point changes cluster, or after ``max_iter`` updates. A cluster left empty
-    takes the point farthest from its own centre, as MATLAB's ``EmptyAction`` ``singleton``.
+    Stops when no point changes cluster in an update that repaired no cluster, or after
+    ``max_iter`` updates. A cluster left empty takes the point farthest from its own centre, as
+    MATLAB's ``EmptyAction`` ``singleton``. That repair moves the point after the cluster that
+    lost it had its mean computed, so an update with a repair never ends the run: the next
+    update recomputes that mean.
     """
     centers = centers.copy()
     labels, d2 = _assign(points, centers)
     iterations = 0
     for iterations in range(1, max_iter + 1):  # noqa: B007 - the count is returned
+        repaired = False
         for c in range(centers.shape[0]):
             members = labels == c
             if members.any():
@@ -307,8 +311,9 @@ def _lloyd(points: np.ndarray, centers: np.ndarray, max_iter: int) -> tuple[np.n
                 centers[c] = points[far]
                 labels[far] = c
                 d2[far] = 0.0
+                repaired = True
         new_labels, d2 = _assign(points, centers)
-        if np.array_equal(new_labels, labels):
+        if not repaired and np.array_equal(new_labels, labels):
             break
         labels = new_labels
     return centers, float(d2.sum()), iterations
