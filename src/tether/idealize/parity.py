@@ -24,6 +24,11 @@ numpy-only — what CI's ``sidecar.yml`` asserts against the frozen numbers) and
 the four §11.2 numbers are frozen from at M0.5). The frozen numbers live in
 ``schema/parity_tolerance.json`` and PRD §11.2; CI never recomputes them.
 
+A fifth comparison sits beside the four (issue #545, ADR-0110): the population
+methods (consensus VB-HMM, ebFRET) are also compared on their **transition
+matrix** ([`transition_matrix_abs_delta`][]), with its own frozen ceiling under
+``$.transition_matrix`` ([`load_transition_matrix_tolerance`][]).
+
 State labels are arbitrary across seeds, so every comparison first relabels both
 models to a **canonical order — states sorted by ascending mean FRET** — the
 standard 1-D-ordered-states alignment for FRET efficiency. Comparisons require
@@ -35,6 +40,7 @@ agreeing.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -61,6 +67,13 @@ PROVISIONAL = {
     "relative_elbo_max": 0.01,  # ceiling: |ΔELBO| / |ELBO|
 }
 
+#: The bound key of the transition-matrix ceiling in ``$.transition_matrix`` (ADR-0110).
+TRANSITION_MATRIX_BOUND = "transition_matrix_abs_delta_max"
+
+#: Resolution of a frozen bound: every frozen number has at most four decimal places, so
+#: no transition-matrix ceiling is frozen below one step of it (`freeze_transition_matrix`).
+FREEZE_RESOLUTION = 1e-4
+
 
 @dataclass(frozen=True)
 class ParityMetrics:
@@ -70,6 +83,11 @@ class ParityMetrics:
     fractions in ``[0, 1]``; ``state_mean_abs_delta`` and ``relative_elbo`` are
     *lower-is-better* magnitudes. ``n_states_ref``/``n_states_test`` record the
     fitted state counts so a count mismatch is visible in the record.
+
+    ``transition_matrix_abs_delta`` is the fifth, *lower-is-better* quantity of the
+    population methods ([`transition_matrix_abs_delta`][]). It is ``inf`` when it
+    was not computed (a model with no transition matrix), so it can never pass a
+    transition-matrix bound by default.
     """
 
     state_count_fraction: float
@@ -78,6 +96,7 @@ class ParityMetrics:
     relative_elbo: float
     n_states_ref: int
     n_states_test: int
+    transition_matrix_abs_delta: float = float("inf")
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -183,13 +202,54 @@ def relative_elbo(ref: StateModel, test: StateModel) -> float:
     return float(abs(float(test.elbo) - float(ref.elbo)) / denom)
 
 
+def _row_normalized(model: StateModel) -> np.ndarray | None:
+    """The model's per-frame transition probabilities (rows sum to 1), or ``None``."""
+    if model.norm_tmatrix is not None:
+        return np.asarray(model.norm_tmatrix, dtype="float64")
+    if model.tmatrix is None:
+        return None
+    t = np.asarray(model.tmatrix, dtype="float64")
+    sums = t.sum(axis=1, keepdims=True)
+    if t.ndim != 2 or not np.all(np.isfinite(sums)) or np.any(sums <= 0):
+        return None
+    return t / sums
+
+
+def transition_matrix_abs_delta(ref: StateModel, test: StateModel) -> float:
+    """Max absolute difference between the two models' transition matrices.
+
+    Both row-normalized matrices (``norm_tmatrix``, the per-frame transition
+    probabilities tMAVEN writes; else ``tmatrix`` normalized by row) are put in
+    canonical state order — rows and columns permuted by ascending mean FRET,
+    the same alignment as every other metric — and the largest entry-wise
+    ``|Δ|`` is returned. ``inf`` when the state counts differ, a model has no
+    transition matrix, a matrix is not ``K × K`` for its ``K`` means, or an entry
+    is not finite: an incomparable pair can never read as agreement.
+    """
+    rm = np.asarray(ref.means, dtype="float64").reshape(-1)
+    tm = np.asarray(test.means, dtype="float64").reshape(-1)
+    rt, tt = _row_normalized(ref), _row_normalized(test)
+    if rt is None or tt is None or rm.size == 0 or rm.size != tm.size:
+        return float("inf")
+    k = rm.size
+    if rt.shape != (k, k) or tt.shape != (k, k):
+        return float("inf")
+    ro = np.argsort(rm, kind="stable")
+    to = np.argsort(tm, kind="stable")
+    delta = np.abs(rt[np.ix_(ro, ro)] - tt[np.ix_(to, to)])
+    if not np.all(np.isfinite(delta)):
+        return float("inf")
+    return float(np.max(delta))
+
+
 def compare_models(ref: StateModel, test: StateModel) -> ParityMetrics:
     """Compute the four parity metrics for ``test`` against ``ref``.
 
     Pure (numpy-only): the same function CI's ``sidecar.yml`` uses to assert a
     fresh sidecar fit against the committed reference model within the frozen
     §11.2 tolerance. State-count and Viterbi metrics need both models'
-    ``idealized`` paths; mean-ΔE and ELBO use the model summaries.
+    ``idealized`` paths; mean-ΔE and ELBO use the model summaries. The fifth,
+    ``transition_matrix_abs_delta``, uses their transition matrices.
     """
     ref_path = canonical_state_path(ref)
     test_path = canonical_state_path(test)
@@ -206,6 +266,7 @@ def compare_models(ref: StateModel, test: StateModel) -> ParityMetrics:
         relative_elbo=relative_elbo(ref, test),
         n_states_ref=n_states_ref,
         n_states_test=n_states_test,
+        transition_matrix_abs_delta=transition_matrix_abs_delta(ref, test),
     )
 
 
@@ -251,6 +312,23 @@ def within_tolerance(metrics: ParityMetrics, tolerance: dict) -> tuple[bool, lis
             f"relative ΔELBO {metrics.relative_elbo:.4f} > {tolerance['relative_elbo_max']}"
         )
     return (not failures, failures)
+
+
+def within_transition_matrix_tolerance(
+    metrics: ParityMetrics, bound: float
+) -> tuple[bool, list[str]]:
+    """Check one comparison's transition-matrix term against its frozen ceiling.
+
+    The fifth check of the population methods (ADR-0110), kept apart from
+    [`within_tolerance`][] so the four-bound rows keep their shape. A non-finite
+    term (not computed, or an incomparable pair) is a failure, never a pass.
+    """
+    value = metrics.transition_matrix_abs_delta
+    if not np.isfinite(value):
+        return (False, ["non-finite metric(s): transition-matrix |Δ|"])
+    if value > bound:
+        return (False, [f"transition-matrix |Δ| {value:.3g} > {bound}"])
+    return (True, [])
 
 
 # --------------------------------------------------------------------------- #
@@ -325,6 +403,29 @@ def freeze(spread: dict[str, SpreadSummary], margin: float = 0.5) -> dict:
         "viterbi_min_agreement": floor(va, PROVISIONAL["viterbi_min_agreement"]),
         "relative_elbo_max": ceiling(re, PROVISIONAL["relative_elbo_max"]),
     }
+
+
+def freeze_transition_matrix(spread: SpreadSummary, margin: float = 0.5) -> float:
+    """Freeze the transition-matrix ceiling from its measured spread (ADR-0110).
+
+    The ADR-0009 rule with no provisional default, because the specification
+    gives none for this term: the measured worst case widened by ``(1 + margin)×``
+    — the same margin as [`freeze`][] — and rounded **up** to the freeze
+    resolution ([`FREEZE_RESOLUTION`][], four decimal places), never below one
+    step of it. Rounding up, not to nearest, so the frozen ceiling is never below
+    the widened worst case; a floor of one step, so a spread that is all but zero
+    on one build does not freeze a ceiling another build's rounding noise breaks.
+
+    Raises ``ValueError`` when the spread has a non-finite worst case: an
+    incomparable run must stop the freeze, never ratify a finite ceiling over it.
+    """
+    if spread.direction != "ceiling":
+        raise ValueError("the transition-matrix term is a ceiling")
+    worst = spread.worst
+    if not np.isfinite(worst):
+        raise ValueError("cannot freeze a ceiling over a non-finite measured worst case")
+    steps = math.ceil(round(worst * (1.0 + margin) / FREEZE_RESOLUTION, 9))
+    return round(max(1, steps) * FREEZE_RESOLUTION, 4)
 
 
 def measure_spread(
@@ -423,3 +524,15 @@ def load_frozen_tolerance(path: str | PathLike[str], method: str | None = None) 
         if method in by_method:
             return by_method[method]
     return data["tolerance"]
+
+
+def load_transition_matrix_tolerance(path: str | PathLike[str], method: str) -> float:
+    """Read the frozen transition-matrix ceiling of ``method`` (ADR-0110).
+
+    The ceilings live under ``$.transition_matrix.tolerance_by_method`` — apart
+    from the four-bound rows, which keep their shape — one per population method
+    (``"vbconhmm"``, ``"ebhmm"``). Raises ``KeyError``
+    for a method with no frozen ceiling: there is no default to fall back to.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return float(data["transition_matrix"]["tolerance_by_method"][method][TRANSITION_MATRIX_BOUND])

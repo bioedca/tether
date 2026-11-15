@@ -1016,6 +1016,9 @@ def commit_cell(column: str, pointer: str, commit: object) -> Cell:
 _NO_GAP_RE = re.compile(r"\bthe ebFRET block has no such gap\b", re.IGNORECASE)
 _NO_GAP_REGIONS = ((_PARITY_SECTION, _GAP_QUOTE_ANCHOR), (_SCOPE_SECTION, _SCOPE_ANCHOR))
 _LIVE_BUILD_ROW = "Same tMAVEN commit and CPython as the live gate?"
+#: (b)'s transition-matrix table (#545, ADR-0110): its ceiling column names the table.
+_TM_COLUMN = "Frozen `transition_matrix_abs_delta_max`"
+_TM_METHODS = ("vbconhmm", "ebhmm")
 
 
 def no_gap_claims(text: str) -> list[str]:
@@ -1387,6 +1390,32 @@ def _registry() -> list[Pin]:
         )
         for metric in _METRICS
     ]
+
+    # (b) — the transition-matrix table (#545, ADR-0110): each method's pooled worst case
+    # at full precision and its frozen ceiling.
+    tm = "$.transition_matrix"
+    for method in _TM_METHODS:
+        pins += [
+            Cell(
+                _PARITY_SECTION,
+                _TM_COLUMN,
+                method,
+                "Pooled worst",
+                f"{tm}.measured_by_method.{method}.pooled_worst.transition_matrix_abs_delta",
+                at(
+                    PARITY,
+                    f"{tm}.measured_by_method.{method}.pooled_worst.transition_matrix_abs_delta",
+                ),
+            ),
+            Cell(
+                _PARITY_SECTION,
+                _TM_COLUMN,
+                method,
+                _TM_COLUMN,
+                f"{tm}.tolerance_by_method.{method}.transition_matrix_abs_delta_max",
+                at(PARITY, f"{tm}.tolerance_by_method.{method}.transition_matrix_abs_delta_max"),
+            ),
+        ]
 
     # (b) — the ebFRET pooled-worst block, printed in a sentence instead of a table.
     ebhmm = "$.measured_by_method.ebhmm"
@@ -1868,8 +1897,16 @@ def test_documented_value_matches_its_source_artifact(pin: Pin) -> None:
 
 
 def test_every_frozen_bound_in_both_blocks_is_pinned() -> None:
-    """A bound added to either tolerance block may not go undocumented."""
-    for pointer in ("$.tolerance", "$.tolerance_by_method.ebhmm"):
+    """A bound added to either tolerance block, or a transition-matrix ceiling, may not go
+    undocumented (#545)."""
+    tm_rows = at(PARITY, "$.transition_matrix.tolerance_by_method")
+    assert isinstance(tm_rows, dict)
+    assert set(tm_rows) == set(_TM_METHODS), "a transition-matrix row is not on the page"
+    for pointer in (
+        "$.tolerance",
+        "$.tolerance_by_method.ebhmm",
+        *(f"$.transition_matrix.tolerance_by_method.{m}" for m in _TM_METHODS),
+    ):
         block = at(PARITY, pointer)
         assert isinstance(block, dict)
         pinned = {p.source for p in REGISTRY}
@@ -1879,7 +1916,11 @@ def test_every_frozen_bound_in_both_blocks_is_pinned() -> None:
 
 def test_every_pooled_worst_metric_in_both_blocks_is_pinned() -> None:
     pinned = {p.source for p in REGISTRY}
-    for pointer in ("$.pooled_worst", "$.measured_by_method.ebhmm.pooled_worst"):
+    for pointer in (
+        "$.pooled_worst",
+        "$.measured_by_method.ebhmm.pooled_worst",
+        *(f"$.transition_matrix.measured_by_method.{m}.pooled_worst" for m in _TM_METHODS),
+    ):
         block = at(PARITY, pointer)
         assert isinstance(block, dict)
         missing = sorted(k for k in block if f"{pointer}.{k}" not in pinned)
