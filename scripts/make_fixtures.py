@@ -28,8 +28,9 @@ Outputs (relative to the repo root):
   redistributable >=50-molecule population SMD and its paired 4-state consensus
   vbHMM model, routed to the Git-LFS gated tier (M0.5/M6 idealization-parity).
 
-It also (re)writes ``tests/fixtures/PROVENANCE.md`` deterministically, so every
-datum carries its source path, size, SHA-256, accessed date, and license.
+It also updates ``tests/fixtures/PROVENANCE.md`` deterministically: its own five rows
+(source name, sizes and full source SHA-256) and the movie-crop paragraph between its
+markers. Every other row and section of that inventory is kept as it is (#552).
 """
 
 from __future__ import annotations
@@ -128,61 +129,93 @@ def copy_verbatim(src: Path, dst: Path) -> None:
     shutil.copyfile(src, dst)
 
 
-def md_row(label: str, src: Path, dst: Path, note: str) -> str:
+def format_row(
+    fixture: str,
+    label: str,
+    src_name: str,
+    src_size: int,
+    dst_size: int,
+    src_sha256: str,
+    note: str,
+) -> str:
+    """One inventory row, with the **full** 64-hex source SHA-256 (#552)."""
     return (
-        f"| `{dst.relative_to(REPO_ROOT).as_posix()}` | {label} | "
-        f"`{src.name}` | {src.stat().st_size:,} B | {dst.stat().st_size:,} B | "
-        f"`{sha256(src)[:16]}…` | {note} |"
+        f"| `{fixture}` | {label} | `{src_name}` | {src_size:,} B | {dst_size:,} B | "
+        f"`{src_sha256}` | {note} |"
     )
 
 
-def write_provenance(rows: list[str], crop_meta: dict[str, object]) -> None:
+def md_row(label: str, src: Path, dst: Path, note: str) -> str:
+    return format_row(
+        dst.relative_to(REPO_ROOT).as_posix(),
+        label,
+        src.name,
+        src.stat().st_size,
+        dst.stat().st_size,
+        sha256(src),
+        note,
+    )
+
+
+def row_key(line: str) -> str | None:
+    """The fixture path in the first cell of an inventory row, or ``None``."""
+    if not line.startswith("| `"):
+        return None
+    end = line.find("`", 3)
+    return line[3:end] if end > 3 else None
+
+
+# The movie-crop paragraph is the only prose this script owns. These markers bound it,
+# and nothing outside them (or outside its own table rows) is ever rewritten.
+CROP_BEGIN = "<!-- make_fixtures.py: movie crop, begin -->"
+CROP_END = "<!-- make_fixtures.py: movie crop, end -->"
+
+
+def movie_crop_text(crop_meta: dict[str, object]) -> str:
     origin = crop_meta["crop_origin"]
     shape = crop_meta["shape"]
-    text = f"""<!--
-SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
-SPDX-License-Identifier: GPL-3.0-or-later
--->
-
-# Test-fixture provenance
-
-Small, defensible fixtures **derived** from the read-only `example-data/`
-sibling (the real Mondragón-Lab acquisitions cited in `docs/PRD.md`). The large
-originals — the ~0.9 GB UCKOPSB movie and full `.tdat`/`.tmap` — are **never**
-committed (PRD §8 NFR-FIXTURES). Regenerate with:
-
-```sh
-uv run --no-project --with h5py --with tifffile --with numpy \\
-    python scripts/make_fixtures.py
-```
-
-| Fixture | Purpose | Source file | Source size | Fixture size | Source SHA-256 | Notes |
-|---|---|---|---|---|---|---|
-{chr(10).join(rows)}
-
-**Accessed:** {SOURCE_ACCESSED} (date `example-data/` was gathered onto this
-workstation; see its `README.md`). **Origin:** Mondragón Lab (Northwestern)
-smFRET acquisitions — the project's own data, vendored here as test fixtures.
-**License:** `GPL-3.0-or-later`, with the rest of the repository (REUSE blanket).
-
-## Movie crop
-
-`movie_be_64x64x50.tif` is the **brightest {CROP_SIZE}×{CROP_SIZE} window**
+    return f"""`movie_be_64x64x50.tif` is the **brightest {CROP_SIZE}×{CROP_SIZE} window**
 (top-left pixel `(row={origin[0]}, col={origin[1]})`) of the first
 {CROP_FRAMES} frames of the source movie, kept **big-endian uint16**
 (shape `{shape}`, axes `TYX`) so it exercises the M0 S7 big-endian reader and
-the napari open path, and contains real molecules for M1/M2 extraction smoke.
+the napari open path, and contains real molecules for M1/M2 extraction smoke."""
 
-## Git-LFS gated tier (`tests/fixtures/large/`)
 
-`smd_281mol.hdf5` (the redistributable ≥50-molecule population SMD) and its
-paired `model_281mol.hdf5` (4-state consensus vbHMM) are tracked by Git-LFS via
-`.gitattributes` (`tests/fixtures/large/**`). They back the M0.5/M6
-idealization-parity gate and are **not** pulled by the default CI checkout, so
-the required `test` matrix never depends on them (their load test is
-`@pytest.mark.large` and skips on an unmaterialized LFS pointer).
-"""
-    (FIXTURES / "PROVENANCE.md").write_text(text, encoding="utf-8", newline="\n")
+def update_provenance(text: str, rows: list[str], crop_meta: dict[str, object]) -> str:
+    """Return ``text`` with only this script's rows and its movie-crop paragraph replaced.
+
+    ``PROVENANCE.md`` is the inventory of every committed fixture, and most of its rows come
+    from other scripts or by hand. This script used to rewrite the whole file from its own five
+    rows and so erased every later entry (#552). Now it replaces, in place, each line whose first
+    cell names one of its fixtures, and the text between ``CROP_BEGIN`` and ``CROP_END``. Every
+    other byte is kept. A missing row or marker raises rather than guessing where to write.
+    """
+    wanted = {row_key(row): row for row in rows}
+    lines = text.split("\n")
+    seen: set[str] = set()
+    for i, line in enumerate(lines):
+        key = row_key(line)
+        if key in wanted:
+            if key in seen:
+                raise ValueError(f"PROVENANCE.md has more than one row for {key}")
+            lines[i] = wanted[key]
+            seen.add(key)
+    missing = sorted(k for k in wanted if k not in seen)
+    if missing:
+        raise ValueError(f"PROVENANCE.md has no row for {missing}; add the row by hand first")
+    out = "\n".join(lines)
+    begin = out.find(CROP_BEGIN)
+    end = out.find(CROP_END)
+    if begin < 0 or end < begin:
+        raise ValueError("PROVENANCE.md lacks the movie-crop markers of make_fixtures.py")
+    head = out[: begin + len(CROP_BEGIN)]
+    return f"{head}\n{movie_crop_text(crop_meta)}\n{out[end:]}"
+
+
+def write_provenance(rows: list[str], crop_meta: dict[str, object]) -> None:
+    path = FIXTURES / "PROVENANCE.md"
+    text = path.read_text(encoding="utf-8")
+    path.write_text(update_provenance(text, rows, crop_meta), encoding="utf-8", newline="\n")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,3 +1,7 @@
+---
+description: "For maintainers: the record of the manual standalone-tMAVEN window check on each operating system, with one row for each result."
+---
+
 # Standalone-tMAVEN cross-OS result record
 
 **Who this page is for.** Tether maintainers with write access to `bioedca/tether`, who run the

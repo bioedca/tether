@@ -19,7 +19,7 @@ itself, is the **post-acceptor-bleach tail**: once a molecule's acceptor
 photobleaches (but before its donor bleaches), the trace *is* a per-molecule
 donor-only measurement. This module implements that tail estimator, which needs no
 separate calibration acquisition and rides directly on the per-channel bleach
-frames from :mod:`tether.fret.photobleach`.
+frames from [`tether.fret.photobleach`][].
 
 Definitions and gates (PRD §11.2)
 ---------------------------------
@@ -133,7 +133,7 @@ class LeakageEstimate:
     n_traces
         How many traces were examined.
     per_trace
-        The per-trace :class:`TailAlpha` for every examined trace, in input order
+        The per-trace [`TailAlpha`][] for every examined trace, in input order
         (diagnostics; qualifying and rejected alike).
     """
 
@@ -174,7 +174,7 @@ def tail_alpha(
     acceptor_pb, donor_pb
         Per-channel first-bleach frames (0-based within these arrays;
         ``== donor.size`` when a channel does not bleach), e.g. from
-        :func:`tether.fret.photobleach.detect_photobleach`.
+        [`tether.fret.photobleach.detect_photobleach`][].
     min_window_frames
         Reject a tail shorter than this (PRD §11.2, default 20).
     ceiling
@@ -222,7 +222,7 @@ def estimate_leakage_alpha(
 ) -> LeakageEstimate:
     """Aggregate a dataset's leakage α from every trace's post-bleach tail.
 
-    Computes a per-trace :func:`tail_alpha` for each molecule, then the dataset
+    Computes a per-trace [`tail_alpha`][] for each molecule, then the dataset
     factor as the **median** of the qualifying values. The factor is **withheld**
     (``alpha is None``) when fewer than ``min_qualifying_traces`` qualify — a
     per-condition leakage α is only as trustworthy as the number of donor-only tails

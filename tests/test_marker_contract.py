@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
@@ -663,10 +664,66 @@ def _sidecar_relevance_pattern() -> re.Pattern[str]:
     script = steps[0]["run"]
     patterns = re.findall(r"^\s*pattern='([^']+)'\s*$", script, re.M)
     assert len(patterns) == 1, f"the relevance step must set one `pattern='...'`: {patterns}"
-    assert any('grep -qE "$pattern"' in line for line in _command_lines(script)), (
-        "the relevance step must test the changed files against that pattern"
-    )
+    _assert_a_match_sets_run_true(_command_lines(script))
     return re.compile(patterns[0])
+
+
+_RELEVANCE_TEST = 'if echo "$changed" | grep -qE "$pattern"; then'
+
+
+def _assert_a_match_sets_run_true(lines: list[str]) -> None:
+    """A match of the pattern must set ``run=true``, and nothing in that branch may undo it (#833).
+
+    A line that only *contains* ``grep -qE "$pattern"`` is not enough: ``if ! echo ... | grep``
+    or a match branch that sets ``run=false`` keeps that line and turns the gate around, so a
+    relevant pull request gets the fast "not applicable" pass.
+    """
+    tests = [index for index, line in enumerate(lines) if 'grep -qE "$pattern"' in line]
+    assert len(tests) == 1, "the relevance step must test the changed files against that pattern"
+    start = tests[0]
+    assert lines[start] == _RELEVANCE_TEST, (
+        f"the relevance test must read `{_RELEVANCE_TEST}`, not {lines[start]!r}"
+    )
+    branch, depth = [], 0  # a nested `if ... fi` stays inside the match branch (#974)
+    for line in lines[start + 1 :]:
+        if depth == 0 and (line in ("else", "fi") or line.startswith("elif ")):
+            break
+        if line.startswith("if ") and not re.search(r";\s*fi$", line):
+            depth += 1
+        elif line == "fi":
+            depth -= 1
+        branch.append(line)
+    else:
+        raise AssertionError("the relevance test must close its match branch")
+    assert branch[:1] == ["run=true"], f"a match must set `run=true` first: {branch}"
+    resets = [line for line in branch if re.search(r"(?:^|[\s;])run=(?!true(?:$|[\s;]))", line)]
+    assert not resets, f"the match branch must not set `run` to anything but `true`: {resets}"
+
+
+def test_the_relevance_reader_rejects_a_gate_turned_around() -> None:
+    def gate(test: str, branch: str) -> list[str]:
+        script = f'{test}\n  {branch}\n  echo relevant\nelse\n  echo "not applicable"\nfi\n'
+        return _command_lines(script)
+
+    _assert_a_match_sets_run_true(gate(_RELEVANCE_TEST, "run=true"))
+    for test, branch in (
+        ('if ! echo "$changed" | grep -qE "$pattern"; then', "run=true"),
+        ('if echo "$changed" | grep -vqE "$pattern"; then', "run=true"),
+        (_RELEVANCE_TEST, "run=false"),
+        (_RELEVANCE_TEST, ":"),
+    ):
+        with pytest.raises(AssertionError):
+            _assert_a_match_sets_run_true(gate(test, branch))
+    for branch in (
+        "run=true\n  run=false",  # a later reset in the same branch undoes it
+        # past a nested `fi`, and then in a one-line nested `if`
+        'run=true\n  if [ -n "$changed" ]; then\n    echo log\n  fi\n  run=false',
+        'run=true\n  if [ -n "$changed" ]; then run=false; fi',
+    ):
+        with pytest.raises(AssertionError):
+            _assert_a_match_sets_run_true(gate(_RELEVANCE_TEST, branch))
+    nested = 'run=true\n  if [ -n "$changed" ]; then\n    echo log\n  fi'
+    _assert_a_match_sets_run_true(gate(_RELEVANCE_TEST, nested))
 
 
 def _local_imports(tree: ast.AST) -> set[str]:
@@ -680,6 +737,34 @@ def _local_imports(tree: ast.AST) -> set[str]:
     return names
 
 
+def _tests_package_inputs(tree: ast.AST) -> set[Path]:
+    """Modules of a package under ``tests/`` that *tree* imports, and the files they name.
+
+    ``from reference_data.fetch import path_for`` makes ``tests/reference_data/fetch.py`` an
+    input, and so is every sibling that module opens with ``Path(__file__).with_name(...)`` --
+    the manifest it takes each fixture's path and checksum from (#881).
+    """
+    found: set[Path] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ImportFrom) and node.module and not node.level):
+            continue
+        module = TESTS_DIR.joinpath(*node.module.split(".")).with_suffix(".py")
+        if "." not in node.module or not module.is_file():
+            continue
+        found.add(module)
+        for call in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "with_name"
+                and call.args
+                and isinstance(call.args[0], ast.Constant)
+                and isinstance(call.args[0].value, str)
+            ):
+                found.add(module.with_name(call.args[0].value))
+    return found
+
+
 def _sidecar_inputs() -> set[str]:
     """Repository paths whose change can change a live sidecar result, as POSIX strings."""
 
@@ -691,6 +776,9 @@ def _sidecar_inputs() -> set[str]:
     inputs |= {
         REPO_ROOT / "schema" / "parity_tolerance.json",
         REPO_ROOT / "scripts" / "setup_sidecar.py",
+        # The job installs Tether from it, and pytest takes the markers and the collection
+        # settings of the live run from its [tool.pytest.ini_options] (#833).
+        REPO_ROOT / "pyproject.toml",
         SIDECAR_WORKFLOW,
     }
     inputs |= set(_sidecar_tier_files())
@@ -712,8 +800,11 @@ def _sidecar_inputs() -> set[str]:
             for name in _local_imports(tree)
             if (TESTS_DIR / f"{name}.py").is_file()
         }
+        inputs |= _tests_package_inputs(tree)
     # Anchor against a scan that finds nothing: the parity tests read the 4-molecule SMD.
     assert TESTS_DIR / "fixtures" / "smd_4mol.hdf5" in named, sorted(named)
+    # ...and the ebFRET-session report reads its fixture's path and checksum from the manifest.
+    assert TESTS_DIR / "reference_data" / "manifest.toml" in inputs, sorted(inputs)
     inputs |= named
     return {path.relative_to(REPO_ROOT).as_posix() for path in inputs}
 
@@ -723,8 +814,11 @@ def test_the_sidecar_path_filter_covers_every_input_of_the_live_fits() -> None:
 
     The pattern must match the idealization package, the sidecar lock, the setup script and
     action, the frozen tolerance, every sidecar test module, the helper modules they import and
-    every committed fixture they name. Otherwise such a pull request gets the fast "not
-    applicable" pass on the required check, and the fits first run after the merge.
+    every committed fixture they name. It must also match ``pyproject.toml`` (#833): the job
+    installs Tether from it (``pip install -e . --no-deps`` in the setup action), and the live
+    pytest run takes its markers and collection settings from its ``[tool.pytest.ini_options]``.
+    Otherwise such a pull request gets the fast "not applicable" pass on the required check,
+    and the fits first run after the merge.
     """
     pattern = _sidecar_relevance_pattern()
     unmatched = sorted(path for path in _sidecar_inputs() if not pattern.match(path))
@@ -822,6 +916,67 @@ def _large_verify_script() -> str:
     return match.group(1)
 
 
+def _stops_on_first_failure(shell: object) -> bool:
+    """Whether a step ``shell:`` stops at the first failed command, as ``bash -e {0}`` does.
+
+    GitHub runs the bare ``bash`` as ``bash --noprofile --norc -eo pipefail {0}``; a custom
+    ``bash ... {0}`` stops only when it sets ``-e`` (or ``-o errexit``). Only options that
+    still execute the script are accepted: ``-n`` reads it without running it, so
+    ``bash -en {0}`` passes without a check (#974), and ``+e`` turns ``-e`` off again.
+    """
+    if not isinstance(shell, str):
+        return False
+    words = shell.split()
+    if words == ["bash"]:
+        return True
+    if len(words) < 2 or words[0] != "bash" or words[-1] != "{0}":
+        return False
+    options, errexit = iter(words[1:-1]), False
+    for word in options:
+        if word in ("--noprofile", "--norc", "--login"):
+            continue
+        group = re.fullmatch(r"-([elux]*)(o?)", word)
+        if not group or not any(group.groups()):
+            return False
+        errexit |= "e" in group[1]
+        if group[2]:
+            name = next(options, None)
+            if name not in ("errexit", "pipefail", "nounset", "xtrace"):
+                return False
+            errexit |= name == "errexit"
+    return errexit
+
+
+def test_the_shell_reader_knows_which_shells_stop_on_a_failure() -> None:
+    stopping = ("bash", "bash -e {0}", "bash -el {0}", "bash --noprofile --norc -eo pipefail {0}")
+    for shell in stopping:
+        assert _stops_on_first_failure(shell), shell
+    assert _stops_on_first_failure("bash -o errexit {0}")
+    rejected = (None, "bash {0}", "bash -l {0}", "bash -e +e {0}", "bash -en {0}", "bash -e -n {0}")
+    for shell in (*rejected, "bash -eo {0}", "sh -e {0}", "pwsh"):
+        assert not _stops_on_first_failure(shell), shell
+    assert not _stops_on_first_failure("bash -e")  # no `{0}`: not a shell GitHub accepts
+
+
+def test_the_large_verify_step_cannot_lose_its_failure() -> None:
+    """The verify step fails when its check fails, whatever else it runs (#833).
+
+    The check is the heredoc's Python, so two things decide the step's status: the step's own
+    ``shell:`` must stop at the first failed command, and nothing may run after the closing
+    ``PY``. A ``shell: bash {0}`` with a ``true`` after ``PY`` passes the step after a failed
+    check, and the large tier then skips the tests whose fixture is not there.
+    """
+    step = _large_verify_step()
+    assert _stops_on_first_failure(step.get("shell")), (
+        f"the verify step must set a shell that stops at the first failure, such as "
+        f"`bash -e {{0}}`, not {step.get('shell')!r}"
+    )
+    lines = step["run"].rstrip("\n").splitlines()
+    assert lines[0] == "python - <<'PY'", f"the heredoc must be the first command: {lines[0]!r}"
+    assert lines[-1] == "PY", f"the closing `PY` must be the last line of `run:`: {lines[-1]!r}"
+    assert lines.count("PY") == 1, "the verify step must hold one heredoc and nothing after it"
+
+
 def _lfs_tracked_large_fixtures() -> set[str]:
     rules = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
     assert any(
@@ -857,7 +1012,11 @@ def test_the_large_tier_verifies_every_lfs_fixture_before_it_runs() -> None:
 
 
 def test_the_large_verify_script_fails_on_a_pointer_or_a_missing_file(tmp_path: Path) -> None:
-    """The verify step's own Python, run here: real bytes pass, a pointer or a gap fails."""
+    """The verify step's own Python, run here: real bytes pass, a pointer or a gap fails.
+
+    Every file in the verify list gets both cases, and is restored before the next one (#833):
+    a script that lists ``kinsoft_sim.hdf5`` but does not check it must fail here too.
+    """
     script = _large_verify_script()
     required = sorted(set(re.findall(r'Path\("([^"]+)"\)', script)))
 
@@ -870,18 +1029,23 @@ def test_the_large_verify_script_fails_on_a_pointer_or_a_missing_file(tmp_path: 
             timeout=60,
         )
 
+    real = b"\x89HDF\r\n\x1a\n" + bytes(64)
     for name in required:
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_bytes(b"\x89HDF\r\n\x1a\n" + bytes(64))
+        (tmp_path / name).write_bytes(real)
     assert run().returncode == 0
-    pointer = tmp_path / required[-1]
-    named = pointer.name  # the script prints native paths, so match the name on every OS
-    pointer.write_bytes(b"version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 1\n")
-    result = run()
-    assert result.returncode != 0 and named in result.stderr, result.stderr
-    pointer.unlink()
-    result = run()
-    assert result.returncode != 0 and named in result.stderr, result.stderr
+    assert len(required) > 1, required  # anchor: the loop below must cover more than one file
+    for name in required:
+        fixture = tmp_path / name
+        named = fixture.name  # the script prints native paths, so match the name on every OS
+        fixture.write_bytes(b"version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 1\n")
+        result = run()
+        assert result.returncode != 0 and named in result.stderr, (name, result.stderr)
+        fixture.unlink()
+        result = run()
+        assert result.returncode != 0 and named in result.stderr, (name, result.stderr)
+        fixture.write_bytes(real)
+        assert run().returncode == 0, (name, "restored")
 
 
 # --- The same contract for the non-required GPU leg (deep-gpu.yml, PR-2 / ADR-0047) ---
@@ -3033,17 +3197,68 @@ SETUP_MICROMAMBA = "mamba-org/setup-micromamba@"
 #: Bump here first, then every call site -- the guard below requires them to agree.
 MICROMAMBA_PIN = "2.8.1-0"
 
-#: The trailing `# v<X.Y.Z>` tag comment on a `uses: mamba-org/setup-micromamba@<sha>` line,
-#: quoted or not. Read from TEXT because a YAML parse discards comments; counted against the
-#: PARSED call sites per file, so a spelling this misses fails instead of vanishing (#510).
-#: Horizontal whitespace only around the ``#``: ``\s`` would cross the newline and accept a
-#: tag sitting on the NEXT line as this ``uses:`` line's trailing comment.
-_SETUP_MICROMAMBA_TAG = re.compile(
-    r"^\s*(?:-\s*)?uses:\s*[\"']?"
-    + re.escape(SETUP_MICROMAMBA)
-    + r"[^\s\"'#]*[\"']?[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b",
-    re.M,
-)
+#: The trailing `# v<X.Y.Z>` tag comment, matched against the text that FOLLOWS one parsed
+#: call site's `uses:` scalar on its own source line (see :func:`_trailing_tag`). Read from text
+#: because a YAML parse discards comments, but anchored at the scalar's end mark rather than
+#: searched for across the file: a file-wide count let a tagged example inside a ``run: |``
+#: block stand in for an untagged real call site (#510). Horizontal whitespace only around the
+#: ``#``: ``\s`` would cross the newline and accept a tag on the NEXT line as this one's.
+_SETUP_MICROMAMBA_TAG = re.compile(r"[ \t]+#[ \t]*(v\d+\.\d+\.\d+)\b")
+
+
+class _MarkedMapping(dict):
+    """A parsed mapping that also remembers where its ``uses:`` value ENDS in the source text.
+
+    ``uses_end`` is the character index just past the ``uses:`` scalar (after its closing
+    quote, if quoted), or None when the mapping has no ``uses:`` key or its value is not
+    written at this ``uses:`` key (see :func:`_construct_marked_mapping`).
+    """
+
+    uses_end: int | None = None
+
+
+class _UsesMarkLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` whose mappings carry the end mark of their ``uses:`` scalar.
+
+    Everything else is the safe loader unchanged, so a step parses to the same values as under
+    ``yaml.safe_load``; only the mark is added, and it comes from the SAME parse that produced
+    the step, so a tag can never be paired with some other node's line.
+    """
+
+
+def _construct_marked_mapping(
+    loader: _UsesMarkLoader, node: yaml.MappingNode
+) -> Iterator[_MarkedMapping]:
+    data = _MarkedMapping()
+    yield data
+    data.update(loader.construct_mapping(node))
+    # After construct_mapping, node.value is flattened (merge keys resolved); the LAST `uses`
+    # key wins, matching the dict the safe loader builds from duplicate keys.
+    for key, value in node.value:
+        if isinstance(key, yaml.ScalarNode) and key.value == "uses":
+            # An alias (`uses: *setup`) or a merge key reuses a node written elsewhere, whose
+            # end mark sits on the ANCHOR's line -- in another step, or in this step's own
+            # `name:`. An anchor always precedes its alias, so a value that starts before its
+            # own key was not written here: it gets no mark rather than another line's tag.
+            written_here = value.start_mark.index > key.end_mark.index
+            data.uses_end = value.end_mark.index if written_here else None
+
+
+_UsesMarkLoader.add_constructor("tag:yaml.org,2002:map", _construct_marked_mapping)
+
+
+def _trailing_tag(text: str, step: dict) -> str | None:
+    """The ``# v<X.Y.Z>`` comment trailing *step*'s own ``uses:`` scalar, None if it has none.
+
+    Only the rest of that scalar's source line is read, so neither a tag on the next line nor a
+    tagged line anywhere else in the file can count for this call site.
+    """
+    end = getattr(step, "uses_end", None)
+    if end is None:
+        return None
+    rest = text[end:].split("\n", 1)[0]
+    match = _SETUP_MICROMAMBA_TAG.match(rest)
+    return match.group(1) if match else None
 
 
 def _yaml_load(path: Path) -> object:
@@ -3081,7 +3296,7 @@ def _setup_micromamba_steps(text: str) -> list[dict]:
     """
     return [
         step
-        for step in _workflow_or_action_steps(yaml.safe_load(text))
+        for step in _workflow_or_action_steps(yaml.load(text, Loader=_UsesMarkLoader))
         if isinstance(step.get("uses"), str) and step["uses"].startswith(SETUP_MICROMAMBA)
     ]
 
@@ -3100,7 +3315,7 @@ class _MicromambaCallSites(NamedTuple):
 
     uses: list[str]  # parsed `uses:` values, one per call site
     pins: list[str | None]  # each call site's OWN `with: micromamba-version`, None if unset
-    tags: list[str]  # trailing `# v<X.Y.Z>` comments on the `uses:` lines (text)
+    tags: list[str | None]  # each call site's OWN trailing `# v<X.Y.Z>`, None if untagged
 
     @property
     def shas(self) -> list[str]:
@@ -3108,11 +3323,13 @@ class _MicromambaCallSites(NamedTuple):
 
 
 def _micromamba_call_sites_in(text: str) -> _MicromambaCallSites:
-    """One document's call sites, each pin read from that step's own ``with:`` mapping.
+    """One document's call sites, each pin and tag read from that call site alone.
 
-    Never from pin-shaped lines anywhere in the file: a call site with no
-    ``micromamba-version`` floats to ``latest``, and a matching line in some other step's
-    ``run:`` block must not stand in for it.
+    The pin comes from the step's own ``with:`` mapping and the tag from the rest of its own
+    ``uses:`` line, never from pin- or tag-shaped lines anywhere in the file: a call site with
+    no ``micromamba-version`` floats to ``latest``, an untagged one leaves the reviewer guessing
+    which release the SHA is, and a matching line in some other step's ``run:`` block must not
+    stand in for either (#502, #510).
     """
     steps = _setup_micromamba_steps(text)
     pins: list[str | None] = []
@@ -3121,7 +3338,7 @@ def _micromamba_call_sites_in(text: str) -> _MicromambaCallSites:
         value = inputs.get("micromamba-version") if isinstance(inputs, dict) else None
         pins.append(None if value is None else str(value))
     return _MicromambaCallSites(
-        [step["uses"] for step in steps], pins, _SETUP_MICROMAMBA_TAG.findall(text)
+        [step["uses"] for step in steps], pins, [_trailing_tag(text, step) for step in steps]
     )
 
 
@@ -3234,7 +3451,62 @@ def test_the_version_tag_must_trail_its_own_uses_line() -> None:
         f"jobs:\n  build:\n    steps:\n      - uses: {SETUP_MICROMAMBA}{sha}\n        # v1.2.3\n"
     )
     assert _micromamba_call_sites_in(trailing).tags == ["v1.2.3"]
-    assert _micromamba_call_sites_in(next_line).tags == []
+    assert _micromamba_call_sites_in(next_line).tags == [None]
+
+
+def test_a_call_site_tag_is_read_from_its_own_uses_line() -> None:
+    """A tagged ``uses:`` line inside a ``run:`` block is not the real call site's tag (#510).
+
+    The file below has one real call site with no tag, and a ``run: |`` block that prints a
+    tagged example. A file-wide count found one tag for one call site and passed; reading each
+    call site's own line finds none. The quoted and composite spellings are read the same way.
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    call = f"{SETUP_MICROMAMBA}{sha}"
+    untagged_plus_example = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: {call}\n"
+        "      - run: |\n"
+        f"          uses: {call} # v1.2.3\n"
+    )
+    quoted = f'jobs:\n  build:\n    steps:\n      - uses: "{call}" # v1.2.3\n'
+    composite = (
+        f"name: setup-env\nruns:\n  using: composite\n  steps:\n    - uses: {call} # v1.2.3\n"
+    )
+    two_sites = (
+        f"jobs:\n  build:\n    steps:\n      - uses: {call} # v1.2.3\n      - uses: {call}\n"
+    )
+    assert _micromamba_call_sites_in(untagged_plus_example).tags == [None]
+    assert _micromamba_call_sites_in(quoted).tags == ["v1.2.3"]
+    assert _micromamba_call_sites_in(composite).tags == ["v1.2.3"]
+    assert _micromamba_call_sites_in(two_sites).tags == ["v1.2.3", None]
+
+
+def test_an_aliased_call_site_does_not_borrow_the_anchor_tag() -> None:
+    """A ``uses: *alias`` step has no tag of its own, even though its anchor's line has one.
+
+    An alias reuses the anchored node, end mark included, so reading the tag at that mark
+    would report the anchor's ``# v1.2.3`` for the alias step too and pass it (#510).
+    """
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    aliased = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - uses: &setup {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "      - uses: *setup\n"
+    )
+    assert _micromamba_call_sites_in(aliased).tags == ["v1.2.3", None]
+    same_step = (
+        "jobs:\n"
+        "  build:\n"
+        "    steps:\n"
+        f"      - name: &setup {SETUP_MICROMAMBA}{sha} # v1.2.3\n"
+        "        uses: *setup\n"
+    )
+    assert _micromamba_call_sites_in(same_step).tags == [None]
 
 
 def test_a_mutable_action_ref_is_not_a_pin() -> None:
@@ -3303,11 +3575,10 @@ def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None
     check green, which is precisely the state #446 would have produced without #445.
 
     The trailing tag comment is asserted too: a parse discards comments, so it is read from the
-    text, and the file must carry as many tags as it has PARSED call sites -- an unannotated
-    ``uses:`` line fails here rather than being silently skipped. The count is per file, so it
-    does not tie each tag to its own call site's line; #510 tracks that. Every ref must be a
-    full 40-hex commit SHA before agreement is checked: call sites that all moved to ``@main``
-    would otherwise agree on a mutable ref.
+    text, but from each PARSED call site's own ``uses:`` line -- an unannotated ``uses:`` line
+    fails here, and a tagged line elsewhere in the file cannot stand in for it (#510). Every
+    ref must be a full 40-hex commit SHA before agreement is checked: call sites that all moved
+    to ``@main`` would otherwise agree on a mutable ref.
     """
     call_sites = _setup_micromamba_call_sites()
     assert len(call_sites) >= 3, (
@@ -3322,9 +3593,9 @@ def test_every_setup_micromamba_call_site_runs_the_same_action_version() -> None
     )
 
     untagged = sorted(
-        f"{name} ({len(site.tags)} `# v<X.Y.Z>` comment(s) for {len(site.uses)} call site(s))"
+        f"{name} ({site.tags.count(None)} of {len(site.uses)} call site(s) untagged)"
         for name, site in call_sites.items()
-        if len(site.tags) != len(site.uses)
+        if None in site.tags
     )
     assert not untagged, (
         "every `uses: mamba-org/setup-micromamba@<sha>` line needs its own trailing "

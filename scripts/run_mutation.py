@@ -6,7 +6,8 @@ Coverage shows which lines the tests run, not whether a test fails when a line i
 script changes one token at a time in the modules that ``.github/mutation.toml`` names (``<`` to
 ``<=``, ``+`` to ``-``, ``and`` to ``or``, a number to a different number, ``not x`` to ``x``)
 and runs, for each change (a *mutant*), only the tests that ran its line. A mutant that no test
-finds *survives*.
+finds *survives*. A line at module or class level runs on import, before any test, so its mutants
+also run the tests of each test file that imports the module (#883).
 
 1. ``contexts``: one run of the default tier under ``coverage`` with this file loaded as a pytest
    plugin, which names the coverage context of each line after the test that ran it (the pytest
@@ -151,8 +152,9 @@ class Mutant:
     new: str
     function: str  # qualified name of the enclosing def, or "<module>"
     line_text: str
-    #: The lines whose tests run this mutant; empty means "every test of the file" (a module-
-    #: or class-level statement, which runs on import, before any test context).
+    #: The lines whose tests run this mutant; empty means "every test of the file, and every
+    #: test that imports the module" (a module- or class-level statement, which runs on import,
+    #: before any test context).
     test_lines: list[int] = field(default_factory=list)
     occurrence: int = 0  # how many identical changes precede it on the same line
 
@@ -416,18 +418,144 @@ def run_contexts(
     return tests, lines, status
 
 
+def module_name(path: str) -> str:
+    """``src/tether/a/b.py`` -> ``tether.a.b``; a package's ``__init__.py`` is the package."""
+    parts = list(Path(path).with_suffix("").parts)
+    if parts[:1] == ["src"]:
+        parts = parts[1:]
+    if parts[-1:] == ["__init__"]:
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _module_file(src: Path, name: str) -> Path | None:
+    base = src.joinpath(*name.split("."))
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _absolute(module: str, is_package: bool, node: ast.ImportFrom) -> str:
+    """The absolute module an ``ImportFrom`` in *module* names (relative ones resolved)."""
+    if not node.level:
+        return node.module or ""
+    parts = module.split(".") if is_package else module.split(".")[:-1]
+    parts = parts[: len(parts) - (node.level - 1)]
+    return ".".join([*parts, *([node.module] if node.module else [])])
+
+
+def _module_scope(tree: ast.Module) -> Iterable[ast.AST]:
+    """The nodes that bind module names: ``if``/``try``/``with`` blocks are entered, a ``def``
+    or ``class`` body is not, so a local import never shadows what the module passes on."""
+    todo: list[ast.AST] = list(tree.body)
+    while todo:
+        node = todo.pop(0)
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            inner = (ast.stmt, ast.excepthandler)
+            todo[:0] = [c for c in ast.iter_child_nodes(node) if isinstance(c, inner)]
+
+
+class _Imports:
+    """Which modules of ``src/`` a test file imports, re-exports followed.
+
+    ``import tether.a.b`` and ``from tether.a.b import x`` import ``tether.a.b``;
+    ``from tether.a import b`` imports ``tether.a`` and, when ``b`` is a submodule, ``tether.a.b``.
+    When ``tether.a`` only re-exports ``b`` (``from tether.a.c import b`` in its ``__init__``),
+    the test reads a value that ``tether.a.c`` made, so it imports ``tether.a.c`` too, and so on
+    down the chain of re-exports (every branch of a conditional one). Every module found also
+    imports its parent packages (``tether`` and ``tether.a`` for ``tether.a.b``), as Python
+    runs their ``__init__`` first."""
+
+    def __init__(self, src: Path) -> None:
+        self.src = src
+        self._reexports: dict[str, dict[str, list[tuple[str, str]]]] = {}
+
+    def reexports(self, module: str) -> dict[str, list[tuple[str, str]]]:
+        """name -> every (module it may come from, its name there), for the names *module*
+        imports; an ``if``/``else`` or ``try``/``except`` pair gives a name two origins."""
+        if module not in self._reexports:
+            self._reexports[module] = {}
+            path = _module_file(self.src, module)
+            if path is not None:
+                is_package = path.name == "__init__.py"
+                try:
+                    tree = ast.parse(path.read_text(encoding="utf-8"))
+                except (SyntaxError, UnicodeDecodeError):
+                    tree = ast.Module(body=[], type_ignores=[])
+                for node in _module_scope(tree):
+                    if isinstance(node, ast.ImportFrom):
+                        origin = _absolute(module, is_package, node)
+                        for alias in node.names:
+                            if alias.name != "*":
+                                self._reexports[module].setdefault(
+                                    alias.asname or alias.name, []
+                                ).append((origin, alias.name))
+        return self._reexports[module]
+
+    def _from(self, module: str, name: str, seen: set[tuple[str, str]]) -> set[str]:
+        """The modules that ``from module import name`` loads and that made the value."""
+        if (module, name) in seen:
+            return set()
+        seen.add((module, name))
+        found = {module}
+        if _module_file(self.src, f"{module}.{name}") is not None:
+            found.add(f"{module}.{name}")
+        for origin, original in self.reexports(module).get(name, ()):
+            found |= self._from(origin, original, seen)
+        return found
+
+    def of(self, source: str) -> set[str]:
+        """Every module a test file's source imports, at any depth of the file."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return set()
+        found: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                found |= {alias.name for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                for alias in node.names:
+                    star = alias.name == "*"
+                    found |= {node.module} if star else self._from(node.module, alias.name, set())
+        parents = {name.rsplit(".", i)[0] for name in found for i in range(1, name.count(".") + 1)}
+        return found | parents
+
+
+def imports_of_tests(root: Path, test_files: Iterable[str]) -> dict[str, set[str]]:
+    """test file (repository-relative) -> the modules of ``src/`` it imports (see ``_Imports``)."""
+    imports = _Imports(root / "src")
+    out: dict[str, set[str]] = {}
+    for test_file in sorted(set(test_files)):
+        path = root / test_file
+        if path.is_file():
+            out[test_file] = imports.of(path.read_text(encoding="utf-8"))
+    return out
+
+
 def covering_tests(
     mutant: Mutant,
     lines: Mapping[str, Mapping[int, set]],
     passed: set,
     fixtures: Mapping[str, Iterable[str]] | None = None,
+    imports: Mapping[str, set[str]] | None = None,
 ) -> list:
     """The passing tests that ran the mutant's lines, and every test that used a shared fixture
-    whose setup ran them (*fixtures*: node id -> the fixture names the test asked for)."""
+    whose setup ran them (*fixtures*: node id -> the fixture names the test asked for).
+
+    A mutant at module or class level runs on import, before any test context, so it also runs
+    every passing test of each test file that imports its module (*imports*: test file -> the
+    modules it imports, from ``imports_of_tests``): such a test may only read a value the import
+    made and run no line of the file."""
     by_line = lines.get(mutant.path, {})
     wanted = mutant.test_lines or list(by_line)
     contexts = {c for ln in wanted for c in by_line.get(ln, ())}
     found = contexts & passed
+    if not mutant.test_lines and imports:
+        name = module_name(mutant.path)
+        found |= {t for t in passed if name in imports.get(t.split("::", 1)[0], ())}
     for context in contexts:
         if not context.startswith(FIXTURE_CONTEXT):
             continue
@@ -627,12 +755,13 @@ def main(argv: list[str] | None = None) -> int:
             )
         not_passed = sorted(set(tests) - passed)
         fixtures = {t: r.get("fixtures", []) for t, r in tests.items()}
+        imports = imports_of_tests(REPO, (t.split("::", 1)[0] for t in passed))
         records: list[dict] = []
         todo: list[tuple[dict, Mutant, str, list[str]]] = []
         for path in files:
             source = (REPO / path).read_text(encoding="utf-8")
             for mutant in mutants_of(source, path):
-                selected = covering_tests(mutant, lines, passed, fixtures)
+                selected = covering_tests(mutant, lines, passed, fixtures, imports)
                 rec = asdict(mutant) | {
                     "change": mutant.change,
                     "key": list(mutant.key),

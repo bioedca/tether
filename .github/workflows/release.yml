@@ -327,6 +327,21 @@ jobs:
           fi
           python scripts/setup_sidecar.py --verify-setuptools-wheel "packaging/staging/${expected}"
 
+      - name: Stage the hash-pinned gh update verifier (issue #332)
+        # The in-app updater verifies a downloaded installer with `gh attestation verify
+        # --bundle` (ADR-0060), and with no OS signature behind the installer (ADR-0059) that
+        # check is the whole trust boundary, so `gh` ships in the install. The version and the
+        # SHA-256 of each platform's upstream archive live in ONE file,
+        # packaging/gh-verifier.toml; stage_gh.py is its reader. It refuses a version below
+        # the CVE floor, refuses an archive whose digest differs, checks that the extracted
+        # binary reports the pinned version, and stages its `gh licenses` notices. Extra
+        # files, never conda-lock: construct.yaml's `extra_files` reads the three files it
+        # writes into packaging/staging/gh/ unconditionally, so without this step constructor
+        # aborts with FileNotFoundError.
+        run: |
+          python packaging/scripts/stage_gh.py stage --platform "$PLATFORM" --dest packaging/staging/gh
+          ls -l packaging/staging/gh
+
       - name: Render per-platform EXPLICIT locks (pin-and-hold; no re-solve)
         run: |
           mkdir -p packaging/locks

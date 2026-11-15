@@ -1,3 +1,7 @@
+---
+description: "What the current Tether release contains, what comes next and what is out of scope, as a short public summary."
+---
+
 # Roadmap
 
 **Who this page is for.** Readers who want a short, public view of what Tether is
@@ -35,6 +39,12 @@ installers and validation suite end to end, finish release hardening, and publis
 installer assets, environment locks, checksums, SBOM, and versioned documentation through
 the release pipeline.
 
+Before stable `v1.0.0`, the desktop application also gets an extraction section
+(milestone [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17)):
+a lab member takes a fresh acquisition from the raw movie to a `.tether` project with no
+terminal. Until then, a new movie is extracted with `tether extract` or `tether batch`
+(see [Command line](cli.md)), and the application opens the result.
+
 There is no committed v1.1 feature slate yet. Post-1.0 work will be selected through the
 public issue backlog after the stable-release gates are complete; deferred ideas are not
 promises until they have an accepted work item and milestone.
@@ -47,8 +57,9 @@ These boundaries apply to v1.0 and are deliberate:
   single-laser acquisitions.
 - **No built-in data simulator.** Validation uses real labeled traces and named benchmark
   data instead.
-- **No attempt to clone every tMAVEN plot.** Seven plot types are native; other tMAVEN
-  views remain available through the standalone hand-off.
+- **No attempt to clone every tMAVEN plot.** Parity with tMAVEN covers seven plot types;
+  other tMAVEN views remain available through the standalone hand-off. Tether also plots
+  its own results that tMAVEN does not have, such as the raw FRET cloud.
 - **No open-ended legacy-format support.** Deep-LASI inputs and tMAVEN SMD are supported;
   older `.dat` and vbFRET `.mat` formats are not.
 - **No central Tether service.** The application runs on each user's workstation and

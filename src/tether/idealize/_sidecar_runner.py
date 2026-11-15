@@ -3,7 +3,7 @@
 """Headless tMAVEN runner — executed *inside the isolated sidecar env*.
 
 This module is **not** imported by the Tether base package. It is launched as a
-standalone script by :mod:`tether.idealize.driver` using the sidecar
+standalone script by [`tether.idealize.driver`][] using the sidecar
 interpreter (PRD §4.3), so its only imports are ones present in the sidecar
 lock (``tmaven`` + ``numpy`` + ``h5py`` + the stdlib). It must stay
 Python-3.9-compatible (the sidecar pins py3.9 / numpy<2 / PyQt5), so it avoids
@@ -21,10 +21,10 @@ driver reads that file back in the base env.
 
 ``--seed N`` (issue #311) makes the fit reproducible. Without it tMAVEN draws its
 starting points from two sources this process does not otherwise control (see
-:func:`seed_random_streams`), so two fits of one file differ; that is tMAVEN's
+`seed_random_streams`), so two fits of one file differ; that is tMAVEN's
 own behaviour and stays the default.
 
-The last stdout line is a one-line JSON status prefixed with :data:`STATUS_PREFIX`
+The last stdout line is a one-line JSON status prefixed with `STATUS_PREFIX`
 so the driver can recover it from amid tMAVEN's verbose logging.
 """
 
@@ -117,7 +117,7 @@ def run(smd_path, group, model_type, nstates, model_out, nrestarts=None, seed=No
     """Load ``smd_path``, run ``model_type`` idealization, export to ``model_out``.
 
     ``seed`` (a non-negative integer, or ``None`` for tMAVEN's own unseeded
-    behaviour) makes the fit reproducible; see :func:`seed_random_streams`.
+    behaviour) makes the fit reproducible; see `seed_random_streams`.
 
     Returns the status dict that is also emitted as JSON on stdout.
     """
