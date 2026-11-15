@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tether.idealize.parity import SpreadSummary
+from tether.idealize.parity import FREEZE_RESOLUTION, ParityMetrics, SpreadSummary
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO_ROOT / "scripts" / "measure_parity.py"
@@ -251,8 +251,12 @@ def _configure_main(
         "relative_elbo": SpreadSummary("relative_elbo", "ceiling", [0.0]),
     }
 
+    # One comparison, carrying the transition-matrix term the population methods freeze
+    # apart from the four bounds (#545, ADR-0110).
+    compared = ParityMetrics(1.0, 0.0, 1.0, 0.0, 2, 2, transition_matrix_abs_delta=0.0)
+
     def fake_measure_spread(*_args, **_kwargs):
-        return spread, [object()]
+        return spread, [compared]
 
     monkeypatch.setattr(measure, "measure_spread", fake_measure_spread)
     monkeypatch.setenv("TETHER_SIDECAR_PYTHON", _SIDECAR_PYTHON)
@@ -300,6 +304,11 @@ def test_main_serializes_build_provenance_without_interpreter_path(
     assert artifact["method"]["sidecar_python_version"] == "3.12.13"
     assert artifact["method"]["tmaven_commit"] == _TMAVEN_COMMIT
     assert artifact["method"]["build_provenance"].strip()
+    # The transition-matrix term is frozen with the resolution floor of ADR-0110.
+    term = artifact["transition_matrix"]
+    assert term["model_type"] == "vbconhmm"
+    assert term["transition_matrix_abs_delta_max"] == FREEZE_RESOLUTION
+    assert term["pooled_worst"] == {"transition_matrix_abs_delta": 0.0}
     _assert_path_absent(serialized)
 
 
