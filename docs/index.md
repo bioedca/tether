@@ -1,3 +1,7 @@
+---
+description: "Tether is a free desktop suite for single-molecule FRET analysis. Start here to find the install guide, the tutorial and the citation."
+---
+
 <div class="tether-hero">
   <img class="on-light" src="assets/brand/lockup-light.svg" alt="The Tether logo" width="420" height="120">
   <img class="on-dark" src="assets/brand/lockup-dark.svg" alt="The Tether logo" width="420" height="120">
@@ -20,8 +24,8 @@ traces, fits one trace at a time and draws a population histogram. Extraction ru
 molecule. From Python you can run the corrections and whole-project fits with your own
 settings, and make the other plots and the exports, as each [how-to guide](#using-tether)
 shows. The installer also includes
-[napari](https://napari.org) for the movie panel, which reaches the application with the
-[trace curation section (M16)](https://github.com/bioedca/tether/milestone/18).
+[napari](https://napari.org) for the movie panel, which reaches the application with the planned
+[trace curation section](https://github.com/bioedca/tether/milestone/18).
 
 **New here?** Start with [Does Tether fit my data?](compatibility.md) — it describes the
 acquisition geometry and file formats Tether reads, what it deliberately does not do, and
@@ -91,7 +95,7 @@ paper.
 - [Standalone-tMAVEN cross-OS record](maintainers/standalone-tmaven-cross-os-record.md) —
   for maintainers recording the manual tMAVEN GUI check on each operating system.
 
-## Modules (PRD §4.2)
+## Modules
 
 Each package below owns one responsibility. The table lists them by package; for the order a
 movie actually passes through them, and what each leaves in the project file, see
@@ -107,6 +111,13 @@ movie actually passes through them, and what each leaves in the project file, se
 | [`tether.analysis`](analysis/parity-gallery.md) | Histograms, transition-density plots, and population statistics. |
 | [`tether.gui`](adr/0055-gui-session-writer-ownership.md) | The PySide6 shell and dockable analysis surfaces. |
 | [`tether.project`](adr/0030-headless-batch-runner-isolation-and-checkpoint.md) | The experiment/session model and the headless core. |
+
+## Cite Tether
+
+If you publish results that you made with Tether, cite its concept DOI,
+[10.5281/zenodo.23306397](https://doi.org/10.5281/zenodo.23306397). That DOI always resolves to
+the newest archived release. [Citing Tether](citing.md) gives the full citation, tells you how to
+cite the exact version you ran, and lists the published methods to cite with it.
 
 ## Support Tether
 

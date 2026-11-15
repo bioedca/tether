@@ -6,8 +6,8 @@ On Windows, MKL (the env's BLAS) loads its dependent DLLs through the ordinary W
 search order, which reads ``PATH``. On a PC with other scientific software, an
 incompatible copy earlier on ``PATH`` won, and the first BLAS call crashed with
 ``0xC06D007F`` (issue #553). ``conda activate`` prevents that by putting the env's
-folders first, and the installer's ``bin\\tether.bat`` and ``bin\\tether-gui.bat`` do the
-same for their own process.
+folders first, and the installer's ``launchers\\tether.bat`` and
+``launchers\\tether-gui.bat`` do the same for their own process.
 
 A shortcut cannot set an environment variable, so until #579 the Start Menu entry ran
 ``tether-gui.bat`` through ``cmd.exe``, and a console window flashed before the GUI

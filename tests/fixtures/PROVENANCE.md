@@ -609,6 +609,17 @@ verifies every committed record. `stand-in/selftest` is not a reference: the `ma
 the tests (`tests/_matlab_standin.py`) made it, against a one-file repository, so that the scan
 always has one record to check.
 
+`mash-fret/easy`, `mash-fret/low-snr`, `mash-fret/dense` and `mash-fret/uneven` (#714,
+ADR-0088) are four simulated two-channel videos with their truth, made by the `simulate` task of
+`scripts/reference/matlab/mash_fret.py` with the parameters and seeds of
+`scripts/reference/matlab/mash_fret_extraction_set.py`, on MASH-FRET v1.3.6 (`83fcadf`) and
+MATLAB R2023b on the maintainer's workstation (2026-11-13). Each directory holds the video
+(`<name>.sira.gz`, MASH-FRET's own format compressed with gzip), `coordinates/<name>.coord`,
+one `traces_ASCII/<name>_mol<n>of<N>.txt` for each molecule, MASH-FRET's `<name>_param.log`, the
+note `<name>_tether_note.txt` (the one accepted MATLAB R2023b error, ADR-0088) and
+`provenance.json`. They are simulated, so they hold no measured data; they are outputs of a
+GPL-3.0 program and carry the repository's licence.
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the
@@ -863,6 +874,13 @@ in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
   `fix`, all unchanged. It leaves out the raw intensities and every path and free-text field
   (`proj_file`, `exp_parameters`). The 116-byte MATLAB header text is fixed, so the same source
   gives the same bytes. `tests/test_mashfret_reference.py` reads it through `tests/_mashfret.py`.
+- `tests/fixtures/mashfret_ed135e_30mm_path_a.mat` (204,676 B · plain git, #712) — made by the
+  same script from the same project file. It keeps the 17 molecules with tag 12, "Path A 0.2 +-
+  0.3": their denoised intensities, `FRET_DTA`, `bool_intensities`, `coord_incl`, `molTag` and
+  `prmTT`; row 13 (that tag) of the Histogram-analysis results `prmThm` and of the
+  Transition-analysis results `prmTDP`, with every other row an empty cell; and the project fields
+  above plus `frame_rate` and `molTagNames`, all unchanged. `tests/test_mashfret_analysis.py` and
+  `tests/test_mashfret_analysis_sidecar.py` read it.
 
 | Source (in the Zenodo record) | Size | SHA-256 |
 |---|---|---|
@@ -876,8 +894,9 @@ GPL-3.0. Regenerate with:
 python scripts/make_mashfret_fixture.py <path>/02_smFRET.zip
 ```
 
-Both files have entries in `tests/reference_data/manifest.toml` (ids
-`mashfret-group-iib-intron-archive`, `mashfret-ed135e-30mm-extract`; ADR-0073). The archive is
+The three files have entries in `tests/reference_data/manifest.toml` (ids
+`mashfret-group-iib-intron-archive`, `mashfret-ed135e-30mm-extract`, `mashfret-ed135e-30mm-path-a`;
+ADR-0073). The archive is
 larger than the 200 MB download limit, so it is a `workstation` entry: the weekly workstation run
-reads it from `$TETHER_PRIVATE_DATA`, verifies the checksum above, makes the extract again and
-compares it byte for byte with the committed file.
+reads it from `$TETHER_PRIVATE_DATA`, verifies the checksum above, makes both extracts again and
+compares them byte for byte with the committed files.
