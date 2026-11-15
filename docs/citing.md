@@ -1,3 +1,7 @@
+---
+description: "Cite Tether by its concept DOI or by the version DOI of the release you ran, and cite the published methods behind each part you used."
+---
+
 # Citing Tether
 
 **Who this page is for.** Anyone publishing results produced with Tether. It gives the
