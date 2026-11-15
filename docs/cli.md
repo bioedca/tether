@@ -39,7 +39,7 @@ the install root you chose during installation:
 
 | Platform | Command-line launcher | Window launcher |
 |---|---|---|
-| Windows | `<install-root>\bin\tether.bat` | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
+| Windows | `<install-root>\bin\tether.bat`, or `tether` in Start Menu → **Tether Command Prompt** from the next release | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
 | macOS | `<install-root>/bin/tether` | `<install-root>/bin/tether-gui` |
 
@@ -48,13 +48,16 @@ the install root instead, a folder that holds nothing else
 ([#492](https://github.com/bioedca/tether/issues/492)): read `launchers` for `bin` in the
 table.
 
-Add that one directory to the **end** of your `PATH`, and you can copy every example on
-this page as it is. [Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)
+On Windows, from the next release, Start Menu → **Tether Command Prompt** opens a console in
+which you can copy every example on this page as it is, with no `PATH` change
+([#666](https://github.com/bioedca/tether/issues/666)). On any system, add that one directory to
+the **end** of your `PATH` and every example works in any terminal.
+[Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)
 gives the line for each system. It also tells why the folder goes at the end: in rc3, on Linux
 and macOS, the `bin` folder also holds the installer's own `python`, `pip` and `conda`, and
 these must not hide your own.
 
-Without that step, substitute the full launcher path from the table for `tether` in
+Without either, substitute the full launcher path from the table for `tether` in
 every command below; nothing else changes. Verify the install with:
 
 ```console

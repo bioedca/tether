@@ -23,7 +23,7 @@ tether --version
 
 It prints `tether` and a version number, as in
 [step 5 of the install guide](install.md#5-check-that-tether-runs). If it says the command is
-not found, finish [step 4 of the install guide](install.md#4-put-tethers-launcher-folder-on-your-path)
+not found, finish [step 4 of the install guide](install.md#4-open-a-terminal-where-tether-works)
 first.
 
 ## 2. Download the sample movie

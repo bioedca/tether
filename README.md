@@ -154,6 +154,9 @@ The installer does **not** edit your `PATH`. It writes both launchers into
 also adds a **Tether** entry to the Start Menu or applications menu. From the next release
 the launchers are in `<install-root>/launchers/` instead, a folder that holds only them
 ([#492](https://github.com/bioedca/tether/issues/492)); read `launchers` for `bin` below.
+From the next release the Windows Start Menu also has **Tether Command Prompt**, a console in
+which `tether` works with no `PATH` change
+([#666](https://github.com/bioedca/tether/issues/666)).
 
 Open the desktop application from that menu entry, or run the window launcher:
 
