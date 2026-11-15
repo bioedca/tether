@@ -118,6 +118,7 @@ convention = "numpy"
 "src/tether/analysis/plot_export.py" = ["D205", "D209", "D401"]
 "src/tether/analysis/selection.py" = ["D401"]
 "src/tether/analysis/state_number.py" = ["D401"]
+"src/tether/cli.py" = ["D401"]
 "src/tether/fret/gamma.py" = ["D401"]
 "src/tether/gui/about.py" = ["D102", "D205", "D209", "D401"]
 "src/tether/gui/app.py" = ["D301"]
@@ -176,6 +177,7 @@ convention = "numpy"
 "src/tether/project/oracle.py" = ["D401"]
 "src/tether/project/prequential.py" = ["D401"]
 "src/tether/project/reconstruct.py" = ["D301", "D401"]
+"src/tether/project/summary.py" = ["D401"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["tether"]
