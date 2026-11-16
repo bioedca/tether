@@ -78,7 +78,7 @@ retired = 13
 
 [pages."docs/install.md"]
 kind = "procedure"
-long_share = 31.7
+long_share = 31.1
 semicolons = 16
 long_paragraphs = 0
 retired = 0
@@ -99,8 +99,8 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 23.5
-semicolons = 6
+long_share = 23.9
+semicolons = 8
 long_paragraphs = 0
 retired = 3
 
@@ -239,9 +239,9 @@ retired = 8
 
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
-long_share = 24.0
-semicolons = 27
-long_paragraphs = 1
+long_share = 23.6
+semicolons = 28
+long_paragraphs = 2
 retired = 10
 
 [pages."docs/citing.md"]
