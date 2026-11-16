@@ -12,6 +12,8 @@
 # issue's own numbers came from main at 4094720; since then `gui` fell to 93.11 % (new brand
 # code), other packages rose with new tests, and `ml` rose to 93.82 % because the torch-only
 # module is now excluded by name.
+# `services` (#892, ADR-0100) started at 99: its line coverage was 99.6 % when it was added,
+# rounded down by the same rule.
 [floors]
 total = 95
 analysis = 97
@@ -22,3 +24,4 @@ imaging = 93
 io = 96
 ml = 93
 project = 96
+services = 99
