@@ -163,6 +163,8 @@ def test_an_override_under_a_plain_file_is_absent(store: tuple[Path, Path]) -> N
         b'{"update_check": "allowed"}',
         b'{"schema": 2, "update_check": "allowed"}',
         b'{"schema": "1", "update_check": "allowed"}',
+        b'{"schema": true, "update_check": "allowed"}',
+        b'{"schema": 1.0, "update_check": "allowed"}',
         b'{"schema": 1, "update_check": true}',
         b'{"schema": 1, "update_check": "yes"}',
         b'{"schema": 1, "update_check": "ALLOWED"}',
@@ -181,6 +183,8 @@ def test_an_override_under_a_plain_file_is_absent(store: tuple[Path, Path]) -> N
         "no-schema",
         "future-schema",
         "string-schema",
+        "bool-schema",
+        "float-schema",
         "bool-value",
         "unknown-value",
         "wrong-case",
@@ -433,3 +437,6 @@ def test_the_upgrade_smoke_writes_with_the_installed_app_and_checks_both_paths()
     # only an installer refusal takes the "not an upgrade path" branch.
     assert 'if [ "$over_rc" = 0 ]; then' in code
     assert '[ "$over_rc" = 0 ] &&' not in code
+    # On Linux the -u over-install is the supported upgrade path, so its failure fails
+    # the job rather than being reported as a refusal.
+    assert "the Linux update install (-u) exited" in code

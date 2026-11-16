@@ -298,7 +298,7 @@ installer can replace or delete the install folder, so a file there could be los
 The file holds only two values: a format number and your answer, `allowed` or `declined`. It
 holds no name, no computer name, no time, no file path and no project data. If the file is
 missing, empty or damaged, Tether reads it as *no answer yet*: it makes no network connection
-and asks again. Tether never reads a damaged file as *allowed*.
+and the answer stays unset. Tether never reads a damaged file as *allowed*.
 
 ### For a site administrator: turn the update check off for every user
 
@@ -408,7 +408,8 @@ by any of these steps.
 
 The [settings file](#settings-tether-keeps-outside-the-install-folder) is not touched either,
 so a later install keeps your answer. To remove it too, delete the `MondragonLab\Tether`
-folder (Windows, macOS) or the `~/.config/tether` folder (Linux) named in that section.
+folder (Windows, macOS) or, on Linux, the `tether` folder in `$XDG_CONFIG_HOME` if you set
+that variable, otherwise `~/.config/tether`.
 
 ## The optional GPU add-on
 

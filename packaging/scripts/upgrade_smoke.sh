@@ -120,6 +120,9 @@ if [ "$RUNNER_OS" = "Linux" ] && [ "$over_rc" != 0 ]; then
   # over-install a user can run on Linux is the -u one. Both statuses are reported.
   over_note=" (plain -b -p exited $over_rc; retried with -u)"
   over_rc=0; sh "$sh_installer" -b -u -p "$prefix" || over_rc=$?
+  # -u is the upgrade path the Linux installer offers, so it must succeed; only the
+  # Windows and macOS installers may refuse an over-install.
+  test "$over_rc" = 0 || { echo "the Linux update install (-u) exited $over_rc"; exit 1; }
 fi
 prefix_marker="$(present "$prefix_u/upgrade-marker-prefix.txt")"
 env_marker="$(present "$(dirname "$py_u")/upgrade-marker-env.txt")"

@@ -191,7 +191,12 @@ def _stored_answer(path: Path) -> str | None:
         # RecursionError: deeply nested JSON that fits in _MAX_BYTES still exceeds the
         # decoder's nesting limit on Python 3.11.
         return None
-    if not isinstance(data, dict) or data.get("schema") != SETTINGS_SCHEMA:
+    if not isinstance(data, dict):
+        return None
+    schema = data.get("schema")
+    # An exact int: JSON true and 1.0 compare equal to 1 in Python but are not the format
+    # this module writes.
+    if type(schema) is not int or schema != SETTINGS_SCHEMA:
         return None
     value = data.get(_KEY)
     return value if value in (_ALLOWED, _DECLINED) else None
