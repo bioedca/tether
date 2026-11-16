@@ -1214,7 +1214,13 @@ def run_batch(
                 results.append(MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side))
                 if progress is not None:
                     with contextlib.suppress(Exception):
-                        progress.movie_finished(index, total, results[-1])
+                        # A copy, so an observer that edits its argument cannot change
+                        # the result this run returns.
+                        progress.movie_finished(
+                            index,
+                            total,
+                            MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side),
+                        )
     finally:
         if own_log:
             log.close()

@@ -180,6 +180,24 @@ def test_a_failing_display_never_costs_a_movie_its_stage(tmp_path) -> None:
     assert len(log.records) == 6
 
 
+def test_an_observer_that_edits_its_result_cannot_change_the_summary(tmp_path) -> None:
+    class Meddler(BatchProgress):
+        def movie_finished(self, index, total, result):
+            result.stages.clear()
+            raise RuntimeError("display bug")
+
+    summary = run_batch(
+        _jobs(tmp_path, "a", "b"),
+        progress=Meddler(),
+        _extract=_extract_stub(fail=frozenset({"b"})),
+        _correct=_correct_stub(),
+        _idealize=_idealize_stub(),
+    )
+
+    assert summary.n_failed == 1
+    assert [len(r.stages) for r in summary.results] == [3, 3]
+
+
 def test_a_broken_stream_never_stops_the_run(tmp_path) -> None:
     class Closed(io.StringIO):
         def write(self, text):
