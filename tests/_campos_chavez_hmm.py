@@ -430,7 +430,10 @@ def read_stored_model(path: Path) -> SimpleNamespace:
         def member(name: str):
             return g[name][()] if isinstance(g.get(name), h5py.Dataset) else None
 
-        means = np.asarray(member("mean"), dtype=np.float64).reshape(-1)
+        mean = member("mean")
+        if mean is None:
+            raise ValueError(f"{path}: model group has no 'mean' dataset")
+        means = np.asarray(mean, dtype=np.float64).reshape(-1)
         tmatrix = member("tmatrix")
         ran = member("ran")
     return SimpleNamespace(

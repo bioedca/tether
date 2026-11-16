@@ -129,7 +129,8 @@ Chosen option 1.
   about agreement with the article. Each limit is an upper bound: a tMAVEN update that moves these
   fits nearer to the published ones passes, and shows only in the printed numbers; the limits then
   need a new measurement and the maintainer's acceptance.
-- Bad: the global fits are deterministic, so their limits sit within 0.1 % of the measurement; a
+- Bad: each limit is the largest deviation over the seeds, rounded up at the second significant
+  digit, so its headroom over the measurement is small (0.08 % to 6.6 % for the global fits); a
   change of the numerical stack can fail them, and the answer is a new measurement, not a wider
   limit (PRD §11.2).
 - Neutral: the `kmeans_vbhmm` and `vbgmm_vbhmm` keys stay undocumented as user features; a `vbgmm`

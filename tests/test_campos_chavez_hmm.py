@@ -187,6 +187,16 @@ def test_the_stored_model_reader_skips_an_empty_rates_group(tmp_path: Path) -> N
     assert model.tmatrix.tolist() == [[9.0, 1.0], [2.0, 8.0]]
 
 
+def test_the_stored_model_reader_rejects_a_model_without_means(tmp_path: Path) -> None:
+    import h5py
+
+    path = tmp_path / "model.hdf5"
+    with h5py.File(path, "w") as f:
+        f.create_group("model")["tmatrix"] = np.eye(2)
+    with pytest.raises(ValueError, match="mean"):
+        cc.read_stored_model(path)
+
+
 def test_compare_matches_the_states_one_to_one() -> None:
     # Two fitted states lie nearest the same published level (as for the Linker fit): their
     # transitions must count against the published ones by rank, not fall onto the diagonal.

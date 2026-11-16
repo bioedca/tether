@@ -137,10 +137,17 @@ def test_each_stored_model_is_compared_with_the_published_fit(private_data) -> N
 
 
 def test_each_stored_summary_is_compared_with_the_published_fit(private_data) -> None:
+    unreadable = []
     for neutral_id in _ids(private_data, "summary"):
-        text = private_data.path(neutral_id, "summary").read_text(
-            encoding="utf-8", errors="replace"
-        )
+        try:
+            text = private_data.path(neutral_id, "summary").read_text(
+                encoding="utf-8", errors="replace"
+            )
+        except Exception as exc:
+            print(neutral_id, type(exc).__name__)
+            unreadable.append(neutral_id)
+            private_data.record(neutral_id, readable=0)
+            continue
         got = cc.parse_summary(text)
         if got is None:
             private_data.record(neutral_id, parsed=0)
@@ -151,3 +158,4 @@ def test_each_stored_summary_is_compared_with_the_published_fit(private_data) ->
             numbers["fit_index"] = KEYS.index(key)
             numbers.update(_deviations(got["means"], got["counts"], key))
         private_data.record(neutral_id, **numbers)
+    assert not unreadable, unreadable
