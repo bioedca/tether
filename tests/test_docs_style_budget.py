@@ -45,6 +45,9 @@ MAX_SENTENCES = 6
 SHARE_SLACK = 2.0
 
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+_FENCE_CLOSE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
+_RAW_HTML = re.compile(r"^\s*<(pre|script|style|textarea)(?:[\s>]|$)", re.IGNORECASE)
+_CONTAINER = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+|^\s*(?:!!!|\?{3}\+?|===)\s")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _SKIP_LINE = re.compile(r"^\s*(?:<|\[[^\]]+\]:\s|!!!|\?\?\?|-{3,}\s*$|\*{3,}\s*$)")
 _ABBREVIATION = re.compile(r"\b(e\.g|i\.e|etc|vs|cf|Fig|Eq|al|approx|No)\.", re.IGNORECASE)
@@ -68,8 +71,10 @@ def _inline(text: str, code: str) -> str:
 def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
     """The page's prose as ``(text, is_list_item)`` units, and its headings.
 
-    Front matter, fenced code, HTML comments and blocks, tables, link definitions and
-    admonition markers are dropped. A list item is its own unit.
+    Front matter, fenced and indented code, HTML comments, tag lines and raw ``pre``,
+    ``script``, ``style`` and ``textarea`` blocks, tables, link definitions and admonition
+    markers are dropped. A list item is its own unit. An indented block is code only outside a
+    list item or admonition, where indentation continues the container instead.
     """
     text = re.sub(r"<!--.*?-->", " ", split_front_matter(markdown)[1], flags=re.DOTALL)
     units: list[tuple[str, bool]] = []
@@ -77,6 +82,10 @@ def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
     current: list[str] = []
     is_item = False
     fence = ""
+    raw = ""
+    in_container = False
+    indented_code = False
+    previous_blank = True
 
     def flush() -> None:
         if current:
@@ -84,14 +93,42 @@ def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
             current.clear()
 
     for line in text.splitlines():
-        marker = _FENCE.match(_QUOTE_PREFIX.sub("", line))
+        unquoted = _QUOTE_PREFIX.sub("", line)
         if fence:
-            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+            close = _FENCE_CLOSE.match(unquoted)
+            if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
                 fence = ""
             continue
+        if raw:
+            if f"</{raw}" in line.lower():
+                raw = ""
+            continue
+        blank = not unquoted.strip()
+        if indented_code and (blank or unquoted.startswith(("    ", "\t"))):
+            continue
+        indented_code = False
+        if (
+            not blank
+            and unquoted.startswith(("    ", "\t"))
+            and previous_blank
+            and not in_container
+        ):
+            flush()
+            indented_code = True
+            continue
+        previous_blank = blank
+        if not blank and not unquoted.startswith((" ", "\t")):
+            in_container = bool(_CONTAINER.match(unquoted))
+        marker = _FENCE.match(unquoted)
         if marker:
             flush()
             fence = marker.group(1)
+            continue
+        opening = _RAW_HTML.match(unquoted)
+        if opening:
+            flush()
+            if f"</{opening.group(1).lower()}" not in line.lower():
+                raw = opening.group(1).lower()
             continue
         stripped = line.strip().lstrip(">").strip()
         if not stripped or stripped.startswith("|") or _SKIP_LINE.match(stripped):
@@ -284,6 +321,33 @@ def test_a_fence_inside_a_blockquote_is_code() -> None:
     page = "> ```text\n> Error: one.\n>\n> Error: project store invalid; restart now.\n> ```\n"
     found = measure(page, "descriptive", _PHRASES)
     assert not found.semicolons and not found.retired
+
+
+def test_a_fence_closes_only_on_a_bare_marker() -> None:
+    page = "```text\n```not-a-close\nError: project store invalid; restart.\n```\n"
+    found = measure(page, "descriptive", _PHRASES)
+    assert not found.semicolons and not found.retired
+
+
+def test_an_indented_code_block_is_code() -> None:
+    page = "Run this now please.\n\n    echo project store; echo b\n\nThen stop here now.\n"
+    found = measure(page, "descriptive", _PHRASES)
+    assert found.sentences == 2 and not found.semicolons and not found.retired
+
+
+def test_indented_prose_inside_lists_and_admonitions_is_prose() -> None:
+    page = (
+        "- First item here now.\n\n    More about it; still prose here.\n\n"
+        '!!! note "Note"\n\n    The project store is prose; it counts.\n'
+    )
+    found = measure(page, "descriptive", _PHRASES)
+    assert len(found.semicolons) == 2 and len(found.retired) == 1
+
+
+def test_a_multiline_pre_block_is_code() -> None:
+    page = "<pre>\nError: project store invalid; restart.\n</pre>\n\nThen stop here now.\n"
+    found = measure(page, "descriptive", _PHRASES)
+    assert found.sentences == 1 and not found.semicolons and not found.retired
 
 
 def test_code_tables_front_matter_and_headings_are_not_prose() -> None:
