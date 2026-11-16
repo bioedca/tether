@@ -270,6 +270,58 @@ The first command writes nothing and lists what moved. The second command writes
 and prints the old/new table. Put the table and a `Cause:` line in the pull request, as for the
 other golden files. The script prints neutral ids and numbers only.
 
+## Agreement with Deep-LASI on more acquisitions
+
+The weekly run also compares Tether with the Deep-LASI results of more acquisitions than video
+010 (`tests/test_deeplasi_agreement.py`, ADR-0115). It has three checks:
+
+- **Spots and traces**, for `lab-02` to `lab-08`, `lab-10` and `lab-12`: Tether extracts the
+  movie with the map file and the detection settings of the saved Deep-LASI state, and the
+  oracle (a) scorer compares the result with the Deep-LASI export. Each id passes or fails
+  alone, at the oracle (a) limits. The numbers are `matched_fraction`, `position_rms_px`,
+  `donor_pearson_median`, `acceptor_pearson_median`, `precision` and the counts.
+- **Corrected FRET**, for the ids above and `lab-01`, `lab-13`, `dlexp-01` and `dlexp-02`:
+  Tether's correction chain on the traces of each export, against Deep-LASI's corrected FRET
+  with the export's own factors. The numbers are recorded, and there is no agreement limit.
+  The check fails only when the two formulas do not agree with the same factors.
+- **The scripted rerun of video 010**: the output of `scripts/reference/matlab/deep_lasi.py`
+  must agree with its provenance record and repeat the old export of `lab-01`.
+
+A failure on one acquisition is a finding. Open or update its issue as for the other checks.
+Do not change a limit or remove the id (ADR-0115).
+
+The ids need these roles in the mapping file:
+
+| Role | File |
+|---|---|
+| `movie`, `tmap` | as for the golden numbers |
+| `tdat` | the saved Deep-LASI state of the acquisition (the spots-and-traces ids) |
+| `window` | a folder that `harness.py freeze` made from the Deep-LASI `.mat` export (every id above) |
+| `rerun` | `lab-01` only: the output folder of the scripted rerun |
+
+`tests/_deeplasi_agreement.py` pins the SHA-256 and size of each Deep-LASI file. A check fails
+with the id and the role when a file is not the pinned one.
+
+Make a `window` folder one time for each export. Use the MATLAB release that saved the export,
+and the Deep-LASI version of the window:
+
+```sh
+python scripts/reference/matlab/deep_lasi.py freeze <export.mat> --out <data folder>/deeplasi-window/<id> --tool-version <version> --matlab-release 2023b --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat>
+```
+
+The record says that no scripted run made the file, and gives the date of the export file.
+Give only the inputs that exist for the id.
+
+Make the `rerun` folder with the scripted run, from a clean clone of Deep-LASI at the pinned
+commit:
+
+```sh
+python scripts/reference/matlab/deep_lasi.py run --clone <Deep-LASI clone> --task extract --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat> --out <data folder>/deeplasi-runs/lab-01-rerun --matlab <matlab>
+```
+
+The scripted run cannot make Deep-LASI's correction factors: they come from a step in its
+window after the state is saved. The factors of every check come from the `window` exports.
+
 ## Add a check
 
 1. Mark the test `@pytest.mark.workstation`, and give it no other tier marker (`large`,
