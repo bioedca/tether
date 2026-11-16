@@ -73,8 +73,8 @@ def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
 
     Front matter, fenced and indented code, HTML comments, tag lines and raw ``pre``,
     ``script``, ``style`` and ``textarea`` blocks, tables, link definitions and admonition
-    markers are dropped. A list item is its own unit. An indented block is code only outside a
-    list item or admonition, where indentation continues the container instead.
+    markers are dropped. A list item is its own unit. Inside a list item or an admonition the
+    first four columns of indentation continue the container, and code needs four more.
     """
     text = re.sub(r"<!--.*?-->", " ", split_front_matter(markdown)[1], flags=re.DOTALL)
     units: list[tuple[str, bool]] = []
@@ -83,8 +83,8 @@ def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
     is_item = False
     fence = ""
     raw = ""
-    in_container = False
-    indented_code = False
+    depth = 0
+    code_indent = 0
     previous_blank = True
 
     def flush() -> None:
@@ -104,21 +104,20 @@ def prose_units(markdown: str) -> tuple[list[tuple[str, bool]], list[str]]:
                 raw = ""
             continue
         blank = not unquoted.strip()
-        if indented_code and (blank or unquoted.startswith(("    ", "\t"))):
+        indent = len(unquoted.expandtabs(4)) - len(unquoted.expandtabs(4).lstrip(" "))
+        if code_indent and (blank or indent >= code_indent):
             continue
-        indented_code = False
-        if (
-            not blank
-            and unquoted.startswith(("    ", "\t"))
-            and previous_blank
-            and not in_container
-        ):
+        code_indent = 0
+        if not blank and previous_blank and indent >= depth + 4:
             flush()
-            indented_code = True
+            code_indent = depth + 4
             continue
+        if not blank:
+            if _CONTAINER.match(unquoted):
+                depth = indent + 4
+            elif previous_blank and indent < depth:
+                depth = indent
         previous_blank = blank
-        if not blank and not unquoted.startswith((" ", "\t")):
-            in_container = bool(_CONTAINER.match(unquoted))
         marker = _FENCE.match(unquoted)
         if marker:
             flush()
@@ -342,6 +341,17 @@ def test_indented_prose_inside_lists_and_admonitions_is_prose() -> None:
     )
     found = measure(page, "descriptive", _PHRASES)
     assert len(found.semicolons) == 2 and len(found.retired) == 1
+
+
+def test_indented_code_inside_a_list_item_is_code() -> None:
+    page = (
+        "- First item here now.\n\n        echo project store; echo b\n\n"
+        "    More about it; still prose here.\n\n"
+        "    - Nested item here now.\n\n        Nested prose; it counts.\n\n"
+        "            echo nested; code\n"
+    )
+    found = measure(page, "descriptive", _PHRASES)
+    assert len(found.semicolons) == 2 and not found.retired
 
 
 def test_a_multiline_pre_block_is_code() -> None:
