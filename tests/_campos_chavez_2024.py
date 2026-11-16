@@ -190,7 +190,9 @@ def find_windows(
     pos = 0
     while pos < values.size:
         v = values[pos]
-        lo, hi = np.searchsorted(ordered, [v - reach, v + reach])
+        # Both ends are inclusive, like the bound: a frame at exactly ``v + reach`` is searched.
+        lo = int(np.searchsorted(ordered, v - reach, side="left"))
+        hi = int(np.searchsorted(ordered, v + reach, side="right"))
         best = (-1, -1, 1)
         for k in order[lo:hi]:
             if not abs(flat[k] - v) <= flat_bound[k]:

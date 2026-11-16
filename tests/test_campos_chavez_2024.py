@@ -120,6 +120,12 @@ def test_find_windows_finds_each_window_and_a_value_the_matrix_lost() -> None:
     assert windows == [(3, 10, 50), (1, 0, 300), (-1, -1, 1), (0, 5, 4)]
 
 
+def test_find_windows_finds_a_value_whose_candidate_is_exactly_at_the_upper_reach() -> None:
+    # The bound is inclusive, so 0.5 matches 0.375 within 0.125 and must be searched (#1125).
+    e = np.array([[0.5]])
+    assert find_windows(e, np.array([[0.125]]), np.array([0.375])) == [(0, 0, 1)]
+
+
 def test_dwells_from_survival_give_back_the_survival_curve() -> None:
     lengths = np.array([1, 1, 2, 3, 3, 3, 7, 12, 12, 40])
     _, surv = survival_curve(lengths)
