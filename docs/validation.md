@@ -990,17 +990,20 @@ The trace matrices of the archive keep 8 significant digits of each intensity, s
 calculated from them can differ from a published one by the rounding of the two intensities. The
 bound is the largest change of the efficiency over the rounding interval of both intensities, which
 takes in both the rounded and the unrounded denominator. Where the interval of `D + A` contains zero
-there is no finite bound, and that frame is not checked; no published value falls on such a frame.
+there is no finite bound, and that frame is not checked. No published value falls on such a frame.
 That bound, not a chosen number, is the limit. The workbook does not say which frames a histogram pools,
 so each test finds the windows in the trace matrix when it runs.
 
-**Differences the archive shows.** (1) tMAVEN's `optimize_double_surv` sorts the two rates and
-amplitudes of a double-exponential fit but not their errors: in the three panels that can be
-checked, each published error belongs to the other parameter. Tether's errors are paired correctly.
-(2) The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
-Fig. 5b has no trace data. (3) `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of
-Figs. 3b, 4b and 4f need. (4) The intraFRET notebook skips the first line of each file, so the first
-400 frames of a molecule start at frame 0 or at frame 1.
+**Differences the archive shows.**
+
+1. tMAVEN's `optimize_double_surv` sorts the two rates and amplitudes of a double-exponential fit
+   but not their errors: in the three panels that can be checked, each published error belongs to
+   the other parameter. Tether's errors are paired correctly.
+2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
+   Fig. 5b has no trace data.
+3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
+4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
+   start at frame 0 or at frame 1.
 
 **Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
 time of a double exponential with its error, the TDP smoothing and spline, and the two-Gaussian
