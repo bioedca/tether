@@ -403,7 +403,7 @@ of the other bounds and never below `0.0001` (`freeze_transition_matrix`).
 | `vbconhmm` | the re-measure above: 19 cross-seed comparisons on `smd_4mol`, 20 against `model_281mol.hdf5` | 3.915569757317883e-09 | 0.0001 |
 | `ebhmm` | 20 unseeded fits of `smd_281mol`, 19 cross-seed comparisons (2026-11-15) | 0.029381270392564246 | 0.0441 |
 
-The ebFRET four-bound row is not re-measured by this; its 2026-07-08 evidence is unchanged.
+The ebFRET four-bound row is not re-measured by this. Its 2026-07-08 evidence is unchanged.
 The three population arms of `tests/test_parity_sidecar.py` assert the term against these
 ceilings, and `test_transition_matrix_block_covers_its_own_evidence` checks the block against its
 own recorded runs on the required matrix.
