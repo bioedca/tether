@@ -660,9 +660,11 @@ turns any `RuntimeWarning` into a failure so an empty median can never leak thro
 
 **Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
 non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is
-still NaN in apparent E, because the ratio is not defined there; that is not a correction
-failure. `tests/test_project_correct.py` covers the path that the specification singles
-out: `test_total_failure_falls_to_apparent_never_nan`,
+still NaN in apparent E, because the ratio is not defined there. That is not a correction
+failure.
+
+`tests/test_project_correct.py` covers the path that the specification singles out:
+`test_total_failure_falls_to_apparent_never_nan`,
 `test_fresh_store_nan_factors_is_total_failure`, `test_zero_gamma_boundary_is_total_failure`,
 `test_negative_gamma_is_total_failure`, `test_manual_override_rescues_total_failure`,
 `test_partial_alpha_override_without_gamma_stays_apparent`, and
