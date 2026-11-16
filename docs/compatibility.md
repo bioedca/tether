@@ -43,7 +43,7 @@ The reader is `tether.io.movie.MovieReader`, and it refuses rather than guesses.
 `ValueError` when:
 
 - The TIFF series is not 3-D.
-- The codec is lossy (the message names it).
+- The codec can be lossy (the message names it).
 - A pixel is not one real intensity sample.
 - The file is not memory-mappable, which is what a compressed or non-contiguous TIFF looks
   like from here.
