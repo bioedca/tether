@@ -81,6 +81,7 @@ __all__ = [
     "extract_molecules",
     "molecule_key",
     "read_molecules",
+    "read_movie_settings",
     "read_patches",
     "read_traces",
     "write_extraction",
@@ -111,6 +112,8 @@ _TRACES_GROUP = "traces"
 _PATCHES_GROUP = "patches"
 _SETTINGS_GROUP = "settings"
 _EXTRACTION_SETTINGS = "extraction"
+#: Child of ``/settings/extraction`` holding one profile attribute per movie (ADR-0117).
+_MOVIE_SETTINGS = "movies"
 
 #: Sentinels written for the not-yet-computed M3 correction/bleach fields, so the
 #: apparent-E substrate is unambiguous (a finite-factor gate is applied before any
@@ -523,6 +526,47 @@ def _write_settings_once(f: Any, traces: MoleculeTraces, profile_json: str | Non
         grp.attrs["profile_json"] = np.array(profile_json, dtype=str_dt)
 
 
+def _write_movie_settings(f: Any, movie_id: str, profile_json: str | None) -> None:
+    """Record one movie's settings profile under ``/settings/extraction/movies`` (#347).
+
+    The experiment-level stamp is write-once ([`_write_settings_once`][]), so a second
+    movie appended into the project would otherwise leave no record of its own
+    settings (its ``.tmap``/``.tdat`` source, registration verdict, detection mode).
+    Each movie therefore gets one string attribute, named by its ``movie_id``, holding
+    that movie's pre-serialized profile — the first movie included, so the record is
+    the same for every movie. Additive: the stamp's own attributes are never touched
+    (ADR-0117). Nothing is written when the caller supplied no profile.
+    """
+    import h5py  # noqa: PLC0415
+
+    if profile_json is None:
+        return
+    grp = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS]
+    movies = grp.require_group(_MOVIE_SETTINGS)
+    movies.attrs[movie_id] = np.array(profile_json, dtype=h5py.string_dtype(encoding="utf-8"))
+
+
+def read_movie_settings(project_path: str | Path) -> dict[str, dict[str, Any]]:
+    """Read every movie's settings profile, ``{movie_id: profile}`` (#347, ADR-0117).
+
+    Returns an empty dict for a project written before per-movie records existed; its
+    one movie's profile is then the stamp's own ``profile_json``.
+    """
+    import json  # noqa: PLC0415
+
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(project_path), "r") as f:
+        grp = f[_SETTINGS_GROUP].get(_EXTRACTION_SETTINGS)
+        if grp is None or _MOVIE_SETTINGS not in grp:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for movie_id, raw in grp[_MOVIE_SETTINGS].attrs.items():
+            text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+            out[str(movie_id)] = json.loads(text)
+        return out
+
+
 def write_extraction(
     project_path: str | Path,
     *,
@@ -537,8 +581,9 @@ def write_extraction(
 
     Appends, as **additive data** under the M0-frozen skeleton, the ``/movies`` row,
     the ``/molecules`` rows, the six ``/traces`` arrays (zero-padded to the
-    experiment-max frame count), the two ``/patches`` arrays, and — on the first
-    extraction — the ``/settings/extraction`` provenance. Row ``i`` of ``/molecules``,
+    experiment-max frame count), the two ``/patches`` arrays, the movie's own
+    settings record, and — on the first extraction — the ``/settings/extraction``
+    provenance. Row ``i`` of ``/molecules``,
     every ``/traces`` array, and every ``/patches`` array is the same molecule, so
     the trace<->molecule join is positional.
 
@@ -568,8 +613,10 @@ def write_extraction(
         ``low-confidence-registration`` tag for an over-gate fit, §7.1) is imprinted
         onto every molecule of this movie. ``None`` writes no tag.
     settings:
-        Optional extra settings profile (JSON-serialized into
-        ``/settings/extraction`` on the first extraction).
+        Optional extra settings profile, JSON-serialized into
+        ``/settings/extraction@profile_json`` on the first extraction and, for every
+        movie, into ``/settings/extraction/movies@<movie_id>``
+        ([`read_movie_settings`][], #347, ADR-0117).
 
     Returns
     -------
@@ -600,6 +647,7 @@ def write_extraction(
 
         _append_compound_rows(f["movies"][TABLE], movie_row)
         _write_settings_once(f, traces, profile_json)
+        _write_movie_settings(f, movie.movie_id, profile_json)
         if molecules.n_molecules:
             _append_compound_rows(f["molecules"][TABLE], rows)
             traces_grp = f[_TRACES_GROUP]

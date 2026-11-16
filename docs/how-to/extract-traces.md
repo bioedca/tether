@@ -159,7 +159,12 @@ tether batch (Get-ChildItem data\*.tif) -d projects
 
 One project for each movie is how the command writes, not a limit of the project, which can
 hold several movies of one experiment ([`.tether` project](../glossary.md#tether-project)).
-No command adds a movie to an existing project.
+No command adds a movie to an existing project yet. From Python,
+`tether.project.extract.add_movie_to_project` adds one: it extracts the movie with the same
+steps as `tether extract` and appends it to the project. Hold the project's writer lock with
+`tether.project.lock.publish_lock` and give its check as `publish_guard`. The new movie must use
+the same window, radii and background window as the first movie in the project, and a movie
+that is already in the project is refused.
 
 It has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
 movie is extracted with the donor on the left and the default detector. A shared `--tdat`

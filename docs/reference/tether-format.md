@@ -512,7 +512,7 @@ datasets**, except `condition_audit`, which is a dataset.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
-| `extraction` | `write_extraction` (`src/tether/imaging/extract.py`) | **Write-once** per project; later movies must match the recorded parameters or the write is rejected. |
+| `extraction` | `write_extraction` (`src/tether/imaging/extract.py`) | **Write-once** per project; later movies must match the recorded parameters or the write is rejected. Its child group `movies` gains one attribute per movie (below). |
 | `correction` | `compute_corrected_fret` (`src/tether/project/correct.py`) | Replaced on each pass. |
 | `leakage` | `compute_leakage_alpha` (`src/tether/project/leakage.py`) | Replaced on each pass. |
 | `gamma` | `compute_gamma` (`src/tether/project/gamma.py`) | Replaced on each pass. **Removed** by a `compute_leakage_alpha` pass that withholds α, because that pass resets the processed `gamma` rows to `NaN`; absent therefore means no current γ pass. |
@@ -537,6 +537,17 @@ Deep-LASI, not by Tether:
 | `molecule_key_quantum_px` | float | The `molecule_key` coordinate quantum, pixels (`0.1`). |
 | `app_version` | str | Writing Tether version. |
 | `profile_json` | str | The caller's settings profile as JSON — present only when one was supplied. |
+
+Because the stamp describes only the first extraction, each movie's own settings profile is
+also kept on the child group **`/settings/extraction/movies`**: one string attribute per movie,
+named by its `movie_id`, holding that movie's profile as JSON (the first movie included). A
+movie appended later — with `add_movie_to_project` (`src/tether/project/extract.py`) or
+`add_reconstruction_to_project` (`src/tether/project/reconstruct.py`) — records its `.tmap` and
+`.tdat` sources, detection mode and registration verdict there, and the stamp above does not
+change. `read_movie_settings` (`src/tether/imaging/extract.py`) returns them as
+`{movie_id: profile}`. A project written before this record existed has no `movies` child and
+reads as `{}`
+([ADR-0117](../adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
 
 `/settings/condition_audit` is a resizable 1-D compound dataset with the fields
 `event` (`rekey` or `merge`), `from_condition_id`, `to_condition_id`, `n_molecules`
