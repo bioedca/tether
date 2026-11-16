@@ -42,6 +42,7 @@ the idealize stage stays PR7-A's single, error-isolated call.
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import logging
 import math
@@ -1214,13 +1215,9 @@ def run_batch(
                 results.append(MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side))
                 if progress is not None:
                     with contextlib.suppress(Exception):
-                        # A copy, so an observer that edits its argument cannot change
-                        # the result this run returns.
-                        progress.movie_finished(
-                            index,
-                            total,
-                            MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side),
-                        )
+                        # A deep copy, so an observer that edits its argument (the stages
+                        # or the donor-side record) cannot change the result returned.
+                        progress.movie_finished(index, total, copy.deepcopy(results[-1]))
     finally:
         if own_log:
             log.close()

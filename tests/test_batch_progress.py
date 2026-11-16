@@ -198,6 +198,31 @@ def test_an_observer_that_edits_its_result_cannot_change_the_summary(tmp_path) -
     assert [len(r.stages) for r in summary.results] == [3, 3]
 
 
+def test_an_observer_that_edits_the_donor_side_record_cannot_flag_a_movie(
+    tmp_path, monkeypatch
+) -> None:
+    import tether.project.batch as batch_mod  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        batch_mod, "_stored_donor_side_check", lambda _path: {"verdict": "consistent"}
+    )
+
+    class Meddler(BatchProgress):
+        def movie_finished(self, index, total, result):
+            result.donor_side["verdict"] = "swapped"
+
+    summary = run_batch(
+        _jobs(tmp_path, "a"),
+        progress=Meddler(),
+        _extract=_extract_stub(),
+        _correct=_correct_stub(),
+        _idealize=_idealize_stub(),
+    )
+
+    assert summary.results[0].donor_side == {"verdict": "consistent"}
+    assert summary.donor_side_flagged == []
+
+
 def test_a_broken_stream_never_stops_the_run(tmp_path) -> None:
     class Closed(io.StringIO):
         def write(self, text):
