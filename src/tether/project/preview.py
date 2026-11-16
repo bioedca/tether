@@ -169,6 +169,15 @@ def _geometry(
     """Resolve the channel geometry exactly as ``extract_movie`` does, recording its source."""
     if geometry is not None:
         params["geometry_source"] = "argument"
+        if registration is not None:
+            # The map's coordinates are local to the crops it was fitted on; other
+            # crops would read the acceptor at the wrong pixels and still look fine.
+            stored = (registration.reference_geometry, registration.moving_geometry)
+            if None not in stored and tuple(geometry) != stored:
+                raise ValueError(
+                    "the geometry argument does not match the registration map's own "
+                    "channel geometry, and the map's coordinates are local to that geometry"
+                )
         return geometry
     if registration is not None:
         params["geometry_source"] = "registration"
@@ -202,7 +211,9 @@ def iter_extraction_stages(
     geometry:
         The ``(donor, acceptor)`` channel geometry. ``None`` uses the geometry of
         ``registration`` when one is given, else the left/right half split that
-        ``options.donor_side`` names.
+        ``options.donor_side`` names. With a ``registration`` that records its own
+        geometry, a different one fails the ``split`` stage, because the map's
+        coordinates are local to its own crops.
     registration:
         An imported map (for example from
         [`registration_map_from_tmap`][tether.imaging.calibrate.registration_map_from_tmap]).

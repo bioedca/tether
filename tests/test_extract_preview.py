@@ -178,6 +178,26 @@ def test_imported_preview_is_bit_identical_to_extract_movie(tmp_path, monkeypatc
     assert preview.stage("register").parameters["source"] == "imported"
 
 
+def test_a_geometry_that_contradicts_the_imported_map_fails_the_split() -> None:
+    # The map's coordinates are local to its own crops, so other crops would read the
+    # acceptor at the wrong pixels while every stage still reports success (Greptile P1).
+    registration = registration_map_from_tmap(
+        _tmap_channels(), app_version=__version__, source_file="map.tmap"
+    )
+    donor, acceptor = registration.reference_geometry, registration.moving_geometry
+    y1, x1, y2, x2 = acceptor.crop
+    moved = dataclasses.replace(acceptor, crop=(y1, x1 - 4, y2, x2 - 4))
+    stages = list(
+        iter_extraction_stages(_movie_array(), geometry=(donor, moved), registration=registration)
+    )
+    assert [(s.name, s.outcome) for s in stages] == [("split", OUTCOME_FAILED)]
+    assert "does not match the registration map" in stages[0].message
+    # The map's own geometry, passed explicitly, is the same run as passing none.
+    same = preview_extraction(_movie_array(), geometry=(donor, acceptor), registration=registration)
+    assert same.completed
+    assert same.stage("split").parameters["geometry_source"] == "argument"
+
+
 def test_stages_run_in_order_and_record_their_parameters() -> None:
     options = ExtractOptions(window=19, pair_tol=1.5, coloc_distance=2.5, bg_window=7)
     preview = preview_extraction(_movie_array(), options=options)
