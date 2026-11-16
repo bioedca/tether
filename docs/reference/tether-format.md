@@ -658,7 +658,7 @@ file that travels with a *condition* across many experiment files
 (`src/tether/ml/persistence.py`, ADR-0035). The project only records **where that
 file is and which version of it the project last saw**, one group per condition,
 written by [`record_model_reference`](https://github.com/bioedca/tether/blob/main/src/tether/project/model_artifact.py)
-(`src/tether/project/model_artifact.py`, ADR-0112). The group is empty until a model
+(`src/tether/project/model_artifact.py`, ADR-0119). The group is empty until a model
 is saved for a condition the project holds.
 
 `/models/<condition_id>` is a group with no datasets and these attributes:

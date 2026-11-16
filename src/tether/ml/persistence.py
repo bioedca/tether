@@ -12,7 +12,7 @@ and
 refits it at the video boundary. Nothing here touches a ``.tether`` or takes a lock: the
 store-integration layer — the project's ``/models`` reference to the artifact and the artifact's
 own single-writer owner-curator lock (PRD §5.1 ``/models``, §7.10) — is
-[`tether.project.model_artifact`][] (ADR-0112). A curator who saves through
+[`tether.project.model_artifact`][] (ADR-0119). A curator who saves through
 [`model_writer`][tether.project.model_artifact.model_writer] cannot silently discard another
 curator's retrain; [`save_model`][] alone is the unguarded primitive under it.
 
@@ -219,10 +219,10 @@ class PortableRankerModel:
     parent_version:
         The [`model_version`][] of the model this one was retrained from
         ([`warm_start_retrain`][]); ``None`` for a fresh fit and for an artifact saved before
-        the field existed (ADR-0112). It is what lets a guarded save tell a retrain of the
+        the field existed (ADR-0119). It is what lets a guarded save tell a retrain of the
         model on disk from a retrain of an older copy.
     fit_id:
-        A random identifier stamped on every fit and retrain (ADR-0112), so that two fits with
+        A random identifier stamped on every fit and retrain (ADR-0119), so that two fits with
         the same counts and timestamps still have different [`model_version`][] s. ``None`` for
         an artifact saved before the field existed.
     """
@@ -420,7 +420,7 @@ def model_version(model: PortableRankerModel) -> str:
     random ``fit_id`` each fit is stamped with, so two fits never share a version even when
     their counts and timestamps agree, and a model reloaded with [`load_model`][] has the same
     version as the one saved. [`warm_start_retrain`][]
-    records it as the new model's ``parent_version`` (ADR-0112).
+    records it as the new model's ``parent_version`` (ADR-0119).
     """
     canonical = json.dumps(_manifest(model), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -466,7 +466,7 @@ def save_model(model: PortableRankerModel, path: PathRef) -> None:
     This takes no lock: a second writer that saves to the same path replaces the file. To save as
     the condition's owner-curator, use
     [`tether.project.model_artifact.model_writer`][], which holds the file's lock and refuses to
-    overwrite a version it did not open (ADR-0112).
+    overwrite a version it did not open (ADR-0119).
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -592,7 +592,7 @@ def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
 
 
 def _optional_text(manifest: dict[str, object], key: str) -> str | None:
-    """Read an optional string key (``parent_version``, ``fit_id``; ADR-0112).
+    """Read an optional string key (``parent_version``, ``fit_id``; ADR-0119).
 
     An older artifact has none (``None``). The keys are additive and optional like
     ``source_projects``, so [`MODEL_FORMAT_VERSION`][] stays 1.

@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0112 — The condition model has its own single-writer lock, and a project records it under `/models`
+# 0119 — The condition model has its own single-writer lock, and a project records it under `/models`
 
 - **Status:** accepted; completes the store integration that [ADR-0035](0035-portable-model-persistence.md) deferred
 - **Date:** 2026-11-15

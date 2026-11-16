@@ -30,7 +30,7 @@ The UC3 loop with this module is::
     save_model(model, path)
 
 The project's ``/models`` reference and the model file's owner-curator lock are
-[`tether.project.model_artifact`][] (#561, ADR-0112); the application controls are #640.
+[`tether.project.model_artifact`][] (#561, ADR-0119); the application controls are #640.
 """
 
 from __future__ import annotations

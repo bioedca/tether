@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The condition model's owner-curator lock and the project's ``/models`` reference.
 
-PRD §5.1, §5.4, §7.5, §7.10; ADR-0112.
+PRD §5.1, §5.4, §7.5, §7.10; ADR-0119.
 
 The portable ranker of [`tether.ml.persistence`][] is a standalone file that travels with a
 condition, not with one ``.tether`` (ADR-0035). This module adds the two parts of the store

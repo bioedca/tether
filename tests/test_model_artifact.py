@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The condition model's owner-curator lock and the ``/models`` reference (#561, ADR-0112).
+"""The condition model's owner-curator lock and the ``/models`` reference (#561, ADR-0119).
 
 The acceptance criteria of #561, on synthetic data:
 
