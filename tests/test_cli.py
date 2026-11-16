@@ -42,10 +42,11 @@ def test_batch_requires_out_dir(tmp_path) -> None:
     assert exc.value.code == 2
 
 
-def test_batch_rejects_duplicate_movie_basenames(tmp_path, capsys) -> None:
+def test_batch_gives_movies_with_one_basename_their_own_outputs(tmp_path, monkeypatch) -> None:
     # Two movies with the same basename in different folders would map to the same
-    # <out-dir>/<stem>.tether and silently collide on the checkpoint; the CLI must
-    # reject them (exit 2) rather than process one as the other.
+    # <out-dir>/<stem>.tether and collide on the checkpoint. Since #653 each output name
+    # takes its parent folder instead of the run being refused.
+    captured = _capture_run_batch(monkeypatch)
     (tmp_path / "condA").mkdir()
     (tmp_path / "condB").mkdir()
     m1 = tmp_path / "condA" / "movie_010.tif"
@@ -54,12 +55,13 @@ def test_batch_rejects_duplicate_movie_basenames(tmp_path, capsys) -> None:
     m2.write_bytes(b"y")
     out = tmp_path / "out"
 
-    rc = main(["batch", str(m1), str(m2), "--out-dir", str(out), "--no-idealize"])
+    rc = main(["batch", str(m2), str(m1), "--out-dir", str(out), "--no-idealize"])
 
-    assert rc == 2
-    err = capsys.readouterr().err
-    assert "movie_010.tether" in err
-    assert "rename one" in err
+    assert rc == 0
+    assert [(j.movie_path, j.output_path) for j in captured["jobs"]] == [
+        (m1, out / "condA__movie_010.tether"),
+        (m2, out / "condB__movie_010.tether"),
+    ]
 
 
 def test_batch_isolates_failure_and_exits_nonzero(tmp_path, capsys) -> None:
@@ -154,7 +156,9 @@ def test_batch_no_idealize_disables_supervision(tmp_path, monkeypatch) -> None:
 
 
 def _log_movies(path) -> list[str]:
-    return [json.loads(line)["movie"] for line in path.read_text(encoding="utf-8").splitlines()]
+    """The movies of the run's own records: the ``input`` mapping records (#653) left out."""
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    return [r["movie"] for r in records if r["stage"] != "input"]
 
 
 def test_batch_forwards_tmap_tdat_policy_overwrite_and_log(tmp_path, monkeypatch, capsys) -> None:

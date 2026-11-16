@@ -199,23 +199,26 @@ than a silent pass.
 
 ## `tether batch`
 
-Process many movies unattended (FR-BATCH). Each movie becomes its own
-`<out-dir>/<stem>.tether`. That is how the command writes, not a limit of the project
+Process many movies unattended (FR-BATCH). Give it a folder of movies, a pattern or the
+movie files themselves. Each movie becomes its own `<out-dir>/<stem>.tether`. That is how the command writes, not a limit of the project
 file, which can hold several movies of one experiment
 ([`.tether` project](glossary.md#tether-project)). Failures are isolated — one bad movie
 does not stop the run — and each stage is checkpointed, so re-running the same command
 resumes only the incomplete stages instead of redoing finished work.
 
 ```text
-tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
-             [--no-idealize] [--overwrite] [--log PATH] [--max-restarts N]
-             [--sidecar-timeout SECONDS] [--sidecar-python PATH] [--no-defer]
+tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PATH]
+             [--policy {warn,fail}] [--no-idealize] [--overwrite] [--log PATH]
+             [--max-restarts N] [--sidecar-timeout SECONDS] [--sidecar-python PATH]
+             [--no-defer]
              movies [movies ...]
 ```
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movies` | *(required, one or more)* | one or more dual-channel TIFF movies |
+| `movies` | *(required, one or more)* | dual-channel TIFF movies: each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
+| `--recursive` | off | a folder argument also includes the movies in its sub-folders |
+| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`; no movie is read and nothing is written ([see below](#check-a-batch-before-it-runs-dry-run)) |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie |
@@ -235,14 +238,78 @@ normal install needs neither. When no sidecar can be found at startup the run *d
 idealization — extraction and correction still happen for every movie — unless you pass
 `--no-defer`, which instead lets each movie's idealize stage fail on its own.
 
-Two movies whose filenames share a basename would both map to the same output project,
-and the checkpoint would treat the second as already done using the first's data. That is
-rejected before any work starts:
+### Which movies a folder or a pattern gives
+
+Each `movies` argument is one of three things, and Tether expands it itself, so the same
+command gives the same movies in PowerShell, cmd and bash:
+
+- **A folder** gives the movie files directly inside it: the files that end in `.tif` or
+  `.tiff`, in any case. With `--recursive` it also gives the movies in its sub-folders.
+- **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
+  gives the movie files it matches. `**` matches any number of folders. A folder that the
+  pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
+  passes it to Tether as it is.
+- **A file** is used as it is, whatever its extension.
+
+Names that start with `.` are left out of folders and patterns; macOS writes `._name.tif`
+files beside movies on some drives. The movies of all the arguments are put in one list,
+sorted by path, and a movie that two arguments give is processed once. An argument that
+gives no movie stops the run before anything is written, and the message names it:
 
 ```console
-$ tether batch a/movie_010.tif b/movie_010.tif -d out
-tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/movie_010.tether'; rename one or use a separate --out-dir
+$ tether batch data/day4 -d out
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff); add --recursive to include its sub-folders
 ```
+
+### Output names when two movies have the same file name
+
+Acquisition software often numbers the files the same way in each day's folder, so
+`day1/movie_010.tif` and `day2/movie_010.tif` are common. Two movies with one output name
+would share one project, and the checkpoint would treat the second as already done with
+the first one's data. So the output name follows one rule:
+
+- An output is named after the movie's file name without its extension, as `movie_010`.
+- While two names are the same, each of those movies puts its next parent folder in
+  front, joined with `__`: `day1__movie_010` and `day2__movie_010`. A movie whose name is
+  not shared keeps its own name, so a batch without equal file names writes the same
+  names as before.
+- Names are compared without regard to case on every operating system, because
+  `Movie_010.tether` and `movie_010.tether` are one file on Windows and macOS.
+
+The folders are those of the movie's full path, so the names do not depend on the folder
+you run the command from. If no folder tells two movies apart — `A.tif` and `a.tif` in one
+folder — the run stops before anything is written. `--dry-run` shows each name before
+the run, and the structured log records each movie and its output as an `input` event
+with status `mapped`.
+
+An output name depends on the whole list of movies: if you add `day3/movie_010.tif` to a
+batch that had only `day1/movie_010.tif`, the day 1 movie's output becomes
+`day1__movie_010` and the old `movie_010.tether` is not resumed. Run the batch with
+`--dry-run` first when you change what it holds.
+
+### Check a batch before it runs (`--dry-run`)
+
+`--dry-run` prints the plan and exits `0`. It reads no movie, creates no folder and writes
+no file. It prints one line for each movie with its output project and what the run would
+do with it, then the settings, the log path and whether a sidecar interpreter was found:
+
+```text
+Batch plan (dry run): 3 movie(s) into projects; no movie was read and nothing was written
+  data/day1/movie_010.tif -> projects/day1__movie_010.tether  [new]
+  data/day1/movie_011.tif -> projects/movie_011.tether  [exists, complete: will be skipped]
+  data/day2/movie_010.tif -> projects/day2__movie_010.tether  [exists: will resume at idealize]
+Settings: policy=warn, idealize=on, overwrite=off, recursive=on, tmap=none, tdat=none, max-restarts=3, sidecar-timeout=1800.0s, defer=on
+Structured log: projects/batch-log.jsonl
+Sidecar: found at /opt/tether/envs/sidecar/bin/python (the run checks that it starts before the first movie)
+```
+
+What a line says comes from the output project's checkpoint, which is opened read-only:
+`new`; `exists, complete: will be skipped`; `exists: will resume at` the stages still to
+do; `exists, incomplete:` a project with no finished extraction, which only `--overwrite`
+replaces; and, with `--policy fail`, `exists, over the gate:` an extraction the policy
+rejects. A refusal to start, such as a movie argument that gives no movie, is reported as
+it would be by the run, with exit code `2`. The dry run only looks for the sidecar
+interpreter; the real run also starts it once before the first movie.
 
 ### How policy `fail` behaves on resume
 
@@ -294,12 +361,16 @@ and the remedy the message names.
 ### Example — a folder of movies, extraction and correction only
 
 ```bash
-tether batch data/*.tif -d projects --no-idealize
+tether batch data -d projects --no-idealize
 ```
 
-```powershell
-# Windows PowerShell has no shell glob expansion for native commands
-tether batch (Get-ChildItem data\*.tif) -d projects --no-idealize
+The same command works in PowerShell and cmd. To take the movies of several day folders,
+give the parent folder with `--recursive`, or a quoted pattern, which also works in every
+shell:
+
+```bash
+tether batch data --recursive -d projects --dry-run
+tether batch "data/2026-11-*" -d projects --no-idealize
 ```
 
 The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
@@ -370,7 +441,8 @@ out/movie_010.tether
 ```
 
 Give several projects to summarize them in one run (on Windows PowerShell, list them, or use
-`Get-ChildItem` as in the [batch example](#example-a-folder-of-movies-extraction-and-correction-only)).
+`tether info (Get-ChildItem projects\*.tether)`, because `tether info` does not expand a pattern
+itself).
 A project that cannot be read gives one line on stderr, `tether info: <path>: <reason>`, and the
 others are still printed. The reasons are: the file does not exist, it is not a `.tether`
 project, or its schema version is newer than this version of Tether can read.
@@ -479,13 +551,11 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 |---|---|---|---|
 | `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
 | `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
-written on either path, so it is safe to fix the arguments and re-run — with one wrinkle,
-`tether batch` creates `--out-dir` before it checks for colliding basenames, so that
-particular refusal can leave an empty output directory behind.
+written on either path, so it is safe to fix the arguments and re-run.
 
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
 on stderr, never a traceback — an unhandled traceback from either subcommand is a bug

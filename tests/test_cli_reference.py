@@ -49,7 +49,7 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11, "info": 2}
+_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 13, "info": 2}
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -406,29 +406,20 @@ def test_argparse_rejects_bad_arguments_with_code_2() -> None:
         )
 
 
-def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
-    """The documented ``batch`` startup refusal returns 2 — and still creates ``--out-dir``.
+def test_batch_refuses_a_movie_argument_that_names_nothing_with_code_2(tmp_path: Path) -> None:
+    """A ``batch`` startup refusal returns 2 and writes nothing, not even ``--out-dir``.
 
-    Two movies sharing a basename map to one output project; the checkpoint would treat
-    the second as already done using the first's data. No movie is read on this path, so it
-    is cheap to exercise directly — but ``out_dir.mkdir()`` runs *before* the collision
-    loop, so "exit 2 means nothing was written" is not quite true here. The page carries
-    that caveat, and both halves are pinned together: move the ``mkdir`` after the check
-    and this fails, telling whoever did it that the caveat now has to come off the page.
+    Before #653 the basename-collision refusal ran after ``out_dir.mkdir()`` and the page
+    carried a caveat about the empty directory it left. The movie arguments are now expanded
+    and named before anything is written, so the caveat is gone and this pins both halves:
+    move the ``mkdir`` back before the check and this fails.
     """
     out_dir = tmp_path / "nested" / "out"
-    code = main(["batch", "a/movie_010.tif", "b/movie_010.tif", "-d", str(out_dir)])
-    assert code == 2, f"expected a basename collision to return 2, got {code}"
-    assert out_dir.is_dir(), (
-        "`tether batch` no longer creates --out-dir before refusing a basename collision; "
-        "docs/cli.md's empty-output-directory caveat is now wrong"
-    )
-    assert not list(out_dir.iterdir()), (
-        f"the collision refusal wrote something into {out_dir}: {sorted(out_dir.iterdir())}"
-    )
-    assert "empty output directory" in _exit_code_section(), (
-        "docs/cli.md no longer warns that the basename-collision refusal can leave an "
-        "empty --out-dir behind"
+    code = main(["batch", str(tmp_path / "no-such-folder"), "-d", str(out_dir)])
+    assert code == 2, f"expected a movie argument that names nothing to return 2, got {code}"
+    assert not out_dir.exists(), "`tether batch` created --out-dir before refusing to start"
+    assert "empty output directory" not in _exit_code_section(), (
+        "docs/cli.md still warns that a startup refusal can leave an empty --out-dir behind"
     )
 
 

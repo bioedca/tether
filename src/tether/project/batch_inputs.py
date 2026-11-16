@@ -1,0 +1,254 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The movie arguments of ``tether batch``: files, folders and patterns (#653).
+
+Three steps turn what a user typed into the list of jobs the batch runner works through.
+None of them opens a movie, so they are cheap enough to run before anything is written and
+to show in a dry run:
+
+* [`expand_movie_arguments`][] makes each argument a list of movie files. A file is used as
+  it is. A folder means the movie files directly inside it, or every movie file below it
+  when ``recursive`` is set. Anything else is a pattern that Tether expands itself, with
+  the standard-library [`glob`][] module, so ``"data/*.tif"`` gives the same list in
+  PowerShell, cmd and bash. A pattern match that is a folder is expanded like a folder
+  argument. The whole list is sorted and each movie appears once. An argument that gives
+  no movie is refused with a message that names it.
+* [`output_stems`][] gives each movie the stem of its output project by one rule: the
+  movie's file stem, and when two movies would share a stem, as many of their parent
+  folder names as make each one unique, joined with [`NAME_SEPARATOR`][]. Stems are
+  compared without regard to case, so the rule gives the same names on every operating
+  system. With no collision every stem is the movie's own file stem, as before.
+* [`describe_checkpoint`][] says, from the output alone, what a run will do with a movie
+  whose output already exists. It reads the same provenance groups the runner's
+  checkpoint reads, opened read-only.
+"""
+
+from __future__ import annotations
+
+import glob
+import os
+from collections import defaultdict
+from collections.abc import Sequence
+from pathlib import Path
+
+__all__ = [
+    "MOVIE_SUFFIXES",
+    "NAME_SEPARATOR",
+    "MovieArgumentError",
+    "OutputNameCollision",
+    "describe_checkpoint",
+    "expand_movie_arguments",
+    "output_stems",
+]
+
+#: The file suffixes a folder or a pattern contributes as movies, compared without regard
+#: to case: the suffixes of the TIFF movie reader ([`tether.io.movie`][]). A file named
+#: as an argument of its own is used whatever its suffix.
+MOVIE_SUFFIXES: tuple[str, ...] = (".tif", ".tiff")
+
+#: What joins the parent folder names and the file stem in a collision-resolved output
+#: stem: ``day1/movie_010.tif`` becomes ``day1__movie_010``.
+NAME_SEPARATOR = "__"
+
+_GLOB_CHARACTERS = frozenset("*?[")
+
+
+class MovieArgumentError(ValueError):
+    """A movie argument of ``tether batch`` gave no movie; the message names it."""
+
+
+class OutputNameCollision(ValueError):
+    """Two movies would write one output project and no parent folder tells them apart."""
+
+
+def _readable_suffixes() -> str:
+    return ", ".join(MOVIE_SUFFIXES)
+
+
+def _is_movie_file(path: Path) -> bool:
+    return path.suffix.lower() in MOVIE_SUFFIXES and path.is_file()
+
+
+def _folder_movies(folder: Path, *, recursive: bool) -> list[Path]:
+    """List the movie files in ``folder``, leaving out hidden names (a leading ``.``).
+
+    Hidden names are left out because the patterns of [`glob`][] leave them out too, and
+    because macOS writes ``._name.tif`` resource files beside a movie on some drives.
+    """
+    candidates = folder.rglob("*") if recursive else folder.iterdir()
+    found = []
+    for path in candidates:
+        relative = path.relative_to(folder).parts
+        if any(part.startswith(".") for part in relative):
+            continue
+        if _is_movie_file(path):
+            found.append(path)
+    return found
+
+
+def _expand_one(argument: str, *, recursive: bool) -> list[Path]:
+    path = Path(argument)
+    if path.is_dir():
+        found = _folder_movies(path, recursive=recursive)
+        if not found:
+            hint = "" if recursive else "; add --recursive to include its sub-folders"
+            raise MovieArgumentError(
+                f"folder {argument!r} holds no movie file ({_readable_suffixes()}){hint}"
+            )
+        return found
+    if path.exists():
+        # A file named on its own is the user's explicit choice: keep it whatever its
+        # suffix, as before #653, and let the reader say if it cannot open it.
+        return [path]
+    if not _GLOB_CHARACTERS.intersection(argument):
+        raise MovieArgumentError(f"no such movie file or folder: {argument!r}")
+    found = []
+    for match in sorted(glob.glob(argument, recursive=True)):
+        match_path = Path(match)
+        if match_path.is_dir():
+            found.extend(_folder_movies(match_path, recursive=recursive))
+        elif _is_movie_file(match_path):
+            found.append(match_path)
+    if not found:
+        raise MovieArgumentError(
+            f"pattern {argument!r} matches no movie file ({_readable_suffixes()})"
+        )
+    return found
+
+
+def _identity(path: Path) -> str:
+    """Return the key that sorts the movie list and finds a movie named twice."""
+    return os.path.normcase(os.path.abspath(path))
+
+
+def expand_movie_arguments(
+    arguments: Sequence[str], *, recursive: bool = False
+) -> tuple[Path, ...]:
+    """Expand the movie arguments into a sorted list of movies with no repeats.
+
+    Parameters
+    ----------
+    arguments
+        What the user typed: files, folders or patterns (``*``, ``?``, ``[...]`` and
+        ``**`` for any depth of folders). An argument that names an existing file or
+        folder is never read as a pattern, so a file name with ``[`` in it works.
+    recursive
+        Include the movies in the sub-folders of a folder argument, and of a folder that
+        a pattern matches.
+
+    Returns
+    -------
+    tuple[pathlib.Path, ...]
+        The movies, sorted by their absolute path (without regard to case on Windows).
+        A movie that two arguments both give appears once, with the spelling of the first.
+
+    Raises
+    ------
+    MovieArgumentError
+        If an argument is a missing path, a folder with no movie file, or a pattern that
+        matches no movie file. The message names the argument.
+    """
+    found: dict[str, Path] = {}
+    for argument in arguments:
+        for path in _expand_one(argument, recursive=recursive):
+            found.setdefault(_identity(path), path)
+    return tuple(found[key] for key in sorted(found))
+
+
+def _parent_names(movie: Path) -> tuple[str, ...]:
+    absolute = Path(os.path.abspath(movie))
+    return absolute.parent.relative_to(absolute.anchor).parts
+
+
+def output_stems(movies: Sequence[Path]) -> tuple[str, ...]:
+    """Give each movie the stem of its output project, unique without regard to case.
+
+    The rule: a movie's output stem is its file stem. While two stems are equal (compared
+    with [`str.casefold`][]), each movie of that group that has a parent folder not yet
+    used puts the next one in front, joined with [`NAME_SEPARATOR`][]. So
+    ``day1/movie_010.tif`` and ``day2/movie_010.tif`` become ``day1__movie_010`` and
+    ``day2__movie_010``, and a movie whose stem collides with no other keeps its own.
+    The folder names are those of the movie's absolute path, so the result does not
+    depend on the folder the command was run from.
+
+    Parameters
+    ----------
+    movies
+        The movies, as [`expand_movie_arguments`][] gives them (no movie twice).
+
+    Returns
+    -------
+    tuple[str, ...]
+        One stem for each movie, in the order of ``movies``.
+
+    Raises
+    ------
+    OutputNameCollision
+        If two movies still share a stem when neither has a parent folder left, such as
+        ``A.tif`` and ``a.tif`` in one folder.
+    """
+    parents = [_parent_names(Path(movie)) for movie in movies]
+    stems = [Path(movie).stem for movie in movies]
+    depth = [0] * len(stems)
+
+    def name(index: int) -> str:
+        used = parents[index][len(parents[index]) - depth[index] :] if depth[index] else ()
+        return NAME_SEPARATOR.join((*used, stems[index]))
+
+    while True:
+        names = [name(i) for i in range(len(stems))]
+        groups: dict[str, list[int]] = defaultdict(list)
+        for i, candidate in enumerate(names):
+            groups[candidate.casefold()].append(i)
+        colliding = [group for group in groups.values() if len(group) > 1]
+        if not colliding:
+            return tuple(names)
+        grew = False
+        for group in colliding:
+            for i in group:
+                if depth[i] < len(parents[i]):
+                    depth[i] += 1
+                    grew = True
+        if not grew:
+            first, second = colliding[0][:2]
+            raise OutputNameCollision(
+                f"movies {str(movies[first])!r} and {str(movies[second])!r} both map to "
+                f"the output name {names[first]!r} (names that differ only in case are "
+                "one name); rename one or use a separate --out-dir"
+            )
+
+
+def describe_checkpoint(output: Path, *, policy: str, overwrite: bool, idealize: bool) -> str:
+    """Say what a batch run will do with the existing output ``output``, without writing.
+
+    The answer follows the runner's per-stage checkpoint
+    ([`tether.project.batch.run_batch`][]): an absent output is ``new``; a complete one is
+    skipped; a partial one resumes at its first missing stage; an output that holds no
+    extraction is replaced only with ``--overwrite``; under ``policy="fail"`` a saved
+    extraction over its gate fails again, or is extracted again with ``--overwrite``.
+    The project file is opened read-only, and no movie is read.
+    """
+    from tether.project import batch  # noqa: PLC0415 - h5py only when an output exists
+
+    if not os.path.lexists(output):
+        return "new"
+    try:
+        batch._assert_output_not_newer(output)
+    except Exception as exc:
+        return f"exists, will fail: {exc}"
+    if not batch._is_extracted(output):
+        if overwrite:
+            return "exists, incomplete: will be overwritten (--overwrite)"
+        return "exists, incomplete: will fail; pass --overwrite to replace it"
+    if policy == batch.POLICY_FAIL and batch._stored_extraction_is_over_gate(output):
+        if overwrite:
+            return "exists, over the gate: will be extracted again (--overwrite)"
+        return "exists, over the gate: extract will fail again (policy=fail)"
+    remaining = []
+    if not batch._is_corrected(output):
+        remaining.append(batch.STAGE_CORRECT)
+    if idealize and not batch._is_idealized(output):
+        remaining.append(batch.STAGE_IDEALIZE)
+    if not remaining:
+        return "exists, complete: will be skipped"
+    return f"exists: will resume at {' + '.join(remaining)}"

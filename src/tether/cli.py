@@ -252,7 +252,27 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
             "Prints an end-of-run summary and writes a JSONL structured log."
         ),
     )
-    batch.add_argument("movies", nargs="+", help="one or more dual-channel TIFF movies")
+    batch.add_argument(
+        "movies",
+        nargs="+",
+        help=(
+            "dual-channel TIFF movies: files, folders (the movies directly inside) or "
+            "quoted patterns such as 'data/*.tif', which Tether expands in every shell"
+        ),
+    )
+    batch.add_argument(
+        "--recursive",
+        action="store_true",
+        help="a folder argument also includes the movies in its sub-folders",
+    )
+    batch.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "print each movie, its output and what the run would do, then exit 0; "
+            "no movie is read and nothing is written"
+        ),
+    )
     batch.add_argument(
         "-d",
         "--out-dir",
@@ -348,11 +368,21 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
         sidecar_timeout=args.sidecar_timeout,
         sidecar_python=args.sidecar_python,
         defer_if_unavailable=not args.no_defer,
+        recursive=args.recursive,
     )
 
 
 def _run_batch(args: argparse.Namespace) -> int:
     """Handle ``tether batch``; exit 2 if it refused to start, 1 if it or a stage failed."""
+    if args.dry_run:
+        from tether.services.batch import plan  # noqa: PLC0415
+
+        try:
+            print(plan(_batch_request(args)).format_plan())
+        except RequestRefused as exc:
+            print(f"tether batch: {exc}", file=sys.stderr)
+            return 2
+        return 0
     try:
         result: BatchResult = run_service(_batch_request(args))
     except RequestRefused as exc:

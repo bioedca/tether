@@ -144,18 +144,26 @@ starting `detection: mode`, naming what was applied. Then check three things:
 ## Many movies at once
 
 `tether batch` extracts a whole folder of movies into one project each, then corrects and
-idealizes them:
+idealizes them. Give it the folder:
 
 ```bash
-tether batch data/*.tif -d projects
+tether batch data -d projects
 ```
 
-Windows PowerShell does not expand `*.tif` for a command like `tether`, so list the files
-for it:
+The command is the same in PowerShell, cmd and bash. For a condition kept in several day
+folders, give the parent folder with `--recursive`, or a pattern in quotes, which Tether
+expands itself in every shell:
 
-```powershell
-tether batch (Get-ChildItem data\*.tif) -d projects
+```bash
+tether batch data --recursive -d projects
+tether batch "data/2026-11-*/*.tif" -d projects
 ```
+
+Check what the run will do first with `--dry-run`: it prints each movie and its output
+project, and whether a project is new, finished or resumed, and it writes nothing. Two
+movies with the same file name in different day folders each get their own project, named
+with the folder in front, such as `day1__movie_010.tether`. [Command
+line](../cli.md#output-names-when-two-movies-have-the-same-file-name) states the rule.
 
 One project for each movie is how the command writes, not a limit of the project, which can
 hold several movies of one experiment ([`.tether` project](../glossary.md#tether-project)).
