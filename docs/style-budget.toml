@@ -164,7 +164,7 @@ retired = 0
 kind = "descriptive"
 long_share = 29.1
 semicolons = 71
-long_paragraphs = 1
+long_paragraphs = 2
 retired = 0
 
 [pages."docs/analysis/rate-bounds.md"]
@@ -316,14 +316,14 @@ retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 19.7
-semicolons = 2
+long_share = 20.3
+semicolons = 3
 long_paragraphs = 2
 retired = 0
 
 [pages."docs/maintainers/mutation-testing.md"]
 kind = "descriptive"
-long_share = 6.7
+long_share = 8.0
 semicolons = 2
 long_paragraphs = 1
 retired = 0
