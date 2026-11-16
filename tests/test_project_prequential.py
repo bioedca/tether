@@ -39,7 +39,11 @@ from tether.io.schema import create_project  # noqa: E402
 from tether.project.core import Project  # noqa: E402
 from tether.project.features import compute_features  # noqa: E402
 from tether.project.labels import accept, reject  # noqa: E402
-from tether.project.prequential import prequential_folds, ranker_prequential_uplift  # noqa: E402
+from tether.project.prequential import (  # noqa: E402
+    prequential_folds,
+    ranker_leave_one_video_out_uplift,
+    ranker_prequential_uplift,
+)
 from tether.project.ranking import ranking_dataset  # noqa: E402
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
@@ -357,3 +361,60 @@ def test_before_compute_features_raises(tmp_path) -> None:
         prequential_folds(proj)
     with pytest.raises(KeyError, match="features"):
         ranker_prequential_uplift(proj, 4)
+
+
+# --- leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0113) --------------------
+
+
+def test_lovo_gate_ships_on_separable_multivideo(tmp_path) -> None:
+    # Every video, the first included, is held out against a ranker trained on the other two.
+    proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=3, n_per_class=8)
+    result = ranker_leave_one_video_out_uplift(proj, k=8)
+
+    assert result.protocol == "leave-one-video-out"
+    assert result.skipped_movie_ids == ()
+    assert [v.movie_id for v in result.per_video] == ["mov-0", "mov-1", "mov-2"]
+    for v in result.per_video:
+        assert v.n_labeled == 16
+        assert v.ranker > v.baseline
+    assert result.median_uplift_pts >= 10.0
+    assert result.shipped is True
+
+
+def test_lovo_trains_on_every_other_video_never_itself(tmp_path, monkeypatch) -> None:
+    import tether.ml.gbranker as _gbranker  # noqa: PLC0415
+
+    proj, _ = _multi_movie_store(
+        tmp_path / "x.tether", n_movies=3, n_per_class=8, bad_first_movies=frozenset({1})
+    )
+    folds = prequential_folds(proj)
+    xs = [np.asarray(f.X) for f in folds]
+    ys = [np.asarray(f.is_good, dtype=bool) for f in folds]
+
+    real_fit = _gbranker.train_quality_ranker
+    seen: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def _spy(x, y, feature_names, **kwargs):
+        seen.append((np.array(x, dtype=np.float64, copy=True), np.array(y, copy=True)))
+        return real_fit(x, y, feature_names, **kwargs)
+
+    monkeypatch.setattr(_gbranker, "train_quality_ranker", _spy)
+    ranker_leave_one_video_out_uplift(proj, k=8)
+
+    assert len(seen) == 3
+    for held_out, (x_prior, y_prior) in enumerate(seen):
+        others = [j for j in range(3) if j != held_out]
+        np.testing.assert_array_equal(x_prior, np.concatenate([xs[j] for j in others]))
+        np.testing.assert_array_equal(y_prior, np.concatenate([ys[j] for j in others]))
+
+
+def test_lovo_single_movie_project_has_no_held_out_video(tmp_path) -> None:
+    proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=1, n_per_class=8)
+    with pytest.raises(ValueError, match="no held-out video had a trainable prior"):
+        ranker_leave_one_video_out_uplift(proj, k=8)
+
+
+def test_lovo_no_labels_raises(tmp_path) -> None:
+    proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=2, n_per_class=8, label=False)
+    with pytest.raises(ValueError, match="no video folds"):
+        ranker_leave_one_video_out_uplift(proj, k=8)

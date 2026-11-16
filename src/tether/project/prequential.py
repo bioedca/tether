@@ -6,7 +6,9 @@ Wires the pure prequential harness ([`tether.ml.prequential`][]) to a ``.tether`
 the project's human-labeled molecules into per-video folds by ``movie_id`` (in curation /
 store order) and runs the interleaved test-then-train protocol, training the gradient-boosting
 ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on the accumulated prior at each video
-boundary. The result is the **honest, held-out** M5 ship metric — the median across videos of
+boundary. [`ranker_leave_one_video_out_uplift`][] runs the second held-out protocol of PRD §8
+NFR-VALID (d) over the same folds: each video scored by a ranker trained on all the others
+(ADR-0113). The result is the **honest, held-out** M5 ship metric — the median across videos of
 each video's precision@k uplift over file order — the counterpart to the optimistic in-sample
 ``ranker_precision_at_k`` ([`tether.project.gbranking`][]).
 
@@ -26,6 +28,7 @@ import numpy as np
 from tether.ml.prequential import (
     DEFAULT_SHIP_BAR_PTS,
     VideoFold,
+    leave_one_video_out_uplift,
     prequential_uplift,
 )
 from tether.project.ranking import ranking_dataset
@@ -39,7 +42,11 @@ if TYPE_CHECKING:
 
     ProjectRef = Project | str | PathLike[str]
 
-__all__ = ["prequential_folds", "ranker_prequential_uplift"]
+__all__ = [
+    "prequential_folds",
+    "ranker_leave_one_video_out_uplift",
+    "ranker_prequential_uplift",
+]
 
 
 def _project_path(project: ProjectRef) -> Path:
@@ -156,6 +163,59 @@ def ranker_prequential_uplift(
         be held-out evaluated (fewer than two videos whose accumulated prior carries both
         classes — the median uplift is undefined, surfaced loudly).
     """
+    folds, train_score_fn = _folds_and_train_score_fn(project, hyperparams)
+    return prequential_uplift(folds, train_score_fn, k=k, ship_bar_pts=ship_bar_pts)
+
+
+def ranker_leave_one_video_out_uplift(
+    project: ProjectRef,
+    k: int,
+    *,
+    ship_bar_pts: float = DEFAULT_SHIP_BAR_PTS,
+    hyperparams: RankerHyperparams | None = None,
+) -> PrequentialResult:
+    """Leave-one-video-out precision@k uplift of the ranker across a project's videos (ADR-0113).
+
+    Groups the project's labeled molecules into the same per-video folds as
+    [`ranker_prequential_uplift`][], then, for each video, trains the gradient-boosting quality
+    ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on **every other** video and scores
+    the held-out one ([`tether.ml.prequential.leave_one_video_out_uplift`][]). Reports the
+    median-across-videos uplift over file order against the same ship-bar. The M5 ship gate
+    stays [`ranker_prequential_uplift`][]; this is the second held-out protocol of PRD §8
+    NFR-VALID (d). Read-only; trains no persisted model.
+
+    Parameters
+    ----------
+    project:
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
+    k:
+        The review-budget cutoff for precision@k (a positive integer; PRD §7.5).
+    ship_bar_pts:
+        The percentage-point median-uplift threshold (default
+        [`tether.ml.prequential.DEFAULT_SHIP_BAR_PTS`][], the PRD §11.2 value).
+    hyperparams:
+        Override the ranker's [`tether.ml.gbranker.DEFAULT_HYPERPARAMS`][] (PRD §11.2).
+
+    Returns
+    -------
+    PrequentialResult
+        The per-video uplifts, the skipped videos, and the median-vs-ship-bar verdict, with
+        ``protocol == "leave-one-video-out"``.
+
+    Raises
+    ------
+    KeyError
+        No ``/features/table`` exists.
+    ValueError
+        ``k`` is not a positive integer; the project has no labeled molecules; or no video could
+        be held-out evaluated (one video only, or no two videos' labels carry both classes).
+    """
+    folds, train_score_fn = _folds_and_train_score_fn(project, hyperparams)
+    return leave_one_video_out_uplift(folds, train_score_fn, k=k, ship_bar_pts=ship_bar_pts)
+
+
+def _folds_and_train_score_fn(project: ProjectRef, hyperparams: RankerHyperparams | None):
+    """The project's per-video folds and the gradient-boosting ``train_score_fn`` for them."""
     from tether.ml.gbranker import train_quality_ranker
 
     folds, feature_names = _folds_and_feature_names(project)
@@ -163,4 +223,4 @@ def ranker_prequential_uplift(
     def train_score_fn(x_prior: np.ndarray, y_prior: np.ndarray):
         return train_quality_ranker(x_prior, y_prior, feature_names, hyperparams=hyperparams).score
 
-    return prequential_uplift(folds, train_score_fn, k=k, ship_bar_pts=ship_bar_pts)
+    return folds, train_score_fn

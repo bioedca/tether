@@ -31,6 +31,18 @@ is fixed), so the prior is the **expanding window** of all previously-curated vi
 "Basic Window" prequential variant [GonzalezHidalgo2019]) — mirroring the warm-start model that
 only ever accumulates labels.
 
+Leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0113). The second held-out protocol
+([`leave_one_video_out_uplift`][]): each video in turn is scored by a model trained on **every
+other** video of the condition, earlier or later, never on itself. It answers a different
+question from the prequential walk: not *does the warm-started model help on the next video*,
+but *how well does the ranker generalize to an unseen video of this condition when it has
+seen all the rest* — the leave-one-group-out cross-validation that keeps every trace of the
+held-out video out of training, so traces of one video never sit on both sides of the split.
+It does not depend on the curation order, and it scores the first video too. Both protocols
+return a [`PrequentialResult`][] with the same median aggregate and the same ship-bar;
+``protocol`` names which one produced it. The M5 ship gate (PRD §9 M5) stays the prequential
+one, which is the reloaded-model situation of PRD §7.5 / UC3.
+
 The harness is **model-free**: it takes an ordered list of [`VideoFold`][] and a
 ``train_score_fn`` callback that fits a scorer on a prior's ``(X, y)`` and returns a
 ``X -> scores`` callable, so the metric and the interleaving never import scikit-learn. The
@@ -65,11 +77,18 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEFAULT_SHIP_BAR_PTS",
+    "PROTOCOL_LEAVE_ONE_VIDEO_OUT",
+    "PROTOCOL_PREQUENTIAL",
     "PrequentialResult",
     "VideoFold",
     "VideoUplift",
+    "leave_one_video_out_uplift",
     "prequential_uplift",
 ]
+
+#: The two held-out protocols a [`PrequentialResult`][] can come from.
+PROTOCOL_PREQUENTIAL = "prequential"
+PROTOCOL_LEAVE_ONE_VIDEO_OUT = "leave-one-video-out"
 
 #: The default M5 ship-bar: a ≥ 10-percentage-point median precision@k uplift over file order
 #: (PRD §11.2 "Ranker success target (M5)"; §7.5, §9 M5). A tunable, surfaced here as the
@@ -141,13 +160,16 @@ class PrequentialResult:
     existed and was trainable); ``skipped_movie_ids`` are the videos that could not be — the
     first curated video, and any whose only prior labels were a single class — reported so the
     coverage is never silently narrowed. The gate ships when [`median_uplift_pts`][] clears
-    [`ship_bar_pts`][].
+    [`ship_bar_pts`][]. ``protocol`` names the held-out protocol that produced the result:
+    ``"prequential"`` ([`prequential_uplift`][]) or ``"leave-one-video-out"``
+    ([`leave_one_video_out_uplift`][]).
     """
 
     k: int
     ship_bar_pts: float
     per_video: tuple[VideoUplift, ...]
     skipped_movie_ids: tuple[str, ...]
+    protocol: str = PROTOCOL_PREQUENTIAL
 
     @property
     def n_evaluated(self) -> int:
@@ -163,6 +185,53 @@ class PrequentialResult:
     def shipped(self) -> bool:
         """Whether the median uplift clears the ship-bar (PRD §9 M5, §11.2)."""
         return self.median_uplift_pts >= self.ship_bar_pts
+
+
+def _trainable(prior_y: np.ndarray) -> bool:
+    """Whether a prior's labels can train a discriminative scorer: non-empty, both classes."""
+    return bool(prior_y.size) and int(np.unique(prior_y).size) >= 2
+
+
+def _held_out_uplift(
+    fold: VideoFold, scorer: Callable[[np.ndarray], np.ndarray], k: int
+) -> VideoUplift:
+    """Score one held-out video with a scorer fitted without it, and read off its uplift.
+
+    The measurement both protocols share: the scorer's ranking of the video's labeled molecules
+    against the file-order baseline, each read at precision@k.
+
+    Raises
+    ------
+    ValueError
+        The scorer returns a misshapen or a non-finite score vector.
+    """
+    scores = np.asarray(scorer(fold.X), dtype=np.float64)
+    if scores.shape != (fold.n,):
+        raise ValueError(
+            f"train_score_fn scorer returned {scores.shape} scores for video "
+            f"{fold.movie_id!r} with {fold.n} molecules; they must align"
+        )
+    # A NaN score would be silently ranked last by rank_by_score (its unscored-molecule
+    # contract); here a non-finite score is instead a malformed scorer, so surface it
+    # loudly rather than let it quietly skew a ship-gate decision (the never-fabricate
+    # discipline extended to the model's output).
+    if not bool(np.isfinite(scores).all()):
+        raise ValueError(
+            f"train_score_fn scorer returned non-finite (NaN/inf) scores for video "
+            f"{fold.movie_id!r}"
+        )
+    is_good = dict(zip(fold.molecule_ids, fold.is_good, strict=True))
+    candidate = rank_by_score(fold.molecule_ids, scores)
+    baseline = file_order_ranking(fold.molecule_ids)
+    ranker_p = precision_at_k(candidate.ranked_relevance(is_good), k)
+    baseline_p = precision_at_k(baseline.ranked_relevance(is_good), k)
+    return VideoUplift(
+        movie_id=fold.movie_id,
+        n_labeled=fold.n,
+        ranker=ranker_p,
+        baseline=baseline_p,
+        uplift=ranker_p - baseline_p,
+    )
 
 
 def prequential_uplift(
@@ -223,38 +292,9 @@ def prequential_uplift(
     for fold in folds:
         prior_y = np.concatenate(prior_y_blocks) if prior_y_blocks else np.empty(0, dtype=bool)
         # A held-out test needs a prior model, which needs both classes to be discriminative.
-        if prior_y.size and int(np.unique(prior_y).size) >= 2:
+        if _trainable(prior_y):
             prior_x = np.concatenate(prior_x_blocks, axis=0)
-            scorer = train_score_fn(prior_x, prior_y)
-            scores = np.asarray(scorer(fold.X), dtype=np.float64)
-            if scores.shape != (fold.n,):
-                raise ValueError(
-                    f"train_score_fn scorer returned {scores.shape} scores for video "
-                    f"{fold.movie_id!r} with {fold.n} molecules; they must align"
-                )
-            # A NaN score would be silently ranked last by rank_by_score (its unscored-molecule
-            # contract); here a non-finite score is instead a malformed scorer, so surface it
-            # loudly rather than let it quietly skew a ship-gate decision (the never-fabricate
-            # discipline extended to the model's output).
-            if not bool(np.isfinite(scores).all()):
-                raise ValueError(
-                    f"train_score_fn scorer returned non-finite (NaN/inf) scores for video "
-                    f"{fold.movie_id!r}"
-                )
-            is_good = dict(zip(fold.molecule_ids, fold.is_good, strict=True))
-            candidate = rank_by_score(fold.molecule_ids, scores)
-            baseline = file_order_ranking(fold.molecule_ids)
-            ranker_p = precision_at_k(candidate.ranked_relevance(is_good), k)
-            baseline_p = precision_at_k(baseline.ranked_relevance(is_good), k)
-            per_video.append(
-                VideoUplift(
-                    movie_id=fold.movie_id,
-                    n_labeled=fold.n,
-                    ranker=ranker_p,
-                    baseline=baseline_p,
-                    uplift=ranker_p - baseline_p,
-                )
-            )
+            per_video.append(_held_out_uplift(fold, train_score_fn(prior_x, prior_y), k))
         else:
             skipped.append(fold.movie_id)
         # Prequential: the video's own labels fold into the prior only AFTER it was scored.
@@ -271,4 +311,95 @@ def prequential_uplift(
         ship_bar_pts=float(ship_bar_pts),
         per_video=tuple(per_video),
         skipped_movie_ids=tuple(skipped),
+    )
+
+
+def leave_one_video_out_uplift(
+    folds: Sequence[VideoFold],
+    train_score_fn: TrainScoreFn,
+    *,
+    k: int,
+    ship_bar_pts: float = DEFAULT_SHIP_BAR_PTS,
+) -> PrequentialResult:
+    """Leave-one-video-out precision@k uplift over a condition's video folds (ADR-0113).
+
+    For each video, fits a scorer via ``train_score_fn`` on the labeled molecules of **every
+    other** video (earlier and later alike), scores the held-out video, and records its
+    precision@k uplift over the file-order baseline
+    ([`tether.ml.ranking.file_order_ranking`][]). The held-out video's own rows never reach the
+    fit. A video whose other videos do not carry both accepted and rejected labels has no
+    trainable prior and is reported in ``skipped_movie_ids``, never fabricated as a ``0``
+    uplift. Unlike [`prequential_uplift`][], the first video is scored as well, and the
+    per-video uplifts do not depend on the order of ``folds`` (only the order the result lists
+    them in does). See the module docstring.
+
+    Parameters
+    ----------
+    folds:
+        The condition's videos ([`VideoFold`][]), each carrying its labeled molecules,
+        features, and accept/reject truth. Each ``movie_id`` must appear once: a video split
+        over two folds would sit on both sides of the split.
+    train_score_fn:
+        ``(X_prior, y_prior) -> (X -> scores)``, as for [`prequential_uplift`][]. The prior is
+        the other videos' rows, concatenated in ``folds`` order. Called only when the prior has
+        both classes.
+    k:
+        The review-budget cutoff for precision@k (a positive integer; PRD §7.5 ``k`` ≈ 20–50).
+    ship_bar_pts:
+        The percentage-point median-uplift threshold (default [`DEFAULT_SHIP_BAR_PTS`][], the
+        PRD §11.2 value).
+
+    Returns
+    -------
+    PrequentialResult
+        The per-video uplifts in ``folds`` order, the skipped videos, and the median-vs-ship-bar
+        verdict, with ``protocol == "leave-one-video-out"``.
+
+    Raises
+    ------
+    ValueError
+        ``k`` is not a positive integer; ``folds`` is empty; two folds share a ``movie_id``; a
+        fitted scorer returns a misshapen or non-finite score vector; or **no** video could be
+        held-out evaluated (a single video, or no two videos' labels carry both classes).
+    """
+    if not _is_positive_int(k):
+        raise ValueError(f"k must be a positive integer, got {k!r}")
+    folds = list(folds)
+    if not folds:
+        raise ValueError("no video folds to evaluate (leave-one-video-out needs >= 2 videos)")
+    seen: set[str] = set()
+    for fold in folds:
+        if fold.movie_id in seen:
+            raise ValueError(
+                f"video {fold.movie_id!r} appears in more than one fold; leave-one-video-out "
+                "needs one fold per video so a held-out video never trains its own scorer"
+            )
+        seen.add(fold.movie_id)
+
+    xs = [np.asarray(fold.X, dtype=np.float64) for fold in folds]
+    ys = [np.asarray(fold.is_good, dtype=bool) for fold in folds]
+    per_video: list[VideoUplift] = []
+    skipped: list[str] = []
+
+    for i, fold in enumerate(folds):
+        others = [j for j in range(len(folds)) if j != i]
+        prior_y = np.concatenate([ys[j] for j in others]) if others else np.empty(0, dtype=bool)
+        if _trainable(prior_y):
+            prior_x = np.concatenate([xs[j] for j in others], axis=0)
+            per_video.append(_held_out_uplift(fold, train_score_fn(prior_x, prior_y), k))
+        else:
+            skipped.append(fold.movie_id)
+
+    if not per_video:
+        raise ValueError(
+            "no held-out video had a trainable prior (need >= 2 videos whose other videos' "
+            "labels carry both accepted and rejected molecules); leave-one-video-out uplift "
+            "is undefined"
+        )
+    return PrequentialResult(
+        k=int(k),
+        ship_bar_pts=float(ship_bar_pts),
+        per_video=tuple(per_video),
+        skipped_movie_ids=tuple(skipped),
+        protocol=PROTOCOL_LEAVE_ONE_VIDEO_OUT,
     )
