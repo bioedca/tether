@@ -3,17 +3,17 @@
 """Per-frame background + Sum integration -> coordinate-tagged ``.tether`` traces.
 
 PRD Appendix E **Stages 14-15** and the M1 S8 deliverable: turn a movie's
-donor-anchored molecule list (:class:`tether.imaging.coloc.ColocalizedMolecules`)
+donor-anchored molecule list ([`tether.imaging.coloc.ColocalizedMolecules`][])
 into integrated traces + cached patches and persist them, with full provenance,
 into a project store as **additive data** under the M0-frozen ``.tether`` skeleton.
 
 This is the **first writer of extraction data** into a ``.tether``. It sits one
-level above the integration primitive :func:`tether.imaging.aperture.integrate_traces`
+level above the integration primitive [`tether.imaging.aperture.integrate_traces`][]
 (landed M0.5 S5: the 10-frame uniform temporal-MA ring background and the top-hat
 ``I = TOT - bg*N_psf`` Sum integration, which already returns *both* the corrected
 intensity and the uncorrected disk sum) and the donor-anchored colocalization of
 M1 S7, and follows the additive-HDF5-write discipline of
-:mod:`tether.imaging.calibrate` (``write_calibration``): open an *existing*
+[`tether.imaging.calibrate`][] (``write_calibration``): open an *existing*
 compatible project ``r+``, write only *data* into the pre-declared frozen container
 groups, never touch the structure (so ``schema-guard`` stays green).
 
@@ -26,7 +26,7 @@ What it writes (PRD §5.1)
   ``molecule_id``, the cross-file content ``molecule_key`` (movie ``sha256`` +
   quantized ``donor_xy``, §7.10), donor/acceptor coordinates, ``frame_range``, the
   provisional ``condition_id`` parsed from the filename (validated at M4, §7.6),
-  and the :attr:`~tether.imaging.calibrate.RegistrationMap.molecule_tags` imprinted
+  and the [`molecule_tags`][tether.imaging.calibrate.RegistrationMap.molecule_tags] imprinted
   from a low-confidence registration (§7.1). Correction factors (α/γ) are left
   **un-computed** (``NaN``; M3) and bleach frames un-detected (``-1``; M3) — the
   apparent-E substrate the MVP runs on.
@@ -43,7 +43,7 @@ What it writes (PRD §5.1)
 * **``/settings/extraction``** — the effective aperture/integration parameters +
   app version, written once per experiment (provenance, NFR-REPRO).
 
-Coordinate convention follows the rest of :mod:`tether.imaging`: points are
+Coordinate convention follows the rest of [`tether.imaging`][]: points are
 ``(N, 2)`` arrays of ``[x, y] = [col, row]`` in 0-based pixels; frame shapes are
 ``(H, W) = (rows, cols)``.
 """
@@ -98,7 +98,7 @@ MOLECULE_KEY_QUANTUM_PX = 0.1
 #: ample precision for the disk-sum intensities — gzip-compressed and chunked).
 _TRACE_DTYPE = "<f4"
 
-#: ``/traces`` per-channel dataset names, mapped from the :class:`IntegratedTraces`
+#: ``/traces`` per-channel dataset names, mapped from the `IntegratedTraces`
 #: fields (``raw`` = uncorrected ``total``, ``corrected`` = ``intensity``).
 _QUANTITIES: tuple[tuple[str, str], ...] = (
     ("raw", "total"),
@@ -137,7 +137,7 @@ def molecule_key(movie_sha256: str, donor_xy: np.ndarray) -> str:
 
     The cross-file join key for split-file merge-back: the SHA-256 of the movie's
     own ``sha256`` content hash and the molecule's ``donor_xy`` quantized to
-    :data:`MOLECULE_KEY_QUANTUM_PX`. Deterministic across runs and platforms (a
+    [`MOLECULE_KEY_QUANTUM_PX`][]. Deterministic across runs and platforms (a
     pure content hash, no salt), so a labeled subset row always resolves back to
     its canonical molecule regardless of which file carries it.
 
@@ -209,8 +209,8 @@ class MoleculeTraces:
     """Integrated donor+acceptor traces + cached patches for one movie's molecules.
 
     Row ``i`` of every array is one molecule, aligned with the
-    :class:`~tether.imaging.coloc.ColocalizedMolecules` it was extracted from.
-    Produced by :func:`extract_molecules` and consumed by :func:`write_extraction`;
+    [`ColocalizedMolecules`][tether.imaging.coloc.ColocalizedMolecules] it was extracted from.
+    Produced by [`extract_molecules`][] and consumed by [`write_extraction`][];
     it also carries the effective aperture/integration parameters so the writer can
     stamp them into ``/settings`` (provenance).
     """
@@ -241,8 +241,8 @@ def _mean_patches(movie: np.ndarray, coords: np.ndarray, window: int) -> np.ndar
 
     The cached representative crop for movie-less curation + the static overlap view
     (PRD §5.1). The crop centre is the away-from-zero rounded coordinate (the same
-    rule as :func:`tether.imaging.aperture.integrate_traces`); an out-of-frame
-    molecule (never produced by :func:`~tether.imaging.coloc.colocalize`'s crop-box
+    rule as [`tether.imaging.aperture.integrate_traces`][]); an out-of-frame
+    molecule (never produced by [`colocalize`][tether.imaging.coloc.colocalize]'s crop-box
     guardrail, but guarded defensively) yields an all-zero patch.
     """
     coords = np.atleast_2d(np.asarray(coords, dtype=np.float64))
@@ -276,22 +276,23 @@ def extract_molecules(
 ) -> MoleculeTraces:
     """Integrate a movie's donor-anchored molecules into traces + patches (Stage 14).
 
-    Runs :func:`tether.imaging.aperture.integrate_traces` on the donor channel at
+    Runs [`tether.imaging.aperture.integrate_traces`][] on the donor channel at
     ``molecules.donor_xy`` and the acceptor channel at ``molecules.acceptor_xy``
     (the donor-anchored read positions, S7), and caches one temporal-mean patch per
     molecule per channel. The two channel sub-images are the donor/acceptor halves
-    from :func:`tether.imaging.split.split_channels`.
+    from [`tether.imaging.split.split_channels`][].
 
     Parameters
     ----------
     donor_channel, acceptor_channel:
         ``(T, H, W)`` raw channel sub-image stacks (same ``T``).
     molecules:
-        The donor-anchored molecule list (:class:`~tether.imaging.coloc.ColocalizedMolecules`);
+        The donor-anchored molecule list
+        ([`ColocalizedMolecules`][tether.imaging.coloc.ColocalizedMolecules]);
         every molecule is guaranteed in-frame in both channels by S7's crop-box gate.
     window, disk_radius, ring_inner, ring_outer, bg_window:
         Aperture geometry + temporal-background window (PRD §11.2 defaults),
-        forwarded to :func:`~tether.imaging.aperture.integrate_traces`.
+        forwarded to [`integrate_traces`][tether.imaging.aperture.integrate_traces].
 
     Returns
     -------
@@ -391,7 +392,7 @@ def _build_molecule_rows(
     ``n_frames`` is the actual integrated trace width (``traces.n_frames``), the
     single source of truth for the per-molecule ``frame_range`` delimiter — so it
     always matches the stored extent rather than the independent ``movie.n_frames``
-    provenance (which :func:`_validate_alignment` separately asserts is equal).
+    provenance (which `_validate_alignment` separately asserts is equal).
     """
     from tether.io.schema import MOLECULES_DTYPE  # noqa: PLC0415
 
@@ -492,9 +493,9 @@ def _write_settings_once(f: Any, traces: MoleculeTraces, profile_json: str | Non
 
     Experiment-level provenance (NFR-REPRO): the first extraction into a project
     records the aperture/integration parameters + app version; later movies leave it
-    untouched (:func:`_check_against_existing` enforces the parameters stay consistent).
+    untouched (`_check_against_existing` enforces the parameters stay consistent).
     ``profile_json`` is the caller's optional settings profile, **pre-serialized** by
-    :func:`write_extraction` before any append so a non-serializable profile fails
+    [`write_extraction`][] before any append so a non-serializable profile fails
     reject-before-mutate.
     """
     import h5py  # noqa: PLC0415
@@ -542,7 +543,7 @@ def write_extraction(
     the trace<->molecule join is positional.
 
     The target **must already be a compatible ``.tether`` project**
-    (:func:`tether.io.schema.assert_is_compatible_project`); it is opened ``r+`` so
+    ([`tether.io.schema.assert_is_compatible_project`][]); it is opened ``r+`` so
     this can neither create a store nor graft onto a foreign HDF5 file. A movie is
     **write-once** — re-appending the same ``movie_id`` raises (re-extraction is the
     batch runner's per-stage concern, §7.11).
@@ -556,14 +557,14 @@ def write_extraction(
     molecules:
         The donor-anchored molecule list (S7).
     traces:
-        The integrated traces + patches (:func:`extract_molecules`), row-aligned
+        The integrated traces + patches ([`extract_molecules`][]), row-aligned
         with ``molecules``.
     parsed:
-        The provisional filename parse (:func:`tether.io.filename.parse_filename`),
+        The provisional filename parse ([`tether.io.filename.parse_filename`][]),
         supplying ``condition_id`` + ``source_filename``.
     registration_map:
         The calibration used; its
-        :attr:`~tether.imaging.calibrate.RegistrationMap.molecule_tags` (a
+        [`molecule_tags`][tether.imaging.calibrate.RegistrationMap.molecule_tags] (a
         ``low-confidence-registration`` tag for an over-gate fit, §7.1) is imprinted
         onto every molecule of this movie. ``None`` writes no tag.
     settings:
@@ -621,7 +622,7 @@ def _validate_alignment(
 
     Validates the **full** shape contract (not just intensity row counts): all six
     trace arrays must be ``(n_molecules, trace_width)`` and both patch stacks
-    ``(n_molecules, window, window)``, so a malformed :class:`MoleculeTraces` (a
+    ``(n_molecules, window, window)``, so a malformed [`MoleculeTraces`][] (a
     ``total``/``background`` of a different width, an acceptor narrower than the
     donor, a non-square patch) is rejected before it can break the positional
     trace<->molecule join. The reference width is the actual integrated trace width

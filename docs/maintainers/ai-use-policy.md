@@ -1,3 +1,7 @@
+---
+description: "The rules for using an AI tool to write or review a Tether documentation page, with examples of safe and unsafe practice."
+---
+
 # AI-use policy for documentation work
 
 **Who this page is for.** Anyone who uses an AI tool to write or review a Tether documentation

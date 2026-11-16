@@ -1,14 +1,27 @@
+---
+description: "Run tether extract and tether batch without the application window: script the pipeline, run movies unattended or repeat an extraction."
+---
+
 # Command line
 
-**Who this page is for.** Anyone driving Tether without the window: scripting the
+**Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. `tether extract`, `tether batch` and `tether metadata`
-are the whole headless surface — there is no fourth subcommand. If you are curating traces by hand,
-picking states by eye, or reading plots, you want the desktop application instead; this
-page only tells you how to start it.
+extraction from recorded settings. Today the command line has four subcommands:
+`tether extract` and `tether batch` write projects, `tether info` only reads them and
+prints a summary, and `tether metadata` shows or gives the frame time, pixel size and
+channel roles of a project's movies.
+
+**A new movie starts here, for now.** The desktop application does not extract a movie
+yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
+traces by hand, pick states by eye and read plots, but only `tether extract` and
+`tether batch` make a `.tether` project from a raw movie. So, for a fresh acquisition, run
+one of them first, then open its output in the application; this page tells you how to
+start the application too. The extraction section of the application, which takes a movie
+to a `.tether` project with no terminal, is planned work: see
+[its milestone on GitHub](https://github.com/bioedca/tether/milestone/17).
 
 Everything below was transcribed from the live argparse parser in `src/tether/cli.py` —
-the same parser `--help` prints from — and a guard test (`tests/test_cli_reference.py`)
+the same parser `--help` prints from — and a guard test ([`tests/test_cli_reference.py`](https://github.com/bioedca/tether/blob/main/tests/test_cli_reference.py))
 fails if that parser gains, loses or renames an option without a matching edit here. Where
 a default is quoted, it is the string argparse prints, not a value read out of the source.
 
@@ -25,17 +38,22 @@ The installer deliberately does **not** edit your `PATH` (see
 is a bare word you can type. It writes both launchers into one directory — `bin/` under
 the install root you chose during installation:
 
-| Platform | Command-line launcher | Window launcher |
+| Platform | Command-line launcher | Application-window launcher |
 |---|---|---|
 | Windows | `<install-root>\bin\tether.bat` | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
 | macOS | `<install-root>/bin/tether` | `<install-root>/bin/tether-gui` |
 
+From the next release, the two launchers are in `launchers/` (`launchers\` on Windows) under
+the install root instead, a folder that holds nothing else
+([#492](https://github.com/bioedca/tether/issues/492)): read `launchers` for `bin` in the
+table.
+
 Add that one directory to the **end** of your `PATH`, and you can copy every example on
 this page as it is. [Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)
-gives the line for each system. It also tells why the folder goes at the end: on Linux and
-macOS the folder also holds the installer's own `python`, `pip` and `conda`, and these must
-not hide your own.
+gives the line for each system. It also tells why the folder goes at the end: in rc3, on Linux
+and macOS, the `bin` folder also holds the installer's own `python`, `pip` and `conda`, and
+these must not hide your own.
 
 Without that step, substitute the full launcher path from the table for `tether` in
 every command below; nothing else changes. Verify the install with:
@@ -76,7 +94,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 |---|---|---|
 | `movie` | *(required)* | path to the dual-channel TIFF movie |
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
-| `--overwrite` | off | overwrite an existing output project |
+| `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
 | `--detection-mode {wavelet,intensity,bandpass}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
 | `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
@@ -96,18 +114,17 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > which *horizontal half* of the dual-channel frame carries donor emission. The two halves
 > are simply swapped, so a backwards value produces a project in which every FRET
 > efficiency is inverted — and it raises no error, because both values are perfectly
-> legal. `{left,right}` in the help text above is a *metavar*, not an argparse `choices`
-> list: a value that is neither, such as `--donor-side sideways`, is not rejected at parse
-> time either. It is caught downstream by `ExtractOptions` and reported as a clean error
-> with exit code 1. A valid-but-wrong value is not an error, so the extraction itself
-> cannot refuse it.
+> legal. A value that is neither, such as `--donor-side sideways`, is a usage error:
+> argparse prints the usage line and `invalid choice: 'sideways' (choose from left, right)`
+> and exits with code 2 before any file is opened. A valid-but-wrong value is not an error,
+> so the extraction itself cannot refuse it.
 >
 > **The donor-side check.** After every extraction Tether reads the side back out of the
 > traces ([ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md)).
 > When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
 > when the donor bleaches first both drop. A bleach event is a molecule whose dyes bleach
 > one after the other, with a clear drop in one channel and a clear rise in the other at the
-> first bleach. If the channel labelled donor shows the acceptor's drop in at least 80 % of
+> first bleach. If the channel labeled donor shows the acceptor's drop in at least 80 % of
 > at least 15 bleach events, the command warns on standard error, names the evidence and
 > gives the remedy:
 >
@@ -130,7 +147,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 >
 > **How to check by eye (the fallback).** Look at a molecule whose acceptor photobleaches
 > mid-trace. When the acceptor dies the donor stops transferring energy, so the *donor*
-> trace steps **up** at that moment. If instead the trace you have labelled "donor" steps
+> trace steps **up** at that moment. If instead the trace you have labeled "donor" steps
 > *down* while the other steps up, your halves are swapped — re-extract with the other
 > value.
 >
@@ -147,10 +164,11 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > `--tmap` run, and its warning then points at the map's channel order instead of at
 > `--donor-side`.
 
-`--detection-mode` and `--prealign` are metavars in the same way — an unrecognised value
-reaches `ExtractOptions` rather than argparse, and comes back as an error message on
-stderr with exit code 1, never a traceback. `--policy` on `tether batch` is the one flag
-in either subcommand with a real argparse `choices` list.
+`--detection-mode` and `--prealign` are refused in the same way: an unrecognized value
+gives the usage line, an `invalid choice` message that names the allowed values, and exit
+code 2. The three flags take their allowed values from the same constants that
+`ExtractOptions` checks (`tether.extract_choices`), so the command line and the library
+accept the same values.
 
 ### Detection settings: pick one source
 
@@ -250,7 +268,7 @@ destination lock before testing whether its project file exists or reading a che
 any existing writer lock, including one held by another thread in this process, fails
 that movie as locked without refreshing or releasing the caller's lock. A process-local
 per-destination reservation also prevents another local thread from refreshing that
-same-identity sidecar or writing through it. Both claims remain held while batch creates,
+same-identity lock file or writing through it. Both claims remain held while batch creates,
 skips, or re-extracts the destination.
 
 ### The donor-side check in the batch summary
@@ -289,6 +307,134 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 `projects/batch-log.jsonl` unless you moved it with `--log`. Re-run the identical command
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
+
+## `tether info`
+
+Print a summary of what one or more projects hold, without the application and without a
+Python script: the movies, the molecule and curation counts, the corrections, the
+idealization models and the lock holder. Use it to check the result of a batch run, or to
+put a summary of a project in a support request.
+
+```text
+tether info [-h] [--json] [--stale] projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects |
+| `--json` | off | print one JSON document instead of text; the layout is [below](#json-layout) |
+| `--stale` | off | also count the stale molecules of each idealization model; this reads the trace arrays the models were fit on, so it is slower on a large project |
+
+**It does not change the project.** The command opens the project read-only and takes no
+lock, so it works on a project that another user holds, and it does not change the project
+file or its `.lock` file. It reads only the tables and the attributes of the project. It
+does not read the trace arrays (except for `--stale`) and it never opens a movie file, so it
+is fast on a large project and it does not download a OneDrive placeholder movie.
+
+For each project the text output gives:
+
+- the schema version, and the Tether version that created the project;
+- each movie: its file name, its frame count, its frame time, its molecule count and the
+  curation counts of its molecules;
+- each condition and its molecule count. A condition that the molecules name but that has no
+  `/conditions` row yet shows `(not yet in /conditions)`;
+- the molecule count and the curation counts (accepted, rejected, undecided) for all movies;
+- the category counts, and how many molecules have no category;
+- whether the correction pass ran, and how many molecules have each correction method
+  (`none` is a molecule with no method);
+- each idealization model: its method, its state count, its molecule count and, with
+  `--stale`, its stale molecule count. Without `--stale` the text says `stale not checked`;
+- the ranker model reference: the entries under `/models`, or `none`;
+- the lock: `not held`, the holder (user, host, process id, the time it was taken, and
+  `active` or `stale`), or `present but unreadable` when the `.lock` file cannot be parsed.
+  A lock is stale after 30 minutes, the same limit the application uses.
+
+### Example — check the projects of a batch run
+
+```console
+$ tether info out/movie_010.tether
+out/movie_010.tether
+  schema version 1, written by Tether <version>
+  movies: 1
+    movie_010.tif: 1200 frames, 0.1 s/frame, 214 molecules
+      curation: 120 accepted, 30 rejected, 64 undecided
+  conditions: 1
+    cond-353fd5a76531: 214 molecules
+  molecules: 214
+  curation: 120 accepted, 30 rejected, 64 undecided
+  categories: none set (214 uncategorized)
+  corrections: ran (corrected 190, apparent-E (corrections unavailable) 24)
+  idealizations: 1
+    vbconhmm: method vbconhmm, 3 states, 184 molecules, stale not checked (use --stale)
+  ranker model: none
+  lock: not held
+```
+
+Give several projects to summarize them in one run (on Windows PowerShell, list them, or use
+`Get-ChildItem` as in the [batch example](#example-a-folder-of-movies-extraction-and-correction-only)).
+A project that cannot be read gives one line on stderr, `tether info: <path>: <reason>`, and the
+others are still printed. The reasons are: the file does not exist, it is not a `.tether`
+project, or its schema version is newer than this version of Tether can read.
+
+### JSON layout
+
+`--json` prints one JSON document for all the projects given. The layout has a version,
+`format_version`. A later version of Tether can add keys without a change to the version; it
+changes the version if it renames or removes a key, or changes the meaning of a value. A
+value that the project does not record is `null`. The keys are:
+
+| Key | Meaning |
+|---|---|
+| `format` | always `"tether-info"` |
+| `format_version` | the version of this layout (now `1`) |
+| `tether_version` | the version of Tether that printed the document |
+| `projects` | one entry for each project argument, in the order given |
+| `projects[].path` | the project path as given |
+| `projects[].error` | only in the entry of a project that could not be read: the reason. Such an entry has no other keys |
+| `projects[].schema_version` | the schema version of the project |
+| `projects[].written_by` | the Tether version that created the project, or `null` |
+| `projects[].n_molecules` | the molecule count |
+| `projects[].movies` | one entry for each movie |
+| `projects[].movies[].movie_id` | the movie identifier in the project |
+| `projects[].movies[].name` | the file name of the movie |
+| `projects[].movies[].uri` | the movie path recorded at extraction (the file is not opened) |
+| `projects[].movies[].n_frames` | the frame count |
+| `projects[].movies[].frame_time_s` | seconds for each frame, or `null` when the project does not record it |
+| `projects[].movies[].n_molecules` | the molecule count of the movie |
+| `projects[].movies[].curation` | the curation counts of the molecules of the movie |
+| `projects[].movies[].curation.accepted` | accepted molecules |
+| `projects[].movies[].curation.rejected` | rejected molecules |
+| `projects[].movies[].curation.undecided` | molecules not accepted and not rejected |
+| `projects[].conditions` | one entry for each condition |
+| `projects[].conditions[].condition_id` | the condition identifier |
+| `projects[].conditions[].materialized` | `true` when the condition has a `/conditions` row |
+| `projects[].conditions[].n_molecules` | the molecule count of the condition |
+| `projects[].conditions[].key` | the identity fields of the `/conditions` row: `construct_variant`, `dye`, `ligand`, `ligand_concentration`, `ligand_concentration_unit`, `buffer`, `temperature_c`, `laser_power`. Empty when `materialized` is `false` |
+| `projects[].curation` | the curation counts of all molecules |
+| `projects[].curation.accepted` | accepted molecules |
+| `projects[].curation.rejected` | rejected molecules |
+| `projects[].curation.undecided` | molecules not accepted and not rejected |
+| `projects[].categories` | a map from each category name to its molecule count |
+| `projects[].uncategorized` | molecules with no category |
+| `projects[].corrections` | the correction state |
+| `projects[].corrections.ran` | `true` when the correction pass ran |
+| `projects[].corrections.methods` | a map from each correction method to its molecule count; the key `""` is a molecule with no method |
+| `projects[].idealizations` | one entry for each idealization model |
+| `projects[].idealizations[].name` | the model name |
+| `projects[].idealizations[].method` | the method that made the model, for example `vbconhmm` |
+| `projects[].idealizations[].n_states` | the state count |
+| `projects[].idealizations[].n_molecules` | the molecule count of the model |
+| `projects[].idealizations[].stale` | the stale molecule count with `--stale`, else `null` (not checked) |
+| `projects[].models` | the entries under `/models` (the ranker model reference); empty when there is none |
+| `projects[].lock` | the `.lock` file as read |
+| `projects[].lock.held` | `true` when a `.lock` file is present |
+| `projects[].lock.corrupt` | `true` when the `.lock` file cannot be parsed; the owner fields are then `null` |
+| `projects[].lock.host` | the computer of the holder |
+| `projects[].lock.user` | the user name of the holder |
+| `projects[].lock.pid` | the process identifier of the holder |
+| `projects[].lock.acquired_utc` | the time the lock was taken (ISO 8601, UTC) |
+| `projects[].lock.age_s` | the age of the lock in seconds |
+| `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
 
 ## `tether metadata`
 
@@ -331,13 +477,51 @@ mov-…:
 $ tether metadata run.tether --confirm-frame-time
 ```
 
+## Service commands
+
+`tether extract` and `tether batch` are each the command-line route of one *service command*
+([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
+command is the one implementation of an action. The command line uses it now. The
+desktop application and recipe files will use the same commands as their sections are
+moved onto them, so the three cannot do different things for the same input. The command
+line only reads your options into the command's *request*, runs the command, and prints
+the result.
+
+The table comes from the registry in `tether.services.registry`, and a test fails if the
+two differ:
+
+<!-- service-commands:begin (made from tether.services.registry; do not edit) -->
+| Command | Request | Result | What it does |
+|---|---|---|---|
+| `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
+| `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
+<!-- service-commands:end -->
+
+A request is plain data with one text form: a JSON object with the command name, the
+version of the request, and every field. For example, `tether extract movie.tif -o
+movie.tether` sends this request. The text form is one line. It is broken here to fit
+the page, and a break between two parts of JSON does not change it:
+
+```json
+{"command":"extract","fields":{"coloc_distance":3.0,"detection_block":50,
+"detection_mode":null,"detection_threshold":null,"donor_side":"left",
+"min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
+"pair_tol":2.0,"prealign":"translation","rms_gate":0.5,"tdat":null,"tmap":null,
+"window":21},"version":1}
+```
+
+The field names are the option names with `_` for `-`. Two `tether batch` flags are
+positive fields: `--no-idealize` is `"idealize": false` and `--no-defer` is
+`"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of
+these requests ([#899](https://github.com/bioedca/tether/issues/899)).
+
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` | `tether metadata` |
-|---|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | the records were printed, after any change |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
+| Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` |
+|---|---|---|---|---|
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read | the records were printed, after any change |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
@@ -348,10 +532,12 @@ particular refusal can leave an empty output directory behind.
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
 on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
 worth reporting. From `tether batch` it means the run finished with at least one movie
-having a failed stage; fix those and re-run the same command to resume the rest.
+having a failed stage; fix those and re-run the same command to resume the rest. It also
+means `tether batch` could not create `--out-dir` or write the log. It then prints one line
+on stderr that names the path.
 
 > **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
-> when the run starts, the default behaviour is to *defer* idealization: the stage is
+> when the run starts, the default behavior is to *defer* idealization: the stage is
 > recorded as `deferred`, which is not `failed`, so the run exits `0` having done
 > extraction and correction only. A script that treats `0` as "these projects are fully
 > idealized" will consume them too early. Re-run the same command once the sidecar is
@@ -363,3 +549,26 @@ per-movie, per-stage detail — to **stdout**, together with the JSONL structure
 writes to `<out-dir>/batch-log.jsonl`. Only the log's path, and startup refusals, go to
 stderr. If you are capturing streams separately, per-movie failure detail is in stdout and
 the log, not in stderr.
+
+### Exit code `4`: a person must approve a step
+
+Code `4` is reserved, and it has one meaning in every `tether` command: the run stopped
+before a step that needs a person, because nothing approved that step. No command returns
+it today. `tether batch` never returns it, because it applies its `--policy` rule to the
+map and accepts the estimated correction factors, as it does now
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+
+The codes that have one meaning in every command:
+
+- `0`: the command completed.
+- `1`: the command ran, and at least one item failed.
+- `2`: bad command-line arguments, or a refusal to start.
+- `4`: the run stopped at an approval step, and nothing failed.
+
+The approval steps are: accept a map, confirm the bleedthrough factor α, approve γ, and
+select the active fit. A command that stops with `4` writes one message to stderr with the
+step, its subject, the report that is the evidence, the command that approves the step and
+the command that continues the run. The work done before the stop is kept, and the
+continued run does not do it again. A run that has a failed item and also stopped exits
+`1`. A code that this list does not name has the meaning that the table of its command
+gives.

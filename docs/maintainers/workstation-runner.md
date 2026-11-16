@@ -1,3 +1,7 @@
+---
+description: "For the maintainer: run the checks that need private laboratory data on the reference workstation, and read their results."
+---
+
 # Running the private-data checks
 
 **Who this page is for.** The maintainer, who has access to the reference workstation and to the
@@ -72,8 +76,8 @@ folder, and give it the neutral id that its check uses:
 
 | Neutral id | Manifest path below the data folder | Check (#716) |
 | --- | --- | --- |
-| `dlasi-02` | `zenodo-7561162/Figure_2.zip` | one-colour Deep-LASI set: import and molecule count |
-| `dlasi-03` | `zenodo-7561162/Figure_3.zip` | two-colour Deep-LASI set: import, FRET states and dwell times |
+| `dlasi-02` | `zenodo-7561162/Figure_2.zip` | one-color Deep-LASI set: import and molecule count |
+| `dlasi-03` | `zenodo-7561162/Figure_3.zip` | two-color Deep-LASI set: import, FRET states and dwell times |
 
 ```json
 {
