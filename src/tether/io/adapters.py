@@ -24,6 +24,7 @@ reader package can enter the base lock.
 from __future__ import annotations
 
 import dataclasses
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar, runtime_checkable
@@ -218,17 +219,28 @@ class MovieAdapter:
 
 _REGISTRY: list[MovieAdapter] = []
 _BUILTINS_LOADED = False
+# Guards the registry: the first read can come from two threads at once (a batch
+# worker and the GUI), and neither may see the flag set before TIFF is in the list.
+_LOCK = threading.RLock()
 
 
 def _ensure_builtins() -> None:
-    """Register the built-in adapters once, on the first read of the registry."""
+    """Register the built-in adapters once, on the first read of the registry.
+
+    The flag is set only after the registration succeeds, under the lock, so a
+    concurrent reader never sees an empty registry and a failed import is retried
+    on the next read instead of leaving the registry empty for good.
+    """
     global _BUILTINS_LOADED  # noqa: PLW0603 - a one-time lazy registration flag.
     if _BUILTINS_LOADED:
         return
-    _BUILTINS_LOADED = True
-    from tether.io.movie import TIFF_ADAPTER
+    with _LOCK:
+        if _BUILTINS_LOADED:
+            return
+        from tether.io.movie import TIFF_ADAPTER
 
-    _register(TIFF_ADAPTER)
+        _register(TIFF_ADAPTER)
+        _BUILTINS_LOADED = True
 
 
 def register_adapter(adapter: MovieAdapter) -> None:
@@ -240,8 +252,9 @@ def register_adapter(adapter: MovieAdapter) -> None:
     so a registration before the first read is checked against them too and
     cannot take the TIFF adapter's place at the head of the order.
     """
-    _ensure_builtins()
-    _register(adapter)
+    with _LOCK:
+        _ensure_builtins()
+        _register(adapter)
 
 
 def _register(adapter: MovieAdapter) -> None:
@@ -265,7 +278,8 @@ def _register(adapter: MovieAdapter) -> None:
 def registered_adapters() -> tuple[MovieAdapter, ...]:
     """Return the registered adapters, in registration order (the TIFF adapter first)."""
     _ensure_builtins()
-    return tuple(_REGISTRY)
+    with _LOCK:
+        return tuple(_REGISTRY)
 
 
 def _readable_list(adapters: tuple[MovieAdapter, ...]) -> str:

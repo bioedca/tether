@@ -12,6 +12,7 @@ from __future__ import annotations
 import struct
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,43 @@ def test_a_registration_before_the_first_read_sees_the_builtins(
         register_adapter(MovieAdapter("Early", (".tif",), lambda h: False, MovieReader))
     register_adapter(MovieAdapter("Later", (".later",), lambda h: False, MovieReader))
     assert [a.name for a in registered_adapters()] == ["TIFF", "Later"]
+
+
+def test_a_failed_first_load_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The built-ins count as loaded only once they are in the registry."""
+    monkeypatch.setattr(adapters, "_REGISTRY", [])
+    monkeypatch.setattr(adapters, "_BUILTINS_LOADED", False)
+    real = adapters._register
+    calls: list[str] = []
+
+    def _fail_once(adapter: MovieAdapter) -> None:
+        calls.append(adapter.name)
+        if len(calls) == 1:
+            raise RuntimeError("simulated import-time failure")
+        real(adapter)
+
+    monkeypatch.setattr(adapters, "_register", _fail_once)
+    with pytest.raises(RuntimeError, match="simulated"):
+        registered_adapters()
+    assert [a.name for a in registered_adapters()] == ["TIFF"]
+
+
+def test_concurrent_first_reads_all_see_tiff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(adapters, "_REGISTRY", [])
+    monkeypatch.setattr(adapters, "_BUILTINS_LOADED", False)
+    barrier = threading.Barrier(8)
+    seen: list[tuple[str, ...]] = []
+
+    def _read() -> None:
+        barrier.wait()
+        seen.append(tuple(a.name for a in registered_adapters()))
+
+    threads = [threading.Thread(target=_read) for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert seen == [("TIFF",)] * 8
 
 
 def test_registry_refuses_a_malformed_extension(scratch_registry: None) -> None:
