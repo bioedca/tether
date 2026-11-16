@@ -488,8 +488,9 @@ def run_job(
     stores the part in the checkpoint before it starts the next one. The project file is
     closed while ``work`` runs. ``progress(done, total)`` is called after each part.
 
-    Needs the writer lock held by ``project`` (``project.acquire_lock()`` or
-    ``with project.write_lock():``); a steal during the job stops it before its next write.
+    Needs the writer lock retained by ``project`` (``project.acquire_lock()``). The context
+    manager ``project.write_lock()`` does not retain the lock on the handle, so a job refuses
+    to start under it. A steal during the job stops it before its next write.
     The job ends *done*, *cancelled* (the token was set, or ``work`` raised
     [`JobCancelled`][]) or *failed* (``work`` raised; the error text is stored). An
     interrupt such as ``KeyboardInterrupt`` stores *interrupted* and is raised again.
