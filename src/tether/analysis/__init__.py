@@ -146,6 +146,15 @@ Changed at M17 (#369, ADR-0109):
   ([`no_region`][tether.analysis.cloud.AlphaShape.no_region]
   when the cloud has no 2-D region).
 
+Added at M17 (FR-PLOT, PRD §7.7; #373, ADR-0121):
+
+- [`SavedSelection`][tether.analysis.saved_selection.SavedSelection] /
+  [`select_molecules`][tether.analysis.saved_selection.select_molecules] /
+  [`preset_selections`][tether.analysis.saved_selection.preset_selections] — the Qt-free,
+  serializable one-project series of the plot builder: a named selection frozen from a
+  [`query_molecules`][tether.analysis.query.query_molecules] result with the filter that made
+  it, and the one-click presets (one selection per condition, movie or source file).
+
 Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
 
 - [`dirichlet_rate_bounds`][tether.analysis.rate_bounds.dirichlet_rate_bounds] /
@@ -263,6 +272,12 @@ from tether.analysis.rate_bounds import (
     dirichlet_rate_bounds,
     model_rate_bounds,
 )
+from tether.analysis.saved_selection import (
+    SavedSelection,
+    SelectionFilter,
+    preset_selections,
+    select_molecules,
+)
 from tether.analysis.selection import MoleculeSelection, Selection, resolve_selection
 from tether.analysis.state_number import (
     DEFAULT_STATE_NUMBER_LOW,
@@ -351,8 +366,10 @@ __all__ = [
     "PerConditionHistograms",
     "PopulationAnticorrelation",
     "RateBounds",
+    "SavedSelection",
     "RawFretCloud",
     "Selection",
+    "SelectionFilter",
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
@@ -391,9 +408,11 @@ __all__ = [
     "population_transition_density",
     "population_transition_prob_histogram",
     "population_transition_sync_histogram2d",
+    "preset_selections",
     "query_molecules",
     "raw_fret_cloud",
     "resolve_selection",
+    "select_molecules",
     "state_dwells",
     "state_number_counts",
     "survival_curve",
