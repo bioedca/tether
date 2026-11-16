@@ -127,7 +127,7 @@ retired = 1
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 39.1
+long_share = 35.7
 semicolons = 8
 long_paragraphs = 1
 retired = 0

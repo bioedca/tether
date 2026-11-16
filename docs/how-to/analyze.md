@@ -186,7 +186,7 @@ appears](apply-corrections.md#where-the-corrected-efficiency-appears).
 ## 4. Fit Gaussians to the histogram
 
 To report the population of each FRET state from the histogram, fit one Gaussian for each
-state. Give one starting mean for each state; add these lines to the end of `plots.py`:
+state. Give one starting mean for each state, and add these lines to the end of `plots.py`:
 
 ```python
 from tether.analysis.gaussian_fit import fit_gaussians
