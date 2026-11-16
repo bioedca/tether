@@ -14,7 +14,8 @@ order is the one ``extract_movie`` executes::
 
 The preview stops before ``write_extraction``: it writes nothing and imports no Qt. It calls
 only the public imaging primitives that ``extract_movie`` calls, with the same arguments, so
-its molecules and traces are bit-identical to a real run (``tests/test_extract_preview.py``).
+its molecules and traces are bit-identical to a real run with the same channel geometry and
+registration source (``tests/test_extract_preview.py``).
 
 Each result carries the parameters that produced it. A stage that cannot finish is a
 ``failed`` result with a message and ends the iteration; it is never raised. An over-gate
