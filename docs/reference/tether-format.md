@@ -668,11 +668,12 @@ geometry attributes written by [`_write_geometry_attrs`](https://github.com/bioe
 ## `/models` — a reference to each condition's model file
 
 `/models` exists in every store because the schema freeze forward-declared it. The
-quality ranker itself is **not** in the project: it is a standalone portable model
+quality ranker itself is **not** in the project. It is a standalone portable model
 file that travels with a *condition* across many experiment files
 (`src/tether/ml/persistence.py`, ADR-0035). The project only records **where that
-file is and which version of it the project last saw**, one group per condition,
-written by [`record_model_reference`](https://github.com/bioedca/tether/blob/main/src/tether/project/model_artifact.py)
+file is and which version of it the project last saw**. It keeps one group per
+condition, written by
+[`record_model_reference`](https://github.com/bioedca/tether/blob/main/src/tether/project/model_artifact.py)
 (`src/tether/project/model_artifact.py`, ADR-0119). The group is empty until a model
 is saved for a condition the project holds.
 
@@ -689,14 +690,16 @@ is saved for a condition the project holds.
 | `recorded_utc` | str | when this reference was written (ISO-8601 UTC) |
 | `app_version` | str | the Tether version that wrote it |
 
-A later save replaces the attributes of that condition's group; a project keeps one
-reference per condition. The model file has its own single-writer lock
-(`<model>.lock` beside it, the same record as a project's `.lock`), held by the
-condition's owner-curator while they retrain and save. The reference
-carries no user or host name. Subset export copies the group verbatim
-(`src/tether/project/export.py`). A reader should treat a missing `/models` child as
-"no model recorded", and an `artifact_path` that does not exist on its machine as
-normal: the file may live on another computer or in a synced folder.
+A later save replaces the attributes of that condition's group. A project keeps one
+reference per condition. The model file has its own single-writer lock: `<model>.lock`
+beside it, the same record as a project's `.lock`. The condition's owner-curator
+holds it while they retrain and save.
+
+The reference carries no user or host name.
+Subset export copies the group verbatim (`src/tether/project/export.py`). A missing
+`/models` child means "no model recorded". An `artifact_path` that does not exist on
+the reader's machine is normal: the file may live on another computer or in a synced
+folder.
 
 ## Where to look next
 
