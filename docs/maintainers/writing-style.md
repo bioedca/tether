@@ -204,8 +204,8 @@ prose.
 - `provenance sidecar`, `JSON sidecar`, `sidecar .lock file`, `.lock sidecar`
 - `project store`
 - British spellings: `colour`, `analyse`, `behaviour`, `labelled`, `labelling`, `artefact`,
-  `analogue`, `neighbour`, `centre`, `judgement`, `programme`, `grey`, `licence` (the noun),
-  and the `-ise` and `-isation` forms of verbs and nouns, such as `normalise`
+  `analogue`, `neighbour`, `centre`, `judgement`, `programme`, `grey` and `licence` (the noun)
+- The British `-ise` and `-isation` forms of verbs and nouns, such as `normalise`
 
 Text in code formatting, quoted titles of papers and the titles of accepted ADRs keep their own
 words.
