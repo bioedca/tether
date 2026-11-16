@@ -1503,3 +1503,418 @@ def test_split_overwrite_refused_when_destination_locked(tmp_path: Path) -> None
     lock.acquire(split_path, identity=HOST_A)  # ...and is locked by another writer
     with pytest.raises(LockedError):
         lock.create_split_curation(canonical, split_path, ["m1"], overwrite=True, identity=HOST_B)
+
+
+# --- the canonical file identity and the publish lock (#346, ADR-0112) -------
+
+
+def test_file_identity_is_shared_by_hard_links_and_distinct_otherwise(tmp_path: Path) -> None:
+    project = tmp_path / "a.tether"
+    project.write_bytes(b"x")
+    alias = tmp_path / "sub" / "b.tether"
+    alias.parent.mkdir()
+    os.link(project, alias)
+    other = tmp_path / "c.tether"
+    other.write_bytes(b"x")
+
+    assert lock.file_identity(project) is not None
+    assert lock.file_identity(alias) == lock.file_identity(project)
+    assert lock.file_identity(other) != lock.file_identity(project)
+    assert lock.file_identity(tmp_path / "missing.tether") is None
+
+
+def test_file_identity_is_none_without_an_inode_number(tmp_path: Path, monkeypatch) -> None:
+    """A filesystem that reports ``st_ino == 0`` cannot prove two names are one file."""
+    project = tmp_path / "a.tether"
+    project.write_bytes(b"x")
+    real = os.stat(project)
+    fake = os.stat_result((real.st_mode, 0, real.st_dev, *tuple(real)[3:10]))
+    monkeypatch.setattr(lock.os, "stat", lambda *_a, **_k: fake)
+    assert lock.file_identity(project) is None
+
+
+def test_only_lock_builds_the_file_identity_pair() -> None:
+    """One canonical helper: no second ``st_ino`` construction in the source (#249, #346)."""
+    src = Path(lock.__file__).resolve().parents[1]
+    offenders = sorted(
+        str(path.relative_to(src))
+        for path in src.rglob("*.py")
+        if path.name != "lock.py" and "st_ino" in path.read_text(encoding="utf-8")
+    )
+    assert offenders == []
+
+
+def test_publish_lock_holds_the_destination_and_releases_it(tmp_path: Path) -> None:
+    project = tmp_path / "p.tether"
+    project.write_bytes(b"x")
+
+    with lock.publish_lock(project) as guard:
+        held = lock.read_lock(project)
+        assert held is not None
+        guard()
+        with pytest.raises(lock.LockedError):
+            lock.acquire(project)
+
+    assert lock.read_lock(project) is None
+
+
+def test_publish_lock_refuses_a_lock_this_process_already_holds(tmp_path: Path) -> None:
+    """An open same-process session has not transferred its critical section."""
+    project = tmp_path / "p.tether"
+    project.write_bytes(b"x")
+    session = lock.acquire(project)
+
+    with pytest.raises(lock.LockedError), lock.publish_lock(project):
+        pass
+
+    assert lock.read_lock(project) == session
+
+
+def test_publish_guard_fails_after_a_steal(tmp_path: Path) -> None:
+    project = tmp_path / "p.tether"
+    project.write_bytes(b"x")
+    thief = lock.LockIdentity(host="OTHER", user="bob", pid=999)
+
+    with lock.publish_lock(project) as guard:
+        stolen = _steal_in_another_process(project, thief)
+        with pytest.raises(lock.LockError, match="ownership changed"):
+            guard()
+
+    # The nonce-checked release leaves the thief's lock in place.
+    assert lock.read_lock(project) == stolen
+
+
+_STEALER = """
+import json
+import sys
+from tether.project import lock
+from tether.project.lock import LockIdentity
+
+host, user, pid = sys.argv[2:5]
+stolen, _prior = lock.steal_lock(sys.argv[1], identity=LockIdentity(host, user, int(pid)))
+print(json.dumps(stolen.to_dict()), flush=True)
+"""
+
+
+def _steal_in_another_process(project: Path, thief: LockIdentity) -> LockInfo:
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _STEALER,
+            os.fspath(project),
+            thief.host,
+            thief.user,
+            str(thief.pid),
+        ],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return LockInfo.from_dict(json.loads(done.stdout.strip()))
+
+
+def test_a_steal_in_this_process_cannot_take_an_active_publish(tmp_path: Path) -> None:
+    """``steal_lock`` honors the process-local reservation ``publish_lock`` holds."""
+    project = tmp_path / "p.tether"
+    project.write_bytes(b"x")
+    errors: list[BaseException] = []
+
+    with lock.publish_lock(project) as guard:
+        held = lock.read_lock(project)
+
+        def thief() -> None:
+            try:
+                lock.steal_lock(project, identity=LockIdentity(host="OTHER", user="bob", pid=9))
+            except BaseException as exc:  # noqa: BLE001 - asserted below
+                errors.append(exc)
+
+        worker = threading.Thread(target=thief)
+        worker.start()
+        worker.join(timeout=10)
+        assert len(errors) == 1 and isinstance(errors[0], LockedError)
+        assert lock.read_lock(project) == held
+        guard()
+
+
+# --- hard-link aliases share one writer (#249, ADR-0112) ----------------------
+
+_ALIAS_HOLDER = """
+import sys
+from tether.project import lock
+
+held = lock.acquire(sys.argv[1])
+print(held.nonce, flush=True)
+sys.stdin.readline()
+lock.release(sys.argv[1], held)
+"""
+
+
+def _hard_link_pair(tmp_path: Path) -> tuple[Path, Path]:
+    first = tmp_path / "a" / "first.tether"
+    first.parent.mkdir()
+    create_project(first)
+    second = tmp_path / "b" / "second.tether"
+    second.parent.mkdir()
+    try:
+        os.link(first, second)
+    except OSError as exc:  # pragma: no cover - filesystem without hard links
+        pytest.skip(f"no hard links here: {exc}")
+    if lock.file_identity(first) is None:  # pragma: no cover - no inode numbers
+        pytest.skip("this filesystem reports no file identity")
+    return first, second
+
+
+def test_another_process_cannot_claim_a_project_through_a_hard_link(tmp_path: Path) -> None:
+    """Process A holds ``first``; this process is refused ``second``, the same file.
+
+    The true-subprocess regression for #249: before the identity lock, each name had
+    its own ``<file>.lock`` and both claims succeeded.
+    """
+    first, second = _hard_link_pair(tmp_path)
+    other = tmp_path / "other.tether"
+    create_project(other)
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _ALIAS_HOLDER, str(first)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        nonce = holder.stdout.readline().strip()
+        assert nonce, holder.stderr.read() if holder.stderr else ""
+
+        with pytest.raises(LockedError) as refused:
+            lock.acquire(second)
+        assert refused.value.owner is not None
+        assert refused.value.owner.nonce == nonce
+        with pytest.raises(LockedError):
+            lock.assert_writable(second)
+        held_by = lock.read_lock(second)
+        assert held_by is not None
+        assert held_by.nonce == nonce
+        assert not lock.lock_path(second).exists()
+
+        # A genuinely different file keeps its own, independent writer.
+        mine = lock.acquire(other)
+        assert lock.release(other, mine)
+    finally:
+        if holder.poll() is None:
+            assert holder.stdin is not None
+            holder.stdin.write("\n")
+            holder.stdin.flush()
+        holder.wait(timeout=60)
+    assert holder.returncode == 0, holder.stderr.read() if holder.stderr else ""
+
+    # After A releases, the claim through the other name succeeds.
+    claimed = lock.acquire(second)
+    assert lock.read_lock(first) is not None
+    assert lock.release(second, claimed)
+    assert lock.read_lock(first) is None
+
+
+def test_strict_and_same_process_claims_through_an_alias_are_refused(tmp_path: Path) -> None:
+    first, second = _hard_link_pair(tmp_path)
+    held = lock.acquire(first)
+    try:
+        with pytest.raises(LockedError):
+            lock.acquire(second)
+        with pytest.raises(LockedError), lock.publish_lock(second):
+            pass
+        refreshed = lock.refresh(first, held)
+        with pytest.raises(LockedError):
+            lock.acquire(second)
+    finally:
+        assert lock.release(first, refreshed)
+    assert lock.release(second, lock.acquire(second))
+
+
+def test_a_steal_through_an_alias_ousts_the_other_name(tmp_path: Path) -> None:
+    first, second = _hard_link_pair(tmp_path)
+    foreign = lock.acquire(first, identity=LockIdentity(host="OTHER", user="bob", pid=999))
+
+    stolen, prior = lock.steal_lock(second)
+
+    assert prior == foreign
+    # The other name's lock now carries the stealer's nonce, so the ousted
+    # writer's nonce checks fail there too.
+    assert lock.read_lock(first) == stolen
+    assert lock.read_lock(second) == stolen
+    assert not lock.release(first, foreign)
+    refreshed = lock.refresh(second, stolen)
+    assert lock.read_lock(first) == refreshed
+    assert lock.release(second, refreshed)
+    assert not lock.lock_path(first).exists()
+    assert not lock.lock_path(second).exists()
+
+
+def test_a_renewed_claim_after_an_alias_steal_still_releases_the_other_name(
+    tmp_path: Path,
+) -> None:
+    """A same-owner reclaim must not drop the names a steal took over."""
+    first, second = _hard_link_pair(tmp_path)
+    lock.acquire(first, identity=LockIdentity(host="OTHER", user="bob", pid=999))
+    stolen, _prior = lock.steal_lock(second)
+
+    renewed = lock.acquire(second)
+
+    assert renewed.nonce != stolen.nonce
+    assert lock.read_lock(first) == renewed
+    assert lock.release(second, renewed)
+    assert not lock.lock_path(first).exists()
+    with lock.publish_lock(first) as guard:
+        guard()
+
+
+def _replace_with_a_copy(path: Path) -> None:
+    """Give ``path`` a new inode, as a staged publish does."""
+    stage = path.with_name(path.name + ".stage")
+    stage.write_bytes(path.read_bytes())
+    os.replace(stage, path)
+
+
+def test_a_renewed_claim_after_a_replacement_still_releases_the_other_name(
+    tmp_path: Path,
+) -> None:
+    """The names a steal took over are found by nonce once the file has a new inode."""
+    first, second = _hard_link_pair(tmp_path)
+    lock.acquire(first, identity=LockIdentity(host="OTHER", user="bob", pid=999))
+    lock.steal_lock(second)
+    _replace_with_a_copy(second)
+
+    renewed = lock.acquire(second)
+
+    assert lock.read_lock(first) == renewed
+    assert lock.release(second, renewed)
+    assert not lock.lock_path(first).exists()
+
+
+def test_a_guarded_publish_keeps_the_new_file_under_the_identity_lock(tmp_path: Path) -> None:
+    """A hard link made to a just-published file cannot be claimed while the lock is held."""
+    from tether.project._guarded_publish import publish_staged_project
+
+    project = tmp_path / "p.tether"
+    create_project(project)
+    if lock.file_identity(project) is None:
+        pytest.skip("this filesystem reports no file identity")
+    stage = tmp_path / "stage.tether"
+    create_project(stage)
+    alias = tmp_path / "alias.tether"
+
+    with lock.publish_lock(project) as guard:
+        publish_staged_project(stage, project, publish_guard=guard)
+        try:
+            os.link(project, alias)
+        except OSError:
+            pytest.skip("this filesystem has no hard links")
+        with pytest.raises(LockedError):
+            lock.acquire(alias)
+        assert lock.read_lock(alias) == lock.read_lock(project)
+
+    claimed = lock.acquire(alias)
+    assert lock.release(alias, claimed)
+    assert list(lock.user_lock_dir().glob("*.identity.json")) == []
+
+
+def test_a_failed_guarded_replace_leaves_no_record_for_the_stage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from tether.project import _guarded_publish
+
+    project = tmp_path / "p.tether"
+    create_project(project)
+    if lock.file_identity(project) is None:
+        pytest.skip("this filesystem reports no file identity")
+    stage = tmp_path / "stage.tether"
+    create_project(stage)
+    stage_record = lock._identity_record_path(lock.file_identity(stage))
+
+    real_replace = os.replace
+    recorded: list[bool] = []
+
+    def refuse_the_project_replace(src, dst):
+        # ``os`` is shared, so fail only the project's replace, not the record write.
+        if os.fspath(src) == os.fspath(stage):
+            recorded.append(stage_record.exists())
+            raise OSError(13, "Permission denied")
+        real_replace(src, dst)
+
+    with lock.publish_lock(project) as guard:
+        monkeypatch.setattr(_guarded_publish.os, "replace", refuse_the_project_replace)
+        with pytest.raises(OSError, match="Permission denied"):
+            _guarded_publish.publish_staged_project(stage, project, publish_guard=guard)
+        monkeypatch.undo()
+        assert recorded == [True]  # the record existed when the replace failed
+        assert not stage_record.exists()
+
+
+def test_a_dead_identity_record_is_reaped(tmp_path: Path) -> None:
+    """A record whose name no longer carries its nonce does not block another name."""
+    first, second = _hard_link_pair(tmp_path)
+    lock.acquire(first)
+    lock.lock_path(first).unlink()  # the holder's lock vanished without a release
+
+    claimed = lock.acquire(second)
+    assert lock.release(second, claimed)
+    assert list(lock.user_lock_dir().glob("*.identity.json")) == []
+
+
+def test_a_file_without_identity_keeps_the_beside_lock_alone(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "p.tether"
+    create_project(project)
+    monkeypatch.setattr(lock, "file_identity", lambda _path: None)
+
+    held = lock.acquire(project)
+    assert lock.read_lock(project) == held
+    assert lock.release(project, held)
+    assert not lock.user_lock_dir().exists()
+
+
+def test_a_failed_identity_record_write_rolls_back_the_claim(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "p.tether"
+    create_project(project)
+
+    def disk_full(_rp, _record):
+        raise OSError(28, "No space left on device")
+
+    with monkeypatch.context() as m:
+        m.setattr(lock, "_write_identity_record", disk_full)
+        with pytest.raises(OSError):
+            lock.acquire(project)
+    assert not lock.lock_path(project).exists()
+    with lock.publish_lock(project) as guard:
+        guard()
+
+
+def test_an_unusable_lock_directory_fails_the_claim_as_oserror(tmp_path: Path, monkeypatch) -> None:
+    """The GUI opens browse-only on OSError, so the claim must not raise another type."""
+    project = tmp_path / "p.tether"
+    create_project(project)
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("")
+    monkeypatch.setattr(lock, "user_lock_dir", lambda: blocker / "locks")
+
+    with pytest.raises(OSError, match="per-user lock directory"):
+        lock.acquire(project)
+    assert not lock.lock_path(project).exists()
+
+
+def test_release_after_a_staged_publish_reaches_a_stolen_name(tmp_path: Path) -> None:
+    """A steal through ``second`` took ``first`` too; a later publish onto ``second``
+    gives it a new inode, and the release still frees ``first``."""
+    first, second = _hard_link_pair(tmp_path)
+    lock.acquire(first, identity=LockIdentity(host="OTHER", user="bob", pid=999))
+    stolen, _prior = lock.steal_lock(second)
+    staged = tmp_path / "b" / "staged.tmp"
+    create_project(staged)
+    os.replace(staged, second)
+    assert lock.file_identity(second) != lock.file_identity(first)
+
+    assert lock.release(second, stolen)
+    assert not lock.lock_path(first).exists()
+    assert list(lock.user_lock_dir().glob("*.identity.json")) == []

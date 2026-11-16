@@ -182,7 +182,10 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
 def _run_extract(args: argparse.Namespace) -> int:
     """Handle ``tether extract``; map `ExtractionError` to exit code 1."""
     # Lazy: keep the imaging/IO/HDF5 stack off the ``--version`` path.
+    from contextlib import nullcontext  # noqa: PLC0415
+
     from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
+    from tether.project.lock import LockError, publish_lock
 
     try:
         # --detection-mode/-threshold and --tdat are two ways to set the same
@@ -210,15 +213,21 @@ def _run_extract(args: argparse.Namespace) -> int:
             coloc_distance=args.coloc_distance,
             rms_gate=args.rms_gate,
         )
-        summary = extract_movie(
-            args.movie,
-            args.output,
-            options=options,
-            tmap=args.tmap,
-            tdat=args.tdat,
-            overwrite=args.overwrite,
-        )
-    except ExtractionError as exc:
+        # --overwrite replaces a project another writer may hold open, so it holds the
+        # destination's writer lock across the run and publishes under it (#346).
+        with publish_lock(args.output) if args.overwrite else nullcontext() as guard:
+            summary = extract_movie(
+                args.movie,
+                args.output,
+                options=options,
+                tmap=args.tmap,
+                tdat=args.tdat,
+                overwrite=args.overwrite,
+                publish_guard=guard,
+            )
+    except (ExtractionError, LockError, OSError) as exc:
+        # OSError: publish_lock opens the destination's guard file before
+        # extract_movie runs, so a missing or unwritable directory fails there.
         print(f"tether extract: {exc}", file=sys.stderr)
         return 1
 
