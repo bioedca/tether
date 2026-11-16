@@ -7,22 +7,23 @@ level** over every state-change frame of a population, the standard way to read 
 which conformational transitions a system makes and how often. Tether builds the
 *real* TDP from a persisted ``/idealization/{model}`` (not raw signal): each state
 change contributes one ``(initial_E, final_E)`` point taken ``nskip`` frames apart,
-and the pooled points are binned into a square ``E × E`` grid the GUI renders
+and the pooled points are binned into a square ``E × E`` grid the GUI and the plot
+export ([`tether.analysis.plot_export.render_transition_density`][]) render
 log-normalized [McKinney2006][Hadzic2018].
 
 Two invariants distinguish it from a naive 2-D histogram:
 
 * **Fresh idealizations only.** Molecules whose inputs changed since the fit are
   STALE and are excluded from the TDP (PRD §5.1) via
-  :func:`tether.project.idealize.live_molecule_keys`, so a state path is never mixed
+  [`tether.project.idealize.live_molecule_keys`][], so a state path is never mixed
   with signal it was not fit on. Pass ``include_stale=True`` to override.
 * **State-change frames only.** A point is emitted only where the idealized level
   changes between adjacent frames (``|v[t+1] - v[t]| > 0``) — the neighbour-pair,
   jump-restricted extraction of tMAVEN's ``data_tdp.py`` (``nskip = 2``), ported here
   so the plot reproduces its tMAVEN counterpart (the §9 M6 parity clause).
 
-:func:`transition_density` is the pure-array core (an iterable of per-molecule
-idealized-level arrays → a :class:`TransitionDensityPlot`); :func:`population_transition_density`
+[`transition_density`][] is the pure-array core (an iterable of per-molecule
+idealized-level arrays → a [`TransitionDensityPlot`][]); [`population_transition_density`][]
 is the ``.tether`` store entry point that reconstructs those levels from a model's
 Viterbi state paths and the fresh/curation filters.
 """
@@ -38,6 +39,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -72,7 +74,7 @@ class TransitionDensityPlot:
     ``counts[i, j]`` is the number of state changes whose **initial** level fell in
     signal bin ``i`` and **final** level in bin ``j`` — tMAVEN's ``data_tdp.py`` ``z``
     (``histogram2d(d1, d2)``), unsmoothed and in raw counts unless ``density``. Both
-    axes share :attr:`signal_edges` (a square ``E × E`` grid), so the diagonal is the
+    axes share [`signal_edges`][] (a square ``E × E`` grid), so the diagonal is the
     no-net-change locus and off-diagonal mass marks the transitions. The GUI renders
     it log-normalized [McKinney2006]; smoothing/log are display concerns, so the
     stored array stays the exact histogram (NFR-REPRO).
@@ -139,7 +141,7 @@ def transition_density(
     signal_range
         ``(lo, hi)`` E range for both axes (``hi > lo``).
     density
-        If ``True``, normalize like :func:`numpy.histogram2d` ``density`` (the 2-D
+        If ``True``, normalize like [`numpy.histogram2d`][] ``density`` (the 2-D
         integral is 1); else raw counts.
 
     Returns
@@ -228,7 +230,7 @@ def _levels_from_states(state_path: np.ndarray, means: np.ndarray, no_state: int
     """Reconstruct a molecule's per-frame idealized level from its Viterbi state path.
 
     ``v[t] = means[state_path[t]]`` where the frame carries a state, ``NaN`` at
-    :data:`~tether.idealize.NO_STATE` frames — the analogue of tMAVEN's idealized data
+    [`NO_STATE`][tether.idealize.driver.NO_STATE] frames — the analogue of tMAVEN's idealized data
     row. Reconstructing from ``means`` (never a possibly-absent ``/idealization``
     ``idealized`` dataset) keeps a single, always-available source of truth for the
     level.
@@ -244,7 +246,7 @@ def population_transition_density(
     project: ProjectRef,
     model_name: str,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     nskip: int = DEFAULT_TDP_NSKIP,
     signal_bins: int = DEFAULT_TDP_SIGNAL_BINS,
     signal_range: tuple[float, float] = DEFAULT_TDP_SIGNAL_RANGE,
@@ -256,22 +258,22 @@ def population_transition_density(
 
     Builds each accepted, **fresh** molecule's idealized-level trace from the
     ``/idealization/{model_name}`` Viterbi state paths (levels =
-    :attr:`~tether.project.idealize.StoredIdealization.means`) and feeds them to
-    :func:`transition_density`. STALE molecules are excluded (PRD §5.1) unless
+    [`means`][tether.project.idealize.StoredIdealization.means]) and feeds them to
+    [`transition_density`][]. STALE molecules are excluded (PRD §5.1) unless
     ``include_stale``; rejected molecules are excluded unless ``include_rejected``
     (§7.5).
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths + means.
     molecule_keys
         Restrict to these ``molecule_key`` values (``None`` = all), intersected with
         the fresh + curation filters.
     nskip, signal_bins, signal_range, density
-        Passed through to :func:`transition_density`.
+        Passed through to [`transition_density`][].
     include_rejected
         Keep rejected molecules (default excludes them, §7.5).
     include_stale
@@ -286,21 +288,14 @@ def population_transition_density(
     KeyError
         No ``/idealization/{model_name}`` in the store.
     """
-    from tether.analysis._store import windowed_states
+    from tether.analysis._store import fresh_selection, windowed_states
     from tether.idealize import NO_STATE
-    from tether.project.idealize import live_molecule_keys, read_idealization
+    from tether.project.idealize import read_idealization
 
     stored = read_idealization(project, model_name)
     means = np.asarray(stored.means, dtype="float64")
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     idealized_chunks = [_levels_from_states(state, means, NO_STATE) for state in states]

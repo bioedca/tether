@@ -17,9 +17,9 @@ write over the source project, and exit codes (0 written, 1 failed, 2 usage).
 An export only reads the source project. It takes no writer lock and never touches the
 project's ``<file>.lock``, so it works on a project another user holds open.
 
-Only :mod:`argparse` is imported at module level: ``tether.cli.build_parser`` registers
+Only [`argparse`][] is imported at module level: ``tether.cli.build_parser`` registers
 these parsers on the ``tether --version`` path, which must stay free of the HDF5 stack.
-The export functions are imported inside :func:`run_export`.
+The export functions are imported inside [`run_export`][tether.cli_export.run_export].
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def _add_molecule_key(parser: argparse.ArgumentParser) -> None:
 
 
 def _file_name(form: str, project: Path) -> str:
-    """The name an export of ``project`` gets inside an output folder."""
+    """Return the name an export of ``project`` gets inside an output folder."""
     if form == "table":
         return f"{project.stem}.csv"
     if form == "traces":
@@ -228,7 +228,7 @@ def _is_source(source: Path, out: Path) -> bool:
 
 
 def _input_overwritten(form: str, targets: list[tuple[Path, Path]]) -> str | None:
-    """The refusal message if any export or its provenance file is an input project.
+    """Return the refusal if an export or its provenance file is an input project.
 
     Every destination is checked against **every** input, not only its own source,
     before the first export starts: with ``--overwrite``, the subset of ``movie.tether``

@@ -38,7 +38,7 @@ launcher (`[project.gui-scripts]` → `tether.gui.app:main`).
 
 | Covered | Detail |
 |---|---|
-| Subcommand names | `tether extract`, `tether batch` and `tether export` with its three forms `table`, `traces` and `subset` (`tether.cli`). No others exist to promise. |
+| Subcommand names | `tether extract`, `tether batch` and `tether export` with its three forms `table`, `traces` and `subset` (`tether.cli`). |
 | `tether --version` | Prints the version and exits `0`. |
 | `tether-gui` | Exists as a launcher and starts the application. Nothing about the window layout or its behaviour is covered. |
 | Flag names and meanings | Every option listed by `tether extract --help`, `tether batch --help` and `tether export <form> --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
