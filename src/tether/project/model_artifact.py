@@ -434,9 +434,10 @@ class ModelWriter:
         self.base_sha256 = base_sha256
         #: The model of version ``base_sha256``, once loaded (``None``: not loaded, or no file).
         self._current: PortableRankerModel | None = None
-        #: Serializes `save` on this session, so that two threads that share it cannot both pass
-        #: the ancestry check against one parent and then both write.
-        self._save_lock = threading.Lock()
+        #: Serializes `load` and `save` on this session, so that two threads that share it
+        #: cannot both pass the ancestry check against one parent, and a load cannot put an old
+        #: version in the cache after a save moved the session on. Re-entrant: `save` loads.
+        self._session_lock = threading.RLock()
 
     def load(self) -> PortableRankerModel | None:
         """Load the model file, or return ``None`` when there is none yet (the first video).
@@ -448,14 +449,15 @@ class ModelWriter:
         """
         from tether.ml.persistence import load_model  # noqa: PLC0415
 
-        found = artifact_sha256(self.path)
-        if found != self.base_sha256:
-            raise ModelArtifactConflictError(self.path, self.base_sha256, found)
-        if found is None:
-            return None
-        if self._current is None:
-            self._current = load_model(self.path)
-        return self._current
+        with self._session_lock:
+            found = artifact_sha256(self.path)
+            if found != self.base_sha256:
+                raise ModelArtifactConflictError(self.path, self.base_sha256, found)
+            if found is None:
+                return None
+            if self._current is None:
+                self._current = load_model(self.path)
+            return self._current
 
     def save(
         self,
@@ -508,7 +510,7 @@ class ModelWriter:
             ``model`` is not a retrain of the model on disk and ``replace`` is false; nothing
             was saved.
         """
-        with self._save_lock:
+        with self._session_lock:
             return self._save(model, project=project, replace=replace, now=now)
 
     def _save(

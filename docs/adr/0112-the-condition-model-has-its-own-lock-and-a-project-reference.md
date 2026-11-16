@@ -82,8 +82,9 @@ Chosen option: **3**, in the new module `tether.project.model_artifact`.
   check and the reference, the model is saved (no retrain is lost) and the reference write is
   refused, so `ModelReference.is_current()` reports the stale reference. A caller that must rule
   this out holds the project's lock for the session.
-- **One session saves one model at a time.** `ModelWriter.save` is serialized per session, so two
-  threads that share one session cannot both pass the version check before either writes.
+- **One session loads or saves one model at a time.** `ModelWriter.load` and `ModelWriter.save`
+  are serialized per session, so two threads that share one session cannot both pass the version
+  check before either writes, and a load cannot cache an older version after a save.
 - **The reference is additive data in `/models`.** `record_model_reference` writes one group per
   condition, `/models/<condition_id>`, with attributes `reference_version` (`1`),
   `condition_id`, `artifact_path` (absolute), `artifact_sha256` (the version the project last

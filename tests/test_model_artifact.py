@@ -237,6 +237,39 @@ def test_two_identical_retrains_of_one_version_are_different_versions(tmp_path) 
     assert load_model(path).fit_id == alices.fit_id
 
 
+def test_a_save_on_another_thread_waits_for_a_load_in_progress(tmp_path, monkeypatch) -> None:
+    """One session shared by two threads: a save cannot slip in while a load fills the cache."""
+    import threading
+
+    from tether.ml import persistence
+
+    path = tmp_path / "cond.tethermodel"
+    _seed_model(path)
+    other_threads_retrain = _retrain(load_model(path), seed=2, video_id="v2")
+    real_load = persistence.load_model
+    saver_was_blocked: list[bool] = []
+
+    with model_writer(path, identity=ALICE) as alice:
+        saver = threading.Thread(target=alice.save, args=(other_threads_retrain,))
+
+        def slow_first_load(p):
+            model = real_load(p)  # this thread has read version 0
+            if not saver_was_blocked:
+                saver.start()
+                saver.join(timeout=0.5)
+                saver_was_blocked.append(saver.is_alive())
+            return model
+
+        monkeypatch.setattr(persistence, "load_model", slow_first_load)
+        first = alice.load()
+        saver.join(timeout=10)
+        assert saver_was_blocked == [True]
+        assert first.videos_seen == ("v1",)
+        # The cache follows the save, so a retrain of it builds on the other thread's retrain.
+        alice.save(_retrain(alice.load(), seed=3, video_id="v3"))
+    assert load_model(path).videos_seen == ("v1", "v2", "v3")
+
+
 def test_a_reloaded_model_keeps_its_version_and_parent(tmp_path) -> None:
     path = tmp_path / "cond.tethermodel"
     X, y = _xy(1)
