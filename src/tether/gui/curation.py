@@ -418,11 +418,15 @@ class Keymap:
 
     # --- cheat-sheet ---------------------------------------------------------
 
-    def cheatsheet(self) -> list[tuple[str, str]]:
+    def cheatsheet(
+        self, *, unavailable: frozenset[CurationAction] = frozenset()
+    ) -> list[tuple[str, str]]:
         """Ordered ``(key_label, description)`` rows describing the current map.
 
         The shipped help overlay renders these; a test asserts a rebound key is
-        reflected here. Key labels come from ``QKeySequence`` (native text).
+        reflected here. Key labels come from ``QKeySequence`` (native text). A row
+        whose action is in ``unavailable`` gets ``" (unavailable)"`` appended, so a
+        host that has not implemented a command does not advertise it (#345).
         """
         from pyqtgraph.Qt import QtGui
 
@@ -431,7 +435,10 @@ class Keymap:
         for (key, mods), cmd in self.bindings.items():
             label = QtGui.QKeySequence(key | mods).toString(native)
             priority = _ACTION_ORDER.get(cmd.action, len(_ACTION_ORDER))
-            rows.append((priority, mods, key, label, action_description(cmd)))
+            description = action_description(cmd)
+            if cmd.action in unavailable:
+                description += " (unavailable)"
+            rows.append((priority, mods, key, label, description))
         rows.sort()
         return [(label, desc) for _, _, _, label, desc in rows]
 
