@@ -28,6 +28,42 @@ class ExtractRequest(Request):
     The fields are the options of ``tether extract`` (``docs/cli.md``) under their
     ``argparse`` destination names, with the same defaults. ``detection_mode=None`` means
     "no explicit choice": the library default applies, or the mode decoded from ``tdat``.
+
+    Attributes
+    ----------
+    movie
+        Path to the dual-channel TIFF movie.
+    output
+        Path to the ``.tether`` project to create.
+    overwrite
+        Overwrite an existing output project.
+    donor_side
+        Which horizontal half is the donor channel: ``left`` or ``right``.
+    detection_mode
+        Particle-detection method: ``wavelet``, ``intensity`` or ``bandpass``; ``None``
+        for no explicit choice.
+    detection_threshold
+        Detection threshold as a fraction of the detection-image maximum, in ``[0, 1)``
+        (dimensionless; intensity and bandpass modes only). ``None`` uses the mode's own.
+    window
+        Aperture and crop-box side length, in px; odd.
+    min_separation
+        Minimum spot separation, in px. ``None`` uses the detection mode's default.
+    detection_block
+        Moving-average block size for the detection image, in frames.
+    prealign
+        Registration prealign degrees of freedom: ``translation`` or ``similarity``.
+    pair_tol
+        Control-point pairing tolerance, in px.
+    coloc_distance
+        Acceptor colocalization distance, in px.
+    rms_gate
+        Registration RMS-residual gate, in px.
+    tmap
+        Path to an imported Deep-LASI ``.tmap`` to apply instead of a native fit, or
+        ``None``.
+    tdat
+        Path to a Deep-LASI ``.tdat`` whose particle-detection mode is applied, or ``None``.
     """
 
     COMMAND: ClassVar[str] = "extract"

@@ -30,6 +30,36 @@ class BatchRequest(Request):
     defaults. Two flags are stated positively: ``--no-idealize`` is ``idealize=False``
     and ``--no-defer`` is ``defer_if_unavailable=False``. ``None`` in a supervision field
     means the [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
+
+    Attributes
+    ----------
+    movies
+        Paths to the dual-channel TIFF movies, one or more.
+    out_dir
+        Directory for the per-movie ``.tether`` projects (created if absent).
+    tmap
+        Path to a shared imported Deep-LASI ``.tmap`` applied to every movie, or ``None``.
+    tdat
+        Path to a shared Deep-LASI ``.tdat`` detection configuration, or ``None``.
+    policy
+        Over-gate registration policy: ``warn`` or ``fail``.
+    idealize
+        Run the idealization stage; ``False`` is ``--no-idealize``.
+    overwrite
+        Re-extract an incomplete output, or a completed extraction the ``fail`` policy
+        rejects.
+    log
+        Path of the JSONL structured log; ``None`` is ``<out_dir>/batch-log.jsonl``.
+    max_restarts
+        Maximum automatic restarts of a movie's idealization after a transient sidecar
+        failure (a count; ``0`` disables restarts).
+    sidecar_timeout
+        Sidecar timeout for one idealization call, in seconds.
+    sidecar_python
+        Path to the sidecar interpreter; ``None`` uses ``$TETHER_SIDECAR_PYTHON``.
+    defer_if_unavailable
+        Defer idealization when the sidecar is unavailable at startup; ``False`` is
+        ``--no-defer``.
     """
 
     COMMAND: ClassVar[str] = "batch"
