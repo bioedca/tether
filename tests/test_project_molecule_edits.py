@@ -523,17 +523,81 @@ def test_a_window_edit_during_compute_features_blocks_the_stale_publish(
     path = _seed(tmp_path, specs, traces=_ramp_traces(2))
     F.compute_features(path)  # an existing cache, so the edit has something to delete
 
-    original = F._windowed_rows
+    original = F._windowed_rows_and_windows
 
     def read_then_edit(*args: object, **kwargs: object) -> object:
         rows = original(*args, **kwargs)
         M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)  # lands mid-computation
         return rows
 
-    monkeypatch.setattr(F, "_windowed_rows", read_then_edit)
+    monkeypatch.setattr(F, "_windowed_rows_and_windows", read_then_edit)
     with pytest.raises(RuntimeError, match="compute_features again"):
         F.compute_features(path)
     assert not _has_features(path)  # no table built from the old window
 
-    monkeypatch.setattr(F, "_windowed_rows", original)
+    monkeypatch.setattr(F, "_windowed_rows_and_windows", original)
     assert F.compute_features(path).n_molecules == 2  # a clean rerun publishes
+
+
+def test_a_window_changed_and_changed_back_during_compute_features_is_caught(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An A -> B -> A window change around the trace read must not publish B's features.
+
+    CodeRabbit follow-up on #1027: a snapshot taken apart from the trace read passes the
+    write's check when the window goes back to A, yet the traces were sliced with B. The
+    check now compares against the window that sliced each trace.
+    """
+    from tether.project import features as F
+
+    specs = [("k0", KEY_A, (0, N_FRAMES)), ("k1", KEY_A, (0, N_FRAMES))]
+    path = _seed(tmp_path, specs, traces=_ramp_traces(2))
+    original = F._windowed_rows_and_windows
+
+    def edit_read_edit_back(*args: object, **kwargs: object) -> object:
+        M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)  # A -> B before the read
+        out = original(*args, **kwargs)  # the traces are sliced with B
+        M.reset_analysis_window(path, "k0", timestamp=TS)  # B -> A before the write
+        return out
+
+    monkeypatch.setattr(F, "_windowed_rows_and_windows", edit_read_edit_back)
+    with pytest.raises(RuntimeError, match="compute_features again"):
+        F.compute_features(path)
+    assert not _has_features(path)
+
+
+def test_a_window_edit_waits_for_the_feature_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A window edit from another thread cannot land between the check and the table write.
+
+    CodeRabbit follow-up on #1027: the check and ``create_dataset`` share one ``r+``
+    handle, but a second ``r+`` open in the same process is allowed. The window writer
+    and the feature write hold one guard, so the edit runs after the table is written
+    and then deletes it.
+    """
+    import threading
+
+    from tether.project import features as F
+
+    specs = [("k0", KEY_A, (0, N_FRAMES)), ("k1", KEY_A, (0, N_FRAMES))]
+    path = _seed(tmp_path, specs, traces=_ramp_traces(2))
+    original = F._refuse_changed_windows
+    editor: list[threading.Thread] = []
+
+    def check_then_race(*args: object, **kwargs: object) -> None:
+        original(*args, **kwargs)
+        thread = threading.Thread(
+            target=M.set_analysis_window, args=(path, "k0", 20, 50), kwargs={"timestamp": TS}
+        )
+        thread.start()
+        thread.join(timeout=0.5)
+        assert thread.is_alive(), "the window edit ran inside the feature write"
+        editor.append(thread)
+
+    monkeypatch.setattr(F, "_refuse_changed_windows", check_then_race)
+    F.compute_features(path)
+    editor[0].join(timeout=10)
+    assert not editor[0].is_alive()
+    assert _window(path, "k0") == (20, 50)
+    assert not _has_features(path)  # the late edit deleted the table built from (0, N)

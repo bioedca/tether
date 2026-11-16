@@ -50,7 +50,9 @@ The feature cache
 windowed traces. A window edit that changes a row the table holds deletes the table,
 before the audit row, so the ranker reads "run compute_features first" instead of
 features from the old frames. A category edit leaves it alone: features never read
-the category.
+the category. A window write holds ``tether.project.features.WINDOW_WRITE_GUARD``, which
+``compute_features`` also holds while it checks the windows and writes the table, so
+an edit cannot land between that check and the write.
 
 The single-writer ``.lock`` is the caller's responsibility, as for every module-level
 ``r+`` writer in this package; the [`Project`][tether.project.core.Project] methods check
@@ -402,9 +404,11 @@ def _write_window(
     """
     import h5py  # noqa: PLC0415
 
+    from tether.project.features import WINDOW_WRITE_GUARD  # noqa: PLC0415
+
     labeler, timestamp = _resolve_provenance(labeler, timestamp)
     path = Path(path)
-    with h5py.File(path, "r+") as f:
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
         mol_table = f[_MOLECULES][TABLE]
         table = mol_table[:]
         idx = _matched_rows(table, molecule_key, path)

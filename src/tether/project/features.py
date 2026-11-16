@@ -31,6 +31,7 @@ default.
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -127,13 +128,37 @@ def _feature_table_dtype() -> np.dtype:
     return np.dtype(fields)
 
 
+WINDOW_WRITE_GUARD = threading.RLock()
+"""Serializes, inside one process, the feature-table write with analysis-window edits.
+
+`_write_features_table` checks the
+windows and creates ``/features/table`` while holding it, and the window setters in
+[`tether.project.molecule_edits`][] hold it for their whole write, so no window edit can
+land between that check and the table it guards. Across processes the HDF5 file lock
+already refuses a second ``r+`` open while one is held.
+"""
+
+
 def _windowed_rows(
     path: Path,
     molecule_keys: list[str] | None,
     intensity_quantity: str,
     include_rejected: bool,
 ) -> list[tuple[str, str, np.ndarray, np.ndarray]]:
-    """Per-selected-molecule ``(molecule_id, molecule_key, donor, acceptor)``.
+    """Per-selected-molecule ``(molecule_id, molecule_key, donor, acceptor)``."""
+    return _windowed_rows_and_windows(path, molecule_keys, intensity_quantity, include_rejected)[0]
+
+
+def _windowed_rows_and_windows(
+    path: Path,
+    molecule_keys: list[str] | None,
+    intensity_quantity: str,
+    include_rejected: bool,
+) -> tuple[list[tuple[str, str, np.ndarray, np.ndarray]], dict[str, tuple[int, int]]]:
+    """Per-selected-molecule ``(molecule_id, molecule_key, donor, acceptor)``, and the windows.
+
+    The second value maps each returned ``molecule_id`` to the stored
+    ``analysis_window`` that sliced its trace, taken from the same ``/molecules`` read.
 
     The identity-carrying analog of
     `tether.analysis._store.windowed_channels`: reads ``/molecules`` +
@@ -150,7 +175,7 @@ def _windowed_rows(
 
     molecules = read_molecules(path)
     if molecules.shape[0] == 0:
-        return []
+        return [], {}
     donor_key, acceptor_key = resolve_quantity(intensity_quantity)
     traces = read_traces(path)
     for key in (donor_key, acceptor_key):
@@ -175,27 +200,16 @@ def _windowed_rows(
     mol_keys = molecules["molecule_key"]
 
     out: list[tuple[str, str, np.ndarray, np.ndarray]] = []
+    used: dict[str, tuple[int, int]] = {}
     for i in rows:
         lo, hi = int(analysis_window[i][0]), int(analysis_window[i][1])
+        used[_to_str(mol_ids[i])] = (lo, hi)
         if hi <= lo:  # unset [0, 0] -> native extent (mirrors idealize._windows)
             lo, hi = int(frame_range[i][0]), int(frame_range[i][1])
         donor = np.asarray(donor_all[i, lo:hi], dtype=np.float64)
         acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
         out.append((_to_str(mol_ids[i]), _to_str(mol_keys[i]), donor, acceptor))
-    return out
-
-
-def _window_snapshot(path: Path) -> dict[str, tuple[int, int]]:
-    """Return each row's stored ``analysis_window`` by ``molecule_id`` (``{}`` if none).
-
-    [`compute_features`][] takes this before it reads the traces and checks it again
-    inside the write, so a window edit that lands while features are computed makes
-    the write refuse rather than publish features from the old frames.
-    """
-    import h5py
-
-    with h5py.File(path, "r") as f:
-        return _window_snapshot_from(f)
+    return out, used
 
 
 def windowed_traces(
@@ -314,9 +328,10 @@ def compute_features(
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
 
-    # Snapshot the windows BEFORE reading the traces; the write rechecks them.
-    windows_before = _window_snapshot(path)
-    rows = _windowed_rows(path, molecule_keys, intensity_quantity, include_rejected)
+    # Keep the window that sliced each trace; the write rechecks it under the guard.
+    rows, windows_used = _windowed_rows_and_windows(
+        path, molecule_keys, intensity_quantity, include_rejected
+    )
     if not rows:
         raise ValueError(
             f"{path.name} has no molecules to feature "
@@ -358,7 +373,7 @@ def compute_features(
         app_version=app_version,
         created_utc=created_utc,
         overwrite=overwrite,
-        expected_windows={mid: windows_before.get(mid) for mid in molecule_ids},
+        expected_windows={mid: windows_used[mid] for mid in molecule_ids},
     )
     return StoredFeatures(
         molecule_ids=molecule_ids,
@@ -386,7 +401,9 @@ def _write_features_table(
     Stamps provenance (app version, UTC time, source trace quantity, the ordered
     feature names + schema version) on the dataset so the cache is self-describing
     and traceable. With ``expected_windows`` it first checks, inside the same ``r+``
-    handle, that no featured row's ``analysis_window`` changed since it was read.
+    handle and under ``WINDOW_WRITE_GUARD``,
+    that no featured row's ``analysis_window`` differs from the one that sliced its
+    trace.
     Replaces any prior table when ``overwrite`` (the recompute path); refuses to
     clobber otherwise.
 
@@ -399,7 +416,7 @@ def _write_features_table(
     """
     import h5py
 
-    with h5py.File(path, "r+") as f:
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
         if expected_windows is not None:
             _refuse_changed_windows(f, expected_windows)
         group = f.require_group(FEATURES_GROUP)
