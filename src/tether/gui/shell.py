@@ -167,17 +167,20 @@ _GUI_PROJECT_OWNERS_LOCK = Lock()
 
 
 def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
-    """Return one process-local identity for paths to the same existing file."""
+    """Return one process-local identity for paths to the same existing file.
+
+    The identity is the canonical [`file_identity`][tether.project.lock.file_identity]
+    (ADR-0112), so the GUI registry and the lock lifecycle agree on what one file is.
+    """
+    from tether.project.lock import file_identity
+
     resolved = os.path.normcase(os.path.realpath(os.fspath(path)))
-    try:
-        stat = os.stat(resolved)
-    except OSError:
+    identity = file_identity(resolved)
+    if identity is None:
         # Construction/failure paths may not exist yet. Keep the former normalized
         # path behavior as a safe, deterministic fallback without inventing an inode.
         return ("path", resolved)
-    if stat.st_ino:
-        return ("file", int(stat.st_dev), int(stat.st_ino))
-    return ("path", resolved)
+    return ("file", *identity)
 
 
 def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
@@ -926,11 +929,17 @@ class TetherShell:
         self._sync_project_write_controls()
 
     def _sync_project_write_controls(self) -> None:
-        """Enable source-project writers only for an idle writable GUI session."""
+        """Enable source-project writers only for an idle writable GUI session.
+
+        The Deep-LASI import publishes whole projects, possibly over the loaded one, so
+        it is frozen while idealization owns HDF5 as well (#346, ADR-0112). It needs no
+        writable session: it writes its own files under each one's writer lock.
+        """
         enabled = self._curation_read_only_reason is None and self._idealize_future is None
         self._unreject_button.setEnabled(enabled)
         self._act_import.setEnabled(enabled)
         self._act_validate_conditions.setEnabled(enabled)
+        self._act_import_deeplasi.setEnabled(self._idealize_future is None)
 
     def _idealization_blocks_write(self, feature: str) -> bool:
         """Report and reject a source-project mutation while idealization owns HDF5."""
@@ -1738,6 +1747,8 @@ class TetherShell:
         is the produced paths — empty when the user cancels, writes nothing, or the
         dialog fails.
         """
+        if self._idealization_blocks_write("Deep-LASI import"):
+            return ()
         factory = dialog_factory or self._new_deeplasi_dialog
         try:
             produced = tuple(factory().exec())
