@@ -192,4 +192,20 @@ applies them to the existing pages. Later issues add terms.
 | store | The HDF5 layout inside a project file. Use it only on the [format reference](../reference/tether-format.md) and on contributor pages. Define it once on each of those pages. | "project store" |
 | background-subtracted | The trace layer with the local background removed. Tether stores this layer as `intensity_quantity="corrected"`. | "corrected" in prose for this layer |
 | corrected | Only in "corrected FRET": FRET efficiency corrected for leakage (α) and gamma (γ). Write the stored value `corrected` in code formatting only. | "corrected" for background subtraction |
-| window | Always with a qualifier: analysis window, aperture window, estimator window, model window (`window_length`) or application window. | a bare "window" |
+| window | Always with a qualifier: analysis window, aperture window, estimator window, model window (`window_length`), application window or post-synchronization window. The parts of the application window keep their own names: main window, splash window. | a bare "window" |
+
+### Retired phrases
+
+Do not use these phrases in prose. The term list above gives the name to use in their place.
+[Issue #592](https://github.com/bioedca/tether/issues/592) plans a style check that reads this
+list. The list puts the phrases in code formatting, so that the check does not read them as
+prose.
+
+- `provenance sidecar`, `JSON sidecar`, `sidecar .lock file`, `.lock sidecar`
+- `project store`
+- British spellings: `colour`, `analyse`, `behaviour`, `labelled`, `labelling`, `artefact`,
+  `analogue`, `neighbour`, `centre`, `judgement`, `programme`, `grey` and `licence` (the noun)
+- The British `-ise` and `-isation` forms of verbs and nouns, such as `normalise`
+
+Text in code formatting, quoted titles of papers and the titles of accepted ADRs keep their own
+words.
