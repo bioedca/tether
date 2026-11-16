@@ -22,6 +22,7 @@ that the script and the workflow keep doing it.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import subprocess
@@ -367,6 +368,43 @@ def test_the_folder_names_match_the_names_the_gui_gives_qt() -> None:
 
     assert app_settings._ORG == app._ORGANIZATION
     assert app_settings._APP == identity.APPLICATION_NAME
+
+
+_HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("pyqtgraph", "PySide6"))
+
+
+@pytest.mark.gui
+@pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not installed")
+def test_the_running_gui_reads_the_same_answer_under_the_same_names(
+    qtbot, store: tuple[Path, Path]
+) -> None:
+    """Headless pytest-qt gate (AGENTS.md): the store behaves the same inside the GUI.
+
+    The GUI's own start path gives Qt its organization and application names. The store
+    folder must use those same names, and a running ``QApplication`` must change
+    neither the default paths nor the answer read back.
+    """
+    from tether.gui.app import create_shell
+
+    record_update_consent(False, settings_file=store[0])
+    before = (_state(store), settings_path(), machine_override_path())
+
+    qt_app, shell = create_shell([], splash=False)
+    qtbot.addWidget(shell.window)
+    try:
+        assert qt_app.organizationName() == app_settings._ORG
+        assert qt_app.applicationName() == app_settings._APP
+        assert settings_path().parent.name == (
+            "tether" if sys.platform.startswith("linux") else qt_app.applicationName()
+        )
+        assert (_state(store), settings_path(), machine_override_path()) == before
+        assert before[0] is UpdateCheckState.DECLINED
+
+        # A write made while the GUI runs is read back the same way.
+        record_update_consent(True, settings_file=store[0])
+        assert _state(store) is UpdateCheckState.ALLOWED
+    finally:
+        shell.close()
 
 
 def test_a_read_at_startup_imports_no_qt_numpy_or_hdf5(tmp_path: Path) -> None:
