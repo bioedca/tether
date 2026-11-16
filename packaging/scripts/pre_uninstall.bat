@@ -2,7 +2,7 @@
 rem SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 rem SPDX-License-Identifier: GPL-3.0-or-later
 rem
-rem constructor pre_uninstall (Windows .exe / NSIS) - ADR-0051, issue #551, ADR-0117.
+rem constructor pre_uninstall (Windows .exe / NSIS) - ADR-0051, issue #551, ADR-0118.
 rem
 rem post_install.bat creates the Start Menu shortcut directly, because menuinst cannot
 rem own a shortcut for the pip-installed tether wheel. The uninstaller only removes the
@@ -15,7 +15,7 @@ rem place if anything else is in it. No step may fail the uninstall, so this scr
 rem always exits 0.
 setlocal
 
-rem The .tether file type (issue #664, ADR-0117), removed by the same module that
+rem The .tether file type (issue #664, ADR-0118), removed by the same module that
 rem post_install.bat registered it with, while the environment is still in place. It
 rem removes the keys only when their open command starts THIS install, and an extension
 rem key only when nothing else is left in it, so another program's registration and another

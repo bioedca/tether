@@ -302,7 +302,7 @@ give. test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
 test = "tests/test_file_type.py::test_linux_post_install_adds_the_mime_type"
 reason = "the MIME step of post_install.sh runs on Linux only"
 jobs = ["test (macos-latest)", "test (windows-latest)"]
-why = """post_install.sh writes the .tether MIME package (#664, ADR-0117) only when uname says \
+why = """post_install.sh writes the .tether MIME package (#664, ADR-0118) only when uname says \
 Linux, and Windows has no POSIX shell in the test environment. test (ubuntu-latest) runs it."""
 
 [[skip]]

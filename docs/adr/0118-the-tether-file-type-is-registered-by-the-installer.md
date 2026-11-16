@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0117 — The installer registers the .tether file type on each system
+# 0118 — The installer registers the .tether file type on each system
 
 - **Status:** accepted
 - **Date:** 2026-11-16

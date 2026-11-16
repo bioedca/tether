@@ -171,7 +171,7 @@ def test_main_puts_the_env_folders_on_path_before_anything_loads(monkeypatch) ->
     assert calls == ["path", "create_shell ['x.tether']", "show", "exec"]
 
 
-# --- opening a project by a double-click (issue #664, ADR-0117) ----------------
+# --- opening a project by a double-click (issue #664, ADR-0118) ----------------
 
 
 def _three_molecule_store(tmp_path, name: str = "start.tether"):

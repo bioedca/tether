@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ``.tether`` file type on each desktop (issue #664, ADR-0117).
+"""The ``.tether`` file type on each desktop (issue #664, ADR-0118).
 
 A double-click on a project must start Tether with that project open. These tests cover:
 

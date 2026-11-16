@@ -174,7 +174,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   echo "Start Menu shortcut AppUserModelID: $lnk_app_id"
   test "$lnk_app_id" = "MondragonLab.Tether" || {
     echo "the Start Menu shortcut does not carry the Tether AppUserModelID: $lnk_app_id"; exit 1; }
-  # The .tether file type (issue #664, ADR-0117). The installed module reads its own keys
+  # The .tether file type (issue #664, ADR-0118). The installed module reads its own keys
   # back first (the scope it chose, the open command, the icon file). Then cmd's own assoc
   # and ftype read the registration through HKEY_CLASSES_ROOT, the merged view Explorer
   # uses for a double-click, so a key written into the wrong root fails here too. On the
@@ -289,7 +289,7 @@ else
     "$prefix/envs/tether/bin/python" -m tether.gui.macos_app check "$app" --prefix "$prefix"
     app_exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
     "$app/Contents/MacOS/$app_exe" --version
-    # The .tether file type (issue #664, ADR-0117). `check` above compared the document
+    # The .tether file type (issue #664, ADR-0118). `check` above compared the document
     # type in the Info.plist; this asks LaunchServices, which Finder reads for a
     # double-click, that .tether files are the Tether type and open with this bundle.
     "$prefix/envs/tether/bin/python" -m tether.gui.file_type check --prefix "$prefix"
@@ -314,7 +314,7 @@ else
     cmp -s "$icon_src/scalable/apps/tether.svg" \
       "$HOME/.local/share/icons/hicolor/scalable/apps/tether.svg" || {
       echo "icon not installed: ~/.local/share/icons/hicolor/scalable/apps/tether.svg"; exit 1; }
-    # The .tether file type (issue #664, ADR-0117): the entry names the MIME type and takes
+    # The .tether file type (issue #664, ADR-0118): the entry names the MIME type and takes
     # the file as %f, the user's MIME folder holds the package byte for byte as the installed
     # module writes it, and update-mime-database, where the runner has it, built the type
     # from it. GIO, where the runner has it, then reads the type of a .tether file from that

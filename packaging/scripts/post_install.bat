@@ -168,7 +168,7 @@ rem PowerShell through the environment.
 "%TETHER_PY%" -c "import sys; from tether.gui.identity import set_shortcut_app_id; sys.exit(0 if set_shortcut_app_id(sys.argv[1]) else 1)" "%TETHER_LNK%"
 if errorlevel 1 echo WARNING: could not give the Start Menu shortcut the Tether AppUserModelID; a pinned shortcut may show as a second taskbar button
 
-rem The .tether file type (issue #664, ADR-0117): a double-click on a project starts
+rem The .tether file type (issue #664, ADR-0118): a double-click on a project starts
 rem tether-gui.exe with the project. tether.gui.file_type writes the program identifier
 rem Tether.Project (the name "Tether project", the document icon from the installed wheel
 rem and the open command "...\Scripts\tether-gui.exe" "%%1") and names it for .tether, for

@@ -169,7 +169,7 @@ Terminal=false
 Categories=Science;Biology;Education;
 MimeType=application/x-tether;
 EOF
-  # The .tether file type (issue #664, ADR-0117). The entry above already names the MIME
+  # The .tether file type (issue #664, ADR-0118). The entry above already names the MIME
   # type and takes the file as %f; this defines the type, so that the desktop knows that a
   # *.tether file is one and opens it with the entry. The package text comes from the
   # installed wheel (tether.gui.file_type.mime_package_xml), so this script and the module

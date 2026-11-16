@@ -21,7 +21,7 @@ binding that is already loaded.
 Between the ``QApplication`` and the slow import of the shell, [`create_shell`][]
 shows the startup splash ([`tether.gui.splash`][], #676) on a platform with a screen.
 
-A double-click on a ``.tether`` project (issue #664, ADR-0117) reaches this module in two
+A double-click on a ``.tether`` project (issue #664, ADR-0118) reaches this module in two
 ways. On Windows and Linux the file type starts ``tether-gui PROJECT.tether``, so the
 project is the command-line argument. On macOS the system starts ``Tether.app`` without
 arguments and sends the file as a file-open event, or sends the event to the Tether that is
