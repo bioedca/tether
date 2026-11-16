@@ -12,7 +12,8 @@ that lives in a single project, which the builder can make today:
   **frozen when it is made**, as an analysis-set version is: a later edit to the project
   never changes which molecules a saved selection plots. The
   [`SelectionFilter`][] that produced it is kept beside the keys, so a composition can say
-  where its molecules came from and offer to run the same filter again as a new selection.
+  where its molecules came from and run the same filter again
+  ([`SelectionFilter.run`][]) as a new selection.
 - [`select_molecules`][] runs [`query_molecules`][tether.analysis.query.query_molecules]
   once and freezes its result.
 - [`preset_selections`][] is the one-click preset: one selection for each condition, each
@@ -30,7 +31,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from tether.analysis.query import query_molecules
+from tether.analysis.query import ConditionQueryResult, query_molecules
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.project.core import Project
@@ -68,6 +69,15 @@ def _strings(values: Iterable[str] | None, what: str) -> tuple[str, ...]:
 def _project_path(project: ProjectRef) -> str:
     raw = getattr(project, "path", project)
     return os.fspath(Path(raw).resolve())
+
+
+def _group(result: ConditionQueryResult, grouping: str) -> dict[str, tuple[str, ...]]:
+    """Split a query result by one preset grouping, with the result's own method."""
+    return {
+        "condition": result.by_condition,
+        "movie": result.by_movie,
+        "source_file": result.by_source_file,
+    }[grouping]()
 
 
 @dataclass(frozen=True)
@@ -118,7 +128,11 @@ class SelectionFilter:
         )
 
     def query_kwargs(self) -> dict[str, Any]:
-        """Return the keyword arguments that run this filter through ``query_molecules``."""
+        """Return the ``query_molecules`` arguments of this filter, without its ``group``.
+
+        These are the base query only: a preset's ``group`` is applied after it, so use
+        [`run`][] to get the molecules the whole filter selects.
+        """
         return {
             "condition_ids": list(self.condition_ids) or None,
             "key": dict(self.key) or None,
@@ -126,6 +140,18 @@ class SelectionFilter:
             "tags": list(self.tags) or None,
             "match_all_tags": self.match_all_tags,
         }
+
+    def run(self, project: ProjectRef) -> tuple[str, ...]:
+        """Run the whole filter on ``project``: the query, then the preset ``group`` if any.
+
+        The grouping is the query result's own, so a preset's filter run on an unchanged
+        project gives back exactly that preset's molecules, in store order.
+        """
+        result = query_molecules(project, **self.query_kwargs())
+        if self.group is None:
+            return result.molecule_keys
+        grouping, value = self.group
+        return _group(result, grouping).get(value, ())
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready form; [`from_dict`][] reads it back to an equal filter."""
@@ -288,11 +314,7 @@ def preset_selections(
         match_all_tags=match_all_tags,
     )
     result = query_molecules(project, **flt.query_kwargs())
-    groups = {
-        "condition": result.by_condition,
-        "movie": result.by_movie,
-        "source_file": result.by_source_file,
-    }[by]()
+    groups = _group(result, by)
     path = _project_path(project)
     return tuple(
         SavedSelection(value, path, keys, replace(flt, group=(by, value)))

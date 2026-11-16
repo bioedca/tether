@@ -101,6 +101,7 @@ def test_select_molecules_freezes_a_query_and_records_its_filter(tmp_path: Path)
     assert sel.filter.group is None
     # The recorded filter reproduces the membership it produced.
     assert ta.query_molecules(path, **sel.filter.query_kwargs()).molecule_keys == sel.molecule_keys
+    assert sel.filter.run(path) == sel.molecule_keys
 
 
 def test_select_molecules_accepts_an_open_project(tmp_path: Path) -> None:
@@ -158,6 +159,8 @@ def test_presets_split_by_the_query_results_own_grouping(
     assert {p.name: p.molecule_keys for p in presets} == expected
     assert [p.name for p in presets] == list(expected)  # first-seen order
     assert all(p.filter.group == (by, p.name) for p in presets)
+    # Running a preset's whole filter again gives back that preset, not the base query.
+    assert all(p.filter.run(path) == p.molecule_keys for p in presets)
 
 
 def test_presets_apply_the_filter_before_grouping(tmp_path: Path) -> None:

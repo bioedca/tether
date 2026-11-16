@@ -95,7 +95,9 @@ Chosen: **A** and **(i)**.
 - **Its membership is frozen when it is made**, as an analysis-set version's is (#934: "a
   change of the membership makes a new version"). Editing a tag later never changes what a
   saved selection plots. The filter is kept beside the keys so the builder can show where the
-  molecules came from and run it again as a *new* selection.
+  molecules came from and run it again as a *new* selection: `SelectionFilter.run` runs the
+  query and then reapplies a preset's group, so a preset's filter on an unchanged project gives
+  back exactly that preset.
 - In any project other than its own, a `SavedSelection` names **no** molecule
   (`molecule_keys_in` returns an empty tuple), so the same keys in a copy of the project are
   never pooled by accident. Pooling across projects, re-linking a moved project and the
