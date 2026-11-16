@@ -142,8 +142,14 @@ def compute_photobleach(
         for layer in (donor_layer, acceptor_layer):
             if layer not in traces_grp:
                 raise KeyError(f"project has no /traces/{layer}; run extraction first")
-        donor_all = traces_grp[donor_layer][:]
-        acceptor_all = traces_grp[acceptor_layer][:]
+        # A whole-project pass reads each layer once. A pass scoped to one movie reads
+        # only that movie's rows from the open datasets, so an append's memory use grows
+        # with the appended acquisition and not with the project (#347).
+        donor_all = traces_grp[donor_layer]
+        acceptor_all = traces_grp[acceptor_layer]
+        if movie_id is None:
+            donor_all = donor_all[:]
+            acceptor_all = acceptor_all[:]
 
         table = f[_MOLECULES][TABLE][:]  # a full copy; only two columns are mutated
         frame_range = table["frame_range"]

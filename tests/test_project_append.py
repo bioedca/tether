@@ -605,3 +605,50 @@ def test_a_seed_that_differs_only_by_whitespace_is_the_same_category(tmp_path: P
         "static",
         "stuck",
     )
+
+
+# --- a target that already holds the movie's molecules (CodeRabbit on #1119) -------------
+
+
+def _subset_with_raw(source: Path, tmp_path: Path) -> Path:
+    from tether.project.export import export_subset_tether
+
+    out = tmp_path / "subset-raw.tether"
+    export_subset_tether(source, out, include_rejected=True, include_raw=True)
+    with h5py.File(out, "r") as f:  # the premise: every array kept, but no /movies rows
+        assert f["movies/table"].shape[0] == 0
+        assert f["molecules/table"].shape[0] > 0
+    return out
+
+
+def test_a_movie_whose_molecules_a_subset_holds_is_refused(tmp_path: Path) -> None:
+    source = _project_with_a(tmp_path)
+    project = _subset_with_raw(source, tmp_path)
+    original = project.read_bytes()
+
+    with pytest.raises(ExtractionError, match="already in"):
+        _append(project, _movie_a(tmp_path), options=_options())
+
+    assert project.read_bytes() == original
+    _no_stage_left(project)
+
+
+def test_a_reconstruction_whose_molecules_a_subset_holds_is_refused(tmp_path: Path) -> None:
+    export = read_deeplasi_mat(_MAT)
+    source = tmp_path / "reanalysis.tether"
+    reconstruct_project(
+        source, export=export, movie=_recon_movie("mov-a", "a" * 64, export.n_frames)
+    )
+    project = _subset_with_raw(source, tmp_path)
+    original = project.read_bytes()
+
+    with lock.publish_lock(project) as guard, pytest.raises(ValueError, match="already in"):
+        add_reconstruction_to_project(
+            project,
+            export=export,
+            movie=_recon_movie("mov-x", "a" * 64, export.n_frames),  # same content
+            publish_guard=guard,
+        )
+
+    assert project.read_bytes() == original
+    _no_stage_left(project)

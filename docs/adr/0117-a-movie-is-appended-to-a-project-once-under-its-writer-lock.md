@@ -82,6 +82,11 @@ Chosen option: **C**.
 - The append therefore refuses a movie whose content `sha256` matches any `/movies` row, and the
   reconstruction append refuses a repeated `movie_id` too. The check runs against the project
   before the extraction and again against the staged copy before the write.
+- The `/movies` checks do not see every repeat. A subset export has no `/movies` rows but
+  keeps its molecules, their `molecule_key` values and, with its raw layers, every array. So
+  `write_extraction` also refuses, before it writes anything, a movie with any molecule whose
+  `molecule_key` is already in `/molecules`. That check covers both appends and every other
+  caller.
 - `write_extraction` keeps its own rules unchanged: write-once per `movie_id`, and aperture
   parameters (`window`, the radii, `bg_window`) equal to the first extraction's.
 - It also gains one check, before it writes anything: every `/traces` and `/patches` array it
@@ -137,7 +142,8 @@ Chosen option: **C**.
   failure.
 - Trade-off: two different files with byte-identical content cannot both be appended, by design.
 - Enforced by: `tests/test_project_append.py` (the growing tables and positional join, the
-  zero-pad for a longer and for a shorter movie, the duplicate refusal, write-once per
+  zero-pad for a longer and for a shorter movie, the duplicate refusal by `/movies` and by
+  `molecule_key` (a subset that holds the movie's molecules included), write-once per
   `movie_id`, the required guard, a foreign lock, a lock stolen by another process mid-append,
   the aperture check, the refusal of an analysis-only or raw-less subset target, the per-movie
   settings record, and the reconstruction append with its scoped passes and extended

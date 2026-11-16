@@ -592,7 +592,8 @@ def write_extraction(
     ([`tether.io.schema.assert_is_compatible_project`][]); it is opened ``r+`` so
     this can neither create a store nor graft onto a foreign HDF5 file. A movie is
     **write-once** — re-appending the same ``movie_id`` raises (re-extraction is the
-    batch runner's per-stage concern, §7.11).
+    batch runner's per-stage concern, §7.11). A molecule whose ``molecule_key`` is
+    already in ``/molecules`` raises too, so no two rows share a key (#347, ADR-0117).
 
     Parameters
     ----------
@@ -644,6 +645,7 @@ def write_extraction(
         _check_against_existing(f, project_path, movie, traces)
         movie_row = _build_movie_row(movie)
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
+        _refuse_stored_molecule_keys(f, project_path, rows["molecule_key"])
         profile_json = json.dumps(dict(settings), sort_keys=True) if settings else None
 
         _append_compound_rows(f["movies"][TABLE], movie_row)
@@ -780,6 +782,35 @@ def _assert_layers_aligned(f: Any, project_path: Path) -> None:
                 f"/{group}/{name} in {project_path.name} has {dataset.shape[0]} row(s) but "
                 f"/molecules has {n_rows}; a new movie's rows could not stay aligned"
             )
+
+
+def _refuse_stored_molecule_keys(f: Any, project_path: Path, keys: np.ndarray) -> None:
+    """Refuse molecules whose ``molecule_key`` is already in ``/molecules``.
+
+    A label resolves its ``molecule_key`` to every matching row, so two rows with one
+    key cannot be told apart. The ``/movies`` checks do not catch every repeat: a
+    subset export has no ``/movies`` rows but keeps its molecules and their keys, so
+    appending the subset's own movie would store each molecule twice (#347, ADR-0117).
+    """
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    if not len(keys):
+        return
+    stored = f["molecules"][TABLE]
+    if not stored.shape[0]:
+        return
+    present = {_decode_key(value) for value in stored["molecule_key"]}
+    repeated = sum(1 for key in keys if _decode_key(key) in present)
+    if repeated:
+        raise ValueError(
+            f"{repeated} molecule(s) of this movie are already in {project_path.name} "
+            "(same molecule_key); a movie whose molecules the project holds cannot be "
+            "appended again"
+        )
+
+
+def _decode_key(value: object) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
 
 
 def assert_appendable(project_path: str | Path) -> None:
