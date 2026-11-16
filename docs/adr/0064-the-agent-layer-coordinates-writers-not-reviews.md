@@ -440,3 +440,36 @@ shows has never once occurred.
 **Reversible.** Every removal from the tracked tree is subtractive and restorable with `git revert`.
 Nothing removed outside that tree is: a revert restores the code that applied the five retired
 labels, not the labels.
+
+## Amendment, 2026-11-14 — `CONTRIBUTING.md` points to `AGENTS.md` (#615)
+
+This record made `CLAUDE.md` a pointer to `AGENTS.md`. The same reason applies to the review lane
+in `CONTRIBUTING.md`. Before this amendment, its `## Merging` section restated the lane in its own
+words, in about 2,950 words. Its opening section restated the lane a second time. Each contract
+change then had to be made in two rule-stating files, and `AGENTS.md` tells an agent to stop when
+the two differ.
+
+The maintainer decided on 2026-11-10, on
+[#615](https://github.com/bioedca/tether/issues/615): **`CONTRIBUTING.md` points to `AGENTS.md`.**
+The `## Merging` section now keeps only what a human contributor needs, in at most forty lines. It
+links to `AGENTS.md`, section "Review", for the lane. The opening section names the lane in one
+sentence with the same link. Two alternatives were declined: a guard test that binds two full
+texts, and no change.
+
+The change removes text and changes no rule. `AGENTS.md`, the PRD (§12.4) or an earlier ADR
+already states almost every rule of the old section. A small number of operating notes were stated
+only in `CONTRIBUTING.md`. They are kept here, so that this change loses none of them. The
+maintainer can move each one to another file:
+
+- **The Codex quota refusal.** The bot replies *"You have reached your Codex usage limits for code
+  reviews"* and names no retry time. Refusals are on record on #427 and #428 (2026-08-07), then a
+  review on #431 three days later, and 21 refusals on #462 across nine hours from 2026-10-03, then
+  a review. Ask again on a spaced interval, never in a loop. The refusal offers credits. Buying
+  them is the maintainer's decision, and #450 records it: none are bought.
+- **How to read the `CodeRabbit` state before an ask.** This command shows it:
+  `gh pr checks <PR> --json name,state,description --jq '.[] | select(.name == "CodeRabbit")'`,
+  where `<PR>` is the pull-request number.
+- **Pace review requests.** The CodeRabbit allowance belongs to the whole account (ADR-0069), so
+  space the requests out. Do not send them in a batch.
+- **A provider handle in a comment that is not a request.** `AGENTS.md` says to describe the
+  command in prose. Breaking the handle is the other accepted way.
