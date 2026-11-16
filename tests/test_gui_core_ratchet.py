@@ -29,8 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 _NOT_CORE = ("tether.gui", "tether.services", "tether._version", "tether.__version__")
 
-# Made by this module's scan on main at f8bec93 (#892), plus the two imports that #1096 added
-# on main before this test merged. Only ever remove entries.
+# Made by this module's scan on main at f8bec93 (#892), plus the imports that #1096 and #1095
+# added on main before this test merged. Only ever remove entries.
 ALLOWED: dict[str, int] = {
     "gui/about.py: tether.idealize.driver.SIDECAR_ENV_VAR": 1,
     "gui/about.py: tether.idealize.driver.bundled_sidecar_python": 1,
@@ -78,9 +78,12 @@ ALLOWED: dict[str, int] = {
     "gui/shell.py: tether.project.handoff.read_return_leg": 1,
     "gui/shell.py: tether.project.idealize.idealize_molecules": 1,
     "gui/shell.py: tether.project.labels.CurationLabel": 1,
+    "gui/shell.py: tether.project.lock": 3,
     "gui/shell.py: tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S": 1,
-    "gui/shell.py: tether.project.lock.LockedError": 4,
+    "gui/shell.py: tether.project.lock.LockedError": 5,
+    "gui/shell.py: tether.project.lock.RecoveryAction": 5,
     "gui/shell.py: tether.project.lock.file_identity": 1,
+    "gui/shell.py: tether.project.lock.lock_recovery": 1,
     "gui/shell.py: tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS": 1,
     "gui/trace_dock.py: tether.fret.efficiency.apparent_fret": 1,
 }
