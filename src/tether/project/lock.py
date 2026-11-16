@@ -69,7 +69,7 @@ import stat
 import sys
 import threading
 import time
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1053,45 +1053,50 @@ def _identity_guard(project_path: str | Path, *, claim: bool) -> Iterator[Path |
     """Hold the per-user identity guard; yield this file's record path, or ``None``.
 
     ``None`` means the file has no usable identity (it does not exist yet, or its
-    filesystem reports no inode number), so only ``<file>.lock`` protects it. The
-    guard is taken before any ``<file>.lock`` guard, always in that order. A claim
-    fails closed when the per-user directory cannot be made; cleanup (``claim=False``)
-    then goes on with ``<file>.lock`` alone.
+    filesystem reports no inode number), so only ``<file>.lock`` protects it; cleanup
+    still holds the guard then, so it can reap records. The guard is taken before
+    any ``<file>.lock`` guard, always in that order. A claim fails closed with
+    [`OSError`][] when the per-user directory cannot be made; cleanup
+    (``claim=False``) then goes on with ``<file>.lock`` alone.
     """
     identity = file_identity(project_path)
-    if identity is None:
+    if identity is None and claim:
         yield None
         return
     directory = user_lock_dir()
     try:
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    except OSError as exc:
         if claim:
-            raise LockError(
-                f"cannot create the per-user lock directory {directory}: {exc}"
-            ) from exc
-        yield None
-        return
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        elif not directory.is_dir():
+            yield None
+            return
+    except OSError as exc:
+        raise OSError(
+            exc.errno, f"cannot create the per-user lock directory: {exc.strerror}", str(directory)
+        ) from exc
     with _lifecycle_guard(directory / _IDENTITY_GUARD_NAME):
-        yield _identity_record_path(identity)
+        yield None if identity is None else _identity_record_path(identity)
 
 
 def _write_identity_record(rp: Path, record: _IdentityRecord) -> None:
     _atomic_write_json(rp, record.to_dict(), tag=record.info.nonce)
 
 
-def _drop_identity_record(rp: Path, nonce: str) -> None:
-    """Remove ``rp`` if it still carries ``nonce``, and any record that is no longer live."""
-    record = _read_identity_record(rp)
-    if record is not None and record.info.nonce == nonce:
-        rp.unlink(missing_ok=True)
-    # A writer that replaced its file (a staged publish) left a record under the old
-    # identity; once its lock is gone the record is dead, so reap such records here.
+def _release_identity_records(nonce: str) -> None:
+    """Release every record that carries ``nonce``, then reap every dead record.
+
+    Records are found by nonce, not by the file's current identity: a staged publish
+    gives the file a new inode, and the record (with any names a steal took over)
+    stays under the old one. The caller holds the identity guard.
+    """
     with suppress(OSError):
-        for other in rp.parent.glob(f"*{_IDENTITY_SUFFIX}"):
-            stale = _read_identity_record(other)
-            if stale is None or not _identity_record_is_live(stale):
-                other.unlink(missing_ok=True)
+        for rp in user_lock_dir().glob(f"*{_IDENTITY_SUFFIX}"):
+            record = _read_identity_record(rp)
+            if record is not None and record.info.nonce == nonce:
+                _release_spellings(record.also, nonce)
+                rp.unlink(missing_ok=True)
+            elif record is None or not _identity_record_is_live(record):
+                rp.unlink(missing_ok=True)
 
 
 # --- public lifecycle --------------------------------------------------------
@@ -1219,18 +1224,28 @@ def _claim(
                 now=now,
             )
         also: tuple[str, ...] = ()
+        taken_over: tuple[str, ...] = ()
         if record is not None and explicit_steal:
-            if blocking and prior is None:
-                prior, _corrupt = _read_tolerant(lock_path(record.project))
-            also = tuple(
-                spelling
-                for spelling in _take_over_spellings(record, info)
-                if not _same_spelling(spelling, project_path)
-            )
-        if rp is not None:
-            _write_identity_record(
-                rp, _IdentityRecord(project=os.path.abspath(project_path), info=info, also=also)
-            )
+            taken_over = (record.project, *record.also)
+        try:
+            if record is not None and explicit_steal:
+                if blocking and prior is None:
+                    prior, _corrupt = _read_tolerant(lock_path(record.project))
+                also = tuple(
+                    spelling
+                    for spelling in _take_over_spellings(record, info)
+                    if not _same_spelling(spelling, project_path)
+                )
+            if rp is not None:
+                _write_identity_record(
+                    rp,
+                    _IdentityRecord(project=os.path.abspath(project_path), info=info, also=also),
+                )
+        except BaseException:
+            # The caller never gets ``info``, so it could never release this claim.
+            _release_sidecar(lp, info)
+            _release_spellings(taken_over, info.nonce)
+            raise
         return info, prior
 
 
@@ -1462,13 +1477,13 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
     serialized lifecycle operation and cannot delete a cooperating successor.
     """
     lp = lock_path(project_path)
-    with _identity_guard(project_path, claim=False) as rp:
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(_identity_guard(project_path, claim=False))
+        except OSError:
+            return _release_sidecar(lp, info)  # cleanup goes on with <file>.lock alone
         released = _release_sidecar(lp, info)
-        if rp is not None:
-            record = _read_identity_record(rp)
-            if record is not None and record.info.nonce == info.nonce:
-                _release_spellings(record.also, info.nonce)
-            _drop_identity_record(rp, info.nonce)
+        _release_identity_records(info.nonce)
         return released
 
 

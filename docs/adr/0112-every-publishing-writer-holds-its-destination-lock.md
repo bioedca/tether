@@ -127,7 +127,8 @@ other OneDrive machines see a writer only through `<file>.lock` beside the proje
 - **A steal through another name takes over the holder's name too**: the stealer's record lists
   it, `release` and `refresh` reach it, and the ousted writer's nonce checks fail there.
 - **Reaping.** A dead record (its name's lock gone or holding another nonce) never blocks, is
-  overwritten by the next claim, and `release` removes every dead record in the directory. A
+  overwritten by the next claim, and `release` removes every record that carries its nonce (found
+  by nonce, since a staged publish moves the file to a new identity) and every dead record. A
   crashed writer's live record is cleared the same way as its `<file>.lock`: an explicit steal
   once the lock is stale.
 - One directory-wide guard, `identity.lock.guard`, serializes the records; it is always taken
@@ -157,7 +158,9 @@ the alias spelling too. That closes #257's defect 1.
 - Good: two hard-link names of one file can no longer have two writers in one user's
   processes, and `<file>.lock` still works across users and machines as PRD §5.4 says.
 - Trade-off: every claim, refresh and release also reads and writes one small file in the
-  per-user directory, and a claim fails closed if that directory cannot be made.
+  per-user directory. A claim fails closed with `OSError` if that directory cannot be made (the
+  GUI then opens the project browse-only), and a claim whose record cannot be written releases
+  its `<file>.lock` before it raises.
 - Enforced by: `tests/test_extract_cli.py` (the two-process regression, refusal before movie I/O,
   the no-replace new-path publish), `tests/test_reconstruct.py` and `tests/test_analysis_import.py`
   (unguarded refusal, guard before replace, foreign lock), `tests/test_lock.py` (identity, strict

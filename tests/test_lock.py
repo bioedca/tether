@@ -1666,3 +1666,48 @@ def test_a_file_without_identity_keeps_the_beside_lock_alone(tmp_path: Path, mon
     assert lock.read_lock(project) == held
     assert lock.release(project, held)
     assert not lock.user_lock_dir().exists()
+
+
+def test_a_failed_identity_record_write_rolls_back_the_claim(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "p.tether"
+    create_project(project)
+
+    def disk_full(_rp, _record):
+        raise OSError(28, "No space left on device")
+
+    with monkeypatch.context() as m:
+        m.setattr(lock, "_write_identity_record", disk_full)
+        with pytest.raises(OSError):
+            lock.acquire(project)
+    assert not lock.lock_path(project).exists()
+    with lock.publish_lock(project) as guard:
+        guard()
+
+
+def test_an_unusable_lock_directory_fails_the_claim_as_oserror(tmp_path: Path, monkeypatch) -> None:
+    """The GUI opens browse-only on OSError, so the claim must not raise another type."""
+    project = tmp_path / "p.tether"
+    create_project(project)
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("")
+    monkeypatch.setattr(lock, "user_lock_dir", lambda: blocker / "locks")
+
+    with pytest.raises(OSError, match="per-user lock directory"):
+        lock.acquire(project)
+    assert not lock.lock_path(project).exists()
+
+
+def test_release_after_a_staged_publish_reaches_a_stolen_name(tmp_path: Path) -> None:
+    """A steal through ``second`` took ``first`` too; a later publish onto ``second``
+    gives it a new inode, and the release still frees ``first``."""
+    first, second = _hard_link_pair(tmp_path)
+    lock.acquire(first, identity=LockIdentity(host="OTHER", user="bob", pid=999))
+    stolen, _prior = lock.steal_lock(second)
+    staged = tmp_path / "b" / "staged.tmp"
+    create_project(staged)
+    os.replace(staged, second)
+    assert lock.file_identity(second) != lock.file_identity(first)
+
+    assert lock.release(second, stolen)
+    assert not lock.lock_path(first).exists()
+    assert list(lock.user_lock_dir().glob("*.identity.json")) == []
