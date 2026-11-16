@@ -6,7 +6,7 @@ All ``@pytest.mark.gui``: they build a real :class:`ReconcileDialog` on the
 pytest-qt ``QApplication`` from a synthetic
 :class:`~tether.project.handoff.ReconcileReport` (the headless PR-A result type,
 constructed directly so the dialog tests need no on-disk ``.tether``) and assert
-the per-facet accept toggles, the M4-deferred-class disabling, the idealization
+the per-facet accept toggles, the unmapped-class disabling, the idealization
 import gate, unmatched surfacing, the change text each row shows (old window before
 new, the returned class and the category it proposes), and that
 :meth:`ReconcileDialog.decision` maps to the ``apply_reconcile`` accept-spec. Pixel
@@ -125,7 +125,7 @@ def test_rows_show_the_old_value_before_the_new_one(qtbot) -> None:
     assert shown == {
         "a": ("0–100 → 0–50", "—"),
         "b": ("—", "class 2 → «static»"),
-        "c": ("—", "class 3 vs «good» (M4-deferred)"),
+        "c": ("—", "class 3 vs «good» (no category has this class)"),
     }
 
 
@@ -145,7 +145,7 @@ def test_deferred_class_is_surfaced_but_not_committable(qtbot) -> None:
     dlg = _dialog(qtbot, _report([_trace(0, "a", cls=_deferred_class())]))
     # The non-zero class is shown (transparency) …
     assert [t.molecule_key for t in dlg.change_rows()] == ["a"]
-    # … but its Accept box is disabled (needs the M4 category map, §7.6).
+    # … but its Accept box is disabled (its class is unmapped, ADR-0121).
     assert dlg.class_checkbox("id-a").isEnabled() is False
 
 
@@ -161,6 +161,19 @@ def test_decision_collects_checked_ids(qtbot) -> None:
     assert decision.accept_classes == ("id-b",)
     assert decision.import_idealization is False
     assert decision.is_empty is False
+
+
+def test_nonzero_class_resolved_by_the_lookup_is_committable(qtbot) -> None:
+    """A class the condition lookup maps (here 2 → «dynamic») can be accepted (#367)."""
+    from tether.project.handoff import ClassChange
+
+    mapped = ClassChange(2, "static", proposed_category="dynamic", applicable=True)
+    dlg = _dialog(qtbot, _report([_trace(0, "a", cls=mapped)]))
+    assert _shown_rows(dlg) == {"a": ("—", "class 2 → «dynamic»")}
+    box = dlg.class_checkbox("id-a")
+    assert box.isEnabled() is True
+    box.setChecked(True)
+    assert dlg.decision().accept_classes == ("id-a",)
 
 
 def test_decision_excludes_force_checked_disabled_box(qtbot) -> None:

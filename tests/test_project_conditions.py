@@ -939,3 +939,120 @@ def test_copied_category_list_is_additive_data_schema_guard_stays_green(tmp_path
         real = introspect(f)
         assert int(f.attrs["schema_version"]) == SCHEMA_VERSION
     assert diff_manifest(build_manifest(), real) == []
+
+
+# --- the persisted tMAVEN class lookup (#367, ADR-0121) -----------------------
+
+
+def _stored_lookup_attr(path: Path, cid: str) -> dict[str, str]:
+    import json
+
+    with h5py.File(path, "r") as f:
+        return json.loads(C._to_str(f["conditions"]["categories"][cid].attrs[C._CLASS_LOOKUP_ATTR]))
+
+
+def _write_lookup_attr(path: Path, cid: str, value: object) -> None:
+    with h5py.File(path, "r+") as f:
+        f["conditions"]["categories"][cid].attrs[C._CLASS_LOOKUP_ATTR] = value
+
+
+def test_class_lookup_pins_zero_and_numbers_the_list_from_one(tmp_path: Path) -> None:
+    """Class 0 ↔ uncategorized; class k ↔ the k-th category (PRD §7.3/§7.4)."""
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["dynamic", "static"])
+
+    lookup = C.read_class_lookup(path, cid)
+    assert lookup.condition_id == cid
+    assert dict(lookup.classes) == {1: "dynamic", 2: "static"}
+    assert lookup.category_of(0) == ""
+    assert lookup.category_of(2) == "static"
+    assert lookup.category_of(3) is None  # unmapped -> reported, never guessed
+    assert lookup.category_of(-1) is None
+    assert lookup.category_of(True) is None  # a bool is never a class
+    assert lookup.class_of("") == C.UNCATEGORIZED_CLASS == 0
+    assert lookup.class_of("dynamic") == 1
+    assert lookup.class_of("absent") is None
+    # The hotkey class is the list's 0-based code plus one, so the two never disagree.
+    cats = C.read_category_list(path, cid)
+    assert cats.class_lookup == lookup
+    assert all(lookup.class_of(name) == cats.code_of(name) + 1 for name in cats)
+    assert Project.open(path).class_lookup(cid) == lookup
+
+
+def test_class_lookup_is_persisted_by_every_list_edit(tmp_path: Path) -> None:
+    """set / add / rename / remove each rewrite the stored lookup with the names."""
+    path, cid = _seed_two_file_condition(tmp_path)
+
+    C.set_category_list(path, cid, ["a", "b"])
+    assert _stored_lookup_attr(path, cid) == {"1": "a", "2": "b"}
+    C.add_category(path, cid, "c")
+    assert _stored_lookup_attr(path, cid) == {"1": "a", "2": "b", "3": "c"}
+    C.rename_category(path, cid, "b", "bee")
+    assert _stored_lookup_attr(path, cid) == {"1": "a", "2": "bee", "3": "c"}
+    C.remove_category(path, cid, "a")
+    assert _stored_lookup_attr(path, cid) == {"1": "bee", "2": "c"}
+    C.set_category_list(path, cid, ["c", "bee"])  # a reorder renumbers the classes
+    assert _stored_lookup_attr(path, cid) == {"1": "c", "2": "bee"}
+    C.set_category_list(path, cid, [])
+    assert _stored_lookup_attr(path, cid) == {}
+    assert dict(C.read_class_lookup(path, cid).classes) == {}
+
+
+def test_class_lookup_travels_with_a_copied_list(tmp_path: Path) -> None:
+    """ADR-0068: every project of one condition reads the same classes."""
+    day1, day2, cid = _two_projects_of_one_condition(tmp_path)
+    C.set_category_list(day1, cid, ["dynamic", "static", "noise"])
+    C.copy_category_list(day1, day2, cid)
+
+    assert _stored_lookup_attr(day2, cid) == {"1": "dynamic", "2": "static", "3": "noise"}
+    assert C.read_class_lookup(day2, cid) == C.read_class_lookup(day1, cid)
+
+
+def test_class_lookup_without_a_list_holds_only_class_zero(tmp_path: Path) -> None:
+    path, cid = _seed_two_file_condition(tmp_path)
+
+    for condition_id in (cid, "cond-doesnotexist", "", "a/b"):
+        lookup = C.read_class_lookup(path, condition_id)
+        assert dict(lookup.classes) == {}
+        assert lookup.category_of(0) == ""
+        assert lookup.category_of(1) is None
+    many = C.read_class_lookups(path, [cid, cid, "cond-doesnotexist"])
+    assert list(many) == [cid, "cond-doesnotexist"]
+
+
+def test_class_lookup_of_a_list_written_before_the_attribute(tmp_path: Path) -> None:
+    """A list saved before #367 has no attribute; its lookup is the one its order defines."""
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["x", "y"])
+    with h5py.File(path, "r+") as f:
+        del f["conditions"]["categories"][cid].attrs[C._CLASS_LOOKUP_ATTR]
+
+    assert dict(C.read_class_lookup(path, cid).classes) == {1: "x", 2: "y"}
+
+
+@pytest.mark.parametrize(
+    ("value", "match"),
+    [
+        ("not json", "malformed"),
+        ("[1, 2]", "must be a JSON object"),
+        ('{"0": "x"}', "classes must be integers >= 1"),
+        ('{"one": "x"}', "classes must be integers >= 1"),
+        ('{"1": ""}', "non-empty category name"),
+        ('{"1": 7}', "non-empty category name"),
+        ('{"1": "y", "2": "x"}', "disagrees with its category list"),
+        ('{"1": "x"}', "disagrees with its category list"),
+    ],
+)
+def test_class_lookup_refuses_a_malformed_or_disagreeing_attribute(
+    tmp_path: Path, value: str, match: str
+) -> None:
+    """Fail closed: neither the stored lookup nor the list is trusted over the other."""
+    path, cid = _seed_two_file_condition(tmp_path)
+    C.set_category_list(path, cid, ["x", "y"])
+    _write_lookup_attr(path, cid, value)
+
+    with pytest.raises(ValueError, match=match):
+        C.read_class_lookup(path, cid)
+    # Rewriting the list restores one agreeing lookup.
+    C.set_category_list(path, cid, ["x", "y"])
+    assert dict(C.read_class_lookup(path, cid).classes) == {1: "x", 2: "y"}

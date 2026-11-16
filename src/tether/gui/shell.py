@@ -47,6 +47,7 @@ from tether.gui.curation import (
     CurationHandlers,
     Keymap,
 )
+from tether.project.conditions import ClassLookup
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -251,18 +252,18 @@ class OverflowCategoryPicker:
 
     Given the full ordered per-condition category list, it lists only the entries
     whose integer class exceeds [`CATEGORY_SLOTS`][tether.gui.curation.CATEGORY_SLOTS]
-    (index ``>= 9``) and returns the chosen **integer class** (1-based) — the
-    correct integer↔category mapping the ``/labels`` writer stores (§7.3). The
-    full ``> 9`` path is re-exercised once the M4 editable list lands.
+    and returns the chosen **integer class** — resolved through the same
+    [`ClassLookup`][tether.project.conditions.ClassLookup] the tMAVEN hand-off and
+    return leg read (§7.3, §7.4; ADR-0121), so class ``n`` here is class ``n`` there.
     """
 
     def __init__(self, categories: list[str], *, parent: QtWidgets.QWidget | None = None) -> None:
         from pyqtgraph.Qt import QtWidgets
 
-        self._categories = list(categories)
-        self._overflow_classes: list[int] = [
-            cls for cls in range(1, len(self._categories) + 1) if cls > CATEGORY_SLOTS
-        ]
+        self._lookup = ClassLookup.from_categories("", categories)
+        self._overflow_classes: list[int] = sorted(
+            cls for cls in self._lookup.classes if cls > CATEGORY_SLOTS
+        )
 
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("Assign category")
@@ -270,7 +271,7 @@ class OverflowCategoryPicker:
         layout.addWidget(QtWidgets.QLabel("Categories beyond the 1–9 hotkeys:"))
         self._list = QtWidgets.QListWidget()
         for cls in self._overflow_classes:
-            self._list.addItem(f"{cls}: {self._categories[cls - 1]}")
+            self._list.addItem(f"{cls}: {self._lookup.classes[cls]}")
         layout.addWidget(self._list)
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -2238,11 +2239,11 @@ class TetherShell:
         self._status(f"{completed} {target}")
 
     def _assign_category(self, integer_class: int) -> None:
-        name = (
-            self._categories[integer_class - 1]
-            if 1 <= integer_class <= len(self._categories)
-            else "?"
-        )
+        # The hotkey's integer class resolves through the same lookup the tMAVEN
+        # round trip reads (ADR-0121); a class the list does not hold is "?".
+        name = ClassLookup.from_categories("", self._categories).category_of(integer_class)
+        if name is None:
+            name = "?"
         self._unavailable(
             f"Category {integer_class} ({name}) assignment",
             "category persistence is not implemented",

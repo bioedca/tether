@@ -10,9 +10,12 @@ Outbound leg — [`hand_off_to_tmaven`][]
     Export the selected molecules to an SMD-HDF5 file the standalone tMAVEN GUI opens
     directly ([`tether.idealize.smd`][]). Tether's own coordinates + identities ride
     along in the superset group; the per-trace analysis windows ride along as the
-    tMAVEN ``pre_list``/``post_list``. At M2 the tMAVEN integer ``classes`` are written
-    neutral (``0`` = uncategorized) because the free-text ``category`` ↔ integer-class
-    lookup table lands at M4 (ADR-0023, §7.6).
+    tMAVEN ``pre_list``/``post_list``; and each molecule's free-text ``category`` rides
+    along as its tMAVEN integer ``classes`` entry through its condition's persisted
+    integer↔category lookup ([`tether.project.conditions.ClassLookup`][]; class ``0``
+    = uncategorized), so an untouched round trip carries no class diff. A stored
+    category its condition's lookup does not hold is written as class ``0`` and named
+    in [`HandoffManifest.unclassed`][] (ADR-0121).
 
 Return leg — [`read_return_leg`][] (preview) + [`apply_reconcile`][] (commit)
     tMAVEN's writer has no per-molecule slot and its exporter may subset/reorder by the
@@ -31,9 +34,11 @@ Return leg — [`read_return_leg`][] (preview) + [`apply_reconcile`][] (commit)
     **re-stales** that molecule's dependent idealizations (their input-provenance hash
     was computed over the old window; §5.1, [`tether.project.idealize.stale_molecule_keys`][]).
     tMAVEN's integer ``classes`` map onto Tether's free-text per-condition ``category``
-    through the stored integer↔category lookup — at M2 only the non-lossy ``class 0 ↔
-    uncategorized`` leg is applicable; a non-zero class is surfaced but its free-text
-    mapping is deferred to M4 (§7.4, ADR-0025).
+    through the persisted integer↔category lookup of each molecule's condition
+    ([`tether.project.conditions.read_class_lookups`][]): class ``0`` ↔ uncategorized,
+    class ``k`` ↔ the condition's ``k``-th category. A class the lookup does not hold
+    is surfaced as **unmapped** and never written — reported, never guessed (§7.4,
+    ADR-0025, ADR-0121).
 """
 
 from __future__ import annotations
@@ -51,6 +56,7 @@ from tether.idealize.matcher import match_return_leg
 from tether.idealize.smd import read_smd, write_smd
 from tether.imaging.extract import read_molecules, read_traces
 from tether.io.schema import TABLE
+from tether.project.conditions import UNCATEGORIZED_CLASS, ClassLookup, read_class_lookups
 from tether.project.idealize import (
     MODEL_TYPE_DEFAULT,
     input_provenance_hash,
@@ -69,6 +75,7 @@ if TYPE_CHECKING:
 __all__ = [
     "DEFAULT_MATCH_ATOL",
     "DEFAULT_MATCH_RTOL",
+    "UNCATEGORIZED_CLASS",
     "AppliedReconcile",
     "ClassChange",
     "HandoffManifest",
@@ -87,10 +94,6 @@ __all__ = [
 DEFAULT_MATCH_ATOL = 1e-6
 DEFAULT_MATCH_RTOL = 0.0
 
-#: The tMAVEN integer class reserved for "uncategorized" — the one non-lossy leg of
-#: the integer↔category map available before the M4 editable list (§7.4, §7.6).
-UNCATEGORIZED_CLASS = 0
-
 #: ``/traces`` layer keys per ``intensity_quantity`` (the canonical mapping shared
 #: with idealization and analysis).
 _QUANTITY_KEYS = INTENSITY_QUANTITY_LAYERS
@@ -104,13 +107,20 @@ class HandoffManifest:
     """What [`hand_off_to_tmaven`][] exported, in SMD-row (export) order.
 
     ``molecule_keys[i]`` / ``molecule_ids[i]`` identify the store molecule written to
-    SMD row ``i``; ``path`` is the SMD the standalone tMAVEN GUI opens.
+    SMD row ``i``; ``path`` is the SMD the standalone tMAVEN GUI opens. ``classes[i]``
+    is the tMAVEN integer class written for that row. ``unclassed`` lists the
+    ``molecule_key`` values whose stored category their condition's lookup does not
+    hold (the name was removed from the list), written as class ``0``: tMAVEN has no
+    way to carry them, and the return leg leaves their category alone on a returning
+    class ``0``.
     """
 
     path: Path
     intensity_quantity: str
     molecule_keys: list[str]
     molecule_ids: list[str]
+    classes: list[int] = field(default_factory=list)
+    unclassed: list[str] = field(default_factory=list)
 
     @property
     def n_molecules(self) -> int:
@@ -131,9 +141,10 @@ class ClassChange:
     """A returning tMAVEN integer class vs the store's current ``category``.
 
     ``proposed_category`` is the free-text value an accept would write (``""`` =
-    uncategorized for ``class 0``); it is ``None`` when the mapping is **deferred to
-    M4** (a non-zero class has no free-text lookup yet, §7.6) and ``applicable`` is
-    ``False`` — such a change is surfaced for the user but not committed at M2.
+    uncategorized for ``class 0``, else the category the molecule's condition lookup
+    maps the class to); it is ``None`` when the class is **unmapped** (its
+    condition's lookup holds no such class) and ``applicable`` is then ``False`` —
+    such a change is surfaced for the user but never committed (ADR-0121).
     """
 
     returned_class: int
@@ -209,7 +220,7 @@ class ReconcileReport:
 
     @property
     def class_changes(self) -> list[TraceReconcile]:
-        """The matched traces carrying a class diff, applicable or M4-deferred."""
+        """The matched traces carrying a class diff, applicable or unmapped."""
         return [t for t in self.matched if t.class_change is not None]
 
 
@@ -217,8 +228,8 @@ class ReconcileReport:
 class AppliedReconcile:
     """What [`apply_reconcile`][] committed. Molecule identities are ``molecule_id``.
 
-    ``classes_deferred`` are accepted class changes whose free-text mapping needs the
-    M4 lookup (non-zero class) and were **not** written. ``stale_after`` are the
+    ``classes_deferred`` are accepted class changes whose class the molecule's
+    condition lookup does not hold (unmapped) and were **not** written. ``stale_after`` are the
     ``molecule_key`` values whose dependent idealizations are now stale because their
     analysis window changed (§5.1). ``import_unfit_dropped`` are the ``molecule_key``
     values that matched by intensity but were **excluded from the tMAVEN fit** (outside
@@ -295,19 +306,36 @@ def _store_raw(project_path: Path, intensity_quantity: str) -> tuple[np.ndarray,
     )
 
 
-def _class_change(returned_class: int, store_category: str) -> ClassChange | None:
+def _class_change(
+    returned_class: int, store_category: str, lookup: ClassLookup
+) -> ClassChange | None:
     """Diff a returning integer class against the store's free-text ``category``.
 
-    Only ``class 0 ↔ uncategorized`` is non-lossy and applicable before M4 (§7.6): a
-    non-zero class is surfaced (``applicable=False``) but its free-text mapping waits
-    on the M4 integer↔category lookup table.
+    The returning class resolves through the molecule's condition ``lookup``
+    (ADR-0121). A class the lookup holds is applicable when it names a different
+    category; one it does not hold is surfaced as unmapped (``applicable=False``,
+    ``proposed_category=None``) and never guessed. A returning class ``0`` against a
+    stored category the lookup cannot express is **no change**: the outbound leg
+    wrote such a molecule as class ``0`` itself (see [`HandoffManifest.unclassed`][]),
+    so the ``0`` coming back carries no edit, and proposing a clear would be a diff
+    Tether's own encoding invented.
     """
     rc = int(returned_class)
-    if rc == UNCATEGORIZED_CLASS:
-        if store_category == "":
-            return None  # both uncategorized — no change
-        return ClassChange(rc, store_category, proposed_category="", applicable=True)
-    return ClassChange(rc, store_category, proposed_category=None, applicable=False)
+    proposed = lookup.category_of(rc)
+    if proposed is None:
+        return ClassChange(rc, store_category, proposed_category=None, applicable=False)
+    if proposed == store_category:
+        return None
+    if rc == UNCATEGORIZED_CLASS and lookup.class_of(store_category) is None:
+        return None
+    return ClassChange(rc, store_category, proposed_category=proposed, applicable=True)
+
+
+def _condition_ids(molecules: np.ndarray) -> list[str]:
+    """Each store row's ``condition_id`` (``""`` when the field is absent)."""
+    if molecules.dtype.names is None or "condition_id" not in molecules.dtype.names:
+        return [""] * molecules.shape[0]
+    return [_to_str(c) for c in molecules["condition_id"]]
 
 
 def _selection_rows(molecules: np.ndarray, molecule_keys: list[str] | None) -> list[int]:
@@ -396,6 +424,16 @@ def hand_off_to_tmaven(
 
     sel_keys = [_to_str(molecules["molecule_key"][i]) for i in rows]
     sel_ids = [_to_str(molecules["molecule_id"][i]) for i in rows]
+    cond_ids = _condition_ids(molecules)
+    lookups = read_class_lookups(path, [cond_ids[i] for i in rows])
+    classes = np.empty(len(rows), dtype="int64")
+    unclassed: list[str] = []
+    for j, i in enumerate(rows):
+        cls = lookups[cond_ids[i]].class_of(_to_str(molecules["category"][i]))
+        if cls is None:
+            unclassed.append(sel_keys[j])
+            cls = UNCATEGORIZED_CLASS
+        classes[j] = cls
     donor_xy = np.stack([molecules["donor_xy"][i] for i in rows]).astype("float64")
     acceptor_xy = np.stack([molecules["acceptor_xy"][i] for i in rows]).astype("float64")
 
@@ -403,8 +441,10 @@ def hand_off_to_tmaven(
         out,
         raw,
         source_names=[path.name],
-        # tMAVEN integer classes are neutral at M2 (category↔class lookup is M4, §7.6);
-        # the per-trace analysis windows ride along so the GUI opens with them set.
+        # Each molecule's category rides along as its tMAVEN class through its
+        # condition's lookup, and the per-trace analysis windows ride along, so the
+        # GUI opens with both set (§7.4, ADR-0121).
+        classes=classes,
         pre_list=pre,
         post_list=post,
         donor_xy=donor_xy,
@@ -418,6 +458,8 @@ def hand_off_to_tmaven(
         intensity_quantity=intensity_quantity,
         molecule_keys=sel_keys,
         molecule_ids=sel_ids,
+        classes=classes.tolist(),
+        unclassed=unclassed,
     )
 
 
@@ -450,6 +492,12 @@ def _reconcile(
     match = match_return_leg(smd.raw, store_raw, atol=atol, rtol=rtol, id_hint=id_hint)
 
     categories = [_to_str(c) for c in molecules["category"]]
+    cond_ids = _condition_ids(molecules)
+    lookups = (
+        read_class_lookups(path, [cond_ids[s] for _, s in match.matched])
+        if smd.classes is not None
+        else {}
+    )
     matched: list[TraceReconcile] = []
     for i, s in match.matched:
         window_change = None
@@ -463,7 +511,7 @@ def _reconcile(
                 window_change = WindowChange(old=old_win, new=new_win)
         class_change = None
         if smd.classes is not None:
-            class_change = _class_change(int(smd.classes[i]), categories[s])
+            class_change = _class_change(int(smd.classes[i]), categories[s], lookups[cond_ids[s]])
         matched.append(
             TraceReconcile(
                 returned_index=int(i),
@@ -575,8 +623,10 @@ def apply_reconcile(
        model unless ``overwrite=True``.
     2. Apply accepted analysis-window edits to ``/molecules.analysis_window`` — which
        re-stales those molecules' dependent idealizations (§5.1).
-    3. Apply accepted class changes: ``class 0`` → clear ``category`` to uncategorized;
-       a non-zero class is recorded as deferred (needs the M4 lookup, §7.6).
+    3. Apply accepted class changes through each molecule's condition lookup:
+       ``class 0`` → clear ``category`` to uncategorized, ``class k`` → the
+       condition's ``k``-th category; a class the lookup does not hold is recorded as
+       deferred and not written (ADR-0121).
 
     ``accept_windows`` / ``accept_classes`` are ``True`` (accept every applicable
     change) or an iterable of ``molecule_id`` to accept.
@@ -612,7 +662,7 @@ def apply_reconcile(
     class_candidates = {t.molecule_id for t in report.class_changes if t.class_change.applicable}
     accept_win_ids = _accepted(accept_windows, window_candidates)
     accept_cls_ids = _accepted(accept_classes, class_candidates)
-    # A non-zero class accepted by the caller is surfaced as deferred (no M4 lookup).
+    # An unmapped class accepted by the caller is surfaced as deferred, never written.
     deferred_ids = _deferred_class_ids(report, accept_classes)
 
     written = None
@@ -651,7 +701,7 @@ def apply_reconcile(
 
 
 def _deferred_class_ids(report: ReconcileReport, accept_classes: bool | Iterable[str]) -> list[str]:
-    """molecule_ids the caller accepted whose class mapping is M4-deferred (non-zero)."""
+    """molecule_ids the caller accepted whose returning class is unmapped."""
     deferred = {
         t.molecule_id
         for t in report.class_changes
@@ -853,9 +903,12 @@ def _commit_store_edits(
                 windows_applied.append(mid)
                 stale_after.append(trace.molecule_key)
             if mid in accept_cls_ids and trace.class_change is not None:
-                # Only class 0 -> uncategorized is applicable at M2 (candidates were
-                # filtered to applicable class changes before this point).
-                rec["category"] = trace.class_change.proposed_category or ""
+                # Candidates were filtered to applicable class changes, so the
+                # proposal is the name the condition lookup resolved ("" = class 0).
+                proposed = trace.class_change.proposed_category
+                if proposed is None:  # pragma: no cover - excluded by the candidate filter
+                    raise AssertionError("an unmapped class change reached the writer")
+                rec["category"] = proposed
                 classes_applied.append(mid)
             table[trace.store_row] = rec
     return windows_applied, classes_applied, stale_after

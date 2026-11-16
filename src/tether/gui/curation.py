@@ -64,11 +64,15 @@ __all__ = [
 #: tMAVEN class 0 is pinned to Tether's *uncategorized* null state (PRD §7.3 /
 #: §7.4): ``Space`` alone yields an accepted-but-uncategorized trace, and ``0``
 #: clears any named category back to it. Named categories are classes ``>= 1``.
+#: The same pin as [`tether.project.conditions.UNCATEGORIZED_CLASS`][], beside the
+#: persisted lookup; repeated here (and asserted equal by a test) so importing this
+#: Qt-free module stays free of h5py/numpy too.
 UNCATEGORIZED_CLASS = 0
 
 #: The number of categories addressable by the ``1``–``9`` hotkeys; categories
-#: beyond this are assigned via the overflow picker (exercised fully once the M4
-#: editable per-condition list lands).
+#: beyond this are assigned via the overflow picker. Hotkey ``n`` and the picker
+#: both name an integer class, resolved to a category name through the condition's
+#: [`ClassLookup`][tether.project.conditions.ClassLookup] (ADR-0121).
 CATEGORY_SLOTS = 9
 
 
