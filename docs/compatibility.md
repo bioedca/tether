@@ -40,23 +40,30 @@ read them.
 | Geometry | one frame containing both channels side by side, split down the vertical midline |
 
 The reader is `tether.io.movie.MovieReader`, and it refuses rather than guesses. It raises
-`ValueError` when the TIFF series is not 3-D, when the codec is lossy (the message names it),
-when a pixel is not one real intensity sample, when the file is not memory-mappable — which
-is what a compressed or non-contiguous TIFF looks like from here — and when the memory-map
-geometry disagrees with the geometry the TIFF directory reported. That last one is
-deliberate belt-and-braces: serving frames from a mismatched map would return wrong data
-quietly, which is worse than failing.
+`ValueError` when:
 
-**The content decides, not the extension.** Every movie is opened through the reader
-registry in `tether.io.adapters`, which looks at the first bytes of the file: a TIFF saved
-as `movie.dat` still opens, and a file named `movie.tif` that is not a TIFF is refused with
-a message that says so. A container Tether does not read — a real `.nd2`, say — is refused
-with a message that lists what Tether reads (today, TIFF) and names the Bio-Formats route
-for the others, instead of a TIFF parse error. Extension matching exists only in the
-Deep-LASI folder-intake wizard, where `tether.io.intake.classify_file` maps `.tif`/`.tiff`
-to the movie role, `.tdat`, `.tmap`, `.mat`, `.txt` and `.hdf5`/`.h5` to their own legacy
-roles, and anything it does not recognize to `unknown` — collected into the discovery
-result's `ignored` list rather than silently dropped.
+- The TIFF series is not 3-D.
+- The codec is lossy (the message names it).
+- A pixel is not one real intensity sample.
+- The file is not memory-mappable, which is what a compressed or non-contiguous TIFF looks
+  like from here.
+- The memory-map geometry disagrees with the geometry the TIFF directory reported.
+
+That last one is deliberate belt-and-braces: serving frames from a mismatched map would
+return wrong data quietly, which is worse than failing.
+
+**The content decides, not the extension.** Every movie opens through the reader registry
+in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
+`movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
+message says so. A container Tether does not read, such as a real `.nd2`, is refused too.
+That message lists what Tether reads (today, TIFF) and names the Bio-Formats route for the
+others.
+
+Extension matching exists only in the Deep-LASI folder-intake wizard, where
+`tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role, `.tdat`, `.tmap`,
+`.mat`, `.txt` and `.hdf5`/`.h5` to their own legacy roles, and anything it does not
+recognize to `unknown` — collected into the discovery result's `ignored` list rather than
+silently dropped.
 
 **Frame time.** Tether reads seconds-per-frame from the TIFF only when the file carries an
 ImageJ `finterval` tag; a non-finite or non-positive value is rejected at that boundary

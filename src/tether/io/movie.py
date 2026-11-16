@@ -319,7 +319,7 @@ def _check_pixels(path: Path, page: tifffile.TiffPage) -> None:
         )
     if page.photometric == tifffile.PHOTOMETRIC.PALETTE:
         raise InvalidPixelError(
-            f"{path}: the pixels are palette (colour-map) indices, not intensities."
+            f"{path}: the pixels are palette (color-map) indices, not intensities."
         )
     if page.samplesperpixel != 1:
         raise InvalidPixelError(

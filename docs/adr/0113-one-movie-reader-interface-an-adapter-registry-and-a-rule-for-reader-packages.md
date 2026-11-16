@@ -27,7 +27,7 @@ base lock?
 
 ## Decision drivers
 
-- **No change of behaviour for TIFF.** The extraction tests keep every expected value.
+- **No change of behavior for TIFF.** The extraction tests keep every expected value.
 - **The full movie never loads** (PRD §5.2). A frame-range read is a seek, not a load.
 - **Refuse rather than guess** (PRD Appendix A). Conversion cannot recover information that a lossy
   codec discarded, and a palette index or an RGB sample is not an intensity.
