@@ -59,7 +59,8 @@ Two related traps:
 - With `--tmap`, `--donor-side` is **ignored**: the split comes from the `.tmap`'s own crop
   geometry. No warning is emitted when both flags are passed.
 - The `tether batch` **CLI cannot set it at all.** `run_batch()` *does* take an
-  `extract_options=` argument and forwards it, but [`tether.cli._run_batch`](https://github.com/bioedca/tether/blob/main/src/tether/cli.py) never builds one —
+  `extract_options=` argument and forwards it. The batch service command
+  [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py) never builds one,
   so every batch run takes the `ExtractOptions` defaults. Dumped from a real batch run's
   `/settings/extraction.attrs["profile_json"]`: `"donor_side": "left"`,
   `"detection_mode": "wavelet"`, `"pair_tol": 2.0`, `"rms_gate": 0.5`.
