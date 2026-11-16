@@ -29,7 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 _NOT_CORE = ("tether.gui", "tether.services", "tether._version", "tether.__version__")
 
-# Made by this module's scan on main at f8bec93 (#892). Only ever remove entries.
+# Made by this module's scan on main at f8bec93 (#892), plus the two imports that #1096 added
+# on main before this test merged. Only ever remove entries.
 ALLOWED: dict[str, int] = {
     "gui/about.py: tether.idealize.driver.SIDECAR_ENV_VAR": 1,
     "gui/about.py: tether.idealize.driver.bundled_sidecar_python": 1,
@@ -49,6 +50,7 @@ ALLOWED: dict[str, int] = {
     "gui/deeplasi_executor.py: tether.io.tdat.read_tdat": 1,
     "gui/deeplasi_executor.py: tether.project.analysis_import.AnalysisOnlyImportSummary": 1,
     "gui/deeplasi_executor.py: tether.project.analysis_import.import_analysis_only_project": 1,
+    "gui/deeplasi_executor.py: tether.project.lock.publish_lock": 1,
     "gui/deeplasi_executor.py: tether.project.reconstruct.ReconstructionSummary": 1,
     "gui/deeplasi_executor.py: tether.project.reconstruct.reconstruct_project": 1,
     "gui/deeplasi_wizard.py: tether.io.intake.AcquisitionFileSet": 1,
@@ -78,6 +80,7 @@ ALLOWED: dict[str, int] = {
     "gui/shell.py: tether.project.labels.CurationLabel": 1,
     "gui/shell.py: tether.project.lock.DEFAULT_STALENESS_TIMEOUT_S": 1,
     "gui/shell.py: tether.project.lock.LockedError": 4,
+    "gui/shell.py: tether.project.lock.file_identity": 1,
     "gui/shell.py: tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS": 1,
     "gui/trace_dock.py: tether.fret.efficiency.apparent_fret": 1,
 }

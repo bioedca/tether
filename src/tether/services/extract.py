@@ -61,9 +61,13 @@ def run(request: ExtractRequest) -> ExtractResult:
     """Run *request*; raise [`CommandFailed`][tether.services.base.CommandFailed] on a user error.
 
     The message of the error is the message of the core's
-    [`ExtractionError`][tether.project.extract.ExtractionError], unchanged.
+    [`ExtractionError`][tether.project.extract.ExtractionError], of a
+    [`LockError`][tether.project.lock.LockError] or of an `OSError`, unchanged.
     """
+    from contextlib import nullcontext
+
     from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
+    from tether.project.lock import LockError, publish_lock
 
     try:
         # The detection mode and threshold, and a .tdat, are two ways to set the same
@@ -90,14 +94,20 @@ def run(request: ExtractRequest) -> ExtractResult:
             coloc_distance=request.coloc_distance,
             rms_gate=request.rms_gate,
         )
-        summary = extract_movie(
-            request.movie,
-            request.output,
-            options=options,
-            tmap=request.tmap,
-            tdat=request.tdat,
-            overwrite=request.overwrite,
-        )
-    except ExtractionError as exc:
+        # An overwrite replaces a project another writer may hold open, so it holds the
+        # destination's writer lock across the run and publishes under it (#346).
+        with publish_lock(request.output) if request.overwrite else nullcontext() as guard:
+            summary = extract_movie(
+                request.movie,
+                request.output,
+                options=options,
+                tmap=request.tmap,
+                tdat=request.tdat,
+                overwrite=request.overwrite,
+                publish_guard=guard,
+            )
+    except (ExtractionError, LockError, OSError) as exc:
+        # OSError: publish_lock opens the destination's guard file before
+        # extract_movie runs, so a missing or unwritable directory fails there.
         raise CommandFailed(str(exc)) from exc
     return ExtractResult(summary=summary)
