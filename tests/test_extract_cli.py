@@ -227,6 +227,19 @@ def test_extract_missing_movie_reports_error(tmp_path, capsys) -> None:
     assert not out.exists()
 
 
+def test_overwrite_into_a_missing_directory_reports_error(tmp_path, capsys) -> None:
+    # --overwrite takes the destination lock before extraction starts, so a
+    # missing parent directory fails there; it is still a one-line error (#346).
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "missing" / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW), "--overwrite"])
+
+    assert rc == 1
+    assert capsys.readouterr().err.startswith("tether extract: ")
+    assert not out.parent.exists()
+
+
 def test_extract_movie_rejects_bad_option() -> None:
     with pytest.raises(ExtractionError):
         ExtractOptions(donor_side="middle")

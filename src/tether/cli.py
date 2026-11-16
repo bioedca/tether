@@ -210,7 +210,9 @@ def _run_extract(args: argparse.Namespace) -> int:
                 overwrite=args.overwrite,
                 publish_guard=guard,
             )
-    except (ExtractionError, LockError) as exc:
+    except (ExtractionError, LockError, OSError) as exc:
+        # OSError: publish_lock opens the destination's guard file before
+        # extract_movie runs, so a missing or unwritable directory fails there.
         print(f"tether extract: {exc}", file=sys.stderr)
         return 1
 
