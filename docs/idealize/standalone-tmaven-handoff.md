@@ -1,7 +1,11 @@
+---
+description: "Open Tether's traces in the standalone tMAVEN application window, edit the fit by hand and bring it back. It also covers the tMAVEN sidecar setup."
+---
+
 # Standalone-tMAVEN hand-off
 
 **Who this page is for.** Anyone who wants to open Tether's traces in the standalone tMAVEN
-window, edit the fit by hand and bring the result back. It is also for anyone who must set up
+application window, edit the fit by hand and bring the result back. It is also for anyone who must set up
 the tMAVEN sidecar. It assumes you have used tMAVEN. The setup section also assumes you can
 run a Python script from a source checkout.
 
@@ -17,11 +21,11 @@ Two ways to reach tMAVEN share that sidecar:
   batch runs; and
 - the **standalone-GUI hand-off** — Tether exports an
   [SMD](https://github.com/GonzalezBiophysicsLab/tmaven) file the user opens directly in
-  the standalone tMAVEN GUI, edits by hand, and re-imports (PRD §7.4).
+  the standalone tMAVEN GUI, edits by hand, and re-imports.
 
 This page covers the **guided setup** for the sidecar and the **hand-off verification**
 that a Tether-exported SMD opens in standalone tMAVEN with its coordinate metadata intact
-— the M9 acceptance folded in from the M0.5 deferral (ADR-0010, issue #13). ADR-0004 and
+— the manual check that ADR-0010 records. ADR-0004 and
 ADR-0006 record why the sidecar is a separate environment.
 
 ## Guided sidecar setup
@@ -120,7 +124,7 @@ documented gap (ADR-0002) that the return-leg intensity matcher closes. `check_s
 confirms the standard SMD the GUI reads is complete; the superset's survival in the same
 file is asserted separately with `tether.idealize.read_smd`.
 
-The live assertion is the `@pytest.mark.sidecar` suite `tests/test_handoff_sidecar.py`.
+The live assertion is the `@pytest.mark.sidecar` suite [`tests/test_handoff_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_handoff_sidecar.py).
 It is deselected from the ordinary CI matrix (which has no sidecar env) and runs in the
 [`sidecar`](https://github.com/bioedca/tether/actions/workflows/sidecar.yml) workflow,
 which provisions the isolated env **via `scripts/setup_sidecar.py`** — so the guided
@@ -132,16 +136,16 @@ export TETHER_SIDECAR_PYTHON="/path/to/sidecar/python"
 pytest -m sidecar tests/test_handoff_sidecar.py
 ```
 
-A second sidecar test, `tests/test_tmaven_gui_sidecar.py`, builds tMAVEN's main window
+A second sidecar test, [`tests/test_tmaven_gui_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_tmaven_gui_sidecar.py), builds tMAVEN's main window
 on the offscreen Qt platform the way `python -m tmaven` does and runs its first plot draw.
 It exists because headless tests never draw: the sidecar lock once resolved
-`matplotlib-base` 3.11, which breaks the canvas tMAVEN draws on, and the window crashed at
+`matplotlib-base` 3.11, which breaks the canvas tMAVEN draws on, and the main window crashed at
 startup while every other check stayed green (#566). The lock now bounds `matplotlib-base`
 below 3.11, and this test fails if a GUI-breaking dependency comes back.
 
 ### Manual GUI leg
 
-The scripted checks drive tMAVEN's loader and build its window offscreen, but nobody looks
+The scripted checks drive tMAVEN's loader and build its main window offscreen, but nobody looks
 at the result. Once per operating
 system, a human confirms the file opens in the actual GUI:
 

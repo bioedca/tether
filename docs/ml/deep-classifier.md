@@ -1,3 +1,7 @@
+---
+description: "Train the optional deep-learning trace classifier on your own curation labels, or use it to score traces. A GPU is optional."
+---
+
 # Deep trace classifier (optional GPU add-on)
 
 **Who this page is for.** Anyone who wants to train a deep-learning model on their own
@@ -11,8 +15,8 @@ DeepFRET/Deep-LASI lineage of deep-learning smFRET trace selection
 **terminal optional add-on**: the classifier is a strict superset of the CPU app, and the
 CPU base app is unaffected.
 
-The classifier is a 1-D CNN/LSTM, added in Tether's M8 milestone. The load-bearing acceptance
-clause (PRD §9 M8) is that *"a deep classifier trains on the shared label store **and is
+The classifier is a 1-D CNN/LSTM. The load-bearing requirement in Tether's product
+specification is that *"a deep classifier trains on the shared label store **and is
 optional — the CPU base app is unaffected**."*
 
 This page puts what you run first: **setup** (the CPU environment from the committed lock,
@@ -23,7 +27,7 @@ the lock it pins and the two advisory CI legs. The design rationale is recorded 
 
 > **You do not need any of this to run Tether.** The base app never imports a deep-learning
 > framework. Everything below is opt-in, for users who want to train or run the deep model on
-> their own labels. If you only want the classical per-condition ranker (M5), stop here.
+> their own labels. If you only want the classical per-condition ranker, stop here.
 
 ## Setup
 
@@ -71,14 +75,14 @@ exercised on the advisory GPU CI leg (below), never on a gating check.
 
 ### Training and inference
 
-The classifier consumes the raw windowed traces (not the M5 nine-feature vector) as
+The classifier consumes the raw windowed traces (not the ranker's nine-feature vector) as
 fixed-length tensors. Assemble a `DeepTraceDataset` from a `.tether` project, train, and score:
 
 ```python
 from tether.project.deep_dataset import build_deep_dataset
 from tether.ml.deep.model import predict_proba, train_classifier
 
-# Reuses the M5 ranker's exact labeled set + cold-start weights, joined per molecule_id to the
+# Reuses the ranker's exact labeled set + cold-start weights, joined per molecule_id to the
 # same analysis-window-sliced traces the engineered features use. Requires /features/table
 # (run tether.project.features.compute_features first). Read-only over the frozen store.
 dataset = build_deep_dataset(project)          # intensity_quantity="corrected" by default
@@ -90,18 +94,18 @@ scores = predict_proba(trained, dataset)       # per-molecule accept probability
 `build_deep_dataset` builds the framework-free substrate (base env); `train_classifier` and
 `predict_proba` are the torch consumers (deep env). The returned `TrainedDeepClassifier` is a
 frozen record carrying the trained model, the per-epoch weighted-loss `history`, the full
-hyperparameter set, and the **preprocessing provenance** (channels, channel count, window
+hyperparameter set, and the **preprocessing provenance** (channels, channel count, model window
 length, normalization, intensity quantity) — the reproducibility stamp (NFR-REPRO).
 
 That provenance is also a **safety contract**: `predict_proba` rejects an inference dataset
 whose preprocessing differs from what the model was trained on across **all five** recorded
-fields — channel order, channel count, window length, normalization, and intensity quantity —
+fields — channel order, channel count, model window length, normalization, and intensity quantity —
 because a mismatch keeps a compatible tensor *shape* yet would produce silently invalid scores.
 Pass a bare `nn.Module` to opt out and own the contract yourself.
 
 #### Preprocessing (the never-fabricate discipline)
 
-Two substrate defaults matter for correctness (both are PRD §11.2 tunables, retuned to the
+Two substrate defaults matter for correctness (both are registered tunables, retuned to the
 trained model):
 
 - **`per_trace_total` normalization** divides donor **and** acceptor by one shared per-trace
@@ -114,8 +118,8 @@ trained model):
   the real observed frames. Padding is masked, **never zero-filled as real data**, and the
   LSTM consumes packed sequences so padded frames are excluded — never treated as observations.
 
-Labels are the shared-store **binary** accept(1)/reject(0) curation labels; the six-way
-DeepFRET taxonomy awaits the M4 category codec (ADR-0023) and is a later extension.
+Labels are the shared **binary** accept(1)/reject(0) curation labels; the six-way
+DeepFRET taxonomy awaits the category codec of ADR-0023 and is a later extension.
 
 ## Why a third isolated environment
 
@@ -152,15 +156,15 @@ cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
   environment stays lean (~200 MB vs ~2 GB for a CUDA build)
 - `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
   of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
-  init, which pulls the M5 ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
-  store bridge; scikit-learn / xgboost stay lazy and are not needed here)
+  init, which pulls the ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
+  project-file bridge; scikit-learn / xgboost stay lazy and are not needed here)
 
 ### Continuous integration
 
 The deep add-on is validated by two **non-required** legs, so it never gates a merge and the
 base app stays torch-free. The base 3-OS `test` matrix deselects the `deep` marker
-(`-m "not large and not sidecar and not deep and not workstation"`), and `tests/test_marker_contract.py` keeps the
-`tests/test_*_deep.py` collection glob in lockstep with that marker so a new deep test can
+(`-m "not large and not sidecar and not deep and not workstation"`), and [`tests/test_marker_contract.py`](https://github.com/bioedca/tether/blob/main/tests/test_marker_contract.py) keeps the
+[`tests/test_*_deep.py`](https://github.com/bioedca/tether/tree/main/tests) collection glob in lockstep with that marker so a new deep test can
 neither escape these legs nor redden the base matrix.
 
 | Leg | Workflow | Trigger | Runner | What it exercises |
@@ -205,10 +209,9 @@ quality ranker on the same split beside it, as a report.
 
 ## Status and scope
 
-The deep classifier is the M8 add-on; the milestone also carries kinSoftChallenge kinetics
-validation and a classical→deep fine-tuning path as separate PRs. The classifier is optional,
-the base app is unaffected, the schema is untouched (the substrate is read-only over the
-M0-frozen store), and every tunable is registered in PRD §11.2 — the single source of truth.
+The classifier is optional, the base app is unaffected, the schema is untouched (the substrate
+is read-only over the project file, whose layout is frozen), and every tunable is registered in the
+product specification's table of tunables — the single source of truth.
 
 ## References
 
@@ -236,5 +239,5 @@ Verified via [Consensus](https://consensus.app) during authoring:
   assumptions — the LSTM-for-smFRET precedent behind the model's recurrent stage.
 
 The [internal product specification](https://github.com/bioedca/tether/blob/main/docs/PRD.md)
-(§4.1, §7.5, §9 M8, §11.2) and ADR-0047 in the repository carry the full design rationale
+and ADR-0047 in the repository carry the full design rationale
 and the enumerated tunables.
