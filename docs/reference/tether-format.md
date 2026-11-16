@@ -542,15 +542,18 @@ Deep-LASI, not by Tether:
 | `app_version` | str | Writing Tether version. |
 | `profile_json` | str | The caller's settings profile as JSON — present only when one was supplied. |
 
-Because the stamp describes only the first extraction, each movie's own settings profile is
-also kept on the child group **`/settings/extraction/movies`**: one string attribute per movie,
-named by its `movie_id`, holding that movie's profile as JSON (the first movie included). A
-movie appended later — with `add_movie_to_project` (`src/tether/project/extract.py`) or
-`add_reconstruction_to_project` (`src/tether/project/reconstruct.py`) — records its `.tmap` and
-`.tdat` sources, detection mode and registration verdict there, and the stamp above does not
-change. `read_movie_settings` (`src/tether/imaging/extract.py`) returns them as
-`{movie_id: profile}`. A project written before this record existed has no `movies` child and
-reads as `{}`
+The stamp describes only the first extraction. So each movie's own settings profile is also
+kept on the child group **`/settings/extraction/movies`**. It holds one string attribute per
+movie, named by its `movie_id`, with that movie's profile as JSON. The first movie gets one
+too. A movie appended later records its `.tmap` and `.tdat` sources, detection mode and
+registration verdict there.
+
+The appends are `add_movie_to_project`
+(`src/tether/project/extract.py`) and `add_reconstruction_to_project`
+(`src/tether/project/reconstruct.py`). The stamp above does not change.
+`read_movie_settings` (`src/tether/imaging/extract.py`) returns the record as
+`{movie_id: profile}`. A project written before this record existed has no `movies` child.
+It reads as `{}`
 ([ADR-0117](../adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
 
 `/settings/condition_audit` is a resizable 1-D compound dataset with the fields
