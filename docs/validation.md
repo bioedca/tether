@@ -191,8 +191,8 @@ The numbers agree with ADR-0022. The record is
 a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
 step. Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
 reads one stops when the file is not the pinned one; the pins were measured on the workstation
-on 2026-11-13 after this run, and their first 16 hex digits agree with the fixture provenance
-table. A deliberate regression (the donor traces reversed in time) made the same check fail at the
+on 2026-11-13 after this run, and they are the full digests the fixture provenance table
+records. A deliberate regression (the donor traces reversed in time) made the same check fail at the
 donor Pearson gate; the demonstration is recorded on
 [#699](https://github.com/bioedca/tether/issues/699).
 
@@ -222,7 +222,8 @@ anchored on its own first run) and the Git-LFS `tests/fixtures/large/smd_281mol.
 `tests/fixtures/large/model_281mol.hdf5`.
 
 **Frozen tolerance.** `schema/parity_tolerance.json` — `schema_version` 1,
-`frozen_at_milestone` `"M0.5"`, `measured_utc` `"2026-06-26"`. The default row at
+`frozen_at_milestone` `"M0.5"`, `measured_utc` `"2026-11-15"` (the re-measure on the pinned
+build, below). The default row at
 `$.tolerance` applies to consensus VB-HMM and per-trace vbFRET; ebFRET is frozen
 separately at `$.tolerance_by_method.ebhmm`
 ([ADR-0043](adr/0043-per-method-parity-tolerance.md)):
@@ -246,9 +247,9 @@ across the two fixtures. `$.pooled_worst` for vbconhmm:
 | Metric | Pooled worst case |
 | --- | --- |
 | `state_count_fraction` | 1.0 |
-| `state_mean_abs_delta` | 8.34719832143449e-09 |
+| `state_mean_abs_delta` | 6.807253372098643e-09 |
 | `viterbi_agreement` | 1.0 |
-| `relative_elbo` | 1.0024658100238614e-09 |
+| `relative_elbo` | 5.878506758245325e-10 |
 
 ebFRET was measured separately (`$.measured_by_method.ebhmm`, `measured_utc`
 `"2026-07-08"`, 19 cross-seed comparisons on `smd_281mol`): pooled-worst
@@ -270,23 +271,19 @@ band is unchanged. `test_4mol_ebfret_same_seed_gives_the_same_model` fails if a 
 being reproducible ([ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)). Unseeded fits, including
 every fit run from the GUI, keep tMAVEN's own behaviour.
 
-**Which build each tolerance was measured on — and the gap that opens.** Both `method`
-blocks name a build (`sidecar_python_version`, `tmaven_commit`) rather than an interpreter
-path, and both carry a `build_provenance` string. The values in the committed artifact were
-not captured automatically: `scripts/measure_parity.py` only grew a build probe on
-2026-07-20, after both runs, so both pairs of values are post-hoc attributions. The script
-now emits a non-empty `build_provenance` description with its measurement-time CPython and
-PEP 610 commit probes, so a future measurement preserves how those two fields were obtained.
-The historical attributions differ in how well-founded they are and — more importantly — in
-*which* build they name:
+**Which build each tolerance was measured on.** Both `method` blocks name a build
+(`sidecar_python_version`, `tmaven_commit`) rather than an interpreter path, and both carry a
+`build_provenance` string. `scripts/measure_parity.py` grew a build probe on 2026-07-20, so the
+default row's re-measure of 2026-11-15 recorded its two values at measure time. The ebFRET
+values predate the probe and are a post-hoc attribution:
 
 | | `$.method` (M0.5, vbconhmm) | `$.measured_by_method.ebhmm.method` |
 | --- | --- | --- |
-| `measured_utc` | 2026-06-26 | 2026-07-08 |
-| `sidecar_python_version` | 3.9.23 | 3.12.13 |
-| `tmaven_commit` | `71cfa1af…` (2025-05-06) | `10f4230b…` (2025-10-05) |
-| How the values were obtained | reconstructed on 2026-07-20 from the interpreter the old workstation path still resolves to; the artifact says "the environment is not guaranteed unchanged since 2026-06-26" | re-derived from the run's own inputs — `.github/workflows/sidecar-measure.yml` (dispatch run 28963324581, whose log records `python 3.12.13` and the resolved `@10f4230`), `sidecar/conda-lock.yml` and the workflow's pinned `TMAVEN_SPEC` |
-| Same tMAVEN commit and CPython as the live gate? | **No** | Yes |
+| `measured_utc` | 2026-11-15 | 2026-07-08 |
+| `sidecar_python_version` | 3.12.13 | 3.12.13 |
+| `tmaven_commit` | `10f4230b…` (2025-10-05) | `10f4230b…` (2025-10-05) |
+| How the values were obtained | captured at measure time by the build probe of `scripts/measure_parity.py`, in the re-freeze of [ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md) | re-derived from the run's own inputs — `.github/workflows/sidecar-measure.yml` (dispatch run 28963324581, whose log records `python 3.12.13` and the resolved `@10f4230`), `sidecar/conda-lock.yml` and the workflow's pinned `TMAVEN_SPEC` |
+| Same tMAVEN commit and CPython as the live gate? | Yes | Yes |
 
 The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` on CPython
 3.12.13 — `TMAVEN_SPEC` in `.github/workflows/sidecar.yml`, `python=3.12.*` in
@@ -296,47 +293,20 @@ The pin every live assertion uses is `10f4230b6d13c6d2ad67b05d801696b4a40eff4a` 
 build: neither records the rest of the resolved sidecar lock, so "the same build" on this page
 means the same tMAVEN commit on the same CPython, not an identical dependency set.
 
-> Gap, stated plainly. The **default** frozen tolerance — the `$.tolerance` row that gates
-> the required `sidecar / parity` vbconhmm fits and is `applied_to` per-trace vbFRET — was
-> measured against tMAVEN `71cfa1af` (2025-05-06) on CPython 3.9.23. That is 13 upstream
-> commits *behind* the pinned `10f4230b` (2025-10-05) and a different interpreter from the
-> shipped sidecar lock. The intervening commits are not cosmetic: they touch the idealizer
-> path (`tmaven/controllers/modeler/modeler.py`, 256 changed lines;
-> `.../modeler/fxns/hmm.py`, 42). So the frozen bound and the fits it gates were **not
-> produced by the same tMAVEN build**. The ebFRET block has no such gap. The mitigating
-> facts, also on the record: the M0.5 worst cases (`$.pooled_worst`, table above) are 1.0 on
-> both floors and 8.35e-09 / 1.00e-09 against ceilings of 0.02 and 0.01, and the freeze
-> *confirmed* the specification's provisional defaults rather than widening them — `$.tolerance`
-> holds exactly `$.provisional` — so no bound was derived from the older build's numbers.
-> Closing the gap means re-measuring in the pinned sidecar build, which is a deliberate
-> re-freeze and needs an ADR. `sidecar-measure.yml` cannot do it as written: its
-> measurement step always passes `--cross-seed`, which forces `reference=None` for every
-> fixture in `scripts/measure_parity.py`, so it would anchor `smd_281mol` on its own first run
-> rather than on the committed `model_281mol.hdf5` that the default row was measured against
-> and that the live gate asserts. The faithful invocation is the one in that script's own
-> docstring — `scripts/measure_parity.py --n-runs 20` with **no** `--cross-seed`, which the
-> script permits for `--model-type vbconhmm` — run with `TETHER_SIDECAR_PYTHON` pointed at the
-> pinned sidecar build. (The script itself runs under the base interpreter. Two things then
-> execute in the sidecar: the fits, which `tether.idealize.driver` spawns from that variable,
-> and the script's own short build-provenance probe, which `scripts/measure_parity.py` spawns
-> directly.) Two caveats on that command. `--out` defaults to `schema/parity_tolerance.json`, so
-> running it as written writes over the committed artifact in place — and the write is a full
-> replacement, not a merge. The script assembles one literal dict (the `out = {...}` at the end of
-> `main()` in `scripts/measure_parity.py` — that dict, not this paragraph, is the authority) with
-> exactly ten top-level keys: `schema_version`, `frozen_at_milestone`, `measured_utc`, `method`,
-> `coverage`, `freeze_policy`, `provisional`, `tolerance`, `pooled_worst`, `spread_by_fixture`. It
-> then dumps that over the target. So point `--out` at a scratch file, treat the result as *only*
-> the re-measured numbers, and carry back by hand everything in the committed artifact that the
-> fresh dict does not reproduce. Against today's artifact that is two things.
-> `$.tolerance_by_method` and `$.measured_by_method` fall outside the ten keys entirely, so the
-> ebFRET freeze (ADR-0043) vanishes and both
-> `test_per_method_tolerances_cover_their_own_measured_evidence` and
-> `test_load_frozen_tolerance_selects_per_method` fail. The other is that all three sub-keys
-> of `$.coverage` are hand-curated in the artifact but rebuilt from the script's own
-> pre-ADR-0043 literals: `measured_methods` becomes `["vbconhmm"]` rather than the committed
-> `"vbconhmm (vb Consensus HMM)"` quoted below, `applied_to` gains `"ebFRET (M6)"`, and `note`
-> reverts to text asserting one shared tolerance for every
-> idealization method — which contradicts ADR-0043 and this page, and which no test reads.
+> Re-freeze on the pinned build. The **default** frozen tolerance — the `$.tolerance` row
+> that gates the required `sidecar / parity` vbconhmm fits — was first measured against tMAVEN
+> `71cfa1af` (2025-05-06) on CPython 3.9.23, 13 upstream commits behind the pinned `10f4230b`.
+> On 2026-11-15 it was re-measured on tMAVEN `10f4230b` on CPython 3.12.13, the build the
+> sidecar, CI and the installers run (#545, ADR-0110), with
+> `scripts/measure_parity.py --n-runs 20` and **no** `--cross-seed`, so `smd_281mol` is anchored
+> on the committed `model_281mol.hdf5` as the live gate asserts. The worst cases are 1.0 on both
+> floors and 6.81e-09 / 5.88e-10 against ceilings of 0.02 and 0.01, and the freeze again
+> confirmed the specification's provisional defaults: every bound stayed. The earlier build,
+> date and pooled worst cases are kept under `$.refreeze.previous`. The ebFRET block has no
+> such gap: it was measured on this build from the start. The script writes a full replacement of its `--out` file, so it was pointed at a
+> scratch file and only the re-measured `method`, `spread_by_fixture` and `pooled_worst` were
+> carried into the artifact; everything else in it — the per-method blocks, `$.coverage` with
+> its committed `"vbconhmm (vb Consensus HMM)"` quoted below — was kept by hand.
 
 **When upstream tMAVEN changes.** The parity tests use the pinned commit.
 `.github/workflows/sidecar-upstream.yml` runs the same tests each week with tMAVEN at the newest
@@ -390,8 +360,8 @@ live sidecar fit. They do **not** fail on a **loosened** bound:
 widening a ceiling or lowering a floor leaves every recorded value comfortably inside it. Nor
 do they fail on a pull request that edits `$.provisional` and `PROVISIONAL` *in lockstep* —
 only one of them alone. The live `sidecar / parity` arm cannot catch a loosened bound
-either — a looser tolerance only makes its assertions easier to pass — and nothing pins
-`$.tolerance` or `$.provisional` to their committed values.
+either — a looser tolerance only makes its assertions easier to pass. A separate test pins the
+bounds (below); nothing pins `$.provisional` to its committed values.
 
 What the suite does still enforce against loosening is the *shape* of a tolerance block rather
 than the magnitude of any bound inside it, plus one ordering between two blocks:
@@ -408,10 +378,15 @@ than the magnitude of any bound inside it, plus one ordering between two blocks:
   below the default one, so it fails once `$.tolerance.state_count_min_fraction` is dropped to
   ebFRET's frozen `0.5249` or below (0.5249 and 0.40 fail; 0.5250 and 0.60 pass).
 
-Widening any of the eight bounds to some *other* finite value is caught by nothing — including
-all eight widened at once, as long as the default state-count floor stays above `0.5249`. In
-that region the freeze is protected in the loosening direction by review plus the deliberate
-re-freeze rule (`$.freeze_policy`, ADR-0009), not by a test.
+Widening any of the eight bounds to some *other* finite value was caught by nothing until #545,
+as long as the default state-count floor stayed above `0.5249`. Now
+`test_frozen_bounds_match_the_accepted_copy` holds a literal copy of every frozen bound — the
+eight above — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+`tests/test_parity.py`, outside the file, and fails on any difference; it names a widened bound
+`WIDENED`. `test_widening_any_one_frozen_bound_fails` widens each bound alone by 1e-4 and checks
+that it is reported. A deliberate re-freeze changes both copies in one pull request, under an ADR
+([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md)).
+
 
 **Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
 also assert a second bound, much tighter than the frozen default row: a state-mean difference of
@@ -1121,7 +1096,8 @@ was tried), so the traces are compared by their peaks only:
 
 **Out of scope.** The three long movies of the folder (their 2,854 values are in `frets.dat` but
 their files are not committed), extraction from the raw `.pma` movies, the dwell times, and the
-other figures (#796). The second `.traces` variant, with a frame-index row, is #798.
+other figures (#796). The second `.traces` variant, with a frame-index row, is the next section
+(#798).
 
 **Enforcing tests** (all unmarked — required 3-OS matrix):
 `tests/test_ha_sam_sah_reference.py::test_tether_histogram_of_frets_dat_equals_test3_dat`,
@@ -1129,6 +1105,56 @@ other figures (#796). The second `.traces` variant, with a frame-index row, is #
 `test_the_donor_is_the_first_channel_of_each_molecule`,
 `test_swapped_channels_miss_the_peaks_of_test3_dat` and
 `test_the_reader_opens_all_53_files_with_the_molecule_counts_of_the_lab`.
+
+## Weninger-laboratory hairpin `.traces` variant
+
+**What is read.** One movie of the trinucleotide-repeat hairpin data of Xu *et al.*, *Journal of
+Molecular Biology* **435**:168086 (2023), doi:10.1016/j.jmb.2023.168086: the CTG 14-repeat movie
+`cascade110.traces` at 15 ms (872 frames, 13 molecules) from Zenodo 10.5281/zenodo.7853531, a copy
+of Dryad doi:10.5061/dryad.ht76hdrkc (CC0-1.0). It is committed verbatim under
+`tests/fixtures/weninger_hairpin/` (tier `git`, one manifest entry with its SHA-256 and its member
+of the archive). The second movie that #798 names, `Evo31.traces`, is not committed: at
+1,146,478 B it is larger than the git tier allows.
+
+**How this variant differs.** It is the second variant of the binary `.traces` format that the
+tests read; the Ha-laboratory files of the previous section are the first. Each frame starts
+with a frame index (1 to 872) that the header does not count, so the file holds 27 values per
+frame for 26 channels. Each molecule's pair is acceptor first: the record's README says
+"acceptor and donor pairs in series", and the laboratory's MATLAB reader takes row 1 as time,
+then the acceptor and the donor of each molecule. The test reader finds the variant from the
+file size and takes the channel order as a stated parameter; the product has no importer for
+`.traces` files (the specification leaves this legacy format out of scope).
+
+**Checks** (all in the required 3-OS matrix):
+
+- The reader returns the frame index 1 to 872, and the header and the file size agree
+  (6 + 2 × 872 × 27 = 47,094 B). A Ha-laboratory file reads with no frame index.
+- The reader agrees value for value with a line-by-line copy of the laboratory's MATLAB reader,
+  and Tether's leakage-corrected FRET (α = 0.06, the reader's leakage; γ = 1) equals the reader's
+  FRET on every frame where its donor + corrected acceptor is positive. The MATLAB reader reads
+  only 26 × 872 values, so it fills the first 839 frames; the comparison uses those frames.
+- Two demonstrations: a reader that ignores the frame index, and a reader that takes the donor
+  first, each no longer follow the MATLAB reader (donor first gives E → 1 − E exactly when
+  α = 0).
+
+**Advisory peak check.** The paper reports that the CTG hairpin switches between E 0.74 and
+0.53, from its own methods (a Chung-Kennedy filter with edge detection, K-means and SPARTAN) on
+many movies. The test reports Tether's histogram of this one movie beside those two values and
+never fails on them. Measured 2026-11-14: of the 4,895 frames whose donor + corrected acceptor is
+above 300 counts, the highest bin above E = 0.3 is at 0.7125, 28.2 % of the frames lie within
+0.05 of 0.74 and 3.2 % within 0.05 of 0.53. One movie of 13 molecules shows the high state but
+no separate peak near 0.53.
+
+**Out of scope.** The kinetic schemes and rates of the paper, the 50 ms data, the rest of the
+archive and any request to the authors (#798).
+
+**Enforcing tests** (all unmarked — required 3-OS matrix):
+`tests/test_weninger_hairpin_traces.py::test_the_reader_returns_the_frame_index_and_the_header_counts`,
+`test_the_reader_finds_each_variant_from_the_file_size`,
+`test_the_reader_and_tether_fret_follow_the_laboratory_matlab_reader`,
+`test_reading_the_file_as_the_variant_without_a_frame_index_fails` and
+`test_the_swapped_channel_order_fails`. The advisory report is
+`test_advisory_tether_histogram_beside_the_papers_ctg_values`.
 
 ## Extraction vs MASH-FRET simulated truth
 
@@ -1352,16 +1378,17 @@ evidence about the size of the difference and not a tolerance.
   movie, which exceeds the repo's Git-LFS budget and so is on **no** CI runner. No CI job
   collects it; the nightly scheduled task on the maintainer's workstation runs it
   ([#699](https://github.com/bioedca/tether/issues/699)), and a CI run says nothing about it.
-- The frozen **default** parity tolerance for (b) was measured against tMAVEN `71cfa1af`
+- The frozen **default** parity tolerance for (b) was first measured against tMAVEN `71cfa1af`
   (2025-05-06) on CPython 3.9.23 — 13 upstream commits behind the pinned `10f4230b`
   (2025-10-05) on CPython 3.12.13 that CI, the installers and every live sidecar assertion
-  actually run, with idealizer-path files changed in between. The frozen bound and the gate
-  that asserts it were not produced by the same tMAVEN build; the ebFRET block has no such
-  gap. Nothing was widened as a result (the measured spread was ≈1e-9 and only confirmed the
-  specification's provisional defaults), and closing it needs a re-measure plus a re-freeze ADR.
-- Nothing in CI fails on a **loosened** `$.tolerance`: the artifact self-checks assert
-  recorded values *within* the bounds, so widening a bound keeps them passing. Only
-  tightening below the evidence, or removing the evidence, is caught (see §(b)).
+  actually run. The re-measure on the pinned build of 2026-11-15 closed that gap without moving
+  a bound ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md));
+  the ebFRET block has no such gap.
+- A frozen bound — in `$.tolerance` or a per-method row — can now be loosened only by a pull
+  request that edits both `schema/parity_tolerance.json` and the literal copy
+  [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+  `tests/test_parity.py`; `test_frozen_bounds_match_the_accepted_copy` fails on either edit
+  alone (see §(b)). Nothing pins `$.provisional` to its committed values.
 - The ebFRET gate tests **one fixed pair of seeds** (1 and 2,
   [ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)), not a fresh pair per run. A regression
   that shows only on some seeds can pass it. Unseeded ebFRET keeps a rare poor-optimum tail
