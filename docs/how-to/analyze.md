@@ -178,6 +178,10 @@ the molecules. The resampling is seeded, so the band is the same every time the 
    dwells, still gets its plot, but no rate. For a two-exponential fit, set `model="double"` in `dwell_settings`; it
    then prints both rates, slower first
    ([dwell-fit `model`](../reference/parameters.md#param-dwell-model)).
+   `analysis.fit.mean_dwell_time()` gives one number for such a fit. It is the mean dwell
+   time `(A1/k1 + A2/k2) / (A1 + A2)` and its propagated error. For rates fitted by another
+   program, call `tether.analysis.mean_dwell_time`. First put each error beside its own
+   parameter. tMAVEN sorts the rates and amplitudes, but not their errors.
 
 The histogram here is of **apparent** efficiency, from the background-subtracted traces. To
 report a γ-corrected efficiency instead, see [Where the corrected efficiency

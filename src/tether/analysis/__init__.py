@@ -71,7 +71,9 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   [`population_dwell_times`][tether.analysis.dwell.population_dwell_times] — the B2 dwell-time
   analysis:
   per-state dwell-length distributions, their empirical survival function, and its
-  exponential-fit exit rates with confidence intervals + residuals [Schrangl2024].
+  exponential-fit exit rates with confidence intervals + residuals [Schrangl2024];
+  [`mean_dwell_time`][tether.analysis.dwell.mean_dwell_time] gives the amplitude-weighted mean
+  dwell time of a sum-of-exponentials fit with its propagated error (#1028).
 -
   [`empirical_transition_probability`][tether.analysis.transition_prob.empirical_transition_probability]
   /
@@ -203,6 +205,7 @@ from tether.analysis.dwell import (
     DwellTimeAnalysis,
     StateDwells,
     fit_survival,
+    mean_dwell_time,
     population_dwell_times,
     state_dwells,
     survival_curve,
@@ -372,6 +375,7 @@ __all__ = [
     "fit_survival",
     "k_rmse_elbow",
     "load_kinsoft_reference",
+    "mean_dwell_time",
     "model_gaussian_overlay",
     "model_rate_bounds",
     "occupied_state_count",
