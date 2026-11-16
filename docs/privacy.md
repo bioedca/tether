@@ -20,7 +20,7 @@ storage, and temporary idealization files are described below.
 
 ## The desktop application
 
-- **Local-only processing.** Tether analyses your microscopy movies and single-molecule
+- **Local-only processing.** Tether analyzes your microscopy movies and single-molecule
   FRET data entirely on your own machine. Your data — image movies, `.tether` project
   files, exported results — stays on your computer (or wherever you choose to save it).
   During idealization, selected traces are copied to your operating system's temporary
@@ -32,14 +32,14 @@ storage, and temporary idealization files are described below.
   any third party, nor "phones home".
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
-  files**. The `.tether` project store records the application version, your analysis
+  files**. The `.tether` project file records the application version, your analysis
   parameters, and your operating-system username (as the curator, or "labeler", of your
-  annotations). A separate sidecar `.lock` file records your computer's hostname, username
+  annotations). A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell
   who currently holds the write-lock. This information is stored only in files at the
   location you choose and is **never transmitted by Tether** to the project or to any third
   party. If you share a `.tether` file with a collaborator it carries your OS username and
-  the source movie paths you selected (the `.lock` sidecar is a separate file and is not
+  the source movie paths you selected (the lock file is a separate file and is not
   embedded in the project) — so treat shared project files as you would any working
   document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
   shows how to see these fields before you make a file public.
