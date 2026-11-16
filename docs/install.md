@@ -176,13 +176,13 @@ on that Sponsors page.
 
 The installer creates a `bin` folder inside the install folder holding two launchers: `tether`
 (the command-line tool) and `tether-gui` (the desktop application). It deliberately **does not
-edit your PATH, shell settings or registry**, so a new terminal cannot find those launchers by
+edit your PATH, shell settings or registry**. So a new terminal cannot find those launchers by
 their names alone. Do the step for your system.
 
 **Windows.** From the next release, open the Start menu and choose **Tether Command Prompt**
 ([#666](https://github.com/bioedca/tether/issues/666)). It opens a console in which `tether`
-works, and its first line shows the Tether version. Only that console finds the launchers;
-your PATH does not change. rc3 has no such shortcut, so with rc3 run the launcher by its full
+works, and its first line shows the Tether version. Only that console finds the launchers.
+Your PATH does not change. rc3 has no such shortcut. With rc3, run the launcher by its full
 path in PowerShell:
 
 ```powershell
@@ -196,9 +196,9 @@ path in PowerShell:
 ~/tether/bin/tether --version    # Linux
 ```
 
-From the next release, the launchers are in a folder named `launchers` instead of `bin`, so
-the commands are `~/Tether/launchers/tether --version` and `~/tether/launchers/tether --version`
-([#492](https://github.com/bioedca/tether/issues/492)).
+From the next release, the launchers are in a folder named `launchers` instead of `bin`
+([#492](https://github.com/bioedca/tether/issues/492)). The commands are then
+`~/Tether/launchers/tether --version` and `~/tether/launchers/tether --version`.
 
 To type `tether` with no path in any terminal, put the launcher folder on your PATH, as the
 next section tells. That step is optional on all three systems.
@@ -267,8 +267,8 @@ Windows PowerShell. To start the desktop application:
   release, that entry also opens no console window
   ([#579](https://github.com/bioedca/tether/issues/579)).
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal
-  (`~/tether/bin/tether-gui` if you skipped the optional PATH step; `~/tether/launchers/tether-gui`
-  from the next release). (A desktop that was already running may only show the menu entry after you log out and back
+  (`~/tether/bin/tether-gui` if you skipped the optional PATH step, and
+  `~/tether/launchers/tether-gui` from the next release). (A desktop that was already running may only show the menu entry after you log out and back
   in.)
 - **macOS:** with rc3, run `tether-gui` in Terminal (`~/Tether/bin/tether-gui` if you skipped
   the optional PATH step). The Dock shows the Tether icon while
