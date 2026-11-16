@@ -483,7 +483,14 @@ application first. When another user or the application holds the lock, the comm
 its analysis window or its correction factors changed after the fit. A consensus VB-HMM or
 an ebFRET model is one fit over all its molecules, so the command refits every molecule of
 a model that has a stale molecule, not only the stale ones. A model with no stale molecule
-is not refitted, and when no model has one the command needs no sidecar.
+is not refitted, and when no model has one the command needs no sidecar. The command counts
+the stale molecules again once it holds the lock, so a change made by another writer before
+then is refitted too.
+
+**`--stale-only` never refits a model imported from standalone tMAVEN.** Such a model stores
+no fit settings that Tether can repeat. The command reports it as `imported from tMAVEN, not
+refitted` and leaves it as it is, stale or not. Naming one with `--model-name` is refused.
+To refresh it, hand its molecules to tMAVEN again and import the new fit.
 
 The command stores the fit, and it does not select an *active fit*. Comparing fits and
 selecting one is planned work ([#939](https://github.com/bioedca/tether/issues/939)).
@@ -492,7 +499,7 @@ selecting one is planned work ([#939](https://github.com/bioedca/tether/issues/9
 |---|---|
 | `0` | the fit is stored, or `--stale-only` found nothing stale |
 | `1` | the fit failed, or the lock could not be taken |
-| `2` | bad command-line arguments, or a refusal to start: an unknown condition, a model that exists without `--overwrite`, a project that cannot be opened, or fit options with `--stale-only` |
+| `2` | bad command-line arguments, or a refusal to start: an unknown condition, a model that exists without `--overwrite`, a project that cannot be opened, fit options with `--stale-only`, or an imported model named with `--stale-only` |
 | `3` | the sidecar was not available, and nothing was written |
 
 ### Example — fit a project, then refit it after a correction

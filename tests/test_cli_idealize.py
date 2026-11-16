@@ -456,13 +456,20 @@ def test_no_molecule_left_to_fit_exits_1_and_writes_no_model(tmp_path, sidecar, 
     assert not lock.lock_path(path).exists()
 
 
-def test_stale_only_refits_only_the_models_that_are_stale(tmp_path, sidecar, capsys) -> None:
-    path = _model_store(tmp_path, stale=[False, True, False])
+def _add_model(path: Path, name: str, *, selected_by: str = "fixed", stale_rows=()) -> None:
+    """Store a copy of the ``vbconhmm`` model as *name*, fresh but for *stale_rows*.
+
+    ``selected_by="imported"`` is how the standalone-tMAVEN return leg marks its models.
+    """
+    from _analysis_store import fresh_input_hashes
+
     stored = core.read_idealization(path, "vbconhmm")
-    # A second, current model of the same molecules beside the stale one.
+    hashes = fresh_input_hashes(path)
+    for i in stale_rows:
+        hashes[i] = "0" * len(hashes[i])
     core.write_idealization_model(
         path,
-        model_name="current",
+        model_name=name,
         model_type="vbconhmm",
         nstates=stored.nstates,
         dtype="FRET",
@@ -475,14 +482,19 @@ def test_stale_only_refits_only_the_models_that_are_stale(tmp_path, sidecar, cap
         state_paths=stored.state_paths,
         molecule_keys=stored.molecule_keys,
         molecule_ids=stored.molecule_ids,
-        input_hashes=_fresh_hashes(path),
+        input_hashes=hashes,
         intensity_quantity="corrected",
-        selected_by="fixed",
+        selected_by=selected_by,
         elbo_by_nstates=None,
         app_version="test",
         created_utc="2026-01-01T00:00:00Z",
-        overwrite=False,
+        overwrite=True,
     )
+
+
+def test_stale_only_refits_only_the_models_that_are_stale(tmp_path, sidecar, capsys) -> None:
+    path = _model_store(tmp_path, stale=[False, True, False])
+    _add_model(path, "current")  # a second, current model of the same molecules
     assert cli.main(["idealize", str(path), "--stale-only"]) == 0
     out = capsys.readouterr().out
     assert "  current: 0 stale, 3 current; current, not refitted" in out
@@ -490,7 +502,57 @@ def test_stale_only_refits_only_the_models_that_are_stale(tmp_path, sidecar, cap
     assert len(sidecar.calls) == 1
 
 
-def _fresh_hashes(path: Path) -> list[str]:
-    from _analysis_store import fresh_input_hashes
+def test_stale_only_never_refits_an_imported_model(tmp_path, monkeypatch, capsys) -> None:
+    # An imported model keeps no fit configuration Tether can repeat (it would fall back
+    # to a default sweep), so a stale one is reported and left as it was.
+    path = _model_store(tmp_path, stale=[False, False, False])
+    _add_model(path, "tmaven", selected_by="imported", stale_rows=[0])
+    before = core.read_idealization(path, "tmaven")
 
-    return fresh_input_hashes(path)
+    def no_probe(supervision):
+        raise AssertionError("only an imported model is stale, so nothing needs the sidecar")
+
+    monkeypatch.setattr(service, "_probe", no_probe)
+    assert cli.main(["idealize", str(path), "--stale-only"]) == 0
+    out = capsys.readouterr().out
+    assert "  tmaven: 1 stale, 2 current; imported from tMAVEN, not refitted" in out
+    after = core.read_idealization(path, "tmaven")
+    assert (after.nstates_selected_by, after.input_hashes) == ("imported", before.input_hashes)
+
+
+def test_stale_only_skips_an_imported_model_beside_a_stale_one(tmp_path, sidecar, capsys):
+    path = _model_store(tmp_path, stale=[True, False, False])
+    _add_model(path, "tmaven", selected_by="imported", stale_rows=[0])
+    assert cli.main(["idealize", str(path), "--stale-only"]) == 0
+    out = capsys.readouterr().out
+    assert "  tmaven: 1 stale, 2 current; imported from tMAVEN, not refitted" in out
+    assert "  vbconhmm: 1 stale, 2 current; refitted" in out
+    assert len(sidecar.calls) == 1
+    assert core.read_idealization(path, "tmaven").nstates_selected_by == "imported"
+
+
+def test_stale_only_refuses_to_name_an_imported_model(tmp_path, sidecar, capsys) -> None:
+    path = _model_store(tmp_path, stale=[False, False, False])
+    _add_model(path, "tmaven", selected_by="imported", stale_rows=[0])
+    argv = ["idealize", str(path), "--stale-only", "--model-name", "tmaven"]
+    assert cli.main(argv) == 2
+    assert "imported from standalone tMAVEN" in capsys.readouterr().err
+    assert sidecar.calls == []
+
+
+def test_stale_only_counts_again_under_the_lock(tmp_path, sidecar, monkeypatch, capsys):
+    # Another writer makes the current model stale after the first count (here, while the
+    # sidecar probe runs). The count taken under the lock refits it too.
+    path = _model_store(tmp_path, stale=[True, False, False])
+    _add_model(path, "current")
+
+    def probe_while_another_writer_changes_the_project(supervision):
+        _add_model(path, "current", stale_rows=[2])
+        return ProbeResult(True, "fake sidecar")
+
+    monkeypatch.setattr(service, "_probe", probe_while_another_writer_changes_the_project)
+    assert cli.main(["idealize", str(path), "--stale-only"]) == 0
+    out = capsys.readouterr().out
+    assert "  current: 1 stale, 2 current; refitted" in out
+    assert "  vbconhmm: 1 stale, 2 current; refitted" in out
+    assert len(sidecar.calls) == 2

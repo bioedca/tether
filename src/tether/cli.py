@@ -523,7 +523,12 @@ def _format_idealize(result: IdealizeResult) -> str:
     if not result.refits:
         lines.append("  no idealization model to check")
     for refit in result.refits:
-        verdict = "refitted" if refit.refit is not None else "current, not refitted"
+        if refit.imported:
+            verdict = "imported from tMAVEN, not refitted"
+        elif refit.refit is not None:
+            verdict = "refitted"
+        else:
+            verdict = "current, not refitted"
         lines.append(
             f"  {refit.model_name}: {refit.n_stale} stale, {refit.n_current} current; {verdict}"
         )

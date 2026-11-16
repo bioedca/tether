@@ -89,14 +89,17 @@ class ModelRefit:
 
     ``n_rows`` is the number of molecule rows the model holds and ``n_stale`` how many of
     them were stale, both counted by row (``molecule_id``), so a ``molecule_key`` shared by
-    two rows (§7.10) counts twice. ``refit`` is the new model, or ``None`` when no row was
-    stale and the model was left as it was.
+    two rows (§7.10) counts twice. ``refit`` is the new model, or ``None`` when the model was
+    left as it was: no row was stale, or the model was ``imported`` from standalone tMAVEN.
+    An imported model stores no fit configuration Tether can repeat, so ``stale_only``
+    never refits one, stale or not.
     """
 
     model_name: str
     n_rows: int
     n_stale: int
     refit: StoredIdealization | None
+    imported: bool = False
 
     @property
     def n_current(self) -> int:
@@ -198,6 +201,29 @@ def _selected_keys(project: Any, conditions: tuple[str, ...]) -> list[str] | Non
     return list(dict.fromkeys(keys))
 
 
+# ``nstates_selected_by`` of a model written by the standalone-tMAVEN return leg.
+_IMPORTED = "imported"
+
+
+def _unchanged(checked: list[tuple[str, int, int, bool]]) -> tuple[ModelRefit, ...]:
+    """Report a ``stale_only`` run that refitted nothing."""
+    return tuple(ModelRefit(name, n, s, None, imported) for name, n, s, imported in checked)
+
+
+def _check_models(project: Any, names: list[str]) -> list[tuple[str, int, int, bool]]:
+    """Count each model's rows and stale rows, and mark the imported ones (read-only)."""
+    from tether.project import idealize as core
+
+    checked = []
+    for name in names:
+        stored = core.read_idealization(project, name)
+        imported = stored.nstates_selected_by == _IMPORTED
+        checked.append(
+            (name, stored.n_molecules, len(core.stale_row_ids(project, stored)), imported)
+        )
+    return checked
+
+
 def run(request: IdealizeRequest) -> IdealizeResult:
     """Run *request*.
 
@@ -249,14 +275,17 @@ def run(request: IdealizeRequest) -> IdealizeResult:
             raise RequestRefused(f"{request.project} has no model {request.model_name!r}")
         names = [request.model_name] if request.model_name is not None else existing
         # Read-only: count each model's stale rows before the sidecar or the lock is
-        # touched, so a project with nothing stale needs neither.
-        checked: list[tuple[str, int, int]] = []
-        for name in names:
-            stored = core.read_idealization(project, name)
-            checked.append((name, stored.n_molecules, len(core.stale_row_ids(project, stored))))
-        if not any(n_stale for _, _, n_stale in checked):
-            refits = tuple(ModelRefit(name, n, 0, None) for name, n, _ in checked)
-            return IdealizeResult(project=project.path, refits=refits)
+        # touched, so a project with nothing to refit needs neither. The count is taken
+        # again under the lock below, since another writer may change the project first.
+        checked = _check_models(project, names)
+        if request.model_name is not None and checked[0][3]:
+            raise RequestRefused(
+                f"the model {request.model_name!r} was imported from standalone tMAVEN, "
+                "so stale_only cannot refit it; hand its molecules to tMAVEN again and "
+                "import the new fit"
+            )
+        if not any(n_stale and not imported for _, _, n_stale, imported in checked):
+            return IdealizeResult(project=project.path, refits=_unchanged(checked))
         keys = None
     else:
         if model_name in existing and not request.overwrite:
@@ -297,10 +326,14 @@ def run(request: IdealizeRequest) -> IdealizeResult:
                 **runner,
             )
             return IdealizeResult(project=project.path, fitted=fitted)
+        # Under the lock, so the models refitted are the ones stale now.
+        if request.model_name is None:
+            names = project.list_idealizations()
+        checked = _check_models(project, names)
         refits: list[ModelRefit] = []
-        for name, n_rows, n_stale in checked:
+        for name, n_rows, n_stale, imported in checked:
             refit = None
-            if n_stale:
+            if n_stale and not imported:
                 refit = supervise_idealize(
                     core.reidealize,
                     project,
@@ -311,7 +344,7 @@ def run(request: IdealizeRequest) -> IdealizeResult:
                     require_held_lock=True,
                     **runner,
                 )
-            refits.append(ModelRefit(name, n_rows, n_stale, refit))
+            refits.append(ModelRefit(name, n_rows, n_stale, refit, imported))
         return IdealizeResult(project=project.path, refits=tuple(refits))
     except (SidecarError, LockError) as exc:
         raise CommandFailed(str(exc)) from exc
