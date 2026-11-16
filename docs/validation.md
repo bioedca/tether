@@ -854,12 +854,13 @@ analysis and the reference.
 and Machine Learning Toolbox 23.2) on the 76 trace files of section (h), on 2026-11-15. The frozen
 output is under `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/`: the 3800 pairs, the
 200 × 200 density, the nine contour levels, the four k-means centroids and the toolbox version,
-with a `provenance.json` that holds the citation, the script hash and the input hashes. The script
-reads column 4 of each file as E; column 4 of these files is zero, so the run gave the script
+with a `provenance.json` that holds the citation, the script hash and the input hashes.
+
+The script reads column 4 of each file as E. Column 4 of these files is zero, so the run gave the script
 copies whose column 4 is `acceptor / (acceptor + donor)`, Tether's apparent E. The script uses the
 first 50 pairs of each file, so the test gives Tether the first 51 frames of each trace.
 
-**Results** (measured 2026-11-15; each limit is the measurement rounded up to the next power of
+**Results** (measured 2026-11-15. Each limit is the measurement rounded up to the next power of
 ten):
 
 | Quantity | Measured | Limit |
@@ -876,7 +877,7 @@ ten):
 MATLAB's `mvksdensity` leaves out the part of each kernel that is more than 4 bandwidths from the
 pair on either axis. Tether keeps the whole Gaussian. With that cut applied in the test, the two
 densities agree to round-off, and the 5216 nodes where MATLAB's density is 0 are the nodes that no
-cut kernel reaches; so the cut is the whole difference. The k-means starts are random in both
+cut kernel reaches. So the cut is the whole difference. The k-means starts are random in both
 programs and come from different generators. MATLAB's run ended in a local minimum with a slightly
 smaller sum of squares than Tether's run with seed 0, so the centroid limits are not round-off.
 
