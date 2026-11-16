@@ -228,6 +228,29 @@ def test_a_folder_where_the_file_should_be_reads_as_unset(store: tuple[Path, Pat
     assert _state(store) is UpdateCheckState.PENDING
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="os.mkfifo is not available here")
+def test_a_fifo_where_the_file_should_be_reads_as_unset_without_blocking(
+    tmp_path: Path,
+) -> None:
+    # Issue #1116: a blocking open of a FIFO waits for a writer that never comes. The
+    # read runs in a child process with a timeout, so a regression fails, not hangs.
+    settings, override = tmp_path / "user" / SETTINGS_FILENAME, tmp_path / "o"
+    settings.parent.mkdir(parents=True)
+    os.mkfifo(settings)
+    code = (
+        "from pathlib import Path\n"
+        "from tether.gui.app_settings import update_check_state\n"
+        f"print(update_check_state(Path({str(settings)!r}), Path({str(override)!r})).value)\n"
+    )
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+        ).stdout.strip()
+    except subprocess.TimeoutExpired:
+        pytest.fail("reading a FIFO settings path blocked")
+    assert out == "pending"
+
+
 def test_the_default_paths_are_used_when_none_are_passed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
