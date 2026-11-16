@@ -123,6 +123,26 @@ def test_an_export_against_itself_is_an_exact_repeat() -> None:
     assert numbers["n_matched"] == 12
     assert numbers["position_rms_px"] == 0.0
     assert numbers["trace_max_rel_diff"] == 0.0
+    assert numbers["acceptor_position_max_px"] == 0.0
+
+
+def test_a_moved_acceptor_spot_shows() -> None:
+    donor, acceptor, _ = _acquisition(n=6)
+    reference = _export(donor, acceptor)
+    other = _export(donor, acceptor)
+    other.acceptor_xy[2] += (0.0, 0.5)
+    numbers = agree.compare_exports(reference, other)
+    assert numbers["position_rms_px"] == 0.0 and numbers["trace_max_rel_diff"] == 0.0
+    assert numbers["acceptor_position_max_px"] == pytest.approx(0.5)
+
+
+def test_a_nan_in_one_trace_is_not_an_exact_repeat() -> None:
+    donor, acceptor, _ = _acquisition(n=6)
+    reference = _export(donor, acceptor)
+    changed = donor.copy()
+    changed[1, 7] = np.nan
+    numbers = agree.compare_exports(reference, _export(changed, acceptor))
+    assert numbers["trace_max_rel_diff"] == float("inf")
 
 
 def test_a_changed_trace_and_a_lost_molecule_show() -> None:

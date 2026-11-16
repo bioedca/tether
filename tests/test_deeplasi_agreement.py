@@ -130,3 +130,4 @@ def test_the_scripted_rerun_of_video_010_repeats_the_old_export(private_data) ->
     # The traces are compared on the shared frames only, so a shorter rerun must fail here.
     assert numbers["n_frames_reference"] == numbers["n_frames_other"], numbers
     assert numbers["position_rms_px"] == 0.0 and numbers["trace_max_rel_diff"] == 0.0, numbers
+    assert numbers["acceptor_position_max_px"] == 0.0, numbers

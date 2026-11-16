@@ -327,20 +327,26 @@ def compare_exports(reference: DeepLasiExport, other: DeepLasiExport) -> dict[st
     """Score ``other`` against ``reference`` with the oracle (a) scorer; summary numbers only.
 
     Adds the largest relative difference of the raw donor and acceptor traces of the matched
-    molecules over their common frames, so that an exact repeat reads 0.
+    molecules over their common frames, and the largest distance between their acceptor
+    coordinates, so that an exact repeat reads 0 on both. A NaN in one trace where the other
+    has a number counts as an infinite difference, never as no difference.
     """
     from tether.project.oracle import evaluate_extraction  # noqa: PLC0415
 
     res = evaluate_extraction(reference, other.donor_xy, other.donor_raw, other.acceptor_raw)
     frames = min(reference.n_frames, other.n_frames)
     worst = 0.0
+    acceptor_px = 0.0
     for gi, ei, _ in res.matches:
+        step = np.asarray(other.acceptor_xy[ei], float) - np.asarray(
+            reference.acceptor_xy[gi], float
+        )
+        acceptor_px = max(acceptor_px, float(np.hypot(*step)))
         for ref, got in (
             (reference.donor_raw[gi, :frames], other.donor_raw[ei, :frames]),
             (reference.acceptor_raw[gi, :frames], other.acceptor_raw[ei, :frames]),
         ):
-            scale = float(np.max(np.abs(ref))) or 1.0
-            worst = max(worst, float(np.max(np.abs(got - ref))) / scale)
+            worst = max(worst, _relative_difference(ref, got))
     return {
         "n_reference": res.n_ground_truth,
         "n_other": res.n_extracted,
@@ -352,4 +358,19 @@ def compare_exports(reference: DeepLasiExport, other: DeepLasiExport) -> dict[st
         "n_frames_reference": reference.n_frames,
         "n_frames_other": other.n_frames,
         "trace_max_rel_diff": worst if res.n_matched else float("nan"),
+        "acceptor_position_max_px": acceptor_px if res.n_matched else float("nan"),
     }
+
+
+def _relative_difference(ref: np.ndarray, got: np.ndarray) -> float:
+    ref = np.asarray(ref, dtype=np.float64)
+    got = np.asarray(got, dtype=np.float64)
+    if not np.array_equal(np.isnan(ref), np.isnan(got)) or not np.array_equal(
+        np.isinf(ref), np.isinf(got)
+    ):
+        return float("inf")
+    both = np.isfinite(ref) & np.isfinite(got)
+    if not both.any():
+        return 0.0
+    scale = float(np.max(np.abs(ref[both]))) or 1.0
+    return float(np.max(np.abs(got[both] - ref[both]))) / scale
