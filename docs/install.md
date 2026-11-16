@@ -155,7 +155,7 @@ US$99 for the [Apple Developer Program](https://developer.apple.com/support/purc
 US$9.99 a month for Microsoft's
 [Artifact Signing](https://learn.microsoft.com/windows/apps/package-and-deploy/code-signing-options),
 which individuals can only use in the USA and Canada (a conventional Windows certificate costs
-roughly US$150–300 a year instead). The free programme for open-source projects, SignPath
+roughly US$150–300 a year instead). The free program for open-source projects, SignPath
 Foundation, declined Tether in July 2026 because the project is still young, so for now the
 installers ship unsigned and the checks in step 2 are what tell you a download is genuine.
 
@@ -254,7 +254,7 @@ While the application loads, a splash window shows the Tether name, the version 
 
 The application opens with no project loaded and shows the start page, with the Tether art
 and the tagline at the top. To open a project, click **Open project…** on the start page, use
-**File → Open project…**, or drop a `.tether` file on the window. **Help → About Tether** shows
+**File → Open project…**, or drop a `.tether` file on the application window. **Help → About Tether** shows
 the version, the commit, the two licenses, the citation with the DOI, and links to the
 documentation and the source code. Its **Copy** button copies this text for a bug report. The
 [Command line](cli.md) reference covers what `tether` itself can do.

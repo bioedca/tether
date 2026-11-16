@@ -36,7 +36,7 @@ dwell-time survival plots](analyze.md).
   [subset `.tether`](../reference/exports.md#3-subset-tether).
 
 Every one of them also writes a [provenance
-sidecar](../reference/exports.md#provenance-sidecar) beside the file, named after it with
+file](../reference/exports.md#provenance-file) beside the file, named after it with
 `.provenance.json` added. It records which Tether version, which project and which settings
 made the file. Keep it with the file when you move or share it: for the CSV and the trace
 matrix it is the only such record. To put these files in a public repository, follow
@@ -141,7 +141,7 @@ export_molecule_table_csv("movie_010.tether", "movie_010.csv", include_rejected=
 export_deeplasi_txt("movie_010.tether", "movie_010-donc-accc-w.txt")
 ```
 
-The first row of the file is not always frame 0 of the movie. The sidecar's `frame_range`
+The first row of the file is not always frame 0 of the movie. The provenance file's `frame_range`
 records which frames it covers. Every molecule in one file shares that one frame axis, so a
 project that combines movies of different lengths has to be exported one movie at a time,
 passing that movie's molecules as `molecule_keys=` (or `--molecule-key`); otherwise the export
@@ -172,7 +172,7 @@ Leave out `molecule_keys=` to export every molecule you did not reject. The subs
 molecules' background-subtracted traces, image crops, idealization models and curation
 history, so it needs neither the movie nor the original project. It leaves out the raw traces
 unless you add `--include-raw` (`include_raw=True` in Python), and with them any idealization
-model fitted on raw traces; the sidecar names a model left out that way under
+model fitted on raw traces. The provenance file names a model left out that way under
 `skipped_idealization_models`. It refuses to replace an existing file unless you add
 `--overwrite` (`overwrite=True`).
 

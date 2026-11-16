@@ -60,21 +60,21 @@ kind = "descriptive"
 long_share = 14.3
 semicolons = 3
 long_paragraphs = 0
-retired = 3
+retired = 0
 
 [pages."docs/pipeline.md"]
 kind = "descriptive"
 long_share = 37.3
 semicolons = 36
 long_paragraphs = 2
-retired = 10
+retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
 long_share = 32.7
 semicolons = 10
 long_paragraphs = 0
-retired = 13
+retired = 7
 
 [pages."docs/install.md"]
 kind = "procedure"
@@ -116,7 +116,7 @@ kind = "procedure"
 long_share = 35.6
 semicolons = 5
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/how-to/idealize.md"]
 kind = "procedure"
@@ -130,14 +130,14 @@ kind = "procedure"
 long_share = 39.1
 semicolons = 8
 long_paragraphs = 1
-retired = 1
+retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
 long_share = 27.0
-semicolons = 4
+semicolons = 3
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/how-to/share-a-dataset.md"]
 kind = "procedure"
@@ -151,7 +151,7 @@ kind = "procedure"
 long_share = 54.5
 semicolons = 13
 long_paragraphs = 0
-retired = 3
+retired = 0
 
 [pages."docs/idealize/standalone-tmaven-handoff.md"]
 kind = "procedure"
@@ -165,21 +165,21 @@ kind = "descriptive"
 long_share = 29.1
 semicolons = 71
 long_paragraphs = 1
-retired = 8
+retired = 0
 
 [pages."docs/analysis/rate-bounds.md"]
 kind = "descriptive"
 long_share = 13.9
 semicolons = 0
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/validation.md"]
 kind = "descriptive"
 long_share = 31.6
 semicolons = 83
 long_paragraphs = 12
-retired = 8
+retired = 0
 
 [pages."docs/ml/deep-classifier.md"]
 kind = "descriptive"
@@ -190,31 +190,31 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 23.6
+long_share = 21.8
 semicolons = 19
 long_paragraphs = 0
-retired = 10
+retired = 7
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
 long_share = 21.8
 semicolons = 22
 long_paragraphs = 1
-retired = 8
+retired = 1
 
 [pages."docs/reference/parameters.md"]
 kind = "descriptive"
 long_share = 36.9
 semicolons = 14
 long_paragraphs = 2
-retired = 2
+retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 32.2
+long_share = 32.1
 semicolons = 29
 long_paragraphs = 0
-retired = 3
+retired = 0
 
 [pages."docs/reference/gui-theme.md"]
 kind = "descriptive"
@@ -228,21 +228,21 @@ kind = "descriptive"
 long_share = 30.2
 semicolons = 18
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/glossary.md"]
 kind = "descriptive"
-long_share = 25.3
+long_share = 23.1
 semicolons = 29
 long_paragraphs = 2
-retired = 8
+retired = 2
 
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
 long_share = 23.6
 semicolons = 28
 long_paragraphs = 2
-retired = 10
+retired = 7
 
 [pages."docs/citing.md"]
 kind = "descriptive"
@@ -256,21 +256,21 @@ kind = "descriptive"
 long_share = 8.6
 semicolons = 9
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/stability.md"]
 kind = "descriptive"
 long_share = 29.6
 semicolons = 7
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/privacy.md"]
 kind = "descriptive"
 long_share = 15.4
 semicolons = 6
 long_paragraphs = 0
-retired = 1
+retired = 0
 
 [pages."docs/brand.md"]
 kind = "descriptive"
