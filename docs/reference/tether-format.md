@@ -157,7 +157,8 @@ guaranteed to be there.
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
 | `/conditions` rows, `/conditions/categories/<condition_id>`, `/settings/condition_audit` | 0 rows / absent | `tether.project.conditions` |
-| `/features/table` | no | `compute_features` (`src/tether/project/features.py`) |
+| `/settings/molecule_audit` | absent | `set_category` / `clear_category` / `set_analysis_window` / `reset_analysis_window` (`src/tether/project/molecule_edits.py`) |
+| `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/models/*` | no | nothing yet — see below |
 
@@ -256,8 +257,9 @@ by [`_validate_alignment`](https://github.com/bioedca/tether/blob/main/src/tethe
 Later stages mutate columns of existing rows; they never change the structure.
 Photobleach detection rewrites `bleach_frames` and `analysis_window`, the leakage /
 gamma / correction stages write `alpha`, `gamma`, `correction_method` and
-`correction_confidence`, curation writes `curation_label`, and a condition re-key
-rewrites `condition_id`.
+`correction_confidence`, curation writes `curation_label`, a condition re-key
+rewrites `condition_id`, and the per-molecule setters in
+`src/tether/project/molecule_edits.py` write `category` and `analysis_window`.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
@@ -268,7 +270,7 @@ rewrites `condition_id`.
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
 | `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard aperture window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
-| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. |
+| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. A curator sets it with `set_analysis_window`, which clamps the request into `frame_range` (bounded by `[0, n_frames]`) by the SMD-import rule ([`_resolve_windows`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py), `src/tether/project/analysis_import.py`), and restores it with `reset_analysis_window`. There is no "manual" flag: an analysis window set to the whole `frame_range` is again under the auto-default. Either setter deletes `/features/table` when it changes a row that table holds, because those features were computed from the old frames. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
 | `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — resetting processed α rows and their downstream γ rows to `NaN` — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` on every analysable molecule (one whose `frame_range` is non-empty) and leaves the factor `NaN` — unless `apparent_e_only` forces `apparent-E (user toggle)` instead, or a manual `alpha_override`/`gamma_override` completes a usable pair (both effective factors finite, γ > 0), which stamps `manual` and **persists the override into this cell**. So read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
 | `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. Same `NaN` convention as `alpha` — `compute_gamma` withholds the dataset γ below `min_qualifying_traces` (`src/tether/project/gamma.py`) and resets processed rows to `NaN`; a withheld leakage recomputation also resets those rows because γ was derived from the prior α. A γ pass stamps `/settings/gamma` with `withheld = True`, and a withheld leakage pass removes `/settings/gamma` (there is no invalidated marker), so read `correction_method` / `/settings/gamma` rather than this cell. |
@@ -276,7 +278,7 @@ rewrites `condition_id`.
 | `correction_method` | `str:utf-8` | scalar | Closed vocabulary from `src/tether/project/correct.py`: `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)`. `""` before any correction pass. |
 | `correction_confidence` | `f8` | scalar | A **provenance flag, not a confidence interval**: `1.0` when a real correction was applied, `0.0` on apparent-E fallback, `NaN` before any pass. |
 | `curation_label` | `i4` | scalar | Signed codec `CurationLabel` (`src/tether/project/labels.py`): `0` uncurated, `1` accept, `-1` reject. Mirrors the most recent **human** label only. |
-| `category` | `str:utf-8` | scalar | Editable per-condition category value, independent of accept/reject. `""` at extraction. |
+| `category` | `str:utf-8` | scalar | Editable per-condition category value, independent of accept/reject. `""` at extraction. Stored by **name**. `set_category` accepts only a name in the condition's `/conditions/categories/<condition_id>` list, and `clear_category` writes `""`. |
 | `quality_class` | `f8` | scalar | Read-only ML ranker output, dimensionless. `NaN` when none; no shipped ML path writes it yet. |
 | `condition_id` | `str:utf-8` | scalar | Current foreign key into `/conditions/table`; rewritten by a re-key. |
 | `condition_id_provisional` | `str:utf-8` | scalar | The filename-derived condition id, retained verbatim across any re-key. |
@@ -509,7 +511,7 @@ leave `/patches` empty**, because they have no coordinates.
 ## `/settings` — provenance of each pipeline stage
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
-datasets**, except `condition_audit`, which is a dataset.
+datasets**, except `condition_audit` and `molecule_audit`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -520,6 +522,7 @@ datasets**, except `condition_audit`, which is a dataset.
 | `batch` | `run_batch` (`src/tether/project/batch.py`) | Replaced on each run; adds one `<stage>_status` attribute per stage. |
 | `analysis_only` | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | Marker that movie round-trip is unavailable for this store. |
 | `condition_audit` | `tether.project.conditions` | A **dataset**: append-only re-key/merge log, created lazily. |
+| `molecule_audit` | `tether.project.molecule_edits` | A **dataset**: append-only log of per-molecule category and analysis-window edits, created lazily. |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -544,6 +547,17 @@ Deep-LASI, not by Tether:
 (`i8`), `labeler`, `timestamp`, `reason`, `app_version` — all strings except
 `n_molecules` ([`_audit_dtype`](https://github.com/bioedca/tether/blob/main/src/tether/project/conditions.py) in `src/tether/project/conditions.py`). It is
 append-only and never rewritten.
+
+`/settings/molecule_audit` is a resizable 1-D compound dataset with one row for each
+`/molecules` row an edit changed ([`_audit_dtype`](https://github.com/bioedca/tether/blob/main/src/tether/project/molecule_edits.py) in `src/tether/project/molecule_edits.py`):
+`event` (`set_category`, `clear_category`, `set_analysis_window` or
+`reset_analysis_window`), `molecule_id`, `molecule_key`, `condition_id`, `old_category`,
+`new_category`, `old_window` and `new_window` (`i4`, shape `(2,)`, `[start, stop)` frame
+indices), `labeler`, `timestamp`, `reason` and `app_version`. A category row carries
+`[-1, -1]` in both window fields, and a window row carries `""` in both category fields. The
+row is written **before** the `/molecules` field changes, and an edit that changes
+nothing writes no row. Category edits are logged here and **not** in `/labels`, whose
+`label_value` is the accept/reject codec.
 
 ## `/idealization` — one subgroup per fitted model
 
