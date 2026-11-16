@@ -129,14 +129,19 @@ def _app_version() -> str:
         return "0.0.0+unknown"
 
 
-def _resolve_provenance(labeler: str | None, timestamp: str | None) -> tuple[str, str]:
-    """Default and validate ``labeler`` / ``timestamp`` before any file I/O."""
-    from tether.project.conditions import _utc_now_iso, _validate_timestamp  # noqa: PLC0415
+def _resolve_provenance(labeler: str | None, timestamp: str | None, reason: str) -> tuple[str, str]:
+    """Default and validate ``labeler`` / ``timestamp`` / ``reason`` before any file I/O."""
+    from tether.project.conditions import (  # noqa: PLC0415
+        _refuse_nul_audit_text,
+        _utc_now_iso,
+        _validate_timestamp,
+    )
     from tether.project.labels import default_labeler  # noqa: PLC0415
 
     labeler = labeler if labeler is not None else default_labeler()
     timestamp = timestamp if timestamp is not None else _utc_now_iso()
     _validate_timestamp(timestamp)  # a bad stamp would be persisted forever
+    _refuse_nul_audit_text(labeler=labeler, reason=reason)  # h5py refuses it mid-append
     return labeler, timestamp
 
 
@@ -161,6 +166,8 @@ def _append_audit(f: object, rows: list[dict[str, object]]) -> np.ndarray:
     """Append ``rows`` to ``/settings/molecule_audit`` (created lazily); return them."""
     import numpy as np  # noqa: PLC0415
 
+    from tether.project.conditions import _append_rows  # noqa: PLC0415
+
     dtype = _audit_dtype()
     out = np.zeros(len(rows), dtype=dtype)
     for name in dtype.names:  # zero-fill vlen-string fields (h5py refuses int 0)
@@ -175,10 +182,7 @@ def _append_audit(f: object, rows: list[dict[str, object]]) -> np.ndarray:
     settings = f[_SETTINGS]  # type: ignore[index]
     if _AUDIT_NAME not in settings:
         settings.create_dataset(_AUDIT_NAME, shape=(0,), maxshape=(None,), dtype=dtype)
-    ds = settings[_AUDIT_NAME]
-    n0 = ds.shape[0]
-    ds.resize((n0 + len(rows),))
-    ds[n0:] = out
+    _append_rows(settings[_AUDIT_NAME], out)  # shrinks back if the rows are refused
     return out
 
 
@@ -195,9 +199,13 @@ def _write_category(
     """Shared body of [`set_category`][] / [`clear_category`][]."""
     import h5py  # noqa: PLC0415
 
-    from tether.project.conditions import _read_category_names  # noqa: PLC0415
+    from tether.project.conditions import (  # noqa: PLC0415
+        _read_category_names,
+        _refuse_nul_audit_text,
+    )
 
-    labeler, timestamp = _resolve_provenance(labeler, timestamp)
+    labeler, timestamp = _resolve_provenance(labeler, timestamp, reason)
+    _refuse_nul_audit_text(category=category)
     path = Path(path)
     with h5py.File(path, "r+") as f:
         mol_table = f[_MOLECULES][TABLE]
@@ -290,8 +298,9 @@ def set_category(
         If no ``/molecules`` row carries ``molecule_key``.
     ValueError
         If ``category`` is empty (use [`clear_category`][]), is not in the
-        condition's category list, the matched rows disagree on ``condition_id``, or
-        ``timestamp`` is not an offset-aware ISO-8601 string. Nothing is written.
+        condition's category list, the matched rows disagree on ``condition_id``,
+        ``timestamp`` is not an offset-aware ISO-8601 string, or ``category``,
+        ``labeler`` or ``reason`` contains a NUL character. Nothing is written.
     """
     if not isinstance(category, str):
         raise TypeError(f"category must be a string, got {type(category).__name__}")
@@ -406,7 +415,7 @@ def _write_window(
 
     from tether.project.features import WINDOW_WRITE_GUARD  # noqa: PLC0415
 
-    labeler, timestamp = _resolve_provenance(labeler, timestamp)
+    labeler, timestamp = _resolve_provenance(labeler, timestamp, reason)
     path = Path(path)
     with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
         mol_table = f[_MOLECULES][TABLE]
@@ -501,8 +510,9 @@ def set_analysis_window(
     TypeError
         If ``start`` or ``stop`` is not an integer.
     ValueError
-        If ``start >= stop``, a matched row has no valid frames, or ``timestamp`` is
-        not an offset-aware ISO-8601 string. Nothing is written.
+        If ``start >= stop``, a matched row has no valid frames, ``timestamp`` is
+        not an offset-aware ISO-8601 string, or ``labeler`` or ``reason`` contains a
+        NUL character. Nothing is written.
     """
     import numbers  # noqa: PLC0415
 

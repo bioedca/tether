@@ -346,6 +346,37 @@ def _validate_timestamp(timestamp: str) -> None:
         raise ValueError(f"timestamp must include an explicit UTC offset, got {timestamp!r}")
 
 
+def _refuse_nul_audit_text(**fields: object) -> None:
+    """Refuse audit text with an embedded NUL before any write (#1145).
+
+    HDF5 variable-length strings cannot hold a NUL character, so h5py refuses the row
+    only *after* the audit dataset has grown; checking first keeps the log and the
+    edit together. Raises [`ValueError`][] naming the first offending field.
+    """
+    for name, value in fields.items():
+        if isinstance(value, str) and "\x00" in value:
+            raise ValueError(
+                f"{name} {value!r} contains a NUL character, which an HDF5 "
+                "variable-length string cannot store"
+            )
+
+
+def _append_rows(ds: object, rows: np.ndarray) -> int:
+    """Append ``rows`` to the resizable 1-D ``ds``; return the first new index.
+
+    Grows the dataset, assigns, and shrinks it back to its previous length when the
+    assignment fails, so a refused row never leaves a zero-filled row behind (#1145).
+    """
+    n0 = int(ds.shape[0])  # type: ignore[attr-defined]
+    ds.resize((n0 + len(rows),))  # type: ignore[attr-defined]
+    try:
+        ds[n0:] = rows  # type: ignore[index]
+    except BaseException:
+        ds.resize((n0,))  # type: ignore[attr-defined]
+        raise
+    return n0
+
+
 def _audit_dtype() -> np.dtype:
     """The append-only re-key/merge audit-log compound dtype (a ``/settings`` artifact)."""
     import h5py  # noqa: PLC0415
@@ -403,10 +434,7 @@ def _append_condition_audit(
     row["timestamp"] = timestamp
     row["reason"] = reason
     row["app_version"] = _app_version()
-    n0 = ds.shape[0]
-    ds.resize((n0 + 1,))
-    ds[n0:] = row
-    return n0
+    return _append_rows(ds, row)
 
 
 # --- writers ------------------------------------------------------------------
@@ -717,7 +745,8 @@ def rekey_condition(
     ------
     ValueError
         If ``from_condition_id`` is empty, ``to_key`` hashes back to it (a no-op
-        re-key), or ``timestamp`` is not an offset-aware ISO-8601 string.
+        re-key), ``timestamp`` is not an offset-aware ISO-8601 string, or ``labeler``
+        or ``reason`` contains a NUL character. Nothing is written.
     KeyError
         If no ``/molecules`` row carries ``from_condition_id`` (never a silent no-op).
     ConfirmationRequired
@@ -736,6 +765,7 @@ def rekey_condition(
     labeler = labeler if labeler is not None else default_labeler()
     timestamp = timestamp if timestamp is not None else _utc_now_iso()
     _validate_timestamp(timestamp)  # reject a bad stamp before it enters the audit log
+    _refuse_nul_audit_text(labeler=labeler, reason=reason)
     path = Path(path)
 
     with h5py.File(path, "r+") as f:

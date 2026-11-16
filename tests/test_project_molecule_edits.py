@@ -601,3 +601,54 @@ def test_a_window_edit_waits_for_the_feature_write(
     assert not editor[0].is_alive()
     assert _window(path, "k0") == (20, 50)
     assert not _has_features(path)  # the late edit deleted the table built from (0, N)
+
+
+# --- #1145: a failed audit append leaves the log as it was ---------------------
+
+
+@pytest.mark.parametrize(
+    ("edit", "field"),
+    [
+        (
+            lambda p: M.set_category(p, "k0", "dynamic", reason="bad\x00note", timestamp=TS),
+            "reason",
+        ),
+        (lambda p: M.set_category(p, "k0", "dynamic", labeler="a\x00b", timestamp=TS), "labeler"),
+        (lambda p: M.set_category(p, "k0", "dyn\x00amic", timestamp=TS), "category"),
+        (lambda p: M.clear_category(p, "k0", reason="bad\x00note", timestamp=TS), "reason"),
+        (lambda p: M.set_analysis_window(p, "k0", 10, 60, reason="x\x00", timestamp=TS), "reason"),
+        (lambda p: M.reset_analysis_window(p, "k0", labeler="\x00", timestamp=TS), "labeler"),
+    ],
+)
+def test_audit_text_with_nul_is_refused_before_any_write(
+    tmp_path: Path, edit: object, field: str
+) -> None:
+    """HDF5 vlen strings refuse NUL; the writer says so before it grows the log (#1145)."""
+    path = _seed(tmp_path, [("k0", KEY_A, (0, N_FRAMES))])
+    cid = KEY_A.condition_id()
+    C.set_category_list(path, cid, ["static", "dynamic"])
+    M.set_category(path, "k0", "static", timestamp=TS)  # one good row to keep
+    M.set_analysis_window(path, "k0", 5, 50, timestamp=TS)
+
+    with pytest.raises(ValueError, match=f"{field}.*NUL"):
+        edit(path)  # type: ignore[operator]
+
+    audit = M.read_molecule_audit(path)
+    assert audit.shape == (2,)
+    assert all(_s(event) for event in audit["event"])
+    assert _category(path, "k0") == "static"
+    assert _window(path, "k0") == (5, 50)
+
+
+def test_failed_molecule_audit_assignment_resizes_the_log_back(tmp_path: Path) -> None:
+    """Past the up-front check, a failing assignment still leaves no empty row (#1145)."""
+    path = _seed(tmp_path, [("k0", KEY_A, (0, N_FRAMES))])
+    C.set_category_list(path, KEY_A.condition_id(), ["static"])
+    M.set_category(path, "k0", "static", timestamp=TS)
+
+    with h5py.File(path, "r+") as f, pytest.raises(ValueError, match="NUL"):
+        M._append_audit(f, [{"event": "set_category", "reason": "bad\x00note"}])
+
+    audit = M.read_molecule_audit(path)
+    assert audit.shape == (1,)
+    assert _s(audit["event"][0]) == "set_category"
