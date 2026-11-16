@@ -71,6 +71,11 @@ def _project_path(project: ProjectRef) -> str:
     return os.fspath(Path(raw).resolve())
 
 
+def _preset_name(grouping: str, value: str) -> str:
+    """Name a preset by its group value, or say the value is missing when it is empty."""
+    return value if value.strip() else f"(no {grouping.replace('_', ' ')})"
+
+
 def _group(result: ConditionQueryResult, grouping: str) -> dict[str, tuple[str, ...]]:
     """Split a query result by one preset grouping, with the result's own method."""
     return {
@@ -297,7 +302,9 @@ def preset_selections(
 
     ``by`` is one of [`PRESET_GROUPINGS`][]. The grouping is the query result's own
     (``by_condition``, ``by_movie``, ``by_source_file``), in first-seen order; each selection
-    is named by its group value and records it in its filter's ``group``.
+    is named by its group value and records it in its filter's ``group``. A group whose value
+    is empty — the movie of a movie-less molecule an analysis-only import writes — is named
+    ``(no movie)`` (or ``(no source file)``), and its ``group`` keeps the empty value.
 
     Raises
     ------
@@ -317,6 +324,6 @@ def preset_selections(
     groups = _group(result, by)
     path = _project_path(project)
     return tuple(
-        SavedSelection(value, path, keys, replace(flt, group=(by, value)))
+        SavedSelection(_preset_name(by, value), path, keys, replace(flt, group=(by, value)))
         for value, keys in groups.items()
     )

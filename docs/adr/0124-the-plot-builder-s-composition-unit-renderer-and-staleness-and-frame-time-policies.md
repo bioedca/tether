@@ -105,7 +105,8 @@ Chosen: **A** and **(i)**.
 - The one-click presets (`preset_selections(project, by)`, `by` one of `condition`, `movie`,
   `source_file`) run `query_molecules` once and split it with the result's own `by_condition`,
   `by_movie` or `by_source_file`, in first-seen order; each selection is named by its group
-  value and records it.
+  value and records it. An empty group value (the movie of a movie-less molecule from an
+  analysis-only import) is named `(no movie)` and keeps the empty value in its group.
 
 ### The renderer: one, Matplotlib
 

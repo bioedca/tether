@@ -170,6 +170,23 @@ def test_presets_apply_the_filter_before_grouping(tmp_path: Path) -> None:
     assert all(p.filter.condition_ids == (_CID_A,) for p in presets)
 
 
+def test_a_movie_less_group_gets_a_name_and_keeps_its_empty_value(tmp_path: Path) -> None:
+    # An analysis-only import writes movie_id = "" on a conditioned molecule.
+    path = _seed(
+        tmp_path,
+        [
+            {"key": "k0", "src": _FILE_A10, "movie": ""},
+            {"key": "k1", "src": _FILE_A10, "movie": "m10"},
+        ],
+    )
+    presets = {p.filter.group: p for p in preset_selections(path, "movie")}
+    blank = presets[("movie", "")]
+    assert blank.name == "(no movie)"
+    assert blank.molecule_keys == ("k0",)
+    assert blank.filter.run(path) == ("k0",)
+    assert SavedSelection.from_dict(json.loads(json.dumps(blank.to_dict()))) == blank
+
+
 def test_presets_name_the_groupings_they_support(tmp_path: Path) -> None:
     assert PRESET_GROUPINGS == ("condition", "movie", "source_file")
     with pytest.raises(ValueError, match="grouping"):
