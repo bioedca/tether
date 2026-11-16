@@ -218,7 +218,7 @@ tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PAT
 |---|---|---|
 | `movies` | *(required, one or more)* | dual-channel TIFF movies: each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
 | `--recursive` | off | a folder argument also includes the movies in its sub-folders |
-| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`; no movie is read and nothing is written ([see below](#check-a-batch-before-it-runs-dry-run)) |
+| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. No movie is read and nothing is written ([see below](#check-a-batch-before-it-runs-dry-run)) |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie |
@@ -251,7 +251,7 @@ command gives the same movies in PowerShell, cmd and bash:
   passes it to Tether as it is.
 - **A file** is used as it is, whatever its extension.
 
-Names that start with `.` are left out of folders and patterns; macOS writes `._name.tif`
+Names that start with `.` are left out of folders and patterns. macOS writes `._name.tif`
 files beside movies on some drives. The movies of all the arguments are put in one list,
 sorted by path, and a movie that two arguments give is processed once. An argument that
 gives no movie stops the run before anything is written, and the message names it:
@@ -304,12 +304,18 @@ Sidecar: found at /opt/tether/envs/sidecar/bin/python (the run checks that it st
 ```
 
 What a line says comes from the output project's checkpoint, which is opened read-only:
-`new`; `exists, complete: will be skipped`; `exists: will resume at` the stages still to
-do; `exists, incomplete:` a project with no finished extraction, which only `--overwrite`
-replaces; and, with `--policy fail`, `exists, over the gate:` an extraction the policy
-rejects. A refusal to start, such as a movie argument that gives no movie, is reported as
+
+| The line says | The output project |
+|---|---|
+| `new` | does not exist yet |
+| `exists, complete: will be skipped` | holds every stage the run asks for |
+| `exists: will resume at` a stage | holds some stages, and the run does the others |
+| `exists, incomplete:` | holds no finished extraction, and only `--overwrite` replaces it |
+| `exists, over the gate:` | holds an extraction that `--policy fail` rejects |
+
+A refusal to start, such as a movie argument that gives no movie, is reported as
 it would be by the run, with exit code `2`. The dry run only looks for the sidecar
-interpreter; the real run also starts it once before the first movie.
+interpreter. The real run also starts it once before the first movie.
 
 ### How policy `fail` behaves on resume
 
