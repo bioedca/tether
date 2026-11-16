@@ -8,7 +8,7 @@ store order) and runs the interleaved test-then-train protocol, training the gra
 ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on the accumulated prior at each video
 boundary. [`ranker_leave_one_video_out_uplift`][] runs the second held-out protocol of PRD §8
 NFR-VALID (d) over the same folds: each video scored by a ranker trained on all the others
-(ADR-0113). The result is the **honest, held-out** M5 ship metric — the median across videos of
+(ADR-0114). The result is the **honest, held-out** M5 ship metric — the median across videos of
 each video's precision@k uplift over file order — the counterpart to the optimistic in-sample
 ``ranker_precision_at_k`` ([`tether.project.gbranking`][]).
 
@@ -174,7 +174,7 @@ def ranker_leave_one_video_out_uplift(
     ship_bar_pts: float = DEFAULT_SHIP_BAR_PTS,
     hyperparams: RankerHyperparams | None = None,
 ) -> PrequentialResult:
-    """Leave-one-video-out precision@k uplift of the ranker across a project's videos (ADR-0113).
+    """Leave-one-video-out precision@k uplift of the ranker across a project's videos (ADR-0114).
 
     Groups the project's labeled molecules into the same per-video folds as
     [`ranker_prequential_uplift`][], then, for each video, trains the gradient-boosting quality

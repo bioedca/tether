@@ -6,7 +6,7 @@ Locks :mod:`tether.ml.prequential`: the interleaved test-then-train protocol sco
 with the model trained on the videos already seen (never on itself), reports the first video
 and single-class-prior videos as *skipped* rather than fabricating a ``0`` uplift, aggregates
 the held-out uplifts by their **median** into a ship verdict, and refuses (loudly) to invent a
-number when no video can be held-out evaluated. The leave-one-video-out protocol (ADR-0113)
+number when no video can be held-out evaluated. The leave-one-video-out protocol (ADR-0114)
 scores every video with a model trained on all the other videos and never on itself.
 Model-free (a fake scorer) -> pure NumPy on the base CI matrix.
 """
@@ -233,7 +233,7 @@ def test_prequential_result_names_its_protocol() -> None:
     )
 
 
-# --- leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0113) --------------------
+# --- leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0114) --------------------
 
 
 def _recording_scorer(log: list[np.ndarray]):

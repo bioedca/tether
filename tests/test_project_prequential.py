@@ -363,7 +363,7 @@ def test_before_compute_features_raises(tmp_path) -> None:
         ranker_prequential_uplift(proj, 4)
 
 
-# --- leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0113) --------------------
+# --- leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0114) --------------------
 
 
 def test_lovo_gate_ships_on_separable_multivideo(tmp_path) -> None:

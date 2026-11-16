@@ -52,7 +52,7 @@ Landed so far (M5, FR-ML):
   a train/score callback); the store-integrated entry point is
   [`tether.project.prequential.ranker_prequential_uplift`][].
 - [`leave_one_video_out_uplift`][tether.ml.prequential.leave_one_video_out_uplift] — the second
-  held-out protocol of oracle (d) (ADR-0113): each video scored by a model trained on every
+  held-out protocol of oracle (d) (ADR-0114): each video scored by a model trained on every
   other video, never on itself, reported beside the prequential gate at the same ship-bar. The
   store-integrated entry point is
   [`tether.project.prequential.ranker_leave_one_video_out_uplift`][].

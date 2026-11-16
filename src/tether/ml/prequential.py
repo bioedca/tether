@@ -31,7 +31,7 @@ is fixed), so the prior is the **expanding window** of all previously-curated vi
 "Basic Window" prequential variant [GonzalezHidalgo2019]) — mirroring the warm-start model that
 only ever accumulates labels.
 
-Leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0113). The second held-out protocol
+Leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0114). The second held-out protocol
 ([`leave_one_video_out_uplift`][]): each video in turn is scored by a model trained on **every
 other** video of the condition, earlier or later, never on itself. It answers a different
 question from the prequential walk: not *does the warm-started model help on the next video*,
@@ -321,7 +321,7 @@ def leave_one_video_out_uplift(
     k: int,
     ship_bar_pts: float = DEFAULT_SHIP_BAR_PTS,
 ) -> PrequentialResult:
-    """Leave-one-video-out precision@k uplift over a condition's video folds (ADR-0113).
+    """Leave-one-video-out precision@k uplift over a condition's video folds (ADR-0114).
 
     For each video, fits a scorer via ``train_score_fn`` on the labeled molecules of **every
     other** video (earlier and later alike), scores the held-out video, and records its

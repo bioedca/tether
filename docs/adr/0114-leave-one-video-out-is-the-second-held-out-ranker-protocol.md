@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0113 — Leave-one-video-out is the second held-out ranker protocol
+# 0114 — Leave-one-video-out is the second held-out ranker protocol
 
 - **Status:** accepted
 - **Date:** 2026-11-16

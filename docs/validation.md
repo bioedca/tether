@@ -599,7 +599,7 @@ derivation on a model whose answer is known.
 **What is compared.** The held-out precision@k of the trained per-condition ranker against
 the file-order baseline, per video, aggregated as the **median across videos** and reported as
 an uplift in percentage points. Two protocols make that measurement
-([ADR-0113](adr/0113-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)):
+([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)):
 
 - **Prequential** (interleaved test-then-train): each video is scored by a model trained on the
   videos curated before it. The first video is skipped. This is the ship gate.
@@ -639,7 +639,7 @@ a single-movie project raises rather than inventing a held-out video.
 > Gap, stated plainly. Both protocols exist, but neither has been measured on a real labelled
 > multi-video set. No curated multi-video project with accept/reject labels exists yet, so the
 > real-data leg is withheld
-> ([ADR-0113](adr/0113-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)); it is
+> ([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)); it is
 > tracked in [#1100](https://github.com/bioedca/tether/issues/1100).
 
 ## (e) α / γ estimator edge cases

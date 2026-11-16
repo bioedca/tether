@@ -147,7 +147,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0101](0101-mash-fret-analyses-are-a-histogram-and-state-reference.md) | MASH-FRET's stored analyses are an exact histogram reference and a measured state reference | accepted | §7.7 FR-ANALYZE, §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2 |
 | [0109](0109-one-selection-argument-and-one-return-shape-on-the-population-functions.md) | One selection argument and one return shape on the population functions | accepted | §7.7 FR-ANALYZE (population views), §5.1 (stale idealizations), §7.5 (the |
 | [0110](0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md) | Idealization parity: per-trace vbFRET, the transition-matrix term, the re-freeze on the pinned build, and a lock on the frozen bounds | accepted | §7.4, §9.2 (the idealization-parity gate), §9.6, §11.2, §8 NFR-VALID (b) |
-| [0113](0113-leave-one-video-out-is-the-second-held-out-ranker-protocol.md) | Leave-one-video-out is the second held-out ranker protocol | accepted | §8 NFR-VALID (d), §7.5 (FR-ML precision@k), §9 M5, §9.6, §11.2 (ranker |
+| [0114](0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md) | Leave-one-video-out is the second held-out ranker protocol | accepted | §8 NFR-VALID (d), §7.5 (FR-ML precision@k), §9 M5, §9.6, §11.2 (ranker |
 
 <!-- gen:adr-index end -->
 
