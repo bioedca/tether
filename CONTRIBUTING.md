@@ -322,7 +322,10 @@ bug fixes and refactors do not need one.
    the record's own H1 as the Title cell. `tests/test_adr_index.py` enforces that the
    index is complete, that every link resolves, and that titles match their heading.
 5. **Land the ADR in the PR that implements the decision** — the §0.4 DoD rule. An ADR
-   merged separately from its implementation drifts immediately.
+   merged separately from its implementation drifts immediately. **One exception:** an
+   accepted issue whose whole scope is the contract for named implementation issues may land
+   its ADR alone, before them, if the ADR names those issues (on its *Follow-up* line or under
+   *More information*). The contract issues #892, #893 and #894 of plan #890 are of this kind.
 
 ## AI-assisted contributions
 

@@ -2,37 +2,51 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The ``tether`` command-line entry point (PRD §7.11, NFR-REPRO).
 
-A thin headless front door over [`tether.project`][]. ``tether --version``
-reports the git-derived app version (NFR-REPRO: "the app version is derived from
-git"); ``tether extract`` runs the M1 native extraction pipeline (movie ->
-``.tether``) — see [`tether.project.extract`][]; ``tether batch`` runs the
-extract -> correct -> idealize pipeline over many movies — see
-[`tether.project.batch`][]; ``tether info`` prints a read-only summary of what a
-project holds — see [`tether.project.summary`][].
+A thin headless front door over the service commands of [`tether.services`][]
+(ADR-0100) and over [`tether.project`][]. ``tether --version`` reports the git-derived app
+version (NFR-REPRO: "the app version is derived from git"). ``tether extract`` and
+``tether batch`` are the command-line routes of two registered service commands: each
+builds the command's request from its options, runs the command, and prints the result.
+``tether extract`` runs the M1 native extraction pipeline (movie -> ``.tether``) — see
+[`tether.services.extract`][]; ``tether batch`` runs the extract -> correct -> idealize
+pipeline over many movies — see [`tether.services.batch`][]. Their subcommands are made
+from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names any
+registered command that has no route here. ``tether info`` prints a read-only summary of
+what a project holds — see [`tether.project.summary`][].
 
 The CLI deliberately uses the standard-library [`argparse`][] rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
 not justified by the current command surface (the pin-and-hold invariant). The
-heavy imaging/IO stack is imported lazily inside the ``extract`` handler so that
+heavy imaging/IO stack is imported only when a service command runs, so that
 ``tether --version`` stays dependency-light.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from tether import __version__
 from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
+from tether.services import (
+    COMMANDS,
+    BatchRequest,
+    BatchResult,
+    CommandFailed,
+    ExtractRequest,
+    ExtractResult,
+    Request,
+    RequestRefused,
+)
+from tether.services import run as run_service
 
 if TYPE_CHECKING:
     # Annotation-only: the summary module pulls in h5py, which ``--version`` must not.
-    from tether.project.summary import CurationCounts, ProjectSummary
-
-if TYPE_CHECKING:  # the batch stack stays off the ``--version`` path
     from tether.project.batch import BatchSummary
+    from tether.project.summary import CurationCounts, ProjectSummary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,17 +62,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="show the git-derived Tether version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
-    _add_extract_parser(subparsers)
-    _add_batch_parser(subparsers)
+    for entry in COMMANDS:
+        # A registered command with no route fails here, for every CLI call, as well as
+        # in the test that names it (unrouted_commands).
+        _ROUTES[entry.name].add_parser(subparsers, entry.summary)
     _add_info_parser(subparsers)
     return parser
 
 
-def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
+def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
     """Register the ``extract`` subcommand (movie -> ``.tether``)."""
     extract = subparsers.add_parser(
         "extract",
-        help="extract traces from a dual-channel movie into a .tether project",
+        help=summary,
         description=(
             "Run the native extraction pipeline (split -> detect -> register -> "
             "colocalize -> integrate) on a dual-channel TIFF movie and write a "
@@ -167,67 +183,46 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
+def _extract_request(args: argparse.Namespace) -> ExtractRequest:
+    """Build the ``extract`` request from the parsed options."""
+    return ExtractRequest(
+        movie=args.movie,
+        output=args.output,
+        overwrite=args.overwrite,
+        donor_side=args.donor_side,
+        detection_mode=args.detection_mode,
+        detection_threshold=args.detection_threshold,
+        window=args.window,
+        min_separation=args.min_separation,
+        detection_block=args.detection_block,
+        prealign=args.prealign,
+        pair_tol=args.pair_tol,
+        coloc_distance=args.coloc_distance,
+        rms_gate=args.rms_gate,
+        tmap=args.tmap,
+        tdat=args.tdat,
+    )
+
+
 def _run_extract(args: argparse.Namespace) -> int:
-    """Handle ``tether extract``; map `ExtractionError` to exit code 1."""
-    # Lazy: keep the imaging/IO/HDF5 stack off the ``--version`` path.
-    from contextlib import nullcontext  # noqa: PLC0415
-
-    from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
-    from tether.project.lock import LockError, publish_lock
-
+    """Handle ``tether extract``; a failed extraction is exit code 1."""
+    request = _extract_request(args)
     try:
-        # --detection-mode/-threshold and --tdat are two ways to set the same
-        # detection settings; combining them is ambiguous (which wins?), so refuse
-        # it up front rather than silently letting one override the other.
-        if args.tdat is not None and (
-            args.detection_mode is not None or args.detection_threshold is not None
-        ):
-            raise ExtractionError(
-                "--detection-mode/--detection-threshold cannot be combined with --tdat "
-                "(the .tdat supplies the detection mode); pass one or the other"
-            )
-        options = ExtractOptions(
-            donor_side=args.donor_side,
-            # --detection-mode defaults to None on the CLI so an explicit choice is
-            # distinguishable from no flag; resolve to the library default here. When
-            # --tdat is given, extract_movie overrides this with the decoded mode.
-            detection_mode=args.detection_mode or "wavelet",
-            detection_threshold=args.detection_threshold,
-            window=args.window,
-            min_separation=args.min_separation,
-            detection_block=args.detection_block,
-            prealign=args.prealign,
-            pair_tol=args.pair_tol,
-            coloc_distance=args.coloc_distance,
-            rms_gate=args.rms_gate,
-        )
-        # --overwrite replaces a project another writer may hold open, so it holds the
-        # destination's writer lock across the run and publishes under it (#346).
-        with publish_lock(args.output) if args.overwrite else nullcontext() as guard:
-            summary = extract_movie(
-                args.movie,
-                args.output,
-                options=options,
-                tmap=args.tmap,
-                tdat=args.tdat,
-                overwrite=args.overwrite,
-                publish_guard=guard,
-            )
-    except (ExtractionError, LockError, OSError) as exc:
-        # OSError: publish_lock opens the destination's guard file before
-        # extract_movie runs, so a missing or unwritable directory fails there.
+        result: ExtractResult = run_service(request)
+    except CommandFailed as exc:
         print(f"tether extract: {exc}", file=sys.stderr)
         return 1
 
+    summary = result.summary
     print(f"Extracted {summary.n_molecules} molecule(s) -> {summary.output_path}")
     if summary.registration_source == "imported":
-        print(f"  registration: imported from {args.tmap}")
-    if args.tdat is not None:
-        print(f"  detection: mode '{summary.detection_mode}' from {args.tdat}")
+        print(f"  registration: imported from {request.tmap}")
+    if request.tdat is not None:
+        print(f"  detection: mode '{summary.detection_mode}' from {request.tdat}")
     if summary.low_confidence_registration:
         print(
             f"  warning: registration RMS {summary.rms_residual:.3f} px exceeds the "
-            f"{args.rms_gate} px gate ({summary.n_control_points} control points); "
+            f"{request.rms_gate} px gate ({summary.n_control_points} control points); "
             "molecules tagged 'low-confidence-registration'.",
             file=sys.stderr,
         )
@@ -236,7 +231,7 @@ def _run_extract(args: argparse.Namespace) -> int:
     check = summary.donor_side_check
     if check is not None:
         note = check.describe(
-            donor_side=args.donor_side,
+            donor_side=request.donor_side,
             imported_map=summary.registration_source == "imported",
         )
         if check.swapped:
@@ -255,7 +250,7 @@ BATCH_EXIT_DEFERRED = 3
 
 BATCH_EXIT_MEANINGS: dict[int, str] = {
     BATCH_EXIT_OK: "every requested stage ran for every movie",
-    BATCH_EXIT_FAILED: "at least one movie had a failed stage",
+    BATCH_EXIT_FAILED: "at least one movie had a failed stage, or the output could not be written",
     BATCH_EXIT_USAGE: "a usage error: bad arguments, or the run refused to start",
     BATCH_EXIT_DEFERRED: (
         "no movie failed, but a requested stage was deferred for at least one movie"
@@ -285,11 +280,11 @@ def batch_exit_code(summary: BatchSummary) -> int:
     return BATCH_EXIT_OK
 
 
-def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
+def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
     """Register the ``batch`` subcommand (many movies -> per-movie ``.tether``)."""
     batch = subparsers.add_parser(
         "batch",
-        help="run the extract -> correct -> idealize pipeline over many movies",
+        help=summary,
         # Raw, so that the exit-code table in the epilog keeps one code per line; the
         # description is wrapped by hand for the same reason.
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -382,77 +377,63 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
+def _batch_request(args: argparse.Namespace) -> BatchRequest:
+    """Build the ``batch`` request from the parsed options."""
+    return BatchRequest(
+        movies=tuple(args.movies),
+        out_dir=args.out_dir,
+        tmap=args.tmap,
+        tdat=args.tdat,
+        policy=args.policy,
+        idealize=not args.no_idealize,
+        overwrite=args.overwrite,
+        log=args.log,
+        max_restarts=args.max_restarts,
+        sidecar_timeout=args.sidecar_timeout,
+        sidecar_python=args.sidecar_python,
+        defer_if_unavailable=not args.no_defer,
+    )
+
+
 def _run_batch(args: argparse.Namespace) -> int:
-    """Handle ``tether batch``; the exit code is [`batch_exit_code`][]'s (#647)."""
-    # Lazy: keep the imaging/IO/HDF5 stack off the ``--version`` path.
-    from pathlib import Path
+    """Handle ``tether batch``; exit 2 if it refused to start, 1 if it or a stage failed.
 
-    from tether.project.batch import BatchLog, MovieJob, run_batch
-
-    idealize = not args.no_idealize
-    # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
-    # a startup liveness probe → idealization-deferred mode when the sidecar env is
-    # absent/corrupt, plus per-movie auto-restart on transient failures. Unset overrides
-    # fall back to the SidecarSupervision (§11.2) defaults.
-    supervision = None
-    if idealize:
-        from tether.idealize.supervisor import SidecarSupervision
-
-        sup_kwargs: dict[str, object] = {"defer_if_unavailable": not args.no_defer}
-        if args.max_restarts is not None:
-            sup_kwargs["max_restarts"] = args.max_restarts
-        if args.sidecar_timeout is not None:
-            sup_kwargs["timeout"] = args.sidecar_timeout
-        if args.sidecar_python is not None:
-            sup_kwargs["sidecar_python"] = args.sidecar_python
-        try:
-            supervision = SidecarSupervision(**sup_kwargs)
-        except ValueError as exc:
-            print(f"tether batch: {exc}", file=sys.stderr)
-            return 2
-
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    # Each movie maps to <out-dir>/<stem>.tether. Two movies with the same basename
-    # (e.g. `movie_010.tif` from different condition folders) would collide on one
-    # output, and the batch runner's provenance checkpoint would silently treat the
-    # second as "already done" using the first's data — reject them up front.
-    jobs = []
-    seen: dict[str, str] = {}
-    for movie in args.movies:
-        stem = Path(movie).stem
-        if stem in seen:
-            print(
-                f"tether batch: movies {seen[stem]!r} and {movie!r} both map to "
-                f"{(out_dir / (stem + '.tether')).as_posix()!r}; rename one or use a "
-                "separate --out-dir",
-                file=sys.stderr,
-            )
-            return 2
-        seen[stem] = movie
-        jobs.append(
-            MovieJob(
-                movie_path=movie,
-                output_path=out_dir / f"{stem}.tether",
-                tmap=args.tmap,
-                tdat=args.tdat,
-            )
-        )
-    log_path = Path(args.log) if args.log else out_dir / "batch-log.jsonl"
-    with BatchLog(path=log_path) as log:
-        summary = run_batch(
-            jobs,
-            policy=args.policy,
-            idealize=idealize,
-            supervision=supervision,
-            overwrite=args.overwrite,
-            log=log,
-        )
-    code = batch_exit_code(summary)
-    print(summary.format_report())
+    A finished run's code is [`batch_exit_code`][]'s, so it is ``3`` when no movie failed and
+    a requested stage was deferred (#647).
+    """
+    try:
+        result: BatchResult = run_service(_batch_request(args))
+    except RequestRefused as exc:
+        print(f"tether batch: {exc}", file=sys.stderr)
+        return 2
+    except CommandFailed as exc:
+        print(f"tether batch: {exc}", file=sys.stderr)
+        return 1
+    code = batch_exit_code(result.summary)
+    print(result.summary.format_report())
     print(f"Exit code {code}: {BATCH_EXIT_MEANINGS[code]}.")
-    print(f"  structured log: {log_path}", file=sys.stderr)
+    print(f"  structured log: {result.log_path}", file=sys.stderr)
     return code
+
+
+@dataclasses.dataclass(frozen=True)
+class _Route:
+    """The command-line route of one service command."""
+
+    add_parser: Callable[[argparse._SubParsersAction, str], None]
+    to_request: Callable[[argparse.Namespace], Request]
+    invoke: Callable[[argparse.Namespace], int]
+
+
+_ROUTES: dict[str, _Route] = {
+    "extract": _Route(_add_extract_parser, _extract_request, _run_extract),
+    "batch": _Route(_add_batch_parser, _batch_request, _run_batch),
+}
+
+
+def unrouted_commands() -> list[str]:
+    """Name each registered service command that has no command-line route."""
+    return [entry.name for entry in COMMANDS if entry.name not in _ROUTES]
 
 
 def _add_info_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -594,10 +575,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command is None:
         parser.print_help()
         return 0
-    if command == "extract":
-        return _run_extract(args)
-    if command == "batch":
-        return _run_batch(args)
+    route = _ROUTES.get(command)
+    if route is not None:
+        return route.invoke(args)
     if command == "info":
         return _run_info(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
