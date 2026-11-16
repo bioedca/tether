@@ -29,7 +29,9 @@ Return leg — [`read_return_leg`][] (preview) + [`apply_reconcile`][] (commit)
     diff** the caller accepts or rejects — never a silent overwrite. An accepted
     analysis-window change is written to ``/molecules.analysis_window``, which
     **re-stales** that molecule's dependent idealizations (their input-provenance hash
-    was computed over the old window; §5.1, [`tether.project.idealize.stale_molecule_keys`][]).
+    was computed over the old window; §5.1, [`tether.project.idealize.stale_molecule_keys`][])
+    and deletes ``/features/table`` when that table holds the molecule's row
+    (``tether.project.features.invalidate_features``).
     tMAVEN's integer ``classes`` map onto Tether's free-text per-condition ``category``
     through the stored integer↔category lookup — at M2 only the non-lossy ``class 0 ↔
     uncategorized`` leg is applicable; a non-zero class is surfaced but its free-text
@@ -833,8 +835,15 @@ def _commit_store_edits(
     accept_win_ids: set[str],
     accept_cls_ids: set[str],
 ) -> tuple[list[str], list[str], list[str]]:
-    """Write accepted window / class edits to ``/molecules`` (one r+ pass)."""
+    """Write accepted window / class edits to ``/molecules`` (one r+ pass).
+
+    An accepted window edit that changes a row ``/features/table`` holds deletes that
+    table first (``tether.project.features.invalidate_features``), under
+    ``WINDOW_WRITE_GUARD``, so the ranker never reads features from the old frames.
+    """
     import h5py
+
+    from tether.project.features import WINDOW_WRITE_GUARD, invalidate_features
 
     windows_applied: list[str] = []
     classes_applied: list[str] = []
@@ -843,8 +852,18 @@ def _commit_store_edits(
         return windows_applied, classes_applied, stale_after
 
     by_id = {t.molecule_id: t for t in report.matched}
-    with h5py.File(path, "r+") as f:
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
         table = f["molecules"][TABLE]
+        stored = table["analysis_window"]
+        invalidate_features(
+            f,
+            {
+                mid
+                for mid in accept_win_ids
+                if (change := by_id[mid].window_change) is not None
+                and tuple(int(x) for x in stored[by_id[mid].store_row]) != tuple(change.new)
+            },
+        )
         for mid in sorted(accept_win_ids | accept_cls_ids):
             trace = by_id[mid]
             rec = table[trace.store_row]  # a mutable np.void copy of the row

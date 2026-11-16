@@ -527,6 +527,58 @@ def test_apply_window_edit_updates_store_and_restales(tmp_path):
     assert keys[0] not in stale_molecule_keys(proj, "prior")
 
 
+def _has_features(path) -> bool:
+    from tether.io.schema import TABLE
+
+    with h5py.File(path, "r") as f:
+        return "features" in f and TABLE in f["features"]
+
+
+def _window_edit_return_leg(tmp_path, donor, acceptor, *, row: int = 1):
+    """A returning SMD that trims molecule ``row``'s window to ``(0, 25)`` (40 frames)."""
+    n = donor.shape[0]
+    pre = np.zeros(n, dtype="int64")
+    post = np.full(n, 40, dtype="int64")
+    post[row] = 25
+    return _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, pre=pre, post=post)
+
+
+def test_apply_window_edit_invalidates_the_feature_cache(tmp_path):
+    """An accepted window edit makes the cached features stale (#1112).
+
+    ``/features/table`` was sliced to the old window; the merge-back deletes it so the
+    ranker reads "run compute_features first" instead of features from old frames.
+    """
+    from tether.project.features import compute_features, feature_matrix
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    compute_features(proj)
+    assert _has_features(proj.path)
+
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor)
+    assert apply_reconcile(proj, ret, accept_windows=True).windows_applied
+
+    assert not _has_features(proj.path)
+    with pytest.raises(KeyError, match="compute_features"):
+        feature_matrix(proj)
+    assert compute_features(proj).n_molecules == 3  # recompute works on the new window
+
+
+def test_apply_reconcile_keeps_the_cache_when_no_featured_window_changes(tmp_path):
+    from tether.project.features import compute_features
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    compute_features(proj, molecule_keys=[keys[0]])  # molecule 1 has no feature row
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor, row=1)
+
+    apply_reconcile(proj, ret, accept_windows=False)  # the edit is shown, not accepted
+    assert _has_features(proj.path)
+    assert apply_reconcile(proj, ret, accept_windows=True).windows_applied
+    assert _has_features(proj.path)  # the edited molecule was never featured
+
+
 def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch):
     """A lock stolen while ``_reconcile`` runs must not reach the store (§5.4).
 

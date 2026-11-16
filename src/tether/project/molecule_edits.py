@@ -369,25 +369,6 @@ def _clamped_window(frame_range: object, start: int, stop: int, n_frames: int | 
     return (int(resolved[0]) + lo, int(resolved[1]) + lo)
 
 
-def _invalidate_features(f: object, molecule_ids: set[str]) -> None:
-    """Delete ``/features/table`` when it holds a row for any of ``molecule_ids``.
-
-    The table is a recomputable cache of each molecule's windowed traces
-    ([`tether.project.features`][]), so a window edit makes that molecule's row stale.
-    Deleting the table makes [`feature_matrix`][tether.project.features.feature_matrix]
-    raise "run compute_features first" rather than serve features from frames that are
-    no longer the stored window. A table with no row for an edited molecule is kept.
-    """
-    from tether.project.features import FEATURES_GROUP  # noqa: PLC0415
-
-    if not molecule_ids or FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
-        return
-    group = f[FEATURES_GROUP]
-    featured = {_to_str(mid) for mid in group[TABLE]["molecule_id"]}
-    if featured & molecule_ids:
-        del group[TABLE]
-
-
 def _write_window(
     path: str | Path,
     molecule_key: str,
@@ -404,7 +385,10 @@ def _write_window(
     """
     import h5py  # noqa: PLC0415
 
-    from tether.project.features import WINDOW_WRITE_GUARD  # noqa: PLC0415
+    from tether.project.features import (  # noqa: PLC0415
+        WINDOW_WRITE_GUARD,
+        invalidate_features,
+    )
 
     labeler, timestamp = _resolve_provenance(labeler, timestamp)
     path = Path(path)
@@ -445,7 +429,7 @@ def _write_window(
             )
         # 0) drop a feature cache built from the old frames, 1) the audit rows,
         # 2) then the field (ordered for recovery: a crash after 0 costs a recompute).
-        _invalidate_features(f, {_to_str(table["molecule_id"][i]) for i in changed})
+        invalidate_features(f, {_to_str(table["molecule_id"][i]) for i in changed})
         written = _append_audit(f, audit)
         for i in changed:
             row = mol_table[i]

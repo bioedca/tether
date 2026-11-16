@@ -158,7 +158,7 @@ guaranteed to be there.
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
 | `/conditions` rows, `/conditions/categories/<condition_id>`, `/settings/condition_audit` | 0 rows / absent | `tether.project.conditions` |
 | `/settings/molecule_audit` | absent | `set_category` / `clear_category` / `set_analysis_window` / `reset_analysis_window` (`src/tether/project/molecule_edits.py`) |
-| `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
+| `/features/table` | no | `compute_features` (`src/tether/project/features.py`). Every writer that changes an `analysis_window` deletes it when it changes a row the table holds: `set_analysis_window`, `reset_analysis_window`, `compute_photobleach` and an accepted tMAVEN merge-back window edit (`apply_reconcile`). |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/models/*` | no | nothing yet — see below |
 
@@ -270,7 +270,7 @@ rewrites `condition_id`, and the per-molecule setters in
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
 | `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard aperture window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
-| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. A curator sets it with `set_analysis_window`, which clamps the request into `frame_range` (bounded by `[0, n_frames]`) by the SMD-import rule ([`_resolve_windows`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py), `src/tether/project/analysis_import.py`), and restores it with `reset_analysis_window`. There is no "manual" flag: an analysis window set to the whole `frame_range` is again under the auto-default. Either setter deletes `/features/table` when it changes a row that table holds, because those features were computed from the old frames. |
+| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. A curator sets it with `set_analysis_window`, which clamps the request into `frame_range` (bounded by `[0, n_frames]`) by the SMD-import rule ([`_resolve_windows`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py), `src/tether/project/analysis_import.py`), and restores it with `reset_analysis_window`. There is no "manual" flag: an analysis window set to the whole `frame_range` is again under the auto-default. Either setter, photobleach detection and an accepted tMAVEN merge-back window edit delete `/features/table` when they change a row that table holds, because those features were computed from the old frames. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
 | `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — resetting processed α rows and their downstream γ rows to `NaN` — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` on every analysable molecule (one whose `frame_range` is non-empty) and leaves the factor `NaN` — unless `apparent_e_only` forces `apparent-E (user toggle)` instead, or a manual `alpha_override`/`gamma_override` completes a usable pair (both effective factors finite, γ > 0), which stamps `manual` and **persists the override into this cell**. So read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
 | `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. Same `NaN` convention as `alpha` — `compute_gamma` withholds the dataset γ below `min_qualifying_traces` (`src/tether/project/gamma.py`) and resets processed rows to `NaN`; a withheld leakage recomputation also resets those rows because γ was derived from the prior α. A γ pass stamps `/settings/gamma` with `withheld = True`, and a withheld leakage pass removes `/settings/gamma` (there is no invalidated marker), so read `correction_method` / `/settings/gamma` rather than this cell. |
@@ -650,6 +650,22 @@ Dataset attributes carry `app_version`, `created_utc`, `intensity_quantity`,
 (`FEATURE_SCHEMA_VERSION`, currently `1`) governing the cache layout only; it is not
 the store's `schema_version`. The table is a recomputable cache, so a mismatch is a
 prompt to recompute, not a migration.
+
+Each row was computed from that molecule's traces sliced to its `analysis_window`, so
+a later window change makes the row stale. Every writer that changes a window of a row
+the table holds deletes the whole table before it writes the new window, and the
+readers then raise "run compute_features first":
+
+| Writer | Module |
+|---|---|
+| `set_analysis_window`, `reset_analysis_window` | `src/tether/project/molecule_edits.py` |
+| `compute_photobleach` (the auto window) | `src/tether/project/photobleach.py` |
+| `apply_reconcile` (an accepted tMAVEN window edit) | `src/tether/project/handoff.py` |
+
+A writer that changes no featured window keeps the table. An SMD analysis import
+(`import_analysis_only_project`) seeds windows on a store it builds from scratch, so the
+store it publishes never carries a feature table, even when it replaces a project that
+had one.
 
 ## `/calibration` — the channel registration maps
 
