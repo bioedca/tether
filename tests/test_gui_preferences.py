@@ -155,6 +155,22 @@ def test_only_the_last_resume_positions_are_kept(prefs: Path, tmp_path: Path) ->
     assert len(data["resume"]) == RESUME_LIMIT
 
 
+def test_reopening_a_project_keeps_its_resume_position_past_the_limit(
+    prefs: Path, tmp_path: Path
+) -> None:
+    # The oldest position is dropped first, and closing a project again makes it the newest,
+    # also once the file has been written and read back (no reordering on write).
+    first = tmp_path / "first.tether"
+    record_resume(first, "kept", prefs)
+    for i in range(RESUME_LIMIT - 1):
+        record_resume(tmp_path / f"p{i}.tether", f"m{i}", prefs)
+    record_resume(first, "kept", prefs)
+    record_resume(tmp_path / "newest.tether", "n", prefs)
+    assert resume_molecule(first, prefs) == "kept"
+    assert resume_molecule(tmp_path / "p0.tether", prefs) is None
+    assert resume_molecule(tmp_path / "p1.tether", prefs) == "m1"
+
+
 def test_two_spellings_of_one_project_share_one_identity(tmp_path: Path) -> None:
     target = tmp_path / "real.tether"
     target.write_bytes(b"")

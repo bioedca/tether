@@ -707,6 +707,9 @@ class TetherShell:
         # Whether a dock of a section that is not current shows again when its section does;
         # kept so a dock the user closed stays closed across a switch.
         self._dock_restore: dict[Any, bool] = {}
+        # Each dock's default area, so View -> Reset layout can return a dock built after
+        # the default layout was captured to its default place too (#628).
+        self._dock_default_area: dict[Any, Any] = {}
         self._section: str = _DEFAULT_SECTION
         dock_widgets: dict[tuple[str, str], Any] = {}
         for spec in self._sections:
@@ -724,6 +727,7 @@ class TetherShell:
         # layout (#628).
         self._default_size = self._window.size()
         self._default_state = self._window.saveState()
+        self._default_docks = set(self._dock_default_area)
 
         # Curation controller + keymap + the application-level event filter.
         self._controller = CurationController(self._build_handlers())
@@ -1022,7 +1026,9 @@ class TetherShell:
         dock_widget = QtWidgets.QDockWidget(title, self._window)
         dock_widget.setObjectName(f"{section_id}-{title.lower().replace(' ', '-')}")
         dock_widget.setWidget(widget)
-        self._window.addDockWidget(getattr(QtCore.Qt.DockWidgetArea, area.qt_name), dock_widget)
+        default_area = getattr(QtCore.Qt.DockWidgetArea, area.qt_name)
+        self._dock_default_area[dock_widget] = default_area
+        self._window.addDockWidget(default_area, dock_widget)
         # A dock built after the stored layout was restored takes its stored place
         # (#628); a dock the layout does not know keeps the area above.
         if self._window.restoreDockWidget(dock_widget) and section_id == self._section:
@@ -1038,6 +1044,7 @@ class TetherShell:
         """Remove a lazily-built dock from the window and from its section."""
         self._window.removeDockWidget(dock_widget)
         self._dock_restore.pop(dock_widget, None)
+        self._dock_default_area.pop(dock_widget, None)
         for docks in self._section_docks.values():
             if dock_widget in docks:
                 docks.remove(dock_widget)
@@ -1470,6 +1477,12 @@ class TetherShell:
         stored layout is forgotten so the next launch uses the default too.
         """
         self._window.restoreState(self._default_state)
+        # The default state does not know a dock built after it was captured (Overlap,
+        # Population histogram), so restoring it leaves such a dock where the user put it.
+        for dock, area in self._dock_default_area.items():
+            if dock not in self._default_docks:
+                dock.setFloating(False)
+                self._window.addDockWidget(area, dock)
         self._window.resize(self._default_size)
         every_dock = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
         self._enforce_sections(shown_by_section=every_dock)
