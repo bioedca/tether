@@ -325,6 +325,18 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction) -> None:
             "let each movie's idealize stage fail in isolation instead"
         ),
     )
+    # --- Progress on stderr (#648) -------------------------------------------
+    chatter = batch.add_mutually_exclusive_group()
+    chatter.add_argument(
+        "--quiet",
+        action="store_true",
+        help="print no progress lines on stderr; the summary on stdout is unchanged",
+    )
+    chatter.add_argument(
+        "--verbose",
+        action="store_true",
+        help="also print every stage event on stderr, as the structured log records it",
+    )
 
 
 def _run_batch(args: argparse.Namespace) -> int:
@@ -332,7 +344,7 @@ def _run_batch(args: argparse.Namespace) -> int:
     # Lazy: keep the imaging/IO/HDF5 stack off the ``--version`` path.
     from pathlib import Path
 
-    from tether.project.batch import BatchLog, MovieJob, run_batch
+    from tether.project.batch import BatchLog, MovieJob, TextProgress, run_batch
 
     idealize = not args.no_idealize
     # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
@@ -384,7 +396,13 @@ def _run_batch(args: argparse.Namespace) -> int:
             )
         )
     log_path = Path(args.log) if args.log else out_dir / "batch-log.jsonl"
-    with BatchLog(path=log_path) as log:
+    # Progress goes to stderr so that stdout stays the summary alone (#648).
+    progress = None if args.quiet else TextProgress(sys.stderr, verbose=args.verbose)
+    if progress is not None:
+        progress.run_started(
+            n_movies=len(jobs), out_dir=out_dir, policy=args.policy, idealize=idealize
+        )
+    with BatchLog(path=log_path, on_event=progress.event if progress else None) as log:
         summary = run_batch(
             jobs,
             policy=args.policy,
@@ -392,6 +410,7 @@ def _run_batch(args: argparse.Namespace) -> int:
             supervision=supervision,
             overwrite=args.overwrite,
             log=log,
+            progress=progress,
         )
     print(summary.format_report())
     print(f"  structured log: {log_path}", file=sys.stderr)
