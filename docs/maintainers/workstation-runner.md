@@ -295,9 +295,18 @@ The ids need these roles in the mapping file:
 | Role | File |
 |---|---|
 | `movie`, `tmap` | as for the golden numbers |
-| `tdat` | the saved Deep-LASI state of the acquisition (the spots-and-traces ids) |
-| `window` | a folder that `harness.py freeze` made from the Deep-LASI `.mat` export (every id above) |
-| `rerun` | `lab-01` only: the output folder of the scripted rerun |
+| `deeplasi-state` | the saved Deep-LASI state (`.tdat`) of the acquisition (the spots-and-traces ids) |
+| `window` | the `.mat` export in a folder that `harness.py freeze` made from it (every id above) |
+| `rerun` | `lab-01` only: the `.mat` export in the output folder of the scripted rerun |
+
+Each role names a file, and the self-check reads each one. Two rules keep these roles from
+changing other checks:
+
+- Do not name a folder by its neutral id. The runner treats each folder name in the mapping file
+  as private and removes it from the results, and the results contain the neutral ids. Give
+  each `window` folder a number instead, for example `deeplasi-window/01`.
+- The saved state has the role `deeplasi-state`, not `tdat`. The speed check gives a `tdat`
+  role to its extraction, so a `tdat` role on a `speed` id changes what that check measures.
 
 `tests/_deeplasi_agreement.py` pins the SHA-256 and size of each Deep-LASI file. A check fails
 with the id and the role when a file is not the pinned one.
@@ -306,7 +315,7 @@ Make a `window` folder one time for each export. Use the MATLAB release that sav
 and the Deep-LASI version of the window:
 
 ```sh
-python scripts/reference/matlab/deep_lasi.py freeze <export.mat> --out <data folder>/deeplasi-window/<id> --tool-version <version> --matlab-release 2023b --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat>
+python scripts/reference/matlab/deep_lasi.py freeze <export.mat> --out <data folder>/deeplasi-window/<number> --tool-version <version> --matlab-release 2023b --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat>
 ```
 
 The record says that no scripted run made the file, and gives the date of the export file.
@@ -316,7 +325,7 @@ Make the `rerun` folder with the scripted run, from a clean clone of Deep-LASI a
 commit:
 
 ```sh
-python scripts/reference/matlab/deep_lasi.py run --clone <Deep-LASI clone> --task extract --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat> --out <data folder>/deeplasi-runs/lab-01-rerun --matlab <matlab>
+python scripts/reference/matlab/deep_lasi.py run --clone <Deep-LASI clone> --task extract --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat> --out <data folder>/deeplasi-runs/01 --matlab <matlab>
 ```
 
 The scripted run cannot make Deep-LASI's correction factors: they come from a step in its

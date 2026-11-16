@@ -190,3 +190,67 @@ def test_medians_skip_the_molecules_without_factors() -> None:
     assert numbers["gamma_deeplasi_median"] == pytest.approx(GAMMA, rel=1e-12)
     assert numbers["n_compared"] == numbers["n_deeplasi_factors"]
     assert numbers["n_parity_frames"] > 0 and numbers["parity_max_abs"] < agree.PARITY_ATOL
+
+
+class _Mapping:
+    """The two calls of the ``private_data`` fixture that :func:`window_export` makes."""
+
+    def __init__(self, root, roles: dict[str, dict[str, str]]) -> None:
+        self.root, self.roles = root, roles
+
+    def path(self, neutral_id: str, role: str):
+        return self.root / self.roles[neutral_id][role]
+
+
+def _frozen_window(tmp_path, monkeypatch):
+    export = tmp_path / "saved" / "acquisition-export.mat"
+    export.parent.mkdir()
+    export.write_bytes(b"not a real export")
+    harness = agree.harness()
+    harness.freeze(
+        "deep-lasi",
+        saved=[export],
+        out=tmp_path / "data" / "deeplasi-window" / "01",
+        tool_version="window, commit not recorded",
+        matlab_release="2023b",
+    )
+    digest = harness.sha256(export)
+    monkeypatch.setitem(agree.FILES, "lab-90", {"mat": (digest, export.stat().st_size)})
+    return tmp_path / "data"
+
+
+def test_the_window_role_names_the_frozen_export(tmp_path, monkeypatch) -> None:
+    root = _frozen_window(tmp_path, monkeypatch)
+    rel = "deeplasi-window/01/acquisition-export.mat"
+    got = agree.window_export(_Mapping(root, {"lab-90": {"window": rel}}), "lab-90")
+    assert got == root / rel
+
+
+def test_a_window_role_that_is_not_the_export_fails(tmp_path, monkeypatch) -> None:
+    root = _frozen_window(tmp_path, monkeypatch)
+    mapping = _Mapping(root, {"lab-90": {"window": "deeplasi-window/01/provenance.json"}})
+    with pytest.raises(AssertionError, match="not the export of its record"):
+        agree.window_export(mapping, "lab-90")
+
+
+def test_the_documented_roles_keep_the_neutral_ids_public() -> None:
+    """The runner withholds every result that contains a private name (#715, #723)."""
+    import importlib.util  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "workstation" / "run_private_checks.py"
+    )
+    spec = importlib.util.spec_from_file_location("tether_run_private_checks_715", script)
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    mapping = {
+        "lab-02": {
+            "window": "deeplasi-window/01/acquisition-export.mat",
+            agree.STATE: "series/acquisition.tdat",
+        },
+        "lab-01": {"rerun": "deeplasi-runs/01/acquisition.mat"},
+    }
+    tokens = runner.private_tokens(mapping)
+    assert not any(neutral_id in token for token in tokens for neutral_id in mapping)
+    assert agree.STATE != "tdat"

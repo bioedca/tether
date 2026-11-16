@@ -5,7 +5,7 @@
 Three checks, all on private laboratory data, so every test here is a ``workstation`` test
 (ADR-0071) that only the workstation runner starts. A result file keeps summary numbers under
 the neutral ids; an assertion message names ids and quantities, never a file. Each Deep-LASI
-export is read from its ``window`` folder, a frozen copy whose ``provenance.json`` says that
+export is read through its ``window`` role, a frozen copy beside a ``provenance.json`` that says
 Deep-LASI's window saved it and on which date (``harness.py freeze``, ADR-0074).
 
 * **Spots and traces** (:data:`_deeplasi_agreement.EXTRACTION_IDS`): Tether extracts the movie
@@ -48,7 +48,7 @@ def test_spots_and_traces_meet_the_oracle_a_limits(private_data, neutral_id, tmp
     from tether.project.oracle import evaluate_project  # noqa: PLC0415
 
     movie = private_data.path(neutral_id, "movie")
-    tmap, tdat = (agree.agreement_file(private_data, neutral_id, r) for r in ("tmap", "tdat"))
+    tmap, tdat = (agree.agreement_file(private_data, neutral_id, r) for r in ("tmap", agree.STATE))
     mat = agree.window_export(private_data, neutral_id)
     out = tmp_path / f"{neutral_id}.tether"
     summary = extract_movie(movie, out, tmap=tmap, tdat=tdat)
@@ -106,8 +106,8 @@ def test_the_scripted_rerun_of_video_010_repeats_the_old_export(private_data) ->
     from tether.io.deeplasi import read_deeplasi_mat  # noqa: PLC0415
 
     harness = agree.harness()
-    folder = private_data.path(agree.RERUN_ID, "rerun")
-    record = harness.verify(folder)
+    rerun_mat = private_data.path(agree.RERUN_ID, "rerun")
+    record = harness.verify(rerun_mat.parent)
     pin = harness.load_pins()["deep-lasi"]
     assert record["method"] == "matlab-batch" and record["task"] == "extract", agree.RERUN_ID
     assert record["tool"]["commit"] == pin["commit"], f"{agree.RERUN_ID}: rerun not at the pin"
@@ -115,7 +115,8 @@ def test_the_scripted_rerun_of_video_010_repeats_the_old_export(private_data) ->
         assert list(record["inputs"][role].values()) == [ORACLE_A_FILES[role][0]], (
             f"{agree.RERUN_ID}: the rerun did not read the {role} of oracle (a)"
         )
-    [rerun_mat] = [folder / name for name in record["outputs"] if name.endswith(".mat")]
+    names = [name for name in record["outputs"] if name.endswith(".mat")]
+    assert names == [rerun_mat.name], f"{agree.RERUN_ID}: the rerun role is not the run's export"
 
     import numpy as np  # noqa: PLC0415
 
