@@ -263,7 +263,8 @@ From the next release, you can also **double-click a `.tether` project** in Expl
 or in your Linux file manager ([#664](https://github.com/bioedca/tether/issues/664)). Tether
 starts with that project open. On Windows and Linux, each double-click starts a new Tether
 window. On macOS, a Tether that is already running opens the project in its window, as
-**File → Open project…** does, and closes the project that was open. If another Tether window
+**File → Open project…** does, and closes the project that was open. If a dialog is open in
+that window, the project opens when you close the dialog. If another Tether window
 has the project open, the project opens read-only and a **Read-only project** banner tells you
 why. If another program already opens `.tether` files on Windows, the installer does not change
 that: Tether is then in the **Open with** list of the file.

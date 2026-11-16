@@ -41,6 +41,7 @@ from typing import Any, Protocol
 
 __all__ = [
     "EXTENSION",
+    "HDF_MIME_TYPE",
     "MACOS_TYPE_ID",
     "MIME_TYPE",
     "PROG_ID",
@@ -73,6 +74,9 @@ PROG_ID = "Tether.Project"
 
 #: The MIME type on Linux. ``x-`` because the type is not registered with IANA.
 MIME_TYPE = "application/x-tether"
+
+#: The shared-mime-info type of HDF files (HDF4 and HDF5), the parent of [`MIME_TYPE`][].
+HDF_MIME_TYPE = "application/x-hdf"
 
 #: The uniform type identifier on macOS, under the bundle identifier of ``Tether.app``.
 MACOS_TYPE_ID = "io.github.bioedca.tether.project"
@@ -287,18 +291,36 @@ def register_windows(
     double-click keeps opening the other program. The program identifier is written in
     either case; an identifier left by an earlier install is replaced, so the newest
     install opens the files.
+
+    The owner is the one Windows uses, from its merged view of the two roots: the current
+    user's registration when it names a program, else the computer's. So a per-user
+    install does not take the extension from a program registered for all users, which
+    a per-user default would override.
     """
     icon = document_icon_path() if icon is None else icon
     registry.set(root, _PROG_ID_KEY, "", TYPE_NAME)
     registry.set(root, _ICON_KEY, "", f'"{icon}",0')
     registry.set(root, _COMMAND_KEY, "", open_command(prefix))
     registry.set(root, _OPEN_WITH_KEY, PROG_ID, "")
-    owner = registry.get(root, _EXTENSION_KEY, "")
+    owner = _effective_owner(registry)
     if owner and owner.lower() != PROG_ID.lower():
         return False
-    if owner is None or not owner:
+    if not registry.get(root, _EXTENSION_KEY, ""):
         registry.set(root, _EXTENSION_KEY, "", PROG_ID)
     return True
+
+
+def _effective_owner(registry: Registry) -> str | None:
+    """Return the program identifier Windows opens ``.tether`` with, or None if there is none.
+
+    In the merged ``HKEY_CLASSES_ROOT`` view the current user's value wins over the
+    computer's, and an empty value names no program.
+    """
+    for root in (USER, MACHINE):
+        owner = registry.get(root, _EXTENSION_KEY, "")
+        if owner:
+            return owner
+    return None
 
 
 def unregister_windows(registry: Registry, root: str, prefix: str | os.PathLike[str]) -> bool:
@@ -363,7 +385,8 @@ def mime_package_xml() -> str:
     """Return the shared-mime-info package that defines [`MIME_TYPE`][] on Linux.
 
     A ``.tether`` project is an HDF5 file, so the type is a subclass of
-    ``application/x-hdf5``: a program that reads HDF5 is still offered for it.
+    ``application/x-hdf``, the type that shared-mime-info gives HDF4 and HDF5 files
+    (``*.h5`` among them): a program that reads HDF5 is still offered for it.
     """
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -371,7 +394,7 @@ def mime_package_xml() -> str:
         '<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">\n'
         f'  <mime-type type="{MIME_TYPE}">\n'
         f"    <comment>{TYPE_NAME}</comment>\n"
-        '    <sub-class-of type="application/x-hdf5"/>\n'
+        f'    <sub-class-of type="{HDF_MIME_TYPE}"/>\n'
         f'    <glob pattern="*{EXTENSION}"/>\n'
         "  </mime-type>\n"
         "</mime-info>\n"

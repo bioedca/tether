@@ -27,7 +27,8 @@ project is the command-line argument. On macOS the system starts ``Tether.app`` 
 arguments and sends the file as a file-open event, or sends the event to the Tether that is
 already running; [`create_shell`][] gives each such event to
 [`load_project`][tether.gui.shell.TetherShell.load_project], the path of
-``&File -> &Open project...``. An event that arrives before the shell exists waits for it.
+``&File -> &Open project...``. An event that arrives before the shell exists waits for it,
+and an event that arrives while a dialog is open waits until the dialog has closed.
 """
 
 from __future__ import annotations
@@ -45,6 +46,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = ["build_parser", "create_shell", "install_file_open_handler", "main"]
 
 _ORGANIZATION = "MondragonLab"
+
+FILE_OPEN_RETRY_MS = 200
+"""How often a file-open request that waits for a dialog to close looks again, in ms."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,22 +84,48 @@ def install_file_open_handler(app: Any) -> Any:
     object filters the events of *app* and keeps the path of each one until
     ``attach(open_project)`` is called. Then the newest waiting path goes to *open_project*
     (each open replaces the open project, so opening the older ones first would only open
-    and close them), and from then on each new path goes to it at once. When the object is
-    destroyed (it is given the shell window as its parent), the filter goes with it.
+    and close them), and from then on each new path goes to it as soon as the shell is idle.
+    When the object is destroyed (it is given the shell window as its parent), the filter
+    goes with it.
+
+    The shell is not idle while a modal dialog, a popup menu or any other nested event loop
+    runs: macOS delivers the event inside that loop, and the code that opened the dialog
+    continues on the open project after the dialog returns (the tMAVEN reconciliation
+    dialog, for one, applies the changes it showed). Then the path waits, and the object
+    looks again every [`FILE_OPEN_RETRY_MS`][] milliseconds until the loop has ended.
     """
-    from PySide6 import QtCore
+    from PySide6 import QtCore, QtWidgets
+
+    def busy() -> bool:
+        return (
+            QtWidgets.QApplication.activeModalWidget() is not None
+            or QtWidgets.QApplication.activePopupWidget() is not None
+            or QtCore.QThread.currentThread().loopLevel() > 1
+        )
 
     class _FileOpenHandler(QtCore.QObject):
         def __init__(self) -> None:
             super().__init__()
             self.pending: list[str] = []
             self._open: Any = None
+            self._retry = QtCore.QTimer(self)
+            self._retry.setInterval(FILE_OPEN_RETRY_MS)
+            self._retry.timeout.connect(self._flush)
 
         def attach(self, open_project: Any) -> None:
             self._open = open_project
+            self._flush()
+
+        def _flush(self) -> None:
+            if self._open is None or not self.pending:
+                self._retry.stop()
+                return
+            if busy():
+                self._retry.start()
+                return
+            self._retry.stop()
             pending, self.pending = self.pending, []
-            if pending:
-                open_project(pending[-1])
+            self._open(pending[-1])
 
         def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt API
             if event.type() != QtCore.QEvent.Type.FileOpen:
@@ -103,10 +133,8 @@ def install_file_open_handler(app: Any) -> Any:
             path = event.file() or event.url().toLocalFile()
             if not path:
                 return False
-            if self._open is None:
-                self.pending.append(path)
-            else:
-                self._open(path)
+            self.pending.append(path)
+            self._flush()
             return True
 
     handler = _FileOpenHandler()

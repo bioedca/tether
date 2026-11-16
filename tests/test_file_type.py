@@ -117,6 +117,31 @@ def test_an_extension_another_program_owns_is_left_to_it(tmp_path) -> None:
     ]
 
 
+def test_a_per_user_install_leaves_an_all_users_owner(tmp_path) -> None:
+    """Windows prefers the current user's default, so a per-user one would take it over."""
+    registry = MemoryRegistry()
+    ext = f"{CLASSES}\\{EXTENSION}"
+    registry.set(MACHINE, ext, "", "Other.Document")
+    registry.set(USER, f"{CLASSES}\\.txt", "", "txtfile")  # the user's Classes key exists
+    before = _snapshot(registry)
+    assert file_type.register_windows(registry, USER, PREFIX, icon=_icon(tmp_path)) is False
+    assert registry.get(USER, ext, "") is None
+    assert registry.get(USER, f"{ext}\\OpenWithProgids", PROG_ID) == ""
+    assert registry.get(MACHINE, ext, "") == "Other.Document"
+    assert file_type.unregister_windows(registry, USER, PREFIX) is True
+    assert _snapshot(registry) == before
+
+
+def test_an_all_users_install_leaves_a_per_user_owner(tmp_path) -> None:
+    """A per-user default wins for that user, so Tether does not report the extension as its own."""
+    registry = MemoryRegistry()
+    ext = f"{CLASSES}\\{EXTENSION}"
+    registry.set(USER, ext, "", "Other.Document")
+    assert file_type.register_windows(registry, MACHINE, PREFIX, icon=_icon(tmp_path)) is False
+    assert registry.get(MACHINE, ext, "") is None
+    assert registry.get(USER, ext, "") == "Other.Document"
+
+
 def test_an_empty_extension_default_is_taken(tmp_path) -> None:
     """A ``.tether`` key with an empty default names no program, so Tether may own it."""
     registry = MemoryRegistry()
@@ -286,7 +311,7 @@ def test_mime_package_defines_the_type_the_desktop_entry_names() -> None:
     assert [t.get("type") for t in types] == [MIME_TYPE]
     (mime,) = types
     assert [g.get("pattern") for g in mime.findall("m:glob", ns)] == [f"*{EXTENSION}"]
-    assert [s.get("type") for s in mime.findall("m:sub-class-of", ns)] == ["application/x-hdf5"]
+    assert [s.get("type") for s in mime.findall("m:sub-class-of", ns)] == ["application/x-hdf"]
     assert mime.findtext("m:comment", namespaces=ns) == TYPE_NAME
     entry = POST_INSTALL_SH.read_text(encoding="utf-8")
     assert f"MimeType={MIME_TYPE};\n" in entry
@@ -341,6 +366,15 @@ def test_linux_post_install_adds_the_mime_type(tmp_path) -> None:
     if shutil.which("update-mime-database") is None:
         pytest.skip("no update-mime-database here; the install smoke checks the database")
     assert (mime_d / "application" / "x-tether.xml").is_file()
+    # The type inherits from the HDF type of the system database, so the programs that
+    # handle HDF files are offered for a project too.
+    subclasses = (mime_d / "subclasses").read_text(encoding="utf-8").splitlines()
+    assert f"{MIME_TYPE} {file_type.HDF_MIME_TYPE}" in subclasses
+    system_hdf = (
+        Path("/usr/share/mime/application") / f"{file_type.HDF_MIME_TYPE.split('/')[1]}.xml"
+    )
+    if Path("/usr/share/mime/packages/freedesktop.org.xml").is_file():
+        assert system_hdf.is_file(), f"shared-mime-info defines no {file_type.HDF_MIME_TYPE}"
     if shutil.which("gio") is None:
         pytest.skip("no gio here; the install smoke checks the content type")
     doc = tmp_path / "my project é.tether"

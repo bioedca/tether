@@ -248,6 +248,39 @@ def test_a_file_open_event_before_the_shell_exists_waits_for_it(qtbot, tmp_path)
 
 @pytest.mark.gui
 @_needs_qt
+def test_a_file_open_event_waits_until_a_modal_dialog_closes(qtbot, tmp_path) -> None:
+    """A dialog's caller continues on the open project, so the project changes only after it."""
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+    from tether.gui.app import install_file_open_handler
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    handler = install_file_open_handler(app)
+    opened: list[str] = []
+    handler.attach(opened.append)
+    path = str(tmp_path / "sent during a dialog.tether")
+    dialog = QtWidgets.QDialog()
+    qtbot.addWidget(dialog)
+    inside: list[list[str]] = []
+
+    def send_while_the_dialog_is_open() -> None:
+        assert QtWidgets.QApplication.activeModalWidget() is dialog
+        assert QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(path))
+        inside.append(list(opened))
+        dialog.accept()
+
+    try:
+        QtCore.QTimer.singleShot(0, send_while_the_dialog_is_open)
+        dialog.exec()
+        assert inside == [[]]
+        assert opened == []
+        qtbot.waitUntil(lambda: opened == [path], timeout=2000)
+    finally:
+        app.removeEventFilter(handler)
+
+
+@pytest.mark.gui
+@_needs_qt
 def test_the_file_open_handler_goes_with_the_shell_window(qtbot, tmp_path) -> None:
     """Once the window is gone, a file-open event reaches no closed shell."""
     from PySide6 import QtCore, QtGui

@@ -54,8 +54,11 @@ system against an in-memory registry.
   `tether-document.ico` from the installed wheel, and `shell\open\command`
   `"<prefix>\envs\tether\Scripts\tether-gui.exe" "%1"`, the console-less launcher of
   [ADR-0076](0076-the-gui-activates-its-own-dll-path.md)), adds `Tether.Project` to `.tether\OpenWithProgids`, and sets the default
-  value of `.tether` to `Tether.Project` **only when it is absent or empty**. When another program
-  already owns `.tether`, Tether is only in its **Open with** list. The keys go under
+  value of `.tether` to `Tether.Project` **only when no program owns the extension**. The owner is
+  read the way Windows merges the two roots: the current user's default when it names a program,
+  else the computer's, so a "Just Me" install does not take `.tether` from a program registered
+  for all users. When another program already owns `.tether`, Tether is only in its **Open with**
+  list. The keys go under
   `HKEY_CURRENT_USER` for a "Just Me" install and under `HKEY_LOCAL_MACHINE` for an all-users
   install: constructor writes `.nonadmin` into the install folder for a "Just Me" install before
   `post_install` runs, and its own uninstaller reads the same file (constructor 3.17.3,
@@ -70,7 +73,8 @@ system against an in-memory registry.
 - **Linux.** `tether.desktop` already lists `MimeType=application/x-tether;` and takes the file
   as `%f`. `post_install.sh` now also writes the shared-mime-info package
   `~/.local/share/mime/packages/tether.xml` (type `application/x-tether`, glob `*.tether`, a
-  subclass of `application/x-hdf5`, because a project is an HDF5 file), with the text from the
+  subclass of `application/x-hdf`, the shared-mime-info type of HDF4 and HDF5 files, because a
+  project is an HDF5 file), with the text from the
   installed module, and runs `update-mime-database` on that folder where the tool exists. No
   `mimeapps.list` is written: with no other program for the type the entry is its default, and a
   choice the user made stays. The install guide names the file for the uninstall, because a Linux
@@ -82,7 +86,9 @@ system against an in-memory registry.
   `lsregister -u` takes it away with the bundle. macOS gives the file to the application as a
   file-open event, not as an argument: `tether.gui.app` installs an event filter on the
   `QApplication` as soon as it exists, keeps a path that arrives before the shell is built, and
-  then gives each path to `TetherShell.load_project`.
+  then gives each path to `TetherShell.load_project`. A path that arrives while a modal dialog,
+  a popup menu or another nested event loop runs waits until that loop has ended, because the
+  code that opened the dialog continues on the open project after it returns.
 - **A second open (issue item 4).** On Windows and Linux each double-click starts a new
   `tether-gui` process with its own window. If another window holds the project's lock, the new
   window opens it read-only and shows the banner, which is what the lock already does. On macOS
