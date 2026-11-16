@@ -13,7 +13,9 @@ Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x. The Source Data archi
   Windows (ADR-0097 has the numbers) and are frozen.
 
 * Weekly, Fig. 5c (#1030, ADR-0120): Tether's two-Gaussian fit of each Fig. 5b histogram gives the
-  fraction of the closed state that the archive's notebook printed, and the one in Fig. 5c.
+  fraction of the closed state that the archive's notebook printed, in all five columns. Three of
+  them also equal Fig. 5c; in the two 5 uM columns Fig. 5c differs from the notebook, and the test
+  holds Tether to the notebook there.
 
 These are advisory references. The HMM fits of the paper are #757 and its rate bounds are #758.
 """

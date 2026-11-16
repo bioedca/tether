@@ -230,7 +230,8 @@ def fit_gaussians(
         raise ValueError(f"area must be one of {AREA_METHODS}, got {area!r}")
 
     centers = np.asarray(histogram.bin_centers, dtype=np.float64)
-    observed = np.asarray(histogram.counts, dtype=np.float64)
+    # A copy: the result keeps the counts it was fitted to if the caller later changes them.
+    observed = np.array(histogram.counts, dtype=np.float64, copy=True)
     bin_widths = np.diff(np.asarray(histogram.bin_edges, dtype=np.float64))
     n = len(means0)
     n_points = int(centers.size)

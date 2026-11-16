@@ -202,6 +202,15 @@ def test_invalid_arguments_raise(means: tuple, kwargs: dict, match: str) -> None
         fit_gaussians(_noisy(3), means, **kwargs)
 
 
+def test_the_result_keeps_the_counts_it_was_fitted_to() -> None:
+    hist = _noisy(6)
+    fit = fit_gaussians(hist, (0.0, 0.33))
+    before = fit.observed.copy()
+    hist.counts[:] = 0.0
+    np.testing.assert_array_equal(fit.observed, before)
+    np.testing.assert_allclose(fit.residuals, fit.observed - fit.model)
+
+
 def test_the_starting_point_is_recorded() -> None:
     fit = fit_gaussians(_noisy(4), [0.0, 0.33])
     assert fit.initial_means == (0.0, 0.33)
