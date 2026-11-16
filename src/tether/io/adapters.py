@@ -228,16 +228,24 @@ def _ensure_builtins() -> None:
     _BUILTINS_LOADED = True
     from tether.io.movie import TIFF_ADAPTER
 
-    register_adapter(TIFF_ADAPTER)
+    _register(TIFF_ADAPTER)
 
 
 def register_adapter(adapter: MovieAdapter) -> None:
-    """Add ``adapter`` to the registry.
+    """Add ``adapter`` to the registry, after the built-in adapters.
 
     Refuses an adapter whose name is already registered, or that claims an
     extension another adapter claims, so that the extension tie-break of
-    [`select_adapter`][] stays unambiguous.
+    [`select_adapter`][] stays unambiguous. The built-ins are registered first,
+    so a registration before the first read is checked against them too and
+    cannot take the TIFF adapter's place at the head of the order.
     """
+    _ensure_builtins()
+    _register(adapter)
+
+
+def _register(adapter: MovieAdapter) -> None:
+    """Validate ``adapter`` against the registry and append it."""
     for other in _REGISTRY:
         if other.name == adapter.name:
             raise ValueError(f"a movie adapter named {adapter.name!r} is already registered")

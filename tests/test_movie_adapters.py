@@ -97,6 +97,18 @@ def test_registry_refuses_a_duplicate_name_or_extension(scratch_registry: None) 
         register_adapter(clash_ext)
 
 
+def test_a_registration_before_the_first_read_sees_the_builtins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Codex on PR #1101: an early registration must not skip or displace TIFF."""
+    monkeypatch.setattr(adapters, "_REGISTRY", [])
+    monkeypatch.setattr(adapters, "_BUILTINS_LOADED", False)
+    with pytest.raises(ValueError, match="already claims"):
+        register_adapter(MovieAdapter("Early", (".tif",), lambda h: False, MovieReader))
+    register_adapter(MovieAdapter("Later", (".later",), lambda h: False, MovieReader))
+    assert [a.name for a in registered_adapters()] == ["TIFF", "Later"]
+
+
 def test_registry_refuses_a_malformed_extension(scratch_registry: None) -> None:
     with pytest.raises(ValueError, match="lower-case"):
         register_adapter(MovieAdapter("Upper", (".FOO",), lambda h: False, MovieReader))
