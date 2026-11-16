@@ -35,6 +35,18 @@ Architecture and rationale: **[ADR-0049](../docs/adr/0049-m9-packaging-construct
   **[ADR-0049 → "base-env restructure"](../docs/adr/0049-m9-packaging-constructor-architecture.md)**.
 - Tether's **GPL-3.0** license text (shown during install and shipped beside the
   installer).
+- The **`gh` update verifier** (issue #332): the upstream GitHub CLI, which the in-app updater runs
+  as `gh attestation verify --bundle` on a downloaded installer before it executes it
+  ([ADR-0060](../docs/adr/0060-in-app-update-mechanism-and-integrity-model.md)). It is installed to
+  `<prefix>/verifier/gh/` through `extra_files`, **not** through `conda-lock` — ADR-0060 rejects
+  re-solving the base lock for one tool, and a security tool must not wait on a conda-forge
+  feedstock to be patched. [`gh-verifier.toml`](gh-verifier.toml) is the single source of the
+  version and of the SHA-256 of each platform's upstream archive; `scripts/stage_gh.py` is its only
+  reader. It refuses a version below the advisory floor, refuses an archive whose digest differs,
+  checks that the binary reports the pinned version, and stages the binary with `gh`'s MIT
+  `LICENSE` and a `THIRD-PARTY-LICENSES.txt` written by `gh licenses`. The folder is never on
+  `PATH`, so it cannot shadow a user's own `gh`; the app finds it from `sys.prefix`
+  (`tether._verifier.bundled_gh`), and the install-smoke runs it from the installed prefix.
 
 The optional `deep/` GPU stack (ADR-0047) is **not** bundled — it stays a separate,
 documented install.
@@ -45,6 +57,8 @@ documented install.
 |---|---|
 | `construct.yaml` | The recipe. Uses conda-build selectors + Jinja, so it is **not** plain YAML — render before use, and it is excluded from the `check-yaml` pre-commit hook. |
 | `scripts/post_install.sh` / `.bat` | Offline `pip --no-index --no-deps` of the three wheels into their envs; wire `TETHER_SIDECAR_PYTHON`. |
+| `gh-verifier.toml` | The pinned `gh` update verifier: its version and the SHA-256 of each platform's upstream release archive (issue #332). |
+| `scripts/stage_gh.py` | Reads `gh-verifier.toml`; downloads, digest-checks and stages `gh` into `staging/gh/` for `extra_files`. |
 | `scripts/install_smoke.sh` | CI/verification only — the per-platform offline install-smoke that both `packaging.yml` and `release.yml` run on a just-built installer (issue #217). **Not bundled** into the installer: `construct.yaml` names its `post_install:` files explicitly. |
 | `scripts/check_installer_branding.py` | CI/verification only — run by `install_smoke.sh` on the built Windows and macOS installers: fails unless they show the Tether images and the three macOS texts (issue #672). |
 | `images/` | The installer images from the brand kit (#671), each at the size `constructor` uses; `construct.yaml` names them. Sizes and placement: `docs/maintainers/building-installers.md`. |
@@ -81,6 +95,10 @@ python -m pip download --only-binary=:all: --no-deps --require-hashes \
     -r packaging/setuptools-compatibility.txt -d packaging/staging
 python scripts/setup_sidecar.py --verify-setuptools-wheel \
     "packaging/staging/$(python scripts/setup_sidecar.py --print-setuptools-wheel)"
+
+# The gh update verifier (issue #332): download the pinned upstream archive, refuse it unless its
+# SHA-256 is the one in packaging/gh-verifier.toml, and stage gh + its notices for extra_files.
+python packaging/scripts/stage_gh.py stage --platform "$PLATFORM" --dest packaging/staging/gh
 
 # 3. Render the committed locks to per-platform explicit locks (pin-and-hold).
 mkdir -p packaging/locks && cd packaging/locks

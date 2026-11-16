@@ -1,3 +1,7 @@
+---
+description: "Which Tether surfaces keep a compatibility promise in the 1.x line, which do not, and how a name is retired."
+---
+
 # Stability policy
 
 **Who this page is for.** Anyone who is about to depend on Tether not changing under them:
