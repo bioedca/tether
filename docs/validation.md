@@ -979,8 +979,8 @@ sub-populations of the ΔNCCA sample (Fig. 4: the composite HMM with K-means, an
 fit, the published state means are the levels of its transition density sheet, and the published
 populations and transitions come from its count matrix (`Kmatrix/*.txt`, global fits only). The
 frames that each fit read are the frames whose FRET values its histogram sheet pools. The priors
-are those of the Methods (α 1.0, β 0.25, π 1.0, a 2.5, b 0.01; b 0.4 for the Linker and 0.2 for
-the RAG mutant), and the tMAVEN 0.2.3 defaults where the Methods give none.
+are those of the Methods (α 1.0, β 0.25, π 1.0, a 2.5 and b 0.01, with b 0.4 for the Linker and
+0.2 for the RAG mutant), and the tMAVEN 0.2.3 defaults where the Methods give none.
 `tests/reference_data/campos_chavez_2024_hmm.json` gives each setting with its source.
 
 **Limits** (`schema/campos_chavez_hmm_limits.json`): the largest deviation over seeds 0 to 9 and
@@ -1023,37 +1023,44 @@ difference, over the seeds):
 | `linker` | 0.39 | 0.41 to 0.42 | 0.0036 to 0.42 |
 | `rag` | 0.36 | 0.34 | 0.00011 to 0.39 |
 
-Three results follow. (1) tMAVEN 0.2.0 reproduces the published fits most closely: the
-ΔDiscriminator count matrix to 8e-10, the wild-type means to 1.6e-7 with the same transitions,
-and, for 3 of the 11 seeds, the Linker count matrix to 2e-4 (for 2 seeds, the RAG means to
-1.1e-4). Its consensus fit starts from K-means, so the seed decides which optimum it reaches.
-Commit `62422f9` (0.2.3) is dated after the article, so the published fits were probably made
-with 0.2.0 or a build near it. (2) For the wild-type, ΔNCCA, ΔDiscriminator and Two-state fits, the
-version changes the means by less than 7e-5 (the One-state population depends on the seed in
-each version, above), and `10f4230` changes the transitions of the idealized paths (2.2 % for the
-wild type, where 0.2.0 and 0.2.3 give exactly the published ones). (3) For the Linker and RAG
-mutants, the percentile start of 0.2.3 and `10f4230` reaches another optimum on every seed. The
-wild-type count matrix differs by 1.5 % off the diagonal in all three versions.
+Three results follow.
+
+1. tMAVEN 0.2.0 reproduces the published fits most closely: the ΔDiscriminator count matrix to
+   8e-10, the wild-type means to 1.6e-7 with the same transitions, and, for 3 of the 11 seeds, the
+   Linker count matrix to 2e-4 (for 2 seeds, the RAG means to 1.1e-4). Its consensus fit starts
+   from K-means, so the seed decides which optimum it reaches. Commit `62422f9` (0.2.3) is dated
+   after the article, so the published fits were probably made with 0.2.0 or a build near it.
+2. For the wild-type, ΔNCCA, ΔDiscriminator and Two-state fits, the version changes the means by
+   less than 7e-5 (the One-state population depends on the seed in each version, above), and
+   `10f4230` changes the transitions of the idealized paths (2.2 % for the wild type, where 0.2.0
+   and 0.2.3 give exactly the published ones).
+3. For the Linker and RAG mutants, the percentile start of 0.2.3 and `10f4230` reaches another
+   optimum on every seed. The wild-type count matrix differs by 1.5 % off the diagonal in all three
+   versions.
 
 **The two sub-populations.** Each of their windows lies inside the window of the same molecule in
 the whole ΔNCCA fit, but the two do not split that fit: 26 molecules are in both and 26 in
-neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM, which the
-sidecar has no key for; the test adds one for itself. The sidecar key `vbgmm_vbhmm` selects one
-state on these traces; the weekly job prints its result and does not gate it.
+neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM. The sidecar
+has no key for it, so the test adds one for itself. The sidecar key `vbgmm_vbhmm` selects one
+state on these traces. The weekly job prints its result and does not gate it.
 
 **Stored models** (`workstation`): each private tMAVEN trace file is matched to a sample by its
 donor traces (a correlation of 0.99 or more with a column of the sample's matrix, which does not
 see the background subtraction or one missing frame), and each stored model and model summary is
 compared with the published values and with the fresh fit of seed 757. Older tMAVEN models, which
 `read_model` cannot open yet (#1080), are read by the test's own reader. The result file holds
-numbers under neutral ids only. The first run (2026-11-15, 24 files: 17 trace files, 4 models,
-3 summaries) found the traces of each of the five samples; three trace files of one further sample
-match no matrix of the Source Data. The stored ΔNCCA model is the published one (count matrix to
-1e-11). One of the three stored wild-type models also agrees (means to 5.8e-4, counts to 0.04 %);
-the other two do not (means to 0.042 or 0.0085). The Linker summary has the published count matrix
-exactly and means to 3.6e-3, 0.39 from the fresh fit: the published Linker fit is the one the
-authors' tMAVEN found, and the pin does not reach it. The Two-state and One-state summaries agree
-with the published means (to 4.7e-9 and 1.5e-3).
+numbers under neutral ids only.
+
+The first run (2026-11-15, 24 files: 17 trace files, 4 models, 3 summaries) found the traces of
+each of the five samples. Three trace files of one further sample match no matrix of the Source
+Data.
+
+The stored ΔNCCA model is the published one (count matrix to 1e-11). One of the three stored
+wild-type models also agrees (means to 5.8e-4, counts to 0.04 %). The other two do not (means to
+0.042 or 0.0085). The Linker summary has the published count matrix exactly and means to 3.6e-3,
+0.39 from the fresh fit: the published Linker fit is the one the authors' tMAVEN found, and the pin
+does not reach it. The Two-state and One-state summaries agree with the published means (to 4.7e-9
+and 1.5e-3).
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_hmm.py` (the settings and their
 sources, the windows, the comparison on built data, the rounding rule and this table). Weekly
