@@ -24,7 +24,7 @@ Linux         ``$XDG_CONFIG_HOME/tether/settings.json`` (``~/.config/tether/`` b
 1. *Unset* — no file, an unreadable file, or a value this version does not know. No
    network request is allowed and the first-run prompt is pending.
 2. *The user's answer* — ``allowed`` or ``declined``, written by
-   :func:`record_update_consent`.
+   [`record_update_consent`][].
 3. *The machine-wide administrator override* — a file named ``disable-update-check``
    in the machine folder below. Its presence alone disables the update check for every
    user of the machine, whatever they answered. It can only disable; nothing here lets
@@ -38,7 +38,7 @@ Linux         ``/etc/tether/disable-update-check``
 
 **What it stores.** The file holds exactly two keys, ``schema`` (the integer 1) and
 ``update_check`` (``"allowed"`` or ``"declined"``). No time, no identifier, no user
-name, no path and no project data is written, and :func:`record_update_consent` is the
+name, no path and no project data is written, and [`record_update_consent`][] is the
 only writer.
 
 **Every failure is off.** A missing, empty, truncated or foreign file reads as *unset*,
@@ -112,12 +112,12 @@ class UpdateCheckState(enum.Enum):
 
     @property
     def network_allowed(self) -> bool:
-        """True only for :attr:`ALLOWED`; every other state forbids a request."""
+        """True only for [`ALLOWED`][]; every other state forbids a request."""
         return self is UpdateCheckState.ALLOWED
 
     @property
     def prompt_pending(self) -> bool:
-        """True only for :attr:`PENDING`; the override suppresses the prompt too."""
+        """True only for [`PENDING`][]; the override suppresses the prompt too."""
         return self is UpdateCheckState.PENDING
 
 
@@ -200,8 +200,8 @@ def update_check_state(
 ) -> UpdateCheckState:
     """Read the effective update-check consent. Never raises for a bad or missing file.
 
-    ``settings_file`` and ``override_file`` default to :func:`settings_path` and
-    :func:`machine_override_path`; tests pass their own.
+    ``settings_file`` and ``override_file`` default to [`settings_path`][] and
+    [`machine_override_path`][]; tests pass their own.
     """
     override = override_file if override_file is not None else machine_override_path()
     if _override_present(override):
