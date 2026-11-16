@@ -2417,22 +2417,24 @@ separate plots. Groups B/C are idealization-gated; A/D work without a model.
   (FR-ROUNDTRIP). `tmaven/tmaven/trace_plot/multi_plot.py`.
 
 **Tether's own results (no parity claim).** The other result types that `tether.analysis` computes for a population.
-A result type that has no renderer is in the catalogue all the same: N3 makes it a plot to draw, and its renderer is
-carried by [#370](https://github.com/bioedca/tether/issues/370) (§9.6).
+Each result type is in the catalogue because N3 makes it a plot to draw. The five that had no renderer got one in
+[#370](https://github.com/bioedca/tether/issues/370); the route to them from the application is
+[#374](https://github.com/bioedca/tether/issues/374) (§9.6).
 
 | Result | Computed by (`tether.analysis.…`) | Renderer (`plot_export`) |
 |---|---|---|
-| Per-condition overlay: each condition's FRET histogram on one shared A1 axis, with its N (§7.7) | `histogram.per_condition_apparent_e_histograms` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Per-condition overlay: each condition's FRET histogram on one shared A1 axis, with its N (§7.7) | `histogram.per_condition_apparent_e_histograms` | `render_per_condition_histograms` |
 | Donor–acceptor cross-correlation: the population curve and its lag-1 magnitude (§7.7) | `crosscorr.population_cross_correlation` | `render_cross_correlation` |
 | Raw FRET cloud: KDE + highest-density-region contours (§7.7) | `cloud.population_raw_fret_cloud` | `render_raw_fret_cloud` |
-| Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
-| Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
-| Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | none yet ([#370](https://github.com/bioedca/tether/issues/370)) |
+| Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | `render_alpha_shape` |
+| Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | `render_state_number_elbow` |
+| Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | `render_population_anticorrelation` |
 
 A2's post-synchronized heatmap (A2b, `histogram.population_transition_sync_histogram2d`) is a variant of a tMAVEN type
-and so belongs to the first part; it is the fifth result type with no renderer today, also carried by #370. Two parts
-of `tether.analysis` are not plots and are outside the catalogue: the condition query (`query`) selects molecules,
-and the kinSoftChallenge kinetics check (`kinetics`) is a validation oracle (§9.5).
+and so belongs to the first part; it is the fifth result type that #370 gave a renderer,
+`render_transition_sync_histogram2d`. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
+condition query (`query`) selects molecules, and the kinSoftChallenge kinetics check (`kinetics`) is a validation
+oracle (§9.5).
 
 ---
 
