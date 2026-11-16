@@ -185,6 +185,19 @@ def _windowed_rows(
     return out
 
 
+def _window_snapshot(path: Path) -> dict[str, tuple[int, int]]:
+    """Return each row's stored ``analysis_window`` by ``molecule_id`` (``{}`` if none).
+
+    [`compute_features`][] takes this before it reads the traces and checks it again
+    inside the write, so a window edit that lands while features are computed makes
+    the write refuse rather than publish features from the old frames.
+    """
+    import h5py
+
+    with h5py.File(path, "r") as f:
+        return _window_snapshot_from(f)
+
+
 def windowed_traces(
     project: ProjectRef,
     *,
@@ -292,12 +305,17 @@ def compute_features(
         The store has no extracted molecules, or lacks the requested trace layer.
     FileExistsError
         ``/features/table`` exists and ``overwrite`` is ``False``.
+    RuntimeError
+        A featured molecule's ``analysis_window`` changed while the features were
+        computed (a window edit landed in between). Nothing is written; run it again.
     """
     from tether.project.core import Project as _Project
 
     proj = project if isinstance(project, _Project) else _Project.open(project)
     path = proj.path
 
+    # Snapshot the windows BEFORE reading the traces; the write rechecks them.
+    windows_before = _window_snapshot(path)
     rows = _windowed_rows(path, molecule_keys, intensity_quantity, include_rejected)
     if not rows:
         raise ValueError(
@@ -340,6 +358,7 @@ def compute_features(
         app_version=app_version,
         created_utc=created_utc,
         overwrite=overwrite,
+        expected_windows={mid: windows_before.get(mid) for mid in molecule_ids},
     )
     return StoredFeatures(
         molecule_ids=molecule_ids,
@@ -360,13 +379,16 @@ def _write_features_table(
     app_version: str,
     created_utc: str,
     overwrite: bool,
+    expected_windows: dict[str, tuple[int, int] | None] | None = None,
 ) -> None:
     """Write the compound feature table under ``/features`` as additive data.
 
     Stamps provenance (app version, UTC time, source trace quantity, the ordered
     feature names + schema version) on the dataset so the cache is self-describing
-    and traceable. Replaces any prior table when ``overwrite`` (the recompute path);
-    refuses to clobber otherwise.
+    and traceable. With ``expected_windows`` it first checks, inside the same ``r+``
+    handle, that no featured row's ``analysis_window`` changed since it was read.
+    Replaces any prior table when ``overwrite`` (the recompute path); refuses to
+    clobber otherwise.
 
     Note: the recompute path is ``del`` + ``create_dataset``. HDF5 does not return
     the freed block to the filesystem, so heavy re-derivation slowly grows the
@@ -378,6 +400,8 @@ def _write_features_table(
     import h5py
 
     with h5py.File(path, "r+") as f:
+        if expected_windows is not None:
+            _refuse_changed_windows(f, expected_windows)
         group = f.require_group(FEATURES_GROUP)
         if TABLE in group:
             if not overwrite:
@@ -393,6 +417,35 @@ def _write_features_table(
         dataset.attrs["feature_schema_version"] = FEATURE_SCHEMA_VERSION
         dataset.attrs["feature_names"] = json.dumps(list(FEATURE_NAMES))
         dataset.attrs["n_molecules"] = int(table.shape[0])
+
+
+def _refuse_changed_windows(f: object, expected: dict[str, tuple[int, int] | None]) -> None:
+    """Raise if a featured row's stored ``analysis_window`` is not the one read.
+
+    A window setter ([`tether.project.molecule_edits`][]) deletes ``/features/table``
+    when it changes a featured row. An edit that lands between the read and this write
+    would otherwise be undone by the write, which would put back features from the old
+    frames. Raises [`RuntimeError`][] and writes nothing; a rerun reads the new window.
+    """
+    now = _window_snapshot_from(f)
+    changed = sorted(mid for mid, window in expected.items() if now.get(mid) != window)
+    if changed:
+        raise RuntimeError(
+            f"the analysis window of {len(changed)} molecule(s) changed while features were "
+            f"computed (first: {changed[0]}); nothing was written. "
+            "Run compute_features again."
+        )
+
+
+def _window_snapshot_from(f: object) -> dict[str, tuple[int, int]]:
+    """Return ``molecule_id -> analysis_window`` from an open store handle."""
+    if "molecules" not in f or TABLE not in f["molecules"]:  # type: ignore[operator, index]
+        return {}
+    table = f["molecules"][TABLE][:]  # type: ignore[index]
+    return {
+        _to_str(mid): (int(w[0]), int(w[1]))
+        for mid, w in zip(table["molecule_id"], table["analysis_window"], strict=True)
+    }
 
 
 def read_features(project: ProjectRef) -> np.ndarray:

@@ -506,3 +506,34 @@ def test_a_category_edit_keeps_the_feature_cache(tmp_path: Path) -> None:
     M.clear_category(path, "k0", timestamp=TS)
 
     assert _has_features(path)  # features read traces and windows, never the category
+
+
+def test_a_window_edit_during_compute_features_blocks_the_stale_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A window edit between the feature read and the write must not leave old features.
+
+    CodeRabbit finding on #1027: ``compute_features`` reads the windows, computes, then
+    writes; an edit in between deletes the table, and the late write would put features
+    from the old frames back. The write rechecks the windows and refuses instead.
+    """
+    from tether.project import features as F
+
+    specs = [("k0", KEY_A, (0, N_FRAMES)), ("k1", KEY_A, (0, N_FRAMES))]
+    path = _seed(tmp_path, specs, traces=_ramp_traces(2))
+    F.compute_features(path)  # an existing cache, so the edit has something to delete
+
+    original = F._windowed_rows
+
+    def read_then_edit(*args: object, **kwargs: object) -> object:
+        rows = original(*args, **kwargs)
+        M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)  # lands mid-computation
+        return rows
+
+    monkeypatch.setattr(F, "_windowed_rows", read_then_edit)
+    with pytest.raises(RuntimeError, match="compute_features again"):
+        F.compute_features(path)
+    assert not _has_features(path)  # no table built from the old window
+
+    monkeypatch.setattr(F, "_windowed_rows", original)
+    assert F.compute_features(path).n_molecules == 2  # a clean rerun publishes
