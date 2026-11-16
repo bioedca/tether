@@ -208,6 +208,27 @@ def test_reset_layout_returns_a_dock_built_later_to_its_default_place(launch) ->
     assert not overlap.isHidden()
 
 
+def test_a_dock_built_later_takes_its_stored_place_on_the_next_launch(launch) -> None:
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.overlap_dock import OverlapDock
+
+    left = QtCore.Qt.DockWidgetArea.LeftDockWidgetArea
+
+    first = launch()
+    first._overlap_dock = OverlapDock()
+    first._attach_overlap_dock()
+    first.window.addDockWidget(left, first._overlap_dock_widget)
+    first.close()
+
+    # Built again on first use in the next launch, after the stored layout was restored.
+    second = launch()
+    second._overlap_dock = OverlapDock()
+    second._attach_overlap_dock()
+    assert second.window.dockWidgetArea(second._overlap_dock_widget) == left
+    assert not second._overlap_dock_widget.isHidden()
+
+
 def test_a_dock_hidden_only_by_its_section_shows_on_the_next_launch(launch) -> None:
     from tether.gui.shell import ANALYZE_SECTION, CURATE_SECTION
 

@@ -1029,11 +1029,14 @@ class TetherShell:
         dock_widget.setWidget(widget)
         default_area = getattr(QtCore.Qt.DockWidgetArea, area.qt_name)
         self._dock_default_area[dock_widget] = default_area
-        self._window.addDockWidget(default_area, dock_widget)
-        # A dock built after the stored layout was restored takes its stored place
-        # (#628); a dock the layout does not know keeps the area above.
-        if self._window.restoreDockWidget(dock_widget) and section_id == self._section:
-            dock_widget.show()
+        # A dock built after the stored layout was restored takes its stored place (#628);
+        # a dock the layout does not know goes to its default area. Restore first:
+        # addDockWidget drops the stored placeholder of a dock with the same name.
+        if self._window.restoreDockWidget(dock_widget):
+            if section_id == self._section:
+                dock_widget.show()
+        else:
+            self._window.addDockWidget(default_area, dock_widget)
         self._section_docks[section_id].append(dock_widget)
         if section_id != self._section:
             self._dock_restore[dock_widget] = True
