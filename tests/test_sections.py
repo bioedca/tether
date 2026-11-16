@@ -152,12 +152,17 @@ def test_the_three_shell_dock_areas_are_expressible_without_special_cases() -> N
     )
     spec = _section("curate", 1, docks=docks)
     assert [dock.area for dock in spec.docks] == [DockArea.LEFT, DockArea.RIGHT, DockArea.BOTTOM]
-    # Every Qt area name that shell.py uses today is the qt_name of one DockArea.
-    used = set(
-        re.findall(r"DockWidgetArea\.(\w+DockWidgetArea)", SHELL.read_text(encoding="utf-8"))
-    )
-    assert used == {"LeftDockWidgetArea", "RightDockWidgetArea", "BottomDockWidgetArea"}
-    assert used <= {area.qt_name for area in DockArea}
+    # The shell names each dock area as a DockArea and converts it through qt_name in one
+    # place (#341): no Qt area member is spelled out in shell.py.
+    source = SHELL.read_text(encoding="utf-8")
+    assert re.findall(r"DockWidgetArea\.(\w+DockWidgetArea)", source) == []
+    used = set(re.findall(r"DockArea\.([A-Z]+)\b", source))
+    assert used == {"LEFT", "RIGHT", "BOTTOM"}
+    assert {DockArea[name].qt_name for name in used} == {
+        "LeftDockWidgetArea",
+        "RightDockWidgetArea",
+        "BottomDockWidgetArea",
+    }
     assert DockArea.TOP.qt_name == "TopDockWidgetArea"
 
 

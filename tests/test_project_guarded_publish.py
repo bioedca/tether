@@ -335,3 +335,24 @@ def test_photobleach_guard_that_passes_writes_the_detector_result(tmp_path: Path
     assert len(calls) == 2  # before the store is opened, and before the table write
     assert not np.array_equal(_column(guarded, "bleach_frames"), before)
     _assert_same_columns(guarded, in_place, ("bleach_frames", "analysis_window"))
+
+
+def test_guarded_write_refuses_a_canonical_file_replaced_meanwhile(tmp_path: Path) -> None:
+    """A staged copy of a replaced file is never published over the newer file (#346)."""
+    from tether.project._guarded_publish import guarded_project_write
+    from tether.project.lock import LockError
+
+    canonical = tmp_path / "p.tether"
+    canonical.write_bytes(b"old project")
+    newer = tmp_path / "newer.tmp"
+    newer.write_bytes(b"newer project")
+
+    with (
+        pytest.raises(LockError, match="replaced by another writer"),
+        guarded_project_write(canonical, write_guard=lambda: None, label="test") as stage,
+    ):
+        stage.write_bytes(b"staged from old project")
+        newer.replace(canonical)  # an unguarded publisher swaps the inode
+
+    assert canonical.read_bytes() == b"newer project"
+    assert list(tmp_path.glob(".p.tether.*.test.tmp")) == []
