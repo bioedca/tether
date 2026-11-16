@@ -67,8 +67,8 @@ computes staleness again from the store each time.
 A node is a *kind* of record, an *instance* is one record, and an edge says that a downstream record
 is made from an upstream one. The graph has fifteen nodes and twenty-nine edges, below. It is a
 directed graph with no cycle. The Qt-free copy of the same table is
-`src/tether/project/dependency_graph.py` (`NODES`, `EDGES`), and `descendants()` gives the transitive
-closure. `tests/test_dependency_graph.py` asserts that the two tables of this record and the module
+`src/tether/project/dependency_graph.py` (`NODES`, `EDGES`). `descendants()` gives the transitive
+closure, and `marked_by()` gives what one edit marks before a new version is made (decision 2). `tests/test_dependency_graph.py` asserts that the two tables of this record and the module
 agree cell by cell; a change to one is a change to the other, in the same pull request.
 
 The issue lists fourteen nodes. This record adds **analysis windows** as a node of its own, because
@@ -80,7 +80,16 @@ inputs changed” has no edge to sit on.
 
 Each downstream record records, when it is made, the identity of each direct upstream instance that
 it was made from. The record is **stale** when one of those identities differs from the current
-identity of that upstream instance, and the descendants of a stale record are stale too.
+identity of that upstream instance, and the descendants of a stale record are stale too, with the
+one stop of the next paragraph.
+
+**A Fit is compared by content.** `CONTENT_COMPARED` holds one node, **Fit**: it is stale only when
+its `input_provenance_hash` differs, that is, when the input traces, the window bounds or the
+effective α and γ changed (decision 5). A mark on an upstream record whose content did not change
+does not reach it. So the mark of an edit reaches a fit only by an edge from the edited record
+itself, and `marked_by(key)` is the closure with that stop. A stale factor version, for example,
+marks the corrected data made from it, and corrected analysis on that data is disabled (decision 3),
+but the fit stays current until a new correction version changes its effective α or γ (edge 21).
 
 - The **event** of an edge is the edit that changes the upstream identity. A **guarded** edge applies
   only when its guard holds; the owner of the downstream record evaluates the guard (for example,
@@ -126,10 +135,14 @@ into **Fit**:
   version**, edge 21.
 
 The graph has no edge from **Curation labels** into **Fit**, so a label edit does not make a
-project-level idealization stale, as today. The per-factor scope of ADR-0029 is the instance scope
+project-level idealization stale, as today. A label edit of a γ contributor does mark the factor
+version (edge 11) and the corrected data after it (edge 19), but **Fit** is in `CONTENT_COMPARED`
+(decision 2), so that mark stops before the fit: `marked_by("curation_labels")` holds no fit. The
+fit becomes stale only when a new correction version changes its effective γ, which is edge 21 and
+a change of an input that the hash compares. The per-factor scope of ADR-0029 is the instance scope
 of decision 2. The analysis functions that leave stale molecules out unless `include_stale` is set
 (`tether.analysis.dwell`, `state_number`, `transition_prob`) are decision 3. **This record changes no
-code of that rule**, and the test asserts the three edges and the missing fourth.
+code of that rule**, and the test asserts the three edges, the missing fourth, and the label-edit closure.
 
 ### 6. The store data is additive, and the schema version does not change
 
@@ -149,8 +162,8 @@ field writes its own ADR and bumps the version, as §12.6 requires. This pull re
 
 | Rule of the design | Edges |
 |---|---|
-| G05 note 03, *Map/geometry edits invalidate extraction and descendants* | 3, 4, then the descendants of **Trace generation** |
-| G05 note 03, *Factor/calibration-window edits invalidate affected corrected data and descendants* | 14, 19, then the descendants of **Correction version** |
+| G05 note 03, *Map/geometry edits invalidate extraction and descendants* | 3, 4, then the descendants of **Trace generation**; a fit when the new generation exists (edge 10, decision 2) |
+| G05 note 03, *Factor/calibration-window edits invalidate affected corrected data and descendants* | 14, 19, then the descendants of **Correction version**; a fit when the new correction version exists (edge 21, decision 2) |
 | G05 note 03, *Analysis-window edits invalidate dependent fits/plots* | 16, 17, 18 (and 15, guarded) |
 | G05 note 03, *Membership edits invalidate only affected cohort results* | 23, 24; **Analysis-set version** has no edge back to the calibration |
 | G03 *calibration evidence changes* | 7, 14, 20 |

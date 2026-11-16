@@ -3,7 +3,7 @@
 """The dependency graph of a project and the rules that make a result stale (ADR-0103).
 
 This module is the **one Qt-free table** of the graph that ADR-0103 decides (PRD §7.13
-FR-WORKFLOW-6). It holds data and two read-only walks, nothing else: it writes no store
+FR-WORKFLOW-6). It holds data and three read-only walks, nothing else: it writes no store
 data and it sets no stale mark. The job and dependency coordinator of #895 and the stage
 readiness of #896 read it, so that two features cannot implement two different rules for
 the same edge.
@@ -18,8 +18,9 @@ The words of the graph:
   stale, and optionally a **guard**: the edge applies only when the guard holds.
 * A downstream record is **stale** when an upstream identity that it recorded at creation
   differs from the current one. Staleness is transitive: the descendants of a stale record
-  are stale too. A stale record stays readable and keeps its mark; it never supplies a
-  current result; nothing is deleted ([`STALE_PERMITS`][]).
+  are stale too, except a node of [`CONTENT_COMPARED`][], which is stale only when an
+  input that it compares changes ([`marked_by`][]). A stale record stays readable and keeps
+  its mark; it never supplies a current result; nothing is deleted ([`STALE_PERMITS`][]).
 
 The scope of a mark is the instances that recorded the changed instance, not every instance
 of the node kind: an α change stales the corrections of its condition only, and a membership
@@ -55,6 +56,13 @@ STALE_PERMITS = (
     "A stale record never supplies a current result.",
     "Nothing is deleted: a stale record is kept until the user removes it.",
 )
+
+#: The nodes whose staleness is decided by a comparison of content, never by an upstream mark
+#: (ADR-0103 decision 2). A **Fit** is stale only when its ``input_provenance_hash`` differs:
+#: the input traces, the window bounds or the effective α and γ changed. A mark on an upstream
+#: record whose content is unchanged (a stale factor version, before a new correction version
+#: is made) does not reach it. This is the idealization rule of today (ADR-0024, ADR-0029).
+CONTENT_COMPARED: frozenset[str] = frozenset({"fit"})
 
 
 @dataclass(frozen=True)
@@ -622,7 +630,34 @@ def descendants(key: str, *, follow_guarded: bool = True) -> frozenset[str]:
     return frozenset(seen)
 
 
+def marked_by(key: str, *, follow_guarded: bool = True) -> frozenset[str]:
+    """Return the nodes that an edit of ``key`` marks stale before any new version is made.
+
+    This is [`descendants`][] with one stop: the mark goes from a stale record to the records
+    made from it, but not into a node of [`CONTENT_COMPARED`][]. Such a node is reached only
+    by an edge from ``key`` itself, because only the edited record has a changed identity.
+    A node downstream of a fit is still marked when another path reaches it.
+
+    For example, a label edit of a γ contributor marks the factor version (edge 11) and the
+    corrected data made from it, but no fit: the effective γ of a fit changes only when a new
+    correction version is made, and that is an edit of ``correction_version`` (edge 21).
+    """
+    seen: set[str] = set()
+    queue = deque([key])
+    node(key)
+    while queue:
+        current = queue.popleft()
+        for e in edges_from(current, follow_guarded=follow_guarded):
+            if e.downstream in CONTENT_COMPARED and current != key:
+                continue
+            if e.downstream not in seen:
+                seen.add(e.downstream)
+                queue.append(e.downstream)
+    return frozenset(seen)
+
+
 __all__ = [
+    "CONTENT_COMPARED",
     "EDGES",
     "IDENTITY_CONTENT_HASH",
     "IDENTITY_EXTERNAL_ID",
@@ -635,5 +670,6 @@ __all__ = [
     "Node",
     "descendants",
     "edges_from",
+    "marked_by",
     "node",
 ]

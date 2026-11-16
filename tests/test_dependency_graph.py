@@ -259,6 +259,46 @@ def test_the_idealization_rule_is_three_edges_into_fit() -> None:
     assert "curation_labels" not in project_level
 
 
+def test_a_gamma_contributor_label_edit_marks_no_fit() -> None:
+    # The mark of edge 11 goes on to the corrected data (edge 19) but stops before the fit:
+    # the fit compares content (its input_provenance_hash), and a label edit changes none of it.
+    assert {"fit"} == g.CONTENT_COMPARED
+    marked = g.marked_by("curation_labels")
+    assert {"factor_version", "correction_version"} <= marked
+    assert "fit" not in marked
+    assert "fit" not in g.marked_by("curation_labels", follow_guarded=False)
+    # the fit is a descendant only through a new correction version (edge 21)
+    assert "fit" in g.descendants("curation_labels")
+    paths_in = {e.upstream for e in g.EDGES if e.downstream == "fit"}
+    assert not paths_in & {"curation_labels", "factor_version"}
+
+
+@pytest.mark.parametrize(
+    "edit", ["trace_generation", "analysis_windows", "correction_version", "analysis_set_version"]
+)
+def test_the_edit_of_a_compared_input_marks_the_fit(edit: str) -> None:
+    assert "fit" in g.marked_by(edit)
+    assert {"result_snapshot", "package_manifest", "deposit_record"} <= g.marked_by(edit)
+
+
+@pytest.mark.parametrize(
+    "edit", ["map", "geometry_recipe", "calibration_windows", "factor_version", "review_snapshot"]
+)
+def test_a_mark_alone_never_reaches_a_fit(edit: str) -> None:
+    assert "fit" not in g.marked_by(edit)
+    assert g.marked_by(edit) <= g.descendants(edit)
+
+
+def test_marked_by_is_descendants_without_the_content_compared_stop() -> None:
+    for n in g.NODES:
+        marked = g.marked_by(n.key)
+        assert marked <= g.descendants(n.key), n.key
+        if not g.descendants(n.key) & g.CONTENT_COMPARED:
+            assert marked == g.descendants(n.key), n.key
+    with pytest.raises(KeyError):
+        g.marked_by("trace")
+
+
 def test_the_rule_names_the_hash_inputs_that_exist() -> None:
     from tether.project import idealize
 
