@@ -422,3 +422,75 @@ def test_the_help_defaults_are_the_live_constants() -> None:
     assert f"default {DEFAULT_MAX_RESTARTS} " in by_dest["max_restarts"]
     assert f"(default {DEFAULT_SIDECAR_TIMEOUT:g})" in by_dest["sidecar_timeout"]
     assert f"(default {core.MODEL_TYPE_DEFAULT})" in by_dest["method"]
+
+
+# --- the request refusals the parser cannot reach -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"method": "kmeans_vbhmm"}, "method must be one of vbconhmm, ebhmm"),
+        ({"nstates": 2, "nstates_grid": "1,2"}, "not both"),
+        ({"nstates_grid": "2,0"}, "every state count in the grid must be 1 or more"),
+    ],
+)
+def test_the_service_refuses_what_the_parser_would_catch(tmp_path, sidecar, fields, message):
+    path = _store(tmp_path)
+    with pytest.raises(service.RequestRefused, match=message):
+        service.run(service.IdealizeRequest(project=str(path), **fields))
+    assert sidecar.calls == [] and core.list_idealizations(path) == []
+
+
+def test_the_sidecar_timeout_reaches_every_fit(tmp_path, sidecar) -> None:
+    path = _store(tmp_path)
+    assert cli.main(["idealize", str(path), "--nstates", "2", "--sidecar-timeout", "60"]) == 0
+    assert [c["timeout"] for c in sidecar.calls] == [60.0]
+
+
+def test_no_molecule_left_to_fit_exits_1_and_writes_no_model(tmp_path, sidecar, capsys) -> None:
+    path = _store(tmp_path, rejected=[True] * N_MOLECULES)
+    assert cli.main(["idealize", str(path)]) == 1
+    assert "no molecules selected to idealize" in capsys.readouterr().err
+    assert sidecar.calls == [] and core.list_idealizations(path) == []
+    assert not lock.lock_path(path).exists()
+
+
+def test_stale_only_refits_only_the_models_that_are_stale(tmp_path, sidecar, capsys) -> None:
+    path = _model_store(tmp_path, stale=[False, True, False])
+    stored = core.read_idealization(path, "vbconhmm")
+    # A second, current model of the same molecules beside the stale one.
+    core.write_idealization_model(
+        path,
+        model_name="current",
+        model_type="vbconhmm",
+        nstates=stored.nstates,
+        dtype="FRET",
+        means=stored.means,
+        variances=stored.variances,
+        tmatrix=None,
+        norm_tmatrix=None,
+        elbo=1.0,
+        idealized=stored.idealized,
+        state_paths=stored.state_paths,
+        molecule_keys=stored.molecule_keys,
+        molecule_ids=stored.molecule_ids,
+        input_hashes=_fresh_hashes(path),
+        intensity_quantity="corrected",
+        selected_by="fixed",
+        elbo_by_nstates=None,
+        app_version="test",
+        created_utc="2026-01-01T00:00:00Z",
+        overwrite=False,
+    )
+    assert cli.main(["idealize", str(path), "--stale-only"]) == 0
+    out = capsys.readouterr().out
+    assert "  current: 0 stale, 3 current; current, not refitted" in out
+    assert "  vbconhmm: 1 stale, 2 current; refitted" in out
+    assert len(sidecar.calls) == 1
+
+
+def _fresh_hashes(path: Path) -> list[str]:
+    from _analysis_store import fresh_input_hashes
+
+    return fresh_input_hashes(path)
