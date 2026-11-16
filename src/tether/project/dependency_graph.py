@@ -11,7 +11,7 @@ the same edge.
 The words of the graph:
 
 * A **node** is a *kind* of project record (a trace generation, a fit, a result snapshot).
-  An *instance* is one such record, and its **identity** (:attr:`Node.identity_kind`) is a
+  An *instance* is one such record, and its **identity** ([`Node.identity_kind`][]) is a
   version counter, a content hash, or an external id.
 * An **edge** says that a downstream record is made from an upstream one. Each edge names
   the **event** that changes the upstream identity in a way that makes the downstream record
@@ -19,13 +19,13 @@ The words of the graph:
 * A downstream record is **stale** when an upstream identity that it recorded at creation
   differs from the current one. Staleness is transitive: the descendants of a stale record
   are stale too. A stale record stays readable and keeps its mark; it never supplies a
-  current result; nothing is deleted (:data:`STALE_PERMITS`).
+  current result; nothing is deleted ([`STALE_PERMITS`][]).
 
 The scope of a mark is the instances that recorded the changed instance, not every instance
 of the node kind: an α change stales the corrections of its condition only, and a membership
 edit stales the fits of that one analysis set only.
 
-``tests/test_dependency_graph.py`` asserts that :data:`NODES` and :data:`EDGES` agree, cell by
+``tests/test_dependency_graph.py`` asserts that [`NODES`][] and [`EDGES`][] agree, cell by
 cell, with the two tables of ``docs/adr/0103-the-project-dependency-graph-and-the-stale-rules.md``.
 A change to one is a change to the other, in the same pull request.
 """
@@ -70,14 +70,14 @@ class Node:
     diagram_block
         The block of the workflow design (``docs/design/``) that the node comes from.
     identity_kind
-        One of :data:`IDENTITY_KINDS`.
+        One of [`IDENTITY_KINDS`][].
     identity
         How the identity of an instance is calculated.
     existing_stamp
         The provenance stamp that exists today and that the identity agrees with, or
         ``"none"`` when the node has no stored record yet.
     when_stale
-        What a stale instance of this node still permits, beyond :data:`STALE_PERMITS`.
+        What a stale instance of this node still permits, beyond [`STALE_PERMITS`][].
     """
 
     key: str
@@ -116,7 +116,7 @@ class Edge:
 
     @property
     def guarded(self) -> bool:
-        """Whether the edge applies only when its :attr:`guard` holds."""
+        """Whether the edge applies only when its [`guard`][] holds."""
         return bool(self.guard)
 
 
@@ -594,7 +594,7 @@ def node(key: str) -> Node:
 
 
 def edges_from(key: str, *, follow_guarded: bool = True) -> tuple[Edge, ...]:
-    """The edges whose upstream is ``key``, in table order.
+    """Return the edges whose upstream is ``key``, in table order.
 
     With ``follow_guarded=False`` the guarded edges are left out: the result is the edges that
     apply whatever the guard says.
@@ -606,7 +606,7 @@ def edges_from(key: str, *, follow_guarded: bool = True) -> tuple[Edge, ...]:
 def descendants(key: str, *, follow_guarded: bool = True) -> frozenset[str]:
     """Every node that a change of ``key`` can make stale (the node itself is not included).
 
-    This is the transitive closure over :data:`EDGES`. With ``follow_guarded=False`` it follows
+    This is the transitive closure over [`EDGES`][]. With ``follow_guarded=False`` it follows
     only the edges that apply whatever their guard says, so the result is what a change of
     ``key`` *always* makes stale; with the default it is what it *can* make stale.
     """
