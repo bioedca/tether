@@ -47,6 +47,12 @@ single frame per redraw, so only that frame is byte-swapped and the ≈0.9 GB st
 never materializes. Movies already in native order are passed through untouched
 (zero copy). Explicit ``contrast_limits`` (sampled from the first frame) keep
 napari from scanning the whole array to auto-range it.
+
+**Qt binding.** This module is the boundary with napari, so its one Qt import, the
+[`switcher`][tether.gui.movie_panel.NapariMoviePanel.switcher] combo box, comes from
+``qtpy``, not ``pyqtgraph.Qt`` (the convention of the rest of [`tether.gui`][]).
+napari builds its window and widgets through ``qtpy``, and the switcher is placed next
+to them, so it must come from the binding napari selected.
 """
 
 from __future__ import annotations

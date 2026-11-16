@@ -14,7 +14,7 @@ site will change that.
 
 Tether reads **uncompressed multi-page TIFF movies from a single camera whose frame is
 split side by side, down the vertical midline, into a left and a right half** — one donor
-channel, one acceptor channel — recorded with **one excitation laser** and **two colours**.
+channel, one acceptor channel — recorded with **one excitation laser** and **two colors**.
 That is the dual-view TIRF geometry the whole pipeline is built around. A top/bottom
 (stacked) dual-view export does not fit native extraction: the built-in splitter cuts on
 width only, so it would slice each channel in two rather than separating them. (If you have
@@ -23,7 +23,7 @@ a Deep-LASI `.tmap` whose per-channel crops describe the stacked tiles, extracti
 unsupported.)
 
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
-*three-colour*, or *confocal point detectors* describes your setup, it does not — see
+*three-color*, or *confocal point detectors* describes your setup, it does not — see
 [What Tether does not do](#what-tether-does-not-do). If your movies are in a vendor
 container (`.nd2`, `.czi`, `.sif`), export them to uncompressed TIFF first and Tether will
 read them.
@@ -55,7 +55,7 @@ with a message that lists what Tether reads (today, TIFF) and names the Bio-Form
 for the others, instead of a TIFF parse error. Extension matching exists only in the
 Deep-LASI folder-intake wizard, where `tether.io.intake.classify_file` maps `.tif`/`.tiff`
 to the movie role, `.tdat`, `.tmap`, `.mat`, `.txt` and `.hdf5`/`.h5` to their own legacy
-roles, and anything it does not recognise to `unknown` — collected into the discovery
+roles, and anything it does not recognize to `unknown` — collected into the discovery
 result's `ignored` list rather than silently dropped.
 
 **Frame time.** Tether reads seconds-per-frame from the TIFF only when the file carries an
@@ -76,7 +76,7 @@ other as acceptor. Which half is which is yours to declare, with `--donor-side` 
 both halves from the frame *width* — there is no top/bottom split.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
-batch`) does not expose it: [`_run_batch`](https://github.com/bioedca/tether/blob/main/src/tether/cli.py) builds its `MovieJob`s without an `ExtractOptions`,
+batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,
 so every movie in a batch run uses the default **left** donor. If your acquisition puts the
 donor on the right, run it through `tether extract` per movie, supply a `.tmap` (whose
 reference channel then defines donor), or drive `tether.project.batch.run_batch` from Python
@@ -95,12 +95,12 @@ covers both axes). Empty or all-zero `Rotation`/`Flip` — what the reference UC
 stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 `tether.imaging.register`).
 
-> ### Getting `--donor-side` backwards raises no error, and relabelling afterwards will not fix it
+> ### Getting `--donor-side` backwards raises no error, and relabeling afterwards will not fix it
 >
 > **A wrong `--donor-side` raises no error during extraction.** Both values are legal, so
 > extraction succeeds and every trace looks plausible.
 >
-> It is worse than a mislabelling. Spot detection is **donor-anchored**: Tether finds spots
+> It is worse than a mislabeling. Spot detection is **donor-anchored**: Tether finds spots
 > in the half you called donor and colocalizes the other channel against them. Get it
 > backwards and you have anchored on the acceptor half, so the molecule *set* itself is
 > different. You cannot repair the project by swapping the column names afterwards, and you
@@ -110,7 +110,7 @@ stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 >
 > **How to tell.** Find a molecule whose acceptor photobleaches partway through. When the
 > acceptor dies, energy transfer stops and the donor de-quenches, so the **donor trace
-> steps up** at that instant. If the trace you have labelled "donor" steps *down* while the
+> steps up** at that instant. If the trace you have labeled "donor" steps *down* while the
 > other steps up, your halves are swapped.
 >
 > Tether makes this check for you after every extraction. It counts each molecule whose dyes
@@ -151,7 +151,7 @@ than reconstruction.
 
 These are deliberate scope boundaries, not gaps waiting to be filled.
 
-- **No ALEX or PIE, no stoichiometry, no three-colour.** Tether is two-colour,
+- **No ALEX or PIE, no stoichiometry, no three-color.** Tether is two-color,
   single-laser only. A direct consequence: the direct-excitation correction factor δ is
   structurally inert (it is zero), because estimating it needs the
   acceptor-under-acceptor-excitation channel that only ALEX provides.
@@ -174,8 +174,8 @@ These are deliberate scope boundaries, not gaps waiting to be filled.
   carrying a warning that "the .tdat could not be decoded"
   ([`tests/test_deeplasi_executor.py::test_undecodable_tdat_degrades_to_mat_apparent_e`](https://github.com/bioedca/tether/blob/main/tests/test_deeplasi_executor.py)).
 - **Older `.dat` and vbFRET `.mat` formats are out of scope.**
-- **No data simulator.** Validation runs against real labelled traces and a published
-  benchmark dataset, not synthesised data.
+- **No data simulator.** Validation runs against real labeled traces and a published
+  benchmark dataset, not synthesized data.
 - **No central server.** Tether is a desktop application; each person runs it on their own
   machine against their own storage.
 
@@ -198,18 +198,18 @@ operation becomes more than 1.5 times slower or larger. The job summary shows th
 | Reference movie | 512 × 512, 1700 frames | `REFERENCE_MOVIE_*` |
 | Movies per condition | 100 | `REFERENCE_CONDITION_MOVIES` |
 | Molecules per movie | 250 | `REFERENCE_MOLECULES_PER_MOVIE` |
-| Unattended batch window | 12 h ("overnight") | `OVERNIGHT_WINDOW_HOURS` |
+| Unattended batch run time | 12 h ("overnight") | `OVERNIGHT_WINDOW_HOURS` |
 | Per-trace UI latency budget | 100 ms | `PER_TRACE_LATENCY_BUDGET_S` |
 | Trace bytes per molecule per frame | 24 B (six `float32` layers) | `TRACE_BYTES_PER_MOLECULE_FRAME` |
 | Fixed bytes per molecule | 5 kB | `FIXED_STORAGE_BYTES_PER_MOLECULE` |
 | Per-condition projection ceiling | 5 GiB | `MAX_CONDITION_BYTES` |
 
 `perf.estimate_condition_bytes()` projects a full reference condition — 100 movies × 250
-molecules × 1700 frames — at about **1.07 GiB** of `.tether` store, against roughly 90 GB
+molecules × 1700 frames — at about **1.07 GiB** of `.tether` project file, against roughly 90 GB
 of raw movies at the reference geometry. One molecule projects to about **46 kB**.
 
 Both are deliberately *pessimistic*: the model costs the six trace layers uncompressed,
-while the store writes them gzip-chunked, so real projects come in comfortably under it.
+while the project file writes them gzip-chunked, so real projects come in comfortably under it.
 The 5 GiB ceiling is a design self-check that the test suite holds the projection beneath
 — it is **not enforced at runtime**, and nothing stops or warns you if a real condition
 exceeds it.
@@ -217,7 +217,9 @@ exceeds it.
 The 100 ms per-trace budget is what keeps curation at a 1–2 second-per-trace cadence; it
 covers drawing one molecule's donor/acceptor and FRET curves and stepping to the next.
 
-### The store references your movies, it does not copy them
+<a id="the-store-references-your-movies-it-does-not-copy-them"></a>
+
+### The project file references your movies, it does not copy them
 
 This is the most useful thing to know about disk planning. A `.tether` project records,
 per movie, the path you gave it, a `sha256`, and a metadata-only signature — file size,
@@ -227,9 +229,9 @@ movie pixels stay where they are.
 Reopening a project does not read your movie files, so it can never force a cloud-storage
 placeholder to hydrate just to check whether something changed.
 
-The one thing a **natively extracted** store caches from the pixels is a `window × window`
+The one thing a **natively extracted** project file caches from the pixels is a `window × window`
 temporal-mean patch per molecule per channel (`/patches/{donor,acceptor}`), so curation and
-the static overlap view still work with the movies offline. At the default 21-pixel window
+the static overlap view still work with the movies offline. At the default 21-pixel aperture window
 that is about 3.5 kB per molecule, already inside the 5 kB fixed-per-molecule figure above.
 A project reconstructed from a Deep-LASI export is the exception: that path never reads the
 movie pixels, so its patches are written zero-filled. Curation, the overlap distance and the
