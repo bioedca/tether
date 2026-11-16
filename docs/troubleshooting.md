@@ -692,18 +692,36 @@ LockedError: <path>.tether.lock is locked: the lock file is corrupt (unknown own
 CorruptLockError: unparseable lock file: <path>.tether.lock
 ```
 
-**Cause and remedy — the three cases differ, and the message tells you which one you have.**
+**Cause and remedy — the cases differ, and the message tells you which one you have.**
+In the application, the project opens read-only and the Browser's read-only banner names the
+case. The banner shows an action button only when an action is safe. Do not delete the
+`.tether.lock` file by hand.
 
-- **No `; stale` suffix** — a live writer. Close the other Tether window, or ask the named
-  host's user to. Do not steal.
+- **The lock names this computer and your login, and that Tether no longer runs** — Tether
+  stopped without releasing the lock, for example after a crash. The banner shows
+  **Recover**. Click it: Tether takes the lock and opens the project again, writable. No
+  other writer can lose work in this case, so no confirmation is asked.
+- **The lock names a Tether that still runs on this computer** — another window has the
+  project open. The banner shows no action, and Tether never takes this lock. Close the other
+  window.
+- **No `; stale` suffix** (another computer or another login) — a live writer, or one that
+  stopped less than ≈30 minutes ago. The banner shows no action and says when a takeover
+  becomes possible. Close the other Tether window, or ask the named host's user to.
 - **`; stale`** — the holder has been idle longer than the ≈30-minute staleness timeout.
   Liveness is judged by wall clock, not by probing the PID, because a remote PID cannot be
-  probed and cloud storage is eventually consistent. A stale lock is reclaimable only by an
-  **explicit steal**; it is never auto-acquired, and the ousted owner's unsaved work is not
-  merged.
+  probed and cloud storage is eventually consistent. Only a holder on this computer is
+  probed, as the first two cases say. The banner shows **Take over…**. Tether asks you to
+  type the project file name and warns that the holder's unsaved work can be lost; that work
+  is not merged. A stale lock is never taken without this step.
 - **`the lock file is corrupt (unknown owner)`** — the `.lock` JSON is unreadable, so no
-  owner can be identified and writes are refused until an explicit steal overwrites it.
-  Deleting the stray `.tether.lock` file is the manual fix.
+  owner can be identified and writes are refused. Tether judges it by the age of the lock
+  file: once it is older than the staleness timeout, the banner shows **Take over…**.
+
+Both actions check the lock again just before they take it. If the holder refreshed it, or
+someone else took it first, Tether refuses, shows the new state and writes nothing. Each
+takeover is logged at WARNING on the `tether.project.lock` logger with the ousted and the new
+holder. From a script, `tether.project.lock.lock_recovery` reports the case and
+`tether.project.lock.recover_lock` acts on it.
 
 **Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
 Tether gives that file read and write access for each group of users who can write the project
