@@ -71,7 +71,11 @@ settings = collect_settings(T, frames, n_frames, map_same);
 fid = fopen(fullfile(out, 'deeplasi_settings.json'), 'w');
 fwrite(fid, jsonencode(settings, 'PrettyPrint', true));
 fclose(fid);
-close(T.GUI.Handles.Figure.Main);
+% Not close(): the figure's close request calls T.SaveUserSettings, which writes settings.mat
+% into pwd (the clone), and the next TRACERdata() would read it back. The first run on the
+% workstation left that file in the clone (#715).
+set(T.GUI.Handles.Figure.Main, 'CloseRequestFcn', '');
+delete(T.GUI.Handles.Figure.Main);
 end
 
 function temp = load_state_file(tool_dir, path)
@@ -137,7 +141,11 @@ for i = 1:numel(m)
     equal = true;
     for k = 1:numel(fields)
         if isfield(m{i}, fields{k})
-            equal = equal && isequaln(C.(fields{k}), m{i}.(fields{k}));
+            % A saved state holds the imref2d that imwarp returned; a map file holds []. That
+            % field is the output of a warp, not part of the map, so it is not compared.
+            if ~strcmp(fields{k}, 'WarpReferencingObject')
+                equal = equal && isequaln(C.(fields{k}), m{i}.(fields{k}));
+            end
             C.(fields{k}) = m{i}.(fields{k});
         end
     end

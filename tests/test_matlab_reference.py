@@ -394,3 +394,22 @@ def test_an_input_changed_during_the_run_is_refused(tmp_path, clone, traces) -> 
             pins=pins,
         )
     assert not (tmp_path / "o" / harness.RECORD).exists()
+
+
+def test_a_run_that_writes_into_the_clone_is_refused(tmp_path, clone) -> None:
+    # Deep-LASI's window saved settings.mat into its clone on the first workstation run (#715);
+    # the next run would have started from that file and not from the pin.
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": {"touch_clone": "s.mat"}}}
+    with pytest.raises(harness.HarnessError, match="the run changed the clone"):
+        harness.run(
+            "x",
+            "t",
+            tasks,
+            clone=clone[0],
+            inputs={},
+            out=tmp_path / "o",
+            matlab=STANDIN,
+            pins=pins,
+        )
+    assert not (tmp_path / "o" / harness.RECORD).exists()

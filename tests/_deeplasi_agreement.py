@@ -26,6 +26,8 @@ The ``.mat`` reader of :mod:`tether.io.deeplasi` leaves ``b`` and ``g`` out on p
 
 from __future__ import annotations
 
+import functools
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -33,12 +35,119 @@ import numpy as np
 from tether.io.deeplasi import DeepLasiExport
 
 __all__ = [
+    "EXTRACTION_IDS",
+    "FILES",
+    "FRET_IDS",
+    "NO_FACTOR_IDS",
     "PARITY_ATOL",
+    "RERUN_ID",
+    "agreement_file",
     "compare_exports",
     "deeplasi_corrected_fret",
     "fret_agreement",
     "read_factors",
 ]
+
+#: SHA-256 and size of each Deep-LASI file of the agreement checks, by neutral id and role
+#: (measured on the workstation, 2026-11-16). ``mat`` is the TRACY-style export, ``tdat`` the
+#: saved state (detection settings), ``tmap`` the map file of the series. Video 010 (``lab-01``)
+#: is in ``tests/_oracle_a.py``. The ``dlexp-*`` ids are exports whose movie is not on the
+#: workstation; ``lab-13``'s export was made from the other export route of its movie.
+FILES: dict[str, dict[str, tuple[str, int]]] = {
+    "lab-02": {
+        "tmap": ("ddf3113c323de687d2ebda22b9b14f4cd575e76b214504d417ccc22f1f6e64a7", 3_880_022),
+        "tdat": ("095eed8349a2f24c28cfc73cf7b2b48085842751bd4c0e8b5712d53741af41c8", 43_541_083),
+        "mat": ("35be4b6fc3e1d911d4de3b0e7a3defcae88d0d1a145186e233f57cf5552bcae4", 15_993_472),
+    },
+    "lab-03": {
+        "tmap": ("aede98618faecac0713f1aec76e3cc837bbde84bfa25484f6989e1d473ea64bf", 3_882_547),
+        "tdat": ("49a787775ed8142825e67ad4fc021c96582e5bffda80ecb5ac98e62cfc389848", 37_007_216),
+        "mat": ("1ac25959faf5ad8708b2e6a9e4e0813e5d9b0f1e06d4ad00933a3f5125def205", 9_177_507),
+    },
+    "lab-04": {
+        "tmap": ("aede98618faecac0713f1aec76e3cc837bbde84bfa25484f6989e1d473ea64bf", 3_882_547),
+        "tdat": ("314cde633fa8adb8bd98dda8f9107e558c4cc2f56295e870395f2de93f67995a", 31_535_633),
+        "mat": ("7e4174af9c3e3cfee93675447602dadb772c2f58bd486cf87b23b7c6d2c89bad", 7_379_223),
+    },
+    "lab-05": {
+        "tmap": ("aede98618faecac0713f1aec76e3cc837bbde84bfa25484f6989e1d473ea64bf", 3_882_547),
+        "tdat": ("fa7deb2be5e82c42ec1d947c2ffe15590747e3fcd0540bedfe4fb1dfac97a5e5", 35_569_038),
+        "mat": ("ba6f1ec1ff9e3c4c9d501162e9b13cebe1113fcb089792abc1bd0b432b95c503", 8_653_159),
+    },
+    "lab-06": {
+        "tmap": ("e45ef804e9db33c7200dd6adcc3e7df48cf299bcf523e51c6709c5f3915532ee", 3_873_879),
+        "tdat": ("a7ba12db7cd75f0b0eea2e2328570233ab3ae11a05b39345ed5c0bab215fdc57", 20_025_932),
+        "mat": ("6b003b143d95cd59ee538907bff836d1313ecf8f596d427ecea653af1d83ce0c", 3_247_665),
+    },
+    "lab-07": {
+        "tmap": ("e45ef804e9db33c7200dd6adcc3e7df48cf299bcf523e51c6709c5f3915532ee", 3_873_879),
+        "tdat": ("150fec80fbc841c4eda602c8f200f52760c119f0d4e09fb228f465070f178719", 25_625_907),
+        "mat": ("5b4af7bd1516af2a5d9355bf8901fe4d844c7f128d3099b18f84ff5e5f60a491", 5_100_608),
+    },
+    "lab-08": {
+        "tmap": ("e45ef804e9db33c7200dd6adcc3e7df48cf299bcf523e51c6709c5f3915532ee", 3_873_879),
+        "tdat": ("da95485b3af587cd402271f85d2bde4c0a590c73c8dda43c032e6c88711e666f", 12_510_821),
+        "mat": ("46447cf66e1c22dc346a298f299c747274fd98a565baaca04e52609dde01efd6", 2_425_477),
+    },
+    "lab-10": {
+        "tmap": ("6f1f8d3c5ae088e8110725d3ef8359413dd8cf193e7c86d0e81c2e215bd51ffb", 3_844_279),
+        "tdat": ("46fa597dc4d4ae661f7083ee9024954fd494acc4c2e2dc13cd87fe1e7a7be5cf", 10_447_214),
+        "mat": ("e73ef536df8aa0a617cb0ea2b0fe377e7b971458451cdc969e10a2fb28d42f69", 697_109),
+    },
+    "lab-12": {
+        "tmap": ("6f1f8d3c5ae088e8110725d3ef8359413dd8cf193e7c86d0e81c2e215bd51ffb", 3_844_279),
+        "tdat": ("b4a027bd09dfb3da8045b368767626d3e192b51094ea5dd8add5beef41c0867f", 13_687_632),
+        "mat": ("82a0c20f483025d665bae366b623f6d8bca08d0652c1256b6c08964e9ab395ff", 1_787_705),
+    },
+    "lab-13": {
+        "mat": ("4374db39566e2a7ccc7ae920cec85cb0cb4e2c189b65fbcce6de5a2cdce39e3c", 1_330_598),
+    },
+    "dlexp-01": {
+        "mat": ("9cd6d8cf25316014a925f05f9e8eae8cb42f18caf9b2a7cd477c7ffcc35cbb9c", 1_593_803),
+    },
+    "dlexp-02": {
+        "mat": ("c3744647b9a228ce07a53af45ddec34fb95e18e02db4daef52122fcaec8eba00", 3_223_113),
+    },
+    "dlexp-03": {
+        "txt": ("6a6aad50f641016dedabe5dab987523e059cfc9431ec6f063151926f3256b6cf", 1_715_729),
+    },
+    "dlexp-04": {
+        "txt": ("9d4e44ba5b0826f72619851a8639c49c65371ba0816806521203ff6536dd7c63", 2_434_821),
+    },
+}
+
+#: Acquisitions whose movie, map file, saved state and export are all on the workstation: the
+#: oracle (a) scorer runs on each (ADR-0115). Video 010 is oracle (a) itself
+#: (``tests/test_oracle.py``). ``lab-09`` and ``lab-11`` have no export; ``lab-13``'s export
+#: was made from a movie that is not on the workstation, so its spots cannot be compared.
+EXTRACTION_IDS: tuple[str, ...] = tuple(i for i, roles in FILES.items() if "tdat" in roles)
+#: Every export with per-molecule factors: the corrected-FRET check starts from its traces.
+FRET_IDS: tuple[str, ...] = ("lab-01", *(i for i, roles in FILES.items() if "mat" in roles))
+#: Exports with only the ``-donc-accc-w.txt`` traces: no factors, so no corrected-FRET check.
+NO_FACTOR_IDS: tuple[str, ...] = tuple(i for i, roles in FILES.items() if set(roles) == {"txt"})
+#: The id whose ``rerun`` role names the folder of the scripted Deep-LASI rerun (#715).
+RERUN_ID = "lab-01"
+
+
+@functools.cache
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 22), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def agreement_file(private_data, neutral_id: str, role: str) -> Path:
+    """One Deep-LASI file of the agreement checks, verified against :data:`FILES`."""
+    path = private_data.path(neutral_id, role)
+    sha256, size = FILES[neutral_id][role]
+    assert path.stat().st_size == size and _sha256(path) == sha256, (
+        f"{neutral_id}/{role}: the file is not the one the agreement check was recorded on "
+        f"(SHA-256 {sha256[:16]}…, {size} B); see tests/_deeplasi_agreement.py"
+    )
+    return path
+
 
 #: Largest difference allowed between Tether's formula with Deep-LASI's factors (ADR-0028
 #: convention) and Deep-LASI's formula. The two are the same expression, so only floating-point
@@ -162,7 +271,8 @@ def fret_agreement(export: DeepLasiExport, b: np.ndarray, g: np.ndarray) -> dict
         "parity_max_abs": parity,
         "alpha_tether": alpha,
         "b_median_deeplasi": float(np.median(b)) if n else float("nan"),
-        "gamma_tether_median": float(np.nanmedian(gamma_t)) if np.isfinite(gamma_t).any()
+        "gamma_tether_median": float(np.nanmedian(gamma_t))
+        if np.isfinite(gamma_t).any()
         else float("nan"),
         "gamma_deeplasi_median": float(np.median(gamma_dl)) if n else float("nan"),
         "fret_abs_diff_median": float(np.median(diff)) if diff.size else float("nan"),
