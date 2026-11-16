@@ -30,8 +30,8 @@ ADR-0006 record why the sidecar is a separate environment.
 
 ## Categories and tMAVEN classes
 
-tMAVEN keeps one whole-number class for each trace, and Tether keeps a category name. The
-hand-off translates between the two through the category list of each molecule's condition:
+tMAVEN keeps one whole-number class for each trace. Tether keeps a category name. The
+hand-off translates between them through the category list of each molecule's condition:
 
 | tMAVEN class | Tether category |
 |---|---|
@@ -39,16 +39,18 @@ hand-off translates between the two through the category list of each molecule's
 | `1` | the first category in the condition's list (hotkey **1**) |
 | `2` | the second category (hotkey **2**), and so on |
 
-A molecule's category goes out as its class, so an SMD you bring back unchanged shows no
-class change. When you change a class in tMAVEN, **Import return leg…** shows the category
-that class names, and nothing is written until you accept it. A class that no category in the
-list has is shown but cannot be accepted, and Tether never guesses a name for it. Add the
-category to the condition's list first if you want it.
+Each molecule's category goes out as its class. An SMD you bring back unchanged shows no
+class change.
 
-The translation follows the list's current order. If you reorder or remove categories while an
-SMD is out in tMAVEN, the classes it brings back are read with the new order, so look at the
-proposed categories before you accept them. A molecule whose category is no longer in its
-condition's list goes out as class `0`, and a `0` coming back leaves its category as it is.
+If you change a class in tMAVEN, **Import return leg…** shows the category it names. Nothing
+is written until you accept it.
+
+A class that no category has is shown but cannot be accepted, and Tether never guesses a name
+for it. Add the category to the list first.
+
+The translation follows the list's current order. Reordering or removing categories while an
+SMD is out changes what its classes mean. Check the proposed categories before you accept.
+A category that left the list goes out as class `0`. A `0` coming back leaves it alone.
 
 ## Guided sidecar setup
 

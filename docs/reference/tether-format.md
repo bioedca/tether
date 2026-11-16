@@ -385,7 +385,7 @@ set; emptying the list resizes the dataset to zero rows rather than deleting it.
 
 Each of those datasets carries one attribute, `tmaven_class_lookup`: the condition's
 tMAVEN integer-class to category lookup, as a JSON object whose keys are the classes `"1"`,
-`"2"`, … and whose values are the category names in list order. Class `0` is not stored; it
+`"2"`, … and whose values are the category names in list order. Class `0` is not stored. It
 always means no category (`""`). The same writer rewrites the attribute with every list
 edit, so it never lags the names. The tMAVEN hand-off, its return leg and the curation hotkeys
 read it through `read_class_lookup`. A list saved before the attribute existed reads as the

@@ -67,9 +67,13 @@ Chosen option: **3**.
   written. A class it does not hold is surfaced with `applicable=False` and never written. A
   returning `0` against a category the lookup cannot express is **no change**, because the outbound
   leg wrote that `0` itself and proposing a clear would invent an edit.
-- **Hotkeys:** the shell's `1`–`9` keys and the overflow picker resolve their class through
-  `ClassLookup` too, so key `n`, SMD class `n` and the reconcile prompt's class `n` are one
-  category.
+- **Hotkeys:** the shell's `1`–`9` keys and the overflow picker already name class `n` as the
+  `n`-th category, the rule `ClassLookup` persists, so key `n`, SMD class `n` and the reconcile
+  prompt's class `n` are one category. The GUI may not import the core directly (ADR-0100's
+  ratchet), so the shell keeps its own list and tests pin its class names, and its
+  uncategorized pin, to `ClassLookup`. Reading a project's persisted lookup from the shell belongs
+  with the service command that will persist a hotkey's category assignment; the shell
+  does not write categories yet.
 
 ### Consequences
 
@@ -91,7 +95,7 @@ Chosen option: **3**.
   `tests/test_handoff.py` (classes out, the untouched round trip, a mapped class resolved and
   written, an unmapped class deferred, the `0` against an unlisted category), `tests/test_reconcile.py`
   (a mapped non-zero class is committable), `tests/test_shell.py` and `tests/test_curation.py`
-  (the hotkeys read the same lookup and pin).
+  (the hotkey and overflow class names, and the pin, agree with `ClassLookup`).
 
 ## More information
 
