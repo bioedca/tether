@@ -138,7 +138,7 @@ produced, the settings it used, and an outcome. A stage that cannot finish repor
 with the reason, and a native fit that misses the RMS gate reports `over-gate`. The
 molecules and traces it gives are the same, bit for bit, as the ones a real run makes. This
 is true when both use the same channel geometry and the same registration source. A different
-geometry gives a different result ([`tether.project.preview`](https://github.com/bioedca/tether/blob/main/src/tether/project/preview.py)).
+geometry can give a different result ([`tether.project.preview`](https://github.com/bioedca/tether/blob/main/src/tether/project/preview.py)).
 
 - **Writes:** nothing.
 
