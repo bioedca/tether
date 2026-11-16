@@ -26,7 +26,14 @@ pytest.importorskip("h5py")
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
-from _analysis_store import PARSED, WINDOW, e_traces, integrated, reg_map  # noqa: E402
+from _analysis_store import (  # noqa: E402
+    PARSED,
+    WINDOW,
+    e_traces,
+    fresh_input_hashes,
+    integrated,
+    reg_map,
+)
 from tether.analysis import (  # noqa: E402
     DEFAULT_SIGNAL_BINS,
     DEFAULT_SIGNAL_RANGE,
@@ -729,7 +736,10 @@ def _build_store_with_model(
         state_paths=state_matrix,
         molecule_keys=keys,
         molecule_ids=ids,
-        input_hashes=[f"h{i}" for i in range(n)],
+        # The real current provenance hashes, so every molecule reads back FRESH: the
+        # view excludes stale fits by default (ADR-0109), and these tests are about the
+        # synchronization, not the freshness rule.
+        input_hashes=fresh_input_hashes(path),
         intensity_quantity="corrected",
         selected_by="fixed",
         elbo_by_nstates=None,

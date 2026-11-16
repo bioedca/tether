@@ -25,15 +25,15 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-max_skipped = 16
+max_skipped = 17
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 29
+max_skipped = 31
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 20
+max_skipped = 34
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -56,6 +56,14 @@ jobs = ["test (macos-latest)", "test (windows-latest)"]
 why = """The coverage-floor ratchet (#724, ADR-0072) compares the floors with the copy on main. \
 Only the Linux leg fetches main and sets TETHER_COVERAGE_BASE_REF, which makes the test fail \
 instead of skip there; the macOS and Windows legs do not change, so they have no main to read."""
+
+[[skip]]
+test = "tests/test_docstring_standard.py::test_allowlist_never_grows"
+reason = "no origin/main in this checkout (CI's Linux leg fetches it and sets TETHER_DOCSTRING_BASE_REF)"
+jobs = ["test (macos-latest)", "test (windows-latest)"]
+why = """The docstring-allowlist ratchet (#611, ADR-0093) compares the allowlist with the copy on \
+main, like the coverage-floor ratchet above. Only the Linux leg fetches main and sets \
+TETHER_DOCSTRING_BASE_REF, which makes the test fail instead of skip there."""
 
 [[skip]]
 test = "tests/test_deep_gpu_deep.py"
@@ -174,10 +182,97 @@ why = """The test checks POSIX file modes and the umask, which Windows does not 
 test (ubuntu-latest) and test (macos-latest) run it."""
 
 [[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_shares_a_group_writable_directory_under_umask_022"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_repairs_an_existing_owner_only_guard"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_does_not_widen_beyond_the_directory"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_steal_lock_runs_when_the_guard_is_not_writable_by_this_user"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_symlinked_guard_fails_closed_and_leaves_its_target_alone"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_hard_linked_guard_is_not_widened"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_the_guard_takes_the_group_of_a_group_writable_directory"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_read_only_guard_on_a_filesystem_that_needs_write_names_the_remedy"
+reason = "POSIX flock semantics"
+jobs = ["test (windows-latest)"]
+why = """The test drives the POSIX flock path of the lock lifecycle guard (#257); Windows uses a \
+byte-range lock instead. test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_file_renamed_onto_the_guard_path_is_not_widened"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks POSIX mode bits on the lock lifecycle guard (#257); Windows has none. \
+test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_fifo_at_the_guard_path_fails_closed_without_blocking*"
+reason = "POSIX FIFO semantics"
+jobs = ["test (windows-latest)"]
+why = """Both parametrized cases plant a FIFO at the lock lifecycle guard path (#257); Windows has \
+no os.mkfifo. test (ubuntu-latest) and test (macos-latest) run them."""
+
+[[skip]]
+test = "tests/test_lock.py::test_second_user_steals_a_stale_lock_in_a_shared_project"
+reason = "needs root to run two real POSIX users"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The end-to-end check of #257 starts processes as two different POSIX users, which only \
+root can do, and the CI runners do not run pytest as root (Windows has no POSIX users). The \
+behaviour it checks is covered on every POSIX leg by the five other #257 tests in \
+tests/test_lock.py; the root-run test is evidence for a local or container run as root."""
+
+[[skip]]
 test = "tests/test_lock.py::test_fork_child_does_not_prolong_parent_lifecycle_guard"
 reason = "requires POSIX fork"
 jobs = ["test (windows-latest)"]
 why = """Windows has no os.fork; test (ubuntu-latest) and test (macos-latest) run the test."""
+
+[[skip]]
+test = "tests/test_benchmarks.py::test_a_timeout_also_stops_what_the_child_started"
+reason = "process groups are POSIX; the job is Linux"
+jobs = ["test (windows-latest)"]
+why = """The timeout kills the child's process group with os.killpg, which Windows lacks, and
+the benchmarks workflow runs only on ubuntu-latest (#875); test (ubuntu-latest) and
+test (macos-latest) run the test."""
 
 [[skip]]
 test = "tests/test_gui_theme.py::test_the_napari_viewer_follows_the_theme"

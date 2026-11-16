@@ -18,7 +18,7 @@ bundle that does:
 
 The bundle is a launcher only. It holds no copy of the environment, so the size of the
 installer and its offline property do not change. ``packaging/scripts/post_install.sh``
-runs :func:`main` with ``install`` from the installed environment, the install smoke
+runs [`main`][] with ``install`` from the installed environment, the install smoke
 runs it with ``check``, and the uninstall in ``docs/install.md`` runs it with ``remove``.
 
 The bundle goes in ``~/Applications`` when the install folder is in the user's home
@@ -88,7 +88,7 @@ _RELEASE = re.compile(r"\d+(?:\.\d+)*")
 
 
 def applications_dir(prefix: Path, home: Path) -> Path:
-    """The ``Applications`` folder for an install into *prefix*.
+    """Return the ``Applications`` folder for an install into *prefix*.
 
     ``~/Applications`` when *prefix* is inside *home*, else ``/Applications``. When
     ``/Applications`` is not writable (an install without administrator rights into a
@@ -106,7 +106,7 @@ def applications_dir(prefix: Path, home: Path) -> Path:
 
 
 def bundle_version(version: str) -> str:
-    """The numeric release part of *version*, for ``CFBundleVersion``.
+    """Return the numeric release part of *version*, for ``CFBundleVersion``.
 
     ``1.0.0rc3`` gives ``1.0.0``. macOS compares bundle versions as integers separated
     by dots, so the pre-release text stays out of this key. A version without numbers
@@ -117,7 +117,9 @@ def bundle_version(version: str) -> str:
 
 
 def native_architecture(machine: str | None = None) -> str | None:
-    """The macOS architecture name of *machine* (default: this interpreter's), or None.
+    """Return the macOS architecture name of *machine* (default: this interpreter's).
+
+    None when it is neither of the two that macOS runs.
 
     The bundle executable is a shell script, so macOS cannot read an architecture from
     it. Without ``LSArchitecturePriority``, LaunchServices on Apple silicon may choose
@@ -135,10 +137,10 @@ def native_architecture(machine: str | None = None) -> str | None:
 
 
 def info_plist(version: str, architecture: str | None = None) -> dict[str, Any]:
-    """The ``Info.plist`` keys of the bundle for Tether *version*.
+    """Return the ``Info.plist`` keys of the bundle for Tether *version*.
 
     *architecture* (``arm64`` or ``x86_64``) is written as ``LSArchitecturePriority``,
-    so that macOS starts the launcher natively; see :func:`native_architecture`.
+    so that macOS starts the launcher natively; see [`native_architecture`][].
     """
     keys: dict[str, Any] = {
         "CFBundleDevelopmentRegion": "en",
@@ -164,7 +166,7 @@ def _gui_entry_point(prefix: Path) -> Path:
 
 
 def launcher_script(prefix: Path) -> str:
-    """The text of ``Contents/MacOS/Tether`` for an install into *prefix*.
+    """Return the text of ``Contents/MacOS/Tether`` for an install into *prefix*.
 
     It replaces itself with the installed ``tether-gui`` entry point (``exec``), so the
     process that macOS started for the bundle is the application. Older macOS versions
@@ -181,7 +183,7 @@ def launcher_script(prefix: Path) -> str:
 
 
 def launcher_target(script: str) -> Path | None:
-    """The program that a launcher written by :func:`launcher_script` ``exec``s, or None."""
+    """Return the program that a launcher from [`launcher_script`][] ``exec``s, or None."""
     for line in script.splitlines():
         if line.startswith("exec "):
             try:
@@ -193,7 +195,7 @@ def launcher_target(script: str) -> Path | None:
 
 
 def _same_file(a: Path, b: Path) -> bool:
-    """True when *a* and *b* name one file.
+    """Tell whether *a* and *b* name one file.
 
     A path comparison is not enough on macOS: constructor installs into a lower-case
     folder (``~/tether``) on a file system that ignores case, so ``~/Tether`` names the
@@ -216,7 +218,7 @@ def _read_plist(bundle: Path) -> dict[str, Any] | None:
 
 
 def is_tether_bundle(bundle: Path) -> bool:
-    """True when *bundle* has an ``Info.plist`` with Tether's bundle identifier."""
+    """Tell whether *bundle* has an ``Info.plist`` with Tether's bundle identifier."""
     data = _read_plist(bundle)
     return data is not None and data.get("CFBundleIdentifier") == BUNDLE_ID
 
@@ -264,9 +266,9 @@ def write_bundle(
 
 
 def check_bundle(bundle: Path, prefix: Path) -> list[str]:
-    """The problems of *bundle* for an install into *prefix*; empty when it is correct.
+    """Return the problems of *bundle* for an install into *prefix*; empty if correct.
 
-    The checks: the ``Info.plist`` parses and carries the keys of :func:`info_plist`
+    The checks: the ``Info.plist`` parses and carries the keys of [`info_plist`][]
     (the version excepted, and ``LSArchitecturePriority`` naming the architecture of
     the interpreter that runs the check), the executable it names exists and can run, that
     executable starts the installed ``tether-gui`` of *prefix*, and the icon it names
