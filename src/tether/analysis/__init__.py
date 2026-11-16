@@ -314,14 +314,19 @@ if TYPE_CHECKING:  # static checkers see the real types; runtime resolves them l
         TDP_COLOR_SCALES,
         PlotExportResult,
         export_figure,
+        render_alpha_shape,
         render_cross_correlation,
         render_dwell_survival,
         render_histogram1d,
         render_histogram2d,
+        render_per_condition_histograms,
+        render_population_anticorrelation,
         render_raw_fret_cloud,
         render_state_number,
+        render_state_number_elbow,
         render_transition_density,
         render_transition_prob,
+        render_transition_sync_histogram2d,
     )
 
 __all__ = [
@@ -454,14 +459,19 @@ _LAZY_PLOT_EXPORT_NAMES = frozenset(
         "TDP_COLOR_SCALES",
         "PlotExportResult",
         "export_figure",
+        "render_alpha_shape",
         "render_cross_correlation",
         "render_dwell_survival",
         "render_histogram1d",
         "render_histogram2d",
+        "render_per_condition_histograms",
+        "render_population_anticorrelation",
         "render_raw_fret_cloud",
         "render_state_number",
+        "render_state_number_elbow",
         "render_transition_density",
         "render_transition_prob",
+        "render_transition_sync_histogram2d",
     }
 )
 
