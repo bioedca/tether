@@ -174,6 +174,22 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   echo "Start Menu shortcut AppUserModelID: $lnk_app_id"
   test "$lnk_app_id" = "MondragonLab.Tether" || {
     echo "the Start Menu shortcut does not carry the Tether AppUserModelID: $lnk_app_id"; exit 1; }
+  # The .tether file type (issue #664, ADR-0117). The installed module reads its own keys
+  # back first (the scope it chose, the open command, the icon file). Then cmd's own assoc
+  # and ftype read the registration through HKEY_CLASSES_ROOT, the merged view Explorer
+  # uses for a double-click, so a key written into the wrong root fails here too. On the
+  # runner nothing else claims .tether, so Tether must own it.
+  "$prefix\\envs\\tether\\python.exe" -m tether.gui.file_type check --prefix "$prefix"
+  ext_assoc="$(cmd /c assoc .tether | tr -d '\r')"
+  echo "assoc: $ext_assoc"
+  test "$ext_assoc" = ".tether=Tether.Project" || {
+    echo "the .tether extension does not name Tether.Project: $ext_assoc"; exit 1; }
+  ext_ftype="$(cmd /c ftype Tether.Project | tr -d '\r')"
+  echo "ftype: $ext_ftype"
+  case "$ext_ftype" in
+    'Tether.Project="'*'\envs\tether\Scripts\tether-gui.exe" "%1"') ;;
+    *) echo "Tether.Project does not open files with tether-gui.exe: $ext_ftype"; exit 1 ;;
+  esac
   # Uninstall last, through the uninstaller a user would run, and prove the
   # pre_uninstall step removed the shortcut and its folder (issue #551). `_?=`
   # makes the NSIS uninstaller run in place, so this call waits for it instead
@@ -191,6 +207,16 @@ if [ "$RUNNER_OS" = "Windows" ]; then
     echo "uninstall left the Start Menu shortcut behind: $sm_dir/Tether.lnk"; exit 1; }
   test ! -e "$sm_dir" || {
     echo "uninstall left the Start Menu folder behind: $sm_dir"; exit 1; }
+  # pre_uninstall also removed the .tether file type (issue #664). assoc and ftype print an
+  # error, not a NAME=VALUE line, for a name that is not registered.
+  ext_left="$(cmd /c assoc .tether 2>&1 | tr -d '\r' || true)"
+  case "$ext_left" in
+    .tether=*) echo "uninstall left the .tether extension behind: $ext_left"; exit 1 ;;
+  esac
+  prog_left="$(cmd /c ftype Tether.Project 2>&1 | tr -d '\r' || true)"
+  case "$prog_left" in
+    Tether.Project=*) echo "uninstall left Tether.Project behind: $prog_left"; exit 1 ;;
+  esac
 else
   prefix="$RUNNER_TEMP/tether-smoke"
   if [ "$RUNNER_OS" = "macOS" ]; then
@@ -263,6 +289,10 @@ else
     "$prefix/envs/tether/bin/python" -m tether.gui.macos_app check "$app" --prefix "$prefix"
     app_exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
     "$app/Contents/MacOS/$app_exe" --version
+    # The .tether file type (issue #664, ADR-0117). `check` above compared the document
+    # type in the Info.plist; this asks LaunchServices, which Finder reads for a
+    # double-click, that .tether files are the Tether type and open with this bundle.
+    "$prefix/envs/tether/bin/python" -m tether.gui.file_type check --prefix "$prefix"
   fi
   if [ "$RUNNER_OS" = "Linux" ]; then
     desktop="$HOME/.local/share/applications/tether.desktop"
@@ -284,5 +314,40 @@ else
     cmp -s "$icon_src/scalable/apps/tether.svg" \
       "$HOME/.local/share/icons/hicolor/scalable/apps/tether.svg" || {
       echo "icon not installed: ~/.local/share/icons/hicolor/scalable/apps/tether.svg"; exit 1; }
+    # The .tether file type (issue #664, ADR-0117): the entry names the MIME type and takes
+    # the file as %f, the user's MIME folder holds the package byte for byte as the installed
+    # module writes it, and update-mime-database, where the runner has it, built the type
+    # from it. GIO, where the runner has it, then reads the type of a .tether file from that
+    # database, as a file manager does for a double-click, and update-desktop-database,
+    # where the runner has it, lists tether.desktop as a program for the type.
+    grep -qx 'MimeType=application/x-tether;' "$desktop" || {
+      echo "desktop entry has no MimeType=application/x-tether; line"; exit 1; }
+    grep -q '^Exec=.* %f$' "$desktop" || {
+      echo "desktop entry does not pass the file to tether-gui (%f)"; exit 1; }
+    mime_pkg="$HOME/.local/share/mime/packages/tether.xml"
+    "$prefix/envs/tether/bin/python" -c 'import sys; from tether.gui.file_type import mime_package_xml; sys.exit(0 if open(sys.argv[1], encoding="utf-8").read() == mime_package_xml() else f"{sys.argv[1]} is not the installed MIME package")' "$mime_pkg"
+    if command -v update-mime-database >/dev/null 2>&1; then
+      test -f "$HOME/.local/share/mime/application/x-tether.xml" || {
+        echo "update-mime-database did not add application/x-tether"; exit 1; }
+    else
+      echo "no update-mime-database on this runner; MIME database check skipped"
+    fi
+    if command -v gio >/dev/null 2>&1; then
+      smoke_doc="$RUNNER_TEMP/smoke project.tether"
+      # The 8-byte HDF5 signature, so that a sniff of the content agrees with the name.
+      printf '\211HDF\r\n\032\n' > "$smoke_doc"
+      doc_type="$(gio info -a standard::content-type "$smoke_doc" | sed -n 's/^ *standard::content-type: //p')"
+      echo "gio content type of a .tether file: $doc_type"
+      test "$doc_type" = "application/x-tether" || {
+        echo "the desktop does not see a .tether file as application/x-tether: $doc_type"; exit 1; }
+    else
+      echo "no gio on this runner; content-type check skipped"
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      grep -q '^application/x-tether=.*tether\.desktop;' "$HOME/.local/share/applications/mimeinfo.cache" || {
+        echo "the desktop database does not list tether.desktop for application/x-tether"; exit 1; }
+    else
+      echo "no update-desktop-database on this runner; desktop database check skipped"
+    fi
   fi
 fi

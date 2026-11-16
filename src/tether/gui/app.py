@@ -20,6 +20,14 @@ binding that is already loaded.
 
 Between the ``QApplication`` and the slow import of the shell, [`create_shell`][]
 shows the startup splash ([`tether.gui.splash`][], #676) on a platform with a screen.
+
+A double-click on a ``.tether`` project (issue #664, ADR-0117) reaches this module in two
+ways. On Windows and Linux the file type starts ``tether-gui PROJECT.tether``, so the
+project is the command-line argument. On macOS the system starts ``Tether.app`` without
+arguments and sends the file as a file-open event, or sends the event to the Tether that is
+already running; [`create_shell`][] gives each such event to
+[`load_project`][tether.gui.shell.TetherShell.load_project], the path of
+``&File -> &Open project...``. An event that arrives before the shell exists waits for it.
 """
 
 from __future__ import annotations
@@ -34,7 +42,7 @@ from tether.gui.env_path import put_env_folders_first
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.gui.shell import TetherShell
 
-__all__ = ["build_parser", "create_shell", "main"]
+__all__ = ["build_parser", "create_shell", "install_file_open_handler", "main"]
 
 _ORGANIZATION = "MondragonLab"
 
@@ -64,6 +72,48 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def install_file_open_handler(app: Any) -> Any:
+    """Catch the file-open events of *app*; return the object that holds them.
+
+    macOS sends a file-open event (``QEvent.FileOpen``) when the user opens a ``.tether``
+    file that ``Tether.app`` declares, in place of a command-line argument. The returned
+    object filters the events of *app* and keeps the path of each one until
+    ``attach(open_project)`` is called. Then the newest waiting path goes to *open_project*
+    (each open replaces the open project, so opening the older ones first would only open
+    and close them), and from then on each new path goes to it at once. When the object is
+    destroyed (it is given the shell window as its parent), the filter goes with it.
+    """
+    from PySide6 import QtCore
+
+    class _FileOpenHandler(QtCore.QObject):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pending: list[str] = []
+            self._open: Any = None
+
+        def attach(self, open_project: Any) -> None:
+            self._open = open_project
+            pending, self.pending = self.pending, []
+            if pending:
+                open_project(pending[-1])
+
+        def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt API
+            if event.type() != QtCore.QEvent.Type.FileOpen:
+                return False
+            path = event.file() or event.url().toLocalFile()
+            if not path:
+                return False
+            if self._open is None:
+                self.pending.append(path)
+            else:
+                self._open(path)
+            return True
+
+    handler = _FileOpenHandler()
+    app.installEventFilter(handler)
+    return handler
+
+
 def create_shell(
     argv: Sequence[str] | None = None, *, splash: bool | None = None
 ) -> tuple[Any, TetherShell]:
@@ -90,6 +140,10 @@ def create_shell(
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
     ``False`` decides it explicitly.
+
+    A file-open event (macOS, [`install_file_open_handler`][]) is caught from the moment the
+    ``QApplication`` exists. It opens its project after the shell is built, and after the
+    project on the command line, so the project the user opened last is the one shown.
     """
     args = build_parser().parse_args(argv)
 
@@ -106,6 +160,7 @@ def create_shell(
     app.setOrganizationName(_ORGANIZATION)
     app.setApplicationVersion(__version__)
     apply_application_identity(app)
+    file_open = install_file_open_handler(app)
 
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
@@ -116,9 +171,12 @@ def create_shell(
         if args.project is not None:
             shell.load_project(args.project)
     except BaseException:
+        app.removeEventFilter(file_open)
         if screen is not None:
             screen.abort()
         raise
+    file_open.setParent(shell.window)
+    file_open.attach(shell.load_project)
     if screen is not None:
         screen.close_when_shown(shell.window)
     return app, shell

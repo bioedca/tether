@@ -141,8 +141,9 @@ conclusion_text: "Tether is installed. To start Tether, obey the instructions in
 post_install: scripts/post_install.sh    # [unix]
 post_install: scripts/post_install.bat   # [win]
 
-# Windows only: remove the Start Menu shortcut post_install created, which the
-# uninstaller would otherwise leave behind (issue #551, ADR-0051).
+# Windows only: remove the Start Menu shortcut and the .tether file type that post_install
+# created, which the uninstaller would otherwise leave behind (issue #551, ADR-0051;
+# issue #664, ADR-0117).
 pre_uninstall: scripts/pre_uninstall.bat   # [win]
 
 # Per-OS installer format. exe (NSIS) on Windows, pkg on macOS, sh on Linux.

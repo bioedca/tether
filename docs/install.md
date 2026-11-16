@@ -259,6 +259,15 @@ the version, the commit, the two licenses, the citation with the DOI, and links 
 documentation and the source code. Its **Copy** button copies this text for a bug report. The
 [Command line](cli.md) reference covers what `tether` itself can do.
 
+From the next release, you can also **double-click a `.tether` project** in Explorer, in Finder
+or in your Linux file manager ([#664](https://github.com/bioedca/tether/issues/664)). Tether
+starts with that project open. On Windows and Linux, each double-click starts a new Tether
+window. On macOS, a Tether that is already running opens the project in its window, as
+**File → Open project…** does, and closes the project that was open. If another Tether window
+has the project open, the project opens read-only and a **Read-only project** banner tells you
+why. If another program already opens `.tether` files on Windows, the installer does not change
+that: Tether is then in the **Open with** list of the file.
+
 ## What gets installed, and where
 
 Everything lives in the single folder you chose (`~/tether` on Linux, `~/Tether` on macOS,
@@ -279,7 +288,12 @@ folders `16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256` and `5
 and `tether.svg` in `scalable/apps`. On macOS, from the next release, it is the
 application `Tether.app` in `~/Applications`, or in `/Applications` when you installed into a
 folder outside your home folder. `Tether.app` is a small launcher: it starts the application
-in the install folder and holds no copy of it. Windows and macOS also
+in the install folder and holds no copy of it. From the next release the installer also registers
+the `.tether` file type: on Windows, the `.tether` and `Tether.Project` keys under
+`Software\Classes` in the registry (for your user only, or for all users when you installed
+for all users); on Linux, the file `~/.local/share/mime/packages/tether.xml` and the user MIME
+database that `update-mime-database` makes from it in `~/.local/share/mime`; on macOS,
+`Tether.app` itself declares the file type. Windows and macOS also
 keep their usual record of an installed program: the **Installed apps** entry that the Windows
 uninstaller runs from, and the package receipt macOS records for every `.pkg`. Tether itself
 can also write the [settings file](#settings-tether-keeps-outside-the-install-folder) below,
@@ -389,7 +403,11 @@ the PATH line you added in step 4.
 rm -rf ~/tether ~/.local/share/applications/tether.desktop
 rm -f ~/.local/share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256x256,512x512}/apps/tether.png
 rm -f ~/.local/share/icons/hicolor/scalable/apps/tether.svg
+rm -f ~/.local/share/mime/packages/tether.xml
+command -v update-mime-database >/dev/null && update-mime-database ~/.local/share/mime
 ```
+
+The last two lines remove the `.tether` file type, which installers from the next release add.
 
 Then delete the `export PATH=…/tether/bin` line (`…/tether/launchers` from the next release)
 from `~/.bashrc`.
@@ -419,7 +437,8 @@ macOS keeps its package receipt for the install; it is a small record and does n
 in place.
 
 **Windows.** Open **Settings → Apps → Installed apps**, find **Tether**, and choose
-**Uninstall**. The uninstaller removes the Start menu shortcut as well. An installer from
+**Uninstall**. The uninstaller removes the Start menu shortcut and the `.tether` file type as
+well. An installer from
 1.0.0-rc2 or earlier does not, so if a **Tether** folder is still in the Start menu afterwards,
 delete it. Remove
 `C:\Users\<you>\Tether\bin` (`C:\Users\<you>\Tether\launchers` from the next release) from your

@@ -169,3 +169,127 @@ def test_main_puts_the_env_folders_on_path_before_anything_loads(monkeypatch) ->
     monkeypatch.setattr(gui_app, "create_shell", _create_shell)
     assert gui_app.main(["x.tether"]) == 3
     assert calls == ["path", "create_shell ['x.tether']", "show", "exec"]
+
+
+# --- opening a project by a double-click (issue #664, ADR-0117) ----------------
+
+
+def _three_molecule_store(tmp_path, name: str = "start.tether"):
+    import numpy as np
+
+    from _analysis_store import build_store_with_channels
+
+    rng = np.random.default_rng(664)
+    donor = rng.uniform(400.0, 800.0, size=(3, 12))
+    acceptor = rng.uniform(200.0, 600.0, size=(3, 12))
+    project, _keys = build_store_with_channels(tmp_path, donor, acceptor, name=name)
+    return project
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_path_with_spaces_and_non_ascii_letters_opens(qtbot, tmp_path) -> None:
+    """Windows and Linux pass the double-clicked file as the argument, in any spelling."""
+    from tether.gui.app import create_shell
+
+    folder = tmp_path / "Mondragón lab data"
+    folder.mkdir()
+    project = _three_molecule_store(folder, name="día 1 — run.tether")
+    _app, shell = create_shell([str(project.path)])
+    qtbot.addWidget(shell.window)
+    assert shell.project_path is not None
+    assert shell.project_path.name == "día 1 — run.tether"
+    assert shell.molecule_list.count() == 3
+    shell.close()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_file_open_event_opens_the_project_in_the_running_shell(qtbot, tmp_path) -> None:
+    """macOS sends the file as an event, to a Tether that is running; it opens there."""
+    from PySide6 import QtCore, QtGui
+
+    from tether.gui.app import create_shell
+
+    project = _three_molecule_store(tmp_path, name="sent by finder.tether")
+    app, shell = create_shell([])
+    qtbot.addWidget(shell.window)
+    assert shell.project_path is None
+    assert QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(str(project.path)))
+    assert shell.project_path == project.path
+    assert shell.molecule_list.count() == 3
+    shell.close()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_file_open_event_before_the_shell_exists_waits_for_it(qtbot, tmp_path) -> None:
+    """An event that comes while the application starts is kept, and the newest one opens."""
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+    from tether.gui.app import install_file_open_handler
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    handler = install_file_open_handler(app)
+    opened: list[str] = []
+    try:
+        for name in ("older.tether", "newer.tether"):
+            event = QtGui.QFileOpenEvent(str(tmp_path / name))
+            assert QtCore.QCoreApplication.sendEvent(app, event)
+        assert opened == []
+        handler.attach(opened.append)
+        assert opened == [str(tmp_path / "newer.tether")]
+        event = QtGui.QFileOpenEvent(str(tmp_path / "later.tether"))
+        assert QtCore.QCoreApplication.sendEvent(app, event)
+        assert opened[-1] == str(tmp_path / "later.tether")
+    finally:
+        app.removeEventFilter(handler)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_the_file_open_handler_goes_with_the_shell_window(qtbot, tmp_path) -> None:
+    """Once the window is gone, a file-open event reaches no closed shell."""
+    from PySide6 import QtCore, QtGui
+
+    from tether.gui.app import create_shell
+
+    app, shell = create_shell([])
+    window = shell.window
+    shell.close()
+    window.deleteLater()
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    event = QtGui.QFileOpenEvent(str(tmp_path / "late.tether"))
+    assert not QtCore.QCoreApplication.sendEvent(app, event)
+
+
+@pytest.mark.gui
+@_needs_qt
+@pytest.mark.parametrize("route", ["argument", "event"])
+def test_a_locked_project_opened_by_double_click_shows_the_read_only_banner(
+    qtbot, tmp_path, route
+) -> None:
+    """A project another Tether holds opens read-only, by either route, with the banner."""
+    from PySide6 import QtCore, QtGui
+
+    from tether.gui.app import create_shell
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project = _three_molecule_store(tmp_path, name="busy.tether")
+    held = lock.acquire(project.path, identity=LockIdentity(host="OTHER-HOST", user="o", pid=99))
+    try:
+        if route == "argument":
+            app, shell = create_shell([str(project.path)])
+        else:
+            app, shell = create_shell([])
+            QtCore.QCoreApplication.sendEvent(app, QtGui.QFileOpenEvent(str(project.path)))
+        qtbot.addWidget(shell.window)
+        assert shell.project_path == project.path
+        assert shell.curation_project is None
+        assert shell.read_only_reason is not None
+        assert not shell.read_only_banner.isHidden()
+        assert shell.read_only_banner.text() == f"Read-only project: {shell.read_only_reason}"
+        shell.close()
+    finally:
+        assert lock.release(project.path, held)
