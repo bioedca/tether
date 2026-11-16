@@ -77,6 +77,9 @@ def test_a_missing_file_reads_as_defaults_and_reading_creates_nothing(prefs: Pat
         b'{"curator_name": "ana"}',
         b"[" * 100_000 + b"]" * 100_000,
     ],
+    # Short ids: pytest puts the id in PYTEST_CURRENT_TEST, and Windows refuses an
+    # environment variable over 32767 characters.
+    ids=["empty", "torn", "not-utf8", "list", "schema-2", "schema-true", "no-schema", "nested"],
 )
 def test_a_foreign_or_damaged_file_reads_as_empty(prefs: Path, content: bytes) -> None:
     prefs.parent.mkdir(parents=True)
