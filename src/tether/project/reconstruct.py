@@ -46,8 +46,7 @@ and the analysis-only degraded import into their own PRs):
 from __future__ import annotations
 
 import math
-import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -67,6 +66,7 @@ from tether.io.filename import ParsedFilename, parse_filename
 from tether.io.recover import RecoveredCoordinates, SmdCoordinateMatch, recover_coordinates
 from tether.io.tdat import TdatCorrections
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT
+from tether.project._guarded_publish import publish_staged_project, require_publish_guard
 from tether.project.conditions import set_category_list, sync_conditions
 from tether.project.core import Project
 from tether.project.correct import compute_corrected_fret
@@ -228,6 +228,7 @@ def reconstruct_project(
     acceptor_patches: np.ndarray | None = None,
     detect_photobleach: bool = True,
     overwrite: bool = False,
+    publish_guard: Callable[[], None] | None = None,
 ) -> ReconstructionSummary:
     """Reconstruct a round-trip-ready ``.tether`` from a Deep-LASI acquisition (§7.8).
 
@@ -280,6 +281,13 @@ def reconstruct_project(
         frozen ``bleach_frames`` + auto ``analysis_window`` (default ``True``).
     overwrite:
         Replace an existing ``output_path`` (default ``False`` refuses to clobber).
+    publish_guard:
+        Ownership check called after the new project is complete and immediately
+        before its atomic publish; an exception aborts the publish and leaves an
+        existing destination unchanged. It is **required** to replace an existing
+        ``output_path`` (#346, ADR-0112): hold
+        [`publish_lock`][tether.project.lock.publish_lock] on ``output_path`` and pass
+        the check it yields.
 
     Returns
     -------
@@ -290,9 +298,9 @@ def reconstruct_project(
     ------
     FileExistsError
         If ``output_path`` exists and ``overwrite`` is ``False``.
-    tether.project.lock.LockedError
-        If ``overwrite`` replaces an existing project a **foreign** ``.lock`` holds
-        (an open GUI session), so the atomic publish cannot bypass the single-writer
+    tether.project.lock.PublishGuardRequiredError
+        If ``overwrite`` would replace an existing project without a
+        ``publish_guard``, so the atomic publish cannot bypass the single-writer
         invariant (§5.4) that ``Project.create(overwrite=True)`` would otherwise assert.
     ValueError
         If ``coordinates`` are not aligned with ``export`` (row count mismatch), or
@@ -301,15 +309,10 @@ def reconstruct_project(
     output_path = Path(output_path)
     if output_path.exists() and not overwrite:
         raise FileExistsError(f"{output_path} exists (pass overwrite=True to replace)")
-    if output_path.exists():
-        # The atomic publish (os.replace onto output_path below) is destructive, but the
-        # store is built at a fresh tmp_path so Project.create never sees output_path and
-        # its overwrite=True foreign-lock guard is skipped. Re-assert it here, matching
-        # every other overwrite path, so a project held open by another writer is not
-        # silently clobbered (§5.4).
-        from tether.project import lock  # noqa: PLC0415
-
-        lock.assert_writable(output_path)
+    # The atomic publish below is destructive, and the store is built at a fresh
+    # tmp_path, so Project.create never sees output_path. Replacing an existing project
+    # therefore needs the caller to hold its writer lock (#346, ADR-0112, §5.4).
+    require_publish_guard(output_path, publish_guard)
 
     if coordinates is None:
         coordinates = recover_coordinates(mat=export)
@@ -351,7 +354,7 @@ def reconstruct_project(
         n_donor_bleached, n_acceptor_bleached = _apply_photobleach(tmp_path, detect_photobleach)
         _seed_categories(tmp_path, parsed.condition_id, categories)
         n_curated = _seed_curated_selection(tmp_path, movie, coordinates, curated_match, parsed)
-        os.replace(tmp_path, output_path)
+        publish_staged_project(tmp_path, output_path, publish_guard=publish_guard)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
