@@ -241,3 +241,9 @@ def test_importing_the_module_loads_no_qt_numpy_or_hdf5() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env
     )
     assert out.stdout.strip() == "[]"
+
+
+def test_the_login_name_shown_is_the_name_the_project_writes() -> None:
+    from tether.project.labels import default_labeler
+
+    assert preferences.login_name() == default_labeler()

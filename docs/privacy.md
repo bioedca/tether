@@ -33,8 +33,9 @@ storage, and temporary idealization files are described below.
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project file records the application version, your analysis
-  parameters, and your operating-system username, or the curator name you set in the
-  application (as the curator, or "labeler", of your annotations). A separate lock file (`.lock`) records your computer's hostname, username
+  parameters, and your operating-system username (as the curator, or "labeler", of your
+  annotations). If you set a curator name in the application, new annotations record that
+  name instead. A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell
   who currently holds the write-lock. This information is stored only in files at the
   location you choose and is **never transmitted by Tether** to the project or to any third
@@ -44,11 +45,11 @@ storage, and temporary idealization files are described below.
   document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
   shows how to see these fields before you make a file public.
 - **What the application remembers.** So that you can carry on where you stopped, the
-  desktop application keeps a small file, `preferences.json`, in your own per-user settings
-  folder on your computer. It holds the paths of the last ten projects you opened, for each
-  project the key of the molecule selected when you closed it, the window layout, and the
-  curator name if you set one. It is never written into a `.tether` file and is **never
-  transmitted by Tether**; deleting it makes the application forget these things.
+  desktop application keeps a small file, `preferences.json`, in your own settings folder.
+  It holds the paths of the last ten projects you opened and the molecule you last selected
+  in each. It also holds the window layout, and the curator name if you set one. This file
+  is never written into a `.tether` file and is **never transmitted by Tether**. Delete it
+  and the application forgets these things.
   [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)
   lists the folder on each system.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,

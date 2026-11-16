@@ -11,7 +11,8 @@ The desktop application keeps four things from one session to the next:
 * **Layout** — the window geometry and the dock positions, as Qt's own opaque
   ``saveGeometry``/``saveState`` bytes.
 * **Curator name** — the name written into new labels. Unset means the operating-system
-  user name ([`default_labeler`][tether.project.labels.default_labeler]), as before.
+  user name, which [`default_labeler`][tether.project.labels.default_labeler] writes, as
+  before.
 
 **Not in the project file.** None of it is written into a ``.tether``: it describes this
 computer and this user, not the data. A project shared with a collaborator carries none of it.
@@ -59,6 +60,7 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import getpass
 import json
 import os
 import tempfile
@@ -79,6 +81,7 @@ __all__ = [
     "clear_layout",
     "curator_name",
     "effective_curator_name",
+    "login_name",
     "preferences_path",
     "project_identity",
     "recent_projects",
@@ -385,14 +388,24 @@ def curator_name(preferences_file: Path | None = None) -> str | None:
         return None
 
 
-def effective_curator_name(preferences_file: Path | None = None) -> str:
-    """Return the name new labels carry: the stored one, else the OS user name."""
-    stored = curator_name(preferences_file)
-    if stored is not None:
-        return stored
-    from tether.project.labels import default_labeler  # noqa: PLC0415
+def login_name() -> str:
+    """Return the operating-system login name, or ``"unknown"``, as the project defaults it.
 
-    return default_labeler()
+    This is the name a label carries when no curator name is set: the project's own
+    [`default_labeler`][tether.project.labels.default_labeler] writes it. It is read here
+    only to *show* it, so the GUI does not import the project core for a display string.
+    """
+    try:
+        user = getpass.getuser()
+    except Exception:  # noqa: BLE001 - an environment without a resolvable login
+        return "unknown"
+    return user or "unknown"
+
+
+def effective_curator_name(preferences_file: Path | None = None) -> str:
+    """Return the name new labels carry: the stored one, else the OS login name."""
+    stored = curator_name(preferences_file)
+    return stored if stored is not None else login_name()
 
 
 def set_curator_name(name: str | None, preferences_file: Path | None = None) -> Path:

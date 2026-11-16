@@ -588,7 +588,11 @@ class TetherShell:
         # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
         # file of tether.gui.preferences. Nothing of it is written into a project.
         self._preferences_file = preferences_file
-        self._curator_name = self._stored_curator_name()
+        # The curator name set for new labels, or None: then the project writes the
+        # operating-system user, exactly as before #628.
+        self._curator_name: str | None = (
+            None if preferences_file is None else preferences.curator_name(preferences_file)
+        )
 
         self._window = QtWidgets.QMainWindow()
         self._window.setWindowTitle(_APP_NAME)
@@ -1302,17 +1306,14 @@ class TetherShell:
             return False
         return True
 
-    def _stored_curator_name(self) -> str:
-        if self._preferences_file is None:
-            from tether.project.labels import default_labeler
-
-            return default_labeler()
-        return preferences.effective_curator_name(self._preferences_file)
-
     @property
     def curator_name(self) -> str:
         """The name written into new labels: the preference, else the operating-system user."""
-        return self._curator_name
+        return self._curator_name if self._curator_name is not None else preferences.login_name()
+
+    def _labeler_kwargs(self) -> dict[str, str]:
+        """``labeler=`` for a project write when a curator name is set; else the project's own."""
+        return {} if self._curator_name is None else {"labeler": self._curator_name}
 
     @property
     def curator_label(self) -> QtWidgets.QLabel:
@@ -1339,17 +1340,13 @@ class TetherShell:
             self._status(f"Curator name not changed: {exc}")
             return False
         self._remember(lambda: preferences.set_curator_name(checked, self._preferences_file))
-        if checked is None:
-            from tether.project.labels import default_labeler
-
-            checked = default_labeler()
         self._curator_name = checked
         self._sync_curator_label()
-        self._status(f"New labels are written as {checked}")
+        self._status(f"New labels are written as {self.curator_name}")
         return True
 
     def _sync_curator_label(self) -> None:
-        self._curator_label.setText(f"Curator: {self._curator_name}")
+        self._curator_label.setText(f"Curator: {self.curator_name}")
         self._curator_label.setToolTip(
             "New labels are written with this name. Change it with File → Curator name…"
         )
@@ -1361,7 +1358,7 @@ class TetherShell:
             self._window,
             "Curator name",
             "Name written into new labels (leave empty for your login name):",
-            text=self._curator_name,
+            text=self.curator_name,
         )
         if ok:
             self.set_curator_name(text)
@@ -2466,8 +2463,8 @@ class TetherShell:
             dialog = ConditionValidationDialog(
                 self._conditions,
                 writer_guard=self._guard_conditions_write,
-                labeler=self._curator_name,
                 parent=self._window,
+                **self._labeler_kwargs(),
             )
             self._active_conditions_dialog = dialog
             dialog.exec()
@@ -2708,7 +2705,7 @@ class TetherShell:
                 CurationAction.REJECT: project.reject,
                 CurationAction.UNREJECT: project.unreject,
             }
-            result = writers[action](trace.molecule_key, labeler=self._curator_name)
+            result = writers[action](trace.molecule_key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
             self._status(f"{verb} failed: {exc}")
             return
