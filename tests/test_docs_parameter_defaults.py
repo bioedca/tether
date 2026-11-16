@@ -879,6 +879,15 @@ def _registry() -> list[_Entry]:
             ("DEFAULT_TDP_SIGNAL_RANGE",),
             module_constant("tether.analysis.tdp", "DEFAULT_TDP_SIGNAL_RANGE"),
         ),
+        (("DEFAULT_TDP_SMOOTH",), module_constant("tether.analysis.tdp", "DEFAULT_TDP_SMOOTH")),
+        (
+            ("DEFAULT_TDP_INTERP_RES",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_INTERP_RES"),
+        ),
+        (
+            ("DEFAULT_TDP_NORMALIZE",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_NORMALIZE"),
+        ),
         (("DEFAULT_DWELL_NBINS",), module_constant("tether.analysis.dwell", "DEFAULT_DWELL_NBINS")),
         (
             ("DEFAULT_TPROB_NBINS",),
@@ -1597,6 +1606,9 @@ tether.analysis.tdp
     population_transition_density nskip DEFAULT_TDP_NSKIP
     population_transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
     population_transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE
+    smooth_transition_density interp_res DEFAULT_TDP_INTERP_RES
+    smooth_transition_density normalize DEFAULT_TDP_NORMALIZE
+    smooth_transition_density smooth DEFAULT_TDP_SMOOTH
     transition_density nskip DEFAULT_TDP_NSKIP
     transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
     transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE

@@ -201,7 +201,17 @@ stores the **raw, unsmoothed** histogram — tMAVEN's `gaussian_filter` smoothin
 #556). The scale is zero-safe: an empty bin gets the floor color of the color map, not
 `-inf`. The floor is one decade below the smallest non-empty bin, so the rarest transition
 stays visible. The scale changes only the picture, not the stored counts, and it is not
-part of the figure parity gate. Tether does not apply the smoothing.
+part of the figure parity gate.
+
+The smoothing is a separate view of the counts, `smooth_transition_density(tdp, *,
+smooth=DEFAULT_TDP_SMOOTH, interp_res=DEFAULT_TDP_INTERP_RES, normalize=DEFAULT_TDP_NORMALIZE)
+-> SmoothedTransitionDensity`, which `render_transition_density` also draws. It takes the three
+steps of the `checkTDP.py` that Campos-Chavez et al. 2024 published with their Source Data
+(doi:10.1038/s41467-024-50885-x): a Gaussian filter of 1 bin on each axis, a bicubic spline to
+800 × 800 points with negative values set to 0, and a normalization to the maximum. The spline
+knots are the bin centres, as in that script. tMAVEN's `gen_histogram` runs the same steps but
+places its knots one per bin from edge to edge, and by default (`hist_interp_res = 0`) does
+not interpolate; `interp_res=0` gives that default view on the bin-centre grid.
 
 **Variants.** `density=True` (guarded against divide-by-zero all-NaN when no in-range mass)
 vs raw counts; `include_stale` / `include_rejected` on the project-level path.
@@ -219,7 +229,7 @@ tdp = population_transition_density(project, "vbconhmm")   # fresh idealizations
 runs the full project-level path and asserts the same; [`test_defaults_match_tmaven`](https://github.com/bioedca/tether/blob/main/tests/test_analysis_tdp.py) pins the three
 ported constants; plus hand-checked semantics (off-diagonal landing, only-state-change
 frames contribute, histogram2d edge/range behavior, NaN gaps are not transitions,
-ragged↔padded equivalence). Live (`data_tdp.get_neighbor_data` + `gen_histogram`, idealized branch, unsmoothed): equal for `nskip = 1, 2, 3` in [`tests/test_analysis_plots_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_analysis_plots_sidecar.py).
+ragged↔padded equivalence). Live (`data_tdp.get_neighbor_data` + `gen_histogram`, idealized branch, unsmoothed): equal for `nskip = 1, 2, 3` in [`tests/test_analysis_plots_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_analysis_plots_sidecar.py). The smoothed view: equal to the array the published `checkTDP.py` computes, run on the seven TDP sheets of the 2024 Source Data, in the weekly `reference_download` test `test_smoothed_transition_density_equals_checktdp` of [`tests/test_campos_chavez_2024.py`](https://github.com/bioedca/tether/blob/main/tests/test_campos_chavez_2024.py); at `interp_res=0`, equal to an in-test port of tMAVEN's `gen_histogram` in [`tests/test_analysis_tdp.py`](https://github.com/bioedca/tether/blob/main/tests/test_analysis_tdp.py).
 
 ---
 
