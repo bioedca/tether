@@ -206,7 +206,6 @@ _MILESTONE_ALLOWED = (
     # The value of `$.frozen_at_milestone` in schema/parity_tolerance.json: a label that
     # names one recorded measurement, not a time.
     ("validation.md", "(M0.5, vbconhmm)"),
-    ("validation.md", "the M0.5 worst cases"),
     # The D1 promises that #365 settles; rewriting them here would decide #365 for it.
     ("analysis/parity-gallery.md", "switching to corrected E at M3"),
     ("analysis/parity-gallery.md", "(photobleach segmentation at M3)"),

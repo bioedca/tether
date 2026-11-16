@@ -106,7 +106,10 @@ def test_every_registered_command_has_a_command_line_route() -> None:
     subparsers = next(
         a for a in cli.build_parser()._actions if isinstance(a, argparse._SubParsersAction)
     )
-    assert list(subparsers.choices) == [entry.name for entry in services.COMMANDS]
+    names = [entry.name for entry in services.COMMANDS]
+    assert list(subparsers.choices)[: len(names)] == names
+    # `tether info` (#655) only reads a project: a plain subcommand, not a service command.
+    assert list(subparsers.choices)[len(names) :] == ["info"]
 
 
 def test_a_registered_command_with_no_route_fails(monkeypatch) -> None:

@@ -4,11 +4,11 @@
 
 The application, the command line and a recipe file drive the workflow through the same
 *service commands* (ADR-0100). A command takes a *request*, which is plain data with one
-text form (:func:`request_to_text`, :func:`request_from_text`), and returns a result. The
+text form ([`request_to_text`][], [`request_from_text`][]), and returns a result. The
 command line builds the same request from its options, so each action has one
 implementation and the command line cannot fall behind the application.
 
-This package imports no Qt module and no part of :mod:`tether.gui`; a test checks it. The
+This package imports no Qt module and no part of [`tether.gui`][]; a test checks it. The
 imaging and HDF5 stack is imported only when a command runs.
 
 >>> from tether.services import ExtractRequest, request_from_text, request_to_text

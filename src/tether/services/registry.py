@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The registry of service commands (ADR-0100).
 
-:data:`COMMANDS` lists every service command, in the order the command line shows them.
-The command-line routes (:mod:`tether.cli`) and the command list on the reference page
+[`COMMANDS`][] lists every service command, in the order the command line shows them.
+The command-line routes ([`tether.cli`][]) and the command list on the reference page
 (``docs/cli.md``) are made from it, and a test fails when a registered command has no
 command-line route.
 """
@@ -43,6 +43,7 @@ class ServiceCommand:
     summary: str
 
     def __post_init__(self) -> None:
+        """Refuse a name that is not the request type's ``COMMAND``."""
         if self.name != self.request_type.COMMAND:
             raise ValueError(
                 f"{self.request_type.__name__}.COMMAND is {self.request_type.COMMAND!r}, "
@@ -69,7 +70,7 @@ COMMANDS: tuple[ServiceCommand, ...] = (
 
 
 def command(name: str) -> ServiceCommand:
-    """Return the registered command called *name*; raise :class:`KeyError` if none."""
+    """Return the registered command called *name*; raise [`KeyError`][] if none."""
     for entry in COMMANDS:
         if entry.name == name:
             return entry
@@ -85,7 +86,7 @@ def run(request: Request) -> Any:
 
 
 def request_from_text(text: str) -> Request:
-    """Read a request from its text form; raise :class:`RequestError` if it is not one."""
+    """Read a request from its text form; raise [`RequestError`][] if it is not one."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:

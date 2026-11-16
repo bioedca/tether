@@ -2,18 +2,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The ``tether`` command-line entry point (PRD §7.11, NFR-REPRO).
 
-A thin headless front door over the service commands of :mod:`tether.services`
-(ADR-0100). ``tether --version`` reports the git-derived app version (NFR-REPRO: "the
-app version is derived from git"). Each subcommand is the command-line route of one
-registered service command: it builds the command's request from its options, runs
-the command, and prints the result. ``tether extract`` runs the M1 native extraction
-pipeline (movie -> ``.tether``) — see :mod:`tether.services.extract`; ``tether batch``
-runs the extract -> correct -> idealize pipeline over many movies — see
-:mod:`tether.services.batch`. The subcommands are made from
-:data:`tether.services.registry.COMMANDS`, and :func:`unrouted_commands` names any
-registered command that has no route here.
+A thin headless front door over the service commands of [`tether.services`][]
+(ADR-0100) and over [`tether.project`][]. ``tether --version`` reports the git-derived app
+version (NFR-REPRO: "the app version is derived from git"). ``tether extract`` and
+``tether batch`` are the command-line routes of two registered service commands: each
+builds the command's request from its options, runs the command, and prints the result.
+``tether extract`` runs the M1 native extraction pipeline (movie -> ``.tether``) — see
+[`tether.services.extract`][]; ``tether batch`` runs the extract -> correct -> idealize
+pipeline over many movies — see [`tether.services.batch`][]. Their subcommands are made
+from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names any
+registered command that has no route here. ``tether info`` prints a read-only summary of
+what a project holds — see [`tether.project.summary`][].
 
-The CLI deliberately uses the standard-library :mod:`argparse` rather than a
+The CLI deliberately uses the standard-library [`argparse`][] rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
 not justified by the current command surface (the pin-and-hold invariant). The
 heavy imaging/IO stack is imported only when a service command runs, so that
@@ -26,8 +27,10 @@ import argparse
 import dataclasses
 import sys
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 from tether import __version__
+from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 from tether.services import (
     COMMANDS,
     BatchRequest,
@@ -39,6 +42,10 @@ from tether.services import (
     RequestRefused,
 )
 from tether.services import run as run_service
+
+if TYPE_CHECKING:
+    # Annotation-only: the summary module pulls in h5py, which ``--version`` must not.
+    from tether.project.summary import CurationCounts, ProjectSummary
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
         # A registered command with no route fails here, for every CLI call, as well as
         # in the test that names it (unrouted_commands).
         _ROUTES[entry.name].add_parser(subparsers, entry.summary)
+    _add_info_parser(subparsers)
     return parser
 
 
@@ -82,13 +90,15 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
     extract.add_argument(
         "--donor-side",
         default="left",
-        metavar="{left,right}",
+        choices=DONOR_SIDES,
         help="which horizontal half is the donor channel (default: left)",
     )
     extract.add_argument(
         "--detection-mode",
+        # None, not "wavelet": an explicit choice must stay distinguishable from no
+        # flag, for the --tdat conflict check in _run_extract.
         default=None,
-        metavar="{wavelet,intensity,bandpass}",
+        choices=DETECTION_MODES,
         help=(
             "particle-detection method (Deep-LASI findPart mode; default: wavelet). "
             "'intensity'/'bandpass' also honor --detection-threshold. "
@@ -130,7 +140,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
     extract.add_argument(
         "--prealign",
         default="translation",
-        metavar="{translation,similarity}",
+        choices=PREALIGN_MODES,
         help="registration prealign degrees of freedom (default: translation)",
     )
     extract.add_argument(
@@ -373,6 +383,133 @@ def unrouted_commands() -> list[str]:
     return [entry.name for entry in COMMANDS if entry.name not in _ROUTES]
 
 
+def _add_info_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``info`` subcommand (a read-only project summary, #655)."""
+    info = subparsers.add_parser(
+        "info",
+        help="summarize what a .tether project holds, without opening it for writing",
+        description=(
+            "Print, for each project: the schema version, the movies, the conditions, the "
+            "molecule, curation and category counts, the correction state, the "
+            "idealization models, the ranker model reference and the lock holder. The "
+            "project is opened read-only and no lock is taken, so this works on a project "
+            "another user holds. Movie files are never read, and trace arrays are read "
+            "only for --stale."
+        ),
+    )
+    info.add_argument("projects", nargs="+", help="one or more .tether projects")
+    info.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON document (a documented, versioned layout) instead of text",
+    )
+    info.add_argument(
+        "--stale",
+        action="store_true",
+        help=(
+            "also count each idealization's stale molecules; this reads the trace arrays "
+            "the models were fit on, so it is slower on a large project"
+        ),
+    )
+
+
+def _format_curation(counts: CurationCounts) -> str:
+    """``3 accepted, 1 rejected, 1 undecided`` for a [`CurationCounts`][]."""
+    return f"{counts.accepted} accepted, {counts.rejected} rejected, {counts.undecided} undecided"
+
+
+def _format_summary(s: ProjectSummary) -> str:
+    """The text form of one [`ProjectSummary`][tether.project.summary.ProjectSummary]."""
+    lines = [s.path]
+    written = f", written by Tether {s.written_by}" if s.written_by else ""
+    lines.append(f"  schema version {s.schema_version}{written}")
+    lines.append(f"  movies: {len(s.movies)}")
+    for m in s.movies:
+        frame_time = f"{m.frame_time_s:g} s/frame" if m.frame_time_s else "frame time not recorded"
+        lines.append(f"    {m.name}: {m.n_frames} frames, {frame_time}, {m.n_molecules} molecules")
+        lines.append(f"      curation: {_format_curation(m.curation)}")
+    lines.append(f"  conditions: {len(s.conditions)}")
+    for c in s.conditions:
+        note = "" if c.materialized else " (not yet in /conditions)"
+        lines.append(f"    {c.condition_id}: {c.n_molecules} molecules{note}")
+    lines.append(f"  molecules: {s.n_molecules}")
+    lines.append(f"  curation: {_format_curation(s.curation)}")
+    if s.categories:
+        parts = [f"{name} {n}" for name, n in s.categories.items()]
+        lines.append(f"  categories: {', '.join(parts)}; {s.uncategorized} uncategorized")
+    else:
+        lines.append(f"  categories: none set ({s.uncategorized} uncategorized)")
+    corrections = s.corrections
+    if corrections.ran:
+        parts = [f"{method or 'none'} {n}" for method, n in corrections.methods.items()]
+        lines.append(f"  corrections: ran ({', '.join(parts)})")
+    else:
+        lines.append("  corrections: not run")
+    lines.append(f"  idealizations: {len(s.idealizations)}")
+    for i in s.idealizations:
+        states = "? states" if i.n_states is None else f"{i.n_states} states"
+        stale = "stale not checked (use --stale)" if i.stale is None else f"{i.stale} stale"
+        lines.append(
+            f"    {i.name}: method {i.method or 'unknown'}, {states}, "
+            f"{i.n_molecules} molecules, {stale}"
+        )
+    models = ", ".join(s.models) if s.models else "none"
+    lines.append(f"  ranker model: {models}")
+    lock = s.lock
+    if not lock.held:
+        lines.append("  lock: not held")
+    elif lock.corrupt:
+        lines.append("  lock: present but unreadable (owner unknown)")
+    else:
+        state = "stale" if lock.stale else "active"
+        lines.append(
+            f"  lock: held by {lock.user}@{lock.host} (pid {lock.pid}) since "
+            f"{lock.acquired_utc}, {state}"
+        )
+    return "\n".join(lines)
+
+
+def _run_info(args: argparse.Namespace) -> int:
+    """Handle ``tether info``; exit 1 if any project could not be read."""
+    # Lazy: keep the HDF5 stack off the ``--version`` path.
+    import json
+
+    from tether.project.summary import (
+        SUMMARY_FORMAT_VERSION,
+        ProjectSummaryError,
+        read_project_summary,
+    )
+
+    failed = False
+    documents: list[dict[str, object]] = []
+    texts: list[str] = []
+    for project in args.projects:
+        try:
+            summary = read_project_summary(project, check_stale=args.stale)
+        except ProjectSummaryError as exc:
+            failed = True
+            print(f"tether info: {exc}", file=sys.stderr)
+            documents.append({"path": project, "error": str(exc)})
+            continue
+        documents.append(summary.to_dict())
+        texts.append(_format_summary(summary))
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "format": "tether-info",
+                    "format_version": SUMMARY_FORMAT_VERSION,
+                    "tether_version": __version__,
+                    "projects": documents,
+                },
+                indent=2,
+            )
+        )
+    elif texts:
+        print("\n\n".join(texts))
+    return 1 if failed else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a process exit code (``0`` on success).
 
@@ -386,9 +523,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     route = _ROUTES.get(command)
-    if route is None:  # pragma: no cover - argparse accepts only routed commands
-        parser.error(f"unknown command: {command}")
-    return route.invoke(args)
+    if route is not None:
+        return route.invoke(args)
+    if command == "info":
+        return _run_info(args)
+    parser.error(f"unknown command: {command}")  # pragma: no cover
+    return 2  # pragma: no cover
 
 
 if __name__ == "__main__":  # pragma: no cover

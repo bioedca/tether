@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The ``batch`` service command: extract, correct and idealize many movies.
 
-:class:`BatchRequest` holds what ``tether batch`` takes on its command line, with the same
-defaults; :func:`run` builds one :class:`~tether.project.batch.MovieJob` for each movie and
-calls :func:`tether.project.batch.run_batch`. The core is imported when the command runs,
+[`BatchRequest`][] holds what ``tether batch`` takes on its command line, with the same
+defaults; [`run`][] builds one [`MovieJob`][tether.project.batch.MovieJob] for each movie and
+calls [`tether.project.batch.run_batch`][]. The core is imported when the command runs,
 not when this module is imported (ADR-0100).
 """
 
@@ -29,7 +29,7 @@ class BatchRequest(Request):
     The fields are the options of ``tether batch`` (``docs/cli.md``) with the same
     defaults. Two flags are stated positively: ``--no-idealize`` is ``idealize=False``
     and ``--no-defer`` is ``defer_if_unavailable=False``. ``None`` in a supervision field
-    means the :class:`~tether.idealize.supervisor.SidecarSupervision` default (§11.2).
+    means the [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
     """
 
     COMMAND: ClassVar[str] = "batch"
@@ -60,7 +60,7 @@ class BatchResult:
 def run(request: BatchRequest) -> BatchResult:
     """Run *request*.
 
-    Raises :class:`~tether.services.base.RequestRefused` before any movie is read when
+    Raises [`RequestRefused`][tether.services.base.RequestRefused] before any movie is read when
     the policy or the supervision settings are invalid, when there is no movie, or when
     two movies would write the same project. A failed stage is not an error: it is in the summary.
     """

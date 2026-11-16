@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The ``extract`` service command: one movie to a new ``.tether`` project.
 
-:class:`ExtractRequest` holds what ``tether extract`` takes on its command line, with the
-same defaults; :func:`run` passes it to :func:`tether.project.extract.extract_movie`.
+[`ExtractRequest`][] holds what ``tether extract`` takes on its command line, with the
+same defaults; [`run`][] passes it to [`tether.project.extract.extract_movie`][].
 The imaging and HDF5 stack is imported when the command runs, not when this module is
 imported (ADR-0100).
 """
@@ -58,10 +58,10 @@ class ExtractResult:
 
 
 def run(request: ExtractRequest) -> ExtractResult:
-    """Run *request*; raise :class:`~tether.services.base.CommandFailed` on a user error.
+    """Run *request*; raise [`CommandFailed`][tether.services.base.CommandFailed] on a user error.
 
     The message of the error is the message of the core's
-    :class:`~tether.project.extract.ExtractionError`, unchanged.
+    [`ExtractionError`][tether.project.extract.ExtractionError], unchanged.
     """
     from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
 

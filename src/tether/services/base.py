@@ -4,8 +4,8 @@
 
 A *request* is plain data: a frozen, keyword-only dataclass whose fields are ``str``,
 ``int``, ``float``, ``bool``, ``None`` or a tuple of ``str``. Each request class names its
-command (:attr:`Request.COMMAND`) and the version of its text form
-(:attr:`Request.VERSION`).
+command ([`Request.COMMAND`][]) and the version of its text form
+([`Request.VERSION`][]).
 
 The text form is one JSON object::
 
@@ -84,7 +84,7 @@ def _allows_none(hint: Any) -> tuple[bool, Any]:
 
 
 def _check(name: str, value: Any, hint: Any) -> Any:
-    """Return *value* in the field's Python type, or raise :class:`RequestError`."""
+    """Return *value* in the field's Python type, or raise [`RequestError`][]."""
     optional, base = _allows_none(hint)
     if value is None:
         if optional:
@@ -121,7 +121,7 @@ def _check(name: str, value: Any, hint: Any) -> Any:
 def request_to_mapping(request: Request) -> dict[str, Any]:
     """Return the text form of *request* as a JSON-ready mapping.
 
-    Raises :class:`RequestError` when a field holds a value that has no text form.
+    Raises [`RequestError`][] when a field holds a value that has no text form.
     """
     if not isinstance(request, Request) or not dataclasses.is_dataclass(request):
         raise TypeError(f"not a request: {request!r}")
