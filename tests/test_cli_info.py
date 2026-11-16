@@ -308,6 +308,28 @@ def test_no_trace_array_is_read_unless_stale_is_asked(tmp_path: Path, monkeypatc
     assert any(n.startswith("/traces") for n in read), "--stale must read the trace layers"
 
 
+def test_the_stale_check_reads_no_idealized_or_state_path_dataset(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#1079: the count needs only the model's ids, hashes and quantity, not its paths."""
+    path = _rich_store(tmp_path)
+    expected = len(Project.open(path).stale_idealization_keys("vbconhmm"))
+    read: list[str] = []
+    real = h5py.Dataset.__getitem__
+
+    def recording(self, key, **kwargs):
+        read.append(self.name)
+        return real(self, key, **kwargs)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording)
+    (model,) = read_project_summary(path, check_stale=True).idealizations
+    assert model.stale == expected
+    model_reads = {n for n in read if n.startswith("/idealization/")}
+    assert "/idealization/vbconhmm/input_hash" in model_reads  # the recorder sees the model
+    bulky = {"/idealization/vbconhmm/idealized", "/idealization/vbconhmm/state_path"}
+    assert not model_reads & bulky, f"the stale check read {sorted(model_reads & bulky)}"
+
+
 def test_no_movie_file_is_opened(tmp_path: Path, monkeypatch) -> None:
     import tether.io.movie as movie
 
@@ -384,7 +406,7 @@ def test_a_stale_check_that_cannot_read_a_model_is_a_per_project_error(
     def vanished(*args, **kwargs):
         raise KeyError("no /idealization/vbconhmm")
 
-    monkeypatch.setattr(idealize, "read_idealization", vanished)
+    monkeypatch.setattr(idealize, "read_staleness_stamp", vanished)
     with pytest.raises(ProjectSummaryError, match="could not check model 'vbconhmm'"):
         read_project_summary(good, check_stale=True)
     assert main(["info", "--stale", str(good)]) == 1
