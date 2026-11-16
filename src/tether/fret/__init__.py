@@ -5,8 +5,9 @@
 A native, headless reimplementation of tMAVEN's Bayesian single-step
 photobleaching model, run independently per channel (PRD Appendix E Stage 16);
 the correction factors (leakage alpha, detection gamma, inert delta = 0 — PRD
-Appendix B); corrected FRET over the per-trace analysis window; and a
-vectorized FFT donor-acceptor cross-correlation.
+Appendix B); and corrected FRET over the per-trace analysis window. The
+donor-acceptor cross-correlation is not here: it is
+[`tether.analysis.crosscorr`][].
 """
 
 from __future__ import annotations
