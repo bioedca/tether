@@ -406,7 +406,9 @@ def registration_map_from_tmap(
     The imported transforms are the ``.tmap``'s ``reference -> channel`` and
     ``channel -> reference`` maps (0-based via the [`TmapChannel`][] helpers).
     Each channel's crop is carried from the ``.tmap`` (reference + moving); the
-    per-channel rotation/flip are not yet decoded (S7) and are left unset. When
+    per-channel rotation/flip are not yet applied (S7), so a ``.tmap`` whose
+    channels carry a non-identity rotation or flip raises `ValueError` naming
+    those channel ids rather than building a map that splits at the crop only. When
     matched control points
     (``reference_points`` / ``moving_points``, e.g. colocalized molecule pairs) are
     supplied, the imported map's RMS residual is measured at them and the same
@@ -425,6 +427,16 @@ def registration_map_from_tmap(
         raise ValueError("channels is empty (decode a .tmap with read_tmap first)")
     if on_over_gate not in ("warn", "fail"):
         raise ValueError(f"on_over_gate must be 'warn' or 'fail', got {on_over_gate!r}")
+    unsupported = sorted(cid for cid, ch in channels.items() if not ch.has_simple_geometry)
+    if unsupported:
+        # processImage rotates and flips before cropping, and this path applies only
+        # the crop (the rotation/flip apply is deferred to S7). A RegistrationMap has
+        # no field to carry them, so building one would split at the wrong frame.
+        raise ValueError(
+            f".tmap channel(s) {unsupported} carry a non-identity rotation/flip, which "
+            "the imported registration path does not yet apply (only crop geometry is "
+            "honored)"
+        )
     if reference_channel is None:
         reference_channel = min(channels)
     if reference_channel not in channels:

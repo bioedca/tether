@@ -17,6 +17,7 @@ Locks the S6 registration deliverables on top of the M0.5 fit/decode primitives:
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from pathlib import Path
 
@@ -570,6 +571,40 @@ def test_registration_map_from_tmap_validates() -> None:
     donor = channels[next(c for c in channels if c != reference)].map_particles
     with pytest.raises(ValueError, match="provided together"):
         registration_map_from_tmap(channels, reference_points=donor)
+
+
+@pytest.mark.parametrize(
+    "geometry",
+    [{"rotation": np.array([180.0])}, {"flip": np.array([1, 0])}],
+    ids=["rotation", "flip"],
+)
+def test_registration_map_from_tmap_refuses_rotation_or_flip(geometry: dict) -> None:
+    # The imported path applies only the crop, so a channel whose stored rotation or
+    # flip is non-identity would split at the wrong frame. The builder itself must
+    # refuse it, not only extract_movie, so no caller gets a quietly mis-split map (#1137).
+    reference, channels = _load_tmap_fixture()
+    moving = next(c for c in channels if c != reference)
+    channels[moving] = dataclasses.replace(channels[moving], **geometry)
+    with pytest.raises(ValueError, match=rf"\[{moving}\].*rotation/flip"):
+        registration_map_from_tmap(channels)
+
+
+def test_registration_map_from_tmap_accepts_identity_rotation_and_flip() -> None:
+    # All-zero rotation/flip mean "none", exactly like the fixture's empty arrays, so
+    # such a .tmap still builds the same map as before the refusal was added (#1137).
+    _reference, channels = _load_tmap_fixture()
+    baseline = registration_map_from_tmap(channels)
+    zeroed = {
+        cid: dataclasses.replace(ch, rotation=np.zeros(1), flip=np.zeros(2))
+        for cid, ch in channels.items()
+    }
+    reg = registration_map_from_tmap(zeroed)
+    assert reg.reference_geometry == baseline.reference_geometry
+    assert reg.moving_geometry == baseline.moving_geometry
+    pts = np.array([[10.0, 20.0], [100.0, 200.0]])
+    np.testing.assert_array_equal(
+        reg.apply_reference_to_moving(pts), baseline.apply_reference_to_moving(pts)
+    )
 
 
 def test_imported_map_carries_both_channel_crops() -> None:
