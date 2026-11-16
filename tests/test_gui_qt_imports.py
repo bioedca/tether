@@ -10,7 +10,8 @@ loads NumPy and the splash must show first, and the napari movie panel imports
 These tests read the source with :mod:`ast` and import nothing, so they need no Qt and
 run on every leg of the matrix. They see every import, at module level, inside a
 function, and under ``if TYPE_CHECKING:``, so a convention break cannot hide in a lazy
-import. Docstring cross-references (``:class:`~qtpy...```) are checked too, because
+import. Docstring cross-references (``[`QComboBox`][qtpy.QtWidgets.QComboBox]``, the
+mkdocstrings form ADR-0093 adopted) are checked too, because
 #339 found one that named a binding its module never imports.
 """
 
@@ -38,7 +39,9 @@ EXCEPTIONS: dict[str, str] = {
     "movie_panel": "qtpy",
 }
 
-_XREF = re.compile(r":(?:class|mod|func|meth|attr|obj):`~?([A-Za-z_][\w.]*)`")
+# A mkdocstrings cross-reference: ``[`title`][target]``, or ``[`target`][]`` whose title is
+# the target (docs/maintainers/docstring-style.md).
+_XREF = re.compile(r"\[`([^`\]]+)`\]\[([^\]]*)\]")
 
 
 def _modules() -> list[Path]:
@@ -132,7 +135,7 @@ def test_each_exception_states_its_reason() -> None:
 
 
 def test_docstring_cross_references_name_an_imported_binding() -> None:
-    """A docstring's Sphinx cross-reference to a Qt class names a binding the module uses.
+    """A docstring cross-reference to a Qt class names a binding the module uses.
 
     #339 found ``deeplasi_wizard_ui`` pointing at ``~qtpy.QtWidgets.QStackedWidget``
     while it imports only ``pyqtgraph.Qt``. A reference may name the convention, or the
@@ -143,7 +146,7 @@ def test_docstring_cross_references_name_an_imported_binding() -> None:
         allowed = {CONVENTION, EXCEPTIONS.get(path.stem, CONVENTION)}
         text = path.read_text(encoding="utf-8")
         for match in _XREF.finditer(text):
-            target = match.group(1)
+            target = match.group(2) or match.group(1)
             if target.startswith(CONVENTION + "."):
                 continue  # the convention is allowed everywhere
             if target.split(".")[0] not in BINDINGS:

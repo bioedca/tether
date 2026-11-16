@@ -4,10 +4,10 @@
 
 The trained scorer the M5 quality ranker is built on (PRD §7.5): a
 gradient-boosting model [Chen2016] fitted on a condition's human accept/reject
-``/labels`` that turns each molecule's engineered :mod:`tether.ml.features` vector into a
-scalar **quality score**, which :func:`tether.ml.ranking.rank_by_score` orders into a
+``/labels`` that turns each molecule's engineered [`tether.ml.features`][] vector into a
+scalar **quality score**, which [`tether.ml.ranking.rank_by_score`][] orders into a
 never-auto-drop ranking. It plugs its scores into the model-free evaluation substrate
-(:mod:`tether.ml.ranking` — ``rank_by_score`` / ``precision_at_k``) landed independently in
+([`tether.ml.ranking`][] — ``rank_by_score`` / ``precision_at_k``) landed independently in
 the prior PR, so the metric and the ordering contract never import the model.
 
 Why rank by ``P(good)``. The ranker optimizes **precision@k** — the fraction of good traces
@@ -23,38 +23,39 @@ model specifically.
 Model choice — ``HistGradientBoostingClassifier``. Both scikit-learn's histogram gradient
 boosting and XGBoost [Chen2016] are in the base lock (added in #92) and either satisfies the
 "gradient-boosting ranker" spec; this module uses scikit-learn's
-:class:`~sklearn.ensemble.HistGradientBoostingClassifier` for three properties this problem
+[`HistGradientBoostingClassifier`][sklearn.ensemble.HistGradientBoostingClassifier] for three
+properties this problem
 needs (ADR-0034):
 
 * **Native ``NaN`` support** at both fit and predict. The engineered features are ``NaN``
   where undefined (a window too short, a lone molecule's ``neighbor_distance`` — never a
-  fabricated ``0``; :mod:`tether.ml.features`), so a model that ingests ``NaN`` directly and
+  fabricated ``0``; [`tether.ml.features`][]), so a model that ingests ``NaN`` directly and
   *learns* a split direction for missingness is the exact complement of the never-fabricate
   discipline — no imputation (which would fabricate the very value the feature layer refused
   to). This is why a molecule with undefined features can still be **scored and ranked** here,
-  unlike :mod:`tether.ml.similarity`, which cannot embed it in a metric space and so reports
+  unlike [`tether.ml.similarity`][], which cannot embed it in a metric space and so reports
   it as unindexed.
 * **Determinism** given ``random_state`` (which seeds the histogram-binning subsample — a
   draw that only occurs far above the curation regime; early stopping off), so a ranking is
   reproducible.
 * **``sample_weight``** in ``fit`` — the seam the cold-start label-weighting decay (PRD §7.5
-  ``w = w₀/(1+n_human)``, :mod:`tether.ml.weighting`) plugs into with no model change: each
+  ``w = w₀/(1+n_human)``, [`tether.ml.weighting`][]) plugs into with no model change: each
   labeled molecule is fit weighted by its ``/labels`` source (human = full, provisional/seed
   decayed) [sklearn-sample-weight].
 
 Scope. The **trained scorer + the never-auto-drop ranking + apparent precision@k**, plus the
 optional ``sample_weight`` fit seam the cold-start label-weighting decay uses (the decay *law*
-itself is :mod:`tether.ml.weighting`; its ``/labels`` recompute is
-:func:`tether.project.weighting.recompute_label_weights`). The precision@k this module can report
+itself is [`tether.ml.weighting`][]; its ``/labels`` recompute is
+[`tether.project.weighting.recompute_label_weights`][]). The precision@k this module can report
 over the training labels is **apparent (in-sample)** and is *not* the ship gate — the honest
-held-out prequential evaluation lives in :mod:`tether.ml.prequential` (PRD §7.5; oracle (d)).
+held-out prequential evaluation lives in [`tether.ml.prequential`][] (PRD §7.5; oracle (d)).
 Cross-condition seeding, the drift flag, and the active-learning badge remain each their own later
 PR.
 
-Never-auto-drop. :meth:`QualityRanker.rank` is a permutation of the molecule set — every
+Never-auto-drop. [`QualityRanker.rank`][] is a permutation of the molecule set — every
 molecule is scored and kept, ordering is invariant to the input order (a pure function of the
 fitted model and each row's features, tie-broken on ``molecule_id`` by
-:func:`~tether.ml.ranking.rank_by_score`), and a molecule that cannot be scored is ranked
+[`rank_by_score`][tether.ml.ranking.rank_by_score]), and a molecule that cannot be scored is ranked
 last, never removed (PRD §7.5 "sort/rank only, never auto-drop").
 
 References
@@ -124,7 +125,7 @@ def _as_labels(y: object) -> np.ndarray:
 
     Accept/reject is a *known* human label, never an undefined feature, so a non-finite or
     non-0/1 entry is a caller error surfaced loudly (mirrors
-    :func:`tether.ml.ranking._as_relevance`). Coercing to ``bool`` fixes the class order so
+    `tether.ml.ranking._as_relevance`). Coercing to ``bool`` fixes the class order so
     the fitted model's ``classes_`` is ``[False, True]`` and the "good" probability column is
     unambiguous.
     """
@@ -144,20 +145,20 @@ def _as_labels(y: object) -> np.ndarray:
 # ``eq=False`` -> identity equality/hash. This is a handle-like object wrapping a fitted
 # scikit-learn estimator and a feature-name tuple; a dataclass-generated ``__eq__`` would try
 # to compare the estimator (no meaningful ``==``) and ``__hash__`` would be built from it.
-# Identity semantics are the right contract (the :mod:`tether.ml.similarity` precedent).
+# Identity semantics are the right contract (the `tether.ml.similarity` precedent).
 @dataclass(frozen=True, eq=False)
 class QualityRanker:
     """A fitted gradient-boosting quality model that scores traces by ``P(good)``.
 
-    Built by :func:`train_quality_ranker`. :meth:`score` returns each row's probability of
-    being a good (human-accepted) trace; :meth:`rank` orders molecules by that score into a
-    never-auto-drop :class:`~tether.ml.ranking.RankedTraces`.
+    Built by [`train_quality_ranker`][]. [`score`][] returns each row's probability of
+    being a good (human-accepted) trace; [`rank`][] orders molecules by that score into a
+    never-auto-drop [`RankedTraces`][tether.ml.ranking.RankedTraces].
 
     Attributes
     ----------
     feature_names:
         The feature-column order the model was trained on; ``score``/``rank`` inputs must
-        present columns in this order (the :data:`tether.ml.features.FEATURE_NAMES` layout).
+        present columns in this order (the [`tether.ml.features.FEATURE_NAMES`][] layout).
     n_train, n_good:
         The number of labeled training molecules and how many were accepted (good) — the
         class balance the fit saw, surfaced for provenance/diagnostics.
@@ -181,7 +182,7 @@ class QualityRanker:
     def score(self, X: object) -> np.ndarray:
         """``P(good)`` per row (higher = better quality) — a ``float64`` vector.
 
-        ``X`` is an ``(n, n_features)`` matrix in :attr:`feature_names` order. ``NaN`` feature
+        ``X`` is an ``(n, n_features)`` matrix in [`feature_names`][] order. ``NaN`` feature
         entries are handled natively by the model (never imputed), so every row — including a
         molecule with undefined features — gets a real, learned score.
         """
@@ -193,7 +194,7 @@ class QualityRanker:
         """Rank molecules by ``P(good)`` — a never-auto-drop permutation (PRD §7.5).
 
         Scores every molecule (row-independent, so the ranking is invariant to the input
-        order) and hands the scores to :func:`~tether.ml.ranking.rank_by_score`: highest
+        order) and hands the scores to [`rank_by_score`][tether.ml.ranking.rank_by_score]: highest
         quality first, ties broken on ``molecule_id``, every molecule kept. A model score is
         always a finite probability, so no molecule is ranked ``NaN``-last here — but the
         contract still holds by construction (nothing is dropped).
@@ -202,7 +203,7 @@ class QualityRanker:
         ------
         ValueError
             ``molecule_ids`` and ``X`` disagree in length, ``X`` has the wrong feature count,
-            or ``molecule_ids`` are not unique (from :func:`rank_by_score`).
+            or ``molecule_ids`` are not unique (from [`rank_by_score`][]).
         """
         ids = [str(m) for m in molecule_ids]
         matrix = self._as_matrix(X)
@@ -218,7 +219,7 @@ def _as_sample_weight(sample_weight: object, n_rows: int) -> np.ndarray:
 
     A training weight is a *known* quantity the caller computed (the §7.5 cold-start decay), never
     an undefined feature, so a non-finite or negative entry is a caller error surfaced loudly
-    (mirrors :func:`_as_labels`). Zero is allowed — scikit-learn treats a zero-weight sample as
+    (mirrors `_as_labels`). Zero is allowed — scikit-learn treats a zero-weight sample as
     effectively ignored during the fit, the intended "fully-decayed prior" behaviour.
     """
     weights = np.asarray(sample_weight, dtype=np.float64)
@@ -258,12 +259,12 @@ def train_quality_ranker(
         The feature-column order (stored on the returned model so ``score``/``rank`` can
         validate their inputs).
     hyperparams:
-        Override the :data:`DEFAULT_HYPERPARAMS` (PRD §11.2).
+        Override the [`DEFAULT_HYPERPARAMS`][] (PRD §11.2).
     sample_weight:
         Optional ``(n_labeled,)`` per-row training weights aligned to ``X``/``y`` — the **cold-start
         label-weighting** seam (PRD §7.5, ``w = w₀/(1+n_human)``): a human label is full weight, a
-        provisional/seed prior is down-weighted (:mod:`tether.ml.weighting`,
-        :func:`tether.project.weighting.recompute_label_weights`). ``None`` (default) fits every
+        provisional/seed prior is down-weighted ([`tether.ml.weighting`][],
+        [`tether.project.weighting.recompute_label_weights`][]). ``None`` (default) fits every
         labeled molecule at unit weight (behaviourally identical to the unweighted fit).
         scikit-learn multiplies each sample's gradient/hessian by its weight, so a zero-weight row
         is effectively ignored [sklearn-sample-weight].
