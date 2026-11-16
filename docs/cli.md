@@ -439,7 +439,7 @@ value that the project does not record is `null`. The keys are:
 
 `tether extract` and `tether batch` are each the command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
-command is the one implementation of an action. The command line uses it now; the
+command is the one implementation of an action. The command line uses it now. The
 desktop application and recipe files will use the same commands as their sections are
 moved onto them, so the three cannot do different things for the same input. The command
 line only reads your options into the command's *request*, runs the command, and prints
@@ -457,7 +457,7 @@ two differ:
 
 A request is plain data with one text form: a JSON object with the command name, the
 version of the request, and every field. For example, `tether extract movie.tif -o
-movie.tether` sends this request. The text form is one line; it is broken here to fit
+movie.tether` sends this request. The text form is one line. It is broken here to fit
 the page, and a break between two parts of JSON does not change it:
 
 ```json
@@ -491,7 +491,7 @@ Exit code `1` means the command *ran*. From `tether extract` it is a clean one-l
 on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
 worth reporting. From `tether batch` it means the run finished with at least one movie
 having a failed stage; fix those and re-run the same command to resume the rest. It also
-means `tether batch` could not create `--out-dir` or write the log; it then prints one line
+means `tether batch` could not create `--out-dir` or write the log. It then prints one line
 on stderr that names the path.
 
 > **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable

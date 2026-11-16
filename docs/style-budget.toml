@@ -190,7 +190,7 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 26.8
+long_share = 24.6
 semicolons = 19
 long_paragraphs = 0
 retired = 10
