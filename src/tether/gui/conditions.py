@@ -3,35 +3,36 @@
 """The condition-validation / confirm-correct / merge dialog (PRD §5.1, §7.6; FR-ANNOTATE).
 
 The GUI surface for the M4 annotation step (PRD §7 FR-ANNOTATE). Its headless core landed
-earlier: :func:`tether.project.conditions.validate_conditions` (referential-integrity
-report), :func:`~tether.project.conditions.sync_conditions` (materialize provisional
+earlier: [`tether.project.conditions.validate_conditions`][] (referential-integrity
+report), [`sync_conditions`][tether.project.conditions.sync_conditions] (materialize provisional
 rows), and the transactional re-key + human-confirmed merge
-(:func:`~tether.project.conditions.preview_rekey` /
-:func:`~tether.project.conditions.rekey_condition`). This module renders that as a
+([`preview_rekey`][tether.project.conditions.preview_rekey] /
+[`rekey_condition`][tether.project.conditions.rekey_condition]). This module renders that as a
 per-condition **confirm / correct** prompt:
 
-* **Confirm the provisional ids** — :meth:`ConditionValidationDialog.materialize`
+* **Confirm the provisional ids** — [`ConditionValidationDialog.materialize`][]
   runs ``sync_conditions`` so every provisional ``condition_id`` a *faithful witness*
   supports becomes a real ``/conditions`` row (a *dangling* reference → *ok*). This is
   the "the filename parse was right" path (PRD §7.6).
-* **Correct a mis-parsed id** — :meth:`ConditionValidationDialog.apply_correction`
-  takes the corrected :class:`~tether.io.filename.ConditionKey` (built in the
-  :class:`ConditionKeyEditor`) and **transactionally re-keys every affected molecule**
+* **Correct a mis-parsed id** — [`ConditionValidationDialog.apply_correction`][]
+  takes the corrected [`ConditionKey`][tether.io.filename.ConditionKey] (built in the
+  [`ConditionKeyEditor`][]) and **transactionally re-keys every affected molecule**
   via ``rekey_condition``, which stamps an audit entry.
 * **Human-confirmed merge** — when the correction lands on a condition that already has
   members, the re-key would *merge* two conditions; the dialog first previews it
-  (:func:`~tether.project.conditions.preview_rekey`) and only proceeds if the injected
-  :attr:`~ConditionValidationDialog.confirm_merge` callback returns ``True`` (a
+  ([`preview_rekey`][tether.project.conditions.preview_rekey]) and only proceeds if the injected
+  [`confirm_merge`][tether.gui.conditions.ConditionValidationDialog.confirm_merge] callback returns
+  ``True`` (a
   ``Yes/No`` prompt by default) — never silent on a ~100-video condition (§5.1).
 
-Design notes (mirroring the other :mod:`tether.gui` dialogs, e.g.
-:class:`tether.gui.reconcile.ReconcileDialog`):
+Design notes (mirroring the other [`tether.gui`][] dialogs, e.g.
+[`tether.gui.reconcile.ReconcileDialog`][]):
 
 * **Composition wrapper.** It *holds* a ``QDialog`` rather than subclassing one, and
-  imports Qt lazily inside ``__init__`` (via :mod:`pyqtgraph.Qt`), so importing this
+  imports Qt lazily inside ``__init__`` (via [`pyqtgraph.Qt`][]), so importing this
   module costs no Qt. A live ``QApplication`` (the shell / ``qtbot``) must exist to
   construct it.
-* **Writes go through the :class:`~tether.project.core.Project`** handle, so the §5.4
+* **Writes go through the [`Project`][tether.project.core.Project]** handle, so the §5.4
   single-writer lock is honored (a foreign lock refuses the re-key/sync). A shell-owned
   retained session also injects an exact-nonce guard at each persistence boundary;
   standalone dialog construction keeps the ordinary Project behavior.
@@ -55,7 +56,7 @@ if TYPE_CHECKING:
 
 __all__ = ["ConditionKeyEditor", "ConditionValidationDialog"]
 
-#: The eight identity fields of a :class:`~tether.io.filename.ConditionKey`, in the
+#: The eight identity fields of a `ConditionKey`, in the
 #: order the editor shows them: ``(attribute, label, is_numeric)``. The numeric fields
 #: are optional (empty text ↔ ``None``; the canonical key hashes an absent numeric as
 #: JSON ``null``), so a blank cell round-trips to the same id.
@@ -93,7 +94,7 @@ def _fmt_num(value: float | None) -> str:
 def _parse_num(text: str) -> float | None:
     """Parse an editor numeric cell back to ``float | None`` (blank → ``None``).
 
-    Raises :class:`ValueError` on a non-empty, non-numeric value so a typo cannot be
+    Raises [`ValueError`][] on a non-empty, non-numeric value so a typo cannot be
     silently coerced into the id (the never-silent contract).
     """
     stripped = text.strip()
@@ -122,11 +123,11 @@ def _key_summary(key: ConditionKey) -> str:
 
 
 class ConditionKeyEditor:
-    """A form for a corrected :class:`~tether.io.filename.ConditionKey` (PRD §7.6).
+    """A form for a corrected [`ConditionKey`][tether.io.filename.ConditionKey] (PRD §7.6).
 
     The eight identity fields as line edits (numerics blank-for-absent). Prefilled from
     the current key when correcting a materialized condition; blank for a dangling one.
-    :meth:`key` builds the edited key, raising :class:`ValueError` on a bad numeric.
+    [`key`][] builds the edited key, raising [`ValueError`][] on a bad numeric.
     """
 
     def __init__(
@@ -185,7 +186,7 @@ class ConditionKeyEditor:
             self._edits[attr].setText(_fmt_num(value) if is_numeric else str(value))
 
     def key(self) -> ConditionKey:
-        """Build the edited :class:`ConditionKey` (raises ``ValueError`` on a bad numeric)."""
+        """Build the edited [`ConditionKey`][] (raises ``ValueError`` on a bad numeric)."""
         from tether.io.filename import ConditionKey
 
         values: dict[str, object] = {}
@@ -220,7 +221,7 @@ class ConditionKeyEditor:
 
 
 class ConditionValidationDialog:
-    """A per-condition confirm/correct prompt over :func:`validate_conditions` (PRD §5.1)."""
+    """A per-condition confirm/correct prompt over `validate_conditions` (PRD §5.1)."""
 
     _COLUMNS = ("Condition", "Molecules", "Status")
 
@@ -321,7 +322,7 @@ class ConditionValidationDialog:
         """Materialize button slot — guarded so a refused/failed write reports, not escapes.
 
         A foreign single-writer lock (§5.4) makes ``sync_conditions`` raise
-        :class:`~tether.project.lock.LockedError`; catching it here surfaces the cause to
+        [`LockedError`][tether.project.lock.LockedError]; catching it here surfaces the cause to
         the curator instead of letting the exception escape the Qt slot (which would crash
         or silently swallow it), matching the shell's write-action convention.
         """
@@ -341,9 +342,9 @@ class ConditionValidationDialog:
         """Re-key ``from_condition_id`` → ``to_key``, human-confirming a merge (§5.1).
 
         Previews first; a no-op correction (``to_key`` already equal) does nothing. A
-        *merge* (destination already populated) proceeds only if :attr:`confirm_merge`
+        *merge* (destination already populated) proceeds only if [`confirm_merge`][]
         returns ``True`` — otherwise nothing is written and ``None`` is returned. On a
-        committed re-key the table is refreshed and the :class:`RekeyResult` returned.
+        committed re-key the table is refreshed and the [`RekeyResult`][] returned.
         """
         preview = self._project.preview_rekey(from_condition_id, to_key)
         if preview.to_condition_id == from_condition_id:
@@ -408,7 +409,7 @@ class ConditionValidationDialog:
             return self.apply_correction(from_id, to_key)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             # A foreign lock (§5.4) or any headless error is surfaced, not left to
-            # escape the Qt slot (mirrors :meth:`_on_materialize`).
+            # escape the Qt slot (mirrors `_on_materialize`).
             self._report_error(exc)
             return None
 

@@ -6,7 +6,7 @@ Every curation keystroke is a provenance-stamped, append-only event. This module
 is the headless writer behind the M2 curation surface (PRD §7.11 — the GUI is a
 thin layer over the scriptable core): an *accept* / *reject* / *un-reject*
 
-* sets the molecule's authoritative :data:`~tether.io.schema.MOLECULES_DTYPE`
+* sets the molecule's authoritative [`MOLECULES_DTYPE`][tether.io.schema.MOLECULES_DTYPE]
   ``curation_label`` (its current accept/reject/uncurated state, §5.1), **and**
 * appends one fully-provenanced row to ``/labels/table`` (§5.1: ``molecule_key`` +
   labeler + timestamp + source experiment file + ``source`` + effective training
@@ -17,34 +17,34 @@ dtype or field changes — so the ``schema-guard`` freeze holds (ADR-0005, ADR-0
 
 The curation-label codec (ADR-0023)
 -----------------------------------
-One small signed codec, :class:`CurationLabel`, is shared by *both* the
+One small signed codec, [`CurationLabel`][], is shared by *both* the
 ``/molecules.curation_label`` state field and each ``/labels.label_value`` event.
 ``curation_label`` reflects the molecule's most recent **human** accept/reject/clear
 event; ``/labels`` is the full append-only history (including provisional-source
 priors, which never touch ``curation_label``). The codes:
 
 * ``UNCURATED = 0`` — never curated, or **cleared** by an un-reject (matches the
-  ``_UNCURATED_LABEL`` an extraction writes, :mod:`tether.imaging.extract`).
+  ``_UNCURATED_LABEL`` an extraction writes, [`tether.imaging.extract`][]).
 * ``ACCEPT = +1`` — the ML "good" class.
 * ``REJECT = -1`` — the ML "bad" class.
 
 **Reject semantics (§7.5).** A reject is a *reversible sticky tag*, never a
 deletion: it persists in ``curation_label`` (and so carries across files on the
-stable ``molecule_key``), is one-click reversible via :func:`unreject` (which
+stable ``molecule_key``), is one-click reversible via [`unreject`][] (which
 clears to ``UNCURATED`` and logs the reversal), and is excluded from default
-histograms/idealization through the **toggleable filter** :func:`curation_filter_mask`
+histograms/idealization through the **toggleable filter** [`curation_filter_mask`][]
 (``include_rejected=False`` by default). The reject also lives on as an ML training
 label (its ``/labels`` row).
 
 **Reject reasons (#932, PRD §7.2/§7.5).** A human reject also appends one row to the
 append-only ``/labels/reject_log`` dataset: the reason (one code of the fixed list
-:data:`REJECT_REASONS`), an optional free-text note, the threshold value of a
+[`REJECT_REASONS`][]), an optional free-text note, the threshold value of a
 ``"threshold"`` reject, and who rejected and when (the same ``labeler`` and
 ``timestamp`` as the reject's ``/labels`` row, so the two rows join exactly; ADR-0104). An
-:func:`unreject` appends a ``"restore"`` row. The log is created lazily on the first
+[`unreject`][] appends a ``"restore"`` row. The log is created lazily on the first
 reject, under the frozen ``/labels`` group, so a fresh store and the ``schema-guard``
 manifest are unchanged. The log is a record only: the filter
-(:func:`curation_filter_mask`), the ranker and every analysis read ``curation_label``
+([`curation_filter_mask`][]), the ranker and every analysis read ``curation_label``
 and never the reason.
 
 Scope (M2 S5). This logs **accept / reject / un-reject** — the ML training signal
@@ -55,7 +55,7 @@ nor its integer↔category lookup (which a ``label_value`` encoding would need)
 exists until M4 (ADR-0023). Each row's ``weight`` is written at the human full weight here;
 the ``source``-driven cold-start decay (``w = w₀/(1+n_human)``, §7.5) that down-weights a
 provisional/seed prior is applied at retrain time by
-:func:`tether.project.weighting.recompute_label_weights` (ADR-0036), which rewrites this
+[`tether.project.weighting.recompute_label_weights`][] (ADR-0036), which rewrites this
 column from the current label set.
 """
 
@@ -110,7 +110,7 @@ _LABELS = "labels"
 class CurationLabel(IntEnum):
     """The signed curation-label codec shared by ``curation_label`` + ``label_value``.
 
-    An :class:`~enum.IntEnum` so a member writes straight into the frozen ``<i4``
+    An [`IntEnum`][enum.IntEnum] so a member writes straight into the frozen ``<i4``
     fields and reads back comparably as a plain int (ADR-0023).
     """
 
@@ -128,7 +128,7 @@ LABEL_SOURCE_CROSS_CONDITION = "cross-condition-seed"
 #: The two provisional (non-human) sources — cold-start priors the M5 ranker folds into training
 #: at a decayed weight (§7.5), as opposed to an authoritative human accept/reject. The one canonical
 #: definition of "which sources are seed priors," so the training-fold
-#: (:func:`tether.project.gbranking.weighted_training_set`) and this vocabulary never drift apart.
+#: (`tether.project.gbranking.weighted_training_set`) and this vocabulary never drift apart.
 PROVISIONAL_LABEL_SOURCES = frozenset({LABEL_SOURCE_DEEPLASI, LABEL_SOURCE_CROSS_CONDITION})
 LABEL_SOURCES = frozenset({LABEL_SOURCE_HUMAN}) | PROVISIONAL_LABEL_SOURCES
 
@@ -228,13 +228,13 @@ def set_curation_label(
     molecule_key:
         The target molecule's cross-file content identity (§5.1).
     label:
-        A :class:`CurationLabel` (or its int value).
+        A [`CurationLabel`][] (or its int value).
     labeler:
-        Curator identity; defaults to :func:`default_labeler`.
+        Curator identity; defaults to [`default_labeler`][].
     source:
-        One of :data:`LABEL_SOURCES`; human curation is ``"human"`` (default).
+        One of [`LABEL_SOURCES`][]; human curation is ``"human"`` (default).
     weight:
-        Effective training weight; defaults to :data:`HUMAN_WEIGHT` (``1.0``).
+        Effective training weight; defaults to [`HUMAN_WEIGHT`][] (``1.0``).
         Provisional sources pass their own decayed weight (§7.5, M5).
     source_file:
         The source experiment file the label came from; defaults to the project
@@ -254,8 +254,8 @@ def set_curation_label(
     KeyError
         If no ``/molecules`` row carries ``molecule_key`` (never a silent no-op).
     ValueError
-        If ``label`` is not a valid :class:`CurationLabel`, ``source`` is not in
-        :data:`LABEL_SOURCES`, ``weight`` is not finite and non-negative,
+        If ``label`` is not a valid [`CurationLabel`][], ``source`` is not in
+        [`LABEL_SOURCES`][], ``weight`` is not finite and non-negative,
         ``timestamp`` is not an offset-aware ISO-8601 string, or the matched rows
         disagree on ``condition_id`` (an ambiguous label scope).
     """
@@ -359,7 +359,7 @@ def _reject_log_dtype() -> np.dtype:
 
 
 def _check_reject_reason(reason: str, note: str, value: float | None) -> None:
-    """Refuse a reason outside :data:`REJECT_REASONS` or a reason missing its detail."""
+    """Refuse a reason outside [`REJECT_REASONS`][] or a reason missing its detail."""
     if reason not in REJECT_REASONS:
         raise ValueError(f"reason must be one of {sorted(REJECT_REASONS)}, got {reason!r}")
     if not isinstance(note, str):
@@ -411,13 +411,13 @@ def reject(
 ) -> np.ndarray:
     """Reject a molecule: ``curation_label = REJECT`` + an ``/labels`` row + its reason.
 
-    A reject is a reversible sticky tag (§7.5) — see :func:`unreject` and
-    :func:`curation_filter_mask` for the reversal and the exclusion filter. A human
+    A reject is a reversible sticky tag (§7.5) — see [`unreject`][] and
+    [`curation_filter_mask`][] for the reversal and the exclusion filter. A human
     reject also appends a ``/labels/reject_log`` row with ``reason`` (a code of
-    :data:`REJECT_REASONS`), the optional ``note``, and ``value`` (required for a
+    [`REJECT_REASONS`][]), the optional ``note``, and ``value`` (required for a
     ``"threshold"`` reject, refused for any other reason). The reason is checked before
     any write. The ``/labels`` row is written first, so a crash between the two writes
-    leaves a reject with no reason row (:func:`reject_record_of` then returns ``None``),
+    leaves a reject with no reason row ([`reject_record_of`][] then returns ``None``),
     never a reason for a trace that was not rejected (ADR-0104). A provisional-source reject is a
     ``/labels``-only prior and writes no reason row.
     """
@@ -442,7 +442,7 @@ def unreject(
     with the optional ``note`` to ``/labels/reject_log``. On any other current state it
     is a **no-op returning ``None``** (nothing written) — so it never clobbers an
     accept (§7.5 "never silently drop") and never pollutes the append-only ML log
-    with spurious clear rows. Raises :class:`KeyError` if ``molecule_key`` is absent.
+    with spurious clear rows. Raises [`KeyError`][] if ``molecule_key`` is absent.
     """
     if not isinstance(note, str):
         raise ValueError(f"note must be a string, got {type(note).__name__}")
@@ -469,7 +469,7 @@ def read_reject_log(path: str | Path) -> np.ndarray:
     """Read ``/labels/reject_log`` as a structured array (a copy, append order).
 
     Returns a length-0 array of the log dtype when no reject has been logged yet (the
-    dataset is created lazily on the first human :func:`reject`).
+    dataset is created lazily on the first human [`reject`][]).
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
@@ -488,9 +488,9 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     is the ``"reject"`` row of ``/labels/reject_log`` with the same ``molecule_key``,
     ``labeler`` and ``timestamp``. ``None`` when the molecule is not currently rejected,
     or when its current reject has no reason row (a store written before #932, a reject
-    written straight through :func:`set_curation_label`, or a crash between the two
+    written straight through [`set_curation_label`][], or a crash between the two
     writes) — an earlier reject's reason is never returned for a later decision. Raises
-    :class:`KeyError` if ``molecule_key`` is absent.
+    [`KeyError`][] if ``molecule_key`` is absent.
     """
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None

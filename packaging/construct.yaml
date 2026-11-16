@@ -14,8 +14,8 @@
 # The build driver (.github/workflows/packaging.yml and release.yml, and
 # packaging/README.md for local builds) sets the env vars this recipe reads and
 # stages the artifacts it references (the rendered per-platform locks under locks/,
-# the THREE wheels — see `extra_files` below — and the GPL license text under
-# staging/). See ADR-0049 for the architecture.
+# the THREE wheels and the `gh` update verifier — see `extra_files` below — and the GPL
+# license text under staging/). See ADR-0049 for the architecture.
 #
 # UNSIGNED by decision (ADR-0059): installers are not OS-code-signed on any
 # platform, and that is the settled 1.0 position rather than a pending step. The
@@ -97,6 +97,19 @@ extra_files:
   - {{ environ.get("TMAVEN_WHEEL", "staging/tmaven.whl") }}: wheelhouse/{{ environ.get("TMAVEN_WHEEL_NAME", "tmaven.whl") }}
   - {{ environ.get("SETUPTOOLS_WHEEL", "staging/setuptools.whl") }}: wheelhouse/{{ environ.get("SETUPTOOLS_WHEEL_NAME", "setuptools.whl") }}
 
+# The update verifier (issue #332, ADR-0060): the upstream `gh` CLI, pinned with the SHA-256 of
+# each platform's release archive in packaging/gh-verifier.toml. The build driver runs
+# packaging/scripts/stage_gh.py, which downloads the archive, refuses it unless the digest
+# matches, and writes these three fixed names into staging/gh/. Extra files, not conda-lock:
+# ADR-0060 rejects re-solving the base lock for one tool. `verifier/gh/` is a folder of its own,
+# never a folder on the user's PATH, so the bundled gh cannot shadow a gh the user has;
+# tether._verifier.bundled_gh() finds it from sys.prefix. LICENSE is gh's MIT text and
+# THIRD-PARTY-LICENSES.txt the notices of its dependencies (`gh licenses`).
+  - staging/gh/gh: verifier/gh/gh             # [unix]
+  - staging/gh/gh.exe: verifier/gh/gh.exe     # [win]
+  - staging/gh/LICENSE: verifier/gh/LICENSE
+  - staging/gh/THIRD-PARTY-LICENSES.txt: verifier/gh/THIRD-PARTY-LICENSES.txt
+
 # GPL-3.0 license text shown during install and shipped beside the installer
 # (NOTICE: the bundled sidecar also ships tMAVEN's own GPL-3.0 text — staged by the
 # build driver). Must be plain .txt for the shell (Linux) installer.
@@ -145,10 +158,15 @@ installer_type: sh     # [linux]
 # the shortcuts napari would add.
 #
 # These four keys are why nothing lands on PATH, which is what ADR-0051 addresses:
-# post_install writes `<prefix>/bin/{tether,tether-gui}` shims plus a Start Menu
-# shortcut (Windows) / .desktop entry (Linux). The installer still does NOT edit the
+# post_install writes `<prefix>/launchers/{tether,tether-gui}` shims plus a Start Menu
+# shortcut (Windows) / .desktop entry (Linux) / Tether.app launcher bundle (macOS,
+# ADR-0091). The macOS bundle has no pre_uninstall counterpart: constructor runs
+# pre_uninstall on Windows only, so docs/install.md names the bundle in the uninstall
+# command. The installer still does NOT edit the
 # user's PATH — `setx` truncates PATH past 1024 chars and rewriting a shell rc is
-# equally invasive — so adding `<prefix>/bin` stays a documented one-line step.
+# equally invasive — so adding `<prefix>/launchers` stays a documented one-line step.
+# That folder holds the two shims only; `<prefix>/bin`, their folder until rc3, is the
+# bootstrap env's own bin, with its python, pip and conda (issue #492, ADR-0094).
 keep_pkgs: false
 initialize_conda: false
 initialize_by_default: false    # [unix]

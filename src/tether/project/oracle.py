@@ -19,12 +19,12 @@ acceptor intensity gate measure noise. The reframed gate on the UCKOPSB pair is:
 * **registration RMS ≤ 0.5 px** (the native bead-fit residual, validated in the
   registration module; carried here for reporting when available).
 
-This module is the pure, reusable scorer. :func:`evaluate_extraction` takes plain
+This module is the pure, reusable scorer. [`evaluate_extraction`][] takes plain
 arrays (extracted donor coordinates + per-frame intensity traces) and a parsed
-:class:`~tether.io.deeplasi.DeepLasiExport` ground truth and returns an
-:class:`OracleResult`. :func:`evaluate_project` is the on-disk convenience that
-reads a written ``.tether`` (via :func:`tether.imaging.extract.read_molecules` /
-:func:`~tether.imaging.extract.read_traces`) and a ``.mat`` export, then delegates.
+[`DeepLasiExport`][tether.io.deeplasi.DeepLasiExport] ground truth and returns an
+[`OracleResult`][]. [`evaluate_project`][] is the on-disk convenience that
+reads a written ``.tether`` (via [`tether.imaging.extract.read_molecules`][] /
+[`read_traces`][tether.imaging.extract.read_traces]) and a ``.mat`` export, then delegates.
 
 Matching is a deterministic **greedy unique nearest-neighbour** within the
 tolerance (no Hungarian assignment is required by §9 M1; greedy global-min keeps
@@ -35,7 +35,7 @@ are reported, since pooling across molecules inflates r with between-molecule
 variance and is the weaker statistic.
 
 Beyond the gated numbers, the result carries **reporting-only** diagnostics (never
-part of :meth:`OracleResult.meets_acceptance`): the donor-channel **precision**
+part of [`OracleResult.meets_acceptance`][]): the donor-channel **precision**
 (matched / extracted), so a recall met by an over-detecting flood is visible rather
 than mistaken for a faithful match; the per-channel **acceptor** coordinate recall +
 precision vs ``ground_truth.acceptor_xy`` (validating detection in *both* channels);
@@ -49,7 +49,7 @@ gating the acceptor Pearson would penalize the kept low-FRET population — so t
 honest framing scores the donor-anchored set, gates the donor, and reports the rest.
 
 Coordinates everywhere are ``[x, y] = [col, row]`` 0-based pixels, matching the
-rest of :mod:`tether.imaging` and :class:`~tether.io.deeplasi.DeepLasiExport`.
+rest of [`tether.imaging`][] and [`DeepLasiExport`][tether.io.deeplasi.DeepLasiExport].
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def match_coordinates(
     ground_truth_xy, extracted_xy:
         ``(n, 2)`` arrays of ``[x, y]`` pixel coordinates.
     tol_px:
-        Maximum match distance in pixels (default :data:`MATCH_TOL_PX`).
+        Maximum match distance in pixels (default [`MATCH_TOL_PX`][]).
 
     Returns
     -------
@@ -235,11 +235,11 @@ def _per_molecule_pearson(
 class OracleResult:
     """Scored extraction-vs-Deep-LASI comparison (PRD §9 M1).
 
-    The three §9 M1 numbers are :attr:`recall`, the per-molecule Pearson medians
-    (:attr:`donor_pearson_median` / :attr:`acceptor_pearson_median`), and
-    :attr:`registration_rms_px` (populated when the native bead-fit residual is
+    The three §9 M1 numbers are [`recall`][], the per-molecule Pearson medians
+    ([`donor_pearson_median`][] / [`acceptor_pearson_median`][]), and
+    [`registration_rms_px`][] (populated when the native bead-fit residual is
     known; the imported-``.tmap`` path trusts Deep-LASI's registration and leaves
-    it ``nan``). :meth:`meets_acceptance` evaluates the conjunction.
+    it ``nan``). [`meets_acceptance`][] evaluates the conjunction.
     """
 
     n_ground_truth: int
@@ -267,7 +267,7 @@ class OracleResult:
     #: populated only when ``extracted_acceptor_xy`` is supplied (else ``nan`` / 0).
     #: Validates that detection is faithful in *both* channels (USER CORRECTION #1:
     #: "Tether donor det vs DL ``donor_xy``, acceptor vs ``acceptor_xy``"), a
-    #: diagnostic that does not enter :meth:`meets_acceptance`.
+    #: diagnostic that does not enter `meets_acceptance`.
     n_acceptor_extracted: int = 0
     n_acceptor_matched: int = 0
     acceptor_recall: float = float("nan")
@@ -381,7 +381,8 @@ def evaluate_extraction(
 
     The recall / Pearson / RMS conjunction is the frozen §9 M1 gate. Two further
     metrics are computed for **reporting** (never gates): the donor-channel
-    :attr:`~OracleResult.precision` (matched / extracted), so a recall met by an
+    [`precision`][tether.project.oracle.OracleResult.precision] (matched / extracted), so a recall
+    met by an
     over-detecting flood is visible rather than mistaken for a faithful match; and,
     when ``extracted_acceptor_xy`` is supplied, the per-channel **acceptor**
     coordinate recall vs ``ground_truth.acceptor_xy`` (USER CORRECTION #1 — validate
@@ -413,7 +414,8 @@ def evaluate_extraction(
         against ``ground_truth.acceptor_xy`` — either the coordinate-domain mapped
         acceptor read positions (a registration check) or an independent acceptor
         detection (a detector check). ``None`` (default) leaves the acceptor-channel
-        fields unmeasured (``nan`` / 0). Does **not** enter :meth:`meets_acceptance`.
+        fields unmeasured (``nan`` / 0). Does **not** enter
+        [`meets_acceptance`][tether.project.oracle.OracleResult.meets_acceptance].
     """
     if intensity not in ("raw", "corrected"):
         raise ValueError(f"intensity must be 'raw' or 'corrected', got {intensity!r}")
@@ -501,7 +503,7 @@ def _score_acceptor_channel(
 ) -> tuple[int, list[tuple[int, int, float]], float, float, float]:
     """Per-channel acceptor coordinate recall + precision vs the curated coordinates.
 
-    Delegates to :func:`_score_channel`; returns all-unmeasured
+    Delegates to `_score_channel`; returns all-unmeasured
     (``0``/``[]``/``nan``…) when ``extracted_acceptor_xy`` is ``None`` (the optional
     acceptor path), else the acceptor channel's ``(n_extracted, matches, recall,
     precision, coord_rms)``.
@@ -526,7 +528,7 @@ def evaluate_project(
 
     Reads ``/molecules`` (donor coordinates + per-molecule ``frame_range``) and
     ``/traces`` from the project, the export from the ``.mat``, then delegates to
-    :func:`evaluate_extraction` using the chosen ``intensity`` trace pair.
+    [`evaluate_extraction`][] using the chosen ``intensity`` trace pair.
     """
     from tether.imaging.extract import read_molecules, read_traces  # noqa: PLC0415
     from tether.io.deeplasi import read_deeplasi_mat  # noqa: PLC0415

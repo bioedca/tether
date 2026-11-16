@@ -6,14 +6,14 @@ Both are ``QProgressBar`` subclasses with a custom paint, so assistive technolog
 reads them as progress bars: the busy mark is an indeterminate bar (range 0 to 0) and
 the progress row reports its value through ``QAccessibleValueInterface``. Neither
 holds a colour: the ink is the ``text`` token of the active theme
-(:mod:`tether.gui.theme`), and a change of theme repaints them through the palette
+([`tether.gui.theme`][]), and a change of theme repaints them through the palette
 change it sends to every widget.
 
-* :class:`BusyIndicator` is for a task that gives no percentage. The three
+* `BusyIndicator` is for a task that gives no percentage. The three
   wavefronts of the mark light in turn, from the surface to the molecule, beside the
   task name. When the operating system asks for reduced motion
-  (:func:`prefers_reduced_motion`) the mark stays still and the name stays.
-* :class:`ProgressRow` is for a task that gives a percentage. It draws the
+  ([`prefers_reduced_motion`][]) the mark stays still and the name stays.
+* `ProgressRow` is for a task that gives a percentage. It draws the
   beam-profile row of dots at the top of the mark; the dots fill from left to right,
   and the text percentage stays beside them.
 
@@ -21,7 +21,7 @@ The shell connects the busy indicator to the one-click idealize. The task servic
 (#343) and the progress indicator (#627) put both parts in front of the other tasks.
 
 Qt is imported when one of the three widget classes is first used, so importing this
-module costs no Qt, matching the rest of :mod:`tether.gui`.
+module costs no Qt, matching the rest of [`tether.gui`][].
 """
 
 from __future__ import annotations
@@ -245,7 +245,7 @@ def _widget_classes() -> dict[str, type]:
             return self._task
 
         def is_running(self) -> bool:
-            """True from :meth:`start` to :meth:`stop`."""
+            """True from `start` to `stop`."""
             return self._task is not None
 
         def start(self, task_name: str) -> None:

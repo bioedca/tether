@@ -53,8 +53,13 @@ theme:
 
 # Reads CITATION.cff at build time and gives overrides/main.html the schema.org JSON-LD and
 # the citation_* meta tags, so the page head and the citation file have one source (#599).
+# scripts/mkdocs_hooks.py points every `blob/main` and `tree/main` source link at the release
+# tag when docs.yml builds a release (TETHER_DOCS_SOURCE_TAG, #600); a local build, the
+# docs-build gate and the `dev` deployment keep the links on main. Keep ONE `hooks:` key: YAML
+# keeps only the last of two, and the build would silently drop the first list's hooks.
 hooks:
   - scripts/docs_citation_hook.py
+  - scripts/mkdocs_hooks.py
 
 # The brand palette, links and beam-row rule (a kit file from #671), then the site's own
 # layer: the heading font and two adjustments to the monochrome palette.
@@ -82,12 +87,14 @@ nav:
           - Idealize traces into FRET states: how-to/idealize.md
           - Draw a histogram, TDP and dwell plots: how-to/analyze.md
           - Export results: how-to/export-results.md
+          - Share and deposit a dataset: how-to/share-a-dataset.md
       - Import:
           - Legacy Deep-LASI import: io/legacy-import.md
       - Idealization:
           - Standalone-tMAVEN hand-off: idealize/standalone-tmaven-handoff.md
       - Analysis:
           - Seven-plot parity gallery: analysis/parity-gallery.md
+          - Rate constants with error bounds: analysis/rate-bounds.md
       - Validation &amp; benchmarks: validation.md
       - Machine learning:
           - Deep trace classifier (GPU add-on): ml/deep-classifier.md
@@ -95,8 +102,8 @@ nav:
           - Command line: cli.md
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
-          - Project store (.tether HDF5 schema): reference/tether-format.md
-          - Window themes and trace colors: reference/gui-theme.md
+          - Project file format (.tether HDF5 schema): reference/tether-format.md
+          - Application window themes and trace colors: reference/gui-theme.md
           - Reproducibility & reporting: reproducibility.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md
@@ -114,6 +121,7 @@ nav:
       - Running the private-data checks: maintainers/workstation-runner.md
       - Reading the mutation report: maintainers/mutation-testing.md
       - Writing style for documentation: maintainers/writing-style.md
+      - Writing docstrings: maintainers/docstring-style.md
       - AI-use policy for documentation: maintainers/ai-use-policy.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
