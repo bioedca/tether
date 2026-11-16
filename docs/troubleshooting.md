@@ -703,7 +703,8 @@ case. The banner shows an action button only when an action is safe. Do not dele
   other writer can lose work in this case, so no confirmation is asked.
 - **The lock names a Tether that still runs on this computer** — another application window
   has the project open. The banner shows no action, and Tether never takes this lock. Close
-  the other application window.
+  the other application window. Tether checks that process again about once a minute: if it
+  stops (for example, it crashes), the banner changes to the first case and shows **Recover**.
 - **No `; stale` suffix** (another computer or another login) — a live writer, or one that
   stopped less than ≈30 minutes ago. The banner shows no action and says when a takeover
   becomes possible. Close the other Tether application window, or ask the named

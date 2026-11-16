@@ -150,6 +150,40 @@ def test_running_process_on_this_computer_offers_nothing(shell, tmp_path, runnin
     assert shell.curation_project is None
 
 
+def test_banner_offers_recover_once_the_running_holder_stops(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    """A running-holder verdict is judged again, so Recover appears after it stops (#1123)."""
+    from tether.gui import shell as shell_module
+    from tether.project import lock
+    from tether.project.lock import LockIdentity, RecoveryAction, local_identity
+
+    monkeypatch.setattr(shell_module, "_LOCK_RECOVERY_RECHECK_MAX_MS", 200)
+    project = _store(tmp_path)
+    me = local_identity()
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=child.pid))
+        assert shell.load_project(project.path) is not None
+        assert shell.lock_recovery.action is RecoveryAction.NONE
+        assert shell.lock_recovery.holder_running
+        assert shell.recover_button.isHidden()
+
+        qtbot.wait(500)  # several re-checks while it still runs: nothing is offered
+        assert shell.recover_button.isHidden()
+        assert "running Tether process on this computer" in shell.read_only_banner.text()
+    finally:
+        child.kill()
+        child.wait()
+
+    qtbot.waitUntil(lambda: not shell.recover_button.isHidden(), timeout=5_000)
+
+    assert shell.lock_recovery.action is RecoveryAction.RECOVER
+    assert "Recover" in shell.read_only_banner.text()
+    assert shell.recover_project_lock() is not None
+    assert lock.read_lock(project.path).identity == me
+
+
 def test_foreign_lock_that_is_not_stale_cannot_be_taken(shell, tmp_path) -> None:
     from tether.project import lock
     from tether.project.lock import RecoveryAction
