@@ -34,7 +34,9 @@ tether-gui movie.tether
 On Windows and Linux you can also start Tether from the Start menu or applications menu. The
 application window then shows the start page. Click **Open project…** there, choose **File → Open
 project…**, or drop the `.tether` file on the application window. A dropped file of a different type does
-not open, and the status bar says why.
+not open, and the status bar says why. **File → Open recent** lists the last ten projects you
+opened on this computer. A project whose file has moved or been deleted shows greyed out, with its
+path, so you can see where it was.
 When the project opens, the status bar at the bottom of the application window names it and its molecule
 count:
 
@@ -44,6 +46,9 @@ Opened movie.tether — 412 molecule(s)
 
 If that line ends in `(read-only)` after the file name, another writer holds the project and
 nothing you mark will be saved. Close the other writer and open the project again.
+
+A project you opened before on this computer opens at the molecule that was selected when you
+last closed it, so you can carry on where you stopped.
 
 ## 2. Move from trace to trace
 
@@ -118,9 +123,15 @@ for review ([curation label](../glossary.md#curation-label-category-quality-clas
 
 Every row in the curation log records a `labeler`: the name of the curator who made the
 decision. The desktop application fills it in with your login name on the computer you curate
-on, and has no field to change it.
+on, unless you set a curator name. The status bar always shows the name new decisions are
+recorded with, for example `Curator: ana`.
 
-To record a different name, make the change from Python instead, with
+To use a different name, for example on a lab computer that several people share under one
+login, choose **File → Curator name…** and type it. Decisions you make from then on carry that
+name; decisions already recorded keep the name they were made with. Leave the field empty to
+go back to your login name. The name is kept for your next session on this computer.
+
+From a script, pass the name with
 `labeler=`. For example, this script un-rejects every rejected molecule in the project and
 credits the change to `your-name`. Close the Tether application window first, then run it with the Python
 that came with Tether (`~/tether/envs/tether/bin/python` on Linux,
@@ -136,6 +147,31 @@ for key in sorted(project.rejected_molecule_keys()):
 ```
 
 `project.accept(key, labeler=…)` and `project.reject(key, labeler=…)` work the same way.
+
+## What the application remembers on this computer
+
+Between sessions the desktop application keeps, for your user account on this computer:
+
+- the last ten projects you opened (**File → Open recent**);
+- for each project, the molecule that was selected when you closed it;
+- the size of the window and where its panels are;
+- the curator name, if you set one.
+
+**View → Reset layout** puts the window and its panels back where they start, and forgets the
+saved arrangement.
+
+None of this is written into the `.tether` file, so a project you share carries none of it. It is
+kept in a file named `preferences.json` in your own settings folder:
+
+| System | Folder |
+|---|---|
+| Windows | `%LOCALAPPDATA%\MondragonLab\Tether\` |
+| macOS | `~/Library/Application Support/MondragonLab/Tether/` |
+| Linux | `~/.config/tether/` (or `$XDG_CONFIG_HOME/tether/`) |
+
+Deleting that file makes the application forget all of it, and nothing else changes. If the
+environment variable `TETHER_PREFERENCES_FILE` holds the full path of a file, the application
+uses that file instead.
 
 ## Next
 
