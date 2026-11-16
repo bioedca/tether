@@ -21,7 +21,7 @@ with each imported or fitted model under ``/idealization/{model}``):
 3. The bounds are the rates at ``p + sqrt(var)`` and at ``p - sqrt(var)``. They are not
    symmetric about ``k``, because the logarithm is not linear.
 
-:func:`dirichlet_rate_bounds` is the pure-array core; :func:`model_rate_bounds` reads the
+[`dirichlet_rate_bounds`][] is the pure-array core; [`model_rate_bounds`][] reads the
 count matrix of a stored idealization model of a project and stamps the result with its
 provenance.
 
@@ -98,7 +98,7 @@ class RateBounds:
     ``1 / s`` (when ``dt`` is in seconds), and ``lower``/``upper`` its bounds. The
     diagonal of ``rates``/``lower``/``upper`` is not a rate constant (module docstring).
     ``provenance`` is the analysis stamp (app version, time, parameters and source
-    model) when the result came from :func:`model_rate_bounds`, else ``None``.
+    model) when the result came from [`model_rate_bounds`][], else ``None``.
     """
 
     counts: np.ndarray
@@ -210,7 +210,7 @@ def model_rate_bounds(
     dt: float,
     created_utc: str | None = None,
 ) -> RateBounds:
-    """:func:`dirichlet_rate_bounds` of the count matrix of a stored idealization model.
+    """[`dirichlet_rate_bounds`][] of the count matrix of a stored idealization model.
 
     Reads ``/idealization/{model_name}/tmatrix`` (the un-normalized count matrix) and
     returns its rates and bounds with ``provenance`` set: the method, the app version,
@@ -224,7 +224,7 @@ def model_rate_bounds(
         When the project has no such model.
     ValueError
         When the model stores no count matrix (for example a threshold or k-means
-        model), or for the reasons of :func:`dirichlet_rate_bounds`.
+        model), or for the reasons of [`dirichlet_rate_bounds`][].
     """
     from tether.project.core import Project as _Project
     from tether.project.idealize import read_idealization

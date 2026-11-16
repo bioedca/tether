@@ -3,7 +3,7 @@
 """Filename-to-metadata parser (PRD §5.1, §7.6).
 
 Lab acquisition filenames encode the experimental condition. This module
-extracts a **provisional** :class:`ConditionKey` — the chemistry/optics identity
+extracts a **provisional** [`ConditionKey`][] — the chemistry/optics identity
 tuple **(construct/variant, dye, ligand + concentration, buffer, temperature,
 laser power)** that PRD §5.1 makes the condition identity — plus the
 *within-condition* provenance fields (``date``, ``replicate``, source video
@@ -14,8 +14,8 @@ The parse is **provisional by design**: PRD §7.6 requires filename auto-fill to
 be *human-validated* (at M4), so this parser is best-effort. It recovers what the
 filename actually carries and leaves everything absent (``""`` / ``None``) for the
 M4 validation step to fill — it never fabricates a value it cannot read. Two
-movies belong to the same condition iff their :class:`ConditionKey` fields match
-(PRD §5.1 referential validation); :meth:`ConditionKey.condition_id` is the stable
+movies belong to the same condition iff their [`ConditionKey`][] fields match
+(PRD §5.1 referential validation); [`ConditionKey.condition_id`][] is the stable
 provisional id written into ``/molecules.condition_id_provisional`` and, once a
 human confirms it, ``/conditions.condition_id`` (PRD §5.1).
 
@@ -137,10 +137,10 @@ class ConditionKey:
     def to_canonical(self) -> str:
         """Serialize to a deterministic, exactly-reversible JSON string.
 
-        Inverse of :meth:`from_canonical`; the pair is a true round-trip for
+        Inverse of [`from_canonical`][]; the pair is a true round-trip for
         **any** key, including human-edited ``buffer`` / ``construct_variant``
         values containing arbitrary characters (JSON quotes them losslessly), so
-        :meth:`condition_id` — the ``/molecules.condition_id_provisional`` ↔
+        [`condition_id`][] — the ``/molecules.condition_id_provisional`` ↔
         ``/conditions.condition_id`` join key (PRD §5.1) — stays stable no matter
         how the key was built (parser output or M4 human edit). Numeric fields are
         coerced to ``float`` so ``600`` and ``600.0`` canonicalize identically.
@@ -159,7 +159,7 @@ class ConditionKey:
 
     @classmethod
     def from_canonical(cls, text: str) -> ConditionKey:
-        """Reconstruct a key from :meth:`to_canonical` output."""
+        """Reconstruct a key from [`to_canonical`][] output."""
         p = json.loads(text)
         return cls(
             construct_variant=p["construct"],
@@ -199,7 +199,7 @@ class ParsedFilename:
 
     @property
     def condition_id(self) -> str:
-        """Convenience alias for :meth:`ConditionKey.condition_id`."""
+        """Convenience alias for [`ConditionKey.condition_id`][]."""
         return self.key.condition_id()
 
 
@@ -252,12 +252,12 @@ def _detect_dye(tokens: list[str]) -> tuple[str, set[int]]:
 
 
 def parse_filename(name: str) -> ParsedFilename:
-    """Parse an acquisition filename into a provisional :class:`ParsedFilename`.
+    """Parse an acquisition filename into a provisional [`ParsedFilename`][].
 
     Best-effort and provisional (PRD §7.6): it extracts what the filename carries
     and leaves the rest empty for human validation at M4. Never raises on an
     unrecognized name — an unparseable stem yields an empty key with the raw
-    tokens preserved in :attr:`ParsedFilename.unparsed_tokens` for provenance.
+    tokens preserved in [`ParsedFilename.unparsed_tokens`][] for provenance.
     """
     stem, iso_date = _strip_decorations(name)
     tokens = [t for t in re.split(r"[_\s]+", stem) if t]

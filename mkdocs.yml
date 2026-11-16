@@ -102,8 +102,8 @@ nav:
           - Command line: cli.md
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
-          - Project store (.tether HDF5 schema): reference/tether-format.md
-          - Window themes and trace colors: reference/gui-theme.md
+          - Project file format (.tether HDF5 schema): reference/tether-format.md
+          - Application window themes and trace colors: reference/gui-theme.md
           - Reproducibility & reporting: reproducibility.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md
@@ -121,6 +121,7 @@ nav:
       - Running the private-data checks: maintainers/workstation-runner.md
       - Reading the mutation report: maintainers/mutation-testing.md
       - Writing style for documentation: maintainers/writing-style.md
+      - Writing docstrings: maintainers/docstring-style.md
       - AI-use policy for documentation: maintainers/ai-use-policy.md
 
 # The product spec (PRD.md) is large and section-numbered for the repo; it stays
