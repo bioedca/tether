@@ -315,16 +315,62 @@ def test_reconstruct_rejects_frame_mismatch(tmp_path: Path) -> None:
 
 
 def test_reconstruct_refuses_to_clobber(tmp_path: Path) -> None:
+    from tether.project import lock
+
     export = read_deeplasi_mat(_MAT)
     out = tmp_path / "recon.tether"
     reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames))
     with pytest.raises(FileExistsError):
         reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames))
-    # overwrite=True replaces it
-    summary = reconstruct_project(
-        out, export=export, movie=_movie_meta(export.n_frames), overwrite=True
-    )
+    # overwrite=True replaces it under the destination's writer lock (#346)
+    with lock.publish_lock(out) as guard:
+        summary = reconstruct_project(
+            out,
+            export=export,
+            movie=_movie_meta(export.n_frames),
+            overwrite=True,
+            publish_guard=guard,
+        )
     assert summary.n_molecules == 4
+    assert lock.read_lock(out) is None
+
+
+def test_overwrite_without_a_publish_guard_is_refused(tmp_path: Path) -> None:
+    """Replacing an existing project needs its writer lock (#346, ADR-0112)."""
+    from tether.project import lock
+
+    export = read_deeplasi_mat(_MAT)
+    out = tmp_path / "recon.tether"
+    reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames))
+    before = lock.file_identity(out)
+    with pytest.raises(lock.PublishGuardRequiredError):
+        reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames), overwrite=True)
+    assert lock.file_identity(out) == before
+    assert list(tmp_path.glob("recon.tether.*.tmp")) == []
+
+
+def test_publish_guard_runs_before_the_replace(tmp_path: Path) -> None:
+    """A guard that fails at publish leaves the existing project in place (#346)."""
+    export = read_deeplasi_mat(_MAT)
+    out = tmp_path / "recon.tether"
+    out.write_bytes(b"existing project")
+    calls = []
+
+    def reject() -> None:
+        calls.append("guard")
+        raise RuntimeError("destination lock ownership changed before publish")
+
+    with pytest.raises(RuntimeError, match="ownership changed"):
+        reconstruct_project(
+            out,
+            export=export,
+            movie=_movie_meta(export.n_frames),
+            overwrite=True,
+            publish_guard=reject,
+        )
+    assert calls == ["guard"]
+    assert out.read_bytes() == b"existing project"
+    assert list(tmp_path.glob("recon.tether.*.tmp")) == []
 
 
 def test_overwrite_refuses_a_foreign_locked_project(tmp_path: Path) -> None:
@@ -336,5 +382,11 @@ def test_overwrite_refuses_a_foreign_locked_project(tmp_path: Path) -> None:
     reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames))
     # a foreign writer (another host/user/pid) holds the single-writer lock
     lock.acquire(out, identity=lock.LockIdentity(host="OTHER", user="bob", pid=999))
-    with pytest.raises(lock.LockedError):
-        reconstruct_project(out, export=export, movie=_movie_meta(export.n_frames), overwrite=True)
+    with pytest.raises(lock.LockedError), lock.publish_lock(out) as guard:
+        reconstruct_project(
+            out,
+            export=export,
+            movie=_movie_meta(export.n_frames),
+            overwrite=True,
+            publish_guard=guard,
+        )

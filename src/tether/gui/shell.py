@@ -8,8 +8,8 @@ the focus surfaces the curation keys must reach past — a molecule list, a movi
 switcher, and the **editable category field** (a text-entry that is exempt from
 the keymap, §7.6) — and installs the application-level
 [`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. The embedded napari movie panel
-and the real round-trip navigation land at M2 S3/S4; this shell is deliberately
-small so those sessions extend it.
+(#356) and the real round-trip navigation (#357) are not wired in yet; this shell
+is deliberately small so those issues extend it.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -107,6 +107,7 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "DEFERRED_ACTIONS",
     "CheatSheetOverlay",
     "OverflowCategoryPicker",
     "TetherShell",
@@ -118,6 +119,26 @@ __all__ = [
 ]
 
 _APP_NAME = "Tether"
+
+#: The curation commands the shell does not implement yet (#345). Their keys stay
+#: bound, so a press reports ``… unavailable: …`` instead of a success it did not
+#: earn, and the cheat sheet marks them ``(unavailable)``. Jump becomes real in
+#: #357, the grid in #364, and the category / analysis-window / photobleach edits
+#: in #359; each removes its entry here in the PR that implements it.
+DEFERRED_ACTIONS: frozenset[CurationAction] = frozenset(
+    {
+        CurationAction.JUMP,
+        CurationAction.ASSIGN_CATEGORY,
+        CurationAction.CLEAR_CATEGORY,
+        CurationAction.WINDOW_START_DEC,
+        CurationAction.WINDOW_START_INC,
+        CurationAction.WINDOW_END_DEC,
+        CurationAction.WINDOW_END_INC,
+        CurationAction.RESET_WINDOW,
+        CurationAction.PHOTOBLEACH,
+        CurationAction.GRID,
+    }
+)
 
 #: How often (ms) the main thread polls the background idealize fit for completion.
 _IDEALIZE_POLL_MS = 25
@@ -146,17 +167,20 @@ _GUI_PROJECT_OWNERS_LOCK = Lock()
 
 
 def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
-    """Return one process-local identity for paths to the same existing file."""
+    """Return one process-local identity for paths to the same existing file.
+
+    The identity is the canonical [`file_identity`][tether.project.lock.file_identity]
+    (ADR-0112), so the GUI registry and the lock lifecycle agree on what one file is.
+    """
+    from tether.project.lock import file_identity
+
     resolved = os.path.normcase(os.path.realpath(os.fspath(path)))
-    try:
-        stat = os.stat(resolved)
-    except OSError:
+    identity = file_identity(resolved)
+    if identity is None:
         # Construction/failure paths may not exist yet. Keep the former normalized
         # path behavior as a safe, deterministic fallback without inventing an inode.
         return ("path", resolved)
-    if stat.st_ino:
-        return ("file", int(stat.st_dev), int(stat.st_ino))
-    return ("path", resolved)
+    return ("file", *identity)
 
 
 def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
@@ -290,13 +314,22 @@ class CheatSheetOverlay:
 
     A two-column ``Key`` / ``Action`` table populated from
     [`cheatsheet`][tether.gui.curation.Keymap.cheatsheet]; [`refresh`][] re-reads the
-    keymap so a rebinding is reflected the next time it is shown.
+    keymap so a rebinding is reflected the next time it is shown. Each action in
+    ``unavailable`` (the shell passes [`DEFERRED_ACTIONS`][tether.gui.shell.DEFERRED_ACTIONS]) is
+    marked ``(unavailable)``, so the sheet never advertises a key the shell cannot honour.
     """
 
-    def __init__(self, keymap: Keymap, *, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        keymap: Keymap,
+        *,
+        parent: QtWidgets.QWidget | None = None,
+        unavailable: frozenset[CurationAction] = frozenset(),
+    ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
         self._keymap = keymap
+        self._unavailable = frozenset(unavailable)
         self._rows: list[tuple[str, str]] = []
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("Keyboard shortcuts")
@@ -322,7 +355,7 @@ class CheatSheetOverlay:
         """Re-read the keymap and repopulate the table (reflects rebindings)."""
         from pyqtgraph.Qt import QtWidgets
 
-        self._rows = self._keymap.cheatsheet()
+        self._rows = self._keymap.cheatsheet(unavailable=self._unavailable)
         self._table.setRowCount(len(self._rows))
         for row, (key_label, description) in enumerate(self._rows):
             self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(key_label))
@@ -591,7 +624,9 @@ class TetherShell:
         self._act_quit.triggered.connect(self.quit)
 
         # Help / overflow actions (menu + the shipped cheat-sheet).
-        self._cheatsheet = CheatSheetOverlay(self._keymap, parent=self._window)
+        self._cheatsheet = CheatSheetOverlay(
+            self._keymap, parent=self._window, unavailable=DEFERRED_ACTIONS
+        )
         menu = self._window.menuBar().addMenu("&Curation")
         act_help = menu.addAction("Keyboard &shortcuts…")
         act_help.triggered.connect(self.show_cheatsheet)
@@ -686,7 +721,7 @@ class TetherShell:
         self._busy_indicator = BusyIndicator()
         self._window.statusBar().addPermanentWidget(self._busy_indicator)
 
-        self._window.statusBar().showMessage("Ready — Space accept · Backspace reject · Enter jump")
+        self._window.statusBar().showMessage("Ready — Space accept · Backspace reject")
         self._sync_start_page()
 
     # --- accessors -----------------------------------------------------------
@@ -894,11 +929,17 @@ class TetherShell:
         self._sync_project_write_controls()
 
     def _sync_project_write_controls(self) -> None:
-        """Enable source-project writers only for an idle writable GUI session."""
+        """Enable source-project writers only for an idle writable GUI session.
+
+        The Deep-LASI import publishes whole projects, possibly over the loaded one, so
+        it is frozen while idealization owns HDF5 as well (#346, ADR-0112). It needs no
+        writable session: it writes its own files under each one's writer lock.
+        """
         enabled = self._curation_read_only_reason is None and self._idealize_future is None
         self._unreject_button.setEnabled(enabled)
         self._act_import.setEnabled(enabled)
         self._act_validate_conditions.setEnabled(enabled)
+        self._act_import_deeplasi.setEnabled(self._idealize_future is None)
 
     def _idealization_blocks_write(self, feature: str) -> bool:
         """Report and reject a source-project mutation while idealization owns HDF5."""
@@ -939,8 +980,8 @@ class TetherShell:
         (``None`` on failure).
 
         The curation category vocabulary, the movie switcher, and the napari movie panel
-        / round-trip navigation are **not** re-wired here (the movie panel + round-trip
-        land at M2 S3/S4, and the per-condition category list is edited through the
+        / round-trip navigation are **not** re-wired here (the movie panel lands in #356
+        and the round-trip in #357, and the per-condition category list is edited through the
         ``&Conditions`` dialog); this loader wires the trace-level curate + analyze
         surfaces the produced project supports today.
         """
@@ -1706,6 +1747,8 @@ class TetherShell:
         is the produced paths — empty when the user cancels, writes nothing, or the
         dialog fails.
         """
+        if self._idealization_blocks_write("Deep-LASI import"):
+            return ()
         factory = dialog_factory or self._new_deeplasi_dialog
         try:
             produced = tuple(factory().exec())
@@ -1839,7 +1882,9 @@ class TetherShell:
             accept=lambda: self._curate_current(CurationAction.ACCEPT),
             reject=lambda: self._curate_current(CurationAction.REJECT),
             unreject=lambda: self._curate_current(CurationAction.UNREJECT),
-            jump=lambda: self._status("Jump to movie spot"),
+            jump=lambda: self._unavailable(
+                "Jump to movie spot", "movie round-trip navigation is not implemented"
+            ),
             idealize=self._idealize_current,
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
@@ -1859,7 +1904,7 @@ class TetherShell:
             photobleach=lambda: self._unavailable(
                 "Photobleach detection", "GUI persistence is not implemented"
             ),
-            grid=lambda: self._status("Grid toggled"),
+            grid=lambda: self._unavailable("Grid toggle", "the grid display is not implemented"),
         )
 
     def _curate_current(self, action: CurationAction) -> None:
