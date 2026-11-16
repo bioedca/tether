@@ -108,9 +108,9 @@ def test_the_list_is_sorted_and_names_each_movie_once(day_folders: Path) -> None
 @pytest.mark.parametrize(
     ("argument", "message"),
     [
-        ("missing.tif", "no such movie file or folder: '{arg}'"),
-        ("empty", "folder '{arg}' holds no movie file (.tif, .tiff); add --recursive"),
-        ("*.nd2", "pattern '{arg}' matches no movie file (.tif, .tiff)"),
+        ("missing.tif", "no such movie file or folder: {arg}"),
+        ("empty", "folder {arg} holds no movie file (.tif, .tiff); add --recursive"),
+        ("*.nd2", "pattern {arg} matches no movie file (.tif, .tiff)"),
     ],
 )
 def test_an_argument_that_gives_no_movie_is_refused_by_name(
@@ -121,7 +121,7 @@ def test_an_argument_that_gives_no_movie_is_refused_by_name(
     arg = str(tmp_path / argument)
     with pytest.raises(MovieArgumentError) as excinfo:
         expand_movie_arguments([arg])
-    assert str(excinfo.value).startswith(message.format(arg=arg))
+    assert str(excinfo.value).startswith(message.format(arg=repr(arg)))
 
 
 # --- Output names ----------------------------------------------------------------------
