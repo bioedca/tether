@@ -352,18 +352,22 @@ re-extract. There is no post-hoc re-detection: detection happens once, at extrac
 
 ### The movie will not load
 
-All three of these arrive wrapped by `extract_movie` as
+All of these arrive wrapped by `extract_movie` as
 `could not extract from <name>: …`, exit `1` — that wrapper catches any non-`ExtractionError`,
-so the inner text is passed through unchanged from whatever raised it. The first two come from
-`tether.io.movie`; the third is **not** a Tether message — it is `tifffile`'s own
-`TiffFileError`, raised inside `MovieReader.__init__` when `tifffile.TiffFile` opens the path,
-so grepping `src/` for it finds nothing.
+so the inner text is passed through unchanged from whatever raised it. They come from
+`tether.io.adapters` (which container the file is) and `tether.io.movie` (the TIFF reader). A
+file whose first bytes are a TIFF header but whose body is damaged can still fail inside
+`tifffile` itself, with a `TiffFileError` message that is not Tether's, so grepping `src/` for
+that one finds nothing.
 
 | Message | What it means | Remedy |
 |---|---|---|
-| `… is not memory-mappable; the lazy reader needs an uncompressed, contiguous TIFF (the reference movie format, PRD Appendix A).` | A compressed or tiled TIFF. This is the most common real-world case. | Re-save uncompressed — in ImageJ, *Save As → Tiff* with no compression. |
+| `… is not memory-mappable; the lazy reader needs an uncompressed, contiguous TIFF (the reference movie format, PRD Appendix A).` | A compressed (lossless, for example LZW) or tiled TIFF. This is the most common real-world case. | Re-save uncompressed — in ImageJ, *Save As → Tiff* with no compression. |
+| `…: the frames are stored with the lossy JPEG codec. …` | A lossy codec (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC) has already discarded intensity information. | Export again without compression from the original acquisition; re-saving this file cannot bring the values back. |
+| `…: the pixels are palette (colour-map) indices, not intensities.` or `…: each pixel has 3 samples (for example RGB); …` | The file holds colour images, not one intensity per pixel — often a screenshot or an export for a slide. | Export the raw single-channel stack. |
 | `…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').` | A single-page TIFF — often a max-projection saved instead of the stack. | Point Tether at the stack. |
-| `not a TIFF file: header=b'this'` | The file is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
+| `…: the name says TIFF, but the content is not a TIFF file …` | The file is named `.tif` but is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
+| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff). …` | A vendor container (`.nd2`, `.czi`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
 
 Two more from the same family, raised by `tether.project.extract`:
 
