@@ -293,7 +293,7 @@ installer can replace or delete the install folder, so a file there could be los
 |---|---|
 | Windows | `%LOCALAPPDATA%\MondragonLab\Tether\settings.json` |
 | macOS | `~/Library/Application Support/MondragonLab/Tether/settings.json` |
-| Linux | `~/.config/tether/settings.json` (or `$XDG_CONFIG_HOME/tether/settings.json` if you set `XDG_CONFIG_HOME`) |
+| Linux | `~/.config/tether/settings.json` (or `$XDG_CONFIG_HOME/tether/settings.json` if you set `XDG_CONFIG_HOME` to an absolute path) |
 
 The file holds only two values: a format number and your answer, `allowed` or `declined`. It
 holds no name, no computer name, no time, no file path and no project data. If the file is
@@ -409,7 +409,7 @@ by any of these steps.
 The [settings file](#settings-tether-keeps-outside-the-install-folder) is not touched either,
 so a later install keeps your answer. To remove it too, delete the `MondragonLab\Tether`
 folder (Windows, macOS) or, on Linux, the `tether` folder in `$XDG_CONFIG_HOME` if you set
-that variable, otherwise `~/.config/tether`.
+that variable to an absolute path, otherwise `~/.config/tether`.
 
 ## The optional GPU add-on
 
