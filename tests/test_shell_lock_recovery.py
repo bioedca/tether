@@ -326,3 +326,83 @@ def test_failed_reopen_keeps_retrying_the_release_of_the_taken_lock(
 
     assert lock.read_lock(project.path) is None
     assert not shell.lock_release_pending
+
+
+def test_unconfirmed_release_keeps_the_taken_lock_for_the_retry(
+    shell, tmp_path, monkeypatch
+) -> None:
+    """A release that returns ``False`` on an unreadable lock is not a release."""
+    from tether.project import lock
+    from tether.project.lock import CorruptLockError, LockIdentity, local_identity
+
+    project = _store(tmp_path)
+    me = local_identity()
+    lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=_dead_pid()))
+    assert shell.load_project(project.path) is not None
+
+    def unreadable(_path):
+        raise CorruptLockError("unreadable for a moment")
+
+    monkeypatch.setattr(lock, "release", lambda *_a, **_k: False)
+    monkeypatch.setattr(lock, "read_lock", unreadable)
+    monkeypatch.setattr(shell, "load_project", lambda *_a, **_k: None)
+
+    assert shell.recover_project_lock() is None
+    assert shell.lock_release_pending
+
+    monkeypatch.undo()
+    shell._retry_session_release()
+
+    assert lock.read_lock(project.path) is None
+    assert not shell.lock_release_pending
+
+
+def test_read_only_reopen_is_not_reported_as_writable(shell, tmp_path, monkeypatch) -> None:
+    """A reopen that keeps a session but cannot write reports the failure."""
+    from tether.gui import shell as shell_module
+    from tether.project import lock
+    from tether.project.core import Project
+    from tether.project.lock import LockIdentity, local_identity
+
+    project = _store(tmp_path)
+    me = local_identity()
+    lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=_dead_pid()))
+    assert shell.load_project(project.path) is not None
+
+    def not_writable(_path):
+        raise OSError("read-only share")
+
+    def release_fails(_self):
+        raise OSError("share went away")
+
+    monkeypatch.setattr(shell_module, "_probe_project_writable", not_writable)
+    monkeypatch.setattr(Project, "release_lock", release_fails)
+
+    assert shell.recover_project_lock() is None
+
+    assert shell.curation_project is None
+    assert "Recover failed" in shell.status_message
+    assert "writable" not in shell.status_message.replace("not writable", "")
+    monkeypatch.undo()
+
+
+def test_recheck_describes_the_current_holder(shell, tmp_path) -> None:
+    """The banner names the holder of the lock now, not the one seen at open."""
+    from tether.project import lock
+    from tether.project.lock import LockIdentity
+
+    project = _store(tmp_path)
+    lock.acquire(project.path, identity=_foreign())
+    assert shell.load_project(project.path) is not None
+    assert "alice@" in shell.read_only_banner.text()
+
+    bob = LockIdentity(host=f"{lock.local_identity().host}-THIRD", user="bob", pid=99)
+    winner, _ = lock.steal_lock(project.path, identity=bob)
+    try:
+        shell._recheck_lock_recovery()
+
+        assert "bob@" in shell.read_only_banner.text()
+        assert "alice@" not in shell.read_only_banner.text()
+        assert shell.lock_recovery.owner == winner
+    finally:
+        lock.release(project.path, winner)

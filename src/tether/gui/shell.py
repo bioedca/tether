@@ -348,6 +348,16 @@ def _read_lock_recovery(path: str | PathLike[str]) -> Any | None:
         return None
 
 
+def _lock_refusal_text(path: str | PathLike[str], recovery: Any) -> str:
+    """The refusal text for ``recovery``'s current holder, as an open would report it."""
+    from tether.project import lock
+
+    owner = recovery.owner
+    stale = owner is not None and owner.is_stale(timeout_s=lock.DEFAULT_STALENESS_TIMEOUT_S)
+    exc = lock.LockedError(owner, stale=stale, corrupt=recovery.corrupt, path=lock.lock_path(path))
+    return f"write lock unavailable: {exc}"
+
+
 def _lock_reason(refusal: str, recovery: Any | None) -> str:
     """The read-only banner text for a refused lock and its recovery verdict (#626)."""
     from tether.project.lock import RecoveryAction
@@ -1277,7 +1287,11 @@ class TetherShell:
         if recovery is None:
             reason = "the lock was released; open the project again to write"
         else:
-            reason = _lock_reason(self._lock_refusal or "write lock unavailable", recovery)
+            # Describe the holder from this verdict, not the refusal at open time:
+            # the lock can have been refreshed or taken by another writer since.
+            refusal = _lock_refusal_text(self._project_path, recovery)
+            self._lock_refusal = refusal
+            reason = _lock_reason(refusal, recovery)
         self._set_read_only_reason(reason)
         self._set_lock_recovery(recovery)
 
@@ -1344,9 +1358,10 @@ class TetherShell:
             return None
         # Re-run the open path so every write seam binds to the new session.
         opened = self.load_project(path)
-        if self._session_project is None:
-            # The reopen did not take a session; give back the lock just taken. A
-            # failed release keeps the record, and the release-retry timer owns it.
+        if opened is None or self._curation_project is None:
+            # The reopen is not writable; give back the lock just taken. The release
+            # is nonce-checked, so a session lock the reopen took and still holds is
+            # not touched. A failed release keeps the record for the retry timer.
             self._recovered_lock = (path, taken)
             if not self._release_recovered_lock_once():
                 self._lock_release_timer.start()
@@ -1515,10 +1530,17 @@ class TetherShell:
             recovered = self._recovered_lock
             if recovered is None:
                 return True
+            path, taken = recovered
             try:
                 # Nonce-checked: a no-op once a later open re-took the lock.
-                lock.release(*recovered)
-            except OSError:
+                released = lock.release(path, taken)
+                if not released:
+                    # As Project.release_lock: forget the record only when a
+                    # readable sidecar proves the lock is gone or no longer ours.
+                    current = lock.read_lock(path)
+                    if current is not None and current.nonce == taken.nonce:
+                        return False
+            except (OSError, lock.CorruptLockError):
                 return False
             self._recovered_lock = None
             return True
