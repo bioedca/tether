@@ -130,7 +130,7 @@ Chosen option 1.
   fits nearer to the published ones passes, and shows only in the printed numbers; the limits then
   need a new measurement and the maintainer's acceptance.
 - Bad: each limit is the largest deviation over the seeds, rounded up at the second significant
-  digit, so its headroom over the measurement is small (0.08 % to 6.6 % for the global fits); a
+  digit, so its headroom over the measurement is small (0.09 % to 6.6 % for the global fits); a
   change of the numerical stack can fail them, and the answer is a new measurement, not a wider
   limit (PRD §11.2).
 - Neutral: the `kmeans_vbhmm` and `vbgmm_vbhmm` keys stay undocumented as user features; a `vbgmm`
