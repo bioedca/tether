@@ -428,3 +428,81 @@ def test_setters_keep_the_owners_retained_lock(tmp_path: Path) -> None:
     owner = proj.lock_owner()
     assert owner is not None and owner.nonce == held.nonce
     assert proj.release_lock()
+
+
+# --- the features cache (Greptile P1 on #1027) --------------------------------
+
+
+def _ramp_traces(n: int) -> np.ndarray:
+    """Donor/acceptor layers whose features depend on the window (not all zeros)."""
+    rng = np.random.default_rng(358)
+    frames = np.arange(N_FRAMES, dtype=np.float32)
+    donor = np.tile(100.0 + frames, (n, 1)) + rng.normal(0, 1, (n, N_FRAMES))
+    acceptor = np.tile(200.0 - frames, (n, 1)) + rng.normal(0, 1, (n, N_FRAMES))
+    return np.stack([donor, acceptor]).astype(np.float32)
+
+
+def _has_features(path: Path) -> bool:
+    with h5py.File(path, "r") as f:
+        return "features" in f and TABLE in f["features"]
+
+
+@pytest.mark.parametrize("edit", ["set", "reset"])
+def test_a_window_edit_invalidates_the_feature_cache(tmp_path: Path, edit: str) -> None:
+    from tether.project.features import compute_features, feature_matrix
+
+    specs = [("k0", KEY_A, (0, N_FRAMES)), ("k1", KEY_A, (0, N_FRAMES))]
+    path = _seed(tmp_path, specs, traces=_ramp_traces(2))
+    if edit == "reset":
+        M.set_analysis_window(path, "k0", 10, 60, timestamp=TS)
+    compute_features(path)
+    assert _has_features(path)
+
+    if edit == "set":
+        M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)
+    else:
+        M.reset_analysis_window(path, "k0", timestamp=TS)
+
+    # The features were computed from the old frames; reading them now must fail loudly
+    # (recompute) rather than feed a ranker features from a window no longer stored.
+    assert not _has_features(path)
+    with pytest.raises(KeyError, match="compute_features"):
+        feature_matrix(path)
+    assert compute_features(path).n_molecules == 2  # recompute works on the new window
+
+
+def test_a_window_no_op_keeps_the_feature_cache(tmp_path: Path) -> None:
+    from tether.project.features import compute_features
+
+    path = _seed(tmp_path, [("k0", KEY_A, (0, N_FRAMES))], traces=_ramp_traces(1))
+    compute_features(path)
+
+    M.reset_analysis_window(path, "k0", timestamp=TS)  # already the frame_range
+    M.set_analysis_window(path, "k0", 0, N_FRAMES, timestamp=TS)  # same window
+
+    assert _has_features(path)
+
+
+def test_a_window_edit_on_an_unfeatured_molecule_keeps_the_cache(tmp_path: Path) -> None:
+    from tether.project.features import compute_features
+
+    specs = [("k0", KEY_A, (0, N_FRAMES)), ("k1", KEY_A, (0, N_FRAMES))]
+    path = _seed(tmp_path, specs, traces=_ramp_traces(2))
+    compute_features(path, molecule_keys=["k1"])
+
+    M.set_analysis_window(path, "k0", 20, 50, timestamp=TS)  # k0 has no feature row
+
+    assert _has_features(path)
+
+
+def test_a_category_edit_keeps_the_feature_cache(tmp_path: Path) -> None:
+    from tether.project.features import compute_features
+
+    path = _seed(tmp_path, [("k0", KEY_A, (0, N_FRAMES))], traces=_ramp_traces(1))
+    C.set_category_list(path, KEY_A.condition_id(), ["static"])
+    compute_features(path)
+
+    M.set_category(path, "k0", "static", timestamp=TS)
+    M.clear_category(path, "k0", timestamp=TS)
+
+    assert _has_features(path)  # features read traces and windows, never the category

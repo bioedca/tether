@@ -44,6 +44,14 @@ and the merge-back read, and a category code there would read as a training labe
 An edit that would not change a row writes nothing for that row (the
 [`tether.project.labels.unreject`][] no-op rule), so the log holds only real changes.
 
+The feature cache
+-----------------
+``/features/table`` ([`tether.project.features`][]) is computed from each molecule's
+windowed traces. A window edit that changes a row the table holds deletes the table,
+before the audit row, so the ranker reads "run compute_features first" instead of
+features from the old frames. A category edit leaves it alone: features never read
+the category.
+
 The single-writer ``.lock`` is the caller's responsibility, as for every module-level
 ``r+`` writer in this package; the [`Project`][tether.project.core.Project] methods check
 it before they call in.
@@ -359,6 +367,25 @@ def _clamped_window(frame_range: object, start: int, stop: int, n_frames: int | 
     return (int(resolved[0]) + lo, int(resolved[1]) + lo)
 
 
+def _invalidate_features(f: object, molecule_ids: set[str]) -> None:
+    """Delete ``/features/table`` when it holds a row for any of ``molecule_ids``.
+
+    The table is a recomputable cache of each molecule's windowed traces
+    ([`tether.project.features`][]), so a window edit makes that molecule's row stale.
+    Deleting the table makes [`feature_matrix`][tether.project.features.feature_matrix]
+    raise "run compute_features first" rather than serve features from frames that are
+    no longer the stored window. A table with no row for an edited molecule is kept.
+    """
+    from tether.project.features import FEATURES_GROUP  # noqa: PLC0415
+
+    if not molecule_ids or FEATURES_GROUP not in f or TABLE not in f[FEATURES_GROUP]:
+        return
+    group = f[FEATURES_GROUP]
+    featured = {_to_str(mid) for mid in group[TABLE]["molecule_id"]}
+    if featured & molecule_ids:
+        del group[TABLE]
+
+
 def _write_window(
     path: str | Path,
     molecule_key: str,
@@ -412,7 +439,9 @@ def _write_window(
                     "reason": reason,
                 }
             )
-        # 1) the audit rows FIRST, 2) then the field (ordered for recovery).
+        # 0) drop a feature cache built from the old frames, 1) the audit rows,
+        # 2) then the field (ordered for recovery: a crash after 0 costs a recompute).
+        _invalidate_features(f, {_to_str(table["molecule_id"][i]) for i in changed})
         written = _append_audit(f, audit)
         for i in changed:
             row = mol_table[i]
@@ -441,7 +470,9 @@ def set_analysis_window(
     ``new_window`` for what was stored. A window that differs from ``frame_range`` is a
     manual override that a later
     [`compute_photobleach`][tether.project.photobleach.compute_photobleach]
-    leaves alone.
+    leaves alone. A change to a row that ``/features/table`` holds deletes that table,
+    a cache of the old frames; recompute it with
+    [`compute_features`][tether.project.features.compute_features].
 
     Parameters
     ----------
@@ -501,7 +532,7 @@ def reset_analysis_window(
     After a reset the row is again under the photobleach auto-default
     ([`tether.project.photobleach`][]): the next
     [`compute_photobleach`][tether.project.photobleach.compute_photobleach] pass may narrow it. Same
-    matching, provenance and no-op rule as [`set_analysis_window`][].
+    matching, provenance, no-op and feature-cache rule as [`set_analysis_window`][].
     """
     return _write_window(
         path,
