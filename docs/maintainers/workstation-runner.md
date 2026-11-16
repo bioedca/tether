@@ -298,7 +298,7 @@ The required CI matrix runs the same dry run in `tests/test_workstation_runner.p
 ## The speed history
 
 A scheduled run also measures speed and memory on the workstation (#723). The CI comparison of
-#722 finds a large regression in one pull request; the history finds a slow drift over many
+\#722 finds a large regression in one pull request; the history finds a slow drift over many
 changes, on the computer that is the reference for speed (maintainer decision Q28).
 
 **What a run measures.**

@@ -406,7 +406,7 @@ So the sequence is fixed:
    (`gh attestation trusted-root`, which works unauthenticated — verified, exit 0, 34,634 bytes).
 2. Tether invokes the verifier, which now makes **no network call at all**:
 
-   ```
+   ```sh
    gh attestation verify <installer> \
      --bundle <bundle> --custom-trusted-root <root> \
      --repo bioedca/tether \

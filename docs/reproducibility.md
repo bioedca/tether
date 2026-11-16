@@ -483,7 +483,7 @@ your own values and drop what you did
 not run. The citations are the ones [Citing Tether](citing.md) gives for each step.
 
 > Single-molecule FRET movies were processed with Tether version `<your version>`
-> (https://doi.org/10.5281/zenodo.23306397). Donor and acceptor intensities were integrated
+> (<https://doi.org/10.5281/zenodo.23306397>). Donor and acceptor intensities were integrated
 > over a 3.0-pixel-radius disk inside a 21-pixel aperture window, with the local background taken from
 > an annulus between 6.0 and 8.0 pixels and averaged over 10 frames (Wanninger et al., 2023).
 > Correction factors were estimated as described by McCann et al. (2010) and Hellenkamp et

@@ -37,7 +37,7 @@ socket or TLS failure raised by `_request`, came back as an answer **about the i
 `status:ready` item with a binding marker was reported to an agent as unapproved, and a compliant
 agent correctly walked away from work it should have done. Measured:
 
-```
+```console
 $ python .agents/bin/claim.py claim --issue 222 --vendor claude
 ineligible: GitHub API is unreachable
 exit=3
@@ -162,7 +162,7 @@ maintainer's amendment:
 
 ## Why the opt-out, given #315 ruled it out
 
-#315's non-goal was written to forbid the blunt instruments — `PYTHONHTTPSVERIFY=0`,
+\#315's non-goal was written to forbid the blunt instruments — `PYTHONHTTPSVERIFY=0`,
 `_create_unverified_context`, `CERT_NONE` — and those stay forbidden, asserted against the parsed
 source rather than promised in prose. What it also forbade, and the maintainer has now reversed, is
 the narrow one.

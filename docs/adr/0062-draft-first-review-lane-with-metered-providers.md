@@ -162,7 +162,9 @@ leg, and a quota refusal from it is recorded as *did not review*.
   ```sh
   gh issue edit <N> --remove-label agent:review-capped \
                     --remove-label agent:round-2 --remove-label agent:round-1
-  ``` Verified empty before
+  ```
+
+  Verified empty before
   this merged: no issue in the repository carried `agent:round-*` or `agent:review-capped`. A future
   change to what these labels mean needs the same check, and should reach for the same answer.
 - **Budget visibility, not budget enforcement.** Greptile publishes no usage API, so
