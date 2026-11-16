@@ -546,8 +546,10 @@ def render_transition_density(
     if smoothed:
         values = np.asarray(tdp.values, dtype="float64")  # (n, n) [initial, final]
         grid = np.asarray(tdp.grid, dtype="float64")
-        # Each grid point is a pixel centre; the image spans half a step past the ends.
-        half = 0.5 * (grid[-1] - grid[0]) / (grid.size - 1) if grid.size > 1 else 0.5
+        lo, hi = counts_tdp.signal_range
+        # Each grid point is a pixel centre; the image spans half a step past the ends. A
+        # one-point grid (one bin, not interpolated) is that bin, which spans the range.
+        half = 0.5 * (grid[-1] - grid[0]) / (grid.size - 1) if grid.size > 1 else 0.5 * (hi - lo)
         # values is [initial, final]; x=initial, y=final → transpose so rows=final.
         mesh = ax.imshow(
             values.T,

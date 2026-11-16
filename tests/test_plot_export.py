@@ -482,6 +482,19 @@ def test_render_smoothed_view_linear_and_unnormalized(tmp_path):
     }
 
 
+def test_render_smoothed_view_of_one_bin_fills_the_signal_range():
+    from tether.analysis.tdp import smooth_transition_density, transition_density
+
+    tdp = transition_density(
+        [np.array([0.2, 0.8])], nskip=1, signal_bins=1, signal_range=(-0.25, 1.25)
+    )
+    view = smooth_transition_density(tdp, interp_res=0)
+    assert view.grid.size == 1
+    fig = pe.render_transition_density(view)
+    (image,) = fig.axes[0].get_images()
+    np.testing.assert_allclose(image.get_extent(), [-0.25, 1.25, -0.25, 1.25])
+
+
 def test_render_smoothed_view_of_an_empty_tdp(tmp_path):
     from tether.analysis.tdp import smooth_transition_density, transition_density
 
