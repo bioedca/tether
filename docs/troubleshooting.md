@@ -34,12 +34,11 @@ one after the other, with a clear drop in one channel and a clear rise in the ot
 first bleach. With fewer, the check does not warn: `tether extract` prints
 `donor side: not enough bleach events to check the donor side`, and `tether batch` neither
 marks the movie `halves-swapped?` nor adds it to its list of movies whose halves look
-swapped. The CLI takes `--donor-side` as free text (`tether.cli`, `metavar="{left,right}"`
-rather than `choices=`), so
-a *typo* is rejected downstream by `ExtractOptions.__post_init__`:
+swapped. The CLI accepts only `left` or `right` for `--donor-side`, so
+a *typo* is a usage error (exit code 2) before any file is opened:
 
 ```text
-tether extract: donor_side must be 'left' or 'right', got 'middle'
+tether extract: error: argument --donor-side: invalid choice: 'middle' (choose from left, right)
 ```
 
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
@@ -378,12 +377,15 @@ Two more from the same family, raised by `tether.project.extract`:
 
 Every operator-actionable tunable is validated in `ExtractOptions.__post_init__`
 (`tether.project.extract`) so bad input fails with a clean one-line message on stderr and
-exit `1` — never a traceback. The ones you are most likely to meet:
+exit `1` — never a traceback. Three flags are refused earlier: argparse checks
+`--donor-side`, `--detection-mode` and `--prealign` against their allowed values, so a wrong
+value gives the usage line, `invalid choice: '<value>' (choose from …)` and exit `2`. The
+`ExtractOptions` messages below are what you meet otherwise:
 
 | Message | Fix |
 |---|---|
-| `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` |
-| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three |
+| `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` (library call; the CLI refuses it at parse time) |
+| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three (library call; the CLI refuses it at parse time) |
 | `detection_threshold must be in [0, 1) (a fraction of the detection-image max), got 1.5` | it is a fraction, not a count |
 | `min_separation must be > 0, got -1.0` | omit it to get each mode's faithful default |
 | `window must be a positive odd integer, got 20` | the aperture side must be odd (default 21) |
@@ -394,7 +396,7 @@ exit `1` — never a traceback. The ones you are most likely to meet:
 
 > **Ordering gotcha.** Option validation runs **before** any file-existence check, and
 > `movie not found` fires before `tmap not found` / `tdat not found`. So
-> `tether extract nope.tif -o x --donor-side middle` reports the donor-side error, not the
+> `tether extract nope.tif -o x --window 20` reports the window error, not the
 > missing movie.
 
 ### Registration was flagged low-confidence
@@ -703,6 +705,15 @@ CorruptLockError: unparseable lock file: <path>.tether.lock
   owner can be identified and writes are refused until an explicit steal overwrites it.
   Deleting the stray `.tether.lock` file is the manual fix.
 
+**Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
+Tether gives that file read and write access for each group of users who can write the project
+folder, so another lab member can run the steal above. For a guard made by a release before #257,
+Tether attempts the same correction the next time its owner opens the project. On some network filesystems a user who cannot
+write the guard gets `PermissionError: ... lock lifecycle guard is not writable by this user`;
+the guard's owner can open the project in Tether once, which attempts the fix. If the error stays,
+the owner fixes it by hand with `chgrp <lab group> <path>.tether.lock.guard` and then
+`chmod g+rw <path>.tether.lock.guard`, where `<lab group>` is the project folder's group.
+
 While locked out you can still open the project read-only and curate into your own
 split/subset `.tether`, merged back later on `molecule_key`.
 
@@ -766,8 +777,11 @@ Then, per platform:
 
 - **Windows.** SmartScreen shows *"Windows protected your PC"*. Choose **More info** →
   **Run anyway**.
-- **macOS.** The old Control-click → **Open** shortcut **no longer works**: macOS Sequoia
-  removed it, and Tahoe tightened the path further. Open **System Settings → Privacy &
+- **macOS.** When you double-click the `.pkg`, macOS shows *"Tether-….pkg" Not Opened* and
+  *Apple could not verify "Tether-….pkg" is free of malware that may harm your Mac or
+  compromise your privacy.* (macOS 26.6.2, November 2026). The old Control-click → **Open**
+  shortcut **no longer works**: macOS Sequoia removed it, and Tahoe tightened the path
+  further. Open **System Settings → Privacy &
   Security**, scroll to **Security**, and use the **Open Anyway** button, then authenticate as
   an administrator. Two things catch people out: the button only appears *after* you have
   tried to open the file and been blocked, and it is available for **about an hour** after
@@ -790,9 +804,9 @@ packaging build, on GitHub's `macos-latest` and `macos-15-intel` runners, and th
 launches `tether --version` and the sidecar from the installed prefix. So the package is known
 to install this way on real macOS.
 
-One difference is worth knowing, because it is the part we have **not** observed end to end: a
-`.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one does
-not. If macOS still refuses after the above, you can clear it:
+A `.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one
+does not. On a Mac with macOS 26.6.2, a `.pkg` with that attribute installed with the command
+above and asked nothing. If macOS still refuses on your Mac, you can clear it:
 
 ```bash
 xattr -d com.apple.quarantine Tether-<version>-MacOSX-<arch>.pkg
@@ -809,6 +823,29 @@ making about software you have chosen to trust, not a step our verification has 
 If you hit something these steps do not cover,
 [tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
 this entry will be corrected from the observation.
+
+#### If macOS will not open Tether.app
+
+From the next release, the macOS installer adds **Tether** (`Tether.app`) to
+`~/Applications`, or to `/Applications` for an install outside your home folder
+([ADR-0091](adr/0091-macos-launcher-bundle.md)). Like the installer, it is not signed.
+The installer writes it on your Mac, so it does not carry the quarantine attribute of a
+download. On a test Mac with macOS 26.6.2, it opened from the first start with no dialog. If
+macOS blocks the first start all the same, use the same route as for the installer: try to
+open **Tether** once, then open **System Settings → Privacy & Security**, and use
+**Open Anyway** under **Security**. You do this one time; later starts open directly.
+
+If nothing happens when you open **Tether** (no window and no message), make sure that the
+installer matches your Mac. `Tether.app` asks macOS to start it as the architecture of its
+installer. The `osx-arm64` installer is for Apple silicon. The `osx-64` installer is for
+Intel, and on Apple silicon it needs Rosetta 2, which macOS does not install by default.
+
+If **Tether** is not in Launchpad or Spotlight right after the install, wait some minutes:
+the installer asks Spotlight to index the application, but Spotlight first indexes the new
+install folder. On a test Mac, Spotlight listed **Tether** about ten minutes after the install. You can
+also open the `Applications` folder of your home folder in Finder, where macOS sees the
+application. Until then, and whenever the application does not open, run `tether-gui` in
+Terminal: it starts the same application and shows any error text.
 
 ### The deep classifier does not see the GPU
 

@@ -70,6 +70,7 @@ from uuid import uuid4
 # stack never loads for a bare ``tether --version`` (which imports only
 # ``tether.cli``). Keep it out of ``tether.project.__init__`` for the same reason.
 from tether import __version__
+from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
     RegistrationMap,
@@ -78,7 +79,7 @@ from tether.imaging.calibrate import (
     write_calibration,
 )
 from tether.imaging.coloc import colocalize
-from tether.imaging.detect import ParticleDetectionMode, detect_spots_by_mode, detection_image
+from tether.imaging.detect import detect_spots_by_mode, detection_image
 from tether.imaging.extract import (
     MoleculeTraces,
     MovieMetadata,
@@ -148,12 +149,14 @@ class ExtractOptions:
         # Validate every operator-actionable tunable here so bad CLI input fails
         # with a clean ExtractionError (-> exit 1 + stderr) rather than a raw
         # ValueError from deep in a primitive (the "never a raw traceback" contract).
-        if self.donor_side not in ("left", "right"):
+        # The allowed values are the tuples the CLI also gives argparse as `choices`
+        # (#654), so the CLI refuses a wrong one at parse time; these checks still
+        # guard the library API and the GUI.
+        if self.donor_side not in DONOR_SIDES:
             raise ExtractionError(f"donor_side must be 'left' or 'right', got {self.donor_side!r}")
-        valid_modes = tuple(m.value for m in ParticleDetectionMode)
-        if self.detection_mode not in valid_modes:
+        if self.detection_mode not in DETECTION_MODES:
             raise ExtractionError(
-                f"detection_mode must be one of {valid_modes}, got {self.detection_mode!r}"
+                f"detection_mode must be one of {DETECTION_MODES}, got {self.detection_mode!r}"
             )
         # The detection threshold (Deep-LASI ``DetectionThreshold``) is consumed only
         # by the intensity/bandpass detectors; ``None`` lets each mode use its own
@@ -171,7 +174,7 @@ class ExtractOptions:
         # positive.
         if self.min_separation is not None and not self.min_separation > 0:
             raise ExtractionError(f"min_separation must be > 0, got {self.min_separation}")
-        if self.prealign not in ("translation", "similarity"):
+        if self.prealign not in PREALIGN_MODES:
             raise ExtractionError(
                 f"prealign must be 'translation' or 'similarity', got {self.prealign!r}"
             )
