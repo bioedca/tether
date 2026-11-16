@@ -730,7 +730,7 @@ Warning: 2 possible OneDrive/SharePoint conflict copies beside exp.tether: exp (
 **Cause.** The project's folder holds a file whose name matches a sync-conflict copy of the
 project: `<stem>-<COMPUTERNAME>.tether`, which OneDrive writes when a second machine saved a
 change at the same time, or `<stem> (<...>).tether`, the numbered and "conflicted copy"
-form. Tether detects these copies and does not try to prevent them (PRD §5.4). The match is
+form. Tether detects these copies and does not try to prevent them. The match is
 by name only, so a sibling you named that way on purpose (`exp-donoronly.tether`) is also
 listed.
 

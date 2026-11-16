@@ -44,7 +44,7 @@ owner-pull merge (the owner's retrain later joins every split's ``/labels`` on
 
 OneDrive is also **detected, not prevented** (§5.4): [`conflict_copies`][]
 surfaces the sync-conflict duplicates OneDrive/SharePoint leave beside the
-project so the user can reconcile them, and :func:`conflict_copy_warning` words
+project so the user can reconcile them, and [`conflict_copy_warning`][] words
 that result once for both front doors — the GUI's open-project banner and the
 CLI's ``extract``/``batch``/``info`` stderr line — so they cannot drift apart.
 """
@@ -1214,13 +1214,13 @@ def conflict_copies(project_path: str | Path) -> list[Path]:
 
 
 def conflict_copy_warning(project_path: str | Path) -> str | None:
-    """The one-line warning for :func:`conflict_copies` hits, or ``None`` when there are none.
+    """The one-line warning for [`conflict_copies`][] hits, or ``None`` when there are none.
 
-    The GUI (on :meth:`~tether.gui.shell.TetherShell.load_project`) and the CLI
+    The GUI (on [`load_project`][tether.gui.shell.TetherShell.load_project]) and the CLI
     (``tether extract``, ``tether batch`` and ``tether info``) all surface the same
     text, so the user reads one message whichever door opened the project. It names every candidate
     sibling by file name, says they are only *possible* conflict copies (the match
-    is a naming heuristic, see :func:`conflict_copies`), and states that Tether
+    is a naming heuristic, see [`conflict_copies`][]), and states that Tether
     leaves them alone: detection only, never reconciliation, deletion or merge
     (PRD §5.4).
 

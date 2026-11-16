@@ -438,7 +438,7 @@ value that the project does not record is `null`. The keys are:
 ## Sync-conflict copies beside a project
 
 OneDrive and SharePoint can leave a second copy of a file when two machines save it at the
-same time. Tether does not prevent these copies; it finds them and tells you (PRD §5.4).
+same time. Tether does not prevent these copies; it finds them and tells you.
 After `tether extract` writes its project, after `tether batch` finishes, and when
 `tether info` reads a project, each project the command opened is checked for siblings in the
 two documented naming forms:

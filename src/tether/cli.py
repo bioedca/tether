@@ -56,7 +56,7 @@ def _warn_conflict_copies(project_path: str | os.PathLike[str]) -> None:
     """Print one stderr warning when ``project_path`` has sync-conflict siblings (§5.4).
 
     The CLI's half of detect-and-surface: the same text the GUI's open-project banner
-    shows (:func:`tether.project.lock.conflict_copy_warning`). Advisory only — it never
+    shows ([`tether.project.lock.conflict_copy_warning`][]). Advisory only — it never
     changes the exit code and never touches the conflict copies.
     """
     from tether.project.lock import conflict_copy_warning

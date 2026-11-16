@@ -815,8 +815,8 @@ class TetherShell:
     def conflict_copy_banner(self) -> QtWidgets.QLabel:
         """The Browser warning naming possible sync-conflict copies of the open project.
 
-        :meth:`load_project` fills it from
-        :func:`~tether.project.lock.conflict_copy_warning` and hides it when the
+        [`load_project`][] fills it from
+        [`conflict_copy_warning`][tether.project.lock.conflict_copy_warning] and hides it when the
         project's directory holds none; closing the project clears it. It only
         reports: Tether never reconciles, deletes or merges a conflict copy (§5.4).
         """
@@ -999,9 +999,9 @@ class TetherShell:
         (``None`` on failure).
 
         A successful open also looks for OneDrive/SharePoint sync-conflict siblings of
-        the file (:func:`~tether.project.lock.conflict_copy_warning`, PRD §5.4
+        the file ([`conflict_copy_warning`][tether.project.lock.conflict_copy_warning], PRD §5.4
         detect-and-surface) and names any in the non-blocking
-        :attr:`conflict_copy_banner`; with none, the banner is hidden. The open never
+        [`conflict_copy_banner`][]; with none, the banner is hidden. The open never
         waits on, refuses over, or changes a conflict copy.
 
         The curation category vocabulary, the movie switcher, and the napari movie panel
