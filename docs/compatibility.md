@@ -72,7 +72,7 @@ other as acceptor. Which half is which is yours to declare, with `--donor-side` 
 both halves from the frame *width* — there is no top/bottom split.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
-batch`) does not expose it: [`_run_batch`](https://github.com/bioedca/tether/blob/main/src/tether/cli.py) builds its `MovieJob`s without an `ExtractOptions`,
+batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,
 so every movie in a batch run uses the default **left** donor. If your acquisition puts the
 donor on the right, run it through `tether extract` per movie, supply a `.tmap` (whose
 reference channel then defines donor), or drive `tether.project.batch.run_batch` from Python
