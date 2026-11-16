@@ -345,6 +345,63 @@ def test_cli_setup_line_comes_before_any_movie_is_read(tmp_path, monkeypatch, ca
     )
 
 
+class _Recorder(BatchProgress):
+    """Records what the service tells it; ``run_started`` raises when asked to."""
+
+    def __init__(self, *, raise_on_start: bool = False) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self._raise = raise_on_start
+
+    def run_started(self, **setup) -> None:
+        self.calls.append(("run_started", setup))
+        if self._raise:
+            raise RuntimeError("display broke")
+
+    def event(self, record) -> None:
+        self.calls.append(("event", record["stage"]))
+
+
+@pytest.mark.parametrize("raise_on_start", [False, True])
+def test_the_batch_service_hands_its_progress_to_the_log_and_the_runner(
+    tmp_path, monkeypatch, raise_on_start
+) -> None:
+    import tether.project.batch as batch_mod  # noqa: PLC0415
+    from tether.services import BatchRequest  # noqa: PLC0415
+    from tether.services import run as run_service  # noqa: PLC0415
+
+    recorder = _Recorder(raise_on_start=raise_on_start)
+    seen: dict[str, object] = {}
+
+    def _fake(jobs, **kwargs):
+        seen["progress"] = kwargs["progress"]
+        kwargs["log"].event(movie="m_001", stage="extract", status="ok")
+        return batch_mod.BatchSummary(results=[], policy="fail", idealize_requested=False)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _fake)
+    out = tmp_path / "o"
+    request = BatchRequest(movies=("m_001.tif",), out_dir=str(out), policy="fail", idealize=False)
+
+    run_service(request, progress=recorder)
+
+    assert seen["progress"] is recorder
+    assert recorder.calls == [
+        ("run_started", {"n_movies": 1, "out_dir": out, "policy": "fail", "idealize": False}),
+        ("event", "extract"),
+    ]
+
+
+def test_a_refused_batch_states_no_setup(tmp_path) -> None:
+    from tether.services import BatchRequest, RequestRefused  # noqa: PLC0415
+    from tether.services import run as run_service  # noqa: PLC0415
+
+    recorder = _Recorder()
+    request = BatchRequest(movies=("a/m.tif", "b/m.tif"), out_dir=str(tmp_path / "o"))
+
+    with pytest.raises(RequestRefused):
+        run_service(request, progress=recorder)
+    assert recorder.calls == []
+
+
 def test_cli_quiet_and_verbose_are_exclusive(tmp_path) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["batch", "m.tif", "-d", str(tmp_path), "--quiet", "--verbose"])

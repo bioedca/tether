@@ -1,10 +1,10 @@
 ---
-description: "Run tether extract and tether batch without the window: script the pipeline, process movies unattended or repeat an extraction from recorded settings."
+description: "Run tether extract and tether batch without the application window: script the pipeline, run movies unattended or repeat an extraction."
 ---
 
 # Command line
 
-**Who this page is for.** Anyone driving Tether without the window: scripting the
+**Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
 extraction from recorded settings. Today the command line has three subcommands:
 `tether extract` and `tether batch` write projects, and `tether info` only reads them and
@@ -37,7 +37,7 @@ The installer deliberately does **not** edit your `PATH` (see
 is a bare word you can type. It writes both launchers into one directory — `bin/` under
 the install root you chose during installation:
 
-| Platform | Command-line launcher | Window launcher |
+| Platform | Command-line launcher | Application-window launcher |
 |---|---|---|
 | Windows | `<install-root>\bin\tether.bat` | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
@@ -93,7 +93,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 |---|---|---|
 | `movie` | *(required)* | path to the dual-channel TIFF movie |
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
-| `--overwrite` | off | overwrite an existing output project |
+| `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
 | `--detection-mode {wavelet,intensity,bandpass}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
 | `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
@@ -123,7 +123,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
 > when the donor bleaches first both drop. A bleach event is a molecule whose dyes bleach
 > one after the other, with a clear drop in one channel and a clear rise in the other at the
-> first bleach. If the channel labelled donor shows the acceptor's drop in at least 80 % of
+> first bleach. If the channel labeled donor shows the acceptor's drop in at least 80 % of
 > at least 15 bleach events, the command warns on standard error, names the evidence and
 > gives the remedy:
 >
@@ -146,7 +146,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 >
 > **How to check by eye (the fallback).** Look at a molecule whose acceptor photobleaches
 > mid-trace. When the acceptor dies the donor stops transferring energy, so the *donor*
-> trace steps **up** at that moment. If instead the trace you have labelled "donor" steps
+> trace steps **up** at that moment. If instead the trace you have labeled "donor" steps
 > *down* while the other steps up, your halves are swapped — re-extract with the other
 > value.
 >
@@ -163,7 +163,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > `--tmap` run, and its warning then points at the map's channel order instead of at
 > `--donor-side`.
 
-`--detection-mode` and `--prealign` are refused in the same way: an unrecognised value
+`--detection-mode` and `--prealign` are refused in the same way: an unrecognized value
 gives the usage line, an `invalid choice` message that names the allowed values, and exit
 code 2. The three flags take their allowed values from the same constants that
 `ExtractOptions` checks (`tether.extract_choices`), so the command line and the library
@@ -228,8 +228,8 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
 | `--sidecar-timeout SECONDS` | `1800` | per-idealization-call sidecar timeout in seconds |
 | `--sidecar-python PATH` | `$TETHER_SIDECAR_PYTHON` | sidecar interpreter for idealization |
 | `--no-defer` | off | do not defer idealization when the sidecar is unavailable at startup; let each movie's idealize stage fail in isolation instead |
-| `--quiet` | off | print no progress lines on stderr; the summary on stdout is unchanged ([see below](#progress-while-the-batch-runs)) |
-| `--verbose` | off | also print every stage event on stderr, as the structured log records it; cannot be combined with `--quiet` |
+| `--quiet` | off | print no progress lines on stderr (the summary on stdout is unchanged, [see below](#progress-while-the-batch-runs)) |
+| `--verbose` | off | also print every stage event on stderr, as the structured log records it (not with `--quiet`) |
 
 Idealization runs in the isolated tMAVEN sidecar, not in the application environment. If
 `--sidecar-python` is not given, Tether uses `$TETHER_SIDECAR_PYTHON`; an installed build
@@ -250,11 +250,11 @@ tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/mo
 ### Progress while the batch runs
 
 A batch over a condition can run for hours, so `tether batch` prints progress to
-**stderr** while it works. Before it reads the first movie, one line states the setup: the
-number of movies, the output folder, the policy and whether idealization was asked for.
-Check that line first: a wrong option shows there, not hours later in the summary. Then
-each movie gets one line when it starts and one when it ends, with its position, its
-name, the result, the time it took and the status of every stage:
+**stderr** while it works. One line states the setup before the first movie is read. It
+gives the number of movies, the output folder, the policy and whether idealization was
+asked for. Check that line first: a wrong option shows there, not hours later in the
+summary. Then each movie gets a start line and an end line. The end line gives its
+position, its name, the result, the time it took and the status of every stage:
 
 ```text
 tether batch: 3 movie(s) into projects (policy=warn, idealize=on)
@@ -268,10 +268,10 @@ tether batch: idealize deferred - sidecar unavailable — idealization deferred:
 ```
 
 A line about the whole run, such as the idealization deferred at startup above, starts
-with `tether batch:`. A stage that kept the movie with a flag (an over-gate registration
-under `--policy warn`) or raised a warning (the [donor-side
-check](#the-donor-side-check-in-the-batch-summary)) is named after `flagged:` on the
-movie's end line.
+with `tether batch:`. The end line names a flagged stage after `flagged:`. A stage is
+flagged when it kept the movie with a flag (an over-gate registration under
+`--policy warn`) or raised a warning (the [donor-side
+check](#the-donor-side-check-in-the-batch-summary)).
 
 There are three levels:
 
@@ -285,8 +285,8 @@ The lines come from the same events as the structured log, so the two cannot dis
 are plain text with no cursor control, so a redirected stderr or a scheduler's log file
 reads the same as a terminal. **stdout does not change at any level**: it is the end-of-run
 summary alone, so a script that reads stdout is not affected. Two lines on stderr do not
-depend on the level: the `structured log:` path at the end, and a failed stage, which
-Python's logging prints as `movie · stage: failed — reason`.
+depend on the level. One is the `structured log:` path at the end. The other is a failed
+stage, which Python's logging prints as `movie · stage: failed — reason`.
 
 ### How policy `fail` behaves on resume
 
@@ -311,7 +311,7 @@ destination lock before testing whether its project file exists or reading a che
 any existing writer lock, including one held by another thread in this process, fails
 that movie as locked without refreshing or releasing the caller's lock. A process-local
 per-destination reservation also prevents another local thread from refreshing that
-same-identity sidecar or writing through it. Both claims remain held while batch creates,
+same-identity lock file or writing through it. Both claims remain held while batch creates,
 skips, or re-extracts the destination.
 
 ### The donor-side check in the batch summary
@@ -479,12 +479,50 @@ value that the project does not record is `null`. The keys are:
 | `projects[].lock.age_s` | the age of the lock in seconds |
 | `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
 
+## Service commands
+
+`tether extract` and `tether batch` are each the command-line route of one *service command*
+([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
+command is the one implementation of an action. The command line uses it now. The
+desktop application and recipe files will use the same commands as their sections are
+moved onto them, so the three cannot do different things for the same input. The command
+line only reads your options into the command's *request*, runs the command, and prints
+the result.
+
+The table comes from the registry in `tether.services.registry`, and a test fails if the
+two differ:
+
+<!-- service-commands:begin (made from tether.services.registry; do not edit) -->
+| Command | Request | Result | What it does |
+|---|---|---|---|
+| `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
+| `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
+<!-- service-commands:end -->
+
+A request is plain data with one text form: a JSON object with the command name, the
+version of the request, and every field. For example, `tether extract movie.tif -o
+movie.tether` sends this request. The text form is one line. It is broken here to fit
+the page, and a break between two parts of JSON does not change it:
+
+```json
+{"command":"extract","fields":{"coloc_distance":3.0,"detection_block":50,
+"detection_mode":null,"detection_threshold":null,"donor_side":"left",
+"min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
+"pair_tol":2.0,"prealign":"translation","rms_gate":0.5,"tdat":null,"tmap":null,
+"window":21},"version":1}
+```
+
+The field names are the option names with `_` for `-`. Two `tether batch` flags are
+positive fields: `--no-idealize` is `"idealize": false` and `--no-defer` is
+`"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of
+these requests ([#899](https://github.com/bioedca/tether/issues/899)).
+
 ## Exit codes
 
 | Code | `tether extract` | `tether batch` | `tether info` |
 |---|---|---|---|
 | `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one project could not be read |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
@@ -496,10 +534,12 @@ particular refusal can leave an empty output directory behind.
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
 on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
 worth reporting. From `tether batch` it means the run finished with at least one movie
-having a failed stage; fix those and re-run the same command to resume the rest.
+having a failed stage; fix those and re-run the same command to resume the rest. It also
+means `tether batch` could not create `--out-dir` or write the log. It then prints one line
+on stderr that names the path.
 
 > **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
-> when the run starts, the default behaviour is to *defer* idealization: the stage is
+> when the run starts, the default behavior is to *defer* idealization: the stage is
 > recorded as `deferred`, which is not `failed`, so the run exits `0` having done
 > extraction and correction only. A script that treats `0` as "these projects are fully
 > idealized" will consume them too early. Re-run the same command once the sidecar is
@@ -511,4 +551,27 @@ per-movie, per-stage detail — to **stdout**, together with the JSONL structure
 writes to `<out-dir>/batch-log.jsonl`. stderr carries the
 [progress lines](#progress-while-the-batch-runs) (none with `--quiet`), the log's path and
 startup refusals. If you are capturing streams separately, the complete per-movie failure
-detail is in stdout and the log; the progress lines on stderr are for watching the run.
+detail is in stdout and the log. The progress lines on stderr are for watching the run.
+
+### Exit code `4`: a person must approve a step
+
+Code `4` is reserved, and it has one meaning in every `tether` command: the run stopped
+before a step that needs a person, because nothing approved that step. No command returns
+it today. `tether batch` never returns it, because it applies its `--policy` rule to the
+map and accepts the estimated correction factors, as it does now
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+
+The codes that have one meaning in every command:
+
+- `0`: the command completed.
+- `1`: the command ran, and at least one item failed.
+- `2`: bad command-line arguments, or a refusal to start.
+- `4`: the run stopped at an approval step, and nothing failed.
+
+The approval steps are: accept a map, confirm the bleedthrough factor α, approve γ, and
+select the active fit. A command that stops with `4` writes one message to stderr with the
+step, its subject, the report that is the evidence, the command that approves the step and
+the command that continues the run. The work done before the stop is kept, and the
+continued run does not do it again. A run that has a failed item and also stopped exits
+`1`. A code that this list does not name has the meaning that the table of its command
+gives.
