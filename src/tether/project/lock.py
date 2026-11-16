@@ -1791,7 +1791,9 @@ def recover_lock(
     takeover then writes the new lock into every name the identity record holds and
     into this one, as a steal through an alias does, so all of them carry the new
     nonce. It raises [`LockedError`][] instead when this name has a lock of its own
-    that the record does not account for.
+    that the record does not account for. Both names' lifecycle guards are held from
+    that check to the writes, so a claim of this name by another user cannot land in
+    between.
 
     Each successful call is reported at WARNING on the ``tether.project.lock``
     logger with the ousted holder, the new holder and the action.
@@ -1811,17 +1813,22 @@ def recover_lock(
             and not _same_spelling(record.project, project_path)
             and _identity_record_is_live(record)
         )
-        judged = lp
-        if alias:
-            assert record is not None
-            # Another name of this file holds it; judge that name's lock, unless
-            # this name carries a lock of its own outside the record.
-            with _lifecycle_guard(lp):
+        judged = lock_path(record.project) if alias and record is not None else lp
+        with ExitStack() as guards:
+            # Through an alias both sidecar guards are held from the check to the
+            # writes: another OS user's claim of this name takes only its own
+            # identity guard, so this name's guard is what keeps that claim out.
+            # A fixed order means two recoveries cannot wait on each other.
+            order = {os.path.normcase(os.path.abspath(path)): path for path in (lp, judged)}
+            for key in sorted(order):
+                guards.enter_context(_lifecycle_guard(order[key]))
+            if alias:
+                assert record is not None
+                # Judge the holder's lock, unless this name carries a lock of its
+                # own outside the record.
                 own, own_corrupt = _read_tolerant(lp)
-            if own_corrupt or (own is not None and own.nonce != record.info.nonce):
-                raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
-            judged = lock_path(record.project)
-        with _lifecycle_guard(judged):
+                if own_corrupt or (own is not None and own.nonce != record.info.nonce):
+                    raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
             current, corrupt = _read_tolerant(judged)
             verdict = _classify_recovery(
                 judged,
@@ -1840,6 +1847,12 @@ def recover_lock(
                 raise LockedError(current, stale=stale, corrupt=corrupt, path=judged)
             info = _new_info(identity, now=now)
             _atomic_write(judged, info)
+            if alias:
+                try:
+                    _atomic_write(lp, info)
+                except BaseException:
+                    _release_sidecar_unguarded(judged, info)
+                    raise
         # Carry the file's identity record over to the new nonce, as a claim does,
         # so a hard-link alias cannot claim the file while this lock is held.
         sources: list[_IdentityRecord] = []
@@ -1851,13 +1864,11 @@ def recover_lock(
             spelling for source in sources for spelling in (source.project, *source.also)
         )
         try:
-            # Through an alias the judged lock is the holder's name, already
-            # rewritten above; this name gets the same lock beside it.
+            # Through an alias the holder's name and this one were both written
+            # above; the record names the holder's name beside the others.
             taken: list[str] = []
             if alias:
                 assert record is not None
-                with _lifecycle_guard(lp):
-                    _atomic_write(lp, info)
                 taken.append(record.project)
             for source in sources:
                 taken.extend(_take_over_spellings(source, info))
@@ -1918,14 +1929,19 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
 
 def _release_sidecar(lp: Path, info: LockInfo) -> bool:
     with _lifecycle_guard(lp):
-        current, corrupt = _read_tolerant(lp)
-        if corrupt or current is None or current.nonce != info.nonce:
-            return False
-        try:
-            lp.unlink()
-        except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
-            return False
-        return True
+        return _release_sidecar_unguarded(lp, info)
+
+
+def _release_sidecar_unguarded(lp: Path, info: LockInfo) -> bool:
+    """Remove ``lp`` when it carries ``info.nonce``; the caller holds its guard."""
+    current, corrupt = _read_tolerant(lp)
+    if corrupt or current is None or current.nonce != info.nonce:
+        return False
+    try:
+        lp.unlink()
+    except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
+        return False
+    return True
 
 
 @contextmanager

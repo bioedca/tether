@@ -17,6 +17,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -436,3 +437,40 @@ def test_recover_through_an_alias_refuses_when_the_blocking_lock_changed(tmp_pat
     assert lock.read_lock(first) == refreshed
     assert not lock.lock_path(second).exists()
     assert lock.release(first, refreshed)
+
+
+def test_recover_through_an_alias_holds_the_alias_guard_while_it_judges(
+    tmp_path, me, monkeypatch
+) -> None:
+    # Another OS user has a separate identity guard, so only the alias's own
+    # lifecycle guard keeps their claim of the alias out between check and write.
+    first, second = _hard_link_pair(tmp_path)
+    crashed = LockIdentity(host=me.host, user=me.user, pid=_dead_pid())
+    lock.acquire(first, identity=crashed)
+    verdict = lock.lock_recovery(second, identity=me)
+    assert verdict is not None
+
+    monkeypatch.setattr(lock, "_GUARD_ACQUIRE_TIMEOUT_S", 0.3)
+    probes: list[bool] = []
+    judge = lock._classify_recovery
+
+    def probe_the_alias_guard() -> None:
+        try:
+            with lock._lifecycle_guard(lock.lock_path(second)):
+                probes.append(True)
+        except TimeoutError:
+            probes.append(False)
+
+    def judging(*args, **kwargs):
+        rival = threading.Thread(target=probe_the_alias_guard)
+        rival.start()
+        rival.join()
+        return judge(*args, **kwargs)
+
+    monkeypatch.setattr(lock, "_classify_recovery", judging)
+    taken, _ousted = lock.recover_lock(second, verdict, identity=me)
+
+    assert probes == [False]
+    assert _nonce_on_disk(first) == taken.nonce
+    assert _nonce_on_disk(second) == taken.nonce
+    assert lock.release(second, taken)
