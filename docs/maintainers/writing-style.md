@@ -12,7 +12,8 @@ This guide is **STE-derived**. It takes the writing rules of
 controlled dictionary of ASD-STE100, because that dictionary is for aerospace maintenance.
 Each rule has a number. A reviewer can cite a rule by its number, for example "rule 2".
 
-No tool checks these rules yet. Read your page against each rule before you ask for a review.
+A test checks the rules that a machine can count. The section [The style budget](#the-style-budget)
+tells you how it works. Read your page against each rule before you ask for a review.
 
 ## Rule 1. Scope
 
@@ -130,6 +131,50 @@ For each one, do one of these four things:
 The [Validation & benchmarks](../validation.md) page shows evidence, so it can name tests.
 A test in `tests/test_docs_nav_audience.py` checks each item of the list above except the issue
 numbers.
+
+## The style budget
+
+The test `tests/test_docs_style_budget.py` counts four things on each nav page and on
+`README.md`. The table `docs/style-budget.toml` holds a budget for each count on each page.
+
+| Count | Rule | What the test counts |
+|---|---|---|
+| `long_share` | Rule 2 | The percentage of sentences over the word limit. The limit is 20 on a `procedure` page and 25 on a `descriptive` page. |
+| `semicolons` | Rule 9 | The semicolons in prose. |
+| `long_paragraphs` | Rule 2 | The paragraphs of more than six sentences. A list item is not a paragraph. |
+| `retired` | Rules 4 and 5 | The uses of a phrase on the `[retired]` list: retired terms, idioms and British spellings. |
+
+The test reads prose only. It does not read code, tables or front matter. It reads headings
+only to find retired phrases. A phrase in quotation marks, such as "project store", is a
+mention and not a use. The sentence splitter is approximate. It is not a full ASD-STE100
+checker.
+
+### Read a failure
+
+A failure names the page, the rule and the count. It is one of two kinds:
+
+1. **Over budget.** Your edit added a long sentence, a semicolon, a long paragraph or a retired
+   phrase. The message quotes the first offender on the page. Rewrite the offending text. Do not
+   raise the budget.
+2. **Well under budget.** Your edit removed one of these things. Lower the budget, as the next
+   section tells you.
+
+The test also fails when a nav page has no entry in the table. Add an entry for each new page.
+
+### Lower a budget
+
+1. Run `python tests/test_docs_style_budget.py`. It prints the table with the values measured now.
+2. Copy the new values for your page into `docs/style-budget.toml`. Or run the same command with
+   `--write`, and then read the diff.
+3. Commit the table with the page.
+
+A budget can go down. To raise a budget, write the reason in the pull request. A reviewer must
+accept it. A `long_share` that is up to two points under its budget does not fail. The other
+counts fail at any value under the budget.
+
+A new page starts as a `descriptive` page. Set `kind = "procedure"` for a tutorial or a how-to
+guide. To retire a phrase, add it to the `[retired]` list. The pages that use it then need an
+allowance until a sweep removes it.
 
 ## Term list
 
