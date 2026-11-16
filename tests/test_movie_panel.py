@@ -219,8 +219,20 @@ def test_validate_xy_empty_and_readonly() -> None:
 
 # --- multi-movie overlays + switcher (headless GUI) --------------------------
 
-_GREEN = (0.0, 0.667, 0.0, 1.0)  # donor #00aa00
-_RED = (0.863, 0.176, 0.176, 1.0)  # acceptor #dc2d2d
+
+def _trace_rgba(token: str) -> tuple[float, ...]:
+    """The active theme's colour of ``token`` as 0-1 RGBA (the default palette, #636)."""
+    from tether.gui import theme
+
+    return tuple(c / 255 for c in theme.rgba(theme.current().trace(token)))
+
+
+def _donor() -> tuple[float, ...]:
+    return _trace_rgba("donor")
+
+
+def _acceptor() -> tuple[float, ...]:
+    return _trace_rgba("acceptor")
 
 
 def _write_native_movie(path: Path, frames: np.ndarray) -> Path:
@@ -237,7 +249,7 @@ def _assert_acceptor_rings(panel, overlay) -> None:
     np.testing.assert_array_equal(layer.data, expected)
     assert np.allclose(np.asarray(layer.size), 2 * overlay.aperture_radius)
     for i in range(len(expected)):
-        assert np.allclose(layer.border_color[i], _RED, atol=5e-3)
+        assert np.allclose(layer.border_color[i], _acceptor(), atol=5e-3)
         assert np.allclose(layer.face_color[i], [0.0, 0.0, 0.0, 0.0])
 
 
@@ -291,8 +303,8 @@ def test_overlays_present_for_multiple_movies(qtbot, tmp_path) -> None:
         np.testing.assert_array_equal(panel.donor_aperture_layer.data, ov0.donor_xy[:, ::-1])
         assert np.allclose(np.asarray(panel.donor_aperture_layer.size), 2 * 3.0)
         # familiar smFRET channel colours; the aperture face is transparent
-        assert np.allclose(panel.donor_layer.border_color[0], _GREEN, atol=5e-3)
-        assert np.allclose(panel.acceptor_layer.border_color[0], _RED, atol=5e-3)
+        assert np.allclose(panel.donor_layer.border_color[0], _donor(), atol=5e-3)
+        assert np.allclose(panel.acceptor_layer.border_color[0], _acceptor(), atol=5e-3)
         assert np.allclose(panel.donor_aperture_layer.face_color[0], [0.0, 0.0, 0.0, 0.0])
         assert tuple(panel.movie_layer.data.shape) == m0.shape
         # the acceptor rings: at the ACCEPTOR centres, PSF-disk diameter, acceptor

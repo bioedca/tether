@@ -10,12 +10,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # Application window themes and trace colors
 
 **Who this page is for.** Anyone who wants to change the theme or the trace colors of the
-Tether application window, or who wants to know the trace colors and how they were checked. It assumes you can
+Tether application window. Also anyone who wants to know the trace colors and how they were
+checked. It assumes you can
 open the Tether application window. It does not assume you know Qt or color science.
 
 The Tether application window has a light theme and a dark theme, and two sets of trace colors.
-This page tells you how to select a theme and a set of trace colors, and it records the colors
-of the traces and how they were checked.
+This page tells you how to select a theme and a set of trace colors. It also records the
+trace colors and how they were checked.
 
 ## Select a theme
 
