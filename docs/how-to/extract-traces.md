@@ -164,7 +164,8 @@ No command adds a movie to an existing project yet. From Python,
 steps as `tether extract` and appends it to the project. Hold the project's writer lock with
 `tether.project.lock.publish_lock` and give its check as `publish_guard`. The new movie must use
 the same window, radii and background window as the first movie in the project, and a movie
-that is already in the project is refused.
+that is already in the project is refused. A project that has no raw traces, such as an
+analysis-only import or a subset exported without its raw traces, cannot take a movie.
 
 It has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
 movie is extracted with the donor on the left and the default detector. A shared `--tdat`

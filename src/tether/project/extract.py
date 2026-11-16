@@ -87,6 +87,7 @@ from tether.imaging.detect import detect_spots_by_mode, detection_image
 from tether.imaging.extract import (
     MoleculeTraces,
     MovieMetadata,
+    assert_appendable,
     extract_molecules,
     write_extraction,
 )
@@ -872,12 +873,12 @@ def add_movie_to_project(
     ------
     ExtractionError
         Every operator-actionable failure [`extract_movie`][] reports, and also: a
-        missing or incompatible project, no ``publish_guard``, a movie whose content
+        missing or incompatible project, a project whose ``/traces`` or ``/patches``
+        arrays do not cover every molecule (an analysis-only import, a subset exported
+        without its raw layers), no ``publish_guard``, a movie whose content
         is already in the project, aperture parameters that differ from the
         project's, or a guard that fails (the writer lock was lost).
     """
-    from tether.io.schema import assert_is_compatible_project  # noqa: PLC0415
-
     options = options or ExtractOptions()
     project_path = Path(project_path)
     movie_path = Path(movie_path)
@@ -888,8 +889,8 @@ def add_movie_to_project(
             f"project not found: {project_path} (extract_movie creates a new project)"
         )
     try:
-        assert_is_compatible_project(project_path)
-    except Exception as exc:  # not HDF5, not a .tether, a newer schema
+        assert_appendable(project_path)
+    except Exception as exc:  # not HDF5, not a .tether, a newer schema, misaligned layers
         raise ExtractionError(f"cannot append to {project_path.name}: {exc}") from exc
     if publish_guard is None:
         raise ExtractionError(

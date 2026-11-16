@@ -58,6 +58,7 @@ from tether.imaging.coloc import ColocalizedMolecules
 from tether.imaging.extract import (
     MoleculeTraces,
     MovieMetadata,
+    assert_appendable,
     molecule_key,
     write_extraction,
 )
@@ -400,15 +401,15 @@ donor_patches, acceptor_patches, detect_photobleach:
         If ``publish_guard`` is ``None``.
     ValueError
         If the movie (its ``movie_id`` or its content ``sha256``) is already in the
-        project, the inputs do not align (as for [`reconstruct_project`][]), or the
-        project is not a compatible ``.tether``.
+        project, the inputs do not align (as for [`reconstruct_project`][]), the
+        project is not a compatible ``.tether``, or its ``/traces`` or ``/patches``
+        arrays do not cover every molecule (an analysis-only import, a subset exported
+        without its raw layers).
     """
-    from tether.io.schema import assert_is_compatible_project  # noqa: PLC0415
-
     project_path = Path(project_path)
     if not project_path.is_file():
         raise FileNotFoundError(f"{project_path} does not exist (reconstruct_project creates one)")
-    assert_is_compatible_project(project_path)
+    assert_appendable(project_path)
     if publish_guard is None:
         raise PublishGuardRequiredError(
             f"appending to {project_path.name} needs its writer lock "
@@ -579,8 +580,10 @@ def _seed_categories(
     sync_conditions(path)
     if not categories:
         return
-    names = list(categories)
+    names = [name.strip() if isinstance(name, str) else name for name in categories]
     if extend:
+        # Compare stripped names, as set_category_list does, so a seed that differs from
+        # a stored name only by surrounding whitespace is the same category.
         existing = list(read_category_list(path, condition_id).categories)
         names = existing + [name for name in names if name not in existing]
     set_category_list(path, condition_id, names)

@@ -78,6 +78,7 @@ __all__ = [
     "MOLECULE_KEY_QUANTUM_PX",
     "MovieMetadata",
     "MoleculeTraces",
+    "assert_appendable",
     "extract_molecules",
     "molecule_key",
     "read_molecules",
@@ -740,6 +741,69 @@ _CONSISTENT_PARAMS: tuple[str, ...] = (
 )
 
 
+def _layer_names() -> tuple[tuple[str, str], ...]:
+    """Every ``(group, dataset)`` a movie appends one row block to, besides the tables."""
+    traces = tuple(
+        (_TRACES_GROUP, f"{channel}_{quantity}")
+        for channel in _CHANNELS
+        for quantity, _ in _QUANTITIES
+    )
+    return (*traces, (_PATCHES_GROUP, "donor"), (_PATCHES_GROUP, "acceptor"))
+
+
+def _assert_layers_aligned(f: Any, project_path: Path) -> None:
+    """Refuse a store whose row-aligned arrays do not cover every ``/molecules`` row.
+
+    ``write_extraction`` appends one block to the six ``/traces`` arrays and the two
+    ``/patches`` arrays and creates any that is missing. On a store that already has
+    molecules but lacks an array — an analysis-only import (no raw, background or
+    patches) or a subset exported without its raw layers — the created array would
+    start at row 0 while ``/molecules`` starts after the existing rows, so the
+    positional trace↔molecule join would break. Such a store cannot take a movie
+    (#347, ADR-0117).
+    """
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    n_rows = int(f["molecules"][TABLE].shape[0])
+    for group, name in _layer_names():
+        dataset = f[group].get(name)
+        if dataset is None:
+            if n_rows:
+                raise ValueError(
+                    f"{project_path.name} has {n_rows} molecule(s) but no /{group}/{name}, so a "
+                    "new movie's rows could not stay aligned with /molecules (an analysis-only "
+                    "import or a subset exported without its raw layers cannot take a movie)"
+                )
+            continue
+        if int(dataset.shape[0]) != n_rows:
+            raise ValueError(
+                f"/{group}/{name} in {project_path.name} has {dataset.shape[0]} row(s) but "
+                f"/molecules has {n_rows}; a new movie's rows could not stay aligned"
+            )
+
+
+def assert_appendable(project_path: str | Path) -> None:
+    """Refuse a project that cannot take another movie, before any work (#347).
+
+    Checks, read-only, that ``project_path`` is a compatible ``.tether`` and that every
+    ``/traces`` and ``/patches`` array a movie appends to covers every ``/molecules``
+    row ([`write_extraction`][] checks the same before it writes).
+
+    Raises
+    ------
+    ValueError
+        If the project is not compatible or an array is missing or misaligned.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import assert_is_compatible_project  # noqa: PLC0415
+
+    project_path = Path(project_path)
+    assert_is_compatible_project(project_path)
+    with h5py.File(project_path, "r") as f:
+        _assert_layers_aligned(f, project_path)
+
+
 def _check_against_existing(
     f: Any, project_path: Path, movie: MovieMetadata, traces: MoleculeTraces
 ) -> None:
@@ -754,6 +818,7 @@ def _check_against_existing(
     """
     from tether.io.schema import TABLE  # noqa: PLC0415
 
+    _assert_layers_aligned(f, project_path)
     if _movie_id_present(f["movies"][TABLE], movie.movie_id):
         raise ValueError(
             f"movie_id {movie.movie_id!r} already in {project_path} "

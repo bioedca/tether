@@ -488,3 +488,120 @@ def test_a_reconstruction_append_needs_the_writer_lock(tmp_path: Path) -> None:
         )
     assert project.read_bytes() == original
     _no_stage_left(project)
+
+
+# --- targets whose arrays do not cover every molecule (Greptile P1 on #1119) ----------
+
+
+def _analysis_only_project(tmp_path: Path) -> Path:
+    from tether.idealize import read_smd
+    from tether.project.analysis_import import import_analysis_only_project
+
+    out = tmp_path / "analysis-only.tether"
+    import_analysis_only_project(out, source=read_smd(_FIXTURES / "smd_4mol.hdf5"))
+    return out
+
+
+def _subset_without_raw(tmp_path: Path) -> Path:
+    from tether.project.export import export_subset_tether
+
+    source = _project_with_a(tmp_path)
+    out = tmp_path / "subset.tether"
+    export_subset_tether(source, out, include_rejected=True)  # include_raw=False
+    with h5py.File(out, "r") as f:
+        assert "donor_raw" not in f["traces"]  # the premise: raw layers left out
+    return out
+
+
+@pytest.mark.parametrize("make_target", [_analysis_only_project, _subset_without_raw])
+def test_a_store_missing_row_aligned_arrays_cannot_take_a_movie(tmp_path, make_target) -> None:
+    project = make_target(tmp_path)
+    original = project.read_bytes()
+
+    with pytest.raises(ExtractionError, match="could not stay aligned"):
+        _append(project, _movie_b(tmp_path), options=_options())
+    with (
+        lock.publish_lock(project) as guard,
+        pytest.raises(ValueError, match="could not stay aligned"),
+    ):
+        export = read_deeplasi_mat(_MAT)
+        add_reconstruction_to_project(
+            project,
+            export=export,
+            movie=_recon_movie("mov-b", "b" * 64, export.n_frames),
+            publish_guard=guard,
+        )
+
+    assert project.read_bytes() == original
+    _no_stage_left(project)
+
+
+def test_write_extraction_refuses_a_store_with_a_misaligned_array(tmp_path: Path) -> None:
+    """The writer itself checks, so no caller can misalign the join (reject-before-mutate)."""
+    from tether.imaging.extract import assert_appendable
+
+    project = _project_with_a(tmp_path)
+    with h5py.File(project, "r+") as f:
+        del f["traces/donor_background"]
+    original = project.read_bytes()
+
+    with pytest.raises(ValueError, match="could not stay aligned"):
+        assert_appendable(project)
+    with pytest.raises(ValueError, match="could not stay aligned"):
+        _append_raw_extraction(project, tmp_path)
+    assert project.read_bytes() == original
+
+
+def _append_raw_extraction(project: Path, tmp_path: Path) -> None:
+    """Call ``write_extraction`` directly with one real molecule of movie B."""
+    from tether.project.extract import _resolve_sources, _run_pipeline
+
+    movie_path = _movie_b(tmp_path)
+    options, imported = _resolve_sources(_options(), None, None)
+    extracted = _run_pipeline(movie_path, options, imported)
+    movie = MovieMetadata(
+        movie_id="mov-direct",
+        sha256=extracted.sha256,
+        n_frames=extracted.n_frames,
+        height=extracted.height,
+        width=extracted.width,
+    )
+    from tether.io.filename import parse_filename
+
+    write_extraction(
+        project,
+        movie=movie,
+        molecules=extracted.molecules,
+        traces=extracted.traces,
+        parsed=parse_filename(movie_path.name),
+    )
+
+
+# --- category seeds that differ only by whitespace (Greptile P2 on #1119) ------------
+
+
+def test_a_seed_that_differs_only_by_whitespace_is_the_same_category(tmp_path: Path) -> None:
+    export = read_deeplasi_mat(_MAT)
+    project = tmp_path / "reanalysis.tether"
+    reconstruct_project(
+        project,
+        export=export,
+        movie=_recon_movie("mov-a", "a" * 64, export.n_frames),
+        categories=("dynamic", "static"),
+    )
+
+    with lock.publish_lock(project) as guard:
+        add_reconstruction_to_project(
+            project,
+            export=export,
+            movie=_recon_movie("mov-b", "b" * 64, export.n_frames),
+            categories=("static ", " stuck"),
+            publish_guard=guard,
+        )
+
+    condition_id = _decode(_read(project)["molecules"]["condition_id"][0])
+    assert conditions.read_category_list(project, condition_id).categories == (
+        "dynamic",
+        "static",
+        "stuck",
+    )

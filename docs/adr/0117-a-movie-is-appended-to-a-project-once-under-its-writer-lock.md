@@ -84,6 +84,12 @@ Chosen option: **C**.
   before the extraction and again against the staged copy before the write.
 - `write_extraction` keeps its own rules unchanged: write-once per `movie_id`, and aperture
   parameters (`window`, the radii, `bg_window`) equal to the first extraction's.
+- It also gains one check, before it writes anything: every `/traces` and `/patches` array it
+  appends to must cover every `/molecules` row. A store that has molecules but lacks an array —
+  an analysis-only import (no raw, background or patches) or a subset exported without its raw
+  layers — would otherwise get that array created with the new movie's rows at row 0, and the
+  positional join would break. Such a store cannot take a movie. `assert_appendable` runs the
+  same check read-only, and both appends call it before any work.
 
 ### Each movie records its own settings
 
@@ -133,8 +139,9 @@ Chosen option: **C**.
 - Enforced by: `tests/test_project_append.py` (the growing tables and positional join, the
   zero-pad for a longer and for a shorter movie, the duplicate refusal, write-once per
   `movie_id`, the required guard, a foreign lock, a lock stolen by another process mid-append,
-  the aperture check, the per-movie settings record, and the reconstruction append with its
-  scoped passes and extended categories).
+  the aperture check, the refusal of an analysis-only or raw-less subset target, the per-movie
+  settings record, and the reconstruction append with its scoped passes and extended
+  categories).
 
 ## More information
 
