@@ -106,6 +106,7 @@ Which tier each oracle's *headline* assertion lives in:
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
 | Campos-Chavez et al. 2024: the tMAVEN fits | `reference_download` — weekly, with the sidecar env; **advisory** | the settings, the windows, the comparison and the limit rule; the stored models are checked by the workstation run |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
+| Published analysis of the 2024 T-box paper | `reference_download` — and **advisory**, never a gate | the method (rounding bound, window search, dwell inversion) on data built in the test |
 | Extraction vs MASH-FRET simulated truth | required matrix | yes |
 
 ## (a) Extraction vs Deep-LASI
@@ -964,6 +965,59 @@ and `test_the_stored_rates_are_the_authors_rule_on_the_stored_transition_matrix`
 `test_the_settings_the_child_used_are_the_authors`,
 `test_the_start_synchronized_histogram_equals_tmavens` and
 `test_the_post_synchronized_histogram_equals_tmavens_on_the_window_frames`.
+
+## Published analysis of the 2024 T-box paper
+
+**What is compared.** Tether's analysis functions against the published numbers of Campos-Chavez
+*et al.*, *Nature Communications* **15**:6592 (2024),
+[doi:10.1038/s41467-024-50885-x](https://doi.org/10.1038/s41467-024-50885-x), Source Data
+CC BY-NC-ND 4.0 (see "The Source Data of the 2024 T-box paper" above). The paper made them with
+tMAVEN 0.2.3 (commit 62422f9) and the authors' scripts.
+[ADR-0097](adr/0097-the-2024-t-box-source-data-is-an-advisory-analysis-reference.md) records the
+method, the limits and the measurements.
+
+| Published | Sheet or file | Tether function | Result (Linux, macOS, Windows) |
+| --- | --- | --- | --- |
+| Representative traces, Figs. 2b, 3g, 4a, 4e | `Fig2b`, `Fig3g`, `Fig4a`, `Fig4e` | `apparent_fret` | 12,000 values, 9.8e-15 relative |
+| FRET histograms, Figs. 2c, 3b, 3h, 4b, 4f, 6b, 7b | the seven sheets and their trace matrix | `apparent_fret`, `apparent_e_histogram` | 1,016,781 values in 1,440 recovered windows, each within the rounding bound (largest ratio 0.91); every bin count equal |
+| intraFRET histograms, Fig. 5b (4 of 5 columns) | `Fig5b` and the `intraFRET_*` matrices | `apparent_fret` | 282,800 values, first 400 frames, within the rounding bound (0.91) |
+| Survival curves, 13 panels of Figs. 2e-7f | `Fig2e` ... `Fig7f` | `survival_curve` | equal to 1.0e-15 |
+| Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
+| Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
+| TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
+
+The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
+calculated from them can differ from a published one by the rounding of the two intensities. The
+bound is the largest change of the efficiency over the rounding interval of both intensities, which
+takes in both the rounded and the unrounded denominator. Where the interval of `D + A` contains zero
+there is no finite bound, and that frame is not checked. No published value falls on such a frame.
+That bound, not a chosen number, is the limit. The workbook does not say which frames a histogram pools,
+so each test finds the windows in the trace matrix when it runs.
+
+**Differences the archive shows.**
+
+1. tMAVEN's `optimize_double_surv` sorts the two rates and amplitudes of a double-exponential fit
+   but not their errors: in the three panels that can be checked, each published error belongs to
+   the other parameter. Tether's errors are paired correctly.
+2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
+   Fig. 5b has no trace data.
+3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
+4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
+   start at frame 0 or at frame 1.
+
+**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
+time of a double exponential with its error, the TDP smoothing and spline, and the two-Gaussian
+fit of Fig. 5c. Tether has no function for the last three: #1028, #1029 and #1030.
+
+**Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
+`test_find_windows_finds_each_window_and_a_value_the_matrix_lost` and
+`test_dwells_from_survival_give_back_the_survival_curve`. Weekly (`reference_download`):
+`test_representative_traces_have_tethers_efficiency`,
+`test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
+`test_intrafret_histogram_values_are_tethers_first_400_frames`,
+`test_survival_curve_and_exponential_fit_reproduce_the_panel`,
+`test_double_exponential_parameters_and_errors` and
+`test_transition_density_counts_equal_checktdp`.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
