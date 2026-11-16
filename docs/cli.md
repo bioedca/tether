@@ -507,3 +507,26 @@ per-movie, per-stage detail — to **stdout**, together with the JSONL structure
 writes to `<out-dir>/batch-log.jsonl`. Only the log's path, and startup refusals, go to
 stderr. If you are capturing streams separately, per-movie failure detail is in stdout and
 the log, not in stderr.
+
+### Exit code `4`: a person must approve a step
+
+Code `4` is reserved, and it has one meaning in every `tether` command: the run stopped
+before a step that needs a person, because nothing approved that step. No command returns
+it today. `tether batch` never returns it, because it applies its `--policy` rule to the
+map and accepts the estimated correction factors, as it does now
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+
+The codes that have one meaning in every command:
+
+- `0`: the command completed.
+- `1`: the command ran, and at least one item failed.
+- `2`: bad command-line arguments, or a refusal to start.
+- `4`: the run stopped at an approval step, and nothing failed.
+
+The approval steps are: accept a map, confirm the bleedthrough factor α, approve γ, and
+select the active fit. A command that stops with `4` writes one message to stderr with the
+step, its subject, the report that is the evidence, the command that approves the step and
+the command that continues the run. The work done before the stop is kept, and the
+continued run does not do it again. A run that has a failed item and also stopped exits
+`1`. A code that this list does not name has the meaning that the table of its command
+gives.
