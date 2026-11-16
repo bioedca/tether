@@ -141,10 +141,24 @@ def _stage(name: str, args: argparse.Namespace) -> Callable[[], object]:
         return hold
     if name == "extract":
         from tether.project.extract import extract_movie
+        from tether.project.lock import publish_lock
 
-        return lambda: extract_movie(
-            args.movie, store, tmap=args.tmap, tdat=args.tdat, overwrite=True
-        )
+        def extract() -> object:
+            # Replacing an existing store needs its writer lock (ADR-0112); the store is
+            # kept until the new one is published, so a failed run never loses it.
+            if not store.exists():
+                return extract_movie(args.movie, store, tmap=args.tmap, tdat=args.tdat)
+            with publish_lock(store) as guard:
+                return extract_movie(
+                    args.movie,
+                    store,
+                    tmap=args.tmap,
+                    tdat=args.tdat,
+                    overwrite=True,
+                    publish_guard=guard,
+                )
+
+        return extract
     if name == "correct":
         from tether.project.batch import run_correct_stage
 

@@ -514,6 +514,47 @@ def test_reopening_loaded_project_preserves_session_epoch(shell, tmp_path) -> No
     assert not shell.lock_release_pending
 
 
+def test_reopening_through_a_hard_link_alias_preserves_session_epoch(shell, tmp_path) -> None:
+    """A hard-link spelling of the loaded file reuses its epoch (#257 defect 1, #346)."""
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    alias = tmp_path / "alias.tether"
+    os.link(project.path, alias)
+    retained = shell.load_project(project.path)
+    assert retained is not None
+    before = project.lock_owner()
+    assert before is not None
+
+    reopened = shell.load_project(alias)
+
+    assert reopened is retained
+    assert shell.curation_project is retained
+    after = project.lock_owner()
+    assert after is not None
+    assert after.nonce == before.nonce
+    assert not lock.lock_path(alias).exists()
+    assert not shell.lock_release_pending
+
+
+def test_deeplasi_import_cannot_replace_the_project_this_shell_holds(shell, tmp_path) -> None:
+    """The wizard's overwrite of the loaded project is refused, not published (#346)."""
+    from tether.gui.deeplasi_executor import _destination_lock
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    before = lock.file_identity(project.path)
+    nonce = project.lock_owner().nonce
+
+    with pytest.raises(lock.LockedError), _destination_lock(project.path, overwrite=True):
+        pass
+
+    assert lock.file_identity(project.path) == before
+    assert project.lock_owner().nonce == nonce
+    assert shell.curation_project is not None
+
+
 def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
     import threading
 
@@ -1301,8 +1342,14 @@ def test_every_source_writer_waits_for_background_idealization(
         conditions_status = shell.status_message
         qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
         curation_status = shell.status_message
+        wizard_calls = []
+        assert shell.import_deeplasi_bundle(dialog_factory=lambda: wizard_calls.append(1)) == ()
+        wizard_status = shell.status_message
 
         assert handoff.preview_calls == 0
+        assert wizard_calls == []
+        assert "Idealize in progress" in wizard_status
+        assert not shell._act_import_deeplasi.isEnabled()
         assert conditions_dialog_calls == []
         assert read_labels(project.path).shape == (0,)
         assert "Idealize in progress" in import_status
@@ -1318,6 +1365,7 @@ def test_every_source_writer_waits_for_background_idealization(
     assert shell.unreject_button.isEnabled()
     assert shell._act_import.isEnabled()
     assert shell._act_validate_conditions.isEnabled()
+    assert shell._act_import_deeplasi.isEnabled()
 
 
 def test_close_retains_session_lock_until_background_idealization_finishes(
