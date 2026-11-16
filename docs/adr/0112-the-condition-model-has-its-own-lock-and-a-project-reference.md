@@ -43,7 +43,7 @@ first retrain.
 3. **Lock plus a version check at save time** (chosen). The lock makes the owner-curator the only
    writer. The save runs under the lock's OS lifecycle guard, checks that the session still holds
    the lock (same nonce), checks that the file is still the version the session opened, and checks
-   that the model to save is a retrain of that version.
+   that the model to save is a retrain of that version (its recorded parent).
 
 ## Decision outcome
 
@@ -62,12 +62,22 @@ Chosen option: **3**, in the new module `tether.project.model_artifact`.
   `LockedError` (the lock was stolen) or `ModelArtifactConflictError` (the file changed without
   the lock), and the file on disk is not touched. The block is one file write, because the guard
   makes other lifecycle calls wait only a few seconds; the retrain happens before it.
-- **The model must descend from the version on disk.** A retrain keeps the `condition_id` and
-  `created_utc` of the model it came from and adds one to `n_retrains` (ADR-0035). The save
-  refuses, with `StaleModelError`, a model that does not: for example one retrained from a copy
-  loaded before another curator's save, which the hash check cannot see because the session opened
-  after that save. `replace=True` replaces the model on purpose (a fresh fit); the lock and the
-  hash check still apply.
+- **The model must be a retrain of the version on disk.** `warm_start_retrain` now records the
+  version of the model it came from as `parent_version`, where a model's version
+  (`tether.ml.persistence.model_version`) is the SHA-256 of its canonical manifest, so a reloaded
+  model has the version of the one saved. The save refuses, with `StaleModelError`, a model whose
+  `parent_version` is not the version of the model on disk: for example one retrained from a copy
+  loaded before another curator's save, which the hash check cannot see because the session
+  opened after that save. Counts and times are not used, because an old copy retrained more
+  often than the model on disk would pass them. `parent_version` is an optional manifest key, the
+  `source_projects` precedent (ADR-0077), so `MODEL_FORMAT_VERSION` stays 1; an artifact saved
+  before it loads with `parent_version = None`, and a retrain of that artifact names it as its
+  parent. `replace=True` replaces the model on purpose (a fresh fit); the lock and the hash check
+  still apply.
+- **The project is checked before the model file changes.** When `save` is given a project, the
+  project's lock (a `Project` handle with its own writer identity, or this process for a path)
+  and the condition are checked first, so a refused reference never leaves a saved model the
+  project does not record.
 - **The reference is additive data in `/models`.** `record_model_reference` writes one group per
   condition, `/models/<condition_id>`, with attributes `reference_version` (`1`),
   `condition_id`, `artifact_path` (absolute), `artifact_sha256` (the version the project last

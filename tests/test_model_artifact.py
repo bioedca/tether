@@ -47,6 +47,7 @@ from tether.io.schema import (  # noqa: E402
 )
 from tether.ml.persistence import (  # noqa: E402
     load_model,
+    model_version,
     save_model,
     train_portable_model,
     warm_start_retrain,
@@ -56,6 +57,7 @@ from tether.project.condition_model import (  # noqa: E402
     retrain_condition_model,
     train_condition_model,
 )
+from tether.project.core import Project  # noqa: E402
 from tether.project.features import compute_features  # noqa: E402
 from tether.project.labels import accept, reject  # noqa: E402
 from tether.project.lock import LockedError, LockIdentity  # noqa: E402
@@ -187,11 +189,68 @@ def test_a_retrain_of_a_copy_loaded_before_another_save_is_refused(tmp_path) -> 
     alices = artifact_sha256(path)
 
     with model_writer(path, identity=BOB) as bob:
-        with pytest.raises(StaleModelError, match="1 retrains"):
+        with pytest.raises(StaleModelError, match="retrained from version"):
             bob.save(_retrain(bobs_old_copy, seed=3, video_id="v3"))
         assert artifact_sha256(path) == alices  # Alice's retrain is still on disk
         bob.save(_retrain(bob.load(), seed=3, video_id="v3"))
     assert load_model(path).videos_seen == ("v1", "v2", "v3")
+
+
+def test_an_old_copy_retrained_more_often_is_still_refused(tmp_path) -> None:
+    """Ancestry, not counts: Bob's old copy retrained twice outnumbers Alice's one retrain."""
+    path = tmp_path / "cond.tethermodel"
+    _seed_model(path)
+    bobs_old_copy = load_model(path)
+
+    with model_writer(path, identity=ALICE) as alice:
+        alice.save(_retrain(alice.load(), seed=2, video_id="v2"))
+    alices = artifact_sha256(path)
+
+    bobs_branch = _retrain(_retrain(bobs_old_copy, seed=3, video_id="v3"), seed=4, video_id="v4")
+    assert bobs_branch.n_retrains == 2 > load_model(path).n_retrains == 1
+    with (
+        model_writer(path, identity=BOB) as bob,
+        pytest.raises(StaleModelError, match="retrained from version"),
+    ):
+        bob.save(bobs_branch)
+    assert artifact_sha256(path) == alices
+
+
+def test_a_reloaded_model_keeps_its_version_and_parent(tmp_path) -> None:
+    path = tmp_path / "cond.tethermodel"
+    X, y = _xy(1)
+    first = train_portable_model(X, y, _FEATURES, condition_id="cond-x", video_id="v1")
+    assert first.parent_version is None
+    save_model(first, path)
+    assert model_version(load_model(path)) == model_version(first)
+
+    second = _retrain(load_model(path), seed=2, video_id="v2")
+    assert second.parent_version == model_version(first)
+    save_model(second, path)
+    reloaded = load_model(path)
+    assert reloaded.parent_version == model_version(first)
+    assert model_version(reloaded) == model_version(second) != model_version(first)
+
+
+def test_an_artifact_saved_before_parent_versions_loads_without_one(tmp_path) -> None:
+    import json
+    import zipfile
+
+    path = tmp_path / "cond.tethermodel"
+    _seed_model(path)
+    with zipfile.ZipFile(path) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+        payload = zf.read("model.pkl")
+    del manifest["parent_version"]
+    old = tmp_path / "old.tethermodel"
+    with zipfile.ZipFile(old, "w") as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+        zf.writestr("model.pkl", payload)
+    assert load_model(old).parent_version is None
+    # A retrain of the old artifact names it as its parent, so the guarded save accepts it.
+    with model_writer(old, identity=ALICE) as alice:
+        alice.save(_retrain(alice.load(), seed=2, video_id="v2"))
+    assert load_model(old).videos_seen == ("v1", "v2")
 
 
 def test_a_save_without_the_lock_during_a_session_is_not_overwritten(tmp_path) -> None:
@@ -215,7 +274,7 @@ def test_replacing_the_model_with_a_fresh_fit_needs_replace(tmp_path) -> None:
     X, y = _xy(5)
     fresh = train_portable_model(X, y, _FEATURES, condition_id="cond-x", video_id="v9")
     with model_writer(path, identity=ALICE) as alice:
-        with pytest.raises(StaleModelError, match="first fitted"):
+        with pytest.raises(StaleModelError, match="fresh fit"):
             alice.save(fresh)
         alice.save(fresh, replace=True)
     assert load_model(path).videos_seen == ("v9",)
@@ -446,6 +505,33 @@ def test_recording_a_missing_model_file_is_an_error(tmp_path) -> None:
     model = train_condition_model(project, condition_id=_condition(project))
     with pytest.raises(FileNotFoundError, match="save the model before recording it"):
         record_model_reference(project, model, tmp_path / "nowhere.tethermodel")
+
+
+def test_a_project_handle_with_its_own_identity_records_its_save(tmp_path) -> None:
+    project_path = tmp_path / "day1.tether"
+    _store(project_path, seed=7)
+    cid = _condition(project_path)
+    handle = Project(project_path, identity=ALICE)
+    handle.acquire_lock()  # Alice owns the project, under an identity that is not this process's
+    path = tmp_path / "cond.tethermodel"
+    with model_writer(path, identity=ALICE) as writer:
+        writer.save(train_condition_model(project_path, condition_id=cid), project=handle)
+    assert read_model_reference(project_path, cid).is_current()
+
+
+def test_a_save_refused_by_the_project_lock_leaves_the_model_file_alone(tmp_path) -> None:
+    project_path = tmp_path / "day1.tether"
+    _store(project_path, seed=7)
+    cid = _condition(project_path)
+    path = tmp_path / "cond.tethermodel"
+    with model_writer(path, identity=ALICE) as writer:
+        writer.save(train_condition_model(project_path, condition_id=cid), project=project_path)
+        before = artifact_sha256(path)
+        lock.acquire(project_path, identity=BOB)  # Bob takes the project
+        with pytest.raises(LockedError):
+            writer.save(retrain_condition_model(writer.load(), project_path), project=project_path)
+        assert artifact_sha256(path) == before  # the model file was not replaced
+    assert read_model_reference(project_path, cid).artifact_sha256 == before
 
 
 def test_the_model_lock_sits_beside_the_model_file(tmp_path) -> None:

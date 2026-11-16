@@ -118,10 +118,10 @@ class ModelArtifactConflictError(lock.LockError):
 class StaleModelError(lock.LockError):
     """The model to save does not descend from the version on disk; nothing was saved.
 
-    A retrain carries the model it came from forward: the same ``condition_id`` and
-    ``created_utc``, and one more retrain ([`tether.ml.persistence.warm_start_retrain`][]).
-    A model that does not, for example one retrained from a copy loaded before another
-    curator's save, would discard that save. Load the file in the session, retrain, and save;
+    A retrain records the version of the model it came from (``parent_version``,
+    [`tether.ml.persistence.warm_start_retrain`][]). A model whose parent is not the model on
+    disk, for example one retrained from a copy loaded before another curator's save, would
+    discard that save. Load the file in the session, retrain, and save;
     or pass ``replace=True`` to [`ModelWriter.save`][] to replace the model on purpose.
 
     Attributes
@@ -144,19 +144,26 @@ class StaleModelError(lock.LockError):
 
 
 def _descent_problem(model: PortableRankerModel, current: PortableRankerModel) -> str | None:
-    """Why ``model`` is not a retrain of ``current``, or ``None`` when it is."""
+    """Return why ``model`` is not a retrain of ``current``, or ``None`` when it is.
+
+    A retrain records the version of the model it came from (``parent_version``,
+    [`tether.ml.persistence.model_version`][]), so ancestry is checked on that identity and not
+    on counts or times, which an older copy retrained more often would also pass.
+    """
+    from tether.ml.persistence import model_version  # noqa: PLC0415
+
     if model.condition_id != current.condition_id:
         return (
             f"it is a model of condition {model.condition_id!r}, the file holds "
             f"{current.condition_id!r}"
         )
-    if model.created_utc != current.created_utc:
+    if model.parent_version is None:
+        return "it is a fresh fit, not a retrain"
+    expected = model_version(current)
+    if model.parent_version != expected:
         return (
-            f"it was first fitted at {model.created_utc}, the file's model at {current.created_utc}"
-        )
-    if model.n_retrains <= current.n_retrains:
-        return (
-            f"it has {model.n_retrains} retrains, the file's model already has {current.n_retrains}"
+            f"it was retrained from version {model.parent_version[:12]}, the file holds "
+            f"version {expected[:12]}"
         )
     return None
 
@@ -238,6 +245,21 @@ def _text(value: object) -> str:
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
+def _assert_project_writable(project: ProjectRef, identity: LockIdentity | None) -> None:
+    """Refuse a write to ``project`` while another writer holds its lock.
+
+    A [`Project`][tether.project.core.Project] handle is checked with its own writer identity,
+    so a handle made with an explicit identity that holds the project's lock is its owner here
+    too; a path is checked with ``identity`` (default: this process).
+    """
+    from tether.project.core import Project  # noqa: PLC0415
+
+    if identity is None and isinstance(project, Project):
+        project._assert_writable()
+    else:
+        lock.assert_writable(_project_path(project), identity=identity)
+
+
 def _require_condition(path: Path, condition_id: str) -> None:
     """Refuse a project that holds no molecule of the condition it records a model for."""
     from tether.imaging.extract import read_molecules  # noqa: PLC0415
@@ -275,7 +297,9 @@ def record_model_reference(
         The SHA-256 of the saved file ([`ModelWriter.save`][] returns it). When ``None`` the file
         is read and hashed now; a missing file is then an error.
     identity:
-        The writer identity for the project-lock check (default: this process).
+        The writer identity for the project-lock check. By default a
+        [`Project`][tether.project.core.Project] handle's own identity, and this process for a
+        path.
     now:
         Injectable timestamp for reproducible tests.
 
@@ -294,7 +318,7 @@ def record_model_reference(
     condition_id = _require_safe_condition_id(model.condition_id)
     target = Path(artifact_path).absolute()
     digest = artifact_sha256 if artifact_sha256 is not None else _sha_or_raise(target)
-    lock.assert_writable(path, identity=identity)
+    _assert_project_writable(project, identity)
     _require_condition(path, condition_id)
     reference = ModelReference(
         condition_id=condition_id,
@@ -442,16 +466,18 @@ class ModelWriter:
         The save runs under [`holding`][tether.project.lock.holding]: the session's lock must
         still be the current lock, and the file must still be the version the session opened (or
         the version its last save wrote). When the file holds a model, ``model`` must also be a
-        retrain of it — the same condition and first-fit time, and more retrains — unless
-        ``replace`` is true. Otherwise nothing is written. After the write the lock's timestamp is
-        refreshed, so a long curation session that keeps saving does not go stale.
+        retrain of exactly that model — its ``parent_version`` is that model's
+        [`model_version`][tether.ml.persistence.model_version] — unless ``replace`` is true.
+        Otherwise nothing is written. After the write the lock's timestamp is refreshed, so a
+        long curation session that keeps saving does not go stale.
 
         Parameters
         ----------
         model:
             The model to save ([`tether.ml.persistence.save_model`][]).
         project:
-            When given, [`record_model_reference`][] records the saved version in it.
+            When given, [`record_model_reference`][] records the saved version in it. The
+            project's lock and condition are checked before the model file is written.
         replace:
             Replace the model on disk even when ``model`` is not a retrain of it (a deliberate
             fresh fit). The lock and the version checks still apply.
@@ -476,6 +502,12 @@ class ModelWriter:
         from tether.ml.persistence import save_model  # noqa: PLC0415
 
         self._assert_still_held()  # a stolen lock is reported as such, before anything else
+        if project is not None:
+            # Check the project before the model file changes, so that a refused reference
+            # does not leave a saved model the project does not record.
+            _assert_project_writable(project, None)
+            condition_id = _require_safe_condition_id(model.condition_id)
+            _require_condition(_project_path(project), condition_id)
         current = self.load()  # also refuses a file that changed since the session opened it
         if current is not None and not replace:
             problem = _descent_problem(model, current)

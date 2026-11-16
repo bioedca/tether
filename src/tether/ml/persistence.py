@@ -60,6 +60,7 @@ References
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pickle
@@ -94,6 +95,7 @@ __all__ = [
     "SourceProject",
     "UnsupportedModelFormatError",
     "load_model",
+    "model_version",
     "save_model",
     "train_portable_model",
     "warm_start_retrain",
@@ -213,6 +215,11 @@ class PortableRankerModel:
         The project files the current fit read its labels from, in training-row order
         ([`SourceProject`][]; ADR-0077). Empty for a model fitted on caller-supplied arrays
         with no project record, and for an artifact saved before the field existed.
+    parent_version:
+        The [`model_version`][] of the model this one was retrained from
+        ([`warm_start_retrain`][]); ``None`` for a fresh fit and for an artifact saved before
+        the field existed (ADR-0112). It is what lets a guarded save tell a retrain of the
+        model on disk from a retrain of an older copy.
     """
 
     ranker: QualityRanker
@@ -225,6 +232,7 @@ class PortableRankerModel:
     created_utc: str
     updated_utc: str
     source_projects: tuple[SourceProject, ...] = ()
+    parent_version: str | None = None
 
     @property
     def feature_names(self) -> tuple[str, ...]:
@@ -334,7 +342,8 @@ def warm_start_retrain(
     label the condition has seen so far, not just the new video's — and returns a **new**
     [`PortableRankerModel`][] that carries ``condition_id`` and ``created_utc`` forward,
     appends ``video_id`` to ``videos_seen`` (deduplicated, so re-curating a video does not
-    double-count it), increments ``n_retrains``, and refreshes ``updated_utc`` and the
+    double-count it), increments ``n_retrains``, records the input model's
+    [`model_version`][] as ``parent_version``, and refreshes ``updated_utc`` and the
     tether/scikit-learn version stamps. The input model is left unchanged (frozen).
 
     ``feature_names`` must match the model's existing schema: the accumulated set is the same
@@ -378,6 +387,7 @@ def warm_start_retrain(
         created_utc=model.created_utc,
         updated_utc=_now_iso(now),
         source_projects=() if source_projects is None else _source_tuple(source_projects),
+        parent_version=model_version(model),
     )
 
 
@@ -393,6 +403,18 @@ def _source_tuple(sources: Sequence[SourceProject]) -> tuple[SourceProject, ...]
     if len(set(paths)) != len(paths):
         raise ValueError(f"source_projects names a project file more than once: {paths}")
     return out
+
+
+def model_version(model: PortableRankerModel) -> str:
+    """Return the version identity of ``model``: the SHA-256 of its canonical manifest.
+
+    The manifest ([`save_model`][] writes it) holds every provenance field plus the fit's
+    training counts and timestamps, so two fits never share a version in practice, and a model
+    reloaded with [`load_model`][] has the same version as the one saved. [`warm_start_retrain`][]
+    records it as the new model's ``parent_version`` (ADR-0112).
+    """
+    canonical = json.dumps(_manifest(model), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _manifest(model: PortableRankerModel) -> dict[str, object]:
@@ -419,6 +441,7 @@ def _manifest(model: PortableRankerModel) -> dict[str, object]:
             }
             for src in model.source_projects
         ],
+        "parent_version": model.parent_version,
     }
 
 
@@ -553,7 +576,21 @@ def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
         "created_utc": str(_require(manifest, "created_utc", str)),
         "updated_utc": str(_require(manifest, "updated_utc", str)),
         "source_projects": _sources_from_manifest(manifest),
+        "parent_version": _parent_from_manifest(manifest),
     }
+
+
+def _parent_from_manifest(manifest: dict[str, object]) -> str | None:
+    """Read the optional ``parent_version`` (ADR-0112); an older artifact has none (``None``).
+
+    Additive and optional like ``source_projects``, so [`MODEL_FORMAT_VERSION`][] stays 1.
+    """
+    value = manifest.get("parent_version")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise CorruptModelError("manifest.json field 'parent_version' is the wrong type")
+    return value
 
 
 def _sources_from_manifest(manifest: dict[str, object]) -> tuple[SourceProject, ...]:
