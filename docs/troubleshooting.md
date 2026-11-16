@@ -692,18 +692,36 @@ LockedError: <path>.tether.lock is locked: the lock file is corrupt (unknown own
 CorruptLockError: unparseable lock file: <path>.tether.lock
 ```
 
-**Cause and remedy — the three cases differ, and the message tells you which one you have.**
+**Cause and remedy — the cases differ, and the message tells you which one you have.**
+In the application, the project opens read-only and the Browser's read-only banner names the
+case. The banner shows an action button only when an action is safe. Do not delete the
+`.tether.lock` file by hand.
 
-- **No `; stale` suffix** — a live writer. Close the other Tether window, or ask the named
-  host's user to. Do not steal.
+- **The lock names this computer and your login, and that Tether no longer runs** — Tether
+  stopped without releasing the lock, for example after a crash. The banner shows
+  **Recover**. Click it: Tether takes the lock and opens the project again, writable. No
+  other writer can lose work in this case, so no confirmation is asked.
+- **The lock names a Tether that still runs on this computer** — another window has the
+  project open. The banner shows no action, and Tether never takes this lock. Close the other
+  window.
+- **No `; stale` suffix** (another computer or another login) — a live writer, or one that
+  stopped less than ≈30 minutes ago. The banner shows no action and says when a takeover
+  becomes possible. Close the other Tether window, or ask the named host's user to.
 - **`; stale`** — the holder has been idle longer than the ≈30-minute staleness timeout.
   Liveness is judged by wall clock, not by probing the PID, because a remote PID cannot be
-  probed and cloud storage is eventually consistent. A stale lock is reclaimable only by an
-  **explicit steal**; it is never auto-acquired, and the ousted owner's unsaved work is not
-  merged.
+  probed and cloud storage is eventually consistent. Only a holder on this computer is
+  probed, as the first two cases say. The banner shows **Take over…**. Tether asks you to
+  type the project file name and warns that the holder's unsaved work can be lost; that work
+  is not merged. A stale lock is never taken without this step.
 - **`the lock file is corrupt (unknown owner)`** — the `.lock` JSON is unreadable, so no
-  owner can be identified and writes are refused until an explicit steal overwrites it.
-  Deleting the stray `.tether.lock` file is the manual fix.
+  owner can be identified and writes are refused. Tether judges it by the age of the lock
+  file: once it is older than the staleness timeout, the banner shows **Take over…**.
+
+Both actions check the lock again just before they take it. If the holder refreshed it, or
+someone else took it first, Tether refuses, shows the new state and writes nothing. Each
+takeover is logged at WARNING on the `tether.project.lock` logger with the ousted and the new
+holder. From a script, `tether.project.lock.lock_recovery` reports the case and
+`tether.project.lock.recover_lock` acts on it.
 
 **Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
 Tether gives that file read and write access for each group of users who can write the project
@@ -716,6 +734,29 @@ the owner fixes it by hand with `chgrp <lab group> <path>.tether.lock.guard` and
 
 While locked out you can still open the project read-only and curate into your own
 split/subset `.tether`, merged back later on `molecule_key`.
+
+**Replacing a project.** `tether extract --overwrite`, `tether batch --overwrite` and the
+Deep-LASI import with overwrite on all take the destination project's writer lock before they
+replace it, so they stop with the same `is locked` message when someone has the project open.
+This includes a Tether window in the same program: close the project there first. A script that
+calls `extract_movie`, `reconstruct_project` or `import_analysis_only_project` to replace an
+existing project gets `... needs its writer lock` (`ExtractionError` from `extract_movie`,
+`PublishGuardRequiredError` from the other two) unless it holds
+`tether.project.lock.publish_lock` on the destination and passes the check it yields as
+`publish_guard`.
+
+**Two names for one file.** A hard link gives one project two names. Tether treats both names as
+one file for your user: while one name is open for writing, opening the other name says
+`is locked` and names the lock of the first name. Tether keeps a small record of which name owns
+each file in your per-user lock folder (`%LOCALAPPDATA%\tether\locks` on Windows,
+`~/.local/state/tether/locks` on Linux, `~/Library/Caches/tether/locks` on macOS). A steal through
+either name takes the file from the other name too. If Tether cannot make that folder, it refuses
+to open the project for writing: `cannot create the per-user lock directory`. Fix the folder's
+permissions, or set `XDG_STATE_HOME` (Linux, macOS) to a folder you can write.
+This record is per user. If two users open the same file through two different names, each name
+has its own `.lock` and each user has their own record, so Tether does not stop the second user,
+and an `--overwrite` by one of them does not stop with `is locked` either. Give a shared project
+one name only.
 
 ### The spot and overlap views are unavailable
 
@@ -777,8 +818,11 @@ Then, per platform:
 
 - **Windows.** SmartScreen shows *"Windows protected your PC"*. Choose **More info** →
   **Run anyway**.
-- **macOS.** The old Control-click → **Open** shortcut **no longer works**: macOS Sequoia
-  removed it, and Tahoe tightened the path further. Open **System Settings → Privacy &
+- **macOS.** When you double-click the `.pkg`, macOS shows *"Tether-….pkg" Not Opened* and
+  *Apple could not verify "Tether-….pkg" is free of malware that may harm your Mac or
+  compromise your privacy.* (macOS 26.6.2, November 2026). The old Control-click → **Open**
+  shortcut **no longer works**: macOS Sequoia removed it, and Tahoe tightened the path
+  further. Open **System Settings → Privacy &
   Security**, scroll to **Security**, and use the **Open Anyway** button, then authenticate as
   an administrator. Two things catch people out: the button only appears *after* you have
   tried to open the file and been blocked, and it is available for **about an hour** after
@@ -801,9 +845,9 @@ packaging build, on GitHub's `macos-latest` and `macos-15-intel` runners, and th
 launches `tether --version` and the sidecar from the installed prefix. So the package is known
 to install this way on real macOS.
 
-One difference is worth knowing, because it is the part we have **not** observed end to end: a
-`.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one does
-not. If macOS still refuses after the above, you can clear it:
+A `.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one
+does not. On a Mac with macOS 26.6.2, a `.pkg` with that attribute installed with the command
+above and asked nothing. If macOS still refuses on your Mac, you can clear it:
 
 ```bash
 xattr -d com.apple.quarantine Tether-<version>-MacOSX-<arch>.pkg
@@ -820,6 +864,29 @@ making about software you have chosen to trust, not a step our verification has 
 If you hit something these steps do not cover,
 [tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
 this entry will be corrected from the observation.
+
+#### If macOS will not open Tether.app
+
+From the next release, the macOS installer adds **Tether** (`Tether.app`) to
+`~/Applications`, or to `/Applications` for an install outside your home folder
+([ADR-0091](adr/0091-macos-launcher-bundle.md)). Like the installer, it is not signed.
+The installer writes it on your Mac, so it does not carry the quarantine attribute of a
+download. On a test Mac with macOS 26.6.2, it opened from the first start with no dialog. If
+macOS blocks the first start all the same, use the same route as for the installer: try to
+open **Tether** once, then open **System Settings → Privacy & Security**, and use
+**Open Anyway** under **Security**. You do this one time; later starts open directly.
+
+If nothing happens when you open **Tether** (no window and no message), make sure that the
+installer matches your Mac. `Tether.app` asks macOS to start it as the architecture of its
+installer. The `osx-arm64` installer is for Apple silicon. The `osx-64` installer is for
+Intel, and on Apple silicon it needs Rosetta 2, which macOS does not install by default.
+
+If **Tether** is not in Launchpad or Spotlight right after the install, wait some minutes:
+the installer asks Spotlight to index the application, but Spotlight first indexes the new
+install folder. On a test Mac, Spotlight listed **Tether** about ten minutes after the install. You can
+also open the `Applications` folder of your home folder in Finder, where macOS sees the
+application. Until then, and whenever the application does not open, run `tether-gui` in
+Terminal: it starts the same application and shows any error text.
 
 ### The deep classifier does not see the GPU
 
