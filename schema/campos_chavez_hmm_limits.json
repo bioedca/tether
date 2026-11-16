@@ -1,0 +1,374 @@
+{
+  "schema_version": 1,
+  "issue": 757,
+  "description": "Frozen limits for the tMAVEN fits of Campos-Chavez et al. 2024 (Nat Commun 15:6592, doi:10.1038/s41467-024-50885-x) fitted again in Tether's sidecar with the settings of tests/reference_data/campos_chavez_2024_hmm.json. tests/test_campos_chavez_hmm.py (weekly reference-data job) fits each one with seed 757 and asserts each gate against the published values, which it reads from the Source Data archive (manifest id campos2024-source-data) and which are never committed (ADR-0083). An advisory reference: a limit measures how far the pinned tMAVEN is from the published fit (ADR-0106).",
+  "metrics": {
+    "means_max_abs": "Largest |fresh state mean - published state mean|, states sorted by mean. The published means are the distinct levels of the fit's transition density sheet.",
+    "populations_max_abs": "Largest |fresh share - published share| of the frames in each state; a share is a row sum of the count matrix over its total. Global fits only (the sub-populations have no published count matrix).",
+    "offdiag_counts_l1_rel": "Sum over the off-diagonal cells of |fresh count - published count| over the sum of the published off-diagonal counts (Kmatrix/*.txt in increasing-mean order). Global fits only.",
+    "tdp_counts_l1_rel": "Sum over the pairs of levels of |fresh transitions - published transitions| over the published total; the fresh transitions are those of the idealized paths between the fitted states, which pair with the published states by rank (one to one), and the published ones are those of the transition density sheet."
+  },
+  "limit_rule": "Each limit is the largest measurement over the seeds rounded up at the second significant digit. tests/test_campos_chavez_hmm.py enforces the rule, so a limit cannot move without a new measurement (PRD section 11.2 re-freeze policy).",
+  "measured": {
+    "utc": "2026-11-15",
+    "tmaven": "GonzalezBiophysicsLab/tmaven 10f4230b6d13c6d2ad67b05d801696b4a40eff4a (0.3.0), the sidecar pin",
+    "environment": "sidecar/conda-lock.yml: CPython 3.12.13, NumPy 1.26.4, SciPy 1.17.1, Numba 0.60.0; Linux x86-64",
+    "source_data_sha256": "83141ce0dc63db35aae2a3f17d793df003de7460651a68b13cd3f2e6f9376c71",
+    "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 757],
+    "command": "python tests/_campos_chavez_hmm.py measure ARCHIVE PYTHON",
+    "seed_spread": {
+      "wt": {
+        "seeds": 11,
+        "state_count_differs": 0,
+        "means_max_abs": [3.782e-06, 3.797e-06],
+        "populations_max_abs": [0.0009104, 0.0009104],
+        "offdiag_counts_l1_rel": [0.01448, 0.01448],
+        "tdp_counts_l1_rel": [0.02211, 0.02211]
+      },
+      "dncca": {
+        "seeds": 11,
+        "state_count_differs": 0,
+        "means_max_abs": [0.0002375, 0.0002375],
+        "populations_max_abs": [1.217e-05, 1.219e-05],
+        "offdiag_counts_l1_rel": [0.001034, 0.001034],
+        "tdp_counts_l1_rel": [0.03214, 0.03214]
+      },
+      "ddiscriminator": {
+        "seeds": 11,
+        "state_count_differs": 0,
+        "means_max_abs": [6.557e-05, 6.558e-05],
+        "populations_max_abs": [5.121e-05, 5.122e-05],
+        "offdiag_counts_l1_rel": [0.004617, 0.004617],
+        "tdp_counts_l1_rel": [0.00627, 0.00627]
+      },
+      "dncca_one_state": {
+        "seeds": 11,
+        "state_count_differs": 0,
+        "means_max_abs": [0.0009781, 0.002744],
+        "tdp_counts_l1_rel": [0.03022, 0.07418]
+      },
+      "dncca_two_state": {
+        "seeds": 11,
+        "state_count_differs": 0,
+        "means_max_abs": [3.623e-06, 3.623e-06],
+        "tdp_counts_l1_rel": [0.0001456, 0.0001456]
+      },
+      "linker": {
+        "seeds": 11,
+        "state_count_differs": 0,
+        "means_max_abs": [0.391, 0.391],
+        "populations_max_abs": [0.4709, 0.4709],
+        "offdiag_counts_l1_rel": [0.7893, 0.7893],
+        "tdp_counts_l1_rel": [0.5568, 0.5568]
+      },
+      "rag": {
+        "seeds": 11,
+        "state_count_differs": 0,
+        "means_max_abs": [0.364, 0.364],
+        "populations_max_abs": [0.2424, 0.2424],
+        "offdiag_counts_l1_rel": [0.5845, 0.5845],
+        "tdp_counts_l1_rel": [0.4845, 0.4845]
+      }
+    },
+    "accepted": "pending: bioedca signs off the reference and the priors on the pull request (#757, C4: B)"
+  },
+  "versions": {
+    "description": "The same fits, SMD files, priors and seeds with older tMAVEN, each in its own environment, to split the difference from the published fits into a seed part and a version part. [min, max] over the seeds; distinct_means are the fitted means (rounded to 1e-4) that the seeds gave. Both environments have the numerical stack of the sidecar lock (CPython 3.12.13, NumPy 1.26.4, SciPy 1.17.1, Numba 0.60.0), so the difference is the tMAVEN code.",
+    "0.2.3": {
+      "tmaven": "62422f9 (2024-10-24)",
+      "fits": {
+        "wt": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [3.782e-06, 3.797e-06],
+          "populations_max_abs": [0.0009104, 0.0009104],
+          "offdiag_counts_l1_rel": [0.01448, 0.01448],
+          "tdp_counts_l1_rel": [0.0, 0.0],
+          "distinct_means": [
+            [-0.008, 0.4206, 0.7356]
+          ]
+        },
+        "dncca": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.0002375, 0.0002375],
+          "populations_max_abs": [1.217e-05, 1.219e-05],
+          "offdiag_counts_l1_rel": [0.001034, 0.001034],
+          "tdp_counts_l1_rel": [0.003571, 0.003571],
+          "distinct_means": [
+            [0.0284, 0.5289]
+          ]
+        },
+        "ddiscriminator": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [6.557e-05, 6.558e-05],
+          "populations_max_abs": [5.121e-05, 5.122e-05],
+          "offdiag_counts_l1_rel": [0.004617, 0.004617],
+          "tdp_counts_l1_rel": [0.0, 0.0],
+          "distinct_means": [
+            [-0.0224, 0.662]
+          ]
+        },
+        "dncca_one_state": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.0003004, 0.001905],
+          "tdp_counts_l1_rel": [0.02198, 0.03297],
+          "distinct_means": [
+            [0.0316, 0.5337],
+            [0.0317, 0.5336],
+            [0.0318, 0.5337],
+            [0.0322, 0.5321],
+            [0.0322, 0.5322]
+          ]
+        },
+        "dncca_two_state": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [3.623e-06, 3.623e-06],
+          "tdp_counts_l1_rel": [0.0001456, 0.0001456],
+          "distinct_means": [
+            [0.0368, 0.5235, 0.6951]
+          ]
+        },
+        "linker": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.4109, 0.4166],
+          "populations_max_abs": [0.5395, 0.5633],
+          "offdiag_counts_l1_rel": [1.292, 1.625],
+          "tdp_counts_l1_rel": [0.7247, 0.8811],
+          "distinct_means": [
+            [-0.0637, 0.0019, 0.6341],
+            [-0.0634, 0.0019, 0.6342],
+            [-0.0629, 0.0017, 0.6343],
+            [-0.0626, 0.0017, 0.6343],
+            [-0.0625, 0.0016, 0.6344],
+            [-0.0588, 0.0008, 0.6349],
+            [-0.0553, 0.0007, 0.6352],
+            [-0.0522, -0.0008, 0.6357],
+            [-0.0471, -0.0021, 0.6362],
+            [-0.0448, -0.0035, 0.637],
+            [-0.0436, -0.0038, 0.6369]
+          ]
+        },
+        "rag": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.3362, 0.3422],
+          "populations_max_abs": [0.1775, 0.1838],
+          "offdiag_counts_l1_rel": [1.241, 1.453],
+          "tdp_counts_l1_rel": [0.4511, 0.4869],
+          "distinct_means": [
+            [-0.046, 0.0368, 0.424, 0.786],
+            [-0.0444, 0.0376, 0.4282, 0.7868],
+            [-0.0443, 0.0377, 0.4285, 0.7869],
+            [-0.0434, 0.0385, 0.4311, 0.7874],
+            [-0.0422, 0.0401, 0.4355, 0.7882],
+            [-0.0421, 0.0402, 0.4357, 0.7882],
+            [-0.042, 0.0403, 0.4361, 0.7883],
+            [-0.0418, 0.0406, 0.4369, 0.7885],
+            [-0.0416, 0.0408, 0.4373, 0.7886],
+            [-0.0408, 0.0421, 0.4402, 0.7892],
+            [-0.0404, 0.0428, 0.4414, 0.7895]
+          ]
+        }
+      }
+    },
+    "0.2.0": {
+      "tmaven": "8beaeb1 (2023-08-14)",
+      "fits": {
+        "wt": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [1.553e-07, 1.553e-07],
+          "populations_max_abs": [0.0009112, 0.0009112],
+          "offdiag_counts_l1_rel": [0.0145, 0.0145],
+          "tdp_counts_l1_rel": [0.0, 0.0],
+          "distinct_means": [
+            [-0.008, 0.4206, 0.7356]
+          ]
+        },
+        "dncca": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.0002354, 0.0002354],
+          "populations_max_abs": [1.151e-05, 1.156e-05],
+          "offdiag_counts_l1_rel": [0.00103, 0.00103],
+          "tdp_counts_l1_rel": [0.003571, 0.003571],
+          "distinct_means": [
+            [0.0284, 0.5289]
+          ]
+        },
+        "ddiscriminator": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [5.222e-10, 5.222e-10],
+          "populations_max_abs": [1.952e-11, 1.952e-11],
+          "offdiag_counts_l1_rel": [8.134e-10, 8.134e-10],
+          "tdp_counts_l1_rel": [0.0, 0.0],
+          "distinct_means": [
+            [-0.0225, 0.6619]
+          ]
+        },
+        "dncca_one_state": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.0003004, 0.001905],
+          "tdp_counts_l1_rel": [0.02198, 0.03297],
+          "distinct_means": [
+            [0.0316, 0.5337],
+            [0.0317, 0.5336],
+            [0.0318, 0.5337],
+            [0.0322, 0.5321],
+            [0.0322, 0.5322]
+          ]
+        },
+        "dncca_two_state": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [3.623e-06, 3.623e-06],
+          "tdp_counts_l1_rel": [0.0001456, 0.0001456],
+          "distinct_means": [
+            [0.0368, 0.5235, 0.6951]
+          ]
+        },
+        "linker": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.003564, 0.4181],
+          "populations_max_abs": [2.716e-05, 0.635],
+          "offdiag_counts_l1_rel": [0.000195, 6.794],
+          "tdp_counts_l1_rel": [0.0236, 3.123],
+          "distinct_means": [
+            [-0.1181, -0.0051, 0.6203],
+            [-0.1177, 0.0015, 0.6242],
+            [-0.0643, -0.0028, 0.638],
+            [-0.0328, -0.0053, 0.6443],
+            [-0.018, 0.419, 0.763],
+            [-0.0179, 0.4093, 0.7573],
+            [-0.0175, 0.426, 0.7653],
+            [-0.0092, 0.0725, 0.663],
+            [-0.0091, 0.0862, 0.6701]
+          ]
+        },
+        "rag": {
+          "seeds": 11,
+          "state_count_differs": 0,
+          "means_max_abs": [0.000109, 0.3901],
+          "populations_max_abs": [0.01218, 0.1863],
+          "offdiag_counts_l1_rel": [0.09153, 6.737],
+          "tdp_counts_l1_rel": [0.002387, 1.462],
+          "distinct_means": [
+            [-0.03, -0.0111, 0.4192, 0.7846],
+            [-0.0287, 0.3525, 0.6765, 0.8678],
+            [-0.0286, 0.3522, 0.6693, 0.8599],
+            [-0.0286, 0.358, 0.678, 0.8675],
+            [-0.0286, 0.3585, 0.6788, 0.8684],
+            [-0.0286, 0.3607, 0.6816, 0.8708],
+            [-0.0286, 0.3609, 0.6815, 0.8705],
+            [-0.0286, 0.3621, 0.6826, 0.8714],
+            [-0.0286, 0.3789, 0.6973, 0.882],
+            [-0.0284, 0.4102, 0.456, 0.7932]
+          ]
+        }
+      }
+    }
+  },
+  "gates": {
+    "wt": {
+      "means_max_abs": {"measured": 3.7965923129767987e-06, "limit": 3.8e-06},
+      "populations_max_abs": {"measured": 0.0009104373456468862, "limit": 0.00092},
+      "offdiag_counts_l1_rel": {"measured": 0.014481425342551665, "limit": 0.015},
+      "tdp_counts_l1_rel": {"measured": 0.022105263157894735, "limit": 0.023}
+    },
+    "dncca": {
+      "means_max_abs": {"measured": 0.00023754614553739284, "limit": 0.00024},
+      "populations_max_abs": {"measured": 1.2189641860893552e-05, "limit": 1.3e-05},
+      "offdiag_counts_l1_rel": {"measured": 0.001033563788594041, "limit": 0.0011},
+      "tdp_counts_l1_rel": {"measured": 0.03214285714285714, "limit": 0.033}
+    },
+    "ddiscriminator": {
+      "means_max_abs": {"measured": 6.557773436088876e-05, "limit": 6.6e-05},
+      "populations_max_abs": {"measured": 5.121677721608986e-05, "limit": 5.2e-05},
+      "offdiag_counts_l1_rel": {"measured": 0.004617371629505797, "limit": 0.0047},
+      "tdp_counts_l1_rel": {"measured": 0.006269592476489028, "limit": 0.0063}
+    },
+    "dncca_one_state": {
+      "means_max_abs": {"measured": 0.0027437543949274668, "limit": 0.0028},
+      "tdp_counts_l1_rel": {"measured": 0.07417582417582418, "limit": 0.075}
+    },
+    "dncca_two_state": {
+      "means_max_abs": {"measured": 3.6228388453629634e-06, "limit": 3.7e-06},
+      "tdp_counts_l1_rel": {"measured": 0.00014564520827264782, "limit": 0.00015}
+    },
+    "linker": {
+      "means_max_abs": {"measured": 0.3910374352849199, "limit": 0.4},
+      "populations_max_abs": {"measured": 0.4708922241551179, "limit": 0.48},
+      "offdiag_counts_l1_rel": {"measured": 0.789275163341852, "limit": 0.79},
+      "tdp_counts_l1_rel": {"measured": 0.5568181818181818, "limit": 0.56}
+    },
+    "rag": {
+      "means_max_abs": {"measured": 0.3639929335229569, "limit": 0.37},
+      "populations_max_abs": {"measured": 0.24244223637762147, "limit": 0.25},
+      "offdiag_counts_l1_rel": {"measured": 0.5845148778855002, "limit": 0.59},
+      "tdp_counts_l1_rel": {"measured": 0.48448687350835323, "limit": 0.49}
+    }
+  },
+  "fresh": {
+    "description": "The fresh fit of seed 757 at the pin: state means in increasing order, the share of frames in each state, and (global fits) the count matrix in the same order. tests/test_campos_chavez_hmm_stored.py compares the stored models with these means; #758 reads the count matrices.",
+    "wt": {
+      "means": [-0.008044690729, 0.420638609, 0.735620018],
+      "counts": [
+        [180147.5267, 134.908951, 40.08614225],
+        [243.5395651, 29625.9145, 189.2752682],
+        [229.1810252, 225.1103836, 94507.4575]
+      ],
+      "populations": [0.590557248, 0.09844250345, 0.3110002486]
+    },
+    "dncca": {
+      "means": [0.02838460364, 0.5288718172],
+      "counts": [
+        [144051.9625, 274.7247128],
+        [326.7061289, 61290.60669]
+      ],
+      "populations": [0.7008054966, 0.2991945034]
+    },
+    "ddiscriminator": {
+      "means": [-0.02243073543, 0.6619647395],
+      "counts": [
+        [101691.5349, 151.6530717],
+        [198.2857632, 30826.52627]
+      ],
+      "populations": [0.7664989912, 0.2335010088]
+    },
+    "dncca_one_state": {
+      "means": [0.03224805214, 0.5293681674],
+      "populations": [0.8941912262, 0.1058087738]
+    },
+    "dncca_two_state": {
+      "means": [0.03683660099, 0.5234940481, 0.6951292509],
+      "populations": [0.242587306, 0.4940408567, 0.2633718373]
+    },
+    "linker": {
+      "means": [-0.09480431103, 0.02178820274, 0.618185607],
+      "counts": [
+        [19493.02919, 352.7772044, 72.69305529],
+        [354.6216894, 39294.31502, 128.2058209],
+        [89.74919211, 139.329253, 24098.27958]
+      ],
+      "populations": [0.2370600842, 0.4734077875, 0.2895321284]
+    },
+    "rag": {
+      "means": [-0.05887256174, 0.01496055885, 0.4483981936, 0.7988131731],
+      "counts": [
+        [36665.66727, 255.7537778, 31.71089183, 7.291050368],
+        [283.7241102, 26154.49599, 40.03959538, 14.05363507],
+        [61.60883998, 80.73329808, 16244.92746, 150.4667165],
+        [47.1511409, 48.36232063, 173.9855519, 33984.02834]
+      ],
+      "populations": [0.3235217867, 0.2318923824, 0.1447580294, 0.2998278015]
+    }
+  }
+}

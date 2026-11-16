@@ -79,7 +79,7 @@ tether-gui tutorial.tether
 You can also start Tether from your Start menu or applications menu and choose
 **File → Open project…**, then pick `tutorial.tether`.
 
-The status bar at the bottom of the window reads:
+The status bar at the bottom of the application window reads:
 
 ```text
 Opened tutorial.tether — 3 molecule(s)
@@ -87,7 +87,7 @@ Opened tutorial.tether — 3 molecule(s)
 
 The list on the left holds three molecules, `mol-0`, `mol-1` and `mol-2`, with `mol-0`
 selected. The large panel shows the selected molecule's trace: on top, the donor intensity
-in green, the acceptor intensity in red and their total in grey; underneath, its apparent
+in green, the acceptor intensity in red and their total in gray; underneath, its apparent
 FRET efficiency in blue.
 
 ## 5. Look at each trace
@@ -147,7 +147,7 @@ Idealizing 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one
 ```
 
 The first fit after starting Tether takes longer than later ones while the fitting engine warms up;
-the window stays usable meanwhile. When it is done the status bar reads:
+the application window stays usable meanwhile. When it is done the status bar reads:
 
 ```text
 Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-click vbFRET)
@@ -155,7 +155,7 @@ Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-
 
 and a stepped line is drawn over the blue trace, jumping between a low level near 0.25
 and a high level near 0.75 at the same places the blue trace does. The line is black in the
-light theme and white in the dark theme ([Window themes and trace colors](reference/gui-theme.md#trace-colors)).
+light theme and white in the dark theme ([Application window themes and trace colors](reference/gui-theme.md#trace-colors)).
 
 This step uses the separate tMAVEN environment the installer sets up for you. If you run
 Tether from a source checkout instead of an installer, set that environment up first as
@@ -164,8 +164,8 @@ describes.
 
 ## 8. Draw the population histogram
 
-Choose **Analysis → Population histogram…**. A **Population histogram** panel opens and the
-status bar reads:
+Choose **Analysis → Population histogram…**. The window goes to its **Analyze** section, a
+**Population histogram** panel opens, and the status bar reads:
 
 ```text
 Population histogram — 2 molecule(s), 48 frame(s)
@@ -173,11 +173,12 @@ Population histogram — 2 molecule(s), 48 frame(s)
 
 Two molecules, because the one you rejected is left out; 48 frames, because each of the two
 has 24. The histogram has two peaks, one near 0.25 and one near 0.75, the two FRET levels
-you saw in the traces.
+you saw in the traces. To go back to the traces, choose **View → Section → Curate and
+correct**.
 
 ## 9. Export the molecule table
 
-Close the Tether window. Then start the Python that came with Tether, from the same
+Close the Tether application window. Then start the Python that came with Tether, from the same
 `tether-tutorial` folder, with the line for your system:
 
 ```bash
