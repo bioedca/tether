@@ -372,6 +372,9 @@ def test_install_guide_names_the_bundle_for_launch_and_uninstall() -> None:
         "~/Tether/envs/tether/bin/python -m tether.gui.macos_app remove --prefix ~/Tether" in macos
     )
     assert macos.index("macos_app remove") < macos.index("rm -rf ~/Tether")
+    # Separate blocks: pasting one block must not delete the folder a sudo retry needs.
+    blocks = macos.split("```")[1::2]
+    assert not any("macos_app remove" in b and "rm -rf ~/Tether" in b for b in blocks)
     assert "Launchpad" in doc.split("## 5. Check that Tether runs", 1)[1].split("\n## ", 1)[0]
 
 
