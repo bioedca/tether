@@ -98,10 +98,10 @@ substitute it as you read. `gh` and `git` need no such rule; they resolve from `
   sidecar, and deep dependency locks; registered tunables; stamped analysis provenance.
 - Never weaken a frozen scientific oracle/tolerance to fit an implementation or fabricate a passing
   reference value; source, version, checksum, and provenance-lock every accepted reference.
-- Add an ADR in the implementation PR for schema/version, dependency/isolation, architectural, or
-  scientifically consequential choices. **Read [`docs/agents/adr.md`](docs/agents/adr.md) before
-  adding one**: it carries the numbering mechanics, and picking a number by reading `docs/adr/` is
-  how two records come to share one — a collision git cannot see.
+- Add an ADR in the implementation PR (exception: `CONTRIBUTING.md` rule 5) for schema/version,
+  dependency/isolation, architectural, or scientifically consequential choices. **Read
+  [`docs/agents/adr.md`](docs/agents/adr.md) before adding one**: it carries the numbering
+  mechanics, and picking a number by reading `docs/adr/` is how two records come to share one.
 - Never commit raw/private/unlicensed data, secrets, or large data to ordinary Git. Work-item-authorized,
   redistributable fixtures may use named small or LFS/gated paths with license and provenance.
 - Add SPDX/REUSE coverage to new files. Update MkDocs and public docstrings for user-visible changes.
