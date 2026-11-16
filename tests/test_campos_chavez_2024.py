@@ -144,6 +144,10 @@ def test_locate_blocks_joins_runs_in_order_and_searches_every_start(tmp_path) ->
     assert got["run_molecules"] == [3, 2] and got["column_molecules"] == 7
     assert got["leading_equal"] == 5 and got["max_abs_deviation"] == 0.0
     assert got["unmatched"] == [6]
+    # A file that is only searched can find a block, and is never joined.
+    other = (np.full((500, 1), 50.0), np.full((500, 1), 50.0))
+    got = locate_blocks(np.concatenate(blocks), runs, [other])
+    assert got["leading_equal"] == 5 and got["unmatched"] == []
     # Swapping the order of the runs breaks the join at the first block.
     assert locate_blocks(np.concatenate(blocks), runs[::-1])["leading_equal"] == 0
     # A run file is read as the notebook reads it: the first line (the molecule ids) is skipped.

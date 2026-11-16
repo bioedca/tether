@@ -346,6 +346,7 @@ def _found(block: np.ndarray, e: np.ndarray, tol: float) -> bool:
 def locate_blocks(
     values: np.ndarray,
     runs: list[tuple[np.ndarray, np.ndarray]],
+    others: list[tuple[np.ndarray, np.ndarray]] = (),
     *,
     join_tol: float = 1e-6,
     search_tol: float = 1e-4,
@@ -354,8 +355,9 @@ def locate_blocks(
 
     Block ``i`` is held to molecule ``i`` of the joined runs, first 400 frames, within ``join_tol``;
     ``leading_equal`` counts the blocks that agree from the first on. Each block after those is
-    searched in every molecule of every run at every start frame, within ``search_tol``, and
-    ``unmatched`` lists (0-based) the blocks that agree with none.
+    searched in every molecule of every run and of ``others`` (files that are searched but never
+    joined) at every start frame, within ``search_tol``, and ``unmatched`` lists (0-based) the
+    blocks that agree with none.
     """
     blocks = values.reshape(-1, INTRAFRET_FRAMES)
     effs = [apparent_fret(d, a) for d, a in runs]
@@ -364,10 +366,11 @@ def locate_blocks(
     dev = np.max(np.abs(blocks[:n] - joined[:n]), axis=1)
     equal = dev <= join_tol  # NaN is never equal
     leading = n if equal.all() else int(np.argmin(equal))
+    pool = effs + [apparent_fret(d, a) for d, a in others]
     unmatched = [
         i
         for i in range(leading, blocks.shape[0])
-        if not any(_found(blocks[i], e, search_tol) for e in effs)
+        if not any(_found(blocks[i], e, search_tol) for e in pool)
     ]
     return {
         "column_molecules": int(blocks.shape[0]),

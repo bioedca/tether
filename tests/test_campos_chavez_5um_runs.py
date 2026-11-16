@@ -6,11 +6,13 @@ The Source Data archive has no trace matrix for this column (ADR-0097): its 5 uM
 the 13 uM one. The per-run trace files of the three 5 uM WT tRNA movies are not published, so they
 reach this test only through neutral ids of the workstation runner (ADR-0071): each id whose name
 starts with ``tbox-`` and that has a file with the role ``wt5_run``, joined in the order of the ids.
+A file with the role ``wt5_other`` is searched but never joined.
 
 Blocks 1 to 138 of the column must be the joined runs, first 400 frames each, to 1e-6. The blocks
-after those are searched in every molecule of every run at every start frame (to 1e-4); the number
-that agree with none (25 on 2026-11-16) is recorded, not failed. The result file gets numbers
-only, under the neutral ids. No file name, path or trace leaves.
+after those are searched in every molecule of every run and every ``wt5_other`` file at every
+start frame (to 1e-4); the number that agree with none (25 on 2026-11-16) is recorded, not
+failed. The result file gets numbers only, under the neutral ids. No file name, path or trace
+leaves.
 """
 
 from __future__ import annotations
@@ -29,18 +31,26 @@ from reference_data import fetch
 
 pytestmark = pytest.mark.workstation
 
-PREFIX, ROLE = "tbox-", "wt5_run"
+PREFIX, ROLE, OTHER = "tbox-", "wt5_run", "wt5_other"
 JOINED_MOLECULES = 138  # the three runs: 66, 8 and 64 molecules
 
 
 def test_the_5um_wt_column_is_the_joined_runs_and_the_rest_is_recorded(private_data) -> None:
-    ids = [i for i in private_data.ids if i.startswith(PREFIX) and ROLE in private_data.roles(i)]
+    def ids_with(role: str) -> list[str]:
+        found = private_data.ids
+        return [i for i in found if i.startswith(PREFIX) and role in private_data.roles(i)]
+
+    ids, others = ids_with(ROLE), ids_with(OTHER)
     if not ids:
         pytest.skip(f"no id with the role {ROLE!r} in the mapping")
     values = column(
         read_book(fetch.path_for(ARCHIVE_ID))["Fig5b"], "FRET Efficiency", WT_5UM_COLUMN
     )
-    got = locate_blocks(values, [read_run(private_data.path(i, ROLE)) for i in ids])
+    got = locate_blocks(
+        values,
+        [read_run(private_data.path(i, ROLE)) for i in ids],
+        [read_run(private_data.path(i, OTHER)) for i in others],
+    )
     for neutral_id, molecules in zip(ids, got["run_molecules"], strict=True):
         private_data.record(neutral_id, molecules=molecules)
     private_data.record(

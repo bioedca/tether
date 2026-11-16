@@ -164,7 +164,8 @@ column keeps no weekly test. A read-only check of the authors' per-run trace fil
 
 `tests/test_campos_chavez_5um_runs.py` (tier `workstation`, ADR-0071) repeats the check where the
 workstation runner names the files under neutral ids. It fails if blocks 1 to 138 are not the
-joined runs, and it records the number of blocks that match nothing; a file that is found later to
-hold them changes that number and does not fail the test. Nothing from the per-run files, and no
+joined runs, and it records the number of blocks that match nothing. Further files can be named for
+the search only (role `wt5_other`, never joined): a file that holds some of the 25 changes that
+number and does not fail the test. Nothing from the per-run files, and no
 path, is committed (ADR-0083). A corrected file in the archive is the authors' action, outside
 Tether.
