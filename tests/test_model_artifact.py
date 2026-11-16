@@ -216,6 +216,27 @@ def test_an_old_copy_retrained_more_often_is_still_refused(tmp_path) -> None:
     assert artifact_sha256(path) == alices
 
 
+def test_two_identical_retrains_of_one_version_are_different_versions(tmp_path) -> None:
+    """Each fit has its own id, so a sibling with the same inputs cannot pass as the one saved."""
+    path = tmp_path / "cond.tethermodel"
+    _seed_model(path)
+    parent = load_model(path)
+    alices = _retrain(parent, seed=2, video_id="v2")
+    bobs = _retrain(parent, seed=2, video_id="v2")  # the same data, the same parent
+    assert alices.parent_version == bobs.parent_version == model_version(parent)
+    assert alices.fit_id and bobs.fit_id and alices.fit_id != bobs.fit_id
+    assert model_version(alices) != model_version(bobs)
+
+    with model_writer(path, identity=ALICE) as alice:
+        alice.save(alices)
+    with (
+        model_writer(path, identity=BOB) as bob,
+        pytest.raises(StaleModelError, match="retrained from version"),
+    ):
+        bob.save(_retrain(bobs, seed=3, video_id="v3"))
+    assert load_model(path).fit_id == alices.fit_id
+
+
 def test_a_reloaded_model_keeps_its_version_and_parent(tmp_path) -> None:
     path = tmp_path / "cond.tethermodel"
     X, y = _xy(1)
@@ -241,12 +262,13 @@ def test_an_artifact_saved_before_parent_versions_loads_without_one(tmp_path) ->
     with zipfile.ZipFile(path) as zf:
         manifest = json.loads(zf.read("manifest.json"))
         payload = zf.read("model.pkl")
-    del manifest["parent_version"]
+    del manifest["parent_version"], manifest["fit_id"]
     old = tmp_path / "old.tethermodel"
     with zipfile.ZipFile(old, "w") as zf:
         zf.writestr("manifest.json", json.dumps(manifest))
         zf.writestr("model.pkl", payload)
     assert load_model(old).parent_version is None
+    assert load_model(old).fit_id is None
     # A retrain of the old artifact names it as its parent, so the guarded save accepts it.
     with model_writer(old, identity=ALICE) as alice:
         alice.save(_retrain(alice.load(), seed=2, video_id="v2"))

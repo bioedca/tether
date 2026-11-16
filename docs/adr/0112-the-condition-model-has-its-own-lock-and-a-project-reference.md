@@ -65,19 +65,25 @@ Chosen option: **3**, in the new module `tether.project.model_artifact`.
 - **The model must be a retrain of the version on disk.** `warm_start_retrain` now records the
   version of the model it came from as `parent_version`, where a model's version
   (`tether.ml.persistence.model_version`) is the SHA-256 of its canonical manifest, so a reloaded
-  model has the version of the one saved. The save refuses, with `StaleModelError`, a model whose
+  model has the version of the one saved. Every fit and retrain also records a random `fit_id`, so
+  two retrains of one version with the same data and the same clock are still two versions. The save refuses, with `StaleModelError`, a model whose
   `parent_version` is not the version of the model on disk: for example one retrained from a copy
   loaded before another curator's save, which the hash check cannot see because the session
   opened after that save. Counts and times are not used, because an old copy retrained more
   often than the model on disk would pass them. `parent_version` is an optional manifest key, the
-  `source_projects` precedent (ADR-0077), so `MODEL_FORMAT_VERSION` stays 1; an artifact saved
-  before it loads with `parent_version = None`, and a retrain of that artifact names it as its
-  parent. `replace=True` replaces the model on purpose (a fresh fit); the lock and the hash check
+  `source_projects` precedent (ADR-0077), and so is `fit_id`, so `MODEL_FORMAT_VERSION` stays 1;
+  an artifact saved before them loads with `parent_version = None` and `fit_id = None`, and a
+  retrain of that artifact names it as its parent. `replace=True` replaces the model on purpose (a fresh fit); the lock and the hash check
   still apply.
 - **The project is checked before the model file changes.** When `save` is given a project, the
   project's lock (a `Project` handle with its own writer identity, or this process for a path)
-  and the condition are checked first, so a refused reference never leaves a saved model the
-  project does not record.
+  and the condition are checked first, so a project that already refuses the reference refuses
+  the save too. The check does not hold the project's lock: if another writer takes it between the
+  check and the reference, the model is saved (no retrain is lost) and the reference write is
+  refused, so `ModelReference.is_current()` reports the stale reference. A caller that must rule
+  this out holds the project's lock for the session.
+- **One session saves one model at a time.** `ModelWriter.save` is serialized per session, so two
+  threads that share one session cannot both pass the version check before either writes.
 - **The reference is additive data in `/models`.** `record_model_reference` writes one group per
   condition, `/models/<condition_id>`, with attributes `reference_version` (`1`),
   `condition_id`, `artifact_path` (absolute), `artifact_sha256` (the version the project last

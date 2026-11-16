@@ -45,6 +45,7 @@ does not change, and the payload carries its own [`MODEL_REFERENCE_VERSION`][].
 from __future__ import annotations
 
 import hashlib
+import threading
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -433,6 +434,9 @@ class ModelWriter:
         self.base_sha256 = base_sha256
         #: The model of version ``base_sha256``, once loaded (``None``: not loaded, or no file).
         self._current: PortableRankerModel | None = None
+        #: Serializes `save` on this session, so that two threads that share it cannot both pass
+        #: the ancestry check against one parent and then both write.
+        self._save_lock = threading.Lock()
 
     def load(self) -> PortableRankerModel | None:
         """Load the model file, or return ``None`` when there is none yet (the first video).
@@ -477,7 +481,12 @@ class ModelWriter:
             The model to save ([`tether.ml.persistence.save_model`][]).
         project:
             When given, [`record_model_reference`][] records the saved version in it. The
-            project's lock and condition are checked before the model file is written.
+            project's lock and condition are checked before the model file is written. A
+            writer that takes the project's lock in the moment between that check and the
+            reference write gets the reference refused (``LockedError``) after the model was
+            saved: the model is not lost, and the project's reference still names the earlier
+            version ([`ModelReference.is_current`][] is false) until it is recorded again.
+            Hold the project's lock for the session to rule that out.
         replace:
             Replace the model on disk even when ``model`` is not a retrain of it (a deliberate
             fresh fit). The lock and the version checks still apply.
@@ -499,12 +508,23 @@ class ModelWriter:
             ``model`` is not a retrain of the model on disk and ``replace`` is false; nothing
             was saved.
         """
+        with self._save_lock:
+            return self._save(model, project=project, replace=replace, now=now)
+
+    def _save(
+        self,
+        model: PortableRankerModel,
+        *,
+        project: ProjectRef | None,
+        replace: bool,
+        now: datetime | None,
+    ) -> str:
         from tether.ml.persistence import save_model  # noqa: PLC0415
 
         self._assert_still_held()  # a stolen lock is reported as such, before anything else
         if project is not None:
             # Check the project before the model file changes, so that a refused reference
-            # does not leave a saved model the project does not record.
+            # does not normally leave a saved model the project does not record.
             _assert_project_writable(project, None)
             condition_id = _require_safe_condition_id(model.condition_id)
             _require_condition(_project_path(project), condition_id)

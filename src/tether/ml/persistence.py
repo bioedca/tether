@@ -70,6 +70,7 @@ from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 from zipfile import BadZipFile, ZipFile
 
 from tether.ml.gbranker import (
@@ -220,6 +221,10 @@ class PortableRankerModel:
         ([`warm_start_retrain`][]); ``None`` for a fresh fit and for an artifact saved before
         the field existed (ADR-0112). It is what lets a guarded save tell a retrain of the
         model on disk from a retrain of an older copy.
+    fit_id:
+        A random identifier stamped on every fit and retrain (ADR-0112), so that two fits with
+        the same counts and timestamps still have different [`model_version`][] s. ``None`` for
+        an artifact saved before the field existed.
     """
 
     ranker: QualityRanker
@@ -233,6 +238,7 @@ class PortableRankerModel:
     updated_utc: str
     source_projects: tuple[SourceProject, ...] = ()
     parent_version: str | None = None
+    fit_id: str | None = None
 
     @property
     def feature_names(self) -> tuple[str, ...]:
@@ -321,6 +327,7 @@ def train_portable_model(
         created_utc=stamp,
         updated_utc=stamp,
         source_projects=_source_tuple(source_projects),
+        fit_id=uuid4().hex,
     )
 
 
@@ -388,6 +395,7 @@ def warm_start_retrain(
         updated_utc=_now_iso(now),
         source_projects=() if source_projects is None else _source_tuple(source_projects),
         parent_version=model_version(model),
+        fit_id=uuid4().hex,
     )
 
 
@@ -408,9 +416,10 @@ def _source_tuple(sources: Sequence[SourceProject]) -> tuple[SourceProject, ...]
 def model_version(model: PortableRankerModel) -> str:
     """Return the version identity of ``model``: the SHA-256 of its canonical manifest.
 
-    The manifest ([`save_model`][] writes it) holds every provenance field plus the fit's
-    training counts and timestamps, so two fits never share a version in practice, and a model
-    reloaded with [`load_model`][] has the same version as the one saved. [`warm_start_retrain`][]
+    The manifest ([`save_model`][] writes it) holds every provenance field, including the
+    random ``fit_id`` each fit is stamped with, so two fits never share a version even when
+    their counts and timestamps agree, and a model reloaded with [`load_model`][] has the same
+    version as the one saved. [`warm_start_retrain`][]
     records it as the new model's ``parent_version`` (ADR-0112).
     """
     canonical = json.dumps(_manifest(model), sort_keys=True, separators=(",", ":"))
@@ -442,6 +451,7 @@ def _manifest(model: PortableRankerModel) -> dict[str, object]:
             for src in model.source_projects
         ],
         "parent_version": model.parent_version,
+        "fit_id": model.fit_id,
     }
 
 
@@ -576,20 +586,22 @@ def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
         "created_utc": str(_require(manifest, "created_utc", str)),
         "updated_utc": str(_require(manifest, "updated_utc", str)),
         "source_projects": _sources_from_manifest(manifest),
-        "parent_version": _parent_from_manifest(manifest),
+        "parent_version": _optional_text(manifest, "parent_version"),
+        "fit_id": _optional_text(manifest, "fit_id"),
     }
 
 
-def _parent_from_manifest(manifest: dict[str, object]) -> str | None:
-    """Read the optional ``parent_version`` (ADR-0112); an older artifact has none (``None``).
+def _optional_text(manifest: dict[str, object], key: str) -> str | None:
+    """Read an optional string key (``parent_version``, ``fit_id``; ADR-0112).
 
-    Additive and optional like ``source_projects``, so [`MODEL_FORMAT_VERSION`][] stays 1.
+    An older artifact has none (``None``). The keys are additive and optional like
+    ``source_projects``, so [`MODEL_FORMAT_VERSION`][] stays 1.
     """
-    value = manifest.get("parent_version")
+    value = manifest.get(key)
     if value is None:
         return None
     if not isinstance(value, str):
-        raise CorruptModelError("manifest.json field 'parent_version' is the wrong type")
+        raise CorruptModelError(f"manifest.json field {key!r} is the wrong type")
     return value
 
 
