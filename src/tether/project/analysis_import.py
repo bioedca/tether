@@ -3,7 +3,7 @@
 """Analysis-only import of a coordinate-less SMD / ``.txt`` source (M7, PRD §7.8/§5.3).
 
 The **degraded branch** of the M7 legacy path (the sibling of the round-trip
-reconstruction in :mod:`tether.project.reconstruct`, ADR-0045). A raw
+reconstruction in [`tether.project.reconstruct`][], ADR-0045). A raw
 ``.txt``-sourced tMAVEN SMD imported standalone — no ``.tdat``, no ``.mat``, no
 movie, e.g. the M6 281-molecule parity fixture — carries **neither coordinates nor
 patches** (PRD §5.3, §7.8). It is therefore imported as an explicit
@@ -15,17 +15,18 @@ views unavailable"*, and every molecule is tagged ``round-trip-unavailable`` in
 provenance. This is the branch distinct from the Deep-LASI-bundle re-analysis path
 (ADR-0045), which re-imports **with** coordinates intact.
 
-Design (why a new writer, not :func:`tether.imaging.extract.write_extraction`)
+Design (why a new writer, not [`tether.imaging.extract.write_extraction`][])
 ------------------------------------------------------------------------------
 ``write_extraction`` cannot serve this case: it mandates a valid
-:class:`~tether.imaging.extract.MovieMetadata` (non-empty ``movie_id``, positive
+[`MovieMetadata`][tether.imaging.extract.MovieMetadata] (non-empty ``movie_id``, positive
 dims), unconditionally appends a ``/movies`` row, requires finite per-molecule
 coordinates (its ``molecule_key`` is the movie ``sha256`` + quantized ``donor_xy``,
 which would collide to one identical key for every molecule when coordinates are
 absent — breaking the ``/labels`` join), and refuses an all-zero trace. An
 analysis-only source has none of that. Fabricating a stub movie or fake coordinates
 to satisfy it would violate the "never fabricate" rule (AGENTS.md §Agile execution). So this module
-is a small, honest, **movie-less** writer that (like :func:`export_subset_tether`,
+is a small, honest, **movie-less** writer that (like
+[`export_subset_tether`][tether.project.export.export_subset_tether],
 which proves a ``/movies``-row-less store is first-class) writes only additive data
 under the M0-frozen skeleton (``schema-guard`` stays green — no ``schema.py`` touch):
 
@@ -47,14 +48,14 @@ under the M0-frozen skeleton (``schema-guard`` stays green — no ``schema.py`` 
   ``round_trip_available = False`` + the one-time banner text + source provenance, so
   the GUI wizard (a later M7 PR) can gate the round-trip/patch views off an O(1) read.
 * **``/molecules.correction_method``** is stamped ``METHOD_APPARENT_UNAVAILABLE`` via
-  :func:`tether.project.correct.compute_corrected_fret` (α/γ left ``NaN``): the honest
+  [`tether.project.correct.compute_corrected_fret`][] (α/γ left ``NaN``): the honest
   apparent-E substrate (ADR-0003), never a fabricated correction factor.
 * **``/conditions``** materialized (+ an optional seeded category vocabulary) so
   condition-scoped analysis works.
 
-The build is atomic — a sibling temp file → :func:`os.replace` — and re-asserts the
+The build is atomic — a sibling temp file → [`os.replace`][] — and re-asserts the
 single-writer lock when ``overwrite`` replaces an existing project (§5.4), mirroring
-:func:`tether.project.reconstruct.reconstruct_project`.
+[`tether.project.reconstruct.reconstruct_project`][].
 """
 
 from __future__ import annotations
@@ -88,7 +89,7 @@ __all__ = [
 
 #: The per-molecule provenance tag written into the frozen ``/molecules.tags`` field
 #: for every analysis-only-imported molecule (PRD §7.8). Comma-joinable with any other
-#: tag; queryable via :func:`tether.analysis.query.query_molecules`.
+#: tag; queryable via `tether.analysis.query.query_molecules`.
 ANALYSIS_ONLY_TAG = "round-trip-unavailable"
 
 #: The one-time banner text (PRD §7.8) recorded in the ``/settings/analysis_only``
@@ -98,12 +99,12 @@ ANALYSIS_ONLY_BANNER = (
 )
 
 #: The float storage dtype for the cached ``/traces`` arrays (matches
-#: :mod:`tether.imaging.extract`: ``float32`` is ample for disk-sum intensities and
+#: `tether.imaging.extract`: ``float32`` is ample for disk-sum intensities and
 #: halves the store; gzip-compressed + chunked).
 _TRACE_DTYPE = "<f4"
 
 #: Sentinel for the (not-run) M3 photobleach fields — the same "-1 not detected"
-#: convention :func:`tether.imaging.extract.write_extraction` writes.
+#: convention `tether.imaging.extract.write_extraction` writes.
 _UNDETECTED_FRAME = -1
 
 _SETTINGS_GROUP = "settings"
@@ -113,7 +114,7 @@ _MOLECULE_KEY_PREFIX = "tether-analysis-only"
 
 @dataclass(frozen=True)
 class AnalysisOnlyImportSummary:
-    """What an :func:`import_analysis_only_project` call produced (for logging / the wizard).
+    """What an [`import_analysis_only_project`][] call produced (for logging / the wizard).
 
     Attributes
     ----------
@@ -129,7 +130,7 @@ class AnalysisOnlyImportSummary:
         Which reader produced the input: ``"smd"`` (an SMD-HDF5) or ``"txt"`` (a bare
         Deep-LASI ``.txt``).
     banner:
-        The one-time :data:`ANALYSIS_ONLY_BANNER` recorded in the project marker.
+        The one-time [`ANALYSIS_ONLY_BANNER`][] recorded in the project marker.
     n_categories:
         Category-list seeds written to the condition's editable vocabulary (0 if none).
     """
@@ -147,7 +148,7 @@ class AnalysisOnlyImportSummary:
 class AnalysisOnlyMarker:
     """The ``/settings/analysis_only`` project-level marker (PRD §7.8).
 
-    Read by :func:`read_analysis_only_marker`; ``None`` from that reader means the
+    Read by [`read_analysis_only_marker`][]; ``None`` from that reader means the
     project is a normal (round-trip-capable) store. The GUI wizard gates the
     round-trip browser + patch-dependent views on ``round_trip_available``.
     """
@@ -168,12 +169,12 @@ def _normalize_source(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, str]:
     """Normalize an SMD or bare-``.txt`` source to (donor, acceptor, windows, kind).
 
-    An SMD-HDF5 (:class:`~tether.idealize.smd.SMDData`, from
-    :func:`tether.idealize.read_smd`) carries ``raw`` ``(N, T, 2)`` with the fixed
+    An SMD-HDF5 ([`SMDData`][tether.idealize.smd.SMDData], from
+    [`tether.idealize.read_smd`][]) carries ``raw`` ``(N, T, 2)`` with the fixed
     ``(donor, acceptor)`` channel order (Appendix D.1) and, when it has a tMAVEN group,
     per-molecule analysis windows ``(pre_list, post_list)``. A bare Deep-LASI ``.txt``
-    (:class:`~tether.io.deeplasi.DeepLasiTraces`, from
-    :func:`tether.io.deeplasi.read_deeplasi_txt`) carries the two ``(N, T)`` intensity
+    ([`DeepLasiTraces`][tether.io.deeplasi.DeepLasiTraces], from
+    [`tether.io.deeplasi.read_deeplasi_txt`][]) carries the two ``(N, T)`` intensity
     matrices and no windows. Both become the analysis-only project's corrected traces.
     """
     if isinstance(source, SMDData):
@@ -232,7 +233,7 @@ def _analysis_only_molecule_key(
     """A unique, deterministic ``molecule_key`` for a coordinate-less molecule (§7.10).
 
     The frozen ``molecule_key`` is a cross-file content hash; the native form
-    (:func:`tether.imaging.extract.molecule_key`) hashes the movie ``sha256`` +
+    ([`tether.imaging.extract.molecule_key`][]) hashes the movie ``sha256`` +
     quantized ``donor_xy``, which is unavailable here (no movie, no coordinates) and
     would collide to one identical key for every molecule if the coordinates were
     zeroed. Instead this hashes the source identity + the molecule's **row index**
@@ -281,12 +282,12 @@ def _build_molecule_rows(
 ) -> tuple[np.ndarray, list[str]]:
     """Build the ``MOLECULES_DTYPE`` rows for a movie-less, coordinate-less import.
 
-    Mirrors :func:`tether.imaging.extract._build_molecule_rows`' sentinel recipe, but
+    Mirrors `tether.imaging.extract._build_molecule_rows`' sentinel recipe, but
     with ``movie_id = ""`` (movie-less), ``donor_xy``/``acceptor_xy`` = ``NaN``
     (coordinates absent — never a fake ``[0, 0]``), a synthesized unique
     ``molecule_key``, the SMD's per-molecule ``analysis_window``, and
     ``tags = "round-trip-unavailable"``. Correction factors are left ``NaN`` (the
-    apparent-E substrate; :func:`compute_corrected_fret` stamps the method).
+    apparent-E substrate; [`compute_corrected_fret`][] stamps the method).
     """
     from tether.io.schema import MOLECULES_DTYPE  # noqa: PLC0415
 
@@ -337,7 +338,7 @@ def _write_corrected_traces(f: object, donor: np.ndarray, acceptor: np.ndarray) 
 
     The apparent-E analysis substrate (the ``intensity_quantity="corrected"`` layer);
     stored ``float32``, chunked + gzip, with a ``(None, None)`` maxshape matching the
-    :mod:`tether.imaging.extract` store convention. No ``raw``/``background`` layers
+    [`tether.imaging.extract`][] store convention. No ``raw``/``background`` layers
     are written — they are genuinely absent for a coordinate-less import.
     """
     traces = f["traces"]
@@ -414,9 +415,9 @@ def import_analysis_only_project(
 ) -> AnalysisOnlyImportSummary:
     """Import a coordinate-less SMD/``.txt`` source as an analysis-only ``.tether`` (§7.8).
 
-    Builds the project atomically at a sibling temp path and :func:`os.replace`\\ s it
+    Builds the project atomically at a sibling temp path and [`os.replace`][]\\ s it
     into place only on full success, mirroring
-    :func:`tether.project.reconstruct.reconstruct_project`. The result is **movie-less**
+    [`tether.project.reconstruct.reconstruct_project`][]. The result is **movie-less**
     and **coordinate-less** by construction: idealization / histograms / TDP / kinetics
     run on it, but the round-trip browser and patch views are disabled (recorded in the
     ``/settings/analysis_only`` marker + every molecule's ``round-trip-unavailable`` tag).
@@ -427,11 +428,11 @@ def import_analysis_only_project(
         Destination ``.tether`` path (a pre-existing file is replaced only when
         ``overwrite`` is set).
     source:
-        The decoded trace source — an :class:`~tether.idealize.smd.SMDData` (from
-        :func:`tether.idealize.read_smd`, the SMD-HDF5 case, incl. every "raw
+        The decoded trace source — an [`SMDData`][tether.idealize.smd.SMDData] (from
+        [`tether.idealize.read_smd`][], the SMD-HDF5 case, incl. every "raw
         ``.txt``-sourced" SMD and the 281-molecule parity fixture) or a
-        :class:`~tether.io.deeplasi.DeepLasiTraces` (from
-        :func:`tether.io.deeplasi.read_deeplasi_txt`, a bare ``.txt``). Its donor/acceptor
+        [`DeepLasiTraces`][tether.io.deeplasi.DeepLasiTraces] (from
+        [`tether.io.deeplasi.read_deeplasi_txt`][], a bare ``.txt``). Its donor/acceptor
         intensities become the ``corrected`` ``/traces`` layers.
     source_name:
         The source filename, used for the provisional ``condition_id`` parse, the
@@ -440,7 +441,7 @@ def import_analysis_only_project(
         name).
     parsed:
         A pre-computed provisional filename parse; defaults to
-        :func:`tether.io.filename.parse_filename` of ``source_name``.
+        [`tether.io.filename.parse_filename`][] of ``source_name``.
     categories:
         Editable-category-list seeds for the condition's vocabulary (optional).
     overwrite:
