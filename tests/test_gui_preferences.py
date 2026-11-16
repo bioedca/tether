@@ -239,6 +239,20 @@ def test_a_failed_write_leaves_the_old_file_and_no_temporary(
     assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
 
 
+def test_a_write_the_reader_would_discard_is_refused_and_the_old_file_kept(
+    prefs: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    set_curator_name("before", prefs)
+    before = prefs.read_bytes()
+    # Room for what is there now, not for one more long path.
+    monkeypatch.setattr(preferences, "_MAX_BYTES", len(before) + 20)
+    with pytest.raises(OSError, match="exceed"):
+        add_recent_project(tmp_path / ("x" * 200 + ".tether"), prefs)
+    assert prefs.read_bytes() == before
+    assert curator_name(prefs) == "before"
+    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
+
+
 def test_the_consent_file_is_never_written(prefs: Path, tmp_path: Path) -> None:
     settings = prefs.with_name(app_settings.SETTINGS_FILENAME)
     add_recent_project(tmp_path / "a.tether", prefs)

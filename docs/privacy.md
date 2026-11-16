@@ -46,8 +46,10 @@ storage, and temporary idealization files are described below.
   shows how to see these fields before you make a file public.
 - **What the application remembers.** So that you can carry on where you stopped, the
   desktop application keeps a small file, `preferences.json`, in your own settings folder.
-  It holds the paths of the last ten projects you opened and the molecule you last selected
-  in each. It also holds the window layout, and the curator name if you set one. This file
+  It holds the paths of the last ten projects you opened. For up to 50 projects it also
+  holds the path and the molecule you last selected there. A path can therefore stay in the
+  file after it has left **Open recent**. It also holds the window layout, and the curator
+  name if you set one. This file
   is never written into a `.tether` file and is **never transmitted by Tether**. Delete it
   and the application forgets these things.
   [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)

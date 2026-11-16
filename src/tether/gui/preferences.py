@@ -190,11 +190,14 @@ def _write(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # No sort_keys: the order of ``resume`` is its recency, oldest first, and is what
     # record_resume trims by (#628).
-    payload = json.dumps({**data, "schema": PREFERENCES_SCHEMA}, indent=2)
+    payload = (json.dumps({**data, "schema": PREFERENCES_SCHEMA}, indent=2) + "\n").encode("utf-8")
+    # A file the reader would discard as oversized must never replace a good one.
+    if len(payload) > _MAX_BYTES:
+        raise OSError(f"preferences would exceed {_MAX_BYTES} bytes; the file was left as it was")
     fd, tmp_name = tempfile.mkstemp(prefix=".preferences-", suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(payload + "\n")
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_name, path)

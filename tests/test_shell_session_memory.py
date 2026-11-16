@@ -264,6 +264,25 @@ def test_a_dock_built_later_hidden_only_by_its_section_shows_with_it(launch) -> 
     assert not second._overlap_dock_widget.isHidden()
 
 
+def test_a_launch_that_never_builds_a_dock_keeps_its_section_answer(launch) -> None:
+    from tether.gui.overlap_dock import OverlapDock
+    from tether.gui.shell import ANALYZE_SECTION
+
+    first = launch()
+    first._overlap_dock = OverlapDock()
+    first._attach_overlap_dock()
+    first.set_section(ANALYZE_SECTION)
+    first.close()
+
+    # The second launch opens no project, so the Overlap dock is never built.
+    launch().close()
+
+    third = launch()
+    third._overlap_dock = OverlapDock()
+    third._attach_overlap_dock()
+    assert not third._overlap_dock_widget.isHidden()
+
+
 def test_a_dock_hidden_only_by_its_section_shows_on_the_next_launch(launch) -> None:
     from tether.gui.shell import ANALYZE_SECTION, CURATE_SECTION
 
@@ -414,6 +433,10 @@ def test_a_failed_preferences_write_is_a_status_message_not_an_error(
     assert shell.project_path == path
     assert shell.set_curator_name("Ana")
     assert shell.curator_name == "Ana"
+    # The success message of the same action does not hide the failed save.
+    assert "Could not save preferences: read-only home" in shell.status_message
+    shell.reset_layout()
+    assert "Could not save preferences: read-only home" in shell.status_message
     shell.close()  # the layout and position saves fail quietly too
 
 

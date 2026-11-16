@@ -589,6 +589,9 @@ class TetherShell:
         # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
         # file of tether.gui.preferences. Nothing of it is written into a project.
         self._preferences_file = preferences_file
+        # A failed preferences write, kept until the next status message carries it, so a
+        # success message of the same action does not hide it (#628).
+        self._preferences_error: str | None = None
         # The curator name set for new labels, or None: then the project writes the
         # operating-system user, exactly as before #628.
         self._curator_name: str | None = (
@@ -1323,7 +1326,8 @@ class TetherShell:
         try:
             write()
         except (OSError, ValueError) as exc:
-            self._status(f"Could not save preferences: {exc}")
+            self._preferences_error = f"Could not save preferences: {exc}"
+            self._window.statusBar().showMessage(self._preferences_error)
             return False
         return True
 
@@ -1437,7 +1441,11 @@ class TetherShell:
 
     def _section_hidden_docks(self) -> list[str]:
         """The docks hidden only because their section is not current (by object name)."""
-        return sorted(dock.objectName() for dock, shown in self._dock_restore.items() if shown)
+        names = {dock.objectName() for dock, shown in self._dock_restore.items() if shown}
+        # A dock not built in this session (Overlap, Population histogram) keeps the stored
+        # answer, since Qt keeps its stored place and visibility for the next launch too.
+        built = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
+        return sorted(names | (self._stored_section_hidden - built))
 
     def _save_layout(self) -> None:
         """Store the window geometry and dock positions for the next launch."""
@@ -2884,6 +2892,9 @@ class TetherShell:
         self._molecule_list.setCurrentRow(new_row)
 
     def _status(self, message: str) -> None:
+        if self._preferences_error is not None:
+            message = f"{message} ({self._preferences_error})"
+            self._preferences_error = None
         self._window.statusBar().showMessage(message)
 
     # --- lifecycle -----------------------------------------------------------
