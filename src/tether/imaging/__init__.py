@@ -5,7 +5,7 @@
 Mirrors the Deep-LASI extraction pipeline (PRD Appendix E): per-channel split,
 moving-average max-projection detection image, à trous wavelet spot detection,
 a 21x21 aperture (PSF disk r=3) with annular background, and Sum integration.
-Plus registration: a map from a bead video or one image (:mod:`tether.imaging.beadmap`),
+Plus registration: a map from a bead video or one image ([`tether.imaging.beadmap`][]),
 native bead control-points, phase-correlation prealign,
 nearest-neighbour pairing, a degree-2 polynomial map (forward + inverse with a
 numeric RMS-residual gate) or an imported ``.tmap``; and donor-anchored

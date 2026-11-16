@@ -10,27 +10,27 @@ stages and changes none of them:
 
 1. **Source** -- one image ``(H, W)`` is used as it is. A video ``(T, H, W)`` is
    reduced to one image over a 0-based half-open frame range ``[start, stop)``
-   with a ``max`` or ``mean`` projection (:func:`project_frames`).
+   with a ``max`` or ``mean`` projection ([`project_frames`][]).
 2. **Stages 6 to 9** (PRD Appendix E) then run with no change: split into the
    donor and acceptor halves, the detection image and the spot detection
-   (:mod:`tether.imaging.detect`), the phase-correlation prealign and the
-   mutual nearest-neighbour pairing (:mod:`tether.imaging.register`), and the
+   ([`tether.imaging.detect`][]), the phase-correlation prealign and the
+   mutual nearest-neighbour pairing ([`tether.imaging.register`][]), and the
    degree-2 polynomial fit with the RMS gate
-   (:func:`tether.imaging.calibrate.fit_registration_map`).
-3. **Quality record** (:class:`MapQuality`) -- the RMS residual, the number of
+   ([`tether.imaging.calibrate.fit_registration_map`][]).
+3. **Quality record** ([`MapQuality`][]) -- the RMS residual, the number of
    pairs, the residual of each pair, and how much of the field the pairs cover.
 
-The source record (:class:`BeadMapSource`: source id, frame range, projection),
+The source record ([`BeadMapSource`][]: source id, frame range, projection),
 the quality record and the bead settings go into the map's ``provenance``. The map
-file (:func:`tether.imaging.calibrate.save_map`) and the project's
-``/calibration`` group (:func:`tether.imaging.calibrate.write_calibration`)
+file ([`tether.imaging.calibrate.save_map`][]) and the project's
+``/calibration`` group ([`tether.imaging.calibrate.write_calibration`][])
 already persist ``provenance`` as JSON, so both keep them with no schema change.
 
 A source with too few bead spots in either half is refused with
-:class:`BeadMapError`; the message gives the count and the limit
-(:data:`DEFAULT_MIN_BEAD_SPOTS`, PRD §11.2).
+[`BeadMapError`][]; the message gives the count and the limit
+([`DEFAULT_MIN_BEAD_SPOTS`][], PRD §11.2).
 
-Coordinates follow the rest of :mod:`tether.imaging`: ``(N, 2)`` arrays of
+Coordinates follow the rest of [`tether.imaging`][]: ``(N, 2)`` arrays of
 ``[x, y] = [col, row]`` in 0-based pixels of each channel half.
 """
 
@@ -88,10 +88,10 @@ _ACCEPTOR_CHANNEL = 1
 
 _HASH_CHUNK = 1 << 20  # 1 MiB streaming read for the source content hash.
 
-#: Frames reduced at a time by :func:`project_frames` (bounds its working memory).
+#: Frames reduced at a time by `project_frames` (bounds its working memory).
 _PROJECTION_BLOCK = 32
 
-#: TIFF series axes :func:`bead_map_from_file` accepts: one image, or a stack whose
+#: TIFF series axes `bead_map_from_file` accepts: one image, or a stack whose
 #: first axis is frames (tifffile's ``I`` = generic page stack, ``T`` = time,
 #: ``Q`` = unknown stack). A channel (``C``), sample (``S``), focus (``Z``) or any
 #: other axis is refused, so separate channels are never projected as frames.
@@ -162,7 +162,7 @@ class MapQuality:
     """The quality record of a bead map.
 
     * ``rms_residual`` -- the RMS of the pair residuals in px (the value the RMS
-      gate reads; equal to :attr:`RegistrationMap.rms_residual`).
+      gate reads; equal to [`RegistrationMap.rms_residual`][]).
     * ``n_pairs`` -- the number of matched bead pairs the map was fitted on.
     * ``pair_residuals`` -- the residual of each pair in px: the distance between
       the acceptor position and the mapped donor position, in pair order.
@@ -209,7 +209,7 @@ def project_frames(
 
     ``frames`` is the 0-based half-open range ``(start, stop)`` (PRD §11.1);
     ``None`` uses every frame. ``projection`` is ``"max"`` (the per-pixel maximum,
-    G02's default) or ``"mean"`` (the per-pixel mean). Raises :class:`BeadMapError`
+    G02's default) or ``"mean"`` (the per-pixel mean). Raises [`BeadMapError`][]
     for a range outside the video or an unknown projection.
     """
     video = np.asarray(video)
@@ -280,7 +280,7 @@ def map_quality(
     *,
     field_shape: tuple[int, int],
 ) -> MapQuality:
-    """Compute the :class:`MapQuality` of a map from its matched pairs.
+    """Compute the [`MapQuality`][] of a map from its matched pairs.
 
     ``reference_points`` / ``moving_points`` are the matched donor / acceptor
     ``(N, 2)`` ``[x, y]`` pairs the map was fitted on; ``field_shape`` is the
@@ -346,11 +346,11 @@ def bead_map(
     ----------
     data:
         One image ``(H, W)`` (used as supplied) or a bead video ``(T, H, W)``
-        (reduced by :func:`project_frames` with ``frames`` and ``projection``).
+        (reduced by [`project_frames`][] with ``frames`` and ``projection``).
         The full camera frame: it is split left/right into the two channels.
     source_id:
         The identity of the source, stored with the map (for a file,
-        :func:`bead_map_from_file` uses ``"sha256:<hex>"`` of its bytes).
+        [`bead_map_from_file`][] uses ``"sha256:<hex>"`` of its bytes).
     frames, projection:
         For a video only: the 0-based half-open frame range (``None`` = all) and
         ``"max"`` or ``"mean"``. Passing either with an image is an error.
@@ -362,19 +362,19 @@ def bead_map(
         The prealign and the pairing tolerance, as in ``tether extract``.
     min_bead_spots:
         The least number of bead spots each half must have (PRD §11.2,
-        :data:`DEFAULT_MIN_BEAD_SPOTS`). Under it the source is refused.
+        [`DEFAULT_MIN_BEAD_SPOTS`][]). Under it the source is refused.
     gate_px, on_over_gate:
         The RMS gate and its batch policy
-        (:func:`tether.imaging.calibrate.fit_registration_map`).
+        ([`tether.imaging.calibrate.fit_registration_map`][]).
     app_version, bead_file:
         Provenance stamps.
 
     Returns
     -------
     BeadMapResult
-        The :class:`RegistrationMap` (``source="native"``; its ``provenance``
+        The [`RegistrationMap`][] (``source="native"``; its ``provenance``
         holds ``bead_source``, ``map_quality`` and ``bead_settings``), the
-        :class:`MapQuality`, the :class:`BeadMapSource` and the image used.
+        [`MapQuality`][], the [`BeadMapSource`][] and the image used.
 
     Raises
     ------
@@ -519,7 +519,7 @@ def bead_map_from_file(
     file is memory-mapped and the video projected block by block, so a long video
     need not fit in memory. A TIFF of another layout (an RGB image, a multichannel
     or a focus stack: any series axes but ``YX``, ``IYX``, ``TYX`` or ``QYX``) is
-    refused. Other keyword arguments go to :func:`bead_map`.
+    refused. Other keyword arguments go to [`bead_map`][].
     """
     import tifffile  # noqa: PLC0415
 
