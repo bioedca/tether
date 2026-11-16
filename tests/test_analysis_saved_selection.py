@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The saved selection: the one-project series of the plot builder (#373, ADR-0121).
+"""The saved selection: the one-project series of the plot builder (#373, ADR-0124).
 
 A [`SavedSelection`][tether.analysis.saved_selection.SavedSelection] is
 ``(name, project_path, molecule_keys, filter)``, built from a ``query_molecules`` result,
@@ -241,7 +241,7 @@ def test_importing_the_module_loads_no_gui_toolkit_or_plotting_library() -> None
     importlib.util.find_spec("PySide6") is None, reason="needs the base PySide6 stack"
 )
 def test_the_renderer_spike_binds_matplotlib_base_to_pyside6() -> None:
-    """ADR-0121's spike, kept as a guard: FigureCanvasQTAgg loads on PySide6, never PyQt."""
+    """ADR-0124's spike, kept as a guard: FigureCanvasQTAgg loads on PySide6, never PyQt."""
     probe = (
         "import sys, PySide6\n"
         "from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg\n"

@@ -146,7 +146,7 @@ Changed at M17 (#369, ADR-0109):
   ([`no_region`][tether.analysis.cloud.AlphaShape.no_region]
   when the cloud has no 2-D region).
 
-Added at M17 (FR-PLOT, PRD §7.7; #373, ADR-0121):
+Added at M17 (FR-PLOT, PRD §7.7; #373, ADR-0124):
 
 - [`SavedSelection`][tether.analysis.saved_selection.SavedSelection] /
   [`select_molecules`][tether.analysis.saved_selection.select_molecules] /

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A saved selection of one project's molecules, the series of the plot builder (ADR-0121).
+"""A saved selection of one project's molecules, the series of the plot builder (ADR-0124).
 
 FR-PLOT (PRD §7.7) composes a plot from *series*, and a series names its molecules through
 the one selection argument of the population functions
@@ -72,7 +72,7 @@ def _project_path(project: ProjectRef) -> str:
 
 @dataclass(frozen=True)
 class SelectionFilter:
-    """The filter that produced a [`SavedSelection`][]: its provenance (ADR-0121).
+    """The filter that produced a [`SavedSelection`][]: its provenance (ADR-0124).
 
     The fields are the arguments of [`query_molecules`][tether.analysis.query.query_molecules]
     (an empty one is inactive, as there), plus ``group``: the ``(grouping, value)`` a preset
@@ -161,7 +161,7 @@ class SelectionFilter:
 
 @dataclass(frozen=True)
 class SavedSelection:
-    """A named, frozen selection of one project's molecules (ADR-0121).
+    """A named, frozen selection of one project's molecules (ADR-0124).
 
     Implements [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection], so it is
     passed as the ``molecule_keys`` of any population function. In its own project it names
