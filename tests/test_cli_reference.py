@@ -49,7 +49,7 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11, "info": 2}
+_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11, "info": 2, "idealize": 12}
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -194,14 +194,16 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """`extract`, `batch` and `info` (#655) each get their own section.
+    """`extract`, `batch`, `info` (#655) and `idealize` (#657) each get their own section.
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    assert names == {"extract", "batch", "info"}, f"unexpected subcommand set: {sorted(names)}"
+    assert names == {"extract", "batch", "info", "idealize"}, (
+        f"unexpected subcommand set: {sorted(names)}"
+    )
     for name in sorted(names):
         assert f"`tether {name}`" in text, (
             f"docs/cli.md has no `tether {name}` section for the {name!r} subcommand"
@@ -398,7 +400,7 @@ def test_argparse_rejects_bad_arguments_with_code_2() -> None:
     before ``main()`` runs, which made that row simply false.
     """
     parser = build_parser()
-    for argv in (["extract", "movie.tif"], ["batch", "movie.tif"], ["info"]):
+    for argv in (["extract", "movie.tif"], ["batch", "movie.tif"], ["info"], ["idealize"]):
         with pytest.raises(SystemExit) as excinfo:
             parser.parse_args(argv)
         assert excinfo.value.code == 2, (

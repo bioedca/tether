@@ -6,9 +6,9 @@ description: "Run tether extract and tether batch without the application window
 
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. Today the command line has three subcommands:
-`tether extract` and `tether batch` write projects, and `tether info` only reads them and
-prints a summary.
+extraction from recorded settings. Today the command line has four subcommands:
+`tether extract` and `tether batch` write projects, `tether idealize` fits the traces of a
+project that exists, and `tether info` only reads projects and prints a summary.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -435,9 +435,90 @@ value that the project does not record is `null`. The keys are:
 | `projects[].lock.age_s` | the age of the lock in seconds |
 | `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
 
+## `tether idealize`
+
+Fit a hidden Markov model to the traces of a project that exists, without a Python script:
+a project from `tether extract`, or one you curated or corrected after `tether batch`. The
+fit gives a small set of FRET states and the state of each molecule at each frame, and it
+is stored in the project as an idealization model. With `--stale-only`, the command refits
+each model whose inputs changed since its fit. [Idealize traces into FRET
+states](how-to/idealize.md) explains the methods and what to do with the result.
+
+```text
+tether idealize [-h] [--method {vbconhmm,ebhmm}] [--nstates N | --nstates-grid LIST]
+                [--model-name NAME] [--condition ID] [--include-rejected] [--overwrite]
+                [--seed N] [--stale-only] [--max-restarts N]
+                [--sidecar-timeout SECONDS] [--sidecar-python PATH]
+                project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | the `.tether` project to fit |
+| `--method {vbconhmm,ebhmm}` | `vbconhmm` | the fit: `vbconhmm` is the consensus VB-HMM, one shared model across all molecules; `ebhmm` is ebFRET |
+| `--nstates N` | automatic | fit exactly N states. Without it, the command fits each state count of `--nstates-grid` and keeps the one with the largest ELBO |
+| `--nstates-grid LIST` | `1,2,3,4` | the state counts the automatic choice tries, comma-separated, for example `2,3,4,5`. Do not give it with `--nstates` |
+| `--model-name NAME` | the method | store the fit as `/idealization/NAME`. With `--stale-only`, refit only this model |
+| `--condition ID` | all molecules | fit only the molecules of this condition ID (`tether info` lists them). Give it again for more conditions |
+| `--include-rejected` | off | also fit the molecules marked rejected. Without it they are left out |
+| `--overwrite` | off | replace a model of the same name. Without it the command refuses and fits nothing |
+| `--seed N` | unseeded | seed every fit, so the same project, options and seed give the same model on the same build. The seed is not stored in the project |
+| `--stale-only` | off | refit each model that has a stale molecule, with the settings stored in the model, and leave the others as they are. It takes none of the fit options above except `--model-name` |
+| `--max-restarts N` | `3` | restart a fit up to N times on a sidecar crash or timeout. `0` disables restarts |
+| `--sidecar-timeout SECONDS` | `1800` | per-fit sidecar timeout in seconds |
+| `--sidecar-python PATH` | `$TETHER_SIDECAR_PYTHON` | sidecar interpreter for the fit |
+
+The command fits the molecules that are not rejected, with the consensus VB-HMM and an
+automatic state count, and stores the model under the name of the method, so the default
+fit is the model `vbconhmm`. This is the same fit as `idealize_molecules` in Python with the
+same options. The fit runs in the tMAVEN sidecar, found as for `tether batch`. Before it
+writes anything the command checks that the sidecar can start. When the sidecar cannot
+start, the command says why, exits `3` and does not change the project.
+
+**The command holds the project's lock while it fits.** Close the project in the desktop
+application first. When another user or the application holds the lock, the command exits
+`1` and fits nothing. A fit can take minutes; the lock is released when the command ends.
+
+**`--stale-only` refits a whole model.** A molecule is *stale* in a model when its trace,
+its analysis window or its correction factors changed after the fit. A consensus VB-HMM or
+an ebFRET model is one fit over all its molecules, so the command refits every molecule of
+a model that has a stale molecule, not only the stale ones. A model with no stale molecule
+is not refitted, and when no model has one the command needs no sidecar.
+
+The command stores the fit, and it does not select an *active fit*. Comparing fits and
+selecting one is planned work ([#939](https://github.com/bioedca/tether/issues/939)).
+
+| Code | `tether idealize` |
+|---|---|
+| `0` | the fit is stored, or `--stale-only` found nothing stale |
+| `1` | the fit failed, or the lock could not be taken |
+| `2` | bad command-line arguments, or a refusal to start: an unknown condition, a model that exists without `--overwrite`, a project that cannot be opened, or fit options with `--stale-only` |
+| `3` | the sidecar was not available; nothing was written |
+
+### Example — fit a project, then refit it after a correction
+
+```console
+$ tether idealize movie_010.tether --seed 1
+movie_010.tether
+  model: vbconhmm
+  method: vbconhmm
+  states: 3 (largest ELBO)
+  ELBO by state count:
+    1: -1520.4
+    2: -1302.7
+    3: -1288.1
+    4: -1291.6
+  molecules fitted: 184
+$ tether idealize movie_010.tether --stale-only
+movie_010.tether
+  vbconhmm: 12 stale, 172 current; refitted
+```
+
+The numbers above are an example, not a reference result.
+
 ## Service commands
 
-`tether extract` and `tether batch` are each the command-line route of one *service command*
+`tether extract`, `tether batch` and `tether idealize` are each the command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
 command is the one implementation of an action. The command line uses it now. The
 desktop application and recipe files will use the same commands as their sections are
@@ -453,6 +534,7 @@ two differ:
 |---|---|---|---|
 | `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
 | `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
+| `tether idealize` | `tether.services.idealize.IdealizeRequest` (version 1) | `tether.services.idealize.IdealizeResult` | fit the molecules of a .tether project, or refit its stale models |
 <!-- service-commands:end -->
 
 A request is plain data with one text form: a JSON object with the command name, the
@@ -480,6 +562,9 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 | `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
 | `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
+
+`tether idealize` has a code `3` of its own, for a sidecar that cannot start; its codes are
+in [its section](#tether-idealize).
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is

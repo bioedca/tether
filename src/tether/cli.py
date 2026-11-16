@@ -9,7 +9,9 @@ version (NFR-REPRO: "the app version is derived from git"). ``tether extract`` a
 builds the command's request from its options, runs the command, and prints the result.
 ``tether extract`` runs the M1 native extraction pipeline (movie -> ``.tether``) — see
 [`tether.services.extract`][]; ``tether batch`` runs the extract -> correct -> idealize
-pipeline over many movies — see [`tether.services.batch`][]. Their subcommands are made
+pipeline over many movies — see [`tether.services.batch`][]; ``tether idealize`` fits the
+molecules of one project, or refits its stale models — see [`tether.services.idealize`][].
+Their subcommands are made
 from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names any
 registered command that has no route here. ``tether info`` prints a read-only summary of
 what a project holds — see [`tether.project.summary`][].
@@ -31,6 +33,7 @@ from typing import TYPE_CHECKING
 
 from tether import __version__
 from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
+from tether.idealize_choices import IDEALIZE_METHODS
 from tether.services import (
     COMMANDS,
     BatchRequest,
@@ -38,8 +41,11 @@ from tether.services import (
     CommandFailed,
     ExtractRequest,
     ExtractResult,
+    IdealizeRequest,
+    IdealizeResult,
     Request,
     RequestRefused,
+    SidecarUnavailable,
 )
 from tether.services import run as run_service
 
@@ -366,6 +372,181 @@ def _run_batch(args: argparse.Namespace) -> int:
     return 0 if result.summary.n_failed == 0 else 1
 
 
+#: ``tether idealize`` exit code when the sidecar cannot start (#657); 1 and 2 are the
+#: shared "failed" and "usage" codes.
+EXIT_SIDECAR_UNAVAILABLE = 3
+
+
+def _add_idealize_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``idealize`` subcommand (fit a project, or refit its stale models)."""
+    idealize = subparsers.add_parser(
+        "idealize",
+        help=summary,
+        description=(
+            "Fit a hidden Markov model to the molecules of a .tether project (FR-IDEALIZE) "
+            "and store it under /idealization/<model>. Rejected molecules are left out. "
+            "With --stale-only, refit each stored model that has a molecule whose inputs "
+            "changed since its fit. The fit runs in the tMAVEN sidecar; the command holds "
+            "the project's lock while it runs. Exit codes: 0 fitted (or nothing stale), "
+            "1 failed, 2 usage, 3 the sidecar was not available (nothing written)."
+        ),
+    )
+    idealize.add_argument("project", help="the .tether project to fit")
+    idealize.add_argument(
+        "--method",
+        default=None,
+        choices=IDEALIZE_METHODS,
+        help=f"the fit: consensus VB-HMM or ebFRET (default {IDEALIZE_METHODS[0]})",
+    )
+    states = idealize.add_mutually_exclusive_group()
+    states.add_argument(
+        "--nstates",
+        type=int,
+        default=None,
+        metavar="N",
+        help="fit exactly N states (default: choose the state count by the largest ELBO)",
+    )
+    states.add_argument(
+        "--nstates-grid",
+        default=None,
+        metavar="LIST",
+        help="the state counts the ELBO choice tries, comma-separated (default 1,2,3,4)",
+    )
+    idealize.add_argument(
+        "--model-name",
+        default=None,
+        metavar="NAME",
+        help=(
+            "store the fit as /idealization/NAME (default: the method); with --stale-only, "
+            "refit only this model"
+        ),
+    )
+    idealize.add_argument(
+        "--condition",
+        action="append",
+        default=None,
+        dest="conditions",
+        metavar="ID",
+        help="fit only the molecules of this condition ID (repeat for more; default: all)",
+    )
+    idealize.add_argument(
+        "--include-rejected",
+        action="store_true",
+        help="also fit the molecules marked rejected",
+    )
+    idealize.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace a model of the same name (default: refuse)",
+    )
+    idealize.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        metavar="N",
+        help="seed every fit, so the same inputs and seed give the same model (default: unseeded)",
+    )
+    idealize.add_argument(
+        "--stale-only",
+        action="store_true",
+        help=(
+            "refit, with its stored settings, each model that has a stale molecule, and "
+            "report how many molecules were stale and how many current"
+        ),
+    )
+    # --- Sidecar supervision: the options tether batch has -------------------
+    idealize.add_argument(
+        "--max-restarts",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "restart a fit up to N times on a sidecar crash or timeout; default 3 (§11.2). "
+            "0 disables restarts"
+        ),
+    )
+    idealize.add_argument(
+        "--sidecar-timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="per-fit sidecar timeout in seconds (default 1800)",
+    )
+    idealize.add_argument(
+        "--sidecar-python",
+        default=None,
+        metavar="PATH",
+        help="sidecar interpreter (default: $TETHER_SIDECAR_PYTHON)",
+    )
+
+
+def _idealize_request(args: argparse.Namespace) -> IdealizeRequest:
+    """Build the ``idealize`` request from the parsed options."""
+    return IdealizeRequest(
+        project=args.project,
+        method=args.method,
+        nstates=args.nstates,
+        nstates_grid=args.nstates_grid,
+        model_name=args.model_name,
+        conditions=tuple(args.conditions or ()),
+        include_rejected=args.include_rejected,
+        overwrite=args.overwrite,
+        seed=args.seed,
+        stale_only=args.stale_only,
+        max_restarts=args.max_restarts,
+        sidecar_timeout=args.sidecar_timeout,
+        sidecar_python=args.sidecar_python,
+    )
+
+
+def _format_elbo(value: float | None) -> str:
+    return "not recorded" if value is None else f"{value:.6g}"
+
+
+def _format_idealize(result: IdealizeResult) -> str:
+    """The text report of an ``idealize`` result."""
+    lines = [str(result.project)]
+    fitted = result.fitted
+    if fitted is not None:
+        lines.append(f"  model: {fitted.model_name}")
+        lines.append(f"  method: {fitted.model_type}")
+        how = "largest ELBO" if fitted.nstates_selected_by == "max-elbo" else "fixed"
+        lines.append(f"  states: {fitted.nstates} ({how})")
+        if fitted.elbo_by_nstates:
+            lines.append("  ELBO by state count:")
+            for k in sorted(fitted.elbo_by_nstates):
+                lines.append(f"    {k}: {_format_elbo(fitted.elbo_by_nstates[k])}")
+        else:
+            lines.append(f"  ELBO: {_format_elbo(fitted.elbo)}")
+        lines.append(f"  molecules fitted: {fitted.n_molecules}")
+        return "\n".join(lines)
+    if not result.refits:
+        lines.append("  no idealization model to check")
+    for refit in result.refits:
+        verdict = "refitted" if refit.refit is not None else "current, not refitted"
+        lines.append(
+            f"  {refit.model_name}: {refit.n_stale} stale, {refit.n_current} current; {verdict}"
+        )
+    return "\n".join(lines)
+
+
+def _run_idealize(args: argparse.Namespace) -> int:
+    """Handle ``tether idealize``; exit 2 on a refused request, 3 without a sidecar."""
+    try:
+        result: IdealizeResult = run_service(_idealize_request(args))
+    except RequestRefused as exc:
+        print(f"tether idealize: {exc}", file=sys.stderr)
+        return 2
+    except SidecarUnavailable as exc:
+        print(f"tether idealize: {exc}", file=sys.stderr)
+        return EXIT_SIDECAR_UNAVAILABLE
+    except CommandFailed as exc:
+        print(f"tether idealize: {exc}", file=sys.stderr)
+        return 1
+    print(_format_idealize(result))
+    return 0
+
+
 @dataclasses.dataclass(frozen=True)
 class _Route:
     """The command-line route of one service command."""
@@ -378,6 +559,7 @@ class _Route:
 _ROUTES: dict[str, _Route] = {
     "extract": _Route(_add_extract_parser, _extract_request, _run_extract),
     "batch": _Route(_add_batch_parser, _batch_request, _run_batch),
+    "idealize": _Route(_add_idealize_parser, _idealize_request, _run_idealize),
 }
 
 

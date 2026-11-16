@@ -29,6 +29,7 @@ from tether.services.base import (
 )
 from tether.services.batch import BatchRequest, BatchResult
 from tether.services.extract import ExtractRequest, ExtractResult
+from tether.services.idealize import IdealizeRequest, IdealizeResult, SidecarUnavailable
 from tether.services.registry import (
     COMMANDS,
     ServiceCommand,
@@ -44,11 +45,14 @@ __all__ = [
     "CommandFailed",
     "ExtractRequest",
     "ExtractResult",
+    "IdealizeRequest",
+    "IdealizeResult",
     "Request",
     "RequestError",
     "RequestRefused",
     "ServiceCommand",
     "ServiceError",
+    "SidecarUnavailable",
     "command",
     "request_from_text",
     "request_to_text",
