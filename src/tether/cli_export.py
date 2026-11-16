@@ -228,17 +228,25 @@ def _is_source(source: Path, out: Path) -> bool:
 
 
 def _input_overwritten(form: str, targets: list[tuple[Path, Path]]) -> str | None:
-    """Return the refusal if an export or its provenance file is an input project.
+    """Return the refusal if an export or its provenance file is an input project or its lock.
 
     Every destination is checked against **every** input, not only its own source,
     before the first export starts: with ``--overwrite``, the subset of ``movie.tether``
     could otherwise replace ``movie-subset.tether`` given as a second input, which would
     destroy that input and then export the replacement.
     """
+    from tether.project.lock import lock_path
+
     inputs = [source for source, _ in targets]
     for source, out in targets:
         for path in (out, out.with_name(out.name + _SIDECAR_SUFFIX)):
             for project in inputs:
+                if _is_source(lock_path(project), path):
+                    # An export is read-only: it must not replace another user's lock record.
+                    return (
+                        f"{form} output {path} is the lock file of the input project "
+                        f"{project}; refusing to overwrite it"
+                    )
                 if not _is_source(project, path):
                     continue
                 if project == source and path == out:

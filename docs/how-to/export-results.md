@@ -54,9 +54,11 @@ own tool. To leave them out of the file instead, add `--exclude-rejected`.
 
 To export the table of every project in a folder, for example after `tether batch`, give
 all the projects and a folder. Each table is named after its project, here
-`tables/movie_010.csv` and so on:
+`tables/movie_010.csv` and so on. Make the folder first: if the pattern matches only one
+project, `-o` names the file to write unless it is an existing folder.
 
 ```bash
+mkdir tables
 tether export table projects/*.tether -o tables
 ```
 

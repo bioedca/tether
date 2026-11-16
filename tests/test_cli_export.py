@@ -322,6 +322,30 @@ def test_an_export_may_not_replace_another_input_project(source, tmp_path, capsy
     assert f"is the input project {other}; refusing to overwrite it" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("form", ["table", "subset"])
+def test_an_export_may_not_replace_a_project_lock_file(source, tmp_path, form, capsys) -> None:
+    """``-o exp.tether.lock --overwrite`` must not truncate another user's lock record."""
+    path, _ = source
+    holder = lock.LockInfo(
+        host="another-host",
+        user="another-user",
+        pid=4242,
+        timestamp="2026-11-14T00:00:00+00:00",
+        nonce="held-by-someone-else",
+    )
+    lock_file = lock.lock_path(path)
+    lock_file.write_text(json.dumps(holder.to_dict(), indent=2), encoding="utf-8")
+    before = _digest(lock_file)
+
+    argv = ["export", form, str(path), "-o", str(lock_file), "--overwrite"]
+    assert main(argv) == 1
+
+    assert _digest(lock_file) == before
+    assert lock.read_lock(path) == holder
+    assert not lock_file.with_name(lock_file.name + _SIDECAR).exists()
+    assert "is the lock file of the input project" in capsys.readouterr().err
+
+
 def test_a_hard_linked_alias_of_another_input_is_refused(source, tmp_path) -> None:
     path, _ = source
     other = _second(tmp_path)

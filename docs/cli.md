@@ -465,7 +465,8 @@ These rules apply to all three forms:
   projects, every export and provenance file is checked against every project you gave, before
   the first export starts; a match stops the command with exit code `1` and nothing written.
   So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
-  second project with the subset of the first, even with `--overwrite`.
+  second project with the subset of the first, even with `--overwrite`. The `<file>.lock` file
+  of a project you gave is refused in the same way.
 - **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
   makes the folder if necessary and names each export after its project: `<project>.csv`,
   `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
@@ -476,12 +477,17 @@ These rules apply to all three forms:
 
 ### Example — the molecule table of every project after a batch run
 
+Make the folder first: if the pattern matches only one project, `-o` names the file to
+write unless it is an existing folder.
+
 ```bash
+mkdir tables
 tether export table projects/*.tether -o tables
 ```
 
 ```powershell
 # Windows PowerShell has no shell glob expansion for native commands
+mkdir tables
 tether export table (Get-ChildItem projects\*.tether) -o tables
 ```
 
