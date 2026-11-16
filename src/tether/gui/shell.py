@@ -1134,8 +1134,8 @@ class TetherShell:
         """The Browser warning naming possible sync-conflict copies of the open project.
 
         [`load_project`][] fills it from
-        [`conflict_copy_warning`][tether.project.lock.conflict_copy_warning] and hides it when the
-        project's directory holds none; closing the project clears it. It only
+        [`conflict_copy_warning`][tether.services.notices.conflict_copy_warning] and hides
+        it when the project's directory holds none; closing the project clears it. It only
         reports: Tether never reconciles, deletes or merges a conflict copy (§5.4).
         """
         return self._conflict_copy_banner
@@ -1340,8 +1340,8 @@ class TetherShell:
         (``None`` on failure).
 
         A successful open also looks for OneDrive/SharePoint sync-conflict siblings of
-        the file ([`conflict_copy_warning`][tether.project.lock.conflict_copy_warning], PRD §5.4
-        detect-and-surface) and names any in the non-blocking
+        the file ([`conflict_copy_warning`][tether.services.notices.conflict_copy_warning],
+        PRD §5.4 detect-and-surface) and names any in the non-blocking
         [`conflict_copy_banner`][]; with none, the banner is hidden. The open never
         waits on, refuses over, or changes a conflict copy.
 
@@ -1353,7 +1353,8 @@ class TetherShell:
         """
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
-        from tether.project.lock import LockedError, conflict_copy_warning
+        from tether.project.lock import LockedError
+        from tether.services.notices import conflict_copy_warning
 
         if self._idealize_future is not None:
             self._status("Open project unavailable: wait for idealization to finish")

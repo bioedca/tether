@@ -438,7 +438,7 @@ value that the project does not record is `null`. The keys are:
 ## Sync-conflict copies beside a project
 
 OneDrive and SharePoint can leave a second copy of a file when two machines save it at the
-same time. Tether does not prevent these copies; it finds them and tells you.
+same time. Tether does not prevent these copies. It finds them and tells you.
 After `tether extract` writes its project, after `tether batch` finishes, and when
 `tether info` reads a project, each project the command opened is checked for siblings in the
 two documented naming forms:
@@ -452,7 +452,7 @@ stderr:
 The warning is advisory. It does not change the exit code, and Tether does not open, merge,
 rename or delete the copy. It goes to stderr, so the `tether info --json` document on stdout
 does not change. The match is by file name only, so a project you named
-`movie-donoronly.tether` on purpose is also listed; ignore the line for such a file. The GUI
+`movie-donoronly.tether` on purpose is also listed, and you can ignore the line for it. The GUI
 shows the same text in the Browser when you open the project.
 
 ## Service commands
