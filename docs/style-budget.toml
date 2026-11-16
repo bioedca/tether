@@ -71,10 +71,10 @@ retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
-long_share = 32.7
-semicolons = 10
+long_share = 28.3
+semicolons = 9
 long_paragraphs = 0
-retired = 7
+retired = 6
 
 [pages."docs/install.md"]
 kind = "procedure"
@@ -240,7 +240,7 @@ retired = 2
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
 long_share = 23.6
-semicolons = 28
+semicolons = 27
 long_paragraphs = 2
 retired = 7
 

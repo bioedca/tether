@@ -260,8 +260,11 @@ capability-sequenced, with no schedule commitment anywhere).
   cloud, donor–acceptor cross-correlation (vectorized FFT, `tether.analysis.crosscorr`), the anticorrelation-event
   finder, per-condition population statistics, and the native plot catalogue of
   Appendix C: every result type this package computes, the seven tMAVEN plot types among them (N3).
-- **`tether.gui`** — the PySide6 shell + embedded napari panel, the multi-movie round-trip browser,
-  curation/labeling, annotation, and plot docks.
+- **`tether.gui`** — the PySide6 shell: one main window whose sections (Prepare, Curate and correct, Analyze;
+  Deposit to come) are the pages of one stack ([ADR-0116](adr/0116-the-shell-hosts-its-sections-in-one-stack.md)),
+  with curation/labeling, annotation, and plot docks. The embedded napari movie panel
+  ([#356](https://github.com/bioedca/tether/issues/356)) and the multi-movie round-trip browser
+  ([#357](https://github.com/bioedca/tether/issues/357)) are not in the shell yet.
 - **`tether.project`** — the experiment/session model plus the batch runner and headless API; the GUI is a thin
   layer over this core.
 
