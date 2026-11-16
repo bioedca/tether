@@ -18,7 +18,11 @@ manually-triggered workflow, which also **install-smokes** each installer: it in
 into a clean prefix with networking neutralized, launches `tether --version` through the
 same shims a user has on `PATH`, and drives the sidecar's real headless entry point
 offline — constructing the tMAVEN driver, not merely importing the package, since that
-is where an environment problem actually surfaces. The release pipeline (`release.yml`)
+is where an environment problem actually surfaces. It also runs the bundled `gh` update
+verifier from the installed prefix and checks its version. Before `constructor` runs, both
+workflows stage that `gh` with `packaging/scripts/stage_gh.py`, which refuses an archive whose
+SHA-256 is not the one in `packaging/gh-verifier.toml`. To move to a new `gh` release, follow the
+steps at the top of that file. The release pipeline (`release.yml`)
 runs the same checked-in script — `packaging/scripts/install_smoke.sh` — on each
 installer it is about to publish, so a release build that cannot install or launch never
 reaches a GitHub Release. [Releasing](../release.md) covers that pipeline end to end.

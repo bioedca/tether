@@ -14,12 +14,12 @@ that carry it (PRD Appendix A):
   coordinates**) plus raw / corrected / background donor + acceptor integrated
   traces (``don`` / ``donc`` / ``bdon``, ``acc`` / ``accc`` / ``bacc``) and movie
   provenance (the ``movie_name`` *filename* + the ``movie_path`` *directory* — two
-  distinct fields — plus ``exportedby``). :func:`read_deeplasi_mat` returns the
+  distinct fields — plus ``exportedby``). [`read_deeplasi_mat`][] returns the
   coordinates + the six trace arrays — the **coordinate + intensity oracle**.
 * ``…-donc-accc-w.txt`` — whitespace text, T rows × 2N columns of *corrected*
   donor/acceptor intensities **interleaved per molecule** (``donc₀ accc₀ donc₁
   accc₁ …``, rounded to 5 decimals); **no coordinates** (PRD Appendix A).
-  :func:`read_deeplasi_txt` returns the two corrected-trace arrays. It equals the
+  [`read_deeplasi_txt`][] returns the two corrected-trace arrays. It equals the
   ``.mat`` ``donc`` / ``accc`` to the text rounding (verified across all 250
   molecules of the reference acquisition).
 
@@ -34,7 +34,7 @@ them. Full project round-trip from a ``.tdat`` / ``.mat`` is the M7 importer.
 Coordinate convention: ``fret_pairs`` columns are ``[x_donor, y_donor, x_acc,
 y_acc]`` with ``x`` = column, ``y`` = row, **1-based** (MATLAB); this reader
 subtracts 1 to return Tether's 0-based ``[x = col, y = row]`` — matching
-:mod:`tether.imaging` and the convention the M0.5 aperture oracle validated to
+[`tether.imaging`][] and the convention the M0.5 aperture oracle validated to
 donor-correlation ≈ 0.99 (``scripts/make_aperture_fixture.py``).
 """
 
@@ -301,12 +301,12 @@ def write_deeplasi_txt(
 ) -> Path:
     """Write corrected donor/acceptor traces as a Deep-LASI ``…-donc-accc-w.txt``.
 
-    The write-side mirror of :func:`read_deeplasi_txt` (PRD §7.9 FR-EXPORT,
+    The write-side mirror of [`read_deeplasi_txt`][] (PRD §7.9 FR-EXPORT,
     Appendix A): given two ``(N, T)`` corrected-intensity arrays, emit the
     whitespace-delimited ``T`` rows × ``2N`` columns table with each molecule's
     ``(donor, acceptor)`` column pair **interleaved, donor first** (``donc₀ accc₀
     donc₁ accc₁ …``). Values are rounded to ``_TXT_DECIMALS`` decimals;
-    :func:`read_deeplasi_txt` reads the result back to value equality (it is
+    [`read_deeplasi_txt`][] reads the result back to value equality (it is
     whitespace- and rounding-tolerant, so a round-trip preserves the traces to the
     5-decimal text rounding).
 
@@ -332,7 +332,7 @@ def write_deeplasi_txt(
     ------
     ValueError
         If the two inputs are not matching, non-empty, 2-D ``(N, T)`` arrays — an
-        odd/zero column count is exactly what :func:`read_deeplasi_txt` rejects.
+        odd/zero column count is exactly what [`read_deeplasi_txt`][] rejects.
     """
     donor = np.asarray(donor_corrected, dtype=np.float64)
     acceptor = np.asarray(acceptor_corrected, dtype=np.float64)
