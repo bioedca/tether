@@ -386,7 +386,13 @@ def main(argv: list[str] | None = None) -> int:
         from tether import __version__
 
         target = applications_dir(args.prefix, args.home)
-        bundle = write_bundle(args.prefix, target, __version__)
+        try:
+            bundle = write_bundle(args.prefix, target, __version__)
+        except OSError as exc:
+            # The bundle is optional: post_install.sh runs under `set -e`, so a
+            # non-zero exit here would fail the whole install for a missing icon.
+            print(f"warning: could not write {target / BUNDLE_NAME}: {exc}", file=sys.stderr)
+            return 0
         if bundle is None:
             print(
                 f"warning: {target / BUNDLE_NAME} is not Tether's launcher; left it as it is",

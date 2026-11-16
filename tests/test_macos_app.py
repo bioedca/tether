@@ -239,6 +239,23 @@ def test_cli_installs_and_checks(tmp_path, capsys) -> None:
     assert macos_app.main(["check", str(bundle), "--prefix", str(tmp_path / "x")]) == 1
 
 
+def test_install_that_cannot_write_the_bundle_does_not_fail_the_installer(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    """A failed optional bundle exits 0 and prints no path (post_install.sh runs ``set -e``)."""
+    home = tmp_path / "home"
+    prefix = _prefix(home, "Tether")
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError("Permission denied")
+
+    monkeypatch.setattr(macos_app, "write_bundle", refuse)
+    assert macos_app.main(["install", "--prefix", str(prefix), "--home", str(home)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "could not write" in captured.err
+
+
 @needs_sh
 def test_post_install_writes_the_bundle_on_macos(tmp_path) -> None:
     """``post_install.sh`` on "macOS" writes ``~/Applications/Tether.app``, run twice.
