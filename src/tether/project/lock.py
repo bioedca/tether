@@ -32,6 +32,15 @@ so nothing here touches ``schema-guard``. "Last-write-wins with version stamping
 a steal *surfaces* the prior owner ([`steal_lock`][] returns them) so the GUI can
 warn the stealer — the prior owner's unsaved work is never silently merged back.
 
+Hard-link names: the identity lock (ADR-0112)
+---------------------------------------------
+``<file>.lock`` is named after the path, so two hard-link names of one file have two
+sidecars. A second, per-user lock joins them: a record in [`user_lock_dir`][] named by
+[`file_identity`][] says which name's ``<file>.lock`` owns the file. While that lock
+still carries the record's nonce, a claim through any other name is refused, and a
+steal through another name takes over the owner's name too. Another user's names and
+files with no usable identity keep only ``<file>.lock``.
+
 Concurrent curation without blocking (PRD §7.10)
 ------------------------------------------------
 Curation is the central daily workflow and must never be blocked while a file is
@@ -52,10 +61,12 @@ from __future__ import annotations
 import errno
 import getpass
 import glob as _glob
+import hashlib
 import json
 import os
 import socket
 import stat
+import sys
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -98,6 +109,7 @@ __all__ = [
     "release",
     "release_process_reservation",
     "steal_lock",
+    "user_lock_dir",
 ]
 
 #: Default wall-clock staleness timeout in seconds (PRD §11.2: "Lock staleness
@@ -421,10 +433,15 @@ def _new_info(identity: LockIdentity, *, now: datetime | None = None) -> LockInf
 
 def _atomic_write(lp: Path, info: LockInfo) -> None:
     """Write the lock JSON via a temp file + atomic ``os.replace`` (crash/torn-write safe)."""
-    tmp = lp.with_name(f"{lp.name}.tmp-{info.nonce}")
+    _atomic_write_json(lp, info.to_dict(), tag=info.nonce)
+
+
+def _atomic_write_json(lp: Path, data: dict[str, object], *, tag: str) -> None:
+    """Write ``data`` as JSON to ``lp`` via a temp file and an atomic ``os.replace``."""
+    tmp = lp.with_name(f"{lp.name}.tmp-{tag}")
     deadline = time.monotonic() + _ATOMIC_REPLACE_TIMEOUT_S
     try:
-        tmp.write_text(json.dumps(info.to_dict(), indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
         while True:
             try:
                 os.replace(tmp, lp)
@@ -904,6 +921,179 @@ def _process_local_access(
         _return_reservation_state(key, state)
 
 
+# --- hard-link aliases: the per-user identity lock (#249, ADR-0112) -----------
+
+#: Directory-wide lifecycle guard for the identity locks; one per user lock dir.
+_IDENTITY_GUARD_NAME = "identity.lock"
+_IDENTITY_SUFFIX = ".identity.json"
+
+
+def user_lock_dir() -> Path:
+    r"""The per-user directory that holds the identity locks (ADR-0112).
+
+    ``%LOCALAPPDATA%\tether\locks`` on Windows; elsewhere
+    ``$XDG_STATE_HOME/tether/locks`` when ``XDG_STATE_HOME`` is set, else
+    ``~/Library/Caches/tether/locks`` on macOS and ``~/.local/state/tether/locks``
+    on other systems.
+    """
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(Path.home(), "AppData", "Local")
+        return Path(base) / "tether" / "locks"
+    state = os.environ.get("XDG_STATE_HOME")
+    if state:
+        return Path(state) / "tether" / "locks"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "tether" / "locks"
+    return Path.home() / ".local" / "state" / "tether" / "locks"
+
+
+@dataclass(frozen=True)
+class _IdentityRecord:
+    """Which project spelling's ``<file>.lock`` owns one file identity, and its nonce.
+
+    ``also`` lists other spellings whose ``<file>.lock`` a steal through an alias
+    took over with the same nonce, so release and refresh reach them too.
+    """
+
+    project: str
+    info: LockInfo
+    also: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        data = self.info.to_dict()
+        data["project"] = self.project
+        data["also"] = list(self.also)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> _IdentityRecord:
+        project, also = data["project"], data.get("also", [])
+        if not isinstance(project, str) or not isinstance(also, list):
+            raise TypeError("identity lock fields project/also are ill-typed")
+        if not all(isinstance(p, str) for p in also):
+            raise TypeError("identity lock field also must list strings")
+        fields = {k: v for k, v in data.items() if k not in ("project", "also")}
+        return cls(project=project, info=LockInfo.from_dict(fields), also=tuple(also))
+
+
+def _identity_record_path(identity: FileIdentity) -> Path:
+    digest = hashlib.sha256(f"{identity[0]}:{identity[1]}".encode()).hexdigest()
+    return user_lock_dir() / f"{digest}{_IDENTITY_SUFFIX}"
+
+
+def _read_identity_record(rp: Path) -> _IdentityRecord | None:
+    """Read an identity record; a missing or unparseable one reads as ``None``."""
+    try:
+        return _IdentityRecord.from_dict(json.loads(rp.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def _same_spelling(a: str | Path, b: str | Path) -> bool:
+    return _reservation_key(a) == _reservation_key(b)
+
+
+def _identity_record_is_live(record: _IdentityRecord) -> bool:
+    """The recorded spelling's ``<file>.lock`` still carries the record's nonce.
+
+    A corrupt ``<file>.lock`` counts as live, because its owner is unknown.
+    """
+    current, corrupt = _read_tolerant(lock_path(record.project))
+    return corrupt or (current is not None and current.nonce == record.info.nonce)
+
+
+def _identity_locked_error(
+    record: _IdentityRecord, *, timeout_s: float, now: datetime | None
+) -> LockedError:
+    """The [`LockedError`][] for a file another spelling holds, from that spelling's lock."""
+    holder_lp = lock_path(record.project)
+    current, corrupt = _read_tolerant(holder_lp)
+    if corrupt or current is None:
+        return LockedError(None, corrupt=corrupt, path=holder_lp)
+    stale = current.is_stale(timeout_s=timeout_s, now=now)
+    return LockedError(current, stale=stale, path=holder_lp)
+
+
+def _take_over_spellings(record: _IdentityRecord, info: LockInfo) -> tuple[str, ...]:
+    """Write ``info`` into every ``<file>.lock`` the record's owner holds (an alias steal)."""
+    taken = []
+    for spelling in (record.project, *record.also):
+        lp = lock_path(spelling)
+        with _lifecycle_guard(lp):
+            current, corrupt = _read_tolerant(lp)
+            if corrupt or (current is not None and current.nonce == record.info.nonce):
+                _atomic_write(lp, info)
+                taken.append(spelling)
+    return tuple(taken)
+
+
+def _release_spellings(spellings: Iterable[str], nonce: str) -> None:
+    """Remove each ``<file>.lock`` that still carries ``nonce``."""
+    for spelling in spellings:
+        lp = lock_path(spelling)
+        with _lifecycle_guard(lp):
+            current, corrupt = _read_tolerant(lp)
+            if not corrupt and current is not None and current.nonce == nonce:
+                lp.unlink(missing_ok=True)
+
+
+def _blocking_identity_record(project_path: str | Path) -> _IdentityRecord | None:
+    """The live identity record that another spelling of this file holds, if any."""
+    identity = file_identity(project_path)
+    if identity is None:
+        return None
+    record = _read_identity_record(_identity_record_path(identity))
+    if record is None or _same_spelling(record.project, project_path):
+        return None
+    return record if _identity_record_is_live(record) else None
+
+
+@contextmanager
+def _identity_guard(project_path: str | Path, *, claim: bool) -> Iterator[Path | None]:
+    """Hold the per-user identity guard; yield this file's record path, or ``None``.
+
+    ``None`` means the file has no usable identity (it does not exist yet, or its
+    filesystem reports no inode number), so only ``<file>.lock`` protects it. The
+    guard is taken before any ``<file>.lock`` guard, always in that order. A claim
+    fails closed when the per-user directory cannot be made; cleanup (``claim=False``)
+    then goes on with ``<file>.lock`` alone.
+    """
+    identity = file_identity(project_path)
+    if identity is None:
+        yield None
+        return
+    directory = user_lock_dir()
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        if claim:
+            raise LockError(
+                f"cannot create the per-user lock directory {directory}: {exc}"
+            ) from exc
+        yield None
+        return
+    with _lifecycle_guard(directory / _IDENTITY_GUARD_NAME):
+        yield _identity_record_path(identity)
+
+
+def _write_identity_record(rp: Path, record: _IdentityRecord) -> None:
+    _atomic_write_json(rp, record.to_dict(), tag=record.info.nonce)
+
+
+def _drop_identity_record(rp: Path, nonce: str) -> None:
+    """Remove ``rp`` if it still carries ``nonce``, and any record that is no longer live."""
+    record = _read_identity_record(rp)
+    if record is not None and record.info.nonce == nonce:
+        rp.unlink(missing_ok=True)
+    # A writer that replaced its file (a staged publish) left a record under the old
+    # identity; once its lock is gone the record is dead, so reap such records here.
+    with suppress(OSError):
+        for other in rp.parent.glob(f"*{_IDENTITY_SUFFIX}"):
+            stale = _read_identity_record(other)
+            if stale is None or not _identity_record_is_live(stale):
+                other.unlink(missing_ok=True)
+
+
 # --- public lifecycle --------------------------------------------------------
 
 
@@ -918,6 +1108,14 @@ def read_lock(project_path: str | Path) -> LockInfo | None:
     info, corrupt = _read_tolerant(lock_path(project_path))
     if corrupt:
         raise CorruptLockError(f"unparseable lock file: {lock_path(project_path)}")
+    if info is None:
+        # Unlocked by this name; another hard-link name of the same file may hold it.
+        record = _blocking_identity_record(project_path)
+        if record is not None:
+            holder, holder_corrupt = _read_tolerant(lock_path(record.project))
+            if holder_corrupt:
+                raise CorruptLockError(f"unparseable lock file: {lock_path(record.project)}")
+            return holder
     return info
 
 
@@ -948,9 +1146,11 @@ def assert_writable(
         info, corrupt = _read_tolerant(lp)
         if corrupt:
             raise LockedError(None, corrupt=True, path=lp)
-        if info is None or info.identity == identity:
-            return
-        raise LockedError(info, stale=info.is_stale(timeout_s=timeout_s, now=now), path=lp)
+        if info is not None and info.identity != identity:
+            raise LockedError(info, stale=info.is_stale(timeout_s=timeout_s, now=now), path=lp)
+        record = _blocking_identity_record(project_path)
+        if record is not None and record.info.identity != identity:
+            raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
 
 
 def _acquire_sidecar(
@@ -970,17 +1170,68 @@ def _acquire_sidecar(
     sidecar I/O. Neither guard subsumes the other — the reservation orders writers
     inside one interpreter, the guard orders them across processes.
     """
-    identity = identity if identity is not None else local_identity()
+    info, _prior = _claim(
+        project_path,
+        identity=identity if identity is not None else local_identity(),
+        timeout_s=timeout_s,
+        steal=steal,
+        allow_existing_owner=allow_existing_owner,
+        now=now,
+    )
+    return info
+
+
+def _claim(
+    project_path: str | Path,
+    *,
+    identity: LockIdentity,
+    timeout_s: float,
+    steal: bool,
+    allow_existing_owner: bool,
+    now: datetime | None,
+) -> tuple[LockInfo, LockInfo | None]:
+    """Claim ``<file>.lock`` and this file's identity lock; return ``(info, prior)``.
+
+    A live identity record from another spelling of the same file refuses the claim
+    unless it is an explicit steal, which then takes over that spelling's lock too
+    (ADR-0112). ``prior`` is the ousted owner, for [`steal_lock`][].
+    """
     lp = lock_path(project_path)
-    with _lifecycle_guard(lp):
-        return _acquire_without_guard(
-            lp,
-            identity=identity,
-            timeout_s=timeout_s,
-            steal=steal,
-            allow_existing_owner=allow_existing_owner,
-            now=now,
+    with _identity_guard(project_path, claim=True) as rp:
+        record = _read_identity_record(rp) if rp is not None else None
+        blocking = (
+            record is not None
+            and not _same_spelling(record.project, project_path)
+            and _identity_record_is_live(record)
         )
+        explicit_steal = steal and allow_existing_owner
+        if blocking and not explicit_steal:
+            assert record is not None
+            raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
+        with _lifecycle_guard(lp):
+            prior, _corrupt = _read_tolerant(lp)
+            info = _acquire_without_guard(
+                lp,
+                identity=identity,
+                timeout_s=timeout_s,
+                steal=steal,
+                allow_existing_owner=allow_existing_owner,
+                now=now,
+            )
+        also: tuple[str, ...] = ()
+        if record is not None and explicit_steal:
+            if blocking and prior is None:
+                prior, _corrupt = _read_tolerant(lock_path(record.project))
+            also = tuple(
+                spelling
+                for spelling in _take_over_spellings(record, info)
+                if not _same_spelling(spelling, project_path)
+            )
+        if rp is not None:
+            _write_identity_record(
+                rp, _IdentityRecord(project=os.path.abspath(project_path), info=info, also=also)
+            )
+        return info, prior
 
 
 def _acquire_without_guard(
@@ -1068,6 +1319,44 @@ def refresh(
     the ownership epoch that long-running writers validate before persistence.
     """
     lp = lock_path(project_path)
+    with _identity_guard(project_path, claim=False) as rp:
+        current = _refresh_sidecar(lp, held, now=now)
+        if rp is not None:
+            _refresh_identity_record(rp, project_path, current, now=now)
+        return current
+
+
+def _refresh_identity_record(
+    rp: Path, project_path: str | Path, current: LockInfo, *, now: datetime | None
+) -> None:
+    """Advance this file's identity record with a refreshed ``<file>.lock``.
+
+    A record under another live owner means a second writer claimed this file by
+    another name while this one was unrecorded (a file that did not exist or was
+    replaced at claim time); the refresh then refuses rather than share the file.
+    """
+    record = _read_identity_record(rp)
+    also: tuple[str, ...] = ()
+    if record is not None and record.info.nonce == current.nonce:
+        also = record.also
+        for spelling in also:
+            with suppress(LockError):
+                _refresh_sidecar(lock_path(spelling), current, now=current.acquired_at())
+    elif (
+        record is not None
+        and not _same_spelling(record.project, project_path)
+        and _identity_record_is_live(record)
+    ):
+        raise _identity_locked_error(record, timeout_s=DEFAULT_STALENESS_TIMEOUT_S, now=now)
+    project = record.project if record is not None and record.info.nonce == current.nonce else None
+    _write_identity_record(
+        rp,
+        _IdentityRecord(project=project or os.path.abspath(project_path), info=current, also=also),
+    )
+
+
+def _refresh_sidecar(lp: Path, held: LockInfo, *, now: datetime | None) -> LockInfo:
+    """Refresh one ``<file>.lock`` that must carry ``held.nonce``."""
     with _lifecycle_guard(lp):
         current, corrupt = _read_tolerant(lp)
         if corrupt:
@@ -1148,21 +1437,16 @@ def steal_lock(
     A process-local reservation held by another execution context is never stolen;
     it raises [`LockedError`][] before the sidecar is inspected or replaced.
     """
-    identity = identity if identity is not None else local_identity()
-    lp = lock_path(project_path)
-    with _lifecycle_guard(lp):
-        prior, _corrupt = _read_tolerant(lp)
-        info = _acquire_without_guard(
-            lp,
-            identity=identity,
-            timeout_s=DEFAULT_STALENESS_TIMEOUT_S,
-            steal=True,
-            # An explicit steal is precisely the "replace whatever is there" path,
-            # so it must not take the strict no-replacement branch.
-            allow_existing_owner=True,
-            now=now,
-        )
-        return info, prior
+    return _claim(
+        project_path,
+        identity=identity if identity is not None else local_identity(),
+        timeout_s=DEFAULT_STALENESS_TIMEOUT_S,
+        steal=True,
+        # An explicit steal is precisely the "replace whatever is there" path,
+        # so it must not take the strict no-replacement branch.
+        allow_existing_owner=True,
+        now=now,
+    )
 
 
 def release(project_path: str | Path, info: LockInfo) -> bool:
@@ -1178,6 +1462,17 @@ def release(project_path: str | Path, info: LockInfo) -> bool:
     serialized lifecycle operation and cannot delete a cooperating successor.
     """
     lp = lock_path(project_path)
+    with _identity_guard(project_path, claim=False) as rp:
+        released = _release_sidecar(lp, info)
+        if rp is not None:
+            record = _read_identity_record(rp)
+            if record is not None and record.info.nonce == info.nonce:
+                _release_spellings(record.also, info.nonce)
+            _drop_identity_record(rp, info.nonce)
+        return released
+
+
+def _release_sidecar(lp: Path, info: LockInfo) -> bool:
     with _lifecycle_guard(lp):
         current, corrupt = _read_tolerant(lp)
         if corrupt or current is None or current.nonce != info.nonce:

@@ -1531,3 +1531,138 @@ def test_publish_guard_fails_after_a_steal(tmp_path: Path) -> None:
 
     # The nonce-checked release leaves the thief's lock in place.
     assert lock.read_lock(project) == stolen
+
+
+# --- hard-link aliases share one writer (#249, ADR-0112) ----------------------
+
+_ALIAS_HOLDER = """
+import sys
+from tether.project import lock
+
+held = lock.acquire(sys.argv[1])
+print(held.nonce, flush=True)
+sys.stdin.readline()
+lock.release(sys.argv[1], held)
+"""
+
+
+def _hard_link_pair(tmp_path: Path) -> tuple[Path, Path]:
+    first = tmp_path / "a" / "first.tether"
+    first.parent.mkdir()
+    create_project(first)
+    second = tmp_path / "b" / "second.tether"
+    second.parent.mkdir()
+    try:
+        os.link(first, second)
+    except OSError as exc:  # pragma: no cover - filesystem without hard links
+        pytest.skip(f"no hard links here: {exc}")
+    if lock.file_identity(first) is None:  # pragma: no cover - no inode numbers
+        pytest.skip("this filesystem reports no file identity")
+    return first, second
+
+
+def test_another_process_cannot_claim_a_project_through_a_hard_link(tmp_path: Path) -> None:
+    """Process A holds ``first``; this process is refused ``second``, the same file.
+
+    The true-subprocess regression for #249: before the identity lock, each name had
+    its own ``<file>.lock`` and both claims succeeded.
+    """
+    first, second = _hard_link_pair(tmp_path)
+    other = tmp_path / "other.tether"
+    create_project(other)
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _ALIAS_HOLDER, str(first)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        nonce = holder.stdout.readline().strip()
+        assert nonce, holder.stderr.read() if holder.stderr else ""
+
+        with pytest.raises(LockedError) as refused:
+            lock.acquire(second)
+        assert refused.value.owner is not None
+        assert refused.value.owner.nonce == nonce
+        with pytest.raises(LockedError):
+            lock.assert_writable(second)
+        held_by = lock.read_lock(second)
+        assert held_by is not None
+        assert held_by.nonce == nonce
+        assert not lock.lock_path(second).exists()
+
+        # A genuinely different file keeps its own, independent writer.
+        mine = lock.acquire(other)
+        assert lock.release(other, mine)
+    finally:
+        if holder.poll() is None:
+            assert holder.stdin is not None
+            holder.stdin.write("\n")
+            holder.stdin.flush()
+        holder.wait(timeout=60)
+    assert holder.returncode == 0, holder.stderr.read() if holder.stderr else ""
+
+    # After A releases, the claim through the other name succeeds.
+    claimed = lock.acquire(second)
+    assert lock.read_lock(first) is not None
+    assert lock.release(second, claimed)
+    assert lock.read_lock(first) is None
+
+
+def test_strict_and_same_process_claims_through_an_alias_are_refused(tmp_path: Path) -> None:
+    first, second = _hard_link_pair(tmp_path)
+    held = lock.acquire(first)
+    try:
+        with pytest.raises(LockedError):
+            lock.acquire(second)
+        with pytest.raises(LockedError), lock.publish_lock(second):
+            pass
+        refreshed = lock.refresh(first, held)
+        with pytest.raises(LockedError):
+            lock.acquire(second)
+    finally:
+        assert lock.release(first, refreshed)
+    assert lock.release(second, lock.acquire(second))
+
+
+def test_a_steal_through_an_alias_ousts_the_other_name(tmp_path: Path) -> None:
+    first, second = _hard_link_pair(tmp_path)
+    foreign = lock.acquire(first, identity=LockIdentity(host="OTHER", user="bob", pid=999))
+
+    stolen, prior = lock.steal_lock(second)
+
+    assert prior == foreign
+    # The other name's lock now carries the stealer's nonce, so the ousted
+    # writer's nonce checks fail there too.
+    assert lock.read_lock(first) == stolen
+    assert lock.read_lock(second) == stolen
+    assert not lock.release(first, foreign)
+    refreshed = lock.refresh(second, stolen)
+    assert lock.read_lock(first) == refreshed
+    assert lock.release(second, refreshed)
+    assert not lock.lock_path(first).exists()
+    assert not lock.lock_path(second).exists()
+
+
+def test_a_dead_identity_record_is_reaped(tmp_path: Path) -> None:
+    """A record whose name no longer carries its nonce does not block another name."""
+    first, second = _hard_link_pair(tmp_path)
+    lock.acquire(first)
+    lock.lock_path(first).unlink()  # the holder's lock vanished without a release
+
+    claimed = lock.acquire(second)
+    assert lock.release(second, claimed)
+    assert list(lock.user_lock_dir().glob("*.identity.json")) == []
+
+
+def test_a_file_without_identity_keeps_the_beside_lock_alone(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "p.tether"
+    create_project(project)
+    monkeypatch.setattr(lock, "file_identity", lambda _path: None)
+
+    held = lock.acquire(project)
+    assert lock.read_lock(project) == held
+    assert lock.release(project, held)
+    assert not lock.user_lock_dir().exists()

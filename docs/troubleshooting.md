@@ -727,6 +727,15 @@ existing project gets `... needs its writer lock` (`ExtractionError` from `extra
 `tether.project.lock.publish_lock` on the destination and passes the check it yields as
 `publish_guard`.
 
+**Two names for one file.** A hard link gives one project two names. Tether treats both names as
+one file for your user: while one name is open for writing, opening the other name says
+`is locked` and names the lock of the first name. Tether keeps a small record of which name owns
+each file in your per-user lock folder (`%LOCALAPPDATA%\tether\locks` on Windows,
+`~/.local/state/tether/locks` on Linux, `~/Library/Caches/tether/locks` on macOS). A steal through
+either name takes the file from the other name too. If Tether cannot make that folder, it refuses
+to open the project for writing: `cannot create the per-user lock directory`. Fix the folder's
+permissions, or set `XDG_STATE_HOME` (Linux, macOS) to a folder you can write.
+
 ### The spot and overlap views are unavailable
 
 **Symptom.** A project opens and curates fine, histograms and idealization work, but the
