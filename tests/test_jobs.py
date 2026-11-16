@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The job and dependency coordinator (#895, ADR-0121) and its stale marks (ADR-0103)."""
+"""The job and dependency coordinator (#895, ADR-0126) and its stale marks (ADR-0103)."""
 
 from __future__ import annotations
 

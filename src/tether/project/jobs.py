@@ -3,7 +3,7 @@
 """The job and dependency coordinator: stored jobs, checkpoints, cancel, retry, stale marks.
 
 A long step of the workflow (an extraction of many movies, a set of model fits, a deposit)
-runs as a **job** (#895, ADR-0121). The job is stored in the project, so the command line
+runs as a **job** (#895, ADR-0126). The job is stored in the project, so the command line
 and a restarted application see the same run as the window that started it:
 
 * A **job record** is one row of ``/settings/jobs``: its id, the service request that it

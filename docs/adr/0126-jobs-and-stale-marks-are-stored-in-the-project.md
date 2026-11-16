@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0121 — Jobs, their checkpoints and the stale marks are stored in the project
+# 0126 — Jobs, their checkpoints and the stale marks are stored in the project
 
 - **Status:** accepted
 - **Date:** 2026-11-16

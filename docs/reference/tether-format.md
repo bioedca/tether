@@ -567,7 +567,7 @@ nothing writes no row. Category edits are logged here and **not** in `/labels`, 
 ### Jobs, recorded inputs and stale marks
 
 `/settings/jobs` holds one row for each job of the job and dependency coordinator
-([ADR-0121](../adr/0121-jobs-and-stale-marks-are-stored-in-the-project.md)). Every field is a
+([ADR-0126](../adr/0126-jobs-and-stale-marks-are-stored-in-the-project.md)). Every field is a
 UTF-8 string: `job_id` (32 hex characters), `command` and `request` (the service request in
 its text form, ADR-0100), `state`, `parts` and `completed` (JSON arrays of part names, and
 the second is the checkpoint), `inputs` (a JSON object from `"<node key>:<instance id>"` to the
