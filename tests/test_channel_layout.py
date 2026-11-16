@@ -394,3 +394,40 @@ def test_movie_metadata_refuses_a_layout_that_is_not_a_record() -> None:
             width=2,
             channel_layout={"kind": "top-bottom"},  # type: ignore[arg-type]
         )
+
+
+def test_the_stage_preview_splits_by_the_channel_layout() -> None:
+    """The headless preview (#348) resolves the split exactly as extract_movie does."""
+    from tether.project.preview import OUTCOME_FAILED, iter_extraction_stages
+
+    donor, acceptor = _tutorial_halves()
+    stacked = np.concatenate([donor, acceptor], axis=1)
+    layout = ChannelLayout(kind="top-bottom")
+    split = next(
+        iter(iter_extraction_stages(stacked, options=ExtractOptions(channel_layout=layout)))
+    )
+    height, width = stacked.shape[-2:]
+    assert split.parameters["geometry_source"] == "layout"
+    assert split.parameters["channel_layout"] == layout.to_dict()
+    assert (split.outputs["donor_geometry"], split.outputs["acceptor_geometry"]) == (
+        layout.geometries(height, width)
+    )
+    # The default records the half split it always did.
+    default = next(iter(iter_extraction_stages(np.concatenate([donor, acceptor], axis=2))))
+    assert default.parameters["geometry_source"] == "half-split"
+    assert "channel_layout" not in default.parameters
+    # A layout beside an imported map is refused, as extract_movie refuses it beside a .tmap.
+    from test_extract_preview import _tmap_channels
+    from tether import __version__
+    from tether.imaging.calibrate import registration_map_from_tmap
+
+    registration = registration_map_from_tmap(
+        _tmap_channels(), app_version=__version__, source_file="map.tmap"
+    )
+    stages = list(
+        iter_extraction_stages(
+            stacked, options=ExtractOptions(channel_layout=layout), registration=registration
+        )
+    )
+    assert [(s.name, s.outcome) for s in stages] == [("split", OUTCOME_FAILED)]
+    assert "both set the channel split" in stages[0].message
