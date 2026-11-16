@@ -1,0 +1,161 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Workstation: the stored tMAVEN files of Campos-Chavez et al. 2024 (#757 step 4, ADR-0106).
+
+The trace files, model files and model summaries of the paper are private (maintainer decision
+S5: A) and reach this test only through neutral ids of the workstation runner (ADR-0071): every
+id whose name starts with ``tbox-`` and whose role is ``smd``, ``model`` or ``summary``.
+
+* Each trace file is matched to a sample by comparison with the Source Data (C3: A): the share of
+  its molecules whose donor trace correlates with a column of the sample's matrix
+  (``_campos_chavez_hmm.match_share``). A tMAVEN trace file names its group after its data set,
+  so every group that holds traces is read.
+* Each stored model, and each summary that names a model, is matched to the fit with its number
+  of states and of traces, and compared with the published values and with the frozen fresh fit
+  of the limits file. The published Source Data is the authority: a stored model that does not
+  agree is reported, not failed (C1: C; the two wild-type models are reported, as is every model).
+  A model that Tether's reader cannot open (older tMAVEN, #1080) is read with the test's own
+  reader, and ``tether_reader`` records which one read it.
+* Every id is tried; a file that no reader opens is recorded as ``readable`` 0 and fails the test
+  after the others are recorded.
+
+The result file gets numbers only, under the neutral ids. No file name, path or trace leaves.
+"""
+
+from __future__ import annotations
+
+import functools
+
+import numpy as np
+import pytest
+
+import _campos_chavez_hmm as cc
+from reference_data import fetch
+
+pytestmark = pytest.mark.workstation
+
+SETTINGS = cc.load_settings()
+FITS = SETTINGS["fits"]
+KEYS = sorted(FITS)
+PREFIX = "tbox-"
+
+
+@functools.cache
+def _archive():
+    return fetch.path_for(SETTINGS["source_data"])
+
+
+@functools.cache
+def _published(key: str) -> dict:
+    return cc.published(FITS[key], cc.read_book(_archive()), _archive())
+
+
+def _ids(private_data, role: str) -> list[str]:
+    return [i for i in private_data.ids if i.startswith(PREFIX) and role in private_data.roles(i)]
+
+
+def _deviations(means: np.ndarray, counts: np.ndarray | None, key: str) -> dict[str, float]:
+    order = np.argsort(means)
+    pub = _published(key)
+    fresh = cc.load_limits()["fresh"][key]
+    out = {
+        "means_max_abs_published": float(np.max(np.abs(means[order] - pub["means"]))),
+        "means_max_abs_fresh": float(np.max(np.abs(means[order] - np.asarray(fresh["means"])))),
+    }
+    if counts is not None and "counts" in pub:
+        c = counts[np.ix_(order, order)]
+        out["counts_max_rel_published"] = float(np.max(np.abs(c - pub["counts"]) / pub["counts"]))
+    return out
+
+
+def test_each_stored_trace_file_is_matched_to_a_sample(private_data) -> None:
+    from tether.idealize.smd import read_smd
+
+    matrices = sorted({f["matrix"] for f in FITS.values()})
+    donors = [cc.read_traces(_archive(), name)[0] for name in matrices]
+    unreadable = []
+    for neutral_id in _ids(private_data, "smd"):
+        path = private_data.path(neutral_id, "smd")
+        try:
+            raws = [read_smd(path, group).raw for group in cc.smd_groups(path)]
+        except Exception as exc:  # the local log keeps the error; the result keeps the id
+            print(neutral_id, type(exc).__name__)
+            raws = []
+        if not raws:
+            unreadable.append(neutral_id)
+            private_data.record(neutral_id, readable=0)
+            continue
+        best = (0.0, 0.0, -1, 0)
+        for group_index, raw in enumerate(raws):
+            for index, donor in enumerate(donors):
+                share, median = cc.match_share(raw, donor)
+                if (share, median) > best[:2]:
+                    best = (share, median, index, group_index)
+        raw = raws[best[3]]
+        private_data.record(
+            neutral_id,
+            readable=1,
+            groups=len(raws),
+            molecules=raw.shape[0],
+            frames=raw.shape[1],
+            matched_share=best[0],
+            best_correlation_median=best[1],
+            sample_index=best[2] if best[0] > 0 else -1,
+        )
+    assert not unreadable, unreadable
+
+
+def test_each_stored_model_is_compared_with_the_published_fit(private_data) -> None:
+    from tether.idealize.driver import read_model
+
+    unreadable = []
+    for neutral_id in _ids(private_data, "model"):
+        path = private_data.path(neutral_id, "model")
+        try:
+            model, tether_reader = read_model(path), 1
+        except Exception as exc:  # older tMAVEN models, #1080
+            print(neutral_id, type(exc).__name__)
+            try:
+                model, tether_reader = cc.read_stored_model(path), 0
+            except Exception as exc2:
+                print(neutral_id, type(exc2).__name__)
+                unreadable.append(neutral_id)
+                private_data.record(neutral_id, readable=0)
+                continue
+        key = cc.fit_of(int(model.nstates), int(model.ran.size))
+        numbers = {
+            "readable": 1,
+            "tether_reader": tether_reader,
+            "nstates": int(model.nstates),
+            "traces": int(model.ran.size),
+        }
+        if key is not None:
+            numbers["fit_index"] = KEYS.index(key)
+            numbers.update(_deviations(np.asarray(model.means), model.tmatrix, key))
+        private_data.record(neutral_id, **numbers)
+    assert not unreadable, unreadable
+
+
+def test_each_stored_summary_is_compared_with_the_published_fit(private_data) -> None:
+    unreadable = []
+    for neutral_id in _ids(private_data, "summary"):
+        try:
+            text = private_data.path(neutral_id, "summary").read_text(
+                encoding="utf-8", errors="replace"
+            )
+        except Exception as exc:
+            print(neutral_id, type(exc).__name__)
+            unreadable.append(neutral_id)
+            private_data.record(neutral_id, readable=0)
+            continue
+        got = cc.parse_summary(text)
+        if got is None:
+            private_data.record(neutral_id, parsed=0)
+            continue
+        numbers = {"parsed": 1, "nstates": got["means"].size, "traces": got["traces"]}
+        key = cc.fit_of(got["means"].size, got["traces"])
+        if key is not None:
+            numbers["fit_index"] = KEYS.index(key)
+            numbers.update(_deviations(got["means"], got["counts"], key))
+        private_data.record(neutral_id, **numbers)
+    assert not unreadable, unreadable
