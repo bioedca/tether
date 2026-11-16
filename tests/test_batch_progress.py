@@ -180,6 +180,28 @@ def test_a_failing_display_never_costs_a_movie_its_stage(tmp_path) -> None:
     assert len(log.records) == 6
 
 
+def test_a_broken_stream_never_stops_the_run(tmp_path) -> None:
+    class Closed(io.StringIO):
+        def write(self, text):
+            raise BrokenPipeError("progress reader went away")
+
+    progress = TextProgress(Closed(), verbose=True)
+    # Called by the CLI before run_batch, so it must isolate its own failure (#648).
+    progress.run_started(n_movies=2, out_dir="out", policy="warn", idealize=True)
+    with BatchLog(on_event=progress.event) as log:
+        summary = run_batch(
+            _jobs(tmp_path, "a", "b"),
+            log=log,
+            progress=progress,
+            _extract=_extract_stub(),
+            _correct=_correct_stub(),
+            _idealize=_idealize_stub(),
+        )
+
+    assert summary.n_ok == 2
+    assert len(log.records) == 6
+
+
 @pytest.mark.parametrize(
     ("seconds", "text"),
     [(-1.0, "0.0s"), (3.25, "3.2s"), (59.9, "59.9s"), (65.0, "1m05s"), (7380.0, "2h03m")],

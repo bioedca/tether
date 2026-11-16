@@ -440,11 +440,17 @@ class TextProgress(BatchProgress):
     def run_started(
         self, *, n_movies: int, out_dir: str | Path, policy: str, idealize: bool
     ) -> None:
-        """State the run's setup before the first movie is read."""
+        """State the run's setup before the first movie is read.
+
+        The caller calls this itself, outside ``run_batch``, so it isolates its own
+        failure: a closed or broken stream must not stop the run from starting.
+        """
         state = "on" if idealize else "off"
-        self._write(
-            f"tether batch: {n_movies} movie(s) into {out_dir} (policy={policy}, idealize={state})"
-        )
+        with contextlib.suppress(Exception):
+            self._write(
+                f"tether batch: {n_movies} movie(s) into {out_dir} "
+                f"(policy={policy}, idealize={state})"
+            )
 
     def movie_started(self, index: int, total: int, job: MovieJob) -> None:
         """Print the movie's start line and begin timing it."""
