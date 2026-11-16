@@ -986,8 +986,11 @@ method, the limits and the measurements.
 | TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
 
 The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
-calculated from them can differ from a published one by the rounding of the two intensities. That
-bound, not a chosen number, is the limit. The workbook does not say which frames a histogram pools,
+calculated from them can differ from a published one by the rounding of the two intensities. The
+bound is the largest change of the efficiency over the rounding interval of both intensities, which
+takes in both the rounded and the unrounded denominator. Where the interval of `D + A` contains zero
+there is no finite bound, and that frame is not checked; no published value falls on such a frame.
+That bound, not a chosen number, is the limit. The workbook does not say which frames a histogram pools,
 so each test finds the windows in the trace matrix when it runs.
 
 **Differences the archive shows.** (1) tMAVEN's `optimize_double_surv` sorts the two rates and

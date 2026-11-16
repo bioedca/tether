@@ -97,6 +97,18 @@ def test_the_rounding_bound_covers_intensities_written_with_eight_digits() -> No
     assert np.max(ratio) > 0.1  # the bound is not loose by orders of magnitude
 
 
+def test_the_rounding_bound_holds_near_cancellation_and_is_infinite_at_zero() -> None:
+    # Two intensity pairs for which a first-order bound is too small (#1032 review).
+    donor = np.array([19.99999950000001, 1.999999951])
+    acceptor = np.array([-9.000000049999999, -1.999999949])
+    d8, a8 = _rounded(donor), _rounded(acceptor)
+    bound = rounding_bound(d8, a8)
+    change = np.abs(apparent_fret(d8, a8) - apparent_fret(donor, acceptor))
+    assert change[0] <= bound[0] < np.inf
+    # 2.0000000 + (-1.9999999): the interval of D + A contains zero, so nothing bounds E.
+    assert np.isinf(bound[1])
+
+
 def test_find_windows_finds_each_window_and_a_value_the_matrix_lost() -> None:
     rng = np.random.default_rng(1)
     donor = rng.uniform(20, 200, (300, 5))
@@ -150,6 +162,7 @@ def test_each_histogram_value_is_tethers_efficiency_of_one_frame(sheet: str) -> 
     if HISTOGRAMS[sheet] != "WT+NCCA_tRNA":
         assert got["not_found"] == 0, got
     assert got["max_bound_ratio"] <= LIMITS["bound_ratio"], got
+    assert got["unbounded_values"] == 0, got  # every value is held to a finite bound
     assert got["bins_differing"] == 0, got
 
 
@@ -162,6 +175,7 @@ def test_intrafret_histogram_values_are_tethers_first_400_frames(col: int) -> No
     # Every molecule matches; the files of the notebook start at frame 0, then at frame 1.
     assert [s for s, _ in got["start_groups"]] == [0, 1], got
     assert got["max_bound_ratio"] <= LIMITS["bound_ratio"], got
+    assert got["unbounded_values"] == 0, got  # every value is held to a finite bound
 
 
 @pytest.mark.reference_download

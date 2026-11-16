@@ -57,10 +57,15 @@ What is compared, with which limit, and where does it run?
 
 ### The method
 
-- **Efficiencies.** The rounding of `D` and `A` to 8 digits moves `E = A / (D + A)` by at most
-  `(|D| dA + |A| dD) / (D + A)^2`, where `dX` is half a unit in the 8th digit of `X`
-  (`tests/_campos_chavez_2024.py::rounding_bound`). Each published efficiency is held to
-  **deviation / bound <= 1**. The limit is the bound itself; the measured largest ratio is 0.91.
+- **Efficiencies.** Each intensity of the archive is its unrounded value to within `dX`, half a
+  unit in the 8th digit of `X`, so the unrounded pair lies in the box `[D - dD, D + dD] x
+  [A - dA, A + dA]`. While `D + A` keeps its sign on the box, `E = A / (D + A)` is monotonic in
+  each intensity, and the bound is the largest change of `E` at the four corners; both the rounded
+  and the unrounded denominator enter it (`tests/_campos_chavez_2024.py::rounding_bound`). Where the
+  interval of `D + A` contains zero, no finite bound exists: the bound is infinite and that frame
+  is not checked. Each published efficiency is held to **deviation / bound <= 1** where the bound
+  is finite. The limit is the bound itself; the measured largest ratio is 0.91, and no published
+  value falls on a frame without a finite bound.
 - **Histogram windows.** Each published value is located in the trace matrix within the bound, and a
   run of consecutive matching frames of one molecule is one window (`find_windows`). Tether's
   `apparent_fret` over the recovered windows, binned by `apparent_e_histogram`, must give the same

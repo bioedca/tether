@@ -141,20 +141,33 @@ def rounding_bound(donor: np.ndarray, acceptor: np.ndarray) -> np.ndarray:
     """Largest change of ``A / (D + A)`` that rounding ``D`` and ``A`` to 8 digits can cause.
 
     A value written as ``%.7e`` is off by at most half a unit in its 8th significant digit,
-    ``0.5 * 10**(floor(log10|x|) - 7)``. To first order the efficiency then moves by
-    ``(|D| dA + |A| dD) / (D + A)**2``. Two machine epsilons of the efficiency are added for the
-    division itself.
+    ``h(x) = 0.5 * 10**(floor(log10|x|) - 7)``, so the unrounded intensities lie in the box
+    ``[D - h(D), D + h(D)] x [A - h(A), A + h(A)]``. While ``D + A`` keeps its sign on that box,
+    the efficiency is monotonic in ``D`` for each ``A`` and in ``A`` for each ``D``, so its extremes
+    are at the four corners, and the bound is the largest corner difference (both denominators
+    enter it). Where the interval of ``D + A`` contains zero there is no finite bound and the value
+    is ``inf``: such a frame cannot be checked. Two machine epsilons of the efficiency are added for
+    the division itself.
     """
 
     def half_unit(x: np.ndarray) -> np.ndarray:
         a = np.abs(x)
         return 0.5 * 10.0 ** (np.floor(np.log10(np.where(a > 0, a, 1.0))) - 7)
 
+    hd, ha = half_unit(donor), half_unit(acceptor)
     with np.errstate(divide="ignore", invalid="ignore"):
         total = donor + acceptor
-        spread = np.abs(donor) * half_unit(acceptor) + np.abs(acceptor) * half_unit(donor)
-        first = spread / total**2
-        return first + 2 * EPS * np.abs(acceptor / total)
+        e = acceptor / total
+        worst = np.zeros(np.broadcast(donor, acceptor).shape)
+        for sd in (-1.0, 1.0):
+            for sa in (-1.0, 1.0):
+                a = acceptor + sa * ha
+                worst = np.maximum(worst, np.abs(a / (donor + sd * hd + a) - e))
+        bound = worst + 2 * EPS * np.abs(e)
+    # The sum D + A itself is off by a few epsilons of |D| + |A|; a margin of four keeps a box
+    # whose edge touches zero on the unbounded side.
+    margin = 4 * EPS * (np.abs(donor) + np.abs(acceptor))
+    return np.where(np.abs(total) - (hd + ha) > margin, bound, np.inf)
 
 
 def find_windows(
@@ -172,7 +185,7 @@ def find_windows(
     flat_bound = bound.T.ravel()
     order = np.argsort(flat)
     ordered = flat[order]
-    reach = float(np.nanmax(flat_bound[np.isfinite(flat)]))
+    reach = float(np.max(flat_bound[np.isfinite(flat) & np.isfinite(flat_bound)]))
     windows: list[tuple[int, int, int]] = []
     pos = 0
     while pos < values.size:
@@ -225,7 +238,9 @@ def compare_trace_sheet(rows: list[tuple]) -> dict:
             for h, c in (("Intensity Cy3", col - 2), ("Intensity Cy5", col - 1), (name, col))
         )
         got = apparent_fret(cy3, cy5)
-        worst = max(worst, float(np.max(np.abs(got - pub) / np.maximum(np.abs(pub), EPS))))
+        dev = np.abs(got - pub) / np.maximum(np.abs(pub), EPS)
+        # A non-finite efficiency (or published value) is a failure, not a value to skip.
+        worst = max(worst, float(np.max(dev)) if np.all(np.isfinite(dev)) else np.inf)
         n += pub.size
     return {"values": n, "max_rel": worst}
 
@@ -248,11 +263,13 @@ def compare_histogram(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
         pooled.append(e[seg, mol])
     pos = 0
     kept = []
+    unbounded = 0
     for mol, first, n in windows:
         if mol >= 0:
             seg = slice(first, first + n)
             dev = np.abs(e[seg, mol] - values[pos : pos + n]) / bound[seg, mol]
             ratio = max(ratio, float(np.max(dev)))
+            unbounded += int(np.sum(np.isinf(bound[seg, mol])))
             kept.append(values[pos : pos + n])
         pos += n
     tether = apparent_e_histogram(np.concatenate(pooled), density=False)
@@ -265,6 +282,7 @@ def compare_histogram(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
         "not_found": sum(1 for w in windows if w[0] < 0),
         "not_found_after_last_frame": lost_end,
         "max_bound_ratio": ratio,
+        "unbounded_values": unbounded,
         "bins_differing": int(np.sum(tether.counts != published)),
     }
 
@@ -281,6 +299,7 @@ def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
     blocks = values.reshape(-1, INTRAFRET_FRAMES)
     starts = []
     ratio = 0.0
+    unbounded = 0
     for mol, block in enumerate(blocks):
         found = None
         for first in (0, 1):
@@ -288,6 +307,7 @@ def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
             dev = float(np.max(np.abs(e[seg, mol] - block) / bound[seg, mol]))
             if dev <= 1.0 and found is None:
                 found, best = first, dev
+                unbounded += int(np.sum(np.isinf(bound[seg, mol])))
         starts.append(found)
         if found is not None:
             ratio = max(ratio, best)
@@ -302,6 +322,7 @@ def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
         "matrix_molecules": int(e.shape[1]),
         "start_groups": groups,
         "max_bound_ratio": ratio,
+        "unbounded_values": unbounded,
     }
 
 
