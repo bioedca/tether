@@ -164,8 +164,8 @@ describes.
 
 ## 8. Draw the population histogram
 
-Choose **Analysis → Population histogram…**. A **Population histogram** panel opens and the
-status bar reads:
+Choose **Analysis → Population histogram…**. The window goes to its **Analyze** section, a
+**Population histogram** panel opens, and the status bar reads:
 
 ```text
 Population histogram — 2 molecule(s), 48 frame(s)
@@ -173,7 +173,8 @@ Population histogram — 2 molecule(s), 48 frame(s)
 
 Two molecules, because the one you rejected is left out; 48 frames, because each of the two
 has 24. The histogram has two peaks, one near 0.25 and one near 0.75, the two FRET levels
-you saw in the traces.
+you saw in the traces. To go back to the traces, choose **View → Section → Curate and
+correct**.
 
 ## 9. Export the molecule table
 

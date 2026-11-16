@@ -36,15 +36,15 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
 ## 1. Look at the histogram in the window
 
 Open the project with `tether-gui movie.tether` and choose **Analysis → Population
-histogram…**. A panel opens with the histogram, and the status bar names how many molecules
-and frames went into it, for example:
+histogram…**. The window goes to its **Analyze** section and a panel opens with the
+histogram, and the status bar names how many molecules and frames went into it, for example:
 
 ```text
 Population histogram — 398 molecule(s), 71640 frame(s)
 ```
 
 Rejected molecules are left out. The panel is for looking; to save the plot as a figure, use
-the script below.
+the script below. **View → Section → Curate and correct** takes you back to the traces.
 
 ## 2. Make and save all three plots
 
