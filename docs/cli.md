@@ -456,14 +456,14 @@ These rules apply to all three forms:
   its `<file>.lock` file. You can export a project that another user has open.
 - **Every export writes a provenance file.** It is named after the export with
   `.provenance.json` added, and it records the Tether version, the source project and the
-  settings ([Provenance sidecar](reference/exports.md#provenance-sidecar)).
+  settings ([what the provenance file records](reference/exports.md#provenance-sidecar)).
 - **An existing file is kept.** If the export or its provenance file exists, the export
   stops with exit code `1` and tells you to give `--overwrite`.
 - **An input project is never a destination.** An output path that is the project
   itself, or a hard link to it, stops the export with exit code `1`:
   `subset out_path movie.tether is the source project; refusing to overwrite`. With several
   projects, every export and provenance file is checked against every project you gave, before
-  the first export starts; a match stops the command with exit code `1` and nothing written.
+  the first export starts. A match stops the command with exit code `1` and nothing written.
   So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
   second project with the subset of the first, even with `--overwrite`. The `<file>.lock` file
   of a project you gave is refused in the same way.
@@ -471,7 +471,7 @@ These rules apply to all three forms:
   makes the folder if necessary and names each export after its project: `<project>.csv`,
   `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
   name would write the same export (names that differ only in upper and lower case count as the
-  same), so that command stops with exit code `2` before it writes a file. A project that fails does not stop the others; the command then exits `1`.
+  same), so that command stops with exit code `2` before it writes a file. A project that fails does not stop the others, and the command then exits `1`.
 - **Each export prints one line,** the number of molecules and the path:
   `Exported 412 molecule(s) -> molecules.csv`.
 
@@ -541,7 +541,7 @@ tether export traces [-h] -o OUTPUT [--overwrite]
 | `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
 
 All molecules in one file share one frame axis. For a project that combines movies of
-different lengths, export one movie at a time with its `--molecule-key` values; otherwise the
+different lengths, export one movie at a time with its `--molecule-key` values. Otherwise the
 export stops with exit code `1` and names the frame ranges.
 
 ```bash

@@ -46,9 +46,9 @@ Four export entry points are public. The first three live in `tether.project.exp
 > **The first three also have a command.** `tether export table`, `tether export traces`
 > and `tether export subset` call `export_molecule_table_csv`, `export_deeplasi_txt` and
 > `export_subset_tether`, with one flag for each parameter
-> ([`tether export`](../cli.md#tether-export)); the file is the same. `export_figure` has no
+> ([`tether export`](../cli.md#tether-export)), and the file is the same. `export_figure` has no
 > command, and no module under `src/tether/gui/` references any of the four functions above.
-> Every snippet on this page is the Python call; the [how-to
+> Every snippet on this page is the Python call. The [how-to
 > page](../how-to/export-results.md) gives the commands first.
 
 The tMAVEN hand-off (`tether.project.handoff.hand_off_to_tmaven`, reachable from the GUI)
