@@ -32,6 +32,7 @@ import tifffile
 
 import tether.project.extract as extract_module
 from tether.imaging.extract import read_molecules
+from tether.project import lock
 from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
 
 _SHAPE = (64, 96)  # two 48-px-wide halves: donor | acceptor
@@ -191,6 +192,9 @@ def test_movie_changed_during_extraction_keeps_an_existing_project(
     extract_movie(movie, out)
     before = _file_sha256(out)
     _touch_during_extraction(monkeypatch, movie)
-    with pytest.raises(ExtractionError, match="movie changed during extraction"):
-        extract_movie(movie, out, overwrite=True)
+    with (
+        pytest.raises(ExtractionError, match="movie changed during extraction"),
+        lock.publish_lock(out) as guard,
+    ):
+        extract_movie(movie, out, overwrite=True, publish_guard=guard)
     assert _file_sha256(out) == before  # the earlier project is not replaced
