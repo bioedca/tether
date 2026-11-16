@@ -1,10 +1,10 @@
 ---
-description: "Run tether extract and tether batch without the window: script the pipeline, process movies unattended or repeat an extraction from recorded settings."
+description: "Run tether extract and tether batch without the application window: script the pipeline, run movies unattended or repeat an extraction."
 ---
 
 # Command line
 
-**Who this page is for.** Anyone driving Tether without the window: scripting the
+**Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
 extraction from recorded settings. Today the command line has three subcommands:
 `tether extract` and `tether batch` write projects, and `tether info` only reads them and
@@ -37,7 +37,7 @@ The installer deliberately does **not** edit your `PATH` (see
 is a bare word you can type. It writes both launchers into one directory — `bin/` under
 the install root you chose during installation:
 
-| Platform | Command-line launcher | Window launcher |
+| Platform | Command-line launcher | Application-window launcher |
 |---|---|---|
 | Windows | `<install-root>\bin\tether.bat` | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
@@ -123,7 +123,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
 > when the donor bleaches first both drop. A bleach event is a molecule whose dyes bleach
 > one after the other, with a clear drop in one channel and a clear rise in the other at the
-> first bleach. If the channel labelled donor shows the acceptor's drop in at least 80 % of
+> first bleach. If the channel labeled donor shows the acceptor's drop in at least 80 % of
 > at least 15 bleach events, the command warns on standard error, names the evidence and
 > gives the remedy:
 >
@@ -146,7 +146,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 >
 > **How to check by eye (the fallback).** Look at a molecule whose acceptor photobleaches
 > mid-trace. When the acceptor dies the donor stops transferring energy, so the *donor*
-> trace steps **up** at that moment. If instead the trace you have labelled "donor" steps
+> trace steps **up** at that moment. If instead the trace you have labeled "donor" steps
 > *down* while the other steps up, your halves are swapped — re-extract with the other
 > value.
 >
@@ -163,7 +163,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > `--tmap` run, and its warning then points at the map's channel order instead of at
 > `--donor-side`.
 
-`--detection-mode` and `--prealign` are refused in the same way: an unrecognised value
+`--detection-mode` and `--prealign` are refused in the same way: an unrecognized value
 gives the usage line, an `invalid choice` message that names the allowed values, and exit
 code 2. The three flags take their allowed values from the same constants that
 `ExtractOptions` checks (`tether.extract_choices`), so the command line and the library
@@ -267,7 +267,7 @@ destination lock before testing whether its project file exists or reading a che
 any existing writer lock, including one held by another thread in this process, fails
 that movie as locked without refreshing or releasing the caller's lock. A process-local
 per-destination reservation also prevents another local thread from refreshing that
-same-identity sidecar or writing through it. Both claims remain held while batch creates,
+same-identity lock file or writing through it. Both claims remain held while batch creates,
 skips, or re-extracts the destination.
 
 ### The donor-side check in the batch summary
@@ -455,7 +455,7 @@ worth reporting. From `tether batch` it means the run finished with at least one
 having a failed stage; fix those and re-run the same command to resume the rest.
 
 > **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
-> when the run starts, the default behaviour is to *defer* idealization: the stage is
+> when the run starts, the default behavior is to *defer* idealization: the stage is
 > recorded as `deferred`, which is not `failed`, so the run exits `0` having done
 > extraction and correction only. A script that treats `0` as "these projects are fully
 > idealized" will consume them too early. Re-run the same command once the sidecar is
