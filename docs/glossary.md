@@ -646,7 +646,10 @@ rather than partially read.
 
 ### provenance file
 
-The `<file>.provenance.json` file that every export writes beside its output. It records the
+The `.provenance.json` file that every export writes beside its output. A table or subset
+export names it after the whole output file (`molecules.csv.provenance.json` beside
+`molecules.csv`). A plot export writes one for all its formats and names it after the stem
+(`figure.provenance.json` beside `figure.png`, `figure.pdf` and `figure.svg`). It records the
 Tether version, the source project and the export's own parameters
 ([Provenance file](reference/exports.md#provenance-file)). It has no relation to the
 [sidecar](#sidecar) environment.
