@@ -38,7 +38,8 @@ question from the prequential walk: not *does the warm-started model help on the
 but *how well does the ranker generalize to an unseen video of this condition when it has
 seen all the rest* — the leave-one-group-out cross-validation that keeps every trace of the
 held-out video out of training, so traces of one video never sit on both sides of the split.
-It does not depend on the curation order, and it scores the first video too. Both protocols
+Which videos train each held-out scorer does not depend on the curation order, and it scores
+the first video too. Both protocols
 return a [`PrequentialResult`][] with the same median aggregate and the same ship-bar;
 ``protocol`` names which one produced it. The M5 ship gate (PRD §9 M5) stays the prequential
 one, which is the reloaded-model situation of PRD §7.5 / UC3.
@@ -329,9 +330,11 @@ def leave_one_video_out_uplift(
     ([`tether.ml.ranking.file_order_ranking`][]). The held-out video's own rows never reach the
     fit. A video whose other videos do not carry both accepted and rejected labels has no
     trainable prior and is reported in ``skipped_movie_ids``, never fabricated as a ``0``
-    uplift. Unlike [`prequential_uplift`][], the first video is scored as well, and the
-    per-video uplifts do not depend on the order of ``folds`` (only the order the result lists
-    them in does). See the module docstring.
+    uplift. Unlike [`prequential_uplift`][], the first video is scored as well, and each
+    video's prior holds the same rows whatever the order of ``folds``: only their order in the
+    prior follows ``folds``. So the per-video uplifts do not depend on fold order when
+    ``train_score_fn`` does not depend on the order of its rows; a trainer that does (one that
+    breaks ties by row position, say) can move them. See the module docstring.
 
     Parameters
     ----------

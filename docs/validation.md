@@ -604,8 +604,9 @@ an uplift in percentage points. Two protocols make that measurement
 - **Prequential** (interleaved test-then-train): each video is scored by a model trained on the
   videos curated before it. The first video is skipped. This is the ship gate.
 - **Leave-one-video-out**: each video is scored by a model trained on every other video of the
-  condition, never on itself. The first video is scored too, and the result does not depend on
-  the curation order. It is reported beside the gate, at the same bar.
+  condition, never on itself. The first video is scored too, and which videos train each
+  scorer does not depend on the curation order. It is reported beside the gate, at the same
+  bar. The store entry point evaluates one condition at a time.
 
 **Frozen tolerance.** `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py` — a
 Python constant, not a JSON artifact. Asserted exactly by
@@ -619,7 +620,7 @@ programmatic stores; no committed artifact records a precision@k uplift measured
 labelled video set (withheld, see the gap below). What is
 proven is that both *protocols* behave: the prequential walk skips the first video rather than
 scoring it against nothing, leave-one-video-out trains each video's scorer on exactly the other
-videos' rows and labels, a ranker equal to file order yields zero uplift and does not ship, a
+videos' rows and labels of one condition, a ranker equal to file order yields zero uplift and does not ship, a
 non-finite score raises instead of being ranked last, a video split over two folds raises, and
 a single-movie project raises rather than inventing a held-out video.
 
@@ -628,13 +629,14 @@ a single-movie project raises rather than inventing a held-out video.
 `test_ranker_equal_to_file_order_is_zero_uplift_not_shipped`,
 `test_no_trainable_prior_raises_never_fabricates`,
 `test_lovo_prior_is_every_other_video_never_itself`,
-`test_lovo_uplifts_do_not_depend_on_fold_order` and
+`test_lovo_priors_hold_the_same_rows_whatever_the_fold_order` and
 `test_lovo_duplicate_movie_id_raises`) and `tests/test_project_prequential.py`
 (store-integrated: `test_gate_ships_on_separable_multivideo`,
 `test_gate_uplift_is_held_out_not_apparent`, `test_custom_ship_bar_can_withhold_a_ship`,
 `test_single_movie_project_has_no_held_out_video`,
-`test_lovo_gate_ships_on_separable_multivideo` and
-`test_lovo_trains_on_every_other_video_never_itself`).
+`test_lovo_gate_ships_on_separable_multivideo`,
+`test_lovo_trains_on_every_other_video_never_itself` and
+`test_lovo_refuses_a_project_whose_labels_span_conditions`).
 
 > Gap, stated plainly. Both protocols exist, but neither has been measured on a real labelled
 > multi-video set. No curated multi-video project with accept/reject labels exists yet, so the

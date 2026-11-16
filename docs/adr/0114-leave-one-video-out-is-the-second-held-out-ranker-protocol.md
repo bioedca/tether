@@ -72,13 +72,18 @@ Chosen: **A**.
 - A video whose other videos do not carry both accepted and rejected labels is skipped. A set
   where no video can be tested (one video, or no two videos with both classes) raises. Two folds
   with one `movie_id` raise, because that video would train its own scorer.
-- The per-video uplifts do not depend on the order of the folds.
+- Each video's prior holds the same rows whatever the order of the folds; only their order in
+  the prior follows the folds. The per-video uplifts are therefore order-independent when the
+  trainer does not depend on row order, and the function does not promise more than that.
 - Both protocols return `PrequentialResult`. A new field `protocol` names the protocol
   (`"prequential"`, the default, or `"leave-one-video-out"`). The median and the ship-bar are
   the same.
 - `tether.project.prequential.ranker_leave_one_video_out_uplift(project, k, ...)` runs it on a
   `.tether` over the same per-video folds and the same gradient-boosting ranker as
-  `ranker_prequential_uplift`.
+  `ranker_prequential_uplift`, for **one condition**: it takes a `condition_id`, and it refuses
+  a project whose labelled molecules span several conditions when none is given, because the
+  ranker is per condition (PRD §7.5) and pooling would train a video's scorer on other
+  conditions.
 - **The M5 ship gate stays the prequential median.** Leave-one-video-out is reported beside it
   as the second held-out estimate of oracle (d), at the same bar.
 - **The real-data leg is withheld** under the data-gaps rule (PRD §9.1 item 8). No labelled

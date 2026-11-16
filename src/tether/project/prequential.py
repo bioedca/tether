@@ -61,14 +61,17 @@ def _to_str(value: object) -> str:
 
 def _folds_and_feature_names(
     project: ProjectRef,
-) -> tuple[list[VideoFold], tuple[str, ...]]:
+    condition_id: str | None = None,
+) -> tuple[list[VideoFold], tuple[str, ...], frozenset[str]]:
     """Group the project's labeled molecules into ordered per-video folds by ``movie_id``.
 
     Reads the ``/features`` ⋈ ``/labels`` supervised view ([`ranking_dataset`][]) and each
-    molecule's ``movie_id`` (``/molecules``), then buckets the **human-labeled** molecules into
-    one [`VideoFold`][tether.ml.prequential.VideoFold] per movie, preserving store order both across
-    movies (first-appearance = curation order) and within a movie (the file-order baseline
-    order). Uncurated molecules carry no ground truth and so are not fold members.
+    molecule's ``movie_id`` and ``condition_id`` (``/molecules``), then buckets the
+    **human-labeled** molecules into one [`VideoFold`][tether.ml.prequential.VideoFold] per movie,
+    preserving store order both across movies (first-appearance = curation order) and within a
+    movie (the file-order baseline order). Uncurated molecules carry no ground truth and so are
+    not fold members. With ``condition_id``, only that condition's labeled molecules are
+    bucketed. Also returns the conditions of the labeled molecules it bucketed.
     """
     from tether.imaging.extract import read_molecules
 
@@ -77,22 +80,28 @@ def _folds_and_feature_names(
 
     molecules = read_molecules(_project_path(project))
     movie_by_id = {
-        _to_str(mid): _to_str(movie)
-        for mid, movie in zip(molecules["molecule_id"], molecules["movie_id"], strict=True)
+        _to_str(mid): (_to_str(movie), _to_str(cond))
+        for mid, movie, cond in zip(
+            molecules["molecule_id"], molecules["movie_id"], molecules["condition_id"], strict=True
+        )
     }
 
     # Bucket labeled rows by movie, preserving the dataset's store order in both the movie
     # sequence (dict insertion order) and each movie's molecule list.
     rows_by_movie: dict[str, list[int]] = {}
+    conditions: set[str] = set()
     for i, mid in enumerate(data.molecule_ids):
         if mid not in is_good:
             continue
         try:
-            movie = movie_by_id[mid]
+            movie, cond = movie_by_id[mid]
         except KeyError:  # a featured+labeled molecule with no /molecules row is a broken store
             raise ValueError(
                 f"molecule_id {mid!r} has a feature/label row but no /molecules movie_id"
             ) from None
+        if condition_id is not None and cond != condition_id:
+            continue
+        conditions.add(cond)
         rows_by_movie.setdefault(movie, []).append(i)
 
     folds = [
@@ -104,7 +113,7 @@ def _folds_and_feature_names(
         )
         for movie, idxs in rows_by_movie.items()
     ]
-    return folds, data.feature_names
+    return folds, data.feature_names, frozenset(conditions)
 
 
 def prequential_folds(project: ProjectRef) -> list[VideoFold]:
@@ -163,7 +172,7 @@ def ranker_prequential_uplift(
         be held-out evaluated (fewer than two videos whose accumulated prior carries both
         classes — the median uplift is undefined, surfaced loudly).
     """
-    folds, train_score_fn = _folds_and_train_score_fn(project, hyperparams)
+    folds, train_score_fn, _ = _folds_and_train_score_fn(project, hyperparams)
     return prequential_uplift(folds, train_score_fn, k=k, ship_bar_pts=ship_bar_pts)
 
 
@@ -171,18 +180,20 @@ def ranker_leave_one_video_out_uplift(
     project: ProjectRef,
     k: int,
     *,
+    condition_id: str | None = None,
     ship_bar_pts: float = DEFAULT_SHIP_BAR_PTS,
     hyperparams: RankerHyperparams | None = None,
 ) -> PrequentialResult:
     """Leave-one-video-out precision@k uplift of the ranker across a project's videos (ADR-0114).
 
-    Groups the project's labeled molecules into the same per-video folds as
-    [`ranker_prequential_uplift`][], then, for each video, trains the gradient-boosting quality
-    ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on **every other** video and scores
-    the held-out one ([`tether.ml.prequential.leave_one_video_out_uplift`][]). Reports the
-    median-across-videos uplift over file order against the same ship-bar. The M5 ship gate
-    stays [`ranker_prequential_uplift`][]; this is the second held-out protocol of PRD §8
-    NFR-VALID (d). Read-only; trains no persisted model.
+    Groups one condition's labeled molecules into per-video folds, as
+    [`ranker_prequential_uplift`][] does, then, for each video, trains the gradient-boosting
+    quality ranker ([`tether.ml.gbranker.train_quality_ranker`][]) on **every other** video of
+    that condition and scores the held-out one
+    ([`tether.ml.prequential.leave_one_video_out_uplift`][]). Reports the median-across-videos
+    uplift over file order against the same ship-bar. The M5 ship gate stays
+    [`ranker_prequential_uplift`][]; this is the second held-out protocol of PRD §8 NFR-VALID
+    (d). Read-only; trains no persisted model.
 
     Parameters
     ----------
@@ -190,6 +201,11 @@ def ranker_leave_one_video_out_uplift(
         A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     k:
         The review-budget cutoff for precision@k (a positive integer; PRD §7.5).
+    condition_id:
+        The condition to evaluate. Required when the labeled molecules span more than one
+        condition: the ranker is per condition (PRD §7.5), and pooling conditions would train a
+        video's scorer on other conditions' videos. ``None`` (the default) evaluates the one
+        condition the labels hold.
     ship_bar_pts:
         The percentage-point median-uplift threshold (default
         [`tether.ml.prequential.DEFAULT_SHIP_BAR_PTS`][], the PRD §11.2 value).
@@ -207,20 +223,35 @@ def ranker_leave_one_video_out_uplift(
     KeyError
         No ``/features/table`` exists.
     ValueError
-        ``k`` is not a positive integer; the project has no labeled molecules; or no video could
-        be held-out evaluated (one video only, or no two videos' labels carry both classes).
+        ``k`` is not a positive integer; the labeled molecules span more than one condition and
+        no ``condition_id`` is given; the project (or the condition) has no labeled molecules;
+        or no video could be held-out evaluated (one video only, or no two videos' labels carry
+        both classes).
     """
-    folds, train_score_fn = _folds_and_train_score_fn(project, hyperparams)
+    folds, train_score_fn, conditions = _folds_and_train_score_fn(
+        project, hyperparams, condition_id=condition_id
+    )
+    if condition_id is None and len(conditions) > 1:
+        raise ValueError(
+            f"the labeled molecules span {len(conditions)} conditions "
+            f"({', '.join(sorted(conditions))}); leave-one-video-out evaluates one condition's "
+            "ranker, so pass condition_id"
+        )
     return leave_one_video_out_uplift(folds, train_score_fn, k=k, ship_bar_pts=ship_bar_pts)
 
 
-def _folds_and_train_score_fn(project: ProjectRef, hyperparams: RankerHyperparams | None):
-    """The project's per-video folds and the gradient-boosting ``train_score_fn`` for them."""
+def _folds_and_train_score_fn(
+    project: ProjectRef,
+    hyperparams: RankerHyperparams | None,
+    *,
+    condition_id: str | None = None,
+):
+    """The per-video folds, the gradient-boosting ``train_score_fn``, and the folds' conditions."""
     from tether.ml.gbranker import train_quality_ranker
 
-    folds, feature_names = _folds_and_feature_names(project)
+    folds, feature_names, conditions = _folds_and_feature_names(project, condition_id)
 
     def train_score_fn(x_prior: np.ndarray, y_prior: np.ndarray):
         return train_quality_ranker(x_prior, y_prior, feature_names, hyperparams=hyperparams).score
 
-    return folds, train_score_fn
+    return folds, train_score_fn, conditions

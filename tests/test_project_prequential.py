@@ -87,6 +87,7 @@ def _write_movie(
     acceptor: np.ndarray,
     *,
     create: bool,
+    filename: str | None = None,
 ) -> None:
     """Append one movie's molecules/traces to ``path`` (creating the store on the first call).
 
@@ -132,7 +133,7 @@ def _write_movie(
         movie=movie,
         molecules=mols,
         traces=traces,
-        parsed=_PARSED,
+        parsed=_PARSED if filename is None else parse_filename(filename),
         registration_map=_reg_map(),
     )
 
@@ -170,6 +171,7 @@ def _multi_movie_store(
     n_per_class: int,
     label: bool = True,
     bad_first_movies: frozenset[int] = frozenset(),
+    filenames: dict[int, str] | None = None,
 ) -> tuple[Project, np.ndarray]:
     """A ``.tether`` of ``n_movies`` separable videos; returns the project + store-order good mask.
 
@@ -183,7 +185,15 @@ def _multi_movie_store(
         donor, acceptor, good = _discriminable_traces(
             n_per_class, seed=17 + m, good_first=m not in bad_first_movies
         )
-        _write_movie(path, f"mov-{m}", f"{m + 1:064x}", donor, acceptor, create=(m == 0))
+        _write_movie(
+            path,
+            f"mov-{m}",
+            f"{m + 1:064x}",
+            donor,
+            acceptor,
+            create=(m == 0),
+            filename=(filenames or {}).get(m),
+        )
         goods.append(good)
     good_store_order = np.concatenate(goods)
 
@@ -418,3 +428,44 @@ def test_lovo_no_labels_raises(tmp_path) -> None:
     proj, _ = _multi_movie_store(tmp_path / "x.tether", n_movies=2, n_per_class=8, label=False)
     with pytest.raises(ValueError, match="no video folds"):
         ranker_leave_one_video_out_uplift(proj, k=8)
+
+
+_OTHER_CONDITION = "Bla_UCKOPSB_T-box_35pM_tRNA_900nM_010.tif"
+
+
+def test_lovo_refuses_a_project_whose_labels_span_conditions(tmp_path) -> None:
+    # One labelled video in each of two conditions: neither condition has a second video, so a
+    # pooled result would train each video's scorer on the other condition (Greptile on #1102).
+    proj, _ = _multi_movie_store(
+        tmp_path / "x.tether", n_movies=2, n_per_class=8, filenames={1: _OTHER_CONDITION}
+    )
+    with pytest.raises(ValueError, match="span 2 conditions"):
+        ranker_leave_one_video_out_uplift(proj, k=8)
+
+
+def test_lovo_condition_id_evaluates_that_condition_only(tmp_path, monkeypatch) -> None:
+    import tether.ml.gbranker as _gbranker  # noqa: PLC0415
+
+    other = parse_filename(_OTHER_CONDITION).condition_id
+    assert other != _PARSED.condition_id
+    proj, _ = _multi_movie_store(
+        tmp_path / "x.tether", n_movies=3, n_per_class=8, filenames={2: _OTHER_CONDITION}
+    )
+    seen_rows: list[int] = []
+    real_fit = _gbranker.train_quality_ranker
+
+    def _spy(x, y, feature_names, **kwargs):
+        seen_rows.append(int(np.asarray(x).shape[0]))
+        return real_fit(x, y, feature_names, **kwargs)
+
+    monkeypatch.setattr(_gbranker, "train_quality_ranker", _spy)
+    result = ranker_leave_one_video_out_uplift(proj, k=8, condition_id=_PARSED.condition_id)
+    assert [v.movie_id for v in result.per_video] == ["mov-0", "mov-1"]  # mov-2 is the other
+    assert seen_rows == [16, 16]  # each scorer saw the one other video of its own condition
+
+    # The other condition has one labelled video, so it has no held-out video of its own.
+    with pytest.raises(ValueError, match="no held-out video had a trainable prior"):
+        ranker_leave_one_video_out_uplift(proj, k=8, condition_id=other)
+    # A condition with no labelled molecule has no fold at all.
+    with pytest.raises(ValueError, match="no video folds"):
+        ranker_leave_one_video_out_uplift(proj, k=8, condition_id="cond-absent")

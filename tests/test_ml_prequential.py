@@ -298,16 +298,52 @@ def test_lovo_prior_labels_align_with_their_rows() -> None:
         np.testing.assert_array_equal(y_prior, x_prior[:, 0] == 1.0)  # truth row-for-row
 
 
-def test_lovo_uplifts_do_not_depend_on_fold_order() -> None:
+def _centroid(x_prior: np.ndarray, y_prior: np.ndarray):
+    """A scorer that learns from its prior and ignores its row order: the class-centroid axis."""
+    x_prior = np.asarray(x_prior, dtype=np.float64)
+    y_prior = np.asarray(y_prior, dtype=bool)
+    axis = x_prior[y_prior].mean(axis=0) - x_prior[~y_prior].mean(axis=0)
+    return lambda x: np.asarray(x, dtype=np.float64) @ axis
+
+
+def _two_feature_fold(movie_id: str, rows: list[tuple[float, float]], goods: list[bool]):
+    ids = tuple(f"{movie_id}-{i}" for i in range(len(goods)))
+    x = np.asarray(rows, dtype=np.float64)
+    return VideoFold(movie_id=movie_id, molecule_ids=ids, X=x, is_good=tuple(goods))
+
+
+def test_lovo_priors_hold_the_same_rows_whatever_the_fold_order() -> None:
+    # Only the order of the rows inside a prior follows the folds; which rows it holds does not.
     folds = [
-        _fold("v1", [0.0, 1.0], [False, True]),
-        _goods_last("v2"),
-        _fold("v3", [1.0, 0.0, 0.0], [True, False, False]),
+        _tagged("v1", 1.0, [False, True]),
+        _tagged("v2", 2.0, [False, False, True]),
+        _tagged("v3", 3.0, [True, False, True, False]),
     ]
-    forward = leave_one_video_out_uplift(folds, _perfect, k=2)
-    backward = leave_one_video_out_uplift(list(reversed(folds)), _perfect, k=2)
+    forward: list[np.ndarray] = []
+    backward: list[np.ndarray] = []
+    leave_one_video_out_uplift(folds, _recording_scorer(forward), k=2)
+    leave_one_video_out_uplift(list(reversed(folds)), _recording_scorer(backward), k=2)
+    for a, b in zip(forward, reversed(backward), strict=True):  # same held-out video
+        np.testing.assert_array_equal(np.unique(a, axis=0), np.unique(b, axis=0))
+        assert a.shape == b.shape
+
+
+def test_lovo_uplifts_do_not_depend_on_fold_order_for_an_order_free_trainer() -> None:
+    # The centroid scorer learns from its prior (feature 1 carries the signal in v1 and v2 and
+    # feature 0 in v3), so a change in which rows train a video's scorer would move its uplift.
+    folds = [
+        _two_feature_fold("v1", [(0.0, 0.0), (0.0, 1.0), (0.0, 0.0)], [False, True, False]),
+        _two_feature_fold("v2", [(0.5, 0.0), (0.0, 1.0)], [False, True]),
+        _two_feature_fold("v3", [(0.0, 0.0), (1.0, 0.2), (1.0, 0.1)], [False, True, True]),
+    ]
+    forward = leave_one_video_out_uplift(folds, _centroid, k=1)
+    backward = leave_one_video_out_uplift(list(reversed(folds)), _centroid, k=1)
     assert {v.movie_id: v for v in forward.per_video} == {v.movie_id: v for v in backward.per_video}
     assert forward.median_uplift_pts == pytest.approx(backward.median_uplift_pts)
+    # The scorer really learned: trained on v1 + v2 only, it ranks v3's goods first.
+    v3 = {v.movie_id: v for v in forward.per_video}["v3"]
+    assert v3.ranker == pytest.approx(1.0)
+    assert v3.baseline == pytest.approx(0.0)
 
 
 def test_lovo_ranker_equal_to_file_order_is_zero_uplift_not_shipped() -> None:
