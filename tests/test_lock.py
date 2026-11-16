@@ -1646,6 +1646,24 @@ def test_a_steal_through_an_alias_ousts_the_other_name(tmp_path: Path) -> None:
     assert not lock.lock_path(second).exists()
 
 
+def test_a_renewed_claim_after_an_alias_steal_still_releases_the_other_name(
+    tmp_path: Path,
+) -> None:
+    """A same-owner reclaim must not drop the names a steal took over."""
+    first, second = _hard_link_pair(tmp_path)
+    lock.acquire(first, identity=LockIdentity(host="OTHER", user="bob", pid=999))
+    stolen, _prior = lock.steal_lock(second)
+
+    renewed = lock.acquire(second)
+
+    assert renewed.nonce != stolen.nonce
+    assert lock.read_lock(first) == renewed
+    assert lock.release(second, renewed)
+    assert not lock.lock_path(first).exists()
+    with lock.publish_lock(first) as guard:
+        guard()
+
+
 def test_a_dead_identity_record_is_reaped(tmp_path: Path) -> None:
     """A record whose name no longer carries its nonce does not block another name."""
     first, second = _hard_link_pair(tmp_path)

@@ -1199,7 +1199,9 @@ def _claim(
 
     A live identity record from another spelling of the same file refuses the claim
     unless it is an explicit steal, which then takes over that spelling's lock too
-    (ADR-0112). ``prior`` is the ousted owner, for [`steal_lock`][].
+    (ADR-0112). A record from this spelling hands its taken-over names on to the new
+    claim, so a renewed claim still releases them. ``prior`` is the ousted owner, for
+    [`steal_lock`][].
     """
     lp = lock_path(project_path)
     with _identity_guard(project_path, claim=True) as rp:
@@ -1223,12 +1225,18 @@ def _claim(
                 allow_existing_owner=allow_existing_owner,
                 now=now,
             )
+        # An explicit steal takes over every name the record's owner holds; a
+        # claim through the record's own spelling carries those names forward,
+        # or the new nonce would leave them locked under the old one.
+        hand_over = record is not None and (
+            explicit_steal or _same_spelling(record.project, project_path)
+        )
         also: tuple[str, ...] = ()
         taken_over: tuple[str, ...] = ()
-        if record is not None and explicit_steal:
+        if record is not None and hand_over:
             taken_over = (record.project, *record.also)
         try:
-            if record is not None and explicit_steal:
+            if record is not None and hand_over:
                 if blocking and prior is None:
                     prior, _corrupt = _read_tolerant(lock_path(record.project))
                 also = tuple(

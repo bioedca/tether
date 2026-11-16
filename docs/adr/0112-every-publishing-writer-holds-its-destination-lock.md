@@ -125,7 +125,9 @@ other OneDrive machines see a writer only through `<file>.lock` beside the proje
   same process. `assert_writable` refuses another identity the same way, and `read_lock` on a name
   with no `<file>.lock` reports the holder, so the banner shows it.
 - **A steal through another name takes over the holder's name too**: the stealer's record lists
-  it, `release` and `refresh` reach it, and the ousted writer's nonce checks fail there.
+  it, `release` and `refresh` reach it, and the ousted writer's nonce checks fail there. A later
+  claim through the stealer's own name carries that list forward under its new nonce, so a renewed
+  claim still releases every name it holds.
 - **Reaping.** A dead record (its name's lock gone or holding another nonce) never blocks, is
   overwritten by the next claim, and `release` removes every record that carries its nonce (found
   by nonce, since a staged publish moves the file to a new identity) and every dead record. A
