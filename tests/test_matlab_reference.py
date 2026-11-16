@@ -146,6 +146,25 @@ def test_a_files_pin_checks_each_script_hash(tmp_path, traces) -> None:
         harness.verify_clone("lab", scripts, pins)
 
 
+def test_a_launcher_that_returns_before_the_job_writes_no_record(tmp_path, clone) -> None:
+    # The Windows launcher can return 0 before MATLAB has run the job (#714). MATLAB reports
+    # its release only after the task ends without an error, so the harness refuses.
+    tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": {"return_early": True}}}
+    pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
+    with pytest.raises(harness.HarnessError, match="did not report its MATLAB release"):
+        harness.run(
+            "x",
+            "t",
+            tasks,
+            clone=clone[0],
+            inputs={},
+            out=tmp_path / "o",
+            matlab=STANDIN,
+            pins=pins,
+        )
+    assert not (tmp_path / "o" / harness.RECORD).exists()
+
+
 def test_a_failed_run_writes_no_record(tmp_path, clone) -> None:
     tasks = {"t": {"dir": "smfret_analysis2", "entry": "e", "params": {"fail": True}}}
     pins = {"x": {"kind": "git", "url": "u", "commit": clone[1]}}
@@ -261,10 +280,18 @@ def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
         assert pins[tool]["url"].startswith("https://github.com/")
 
 
-def test_the_standin_is_a_python_script() -> None:
+def test_the_standin_is_a_python_script(monkeypatch) -> None:
     # The harness runs a ``.py`` --matlab with this interpreter; any other value is executed.
     assert harness._matlab_cmd(STANDIN) == [sys.executable, str(Path(STANDIN).resolve())]
+    monkeypatch.setattr(harness.sys, "platform", "linux")
     assert harness._matlab_cmd("matlab") == ["matlab"]
+
+
+def test_on_windows_the_launcher_waits_for_matlab(monkeypatch) -> None:
+    # bin\matlab.exe returns at once unless it is given -wait (#714); the stand-in needs none.
+    monkeypatch.setattr(harness.sys, "platform", "win32")
+    assert harness._matlab_cmd("matlab") == ["matlab", "-wait"]
+    assert harness._matlab_cmd(STANDIN) == [sys.executable, str(Path(STANDIN).resolve())]
 
 
 def test_a_relative_matlab_path_survives_the_temporary_working_directory(

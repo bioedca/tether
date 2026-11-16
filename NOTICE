@@ -12,7 +12,7 @@ Third-party software interoperation & attribution
 ================================================================================
 
 tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
-  Biophysical Journal 123(14):2179–2193, doi:10.1016/j.bpj.2024.01.022.
+  Biophysical Journal 123(17):2765–2780, doi:10.1016/j.bpj.2024.01.022.
   Upstream: https://github.com/GonzalezBiophysicsLab/tmaven  (pinned commit
   10f4230b6d13c6d2ad67b05d801696b4a40eff4a).
   Tether DOES NOT vendor tMAVEN. It runs an *isolated tMAVEN sidecar* in its own
@@ -21,6 +21,17 @@ tMAVEN  (GPL-3.0)  — Verma, Ray, Bodick, Kinz-Thompson & Gonzalez (2024),
   own GPL-3.0 license text alongside Tether's, and the SBOM lists the sidecar as a
   distinct, attributed component (PRD §12.1, §12.8, §9 M9).
 
+GitHub CLI (`gh`)  (MIT)  — Copyright (c) 2019 GitHub Inc.
+  Upstream: https://github.com/cli/cli . The desktop installers BUNDLE the unmodified
+  upstream release binary for each platform as the in-app updater's verifier
+  (`gh attestation verify --bundle`, ADR-0060; issue #332). It is installed to
+  <prefix>/verifier/gh/ and is never put on PATH. The version and the SHA-256 of each
+  upstream archive are pinned in packaging/gh-verifier.toml. Beside the binary the
+  installer ships gh's own MIT LICENSE and THIRD-PARTY-LICENSES.txt, the license
+  notices of the Go modules compiled into it, as `gh licenses` prints them at build
+  time. gh is not part of Tether's source tree, and nothing of it is in this
+  repository.
+
 --------------------------------------------------------------------------------
 Bundled reference data (redistributed under its own license)
 --------------------------------------------------------------------------------
@@ -28,7 +39,8 @@ Bundled reference data (redistributed under its own license)
 kinSoftChallenge simulated datasets  (CC-BY-4.0)  — Götz, Barth, Bohr, et al.,
   "A blind benchmark of analysis tools to infer kinetic rate constants from
   single-molecule FRET trajectories," Nature Communications 13:5402 (2022),
-  doi:10.1038/s41467-022-33023-3. Data: Götz M & Schmid S, Zenodo
+  doi:10.1038/s41467-022-33023-3. Data: Götz M & Schmid S, "Datasets and
+  Simulator of the kinSoftChallenge & related article," Zenodo
   doi:10.5281/zenodo.5701310 (CC-BY-4.0).
   Tether bundles a repacked slice of the three *simulated* datasets
   (sim_dataset_Fig2/3/4) as the gated-tier fixture
@@ -267,6 +279,19 @@ Ha laboratory SAM/SAH riboswitch data  (CC-BY-4.0)  — Liao T-W, Huang L,
     tests/fixtures/ha_sam_sah/test3.dat
     tests/fixtures/ha_sam_sah/counts2.txt
 
+Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
+  Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
+  preferred states of complementary trinucleotide repeat DNA hairpins
+  anticorrelates with expansion disease propensity," Journal of Molecular
+  Biology 435(10):168086 (2023), doi:10.1016/j.jmb.2023.168086. Data: Zenodo
+  doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc
+  (CC0-1.0).
+  Tether bundles a verbatim copy of one .traces movie of the record's archive,
+  used only as a test reference for the second .traces variant (#798). It is
+  dedicated to the public domain under CC0-1.0 (see LICENSES/CC0-1.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; Tether names the authors as a courtesy:
+    tests/fixtures/weninger_hairpin/cascade110.traces
+
 PySMACKS tutorial traces  (CC0-1.0)  — Molcrette B & Schmid S, "Dataset for the
   PySMACKS tutorial" (v1.0.0), Zenodo doi:10.5281/zenodo.21793247 (CC0-1.0).
   Tether does not bundle the traces: the weekly reference-data job downloads
@@ -322,6 +347,21 @@ Measured PPR-RNA and Hsp70/Hsp90 smFRET traces  (CC-BY-4.0)  — Marzano N, et a
   CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the REUSE.toml annotation), NOT
   GPL-3.0; attribution to Marzano et al. travels with them.
 
+Group IIB intron smFRET data  (CC-BY-4.0)  — Zelger-Paulus S, Hadzic MCAS,
+  Lindner L, Börner R, Steffen F, Fazliji B, Johannsen S & Sigel R, Zenodo
+  doi:10.5281/zenodo.24104528 (2026), the data of "Cis-exons shape the
+  conformational landscape and Mg2+ response of a group IIB intron."
+  Tether bundles an extract of one MASH-FRET project file of the record,
+  tests/fixtures/mashfret_ed135e_30mm_extract.mat (scripts/make_mashfret_fixture.py
+  keeps 18 of its 119 molecules and leaves out the raw intensities and the
+  project's paths; it changes no value), used only as a MASH-FRET reference for
+  Tether's leakage and gamma-corrected FRET (#711, ADR-0087), and a second extract,
+  tests/fixtures/mashfret_ed135e_30mm_path_a.mat (the 17 molecules of one tag with
+  MASH-FRET's histogram, state and dwell results for it; it changes no value), used
+  only as a MASH-FRET reference for Tether's FRET histogram and idealization (#712,
+  ADR-0101). These files are licensed CC-BY-4.0 (see LICENSES/CC-BY-4.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; attribution to the authors travels with them.
+
 --------------------------------------------------------------------------------
 Bundled font (redistributed under its own license)
 --------------------------------------------------------------------------------
@@ -362,7 +402,9 @@ Deep-LASI  — Wanninger, Asadiatouei, Bohlen, Salem, Tinnefeld, Ploetz & Lamb
 MASH-FRET  — Börner, Kowerko, Hadzic, König, Ritter & Sigel (2018),
   PLoS ONE 13(4):e0195277, doi:10.1371/journal.pone.0195277.
   Consulted as a simulation / methodology reference (PRD Appendix references);
-  no MASH-FRET source is included.
+  no MASH-FRET source is included. Its simulator (v1.3.6) made the simulated
+  videos and truth under tests/fixtures/reference/mash-fret/ (#714, ADR-0088);
+  those files are outputs of a run, not MASH-FRET source.
 
 SMD (Single-Molecule Dataset) format — Greenfeld, van de Meent, Pavlichin,
   Mabuchi, Wiggins, Gonzalez & Herschlag (2015), BMC Bioinformatics 16:3,

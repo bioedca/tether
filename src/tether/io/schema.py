@@ -3,13 +3,13 @@
 """The frozen ``.tether`` HDF5 project-store skeleton (PRD §5, §9 M0).
 
 This module is the **single source of truth** for the project-store structure.
-:func:`create_project` writes a fresh ``.tether`` with the *entire* §5.1 group
+[`create_project`][] writes a fresh ``.tether`` with the *entire* §5.1 group
 skeleton forward-declared and version-stamped, so that every later milestone adds
 *data*, not *structure* (the M0 schema freeze, PRD §9 M0 / §12.6).
 
 The keystone invariant — **additive-only after M0** — is enforced mechanically by
-the ``schema-guard`` CI gate: :func:`build_manifest` dumps the structure this code
-declares and :func:`diff_manifest` compares it to the committed golden manifest
+the ``schema-guard`` CI gate: [`build_manifest`][] dumps the structure this code
+declares and [`diff_manifest`][] compares it to the committed golden manifest
 ``schema/schema_frozen.json``. Adding a group, dataset, or field passes; removing,
 renaming, or changing the dtype/shape of a frozen field fails (naming the field),
 and the monotonic ``schema_version`` may never decrease. A deliberate structural
@@ -248,7 +248,7 @@ def assert_compatible(file_version: int) -> None:
     Raises
     ------
     ValueError
-        If ``file_version`` exceeds :data:`SCHEMA_VERSION`.
+        If ``file_version`` exceeds [`SCHEMA_VERSION`][].
     """
     if file_version > SCHEMA_VERSION:
         raise ValueError(
@@ -260,7 +260,7 @@ def assert_compatible(file_version: int) -> None:
 def _missing_skeleton(f: h5py.File) -> list[str]:
     """Return the frozen top-level §5.1 skeleton paths absent from an open file.
 
-    Validates only the *top-level* structure :func:`create_project` writes — the
+    Validates only the *top-level* structure [`create_project`][] writes — the
     rich-entity groups + their 0-row ``table`` datasets and the empty container
     groups — using the same single-source-of-truth constants. (Deep field-level
     structure is the separate ``schema-guard`` gate's job, on the *writer*.)
@@ -282,10 +282,10 @@ def assert_is_compatible_project(path: str | Path) -> int:
     """Validate that ``path`` is a readable, complete, compatible ``.tether`` store.
 
     Checks, in this order: the file is HDF5-readable; its root ``format`` attribute
-    is the :data:`FORMAT_TAG` marker; a ``schema_version`` stamp is present; the
+    is the [`FORMAT_TAG`][] marker; a ``schema_version`` stamp is present; the
     frozen §5.1 top-level skeleton is present (so a foreign **or truncated** HDF5
     file is rejected, not silently accepted as a project); and that version is not
-    newer than this app (:func:`assert_compatible`, PRD §5.4). The stamp is checked
+    newer than this app ([`assert_compatible`][], PRD §5.4). The stamp is checked
     **before** the skeleton, so a stamp-less file reports the missing stamp rather
     than the missing groups. Returns the on-disk ``schema_version``.
 

@@ -28,8 +28,8 @@ imported ``.tmap``"):
   (accept-with-flag, never drop) so a sample movie whose residual exceeds the §11.2
   RMS gate is tagged ``low-confidence-registration`` rather than rejected (ADR-0014);
 * **imported** -- pass ``tmap=<path>`` to apply Deep-LASI's own ``.tmap`` via
-  :func:`tether.imaging.register.read_tmap` ->
-  :func:`tether.imaging.calibrate.registration_map_from_tmap`. This skips the native
+  [`tether.imaging.register.read_tmap`][] ->
+  [`tether.imaging.calibrate.registration_map_from_tmap`][]. This skips the native
   detect/prealign/pair/fit and splits + reads at the ``.tmap``'s stored per-channel
   crop geometry (so ``options.donor_side`` is ignored). An imported bead-fitted map
   is trusted as-is: with no sample-movie control points to measure against, its
@@ -43,8 +43,8 @@ is **refused** (a clean ``ExtractionError``) rather than silently split at the w
 frame; the UCKOPSB calibration map stores neither, so only the crop is needed.
 
 After the traces are integrated, an advisory check reads the acceptor-bleach steps for
-the signature of swapped donor and acceptor halves (:mod:`tether.imaging.side_check`,
-#646, ADR-0070). Its verdict is returned in :class:`ExtractionSummary` and stored in
+the signature of swapped donor and acceptor halves ([`tether.imaging.side_check`][],
+#646, ADR-0070). Its verdict is returned in [`ExtractionSummary`][] and stored in
 ``/settings/extraction``; it never changes the data and never fails the extraction.
 
 Scope note (M1 S9 split): the extraction-vs-Deep-LASI acceptance oracle (recall /
@@ -70,6 +70,7 @@ from uuid import uuid4
 # stack never loads for a bare ``tether --version`` (which imports only
 # ``tether.cli``). Keep it out of ``tether.project.__init__`` for the same reason.
 from tether import __version__
+from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
     RegistrationMap,
@@ -78,7 +79,7 @@ from tether.imaging.calibrate import (
     write_calibration,
 )
 from tether.imaging.coloc import colocalize
-from tether.imaging.detect import ParticleDetectionMode, detect_spots_by_mode, detection_image
+from tether.imaging.detect import detect_spots_by_mode, detection_image
 from tether.imaging.extract import (
     MoleculeTraces,
     MovieMetadata,
@@ -119,7 +120,7 @@ class ExtractionError(Exception):
 
 @dataclass(frozen=True)
 class ExtractOptions:
-    """Tunables for :func:`extract_movie` (PRD §11.2; defaults mirror the library).
+    """Tunables for [`extract_movie`][] (PRD §11.2; defaults mirror the library).
 
     Every field is recorded verbatim into ``/settings/extraction`` for
     reproducibility (NFR-REPRO), so the defaults here are the pinned CLI contract
@@ -148,12 +149,14 @@ class ExtractOptions:
         # Validate every operator-actionable tunable here so bad CLI input fails
         # with a clean ExtractionError (-> exit 1 + stderr) rather than a raw
         # ValueError from deep in a primitive (the "never a raw traceback" contract).
-        if self.donor_side not in ("left", "right"):
+        # The allowed values are the tuples the CLI also gives argparse as `choices`
+        # (#654), so the CLI refuses a wrong one at parse time; these checks still
+        # guard the library API and the GUI.
+        if self.donor_side not in DONOR_SIDES:
             raise ExtractionError(f"donor_side must be 'left' or 'right', got {self.donor_side!r}")
-        valid_modes = tuple(m.value for m in ParticleDetectionMode)
-        if self.detection_mode not in valid_modes:
+        if self.detection_mode not in DETECTION_MODES:
             raise ExtractionError(
-                f"detection_mode must be one of {valid_modes}, got {self.detection_mode!r}"
+                f"detection_mode must be one of {DETECTION_MODES}, got {self.detection_mode!r}"
             )
         # The detection threshold (Deep-LASI ``DetectionThreshold``) is consumed only
         # by the intensity/bandpass detectors; ``None`` lets each mode use its own
@@ -171,7 +174,7 @@ class ExtractOptions:
         # positive.
         if self.min_separation is not None and not self.min_separation > 0:
             raise ExtractionError(f"min_separation must be > 0, got {self.min_separation}")
-        if self.prealign not in ("translation", "similarity"):
+        if self.prealign not in PREALIGN_MODES:
             raise ExtractionError(
                 f"prealign must be 'translation' or 'similarity', got {self.prealign!r}"
             )
@@ -202,7 +205,7 @@ class ExtractOptions:
 
 @dataclass(frozen=True)
 class ExtractionSummary:
-    """The outcome of one :func:`extract_movie` run (returned to the CLI)."""
+    """The outcome of one [`extract_movie`][] run (returned to the CLI)."""
 
     output_path: Path
     movie_id: str
@@ -221,7 +224,7 @@ class ExtractionSummary:
 def _half_split_geometry(
     width: int, height: int, donor_side: str
 ) -> tuple[ChannelGeometry, ChannelGeometry]:
-    """Build donor/acceptor :class:`ChannelGeometry` for a vertical L/R split.
+    """Build donor/acceptor [`ChannelGeometry`][] for a vertical L/R split.
 
     Both halves are cropped to the *same* width ``width // 2`` (a trailing odd
     column is dropped) so the per-half detection images share a shape — a
@@ -239,9 +242,9 @@ def _half_split_geometry(
 def _hash_movie(path: Path) -> tuple[str, int, float]:
     """Return ``(sha256_hex, file_size, mtime)`` — the movie's content identity.
 
-    The full SHA-256 feeds :func:`tether.imaging.extract.molecule_key` (the
+    The full SHA-256 feeds [`tether.imaging.extract.molecule_key`][] (the
     cross-file molecule identity, §5.1/§7.10); ``file_size``/``mtime`` populate
-    the relocation-robust fast-signature fields of :class:`MovieMetadata`.
+    the relocation-robust fast-signature fields of [`MovieMetadata`][].
     """
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -305,8 +308,8 @@ def _apply_tdat_detection(
     and returns a copy of ``options`` with ``detection_mode`` /
     ``detection_threshold`` replaced, so a re-extraction reproduces the method the
     movie was actually detected with (NFR-REPRO). The decoded mode is re-validated
-    by :class:`ExtractOptions`. Any decode failure becomes a clean
-    ``.tdat``-centric :class:`ExtractionError`.
+    by [`ExtractOptions`][]. Any decode failure becomes a clean
+    ``.tdat``-centric [`ExtractionError`][].
     """
     try:
         detection = read_detection_settings(tdat_path)
@@ -332,7 +335,7 @@ def _detect_channels(
     Both halves are detected with the same selected mode/threshold
     (``options.detection_mode`` / ``options.detection_threshold``, PRD §11.2); the
     default ``wavelet`` + ``None`` reproduces the historical à trous detection
-    exactly (:func:`detect_spots_by_mode` forwards each mode's faithful default).
+    exactly ([`detect_spots_by_mode`][] forwards each mode's faithful default).
     """
     donor_det = detection_image(donor_stack, block=options.detection_block)
     acceptor_det = detection_image(acceptor_stack, block=options.detection_block)
@@ -352,10 +355,10 @@ def _detect_channels(
 
 
 def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> RegistrationMap:
-    """Decode a ``.tmap`` and build the imported :class:`RegistrationMap`.
+    """Decode a ``.tmap`` and build the imported [`RegistrationMap`][].
 
-    Wraps :func:`read_tmap` + :func:`registration_map_from_tmap` and translates any
-    decode/build failure into a clean, ``.tmap``-centric :class:`ExtractionError`
+    Wraps [`read_tmap`][] + [`registration_map_from_tmap`][] and translates any
+    decode/build failure into a clean, ``.tmap``-centric [`ExtractionError`][]
     (the "never a raw traceback" contract). No sample-movie control points are
     supplied, so the imported map's residual stays unknown (NaN) and the bead-fitted
     calibration is trusted as-is -- it never trips the over-gate flag.
@@ -405,7 +408,7 @@ def extract_movie(
         Destination ``.tether`` project; created fresh (must not exist unless
         ``overwrite``).
     options:
-        Pipeline tunables (defaults: :class:`ExtractOptions`).
+        Pipeline tunables (defaults: [`ExtractOptions`][]).
     tmap:
         Optional path to a Deep-LASI ``.tmap``. When given, registration is
         **imported** from it (the native detect/prealign/pair/fit is skipped); the

@@ -4,19 +4,19 @@
 
 The **headless** writer behind the M5 quality ranker's feature layer (PRD §7.5):
 it reads a project's extracted molecules + traces, reduces each to its
-trace-derived :class:`~tether.ml.features.TraceFeatures`
-(:func:`tether.ml.features.compute_trace_features`) plus its spatial-crowding
-:class:`~tether.ml.features.SpatialFeatures`
-(:func:`tether.ml.features.compute_spatial_features`, a population function over the
+trace-derived [`TraceFeatures`][tether.ml.features.TraceFeatures]
+([`tether.ml.features.compute_trace_features`][]) plus its spatial-crowding
+[`SpatialFeatures`][tether.ml.features.SpatialFeatures]
+([`tether.ml.features.compute_spatial_features`][], a population function over the
 same-movie neighbours), and writes both blocks as a compound ``/features/table``
-dataset in :data:`~tether.ml.features.FEATURE_NAMES` order.
+dataset in [`FEATURE_NAMES`][tether.ml.features.FEATURE_NAMES] order.
 
 ``/features`` is one of the M0-frozen empty **container** groups
-(:mod:`tether.io.schema`); a ``table`` dataset written under it is additive
+([`tether.io.schema`][]); a ``table`` dataset written under it is additive
 per-record **data**, never a structural change, so the ``schema-guard`` freeze
-holds (the guard introspects a fresh :func:`~tether.io.schema.create_project`,
+holds (the guard introspects a fresh [`create_project`][tether.io.schema.create_project],
 which never contains a ``/features/table`` — ADR-0005). The feature table is a
-**derived, recomputable cache** of the traces: :func:`compute_features` recomputes
+**derived, recomputable cache** of the traces: [`compute_features`][] recomputes
 and replaces it wholesale (``overwrite=True`` by default), so a crashed write
 loses only a re-derivable cache, never source data.
 
@@ -24,7 +24,7 @@ Selection contract. Features are a **per-molecule property**, so by default they
 are computed for *every* extracted molecule — including rejected ones
 (``include_rejected=True``): a reject is the ranker's negative training label, and
 its features are that label's input. This deliberately differs from the analysis
-population views (:mod:`tether.analysis`), which drop rejected molecules by
+population views ([`tether.analysis`][]), which drop rejected molecules by
 default.
 """
 
@@ -136,7 +136,7 @@ def _windowed_rows(
     """Per-selected-molecule ``(molecule_id, molecule_key, donor, acceptor)``.
 
     The identity-carrying analog of
-    :func:`tether.analysis._store.windowed_channels`: reads ``/molecules`` +
+    `tether.analysis._store.windowed_channels`: reads ``/molecules`` +
     ``/traces`` once, keeps every molecule by default (``include_rejected=True`` —
     features are computed for rejected molecules too), optionally intersects with
     ``molecule_keys``, and slices each kept molecule to its ``analysis_window``
@@ -195,7 +195,7 @@ def windowed_traces(
     """Per-molecule ``(molecule_id, molecule_key, windowed donor, windowed acceptor)`` (FR-ML).
 
     The public, ``ProjectRef``-accepting form of the shared window-slicing primitive that both
-    :func:`compute_features` and :func:`tether.project.deep_dataset.build_deep_dataset` read:
+    [`compute_features`][] and [`tether.project.deep_dataset.build_deep_dataset`][] read:
     each kept molecule (``include_rejected=True`` by default — a reject is an ML training label)
     sliced to its ``analysis_window`` (falling back to ``frame_range`` when unset ``[0, 0]``),
     keyed by the **unique** ``molecule_id`` so the trace can never be mis-joined. Read-only.
@@ -266,7 +266,7 @@ def compute_features(
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_keys:
         The molecules to feature (``None`` = every extracted molecule). A key
         absent from ``/molecules`` is skipped (features are a bulk derived cache,
@@ -284,7 +284,7 @@ def compute_features(
     Returns
     -------
     StoredFeatures
-        The computed features (also readable back via :func:`feature_matrix`).
+        The computed features (also readable back via [`feature_matrix`][]).
 
     Raises
     ------
@@ -398,7 +398,7 @@ def _write_features_table(
 def read_features(project: ProjectRef) -> np.ndarray:
     """Read ``/features/table`` back as a structured array (a copy, store order).
 
-    Raises :class:`KeyError` if no feature table has been written.
+    Raises [`KeyError`][] if no feature table has been written.
     """
     import h5py
 
@@ -414,14 +414,14 @@ def read_features(project: ProjectRef) -> np.ndarray:
 
 
 def feature_matrix(project: ProjectRef) -> StoredFeatures:
-    """Read the stored features into a :class:`StoredFeatures` (ranker-ready matrix).
+    """Read the stored features into a [`StoredFeatures`][] (ranker-ready matrix).
 
     Reconstructs the ``(n_molecules, n_features)`` ``float64`` matrix from the stored
     columns in the table's recorded ``feature_names`` order, so the matrix column
-    order is authoritative even if :data:`~tether.ml.features.FEATURE_NAMES` later
+    order is authoritative even if [`FEATURE_NAMES`][tether.ml.features.FEATURE_NAMES] later
     grows (a stale cache is read faithfully, then recomputed on demand).
 
-    Raises :class:`KeyError` if no feature table has been written.
+    Raises [`KeyError`][] if no feature table has been written.
     """
     import h5py
 
@@ -462,9 +462,9 @@ def feature_matrix(project: ProjectRef) -> StoredFeatures:
 def build_project_similarity_index(project: ProjectRef) -> SimilarityIndex:
     """Read ``/features/table`` and build a feature-space similarity index (FR-ML).
 
-    The store-integrated entry to :func:`tether.ml.similarity.build_similarity_index`:
+    The store-integrated entry to [`tether.ml.similarity.build_similarity_index`][]:
     the curation dock builds this once per condition/video and reuses it across queries.
-    Read-only; raises :class:`KeyError` if no feature table has been written.
+    Read-only; raises [`KeyError`][] if no feature table has been written.
     """
     from tether.ml.similarity import build_similarity_index
 
@@ -476,7 +476,7 @@ def similar_molecules(
 ) -> list[Neighbor]:
     """Rank a project's molecules by feature similarity to ``molecule_id`` ("like this").
 
-    Reads the stored engineered features (:func:`feature_matrix`), standardizes them, and
+    Reads the stored engineered features ([`feature_matrix`][]), standardizes them, and
     returns the nearest feature-space neighbours of ``molecule_id`` ranked by distance —
     the store-integrated "find traces like these". Ranking only: no molecule is dropped
     or modified.
@@ -484,7 +484,7 @@ def similar_molecules(
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     molecule_id:
         The reference molecule's unique id (a ``molecule_id`` from ``/features/table``).
     k:
