@@ -59,7 +59,7 @@ Chosen option 4.
 | Check | Neutral ids | Why these |
 |---|---|---|
 | Spots and traces (oracle (a) scorer, ADR-0022 limits) | `lab-01` (as before, `tests/test_oracle.py`), `lab-02` to `lab-08`, `lab-10`, `lab-12` | movie, map file, saved Deep-LASI state (`.tdat`) and `.mat` export are all on the workstation |
-| Corrected FRET (numbers, no limit) | the ids above, `lab-13`, `dlexp-01`, `dlexp-02` | each has a `.mat` export with per-molecule factors `b` and `g` |
+| Corrected FRET (numbers, no limit) | the ids above, `lab-13`, `dlexp-01`, `dlexp-02` | each has a `.mat` export with per-molecule factors `b` and `g` (`lab-07` has `b` only) |
 | Scripted rerun of video 010 | `lab-01` | the feasibility case of #715 |
 
 Not used: `lab-09` and `lab-11` have no Deep-LASI export. `lab-13`'s export comes from a movie
@@ -79,6 +79,36 @@ A changed file fails the check with its id and role, never its name.
   its own issue. It is never a reason to change a limit, to remove an acquisition, or to mark
   the check as an expected failure. A change to the limits or to this list of acquisitions needs
   a separate maintainer decision in its own record.
+
+### Measured on 2026-11-16
+
+The first run on the workstation, from a clone of #1109 at `761c2a8`:
+
+| id | recall at 2 px | donor Pearson | position RMS (px) | result |
+|---|---|---|---|---|
+| `lab-02` | 0.650 | 1.000 | 0.515 | fails; [#1114](https://github.com/bioedca/tether/issues/1114) |
+| `lab-03` | 0.992 | 0.980 | 0.140 | passes |
+| `lab-04` | 1.000 | 0.978 | 0.122 | passes |
+| `lab-05` | 0.996 | 0.976 | 0.000 | passes |
+| `lab-06` | 1.000 | 0.984 | 0.038 | passes |
+| `lab-07` | 0.993 | 0.983 | 0.000 | passes |
+| `lab-08` | 1.000 | 0.986 | 0.056 | passes |
+| `lab-10` | 0.000 | — | — | fails; the movie is turned against its map ([#887](https://github.com/bioedca/tether/issues/887)) |
+| `lab-12` | 0.041 | 0.298 | 1.581 | fails; the movie is turned against its map ([#887](https://github.com/bioedca/tether/issues/887)) |
+
+These failures are what the rule above is for: each has its issue, and no limit or id changed.
+
+The corrected-FRET numbers of the comparable exports are on
+[#546](https://github.com/bioedca/tether/issues/546), the deferred γ-against-Deep-LASI leg. Seven
+exports give no comparison, and the numbers record why: `lab-07` has no finite `g`; for
+`lab-08`, `dlexp-01` and `dlexp-02` Tether withholds γ, and for `lab-10`, `lab-12` and `lab-13`
+(19 to 49 molecules) it withholds α, by its own rule of too few qualifying traces. An empty
+comparison is recorded, not failed. The ADR-0028 identity is asserted wherever the export has
+factors.
+
+No file records the Deep-LASI commit that made a window export: at the pinned commit the version
+that an export states (`exportedby`) is a constant, so each `window` record says "commit not
+recorded".
 
 ### Where each reference comes from
 
@@ -115,7 +145,8 @@ detection, the tail leakage α, and the acceptor-bleach γ. It compares the per-
 FRET with Deep-LASI's formula on the export's own factors:
 `E = (A − bD) / ((A − bD) + g(1 + b)D)`. Tether's formula with α = `b` and γ = `g(1 + b)` is
 the same expression (ADR-0028), and the check asserts that to rounding (`PARITY_ATOL` = 1e-9).
-It records the number of molecules compared, α and the median `b`, the medians of γ and of
+It records the number of molecules with Deep-LASI factors, with a Tether γ, and compared, α and
+the median `b`, the medians of γ and of
 `g(1 + b)`, the median and 90th percentile of the absolute FRET difference, and their Pearson
 correlation. **No agreement limit is set**: a limit is a scientific claim, and it waits for a
 maintainer decision on the recorded numbers.
@@ -145,8 +176,8 @@ window.
   repeatable origin waits for the classification step that #715 excludes.
 - Bad: a failure on a new acquisition shows as a failing weekly check until its cause is found.
   That is the intent: a known failure is tracked in its issue, not hidden.
-- Follow-up: the corrected-FRET disagreement on video 010 and any failing acquisition get their
-  own issues with the measured numbers.
+- Follow-up: #1114 (`lab-02`), #887 (`lab-10`, `lab-12`), and #546 for the corrected-FRET
+  disagreement.
 
 ## More information
 

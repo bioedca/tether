@@ -148,3 +148,25 @@ def test_read_factors_from_a_mat(tmp_path) -> None:
     sio.savemat(path, {"b": np.array([[0.1]])})
     with pytest.raises(ValueError, match="no g"):
         agree.read_factors(path)
+
+
+def test_an_export_without_gamma_says_so() -> None:
+    donor, acceptor, _ = _acquisition(n=8)
+    g = np.full(8, np.nan)
+    numbers = agree.fret_agreement(_export(donor, acceptor), np.full(8, ALPHA), g)
+    assert numbers["n_deeplasi_factors"] == 0
+    assert numbers["n_compared"] == 0 and numbers["n_parity_frames"] == 0
+    assert np.isnan(numbers["gamma_deeplasi_median"])
+    assert numbers["b_median_deeplasi"] == pytest.approx(ALPHA)
+
+
+def test_medians_skip_the_molecules_without_factors() -> None:
+    donor, acceptor, _ = _acquisition()
+    n = donor.shape[0]
+    g = np.full(n, GAMMA / (1.0 + ALPHA))
+    g[::2] = np.nan
+    numbers = agree.fret_agreement(_export(donor, acceptor), np.full(n, ALPHA), g)
+    assert numbers["n_deeplasi_factors"] == n - (n + 1) // 2
+    assert numbers["gamma_deeplasi_median"] == pytest.approx(GAMMA, rel=1e-12)
+    assert numbers["n_compared"] == numbers["n_deeplasi_factors"]
+    assert numbers["n_parity_frames"] > 0 and numbers["parity_max_abs"] < agree.PARITY_ATOL

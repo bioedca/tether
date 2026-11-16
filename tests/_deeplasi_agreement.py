@@ -229,6 +229,11 @@ def _window_mean(values: np.ndarray, stop: int) -> float:
     return float(part.mean()) if part.size else float("nan")
 
 
+def _finite_median(values: np.ndarray) -> float:
+    values = values[np.isfinite(values)]
+    return float(np.median(values)) if values.size else float("nan")
+
+
 def _pearson(x: np.ndarray, y: np.ndarray) -> float:
     if x.size < 3 or np.std(x) == 0.0 or np.std(y) == 0.0:
         return float("nan")
@@ -246,7 +251,11 @@ def fret_agreement(export: DeepLasiExport, b: np.ndarray, g: np.ndarray) -> dict
 
     Returns summary numbers only. ``parity_max_abs`` is the largest difference between
     Tether's formula with ``alpha = b, gamma = g * (1 + b)`` and Deep-LASI's formula, over
-    every frame of every molecule: ADR-0028 says it is rounding.
+    the ``n_parity_frames`` frames where both are finite: ADR-0028 says it is rounding.
+
+    A comparison can be empty for two reasons, and the numbers say which: the export has no
+    molecule with both factors (``n_deeplasi_factors`` 0), or Tether withholds a factor by its
+    own rule, too few qualifying traces (``alpha_tether`` NaN, or ``n_tether_gamma`` 0).
     """
     from tether.fret.efficiency import corrected_fret  # noqa: PLC0415
     from tether.fret.gamma import estimate_gamma  # noqa: PLC0415
@@ -296,16 +305,18 @@ def fret_agreement(export: DeepLasiExport, b: np.ndarray, g: np.ndarray) -> dict
     ok = np.isfinite(mean_t) & np.isfinite(mean_d)
     diff = np.abs(mean_t[ok] - mean_d[ok])
     gamma_dl = g * (1.0 + b)
+    factors = np.isfinite(b) & np.isfinite(g)
     return {
         "n_molecules": n,
+        "n_deeplasi_factors": int(factors.sum()),
+        "n_tether_gamma": int(np.isfinite(gamma_t).sum()),
         "n_compared": int(ok.sum()),
+        "n_parity_frames": int(both.sum()),
         "parity_max_abs": parity,
         "alpha_tether": alpha,
-        "b_median_deeplasi": float(np.median(b)) if n else float("nan"),
-        "gamma_tether_median": float(np.nanmedian(gamma_t))
-        if np.isfinite(gamma_t).any()
-        else float("nan"),
-        "gamma_deeplasi_median": float(np.median(gamma_dl)) if n else float("nan"),
+        "b_median_deeplasi": _finite_median(b),
+        "gamma_tether_median": _finite_median(gamma_t),
+        "gamma_deeplasi_median": _finite_median(gamma_dl[factors]),
         "fret_abs_diff_median": float(np.median(diff)) if diff.size else float("nan"),
         "fret_abs_diff_p90": float(np.percentile(diff, 90)) if diff.size else float("nan"),
         "fret_pearson": _pearson(mean_t[ok], mean_d[ok]),

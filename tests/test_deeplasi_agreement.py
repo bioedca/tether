@@ -88,7 +88,12 @@ def test_corrected_fret_against_the_deeplasi_export(private_data, neutral_id) ->
     b, g = agree.read_factors(mat)
     numbers = agree.fret_agreement(export, b, g)
     private_data.record(neutral_id, **_finite(numbers))
-    assert numbers["n_compared"] > 0, f"{neutral_id}: no molecule could be compared ({numbers})"
+    # No limit applies to the comparison (ADR-0115): an empty one is recorded with its cause
+    # (no factors in the export, or a factor Tether withholds by its own rule), not failed.
+    # The identity is asserted wherever the export has factors, and never vacuously.
+    if numbers["n_deeplasi_factors"] == 0:
+        return
+    assert numbers["n_parity_frames"] > 0, f"{neutral_id}: no frame to check the identity on"
     # ADR-0028: Tether's formula with alpha = b and gamma = g * (1 + b) is Deep-LASI's formula.
     assert numbers["parity_max_abs"] < agree.PARITY_ATOL, (
         f"{neutral_id}: the ADR-0028 convention does not map Deep-LASI's factors onto Tether's "
