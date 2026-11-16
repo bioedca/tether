@@ -735,6 +735,29 @@ the owner fixes it by hand with `chgrp <lab group> <path>.tether.lock.guard` and
 While locked out you can still open the project read-only and curate into your own
 split/subset `.tether`, merged back later on `molecule_key`.
 
+**Replacing a project.** `tether extract --overwrite`, `tether batch --overwrite` and the
+Deep-LASI import with overwrite on all take the destination project's writer lock before they
+replace it, so they stop with the same `is locked` message when someone has the project open.
+This includes a Tether window in the same program: close the project there first. A script that
+calls `extract_movie`, `reconstruct_project` or `import_analysis_only_project` to replace an
+existing project gets `... needs its writer lock` (`ExtractionError` from `extract_movie`,
+`PublishGuardRequiredError` from the other two) unless it holds
+`tether.project.lock.publish_lock` on the destination and passes the check it yields as
+`publish_guard`.
+
+**Two names for one file.** A hard link gives one project two names. Tether treats both names as
+one file for your user: while one name is open for writing, opening the other name says
+`is locked` and names the lock of the first name. Tether keeps a small record of which name owns
+each file in your per-user lock folder (`%LOCALAPPDATA%\tether\locks` on Windows,
+`~/.local/state/tether/locks` on Linux, `~/Library/Caches/tether/locks` on macOS). A steal through
+either name takes the file from the other name too. If Tether cannot make that folder, it refuses
+to open the project for writing: `cannot create the per-user lock directory`. Fix the folder's
+permissions, or set `XDG_STATE_HOME` (Linux, macOS) to a folder you can write.
+This record is per user. If two users open the same file through two different names, each name
+has its own `.lock` and each user has their own record, so Tether does not stop the second user,
+and an `--overwrite` by one of them does not stop with `is locked` either. Give a shared project
+one name only.
+
 ### The spot and overlap views are unavailable
 
 **Symptom.** A project opens and curates fine, histograms and idealization work, but the
@@ -795,8 +818,11 @@ Then, per platform:
 
 - **Windows.** SmartScreen shows *"Windows protected your PC"*. Choose **More info** →
   **Run anyway**.
-- **macOS.** The old Control-click → **Open** shortcut **no longer works**: macOS Sequoia
-  removed it, and Tahoe tightened the path further. Open **System Settings → Privacy &
+- **macOS.** When you double-click the `.pkg`, macOS shows *"Tether-….pkg" Not Opened* and
+  *Apple could not verify "Tether-….pkg" is free of malware that may harm your Mac or
+  compromise your privacy.* (macOS 26.6.2, November 2026). The old Control-click → **Open**
+  shortcut **no longer works**: macOS Sequoia removed it, and Tahoe tightened the path
+  further. Open **System Settings → Privacy &
   Security**, scroll to **Security**, and use the **Open Anyway** button, then authenticate as
   an administrator. Two things catch people out: the button only appears *after* you have
   tried to open the file and been blocked, and it is available for **about an hour** after
@@ -819,9 +845,9 @@ packaging build, on GitHub's `macos-latest` and `macos-15-intel` runners, and th
 launches `tether --version` and the sidecar from the installed prefix. So the package is known
 to install this way on real macOS.
 
-One difference is worth knowing, because it is the part we have **not** observed end to end: a
-`.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one does
-not. If macOS still refuses after the above, you can clear it:
+A `.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one
+does not. On a Mac with macOS 26.6.2, a `.pkg` with that attribute installed with the command
+above and asked nothing. If macOS still refuses on your Mac, you can clear it:
 
 ```bash
 xattr -d com.apple.quarantine Tether-<version>-MacOSX-<arch>.pkg
@@ -838,6 +864,29 @@ making about software you have chosen to trust, not a step our verification has 
 If you hit something these steps do not cover,
 [tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
 this entry will be corrected from the observation.
+
+#### If macOS will not open Tether.app
+
+From the next release, the macOS installer adds **Tether** (`Tether.app`) to
+`~/Applications`, or to `/Applications` for an install outside your home folder
+([ADR-0091](adr/0091-macos-launcher-bundle.md)). Like the installer, it is not signed.
+The installer writes it on your Mac, so it does not carry the quarantine attribute of a
+download. On a test Mac with macOS 26.6.2, it opened from the first start with no dialog. If
+macOS blocks the first start all the same, use the same route as for the installer: try to
+open **Tether** once, then open **System Settings → Privacy & Security**, and use
+**Open Anyway** under **Security**. You do this one time; later starts open directly.
+
+If nothing happens when you open **Tether** (no window and no message), make sure that the
+installer matches your Mac. `Tether.app` asks macOS to start it as the architecture of its
+installer. The `osx-arm64` installer is for Apple silicon. The `osx-64` installer is for
+Intel, and on Apple silicon it needs Rosetta 2, which macOS does not install by default.
+
+If **Tether** is not in Launchpad or Spotlight right after the install, wait some minutes:
+the installer asks Spotlight to index the application, but Spotlight first indexes the new
+install folder. On a test Mac, Spotlight listed **Tether** about ten minutes after the install. You can
+also open the `Applications` folder of your home folder in Finder, where macOS sees the
+application. Until then, and whenever the application does not open, run `tether-gui` in
+Terminal: it starts the same application and shows any error text.
 
 ### The deep classifier does not see the GPU
 
