@@ -1094,9 +1094,9 @@ Three results follow.
 
 **The two sub-populations.** Each of their windows lies inside the window of the same molecule in
 the whole ΔNCCA fit, but the two do not split that fit: 26 molecules are in both and 26 in
-neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM. The sidecar
-has no key for it, so the test adds one for itself. The sidecar key `vbgmm_vbhmm` selects one
-state on these traces. The weekly job prints its result and does not gate it.
+neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM, the sidecar
+key `vbgmm`. The sidecar key `vbgmm_vbhmm` selects one state on these traces. The weekly job
+prints its result and does not gate it.
 
 **Stored models** (`workstation`): each private tMAVEN trace file is matched to a sample by its
 donor traces (a correlation of 0.99 or more with a column of the sample's matrix, which does not

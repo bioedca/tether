@@ -405,9 +405,16 @@ def run_vbfret(
     model_type:
         One of the keys in `tether.idealize._sidecar_runner._DISPATCH`
         (default ``"vbconhmm"`` — the consensus VB-HMM behind the reference
-        model fixture and the M0.5 parity target).
+        model fixture and the M0.5 parity target). The keys are
+        ``"vbconhmm"`` and ``"ebhmm"`` (the population HMMs),
+        ``"vbconhmm_modelselection"`` and ``"ebhmm_modelselection"`` (the same,
+        choosing the number of states), ``"vbgmm_vbhmm"`` (a VB-HMM seeded from
+        a vbGMM, choosing the number of states), ``"kmeans_vbhmm"`` (a VB-HMM
+        seeded from k-means) and ``"vbgmm"`` (tMAVEN's plain variational-Bayes
+        Gaussian mixture, no HMM: its model has type ``"vb GMM"``).
     nstates:
-        Number of states (for fixed-``nstates`` model types).
+        Number of states (for fixed-``nstates`` model types: ``"vbconhmm"``,
+        ``"ebhmm"``, ``"kmeans_vbhmm"`` and ``"vbgmm"``).
     nrestarts:
         Optional override of tMAVEN's restart count (lower = faster, for tests).
     timeout:
