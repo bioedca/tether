@@ -116,9 +116,18 @@ def _expand_one(argument: str, *, recursive: bool) -> list[Path]:
     return found
 
 
-def _identity(path: Path) -> str:
-    """Return the key that sorts the movie list and finds a movie named twice."""
+def _sort_key(path: Path) -> str:
+    """Return the key that sorts the movie list: the absolute path, in the OS's case rule."""
     return os.path.normcase(os.path.abspath(path))
+
+
+def _identity(path: Path) -> str:
+    """Return the key that finds a movie named twice: the path with its links resolved.
+
+    Not [`os.path.abspath`][], which removes ``..`` as text: after a link, ``link/../m.tif``
+    names a file in the link target's parent, and two different movies would share a key.
+    """
+    return os.path.normcase(os.path.realpath(path))
 
 
 def expand_movie_arguments(
@@ -140,19 +149,27 @@ def expand_movie_arguments(
     -------
     tuple[pathlib.Path, ...]
         The movies, sorted by their absolute path (without regard to case on Windows).
-        A movie that two arguments both give appears once, with the spelling of the first.
+        A movie that two arguments both give, also through a link, appears once, with the
+        spelling of the first.
 
     Raises
     ------
     MovieArgumentError
-        If an argument is a missing path, a folder with no movie file, or a pattern that
-        matches no movie file. The message names the argument.
+        If an argument is a missing path, a folder with no movie file, a pattern that
+        matches no movie file, or a folder that cannot be listed. The message names the
+        argument.
     """
     found: dict[str, Path] = {}
     for argument in arguments:
-        for path in _expand_one(argument, recursive=recursive):
+        try:
+            paths = _expand_one(argument, recursive=recursive)
+        except OSError as exc:
+            # A folder that can be seen but not listed: a refusal that names it, not a
+            # traceback from the middle of the expansion.
+            raise MovieArgumentError(f"cannot read movie argument {argument!r}: {exc}") from exc
+        for path in paths:
             found.setdefault(_identity(path), path)
-    return tuple(found[key] for key in sorted(found))
+    return tuple(sorted(found.values(), key=_sort_key))
 
 
 def _parent_names(movie: Path) -> tuple[str, ...]:

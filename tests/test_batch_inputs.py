@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -103,6 +104,38 @@ def test_the_list_is_sorted_and_names_each_movie_once(day_folders: Path) -> None
         [str(day1 / "movie_011.TIFF"), str(day1), str(day1 / "*.tif"), str(day1 / "movie_010.tif")]
     )
     assert [p.name for p in movies] == ["movie_010.tif", "movie_011.TIFF"]
+
+
+def test_a_path_through_a_link_is_not_taken_for_another_movie(tmp_path: Path) -> None:
+    # ``link/../movie.tif`` names the movie beside the link's target, not the one beside
+    # the link, so both movies must stay in the list (local CodeRabbit check on #1154).
+    beside_link = _touch(tmp_path / "work" / "movie.tif")
+    beside_target = _touch(tmp_path / "archive" / "movie.tif")
+    (tmp_path / "archive" / "sub").mkdir()
+    link = tmp_path / "work" / "link"
+    try:
+        link.symlink_to(tmp_path / "archive" / "sub", target_is_directory=True)
+    except OSError:
+        pytest.skip("this machine cannot make a symbolic link")
+    through_link = os.path.join(str(link), "..", "movie.tif")
+    movies = expand_movie_arguments([str(beside_link), through_link, str(beside_target)])
+    assert len(movies) == 2
+    assert {os.path.realpath(m) for m in movies} == {
+        os.path.realpath(beside_link),
+        os.path.realpath(beside_target),
+    }
+
+
+def test_a_folder_that_cannot_be_listed_is_refused_by_name(tmp_path: Path, monkeypatch) -> None:
+    folder = tmp_path / "locked"
+    folder.mkdir()
+
+    def _denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "iterdir", _denied)
+    with pytest.raises(MovieArgumentError, match=r"cannot read movie argument .*locked"):
+        expand_movie_arguments([str(folder)])
 
 
 @pytest.mark.parametrize(
