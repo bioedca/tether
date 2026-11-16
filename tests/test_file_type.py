@@ -132,14 +132,25 @@ def test_a_per_user_install_leaves_an_all_users_owner(tmp_path) -> None:
     assert _snapshot(registry) == before
 
 
-def test_an_all_users_install_leaves_a_per_user_owner(tmp_path) -> None:
-    """A per-user default wins for that user, so Tether does not report the extension as its own."""
+def test_an_all_users_install_serves_other_accounts_and_leaves_a_per_user_owner(
+    tmp_path,
+) -> None:
+    """The computer's default is set for every account; the installer's own choice stays.
+
+    Another account, with no per-user ``.tether`` key, reads only the computer's default,
+    so it opens projects with Tether; the installing account keeps its other program.
+    """
     registry = MemoryRegistry()
     ext = f"{CLASSES}\\{EXTENSION}"
     registry.set(USER, ext, "", "Other.Document")
+    registry.set(MACHINE, f"{CLASSES}\\.txt", "", "txtfile")  # the computer's Classes key exists
+    before = _snapshot(registry)
     assert file_type.register_windows(registry, MACHINE, PREFIX, icon=_icon(tmp_path)) is False
-    assert registry.get(MACHINE, ext, "") is None
+    assert registry.get(MACHINE, ext, "") == PROG_ID
     assert registry.get(USER, ext, "") == "Other.Document"
+    assert file_type.check_windows(registry, MACHINE, PREFIX) == []
+    assert file_type.unregister_windows(registry, MACHINE, PREFIX) is True
+    assert _snapshot(registry) == before
 
 
 def test_an_empty_extension_default_is_taken(tmp_path) -> None:

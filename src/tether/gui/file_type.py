@@ -285,42 +285,41 @@ def register_windows(
 ) -> bool:
     """Register ``.tether`` in *root* for an install into *prefix*.
 
-    Returns True when Tether is now the program that opens the extension, and False when
-    another program already owned it: then only Tether's entry in the extension's
-    ``OpenWithProgids`` list is added, so Tether shows under "Open with" and the
+    Returns True when Tether is now the program that opens the extension for the installing
+    account, and False when another program already owned it: then only Tether's entry in
+    the extension's ``OpenWithProgids`` list is added, so Tether shows under "Open with" and the
     double-click keeps opening the other program. The program identifier is written in
     either case; an identifier left by an earlier install is replaced, so the newest
     install opens the files.
 
-    The owner is the one Windows uses, from its merged view of the two roots: the current
-    user's registration when it names a program, else the computer's. So a per-user
-    install does not take the extension from a program registered for all users, which
-    a per-user default would override.
+    Windows reads the two roots as one merged view, in which the current user's default
+    wins over the computer's. So a per-user install does not set its default when a
+    program registered for all users owns the extension: the per-user default would take
+    the extension from it. An all-users install sets the computer's default whenever no
+    program owns it there, for every account without its own choice; the installing
+    account's own per-user choice stays, and then the function returns False, because
+    that account's double-click still opens the other program.
     """
     icon = document_icon_path() if icon is None else icon
     registry.set(root, _PROG_ID_KEY, "", TYPE_NAME)
     registry.set(root, _ICON_KEY, "", f'"{icon}",0')
     registry.set(root, _COMMAND_KEY, "", open_command(prefix))
     registry.set(root, _OPEN_WITH_KEY, PROG_ID, "")
-    owner = _effective_owner(registry)
-    if owner and owner.lower() != PROG_ID.lower():
+    owner = registry.get(root, _EXTENSION_KEY, "")
+    if _names_another_program(owner):
         return False
-    if not registry.get(root, _EXTENSION_KEY, ""):
+    if root == USER and _names_another_program(registry.get(MACHINE, _EXTENSION_KEY, "")):
+        return False
+    if not owner:
         registry.set(root, _EXTENSION_KEY, "", PROG_ID)
-    return True
+    return root != MACHINE or not _names_another_program(registry.get(USER, _EXTENSION_KEY, ""))
 
 
-def _effective_owner(registry: Registry) -> str | None:
-    """Return the program identifier Windows opens ``.tether`` with, or None if there is none.
-
-    In the merged ``HKEY_CLASSES_ROOT`` view the current user's value wins over the
-    computer's, and an empty value names no program.
-    """
-    for root in (USER, MACHINE):
-        owner = registry.get(root, _EXTENSION_KEY, "")
-        if owner:
-            return owner
-    return None
+def _names_another_program(owner: str | None) -> bool:
+    """Tell whether the extension default *owner* names a program that is not Tether."""
+    if not owner:
+        return False
+    return owner.lower() != PROG_ID.lower()
 
 
 def unregister_windows(registry: Registry, root: str, prefix: str | os.PathLike[str]) -> bool:

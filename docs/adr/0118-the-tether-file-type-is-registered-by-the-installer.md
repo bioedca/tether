@@ -54,11 +54,13 @@ system against an in-memory registry.
   `tether-document.ico` from the installed wheel, and `shell\open\command`
   `"<prefix>\envs\tether\Scripts\tether-gui.exe" "%1"`, the console-less launcher of
   [ADR-0076](0076-the-gui-activates-its-own-dll-path.md)), adds `Tether.Project` to `.tether\OpenWithProgids`, and sets the default
-  value of `.tether` to `Tether.Project` **only when no program owns the extension**. The owner is
-  read the way Windows merges the two roots: the current user's default when it names a program,
-  else the computer's, so a "Just Me" install does not take `.tether` from a program registered
-  for all users. When another program already owns `.tether`, Tether is only in its **Open with**
-  list. The keys go under
+  value of `.tether` to `Tether.Project` **only when no program owns the extension**. Windows
+  merges the two roots, and the current user's default wins over the computer's, so a "Just Me"
+  install also leaves `.tether` to a program registered for all users. An all-users install sets
+  the computer's default whenever no program owns it there, so that every account without its
+  own choice opens projects with Tether; the installing account's own per-user choice stays.
+  When another program already owns `.tether`, Tether is only in its **Open with** list. The keys
+  go under
   `HKEY_CURRENT_USER` for a "Just Me" install and under `HKEY_LOCAL_MACHINE` for an all-users
   install: constructor writes `.nonadmin` into the install folder for a "Just Me" install before
   `post_install` runs, and its own uninstaller reads the same file (constructor 3.17.3,
