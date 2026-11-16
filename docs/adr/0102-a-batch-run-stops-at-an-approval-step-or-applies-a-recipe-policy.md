@@ -127,8 +127,10 @@ The store records each approval, by a person or by a policy:
 - `by`: `person` or `policy`;
 - for a person, the name, read in the same way as the `labeler` of a curation label (`default_labeler()`, or
   `--by` on `tether approve`); for a policy, the policy text exactly as the recipe gives it;
-- the identity of the recipe: the SHA-256 of its text and its schema version, or none for an approval in the
-  application or by `tether approve`;
+- the identity of the recipe: the SHA-256 of its text and its schema version. An approval by `tether approve`
+  of a run that a recipe stopped records the identity of that recipe, read from the checkpoint of the stopped
+  run (#895). Only an approval that no recipe run asked for, in the application or by `tether approve`, records
+  none;
 - the time, in UTC, ISO 8601;
 - the report that was the evidence (card B4): its JSON and its PNG images, each with its SHA-256. An approval with
   no report is refused. For a policy, the run makes the report with the same code as the review page.
