@@ -10,7 +10,10 @@ matches the API fails here and not first in the comparison job.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -179,6 +182,56 @@ def test_a_timeout_also_stops_what_the_child_started() -> None:
         "error": "timed out after 1 s"
     }
     assert time.monotonic() - start < 8  # without the group kill: 1 s + the 10 s drain
+
+
+def _gone(pid: int) -> bool:
+    """Whether ``pid`` no longer runs; a zombie waiting for its reaper counts as gone."""
+    out = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    return not out or out.startswith("Z")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX; the job is Linux")
+def test_an_interrupt_also_stops_the_child_and_what_it_started(monkeypatch, tmp_path) -> None:
+    # Ctrl+C reaches only the runner, because the child has its own session; without the
+    # group kill the measurement and its grandchild run on after the runner exits (#1098).
+    pid_file = tmp_path / "pids"
+    code = (
+        "import os, subprocess, sys, time; "
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        f"open({str(pid_file)!r}, 'w').write(f'{{os.getpid()}} {{g.pid}}'); "
+        "time.sleep(60)"
+    )
+    real_popen = subprocess.Popen
+    started: list[subprocess.Popen] = []
+
+    class Interrupted(real_popen):  # type: ignore[misc, valid-type]
+        def communicate(self, *args, **kwargs):
+            if not started:  # the first call is run_child's own wait: interrupt it
+                started.append(self)
+                deadline = time.monotonic() + 20
+                while not (pid_file.exists() and " " in pid_file.read_text("utf-8")):
+                    assert time.monotonic() < deadline, "the child never started its grandchild"
+                    time.sleep(0.05)
+                raise KeyboardInterrupt
+            return super().communicate(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", Interrupted)
+    child, grandchild = (0, 0)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            bench.run_child([sys.executable, "-c", code], timeout=60)
+        child, grandchild = map(int, pid_file.read_text("utf-8").split())
+        assert started[0].returncode is not None  # reaped, not left as a zombie
+        deadline = time.monotonic() + 5
+        while not (_gone(child) and _gone(grandchild)) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert _gone(child) and _gone(grandchild)
+    finally:  # a failing run must not leave sixty-second sleepers behind
+        if started:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(started[0].pid, signal.SIGKILL)
 
 
 def test_a_timed_out_case_is_not_run_again_on_the_same_tree(monkeypatch, tmp_path) -> None:
