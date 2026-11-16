@@ -1773,7 +1773,10 @@ def recover_lock(
     record (the same nonce and timestamp, or still corrupt). A holder that refreshed,
     released or was replaced since the user looked therefore raises
     [`LockedError`][] and nothing is written. A process-local reservation held by
-    another execution context also raises it.
+    another execution context also raises it, and so does a live lock that another
+    hard-link name of the same file holds. The file's identity record moves to the
+    new lock, as for any claim (ADR-0112), so no other name can claim the file
+    while the recovered lock is held.
 
     Each successful call is reported at WARNING on the ``tether.project.lock``
     logger with the ousted holder, the new holder and the action.
@@ -1782,25 +1785,67 @@ def recover_lock(
         raise LockedError(expected.owner, corrupt=expected.corrupt, path=lock_path(project_path))
     identity = identity if identity is not None else local_identity()
     lp = lock_path(project_path)
-    with _process_local_access(project_path), _lifecycle_guard(lp):
-        current, corrupt = _read_tolerant(lp)
-        verdict = _classify_recovery(
-            lp,
-            current,
-            corrupt,
-            identity=identity,
-            timeout_s=timeout_s,
-            now=now if now is not None else _utc_now(),
-        )
+    # The identity guard comes before the sidecar guard, as in every claim (ADR-0112).
+    with (
+        _process_local_access(project_path),
+        _identity_guard(project_path, claim=True) as rp,
+    ):
+        record = _read_identity_record(rp) if rp is not None else None
         if (
-            verdict is None
-            or verdict.action is not expected.action
-            or verdict.owner != expected.owner
+            record is not None
+            and not _same_spelling(record.project, project_path)
+            and _identity_record_is_live(record)
         ):
-            stale = current is not None and current.is_stale(timeout_s=timeout_s, now=now)
-            raise LockedError(current, stale=stale, corrupt=corrupt, path=lp)
-        info = _new_info(identity, now=now)
-        _atomic_write(lp, info)
+            # Another name of this file holds it; the verdict judged only this name.
+            raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
+        with _lifecycle_guard(lp):
+            current, corrupt = _read_tolerant(lp)
+            verdict = _classify_recovery(
+                lp,
+                current,
+                corrupt,
+                identity=identity,
+                timeout_s=timeout_s,
+                now=now if now is not None else _utc_now(),
+            )
+            if (
+                verdict is None
+                or verdict.action is not expected.action
+                or verdict.owner != expected.owner
+            ):
+                stale = current is not None and current.is_stale(timeout_s=timeout_s, now=now)
+                raise LockedError(current, stale=stale, corrupt=corrupt, path=lp)
+            info = _new_info(identity, now=now)
+            _atomic_write(lp, info)
+        # Carry the file's identity record over to the new nonce, as a claim does,
+        # so a hard-link alias cannot claim the file while this lock is held.
+        sources: list[_IdentityRecord] = []
+        if record is not None and _same_spelling(record.project, project_path):
+            sources = [record]
+        elif current is not None:
+            sources = _records_with_nonce(current.nonce)
+        taken_over = tuple(
+            spelling for source in sources for spelling in (source.project, *source.also)
+        )
+        try:
+            also = tuple(
+                dict.fromkeys(
+                    spelling
+                    for source in sources
+                    for spelling in _take_over_spellings(source, info)
+                    if not _same_spelling(spelling, project_path)
+                )
+            )
+            if rp is not None:
+                _write_identity_record(
+                    rp,
+                    _IdentityRecord(project=os.path.abspath(project_path), info=info, also=also),
+                )
+        except BaseException:
+            # The caller never gets ``info``, so it could never release this lock.
+            _release_sidecar(lp, info)
+            _release_spellings(taken_over, info.nonce)
+            raise
     ousted = (
         "an unknown holder (corrupt lock)"
         if current is None

@@ -303,3 +303,61 @@ def test_recover_never_crosses_a_process_reservation(project_path, me) -> None:
     assert json.loads(lock.lock_path(project_path).read_text(encoding="utf-8"))["nonce"] == (
         held.nonce
     )
+
+
+# --- hard-link aliases (ADR-0112) ---------------------------------------------
+
+
+def _hard_link_pair(tmp_path) -> tuple:
+    first = tmp_path / "a" / "first.tether"
+    first.parent.mkdir()
+    first.write_bytes(b"")
+    second = tmp_path / "b" / "second.tether"
+    second.parent.mkdir()
+    try:
+        os.link(first, second)
+    except OSError as exc:  # pragma: no cover - filesystem without hard links
+        pytest.skip(f"no hard links here: {exc}")
+    if lock.file_identity(first) is None:  # pragma: no cover - no inode numbers
+        pytest.skip("this filesystem reports no file identity")
+    return first, second
+
+
+def test_recovered_lock_keeps_a_hard_link_alias_out(tmp_path, me) -> None:
+    first, second = _hard_link_pair(tmp_path)
+    crashed = LockIdentity(host=me.host, user=me.user, pid=_dead_pid())
+    lock.acquire(first, identity=crashed)
+    verdict = lock.lock_recovery(first, identity=me)
+    assert verdict is not None
+    assert verdict.action is RecoveryAction.RECOVER
+
+    taken, _ousted = lock.recover_lock(first, verdict, identity=me)
+
+    rival = LockIdentity(host=f"{me.host}-OTHER", user="bob", pid=99)
+    with pytest.raises(LockedError):
+        lock.acquire(second, identity=rival)
+    assert lock.read_lock(second) == taken
+    assert lock.release(first, taken)
+    claimed = lock.acquire(second, identity=rival)
+    assert lock.release(second, claimed)
+
+
+def test_recover_refuses_while_another_name_holds_the_file(tmp_path, me, monkeypatch) -> None:
+    first, second = _hard_link_pair(tmp_path)
+    crashed = LockIdentity(host=me.host, user=me.user, pid=424242)
+    monkeypatch.setattr(lock, "_pid_alive", lambda pid: False)
+    stale = lock.acquire(first, identity=crashed)
+    verdict = lock.lock_recovery(first, identity=me)
+    assert verdict is not None
+    assert verdict.action is RecoveryAction.RECOVER
+
+    # Another writer takes the file through the other name before the click.
+    rival = LockIdentity(host=f"{me.host}-OTHER", user="bob", pid=99)
+    lock.release(first, stale)
+    winner = lock.acquire(second, identity=rival)
+    lock._atomic_write(lock.lock_path(first), stale)  # the crashed record reappears
+
+    with pytest.raises(LockedError):
+        lock.recover_lock(first, verdict, identity=me)
+    assert lock.read_lock(second) == winner
+    assert lock.release(second, winner)
