@@ -1783,14 +1783,22 @@ def test_a_failed_guarded_replace_leaves_no_record_for_the_stage(
     create_project(stage)
     stage_record = lock._identity_record_path(lock.file_identity(stage))
 
-    def refuse(_src, _dst):
-        raise OSError(13, "Permission denied")
+    real_replace = os.replace
+    recorded: list[bool] = []
+
+    def refuse_the_project_replace(src, dst):
+        # ``os`` is shared, so fail only the project's replace, not the record write.
+        if os.fspath(src) == os.fspath(stage):
+            recorded.append(stage_record.exists())
+            raise OSError(13, "Permission denied")
+        real_replace(src, dst)
 
     with lock.publish_lock(project) as guard:
-        monkeypatch.setattr(_guarded_publish.os, "replace", refuse)
-        with pytest.raises(OSError):
+        monkeypatch.setattr(_guarded_publish.os, "replace", refuse_the_project_replace)
+        with pytest.raises(OSError, match="Permission denied"):
             _guarded_publish.publish_staged_project(stage, project, publish_guard=guard)
         monkeypatch.undo()
+        assert recorded == [True]  # the record existed when the replace failed
         assert not stage_record.exists()
 
 
