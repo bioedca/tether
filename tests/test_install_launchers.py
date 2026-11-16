@@ -80,8 +80,9 @@ def _stub_prefix(tmp_path: Path) -> Path:
 )
 def test_post_install_sh_writes_only_the_two_launchers(tmp_path: Path) -> None:
     prefix = _stub_prefix(tmp_path)
-    home = tmp_path / "home"
-    home.mkdir()
+    # The prefix is inside HOME, so that on macOS the Tether.app step (#663, ADR-0091)
+    # writes its bundle into tmp_path/Applications and not into the runner's /Applications.
+    home = tmp_path
     env = {**os.environ, "PREFIX": str(prefix), "HOME": str(home)}
     subprocess.run(["sh", str(POST_INSTALL_SH)], check=True, env=env, capture_output=True)
 
