@@ -28,6 +28,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -226,6 +227,30 @@ def test_a_folder_where_the_file_should_be_reads_as_unset(store: tuple[Path, Pat
     settings, _ = store
     settings.mkdir(parents=True)
     assert _state(store) is UpdateCheckState.PENDING
+
+
+def test_a_folder_where_the_file_should_be_leaks_no_descriptor(
+    store: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review of #1136: on POSIX a folder opens, and the descriptor must be closed on
+    # every path that does not read the file. (On Windows the open itself fails.)
+    settings, _ = store
+    settings.mkdir(parents=True)
+    opened: list[int] = []
+    real_open = os.open
+
+    def tracking_open(*args: Any, **kwargs: Any) -> int:
+        fd = real_open(*args, **kwargs)
+        opened.append(fd)
+        return fd
+
+    monkeypatch.setattr(app_settings.os, "open", tracking_open)
+    for _ in range(3):
+        assert _state(store) is UpdateCheckState.PENDING
+    monkeypatch.undo()
+    for fd in opened:
+        with pytest.raises(OSError):
+            os.fstat(fd)
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="os.mkfifo is not available here")

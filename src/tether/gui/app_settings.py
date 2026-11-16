@@ -199,9 +199,17 @@ def _stored_answer(path: Path) -> str | None:
     except OSError:
         return None
     try:
-        with os.fdopen(fd, "rb") as handle:
-            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-                return None
+        handle = os.fdopen(fd, "rb") if stat.S_ISREG(os.fstat(fd).st_mode) else None
+    except OSError:
+        handle = None
+    if handle is None:
+        # Not a regular file, or the descriptor could not be examined or wrapped: the
+        # descriptor is still ours to close (os.fdopen does not close it on failure).
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        return None
+    try:
+        with handle:
             raw = handle.read(_MAX_BYTES + 1)
     except OSError:
         return None
