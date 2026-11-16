@@ -121,6 +121,7 @@ class BeadMapSource:
     n_frames: int | None = None
 
     def __post_init__(self) -> None:
+        """Refuse a record whose fields do not agree with its kind."""
         if not isinstance(self.source_id, str) or not self.source_id.strip():
             raise BeadMapError("source_id must be a non-empty string")
         if self.kind == "image":
