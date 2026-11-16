@@ -141,19 +141,24 @@ recorded".
 ### Corrected FRET: numbers, and one asserted identity
 
 The check starts from the traces of each export and runs Tether's chain: photobleach
-detection, the tail leakage α, and the acceptor-bleach γ. It compares the per-frame corrected
-FRET with Deep-LASI's formula on the export's own factors:
+detection, the tail leakage α, and the acceptor-bleach γ. It compares Tether's corrected FRET
+with Deep-LASI's formula on the export's own factors:
 `E = (A − bD) / ((A − bD) + g(1 + b)D)`. Tether's formula with α = `b` and γ = `g(1 + b)` is
-the same expression (ADR-0028), and the check asserts that to rounding (`PARITY_ATOL` = 1e-9).
-It records the number of molecules with Deep-LASI factors, with a Tether γ, and compared, α and
-the median `b`, the medians of γ and of
-`g(1 + b)`, the median and 90th percentile of the absolute FRET difference, and their Pearson
-correlation. **No agreement limit is set**: a limit is a scientific claim, and it waits for a
+the same expression (ADR-0028), and the check asserts that, frame by frame, to rounding
+(`PARITY_ATOL` = 1e-9). The agreement numbers compare **molecule means**, not frames: for each
+molecule, each tool's corrected FRET is averaged over the same frames (up to Tether's first
+bleach of the summed signal), and the two means are compared. A difference that changes sign
+within a trace can cancel in a mean. The check records the number of molecules with Deep-LASI
+factors, with a Tether γ, and compared, α and the median `b`, the medians of γ and of
+`g(1 + b)`, the median and 90th percentile of the absolute difference between the molecule
+means, and the Pearson correlation of the molecule means. **No agreement limit is set**: a
+limit is a scientific claim, and it waits for a
 maintainer decision on the recorded numbers.
 
 On video 010 the two chains differ: α 0.066 against a median `b` of 0.090, γ 2.22 against a
-median `g(1 + b)` of 0.62, a median FRET difference of 0.084 (90th percentile 0.25) and a
-Pearson correlation of 0.10. This is a finding, recorded and not gated.
+median `g(1 + b)` of 0.62, a median difference of the molecule means of 0.084 (90th percentile
+0.25) and a Pearson correlation of the molecule means of 0.10. This is a finding, recorded and
+not gated.
 
 **Deep-LASI's own corrected FRET for one-laser data does not use γ.** In the pinned commit,
 the two-colour, no-ALEX branch of `calculateTracesFullyCorrected` multiplies the acceptor by

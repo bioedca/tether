@@ -136,7 +136,8 @@ because the exports were made in Deep-LASI's window. A scripted Deep-LASI run
 (`scripts/reference/matlab/deep_lasi.py`) at a pinned commit repeats the export of video 010:
 the same 250 molecules, positions and raw traces. It cannot make the correction factors, which
 come from a later step in the window. The same run records Tether's corrected FRET against
-Deep-LASI's on each export, with no limit: on video 010 the median difference is 0.084, and
+Deep-LASI's on each export, with no limit: on video 010 the median difference of the molecule
+means is 0.084, and
 Deep-LASI's own corrected FRET for one-laser data does not depend on γ (ADR-0115).
 
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
