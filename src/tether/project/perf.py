@@ -13,20 +13,20 @@ Three budgets (PRD §8, "Targets"):
 
 * **Per-trace render+navigate latency ≈ 100 ms** — the one PRD-registered value
   (§11.2 "Per-trace UI latency budget"), sustaining the 1–2 s/trace curation cadence.
-  :data:`PER_TRACE_LATENCY_BUDGET_S`; measured with :func:`min_runtime` against a real
-  :class:`tether.gui.trace_dock.TraceDock` in the GUI test tier.
+  [`PER_TRACE_LATENCY_BUDGET_S`][]; measured with [`min_runtime`][] against a real
+  [`tether.gui.trace_dock.TraceDock`][] in the GUI test tier.
 * **A ~100-movie condition finishes extract + correct + idealize overnight** — a
-  *slice-scaled* estimate. :func:`scale_seconds_to_reference_movie` projects a small
+  *slice-scaled* estimate. [`scale_seconds_to_reference_movie`][] projects a small
   slice's measured extraction time to the reference full movie (512×512×1700) by pixel
-  volume; :func:`project_overnight` scales that across the condition and checks it fits
-  the unattended :data:`OVERNIGHT_WINDOW_HOURS` window. This is an envelope, **not** a
+  volume; [`project_overnight`][] scales that across the condition and checks it fits
+  the unattended [`OVERNIGHT_WINDOW_HOURS`][] window. This is an envelope, **not** a
   full-movie SLA — the full ≈0.9 GB movie and the real vbFRET sidecar are measured in the
   gated ``large-fixtures.yml`` tier (PRD §8 NFR-FIXTURES), never the default matrix.
 * **A bounded ``.tether`` size envelope per condition** — a molecule's stored cost is
   dominated by its six redundant float32 intensity layers
   ({donor,acceptor}×{raw,corrected,background}, PRD §5.1 = ``6·4 = 24`` B/frame);
-  gzip keeps the on-disk cost at/under that. :func:`measure_store_size` reads a real
-  store's on-disk bytes; :func:`estimate_condition_bytes` projects a full condition and
+  gzip keeps the on-disk cost at/under that. [`measure_store_size`][] reads a real
+  store's on-disk bytes; [`estimate_condition_bytes`][] projects a full condition and
   checks it stays modest vs the ~90 GB of raw movies on the §8 reference-hardware
   ~100 GB disk (OneDrive Files-On-Demand, not all hydrated locally).
 
@@ -155,7 +155,7 @@ def min_runtime(fn: Callable[[], object], *, repeats: int = 5) -> float:
 
 @dataclass(frozen=True)
 class StoreSizeReport:
-    """On-disk size breakdown of a ``.tether`` project (from :func:`measure_store_size`)."""
+    """On-disk size breakdown of a ``.tether`` project (from [`measure_store_size`][])."""
 
     total_bytes: int
     traces_bytes: int
@@ -172,9 +172,9 @@ class StoreSizeReport:
     def traces_bytes_per_molecule_frame(self) -> float:
         """The dominant term: ``/traces`` on-disk bytes per molecule per frame.
 
-        Compared against :data:`TRACE_STORAGE_ENVELOPE_BYTES_PER_MOLECULE_FRAME`; this is
+        Compared against [`TRACE_STORAGE_ENVELOPE_BYTES_PER_MOLECULE_FRAME`][]; this is
         the N-robust size claim (independent of the fixed skeleton/registration overhead
-        that inflates :attr:`bytes_per_molecule` at small molecule counts). The envelope
+        that inflates [`bytes_per_molecule`][] at small molecule counts). The envelope
         assumes a realistic frame count — the six-layer term dominates only once ``T`` is
         large enough to amortize per-chunk gzip/HDF5 overhead (real movies are ~1700
         frames; the 1.5× headroom absorbs the amortization at the hundreds-of-frames
@@ -236,7 +236,7 @@ def estimate_molecule_bytes(n_frames: int) -> float:
     """Analytic upper-envelope bytes for one molecule's stored data at ``n_frames``.
 
     ``TRACE_BYTES_PER_MOLECULE_FRAME · n_frames`` (the six uncompressed float32 layers,
-    the dominant term) plus :data:`FIXED_STORAGE_BYTES_PER_MOLECULE` (patches + row).
+    the dominant term) plus [`FIXED_STORAGE_BYTES_PER_MOLECULE`][] (patches + row).
     An upper bound: real gzip'd traces store *below* the uncompressed term.
     """
     if n_frames < 0:
@@ -254,7 +254,7 @@ def estimate_condition_bytes(
 
     ``estimate_molecule_bytes(n_frames) · molecules_per_movie · n_movies`` — a
     conservative (uncompressed-trace) upper envelope; compared against
-    :data:`MAX_CONDITION_BYTES` to assert the per-condition store stays modest.
+    [`MAX_CONDITION_BYTES`][] to assert the per-condition store stays modest.
     """
     if molecules_per_movie < 0 or n_movies < 0:
         raise ValueError("molecules_per_movie and n_movies must be non-negative")
@@ -300,7 +300,7 @@ class OvernightEstimate:
 
     @property
     def fits_window(self) -> bool:
-        """Whether the whole condition finishes within :attr:`window_hours`."""
+        """Whether the whole condition finishes within [`window_hours`][]."""
         return self.total_hours <= self.window_hours
 
     @property

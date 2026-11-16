@@ -55,7 +55,7 @@ brings it to the application.
   The status bar calls it vbFRET, but it runs the consensus VB-HMM
   ([#554](https://github.com/bioedca/tether/issues/554)).
 - **Standalone-tMAVEN hand-off.** A non-destructive round trip: save molecules as a file that
-  tMAVEN's own window opens, then import its result back through a per-trace reconcile prompt.
+  tMAVEN's own application window opens, then import its result back through a per-trace reconcile prompt.
 - **Condition validation.** Confirm or correct the condition Tether read from each file name.
 - **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
   projects.
@@ -151,16 +151,18 @@ Idealization needs the separate tMAVEN sidecar environment, which
 
 The installer does **not** edit your `PATH`. It writes both launchers into
 `<install-root>/bin/` (`<install-root>\bin\` on Windows), and on Windows and Linux it
-also adds a **Tether** entry to the Start Menu or applications menu.
+also adds a **Tether** entry to the Start Menu or applications menu. From the next release
+the launchers are in `<install-root>/launchers/` instead, a folder that holds only them
+([#492](https://github.com/bioedca/tether/issues/492)); read `launchers` for `bin` below.
 
-Open the desktop application from that menu entry, or run the window launcher:
+Open the desktop application from that menu entry, or run the application-window launcher:
 
 ```bash
 <install-root>/bin/tether-gui        # Windows: <install-root>\bin\tether-gui.bat
 ```
 
-To use the command line, add `<install-root>/bin` to the **end** of your `PATH` (on
-Linux and macOS it also holds the installer's own `python`, `pip` and `conda`, which
+To use the command line, add `<install-root>/bin` to the **end** of your `PATH` (in rc3,
+on Linux and macOS, it also holds the installer's own `python`, `pip` and `conda`, which
 should not shadow yours), check the install, and extract a dual-channel TIFF movie into a
 new project. [Install Tether](docs/install.md) shows how
 to make the `PATH` change permanent.
