@@ -1,5 +1,5 @@
 ---
-description: "Look at each extracted trace in the Tether window and mark the molecule accepted or rejected for your analysis."
+description: "Look at each extracted trace in the Tether application window and mark the molecule accepted or rejected for your analysis."
 ---
 
 # Curate traces by accepting and rejecting molecules
@@ -17,8 +17,8 @@ rejected.
 - The project file, here called `movie.tether`.
 - The desktop application. After an installer install it starts with `tether-gui`; see
   [Launching Tether after an installer install](../cli.md#launching-tether-after-an-installer-install).
-- No other Tether window, script or batch run has the same project open. Only one writer may
-  change a project at a time, and a second window opens it read-only. See
+- No other Tether application window, script or batch run has the same project open. Only one writer may
+  change a project at a time, and a second application window opens it read-only. See
   [The project is locked by another user or
   machine](../troubleshooting.md#the-project-is-locked-by-another-user-or-machine).
 - Each movie file in the project once. A file extracted into the project twice gives both
@@ -32,10 +32,10 @@ tether-gui movie.tether
 ```
 
 On Windows and Linux you can also start Tether from the Start menu or applications menu. The
-window then shows the start page. Click **Open project…** there, choose **File → Open
-project…**, or drop the `.tether` file on the window. A dropped file of a different type does
+application window then shows the start page. Click **Open project…** there, choose **File → Open
+project…**, or drop the `.tether` file on the application window. A dropped file of a different type does
 not open, and the status bar says why.
-When the project opens, the status bar at the bottom of the window names it and its molecule
+When the project opens, the status bar at the bottom of the application window names it and its molecule
 count:
 
 ```text
@@ -48,7 +48,7 @@ nothing you mark will be saved. Close the other writer and open the project agai
 ## 2. Move from trace to trace
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (red) and their total (grey) on top, its apparent FRET efficiency (blue)
+(green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
 underneath.
 
 1. Press **Right arrow** or **Down arrow** for the next molecule.
@@ -57,8 +57,8 @@ underneath.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
 
-The window commands use your operating system's standard keys. Each key includes a modifier
-key or is a function key, so no window command replaces a curation key. On macOS, use Cmd
+The menu commands use your operating system's standard keys. Each key includes a modifier
+key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
 where this list shows Ctrl:
 
 - **File → Open project…**: Ctrl+O.
@@ -67,7 +67,7 @@ where this list shows Ctrl:
 - **Help → Documentation**: F1. It opens the documentation for your version of Tether.
 
 Tether saves each mark when you make it, so **File → Close project** has nothing to save. It
-releases the project so that another window can open it, and it shows the start page again. **File → Quit** releases the project in the
+releases the project so that another application window can open it, and it shows the start page again. **File → Quit** releases the project in the
 same way before Tether closes.
 
 ## 3. Accept or reject each molecule
@@ -83,7 +83,7 @@ When a button has the keyboard focus, **Space** and **Enter** push that button. 
 accept the molecule or jump to it. Click the molecule list to curate with the keys again.
 
 > The number keys, the analysis-window keys and **P** answer with `unavailable` in the status
-> bar and change nothing in the project. Categories, window edits and photobleach detection
+> bar and change nothing in the project. Categories, analysis-window edits and photobleach detection
 > are not saved from the curation view.
 
 ## 4. Change your mind
@@ -103,7 +103,7 @@ so the history survives a reversal.
 
 - **Uncurated** is where every molecule starts. Uncurated molecules are **included** in
   histograms, idealization and the other analyses, exactly like accepted ones.
-- **Accept** records your judgement. Accepting an uncurated molecule does not change which
+- **Accept** records your judgment. Accepting an uncurated molecule does not change which
   molecules an analysis uses, because only rejection removes a molecule. Accepting a
   rejected one does: it replaces the rejection and puts the molecule back in.
 - **Reject** keeps the molecule out of population analyses and idealization, and out of the
@@ -122,7 +122,7 @@ on, and has no field to change it.
 
 To record a different name, make the change from Python instead, with
 `labeler=`. For example, this script un-rejects every rejected molecule in the project and
-credits the change to `your-name`. Close the Tether window first, then run it with the Python
+credits the change to `your-name`. Close the Tether application window first, then run it with the Python
 that came with Tether (`~/tether/envs/tether/bin/python` on Linux,
 `~/Tether/envs/tether/bin/python` on macOS, `$env:USERPROFILE\Tether\envs\tether\python.exe`
 on Windows, at the default install locations):

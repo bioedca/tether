@@ -189,7 +189,7 @@ class ChannelLayout:
                     f"{list(acceptor_rect)} is "
                     f"{_size(acceptor_rect)[0]}x{_size(acceptor_rect)[1]}"
                 )
-            # Frozen dataclass: normalise through object.__setattr__ (value semantics).
+            # Frozen dataclass: normalize through object.__setattr__ (value semantics).
             object.__setattr__(self, "donor_rect", donor_rect)
             object.__setattr__(self, "acceptor_rect", acceptor_rect)
             return
