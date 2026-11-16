@@ -478,7 +478,7 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 | Code | `tether extract` | `tether batch` | `tether info` |
 |---|---|---|---|
 | `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one project could not be read |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
@@ -490,7 +490,9 @@ particular refusal can leave an empty output directory behind.
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
 on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
 worth reporting. From `tether batch` it means the run finished with at least one movie
-having a failed stage; fix those and re-run the same command to resume the rest.
+having a failed stage; fix those and re-run the same command to resume the rest. It also
+means `tether batch` could not create `--out-dir` or write the log; it then prints one line
+on stderr that names the path.
 
 > **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
 > when the run starts, the default behaviour is to *defer* idealization: the stage is

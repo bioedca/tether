@@ -308,6 +308,37 @@ def test_batch_refuses_an_empty_movie_list_before_it_writes(tmp_path) -> None:
     assert not out.exists()
 
 
+def test_batch_reports_an_output_directory_it_cannot_make_as_a_failed_command(tmp_path) -> None:
+    # CodeRabbit finding on #1058: an OSError must not escape as a traceback.
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    request = services.BatchRequest(movies=("m.tif",), out_dir=str(blocker / "out"))
+    with pytest.raises(services.CommandFailed, match="cannot create output directory"):
+        services.run(request)
+
+
+def test_batch_reports_a_log_it_cannot_write_as_a_failed_command(tmp_path) -> None:
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    request = services.BatchRequest(
+        movies=("m.tif",), out_dir=str(tmp_path / "out"), log=str(blocker / "log.jsonl")
+    )
+    with pytest.raises(services.CommandFailed, match="cannot write the batch output or log"):
+        services.run(request)
+
+
+def test_tether_batch_exits_1_with_one_line_when_it_cannot_make_its_output(
+    tmp_path, capsys
+) -> None:
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    code = cli.main(["batch", "m.tif", "--out-dir", str(blocker / "out")])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("tether batch: cannot create output directory")
+    assert "Traceback" not in err
+
+
 # --- No Qt ---------------------------------------------------------------------------
 
 

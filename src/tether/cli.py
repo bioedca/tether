@@ -352,12 +352,15 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
 
 
 def _run_batch(args: argparse.Namespace) -> int:
-    """Handle ``tether batch``; exit 2 if it refused to start, 1 if a stage failed."""
+    """Handle ``tether batch``; exit 2 if it refused to start, 1 if it or a stage failed."""
     try:
         result: BatchResult = run_service(_batch_request(args))
     except RequestRefused as exc:
         print(f"tether batch: {exc}", file=sys.stderr)
         return 2
+    except CommandFailed as exc:
+        print(f"tether batch: {exc}", file=sys.stderr)
+        return 1
     print(result.summary.format_report())
     print(f"  structured log: {result.log_path}", file=sys.stderr)
     return 0 if result.summary.n_failed == 0 else 1

@@ -14,7 +14,7 @@ import dataclasses
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from tether.services.base import Request, RequestRefused
+from tether.services.base import CommandFailed, Request, RequestRefused
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.project.batch import BatchSummary
@@ -62,7 +62,9 @@ def run(request: BatchRequest) -> BatchResult:
 
     Raises [`RequestRefused`][tether.services.base.RequestRefused] before any movie is read when
     the policy or the supervision settings are invalid, when there is no movie, or when
-    two movies would write the same project. A failed stage is not an error: it is in the summary.
+    two movies would write the same project. Raises
+    [`CommandFailed`][tether.services.base.CommandFailed] when the output directory or the log
+    cannot be written. A failed stage is not an error: it is in the summary.
     """
     from tether.project.batch import POLICIES, BatchLog, MovieJob, run_batch
 
@@ -91,7 +93,10 @@ def run(request: BatchRequest) -> BatchResult:
             raise RequestRefused(str(exc)) from exc
 
     out_dir = Path(request.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CommandFailed(f"cannot create output directory {out_dir}: {exc}") from exc
     # Each movie maps to <out-dir>/<stem>.tether. Two movies with the same basename
     # (e.g. `movie_010.tif` from different condition folders) would collide on one
     # output, and the batch runner's provenance checkpoint would silently treat the
@@ -116,13 +121,16 @@ def run(request: BatchRequest) -> BatchResult:
             )
         )
     log_path = Path(request.log) if request.log else out_dir / "batch-log.jsonl"
-    with BatchLog(path=log_path) as log:
-        summary = run_batch(
-            jobs,
-            policy=request.policy,
-            idealize=request.idealize,
-            supervision=supervision,
-            overwrite=request.overwrite,
-            log=log,
-        )
+    try:
+        with BatchLog(path=log_path) as log:
+            summary = run_batch(
+                jobs,
+                policy=request.policy,
+                idealize=request.idealize,
+                supervision=supervision,
+                overwrite=request.overwrite,
+                log=log,
+            )
+    except OSError as exc:
+        raise CommandFailed(f"cannot write the batch output or log {log_path}: {exc}") from exc
     return BatchResult(summary=summary, log_path=log_path)
