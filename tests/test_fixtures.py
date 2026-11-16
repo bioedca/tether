@@ -40,6 +40,8 @@ PLAIN_FIXTURES = [
     FIXTURES / "marzano_chaperone_kjg_231027.tar.xz",
     FIXTURES / "rf2_core_wtprensec_smd.hdf5",
     FIXTURES / "rf2_core_wtprensec_model.hdf5",
+    FIXTURES / "mashfret_ed135e_30mm_extract.mat",
+    FIXTURES / "mashfret_ed135e_30mm_path_a.mat",
 ]
 
 # The SHA-256 of each plain fixture's content. A fixture that a script regenerates on
@@ -68,6 +70,12 @@ PLAIN_FIXTURE_SHA256 = {
     ),
     "rf2_core_wtprensec_model.hdf5": (
         "edeaa298604895a842c3ab7692370d555b05b2e779d7bcb8b2f81b5d01d0be7a"
+    ),
+    "mashfret_ed135e_30mm_extract.mat": (
+        "80f72fd03980bc618c98a8098f48f648f2f33da7ffbf886a86760e12a062a55e"
+    ),
+    "mashfret_ed135e_30mm_path_a.mat": (
+        "8efa0e919c36f0503e300c17385fd4c36fa19be5a206bda5594fd113ac905c79"
     ),
 }
 

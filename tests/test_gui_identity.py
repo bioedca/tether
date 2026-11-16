@@ -400,6 +400,11 @@ def _stub_prefix(tmp_path: Path) -> Path:
         )
         stub.chmod(0o755)
     (prefix / "wheelhouse").mkdir()
+    # constructor's extra_files lays the gh update verifier down before post_install runs,
+    # and post_install makes it executable (issue #332).
+    gh = prefix / "verifier" / "gh" / "gh"
+    gh.parent.mkdir(parents=True)
+    gh.write_bytes(b"")
     return prefix
 
 

@@ -145,6 +145,11 @@ QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 pytest -m "not gui and not large and not sidecar and not deep and not workstation"
 ```
 
+The shell keyboard-shortcut tests in `tests/test_shell_basics.py` need a window that
+the platform plugin activates. Where it does not, they skip, unless
+`TETHER_REQUIRE_WINDOW_ACTIVATION=1` is set: then they fail. The required `test` job sets
+it on all three operating systems, so that gate cannot go green without the key path (#855).
+
 `--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
 **not** protect a negated expression: `-m "not largge"` is a perfectly valid filter that
 happens to exclude nothing, so a typo there silently pulls the optional tiers back into
@@ -192,6 +197,14 @@ and then one row that counts the rest. The `golden-table` workflow fails a pull 
 without both, and runs again when you edit the body. Never edit a golden file by hand. A
 dependency update that moves a number fails here on purpose: the table and the cause are then
 the record of what the update changed.
+
+The full laboratory acquisitions of the maintainer have golden files too, in
+`tests/golden/workstation/`, with summary numbers only (#703). They are private, so they run only
+on the reference workstation, and only the maintainer or an agent session there can rewrite
+them, with `scripts/workstation/update_lab_golden.py`
+([Running the private-data checks](docs/maintainers/workstation-runner.md)). The same table and
+`Cause:` line apply. A change that moves one of these numbers fails only the weekly run on the
+workstation, not a pull request.
 
 ### Coverage floors
 
@@ -262,6 +275,11 @@ words, terms, warnings and page shape, and the files that the rules apply to. A 
 cite a rule by its number. To build the site and run its checks, see
 [Building the docs locally](#building-the-docs-locally).
 
+Write each docstring in `src/tether` to the
+[docstring standard](docs/maintainers/docstring-style.md): NumPy style, a one-line imperative
+summary, the unit of each physical quantity, and Markdown cross-references in the form of
+mkdocstrings. Ruff checks the shape in the `lint` job (ADR-0093).
+
 ## Licensing — SPDX / REUSE (PRD §12.1)
 
 Tether is `GPL-3.0-or-later`. **Every source file carries** an
@@ -323,6 +341,11 @@ modes are silent:
 Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
 
+If you use an AI tool to write or review documentation, also follow the
+[AI-use policy for documentation work](docs/maintainers/ai-use-policy.md). It adds the rules for
+the style guide, the validation by a person, the record of the tool and the safe and unsafe
+practices.
+
 ## PR self-review checklist (PRD §12.4)
 
 Before requesting review / merging, confirm:
@@ -348,10 +371,10 @@ Before requesting review / merging, confirm:
       tests, logs or fixtures; `secret-scan` green.
 - [ ] Code scanning clean (CodeQL reports no new alerts); Conventional-Commit PR title.
 - [ ] **Risk recorded, and the review lane complete** — `low`, `standard`, or `high`, which
-      routes nothing; the round; and a
+      routes nothing except the load-bearing Greptile route of ADR-0099; the round; and a
       result from every provider the lane reached — **either** a substantive review **or** that
       provider's own quoted "nothing to review" for the head it read, a Codex 👍 included.
-      **CodeRabbit with no actionable comments is required — or, if its one-review cap is spent
+      **CodeRabbit (on a load-bearing PR, Greptile) with no actionable comments is required — or, if its one-review cap is spent
       and every finding is disposed of, the Codex review of the final head that closed the gate in
       its place** — and that is a verdict a completed
       review reached rather than an absence of one: record the review itself — permalink, and the
@@ -377,7 +400,9 @@ Before requesting review / merging, confirm:
       **nothing** leaves behind (see the full-review command below). Greptile is optional, and its absence
       for want of credits is recorded rather than excused as a review. Where a Greptile review
       stood in for a CodeRabbit that refused for more than 30 minutes, record the refusal and
-      record that review as this item asks of CodeRabbit's. Blocking
+      record that review as this item asks of CodeRabbit's. On a load-bearing PR (ADR-0099) record
+      the one Greptile review the same way, its summary comment's `Last reviewed commit` being the
+      head it read; after its findings, record the one CodeRabbit review and the Codex close. Blocking
       findings fixed, non-blocking ones deferred to a follow-up issue, per `AGENTS.md`.
 - [ ] A resolved design decision that changed → PRD and/or an ADR updated in the
       **same** PR.
@@ -393,8 +418,9 @@ governs.
 3. Ask Codex for a review with an `@codex review` comment.
 4. Fix each blocking Codex finding and ask Codex again. Repeat until Codex finds nothing blocking.
 5. Mark the PR ready for review.
-6. Ask CodeRabbit once with an `@coderabbitai full review` comment. The incremental command
-   reviews nothing on this repository. A refusal is not that one review.
+6. Ask CodeRabbit once with an `@coderabbitai full review` comment. A load-bearing PR asks one
+   Greptile review in its place (ADR-0099). The incremental CodeRabbit command reviews nothing on
+   this repository. A refusal is not that one review.
 7. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
 8. Resolve each review thread. An unresolved thread blocks the merge, even with green checks.
 
