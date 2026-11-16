@@ -722,7 +722,8 @@ Deep-LASI import with overwrite on all take the destination project's writer loc
 replace it, so they stop with the same `is locked` message when someone has the project open.
 This includes a Tether window in the same program: close the project there first. A script that
 calls `extract_movie`, `reconstruct_project` or `import_analysis_only_project` to replace an
-existing project gets `PublishGuardRequiredError ... needs its writer lock` unless it holds
+existing project gets `... needs its writer lock` (`ExtractionError` from `extract_movie`,
+`PublishGuardRequiredError` from the other two) unless it holds
 `tether.project.lock.publish_lock` on the destination and passes the check it yields as
 `publish_guard`.
 

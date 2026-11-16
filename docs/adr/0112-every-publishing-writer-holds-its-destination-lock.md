@@ -65,13 +65,14 @@ Chosen option: **3**.
 - `extract_movie`, `reconstruct_project` and `import_analysis_only_project` take
   `publish_guard: Callable[[], None] | None`. To replace a path where **any** entry exists they
   require one, and refuse with `PublishGuardRequiredError` (a `LockError`) otherwise — before any
-  movie or source I/O, and again at publish time.
+  movie or source I/O, and again at publish time. `extract_movie` reports the first refusal as its
+  own `ExtractionError`, like its other input errors.
 - With a guard, the guard runs immediately before the one `os.replace`, and an exception from it
   aborts the publish with the destination unchanged.
 - Without a guard, a new path is published with `os.link(stage, destination)`, which fails rather
   than replaces when another writer created the destination meanwhile, and the stage is then
-  unlinked. Where the filesystem has no hard links, the publish checks that the destination is still
-  absent and uses `os.replace`; that fallback keeps a narrow check-then-replace window.
+  unlinked. Where the filesystem has no hard links, an exclusive create (`O_CREAT | O_EXCL`)
+  reserves the name instead, failing the same way, and `os.replace` fills that placeholder.
 - `lock.publish_lock(path)` is the helper callers use. It claims the destination **strictly**
   (`allow_existing_owner=False`) under a process-local reservation, so a lock that this process
   already holds — an open GUI window — is refused like any other. It yields a guard that requires
@@ -114,7 +115,7 @@ the alias spelling too. That closes #257's defect 1.
   another process, another thread, or the same process's GUI.
 - Good: one definition of "the same file", shared by the lock module and the GUI.
 - Trade-off: a library caller that replaced an existing project without a guard now gets
-  `PublishGuardRequiredError` and must use `publish_lock`. That is the purpose of the rule.
+  `PublishGuardRequiredError` (`ExtractionError` from `extract_movie`) and must use `publish_lock`. That is the purpose of the rule.
 - Trade-off: `tether extract --overwrite` and the wizard now refuse a project that this user has
   open in a Tether window; the user closes it there first.
 - Not decided here: where the lock sidecar lives for hard-link aliases across processes. #249's

@@ -2191,3 +2191,6 @@ def test_overwrite_of_an_output_another_writer_holds_fails_that_movie(tmp_path: 
     assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
     assert "locked" in (r.stages[STAGE_EXTRACT].error or "")
     assert lock.read_lock(jobs[0].output_path) == foreign
+    # The refused job never owned the project, so it stamped no provenance into it.
+    with h5py.File(jobs[0].output_path, "r") as f:
+        assert "batch" not in f["settings"]

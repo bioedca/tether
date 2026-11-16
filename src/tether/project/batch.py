@@ -1117,10 +1117,15 @@ def _do_extract(
         # an existing path holds the lock for just this publish.
         publish_scope: contextlib.AbstractContextManager[Callable[[], None] | None]
         publish_scope = contextlib.nullcontext(ownership_guard)
+        locked_for_publish = False
         if ownership_guard is None and overwrite and os.path.lexists(job.output_path):
             from tether.project.lock import publish_lock  # noqa: PLC0415
 
             publish_scope = publish_lock(job.output_path)
+            # Until this publish succeeds the job does not own the project, so the
+            # unguarded provenance stamp must not write to it (another writer may hold it).
+            rec.canonical_write_safe = False
+            locked_for_publish = True
         with publish_scope as publish_guard:
             runner_kwargs: dict[str, Any] = {}
             if publish_guard is not None:
@@ -1138,6 +1143,8 @@ def _do_extract(
             ownership_guard()
     except Exception as exc:  # ExtractionError and any lower-level failure
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
+    if locked_for_publish:
+        rec.canonical_write_safe = True  # this job published the project just now
     low_conf = bool(getattr(summary, "low_confidence_registration", False))
     if low_conf and policy == POLICY_FAIL:
         return rec.record(

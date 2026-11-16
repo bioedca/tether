@@ -1168,3 +1168,38 @@ def test_unguarded_new_path_publish_never_replaces_a_file_that_appeared(tmp_path
     publish_staged_project(stage, out, publish_guard=None)
     assert out.read_bytes() == b"new project"
     assert not stage.exists()
+
+
+def test_publish_without_hard_links_never_replaces_a_file_that_appeared(
+    tmp_path, monkeypatch
+) -> None:
+    """Where os.link fails, an exclusive create still refuses a path that appeared."""
+    from tether.project import _guarded_publish
+    from tether.project.lock import PublishGuardRequiredError
+
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+    out = tmp_path / "out.tether"
+
+    def no_links_and_a_racing_writer(src, dst):
+        Path(dst).write_bytes(b"appeared meanwhile")
+        raise PermissionError(1, "hard links not supported")
+
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links_and_a_racing_writer)
+    with monkeypatch.context() as m:
+        # Model the other writer arriving after any absence check: a check-then-replace
+        # would now replace its file.
+        m.setattr(_guarded_publish.os.path, "lexists", lambda _p: False)
+        with pytest.raises((FileExistsError, PublishGuardRequiredError)):
+            _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"appeared meanwhile"
+    assert stage.read_bytes() == b"new project"
+
+    def no_links(src, dst):
+        raise PermissionError(1, "hard links not supported")
+
+    out.unlink()
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links)
+    _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"new project"
+    assert not stage.exists()
