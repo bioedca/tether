@@ -490,7 +490,7 @@ point, and the elbow when there is one. The elbow is a hint and the figure says 
 state count of record is the model's.
 
 `render_population_anticorrelation` gives each scanned molecule one row, in store order. An
-event is a bar over its frames, coloured by its peak `|lag-0|`, with a tick at its peak
+event is a bar over its frames, colored by its peak `|lag-0|`, with a tick at its peak
 frame. A molecule with no event keeps its empty row. The rows carry the `molecule_key` up
 to 30 molecules and an index above that.
 
