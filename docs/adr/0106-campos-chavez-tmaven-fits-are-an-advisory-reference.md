@@ -5,12 +5,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0106 — The tMAVEN fits of Campos-Chavez et al. 2024 are an advisory reference for the sidecar fits
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-11-15
 - **Deciders:** bioedca (interview of 2026-11-11 on #757: S1 A to G, S2 A, S3 A, S4 B, S5 A, C1 C,
   C2 B, C3 A, C4 B, C5 C; the two-state sub-population is tMAVEN's plain vbGMM, and the
   `vbgmm_vbhmm` key is reported, decision of 2026-11-15; tMAVEN 0.2.0 and 0.2.3 run from GitHub
-  in a separate environment, approval of 2026-11-15)
+  in a separate environment, approval of 2026-11-15; the reference and the priors signed off by
+  bioedca on 2026-11-16 for PR #1075)
 - **PRD anchor:** §7.4 (idealization), §8 NFR-VALID, NFR-FIXTURES, §11.2
 - **Milestone:** M19
 - **Issue:** [#757](https://github.com/bioedca/tether/issues/757)
