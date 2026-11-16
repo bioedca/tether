@@ -124,7 +124,10 @@ fi
 prefix_marker="$(present "$prefix_u/upgrade-marker-prefix.txt")"
 env_marker="$(present "$(dirname "$py_u")/upgrade-marker-env.txt")"
 report "- Over-install measured: installer exited **$over_rc**$over_note; a file in the install folder: **$prefix_marker**; a file in the app env: **$env_marker**."
-if [ "$over_rc" = 0 ] && "$py" -m tether --version; then
+if [ "$over_rc" = 0 ]; then
+  # The installer accepted the over-install, so the app must still run (set -e stops
+  # the job if it does not) and read the answer.
+  "$py" -m tether --version
   expect_declined "over-install"
 else
   # The installer would not run over an existing install, so this is not an upgrade

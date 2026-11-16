@@ -187,7 +187,9 @@ def _stored_answer(path: Path) -> str | None:
         return None
     try:
         data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        # RecursionError: deeply nested JSON that fits in _MAX_BYTES still exceeds the
+        # decoder's nesting limit on Python 3.11.
         return None
     if not isinstance(data, dict) or data.get("schema") != SETTINGS_SCHEMA:
         return None

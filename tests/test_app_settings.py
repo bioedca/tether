@@ -169,6 +169,7 @@ def test_an_override_under_a_plain_file_is_absent(store: tuple[Path, Path]) -> N
         b'{"schema": 1}',
         b"\xff\xfe\x00\x00",
         b'{"schema": 1, "update_check": "allowed", "pad": "' + b"x" * 5000 + b'"}',
+        b"[" * 2048 + b"]" * 2048,
     ],
     ids=[
         "empty",
@@ -186,6 +187,7 @@ def test_an_override_under_a_plain_file_is_absent(store: tuple[Path, Path]) -> N
         "no-key",
         "not-utf8",
         "oversized",
+        "deeply-nested",
     ],
 )
 def test_a_file_that_is_not_one_this_version_wrote_reads_as_unset(
@@ -197,6 +199,22 @@ def test_a_file_that_is_not_one_this_version_wrote_reads_as_unset(
     state = _state(store)
     assert state is UpdateCheckState.PENDING
     assert state.network_allowed is False
+
+
+def test_a_decoder_recursion_error_reads_as_unset(
+    store: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Python 3.11 raises RecursionError for the deeply nested file above; 3.12 does
+    # not, so the handler is also exercised directly.
+    settings, _ = store
+    settings.parent.mkdir(parents=True)
+    settings.write_text('{"schema": 1, "update_check": "allowed"}', encoding="utf-8")
+
+    def too_deep(*_args: object, **_kwargs: object) -> object:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(app_settings.json, "loads", too_deep)
+    assert _state(store) is UpdateCheckState.PENDING
 
 
 def test_a_folder_where_the_file_should_be_reads_as_unset(store: tuple[Path, Path]) -> None:
@@ -411,3 +429,7 @@ def test_the_upgrade_smoke_writes_with_the_installed_app_and_checks_both_paths()
     assert "remove-then-install" in code
     # Each path ends by asserting the declined answer is what the app reads.
     assert code.count("expect_declined") >= 3
+    # An over-install that exits 0 must leave an app that runs and reads the answer;
+    # only an installer refusal takes the "not an upgrade path" branch.
+    assert 'if [ "$over_rc" = 0 ]; then' in code
+    assert '[ "$over_rc" = 0 ] &&' not in code
