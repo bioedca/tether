@@ -153,6 +153,13 @@ Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
   HMM's un-normalized transition count matrix with their Dirichlet lower and upper
   bounds, the method of the Source Data of [CamposChavez2024], from an array or from a
   stored idealization model (the result carries its provenance stamp).
+
+Added at M17 (FR-ANALYZE, PRD §7.7; #1030, ADR-0120):
+
+- [`fit_gaussians`][tether.analysis.gaussian_fit.fit_gaussians] — a sum of ``n`` Gaussians
+  fitted to a 1-D histogram by least squares, with each Gaussian's mean, width, area and
+  fraction of the total area, and their errors propagated from the full covariance
+  [Gopich2010]; the fit behind Fig. 5c of [CamposChavez2024].
 """
 
 from __future__ import annotations
@@ -206,6 +213,14 @@ from tether.analysis.dwell import (
     population_dwell_times,
     state_dwells,
     survival_curve,
+)
+from tether.analysis.gaussian_fit import (
+    AREA_METHODS,
+    DEFAULT_AREA_METHOD,
+    DEFAULT_INITIAL_WIDTH,
+    GaussianFit,
+    fit_gaussians,
+    gaussian_sum,
 )
 from tether.analysis.histogram import (
     DEFAULT_BOOTSTRAP_RESAMPLES,
@@ -291,11 +306,13 @@ from tether.analysis.transition_prob import (
 )
 
 __all__ = [
+    "AREA_METHODS",
     "DEFAULT_ALPHA_FACTOR",
     "DEFAULT_ANTICORR_MIN_MAGNITUDE",
     "DEFAULT_ANTICORR_MIN_WINDOWS",
     "DEFAULT_ANTICORR_STEP",
     "DEFAULT_ANTICORR_WINDOW",
+    "DEFAULT_AREA_METHOD",
     "DEFAULT_BOOTSTRAP_RESAMPLES",
     "DEFAULT_CI_LEVEL",
     "DEFAULT_CLOUD_BW_METHOD",
@@ -313,6 +330,7 @@ __all__ = [
     "DEFAULT_HMM_MAX_ITER",
     "DEFAULT_HMM_TOL",
     "DEFAULT_HMM_VAR_FLOOR",
+    "DEFAULT_INITIAL_WIDTH",
     "DEFAULT_NBINS",
     "DEFAULT_OVERLAY_POINTS",
     "DEFAULT_RANGE",
@@ -338,16 +356,17 @@ __all__ = [
     "CrossCorrelation",
     "DwellFit",
     "DwellTimeAnalysis",
+    "GaussianFit",
     "GaussianHMM",
     "Histogram1D",
     "Histogram2D",
     "HistogramBootstrapCI",
     "KinsoftKineticsResult",
     "KinsoftReference",
-    "MoleculeSelection",
     "ModelGaussianOverlay",
     "MoleculeAnticorrelation",
     "MoleculeMatch",
+    "MoleculeSelection",
     "PerConditionHistograms",
     "PopulationAnticorrelation",
     "RateBounds",
@@ -369,7 +388,9 @@ __all__ = [
     "evaluate_kinsoft_level",
     "find_anticorrelation_events",
     "fit_gaussian_hmm",
+    "fit_gaussians",
     "fit_survival",
+    "gaussian_sum",
     "k_rmse_elbow",
     "load_kinsoft_reference",
     "model_gaussian_overlay",
