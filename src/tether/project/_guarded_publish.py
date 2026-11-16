@@ -11,7 +11,7 @@ from pathlib import Path
 from shutil import copy2
 from tempfile import mkstemp
 
-from tether.project.lock import LockError, PublishGuardRequiredError, file_identity
+from tether.project.lock import LockError, PublishGuardRequiredError, file_identity, publish_lock
 
 
 def require_publish_guard(
@@ -43,8 +43,9 @@ def publish_staged_project(
     With a ``publish_guard`` the guard runs immediately before one ``os.replace``.
     Without one the destination must not exist: the stage is hard-linked to the new
     name, which fails rather than replaces if another writer created it meanwhile,
-    and is then unlinked. Where the filesystem has no hard links, an exclusive
-    create reserves the name the same way and ``os.replace`` fills it.
+    and is then unlinked. Where the filesystem has no hard links, the destination's
+    writer lock is taken, an exclusive create reserves the name the same way, and
+    ``os.replace`` fills it.
 
     Raises
     ------
@@ -62,29 +63,33 @@ def publish_staged_project(
         require_publish_guard(destination, None)
         raise
     except OSError:
-        # No hard links on this filesystem (FAT, some network shares). Reserve the
-        # name with an exclusive create, which fails rather than replaces if another
-        # writer created it meanwhile, then replace that placeholder, which is ours.
+        # No hard links on this filesystem (FAT, some network shares). Under the
+        # destination's lock, reserve the name with an exclusive create, which fails
+        # rather than replaces if another writer created it, then fill the placeholder.
         _publish_over_reserved_name(stage, destination)
         return
     Path(stage).unlink()
 
 
 def _publish_over_reserved_name(stage: str | Path, destination: str | Path) -> None:
-    """Publish ``stage`` onto an absent ``destination`` without hard links."""
-    try:
-        fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
-    except FileExistsError:
-        require_publish_guard(destination, None)
-        raise
-    os.close(fd)
-    placeholder = file_identity(destination)
-    try:
-        os.replace(stage, destination)
-    except BaseException:
-        if placeholder is not None and file_identity(destination) == placeholder:
+    """Publish ``stage`` onto an absent ``destination`` without hard links.
+
+    The destination's writer lock is held across the reservation and the replace,
+    so no cooperating writer can publish into the reserved name in between.
+    """
+    with publish_lock(destination) as guard:
+        try:
+            fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+        except FileExistsError:
+            require_publish_guard(destination, None)
+            raise
+        os.close(fd)
+        try:
+            guard()
+            os.replace(stage, destination)
+        except BaseException:
             Path(destination).unlink(missing_ok=True)
-        raise
+            raise
 
 
 @contextmanager

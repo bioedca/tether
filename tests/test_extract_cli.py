@@ -1203,3 +1203,26 @@ def test_publish_without_hard_links_never_replaces_a_file_that_appeared(
     _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
     assert out.read_bytes() == b"new project"
     assert not stage.exists()
+
+
+def test_publish_without_hard_links_holds_the_destination_lock(tmp_path, monkeypatch) -> None:
+    """A writer holding the new path's lock stops the no-hard-link publish (#346)."""
+    from tether.project import _guarded_publish
+    from tether.project import lock as lock_module
+
+    def no_links(src, dst):
+        raise PermissionError(1, "hard links not supported")
+
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links)
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+    out = tmp_path / "out.tether"
+    foreign = lock_module.acquire(
+        out, identity=lock_module.LockIdentity(host="OTHER", user="bob", pid=999)
+    )
+
+    with pytest.raises(lock_module.LockError):
+        _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert not out.exists()
+    assert stage.read_bytes() == b"new project"
+    assert lock_module.read_lock(out) == foreign

@@ -72,7 +72,8 @@ Chosen option: **3**.
 - Without a guard, a new path is published with `os.link(stage, destination)`, which fails rather
   than replaces when another writer created the destination meanwhile, and the stage is then
   unlinked. Where the filesystem has no hard links, an exclusive create (`O_CREAT | O_EXCL`)
-  reserves the name instead, failing the same way, and `os.replace` fills that placeholder.
+  reserves the name instead, failing the same way, under the destination's writer lock held from
+  the reservation to the `os.replace` that fills the placeholder.
 - `lock.publish_lock(path)` is the helper callers use. It claims the destination **strictly**
   (`allow_existing_owner=False`) under a process-local reservation, so a lock that this process
   already holds — an open GUI window — is refused like any other. It yields a guard that requires
