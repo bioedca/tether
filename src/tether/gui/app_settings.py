@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The application settings store: one consent answer that survives an update (ADR-0095).
+r"""The application settings store: one consent answer that survives an update (ADR-0095).
 
 Tether keeps almost every setting inside a ``.tether`` project. The update-check consent
 of ADR-0060 decision 3 cannot live there: it must be readable at startup, before any
@@ -14,7 +14,7 @@ that what an installer does to its prefix cannot matter (ADR-0095 records the me
 per-OS behaviour that this choice makes irrelevant):
 
 ============  ==========================================================================
-Windows       ``%LOCALAPPDATA%\\MondragonLab\\Tether\\settings.json``
+Windows       ``%LOCALAPPDATA%\MondragonLab\Tether\settings.json``
 macOS         ``~/Library/Application Support/MondragonLab/Tether/settings.json``
 Linux         ``$XDG_CONFIG_HOME/tether/settings.json`` (``~/.config/tether/`` by default)
 ============  ==========================================================================
@@ -31,7 +31,7 @@ Linux         ``$XDG_CONFIG_HOME/tether/settings.json`` (``~/.config/tether/`` b
    an administrator turn checking on for a user who has not agreed.
 
 ============  ==========================================================================
-Windows       ``%PROGRAMDATA%\\MondragonLab\\Tether\\disable-update-check``
+Windows       ``%PROGRAMDATA%\MondragonLab\Tether\disable-update-check``
 macOS         ``/Library/Application Support/MondragonLab/Tether/disable-update-check``
 Linux         ``/etc/tether/disable-update-check``
 ============  ==========================================================================
@@ -130,7 +130,7 @@ def _platform() -> str:
 
 
 def _env_dir(name: str) -> Path | None:
-    """An environment folder, or ``None`` when it is unset, empty or relative."""
+    """Return an environment folder, or ``None`` when it is unset, empty or relative."""
     value = os.environ.get(name, "")
     if not value:
         return None
@@ -139,7 +139,7 @@ def _env_dir(name: str) -> Path | None:
 
 
 def settings_path() -> Path:
-    """The per-user settings file. The file and its folder may not exist."""
+    """Return the per-user settings file. The file and its folder may not exist."""
     platform = _platform()
     if platform == "windows":
         base = _env_dir("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
@@ -153,7 +153,7 @@ def settings_path() -> Path:
 
 
 def machine_override_path() -> Path:
-    """The machine-wide administrator override file. It may not exist."""
+    """Return the machine-wide administrator override file. It may not exist."""
     platform = _platform()
     if platform == "windows":
         base = _env_dir("PROGRAMDATA") or Path("C:/ProgramData")
@@ -177,7 +177,7 @@ def _override_present(path: Path) -> bool:
 
 
 def _stored_answer(path: Path) -> str | None:
-    """The stored ``update_check`` value, or ``None`` for anything that is not one."""
+    """Return the stored ``update_check`` value, or ``None`` for anything that is not one."""
     try:
         with path.open("rb") as handle:
             raw = handle.read(_MAX_BYTES + 1)
