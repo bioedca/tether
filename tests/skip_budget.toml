@@ -33,7 +33,7 @@ max_skipped = 31
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 34
+max_skipped = 35
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -250,6 +250,13 @@ reason = "POSIX FIFO semantics"
 jobs = ["test (windows-latest)"]
 why = """Both parametrized cases plant a FIFO at the lock lifecycle guard path (#257); Windows has \
 no os.mkfifo. test (ubuntu-latest) and test (macos-latest) run them."""
+
+[[skip]]
+test = "tests/test_app_settings.py::test_a_fifo_where_the_file_should_be_reads_as_unset_without_blocking"
+reason = "os.mkfifo is not available here"
+jobs = ["test (windows-latest)"]
+why = """The test plants a FIFO at the settings file path (#1116); Windows has no os.mkfifo and no \
+FIFO can sit at a file path there. test (ubuntu-latest) and test (macos-latest) run it."""
 
 [[skip]]
 test = "tests/test_lock.py::test_second_user_steals_a_stale_lock_in_a_shared_project"
