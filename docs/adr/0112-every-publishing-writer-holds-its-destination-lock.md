@@ -84,7 +84,12 @@ Chosen option: **3**.
 - Callers: `tether extract --overwrite` holds `publish_lock` across the run. The Deep-LASI wizard
   holds it per acquisition when overwrite is on. Batch keeps its own job-level strict claim for a
   rejected checkpoint (ADR-0056) and holds `publish_lock` for any other overwrite of an existing
-  output.
+  output. Batch's provenance stamp writes only under a writer lock: the job-level claim, or else
+  `publish_lock` for just that write, so a writer that opened the project after the job
+  published it stops the stamp (a provenance warning). A job whose unguarded extraction fails
+  stamps nothing, because the project at its output path may be another writer's.
+- `steal_lock` honors the process-local reservation, as `acquire` does, so no thread can steal
+  the destination from an active `publish_lock` in the same process.
 - `guarded_project_write` (the staged-copy path of the correction, γ, leakage, photobleach and
   idealization writers) takes the canonical file's identity before its copy and refuses to publish
   if the identity changed, so a staged copy of a replaced file never overwrites the newer file.
@@ -127,7 +132,15 @@ other OneDrive machines see a writer only through `<file>.lock` beside the proje
 - **A steal through another name takes over the holder's name too**: the stealer's record lists
   it, `release` and `refresh` reach it, and the ousted writer's nonce checks fail there. A later
   claim through the stealer's own name carries that list forward under its new nonce, so a renewed
-  claim still releases every name it holds.
+  claim still releases every name it holds; if the file has a new inode since, the list is found
+  by the nonce the name's `<file>.lock` carried.
+- **A guarded replace moves the record with the file.** Every guarded `os.replace` of a project
+  (`publish_staged_project`, `guarded_project_write`, the idealization writer) runs inside
+  `lock.replacement_identity(stage, destination)`: before the replace, the stage's identity (which
+  the replace gives the destination) is recorded under the nonce `<destination>.lock` carries, with
+  every name that nonce holds, so a hard link made to the new file is refused at once. A failed
+  replace removes that record again; a record left on the old inode is removed unless another name
+  still points there.
 - **Reaping.** A dead record (its name's lock gone or holding another nonce) never blocks, is
   overwritten by the next claim, and `release` removes every record that carries its nonce (found
   by nonce, since a staged publish moves the file to a new identity) and every dead record. A
@@ -139,8 +152,9 @@ other OneDrive machines see a writer only through `<file>.lock` beside the proje
   in their own directory (their `<file>.lock` still guards their name); and a file with no usable
   identity — a path that does not exist yet, or a filesystem that reports `st_ino == 0` (some
   network, FUSE and exFAT mounts). There only `<file>.lock` protects the name. Those filesystems
-  are also the ones without hard links, so the case #249 reports cannot occur on them. A writer
-  whose staged publish gives its file a new inode records the new identity at its next `refresh`.
+  are also the ones without hard links, so the case #249 reports cannot occur on them. A file
+  replaced by a tool other than Tether's guarded writers gets its new identity recorded at the
+  holder's next `refresh`.
 
 ### Reopening the loaded project
 
@@ -167,8 +181,9 @@ the alias spelling too. That closes #257's defect 1.
   the no-replace new-path publish), `tests/test_reconstruct.py` and `tests/test_analysis_import.py`
   (unguarded refusal, guard before replace, foreign lock), `tests/test_lock.py` (identity, strict
   publish lock, steal detection, the single `st_ino` site, the two-process hard-link regression,
-  alias steal, reaping, no-identity files), `tests/test_project_guarded_publish.py`
-  (replaced canonical file), `tests/test_project_batch.py` (batch overwrite under the lock) and
+  alias steal, reaping, no-identity files, renewal after a replacement, the record moved by a
+  guarded publish, the in-process steal refused), `tests/test_project_guarded_publish.py`
+  (replaced canonical file), `tests/test_project_batch.py` (batch overwrite and provenance stamp under the lock) and
   `tests/test_shell_load_project.py` (the freeze, alias reopen, the wizard refused on the loaded
   project).
 

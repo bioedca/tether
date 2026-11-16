@@ -615,6 +615,40 @@ def _idealize_detail(stored: Any) -> str:
 # --- Provenance stamp --------------------------------------------------------
 
 
+def _stamp_under_writer_lock(
+    path: Path,
+    *,
+    ownership_guard: Callable[[], None] | None,
+    policy: str,
+    idealize_requested: bool,
+    stages: dict[str, StageResult],
+) -> None:
+    """Stamp ``/settings/batch`` while this job holds ``path``'s writer lock (ADR-0112).
+
+    The job-level claim supplies the lock when there is one. Otherwise the stamp takes
+    [`publish_lock`][tether.project.lock.publish_lock] for just this write, so a writer
+    that opened the project after this job published it stops the stamp (a provenance
+    warning) instead of having its file rewritten.
+    """
+    scope: contextlib.AbstractContextManager[Callable[[], None]]
+    if ownership_guard is not None:
+        scope = contextlib.nullcontext(ownership_guard)
+    else:
+        from tether.project.lock import publish_lock  # noqa: PLC0415
+
+        scope = publish_lock(path)
+    with scope as guard:
+        guard()
+        _stamp_batch_settings(
+            path,
+            policy=policy,
+            idealize_requested=idealize_requested,
+            stages=stages,
+            write_guard=guard,
+        )
+        guard()
+
+
 def _stamp_batch_settings(
     path: Path,
     *,
@@ -993,17 +1027,13 @@ def run_batch(
                 )
                 if stamp_provenance and rec.canonical_write_safe and job.output_path.exists():
                     try:
-                        if ownership_guard is not None:
-                            ownership_guard()
-                        _stamp_batch_settings(
+                        _stamp_under_writer_lock(
                             job.output_path,
+                            ownership_guard=ownership_guard,
                             policy=policy,
                             idealize_requested=idealize,
                             stages=rec.stages,
-                            write_guard=ownership_guard,
                         )
-                        if ownership_guard is not None:
-                            ownership_guard()
                     except Exception as exc:  # provenance must never fail a movie
                         _safe_event(
                             log,
@@ -1142,6 +1172,10 @@ def _do_extract(
         if ownership_guard is not None:
             ownership_guard()
     except Exception as exc:  # ExtractionError and any lower-level failure
+        if ownership_guard is None:
+            # An unguarded attempt may have lost a race to another writer, whose
+            # project now sits at the output path; never stamp that one.
+            rec.canonical_write_safe = False
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
     if locked_for_publish:
         rec.canonical_write_safe = True  # this job published the project just now

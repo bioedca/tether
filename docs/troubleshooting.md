@@ -735,6 +735,10 @@ each file in your per-user lock folder (`%LOCALAPPDATA%\tether\locks` on Windows
 either name takes the file from the other name too. If Tether cannot make that folder, it refuses
 to open the project for writing: `cannot create the per-user lock directory`. Fix the folder's
 permissions, or set `XDG_STATE_HOME` (Linux, macOS) to a folder you can write.
+This record is per user. If two users open the same file through two different names, each name
+has its own `.lock` and each user has their own record, so Tether does not stop the second user,
+and an `--overwrite` by one of them does not stop with `is locked` either. Give a shared project
+one name only.
 
 ### The spot and overlap views are unavailable
 

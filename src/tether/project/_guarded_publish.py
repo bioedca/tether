@@ -11,7 +11,13 @@ from pathlib import Path
 from shutil import copy2
 from tempfile import mkstemp
 
-from tether.project.lock import LockError, PublishGuardRequiredError, file_identity, publish_lock
+from tether.project.lock import (
+    LockError,
+    PublishGuardRequiredError,
+    file_identity,
+    publish_lock,
+    replacement_identity,
+)
 
 
 def require_publish_guard(
@@ -54,7 +60,8 @@ def publish_staged_project(
     """
     if publish_guard is not None:
         publish_guard()
-        os.replace(stage, destination)
+        with replacement_identity(stage, destination):
+            os.replace(stage, destination)
         return
     require_publish_guard(destination, None)
     try:
@@ -87,7 +94,8 @@ def _publish_over_reserved_name(stage: str | Path, destination: str | Path) -> N
         placeholder = file_identity(destination)
         try:
             guard()
-            os.replace(stage, destination)
+            with replacement_identity(stage, destination):
+                os.replace(stage, destination)
         except BaseException:
             # Remove only this call's own empty placeholder: after a lock steal the
             # name may already hold the successor's project.
@@ -151,7 +159,8 @@ def guarded_project_write(
             raise LockError(
                 f"{canonical_path.name} was replaced by another writer during the {label} write"
             )
-        os.replace(guarded_stage, canonical_path)
+        with replacement_identity(guarded_stage, canonical_path):
+            os.replace(guarded_stage, canonical_path)
         guarded_stage = None
     finally:
         if guarded_stage is not None:

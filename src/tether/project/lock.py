@@ -108,6 +108,7 @@ __all__ = [
     "refresh",
     "release",
     "release_process_reservation",
+    "replacement_identity",
     "steal_lock",
     "user_lock_dir",
 ]
@@ -1082,6 +1083,85 @@ def _write_identity_record(rp: Path, record: _IdentityRecord) -> None:
     _atomic_write_json(rp, record.to_dict(), tag=record.info.nonce)
 
 
+def _records_with_nonce(nonce: str) -> list[_IdentityRecord]:
+    """Every identity record that carries ``nonce``; the caller holds the identity guard."""
+    found: list[_IdentityRecord] = []
+    with suppress(OSError):
+        for rp in user_lock_dir().glob(f"*{_IDENTITY_SUFFIX}"):
+            record = _read_identity_record(rp)
+            if record is not None and record.info.nonce == nonce:
+                found.append(record)
+    return found
+
+
+@contextmanager
+def replacement_identity(stage: str | Path, destination: str | Path) -> Iterator[None]:
+    """Record ``stage`` as ``destination``'s file across a guarded ``os.replace`` (ADR-0112).
+
+    ``os.replace(stage, destination)`` keeps the stage's inode, so the identity lock
+    the destination's writer holds would be left on the old inode, and a hard link
+    made to the new file could be claimed. Wrap the replace in this context, after
+    the publish guard has passed: on entry the stage's identity is recorded under the
+    nonce that ``<destination>.lock`` carries, with every name that nonce holds; on a
+    failed replace that record is removed again; on success a record left on the old
+    inode is removed when no other name still points there.
+
+    Nothing is recorded when ``destination`` has no ``<file>.lock`` (an unguarded
+    publish of a new path), when the stage has no identity, or when the per-user
+    directory cannot be made; then only ``<file>.lock`` protects the file, as for
+    any file without an identity.
+    """
+    identity = file_identity(stage)
+    directory = user_lock_dir()
+    if identity is None:
+        yield
+        return
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError:
+        yield
+        return
+    rp = _identity_record_path(identity)
+    with _lifecycle_guard(directory / _IDENTITY_GUARD_NAME):
+        current, corrupt = _read_tolerant(lock_path(destination))
+        if corrupt or current is None:
+            held: LockInfo | None = None
+        else:
+            held = current
+            replaced = _records_with_nonce(current.nonce)
+            names = (name for record in replaced for name in (record.project, *record.also))
+            also = tuple(
+                dict.fromkeys(name for name in names if not _same_spelling(name, destination))
+            )
+            _write_identity_record(
+                rp, _IdentityRecord(project=os.path.abspath(destination), info=current, also=also)
+            )
+    try:
+        yield
+    except BaseException:
+        if held is not None:
+            with _lifecycle_guard(directory / _IDENTITY_GUARD_NAME):
+                record = _read_identity_record(rp)
+                if record is not None and record.info.nonce == held.nonce:
+                    rp.unlink(missing_ok=True)
+        raise
+    if held is None:
+        return
+    with _lifecycle_guard(directory / _IDENTITY_GUARD_NAME), suppress(OSError):
+        # The old inode keeps a record only while another name still points there.
+        for old in user_lock_dir().glob(f"*{_IDENTITY_SUFFIX}"):
+            if old == rp:
+                continue
+            record = _read_identity_record(old)
+            if (
+                record is not None
+                and record.info.nonce == held.nonce
+                and _same_spelling(record.project, destination)
+                and not record.also
+            ):
+                old.unlink(missing_ok=True)
+
+
 def _release_identity_records(nonce: str) -> None:
     """Release every record that carries ``nonce``, then reap every dead record.
 
@@ -1227,23 +1307,30 @@ def _claim(
             )
         # An explicit steal takes over every name the record's owner holds; a
         # claim through the record's own spelling carries those names forward,
-        # or the new nonce would leave them locked under the old one.
-        hand_over = record is not None and (
-            explicit_steal or _same_spelling(record.project, project_path)
-        )
+        # or the new nonce would leave them locked under the old one. When the
+        # file was replaced since (a new inode, so no record here), the names
+        # are found by the nonce the replaced ``<file>.lock`` carried.
+        sources: list[_IdentityRecord] = []
+        if record is not None and (explicit_steal or _same_spelling(record.project, project_path)):
+            sources = [record]
+        elif prior is not None:
+            sources = _records_with_nonce(prior.nonce)
         also: tuple[str, ...] = ()
-        taken_over: tuple[str, ...] = ()
-        if record is not None and hand_over:
-            taken_over = (record.project, *record.also)
+        taken_over = tuple(
+            spelling for source in sources for spelling in (source.project, *source.also)
+        )
         try:
-            if record is not None and hand_over:
-                if blocking and prior is None:
-                    prior, _corrupt = _read_tolerant(lock_path(record.project))
-                also = tuple(
+            if blocking and prior is None:
+                assert record is not None
+                prior, _corrupt = _read_tolerant(lock_path(record.project))
+            also = tuple(
+                dict.fromkeys(
                     spelling
-                    for spelling in _take_over_spellings(record, info)
+                    for source in sources
+                    for spelling in _take_over_spellings(source, info)
                     if not _same_spelling(spelling, project_path)
                 )
+            )
             if rp is not None:
                 _write_identity_record(
                     rp,
@@ -1460,16 +1547,17 @@ def steal_lock(
     A process-local reservation held by another execution context is never stolen;
     it raises [`LockedError`][] before the sidecar is inspected or replaced.
     """
-    return _claim(
-        project_path,
-        identity=identity if identity is not None else local_identity(),
-        timeout_s=DEFAULT_STALENESS_TIMEOUT_S,
-        steal=True,
-        # An explicit steal is precisely the "replace whatever is there" path,
-        # so it must not take the strict no-replacement branch.
-        allow_existing_owner=True,
-        now=now,
-    )
+    with _process_local_access(project_path):
+        return _claim(
+            project_path,
+            identity=identity if identity is not None else local_identity(),
+            timeout_s=DEFAULT_STALENESS_TIMEOUT_S,
+            steal=True,
+            # An explicit steal is precisely the "replace whatever is there" path,
+            # so it must not take the strict no-replacement branch.
+            allow_existing_owner=True,
+            now=now,
+        )
 
 
 def release(project_path: str | Path, info: LockInfo) -> bool:
