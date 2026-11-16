@@ -55,7 +55,7 @@ brings it to the application.
   The status bar calls it vbFRET, but it runs the consensus VB-HMM
   ([#554](https://github.com/bioedca/tether/issues/554)).
 - **Standalone-tMAVEN hand-off.** A non-destructive round trip: save molecules as a file that
-  tMAVEN's own window opens, then import its result back through a per-trace reconcile prompt.
+  tMAVEN's own application window opens, then import its result back through a per-trace reconcile prompt.
 - **Condition validation.** Confirm or correct the condition Tether read from each file name.
 - **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
   projects.
@@ -158,7 +158,7 @@ From the next release the Windows Start Menu also has **Tether Command Prompt**,
 which `tether` works with no `PATH` change
 ([#666](https://github.com/bioedca/tether/issues/666)).
 
-Open the desktop application from that menu entry, or run the window launcher:
+Open the desktop application from that menu entry, or run the application-window launcher:
 
 ```bash
 <install-root>/bin/tether-gui        # Windows: <install-root>\bin\tether-gui.bat

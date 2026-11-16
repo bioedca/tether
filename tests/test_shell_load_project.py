@@ -514,6 +514,47 @@ def test_reopening_loaded_project_preserves_session_epoch(shell, tmp_path) -> No
     assert not shell.lock_release_pending
 
 
+def test_reopening_through_a_hard_link_alias_preserves_session_epoch(shell, tmp_path) -> None:
+    """A hard-link spelling of the loaded file reuses its epoch (#257 defect 1, #346)."""
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    alias = tmp_path / "alias.tether"
+    os.link(project.path, alias)
+    retained = shell.load_project(project.path)
+    assert retained is not None
+    before = project.lock_owner()
+    assert before is not None
+
+    reopened = shell.load_project(alias)
+
+    assert reopened is retained
+    assert shell.curation_project is retained
+    after = project.lock_owner()
+    assert after is not None
+    assert after.nonce == before.nonce
+    assert not lock.lock_path(alias).exists()
+    assert not shell.lock_release_pending
+
+
+def test_deeplasi_import_cannot_replace_the_project_this_shell_holds(shell, tmp_path) -> None:
+    """The wizard's overwrite of the loaded project is refused, not published (#346)."""
+    from tether.gui.deeplasi_executor import _destination_lock
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    before = lock.file_identity(project.path)
+    nonce = project.lock_owner().nonce
+
+    with pytest.raises(lock.LockedError), _destination_lock(project.path, overwrite=True):
+        pass
+
+    assert lock.file_identity(project.path) == before
+    assert project.lock_owner().nonce == nonce
+    assert shell.curation_project is not None
+
+
 def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
     import threading
 
@@ -1029,6 +1070,56 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
     assert reopened.curation_label(keys[1]) == expected_label
 
 
+#: Every curation key whose command is deferred (#345): the key, and the feature its
+#: status line names. Jump becomes real in #357 and the grid in #364; category and
+#: analysis-window persistence land in #359. Each of those removes its rows here.
+_DEFERRED_KEYS = [
+    ("Key_Return", "Jump to movie spot"),
+    ("Key_Enter", "Jump to movie spot"),
+    ("Key_G", "Grid toggle"),
+    ("Key_1", "Category 1"),
+    ("Key_0", "Category clearing"),
+    ("Key_Minus", "Analysis-window editing"),
+    ("Key_Equal", "Analysis-window editing"),
+    ("Key_BracketLeft", "Analysis-window editing"),
+    ("Key_BracketRight", "Analysis-window editing"),
+    ("Key_R", "Analysis-window reset"),
+    ("Key_P", "Photobleach detection"),
+]
+
+
+@pytest.mark.parametrize(("key_name", "feature"), _DEFERRED_KEYS)
+def test_deferred_curation_keys_report_unavailable_and_write_nothing(
+    shell, qtbot, tmp_path, key_name, feature
+) -> None:
+    # #345: on a writable project with a molecule selected, a deferred command must
+    # say it is unavailable and must leave the .tether bytes exactly as they were.
+    # Before the fix Enter reported "Jump to movie spot" and G "Grid toggled",
+    # which read as done.
+    import hashlib
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.labels import read_labels
+
+    def digest() -> str:
+        return hashlib.sha256(project.path.read_bytes()).hexdigest()
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    assert shell.curation_project is not None  # writable: the honest path is not read-only
+    shell.molecule_list.setCurrentRow(1)
+    before = digest()
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert feature in shell.status_message
+    assert "unavailable" in shell.status_message
+    assert digest() == before
+    assert read_labels(project.path).shape == (0,)
+    assert project.curation_label(keys[1]) == 0
+
+
 def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     shell, qtbot, tmp_path
 ) -> None:
@@ -1251,8 +1342,14 @@ def test_every_source_writer_waits_for_background_idealization(
         conditions_status = shell.status_message
         qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
         curation_status = shell.status_message
+        wizard_calls = []
+        assert shell.import_deeplasi_bundle(dialog_factory=lambda: wizard_calls.append(1)) == ()
+        wizard_status = shell.status_message
 
         assert handoff.preview_calls == 0
+        assert wizard_calls == []
+        assert "Idealize in progress" in wizard_status
+        assert not shell._act_import_deeplasi.isEnabled()
         assert conditions_dialog_calls == []
         assert read_labels(project.path).shape == (0,)
         assert "Idealize in progress" in import_status
@@ -1268,6 +1365,7 @@ def test_every_source_writer_waits_for_background_idealization(
     assert shell.unreject_button.isEnabled()
     assert shell._act_import.isEnabled()
     assert shell._act_validate_conditions.isEnabled()
+    assert shell._act_import_deeplasi.isEnabled()
 
 
 def test_close_retains_session_lock_until_background_idealization_finishes(
