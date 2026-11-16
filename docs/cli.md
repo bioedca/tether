@@ -93,7 +93,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 |---|---|---|
 | `movie` | *(required)* | path to the dual-channel TIFF movie |
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
-| `--overwrite` | off | overwrite an existing output project |
+| `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
 | `--detection-mode {wavelet,intensity,bandpass}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
 | `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
