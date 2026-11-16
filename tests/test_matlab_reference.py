@@ -32,7 +32,7 @@ def _load(name: str):
 
 
 harness = _load("harness")
-DRIVERS = {m.TOOL: m for m in (_load("smfret_analysis2"), _load("mash_fret"))}
+DRIVERS = {m.TOOL: m for m in (_load("smfret_analysis2"), _load("mash_fret"), _load("deep_lasi"))}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -277,7 +277,7 @@ def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
     for tool in DRIVERS:
         assert pins[tool]["kind"] == "git"
         assert re.fullmatch(r"[0-9a-f]{40}", pins[tool]["commit"]), tool
-        assert pins[tool]["url"].startswith("https://github.com/")
+        assert pins[tool]["url"].startswith(("https://github.com/", "https://gitlab.com/"))
 
 
 def test_the_standin_is_a_python_script(monkeypatch) -> None:
