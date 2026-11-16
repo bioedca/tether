@@ -1801,8 +1801,8 @@ one standard Greptile review **may** stand in as that gate within Tether's share
 **shall not** stand in (ADR-0069). A load-bearing pull request takes one standard Greptile review in CodeRabbit's
 place, within the same share, and after a review with findings one CodeRabbit review and a Codex review close it (ADR-0099). **`AGENTS.md` §Review is the operative statement of the conditions
 that close is subject to, and this document deliberately restates none of them** — `CONTRIBUTING.md`
-and the pull-request template do carry working copies, as detail and as evidence fields, and both
-defer to §Review where they differ. Four drafts of this
+points to §Review rather than restating it (#615, recorded in ADR-0064), and the pull-request
+template carries a working copy as evidence fields that defers to §Review where they differ. Four drafts of this
 paragraph tried to summarise them and each admitted or refused a case the contract does not — a
 restatement that is wrong in either direction is worse than a pointer, because `AGENTS.md` tells a
 worker to stop when these two files disagree, so the summary strands the pull request either way. The round

@@ -9,8 +9,9 @@ These rules are part of the agent contract. `AGENTS.md` points here and does not
 numbering mechanics: **an agent that has not read this page may not add an ADR**, because choosing a
 number by hand is how two records end up sharing one.
 
-- Add an ADR in the implementation PR for schema/version, dependency/isolation, architectural, or
-  scientifically consequential choices. Index it as required by the existing ADR contract.
+- Add an ADR in the implementation PR (exception: `CONTRIBUTING.md` rule 5) for schema/version,
+  dependency/isolation, architectural, or scientifically consequential choices. Index it as required
+  by the existing ADR contract.
 
 ## Reserving a number
 
