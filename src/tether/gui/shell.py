@@ -711,6 +711,9 @@ class TetherShell:
         # Each dock's default area, so View -> Reset layout can return a dock built after
         # the default layout was captured to its default place too (#628).
         self._dock_default_area: dict[Any, Any] = {}
+        # The docks the stored layout names as hidden only by their section; a dock built
+        # after the restore reads it too (#628).
+        self._stored_section_hidden: set[str] = set()
         self._section: str = _DEFAULT_SECTION
         dock_widgets: dict[tuple[str, str], Any] = {}
         for spec in self._sections:
@@ -1032,14 +1035,21 @@ class TetherShell:
         # A dock built after the stored layout was restored takes its stored place (#628);
         # a dock the layout does not know goes to its default area. Restore first:
         # addDockWidget drops the stored placeholder of a dock with the same name.
-        if self._window.restoreDockWidget(dock_widget):
-            if section_id == self._section:
-                dock_widget.show()
-        else:
+        # A restored dock keeps its stored visibility, so one the user closed stays closed,
+        # unless the layout names it as hidden only by its section.
+        restored = self._window.restoreDockWidget(dock_widget)
+        if not restored:
             self._window.addDockWidget(default_area, dock_widget)
+        shown = (
+            not restored
+            or dock_widget.objectName() in self._stored_section_hidden
+            or not dock_widget.isHidden()
+        )
         self._section_docks[section_id].append(dock_widget)
-        if section_id != self._section:
-            self._dock_restore[dock_widget] = True
+        if section_id == self._section:
+            dock_widget.setVisible(shown)
+        else:
+            self._dock_restore[dock_widget] = shown
             dock_widget.hide()
             dock_widget.toggleViewAction().setVisible(False)
         return dock_widget
@@ -1453,7 +1463,8 @@ class TetherShell:
             return
         if not self._window.restoreState(QtCore.QByteArray(stored.state)):
             return
-        self._enforce_sections(shown_by_section=set(stored.section_hidden))
+        self._stored_section_hidden = set(stored.section_hidden)
+        self._enforce_sections(shown_by_section=self._stored_section_hidden)
 
     def _enforce_sections(self, *, shown_by_section: set[str]) -> None:
         """Apply the section rule after Qt restored a state that knows nothing of sections.
@@ -1481,6 +1492,7 @@ class TetherShell:
         stored layout is forgotten so the next launch uses the default too.
         """
         self._window.restoreState(self._default_state)
+        self._stored_section_hidden = set()
         # The default state does not know a dock built after it was captured (Overlap,
         # Population histogram), so restoring it leaves such a dock where the user put it.
         for dock, area in self._dock_default_area.items():

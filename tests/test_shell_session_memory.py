@@ -229,6 +229,41 @@ def test_a_dock_built_later_takes_its_stored_place_on_the_next_launch(launch) ->
     assert not second._overlap_dock_widget.isHidden()
 
 
+def test_a_dock_built_later_and_closed_by_the_user_stays_closed(launch) -> None:
+    from tether.gui.overlap_dock import OverlapDock
+
+    first = launch()
+    first._overlap_dock = OverlapDock()
+    first._attach_overlap_dock()
+    first._overlap_dock_widget.close()
+    first.close()
+
+    second = launch()
+    second._overlap_dock = OverlapDock()
+    second._attach_overlap_dock()
+    assert second._overlap_dock_widget.isHidden()
+
+
+def test_a_dock_built_later_hidden_only_by_its_section_shows_with_it(launch) -> None:
+    from tether.gui.overlap_dock import OverlapDock
+    from tether.gui.shell import ANALYZE_SECTION, CURATE_SECTION
+
+    first = launch()
+    first._overlap_dock = OverlapDock()
+    first._attach_overlap_dock()
+    first.set_section(ANALYZE_SECTION)
+    first.close()
+
+    # Built while another section is current: it shows once its own section does.
+    second = launch()
+    second.set_section(ANALYZE_SECTION)
+    second._overlap_dock = OverlapDock()
+    second._attach_overlap_dock()
+    assert second._overlap_dock_widget.isHidden()
+    second.set_section(CURATE_SECTION)
+    assert not second._overlap_dock_widget.isHidden()
+
+
 def test_a_dock_hidden_only_by_its_section_shows_on_the_next_launch(launch) -> None:
     from tether.gui.shell import ANALYZE_SECTION, CURATE_SECTION
 
