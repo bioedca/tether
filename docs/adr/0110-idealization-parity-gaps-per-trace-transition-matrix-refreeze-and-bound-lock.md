@@ -48,7 +48,7 @@ PRD §9.6 carried four idealization-parity criteria that the code did not meet:
 
 ## Decision
 
-#545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the
+Issue #545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the
 issue's size budget). Items 3 and 4 landed first; the second pull request adds the
 transition-matrix term (item 2); per-trace vbFRET (item 1) adds its own section here in the third.
 
