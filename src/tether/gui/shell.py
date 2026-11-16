@@ -1052,6 +1052,9 @@ class TetherShell:
         if self._rollback_session_project is not None:
             self._status("Open project unavailable: waiting to release a rolled-back session lock")
             return None
+        if self._recovered_lock is not None:
+            self._status("Open project unavailable: waiting to release a recovered project lock")
+            return None
 
         # Do every fallible read BEFORE touching shell state, so a bad open is atomic
         # (the prior project stays wired) — mirroring the catch-and-report contract of

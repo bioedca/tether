@@ -314,6 +314,14 @@ def test_failed_reopen_keeps_retrying_the_release_of_the_taken_lock(
     assert taken is not None and taken.identity == me
     assert shell.lock_release_pending  # the timer owns the taken lock now
 
+    # Opening another project would stop that timer, so it waits for the release.
+    monkeypatch.undo()
+    (tmp_path / "other").mkdir()
+    other = _store(tmp_path / "other")
+    assert shell.load_project(other.path) is None
+    assert "waiting to release a recovered project lock" in shell.status_message
+    assert shell.lock_release_pending
+
     shell._retry_session_release()  # one timer tick
 
     assert lock.read_lock(project.path) is None
