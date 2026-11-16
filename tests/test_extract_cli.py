@@ -16,6 +16,7 @@ structure/round-trip, not scientific accuracy.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -1226,3 +1227,39 @@ def test_publish_without_hard_links_holds_the_destination_lock(tmp_path, monkeyp
     assert not out.exists()
     assert stage.read_bytes() == b"new project"
     assert lock_module.read_lock(out) == foreign
+
+
+def test_publish_without_hard_links_keeps_a_successors_file(tmp_path, monkeypatch) -> None:
+    """If the lock is stolen and the name published meanwhile, the successor's file stays."""
+    from tether.project import _guarded_publish
+    from tether.project import lock as lock_module
+
+    def no_links(src, dst):
+        raise PermissionError(1, "hard links not supported")
+
+    out = tmp_path / "out.tether"
+    real_publish_lock = _guarded_publish.publish_lock
+
+    @contextlib.contextmanager
+    def stolen_after_reservation(path):
+        with real_publish_lock(path) as guard:
+
+            def steal_then_check() -> None:
+                # A successor steals the lock and publishes into the reserved name.
+                tmp = tmp_path / "successor.tmp"
+                tmp.write_bytes(b"successor project")
+                os.replace(tmp, out)
+                raise lock_module.LockError("lock ownership changed before publish")
+
+            del guard
+            yield steal_then_check
+
+    monkeypatch.setattr(_guarded_publish.os, "link", no_links)
+    monkeypatch.setattr(_guarded_publish, "publish_lock", stolen_after_reservation)
+    stage = tmp_path / "stage.tmp"
+    stage.write_bytes(b"new project")
+
+    with pytest.raises(lock_module.LockError):
+        _guarded_publish.publish_staged_project(stage, out, publish_guard=None)
+    assert out.read_bytes() == b"successor project"
+    assert stage.read_bytes() == b"new project"

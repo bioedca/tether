@@ -84,12 +84,26 @@ def _publish_over_reserved_name(stage: str | Path, destination: str | Path) -> N
             require_publish_guard(destination, None)
             raise
         os.close(fd)
+        placeholder = file_identity(destination)
         try:
             guard()
             os.replace(stage, destination)
         except BaseException:
-            Path(destination).unlink(missing_ok=True)
+            # Remove only this call's own empty placeholder: after a lock steal the
+            # name may already hold the successor's project.
+            if _is_placeholder(destination, placeholder):
+                Path(destination).unlink(missing_ok=True)
             raise
+
+
+def _is_placeholder(path: str | Path, placeholder: tuple[int, int] | None) -> bool:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    if st.st_size != 0:
+        return False
+    return placeholder is None or file_identity(path) == placeholder
 
 
 @contextmanager
