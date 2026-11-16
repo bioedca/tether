@@ -10,8 +10,8 @@ tasks; this module does the rest:
   writes ``provenance.json`` beside the outputs. It verifies the clone again after the run, so a
   tool that writes into its own folder is refused rather than recorded.
 * ``freeze`` makes the same record for files that the tool already saved (exports, project
-  files), for a tool that cannot run without its window. The record says so, and lists any manual
-  step that made a result.
+  files), for a tool that cannot run without its window. The record says so, gives the date of
+  each saved file, and lists any manual step that made a result.
 * ``verify`` checks a frozen directory against its record. The required matrix runs it on every
   committed record (``tests/test_matlab_reference.py``).
 
@@ -272,16 +272,21 @@ def freeze(
 
     ``tool_version`` is the version that saved the files, as stated (the record keeps it apart
     from a pinned ``commit``); ``inputs`` are the files the tool read to make them, if known.
+    ``saved`` in the record gives the date each file was last changed, in UTC, read before the
+    copy: a result made in the tool's window is dated by its file, not by the freeze (#715).
     """
     _check_release(matlab_release)
     _no_private_paths(tool_version, manual_steps or [])
     input_part = {name: _files(path) for name, path in sorted((inputs or {}).items())}
     _fresh_out(out)
+    dates = {}
     for path in saved:
         if not path.is_file():
             raise HarnessError(f"saved file does not exist: {path.name}")
         if (out / path.name).exists():
             raise HarnessError(f"two saved files share the name {path.name}")
+        changed = _dt.datetime.fromtimestamp(path.stat().st_mtime, _dt.UTC)
+        dates[path.name] = changed.isoformat(timespec="seconds")
         shutil.copy2(path, out / path.name)
     return _write_record(
         out,
@@ -291,6 +296,7 @@ def freeze(
             "matlab": {"release": matlab_release},
             "inputs": input_part,
             "manual_steps": list(manual_steps or []),
+            "saved": dates,
         },
     )
 

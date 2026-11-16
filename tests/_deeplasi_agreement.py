@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import importlib.util
 from pathlib import Path
 
 import numpy as np
@@ -38,14 +39,15 @@ __all__ = [
     "EXTRACTION_IDS",
     "FILES",
     "FRET_IDS",
-    "NO_FACTOR_IDS",
     "PARITY_ATOL",
     "RERUN_ID",
     "agreement_file",
     "compare_exports",
     "deeplasi_corrected_fret",
     "fret_agreement",
+    "harness",
     "read_factors",
+    "window_export",
 ]
 
 #: SHA-256 and size of each Deep-LASI file of the agreement checks, by neutral id and role
@@ -108,12 +110,6 @@ FILES: dict[str, dict[str, tuple[str, int]]] = {
     "dlexp-02": {
         "mat": ("c3744647b9a228ce07a53af45ddec34fb95e18e02db4daef52122fcaec8eba00", 3_223_113),
     },
-    "dlexp-03": {
-        "txt": ("6a6aad50f641016dedabe5dab987523e059cfc9431ec6f063151926f3256b6cf", 1_715_729),
-    },
-    "dlexp-04": {
-        "txt": ("9d4e44ba5b0826f72619851a8639c49c65371ba0816806521203ff6536dd7c63", 2_434_821),
-    },
 }
 
 #: Acquisitions whose movie, map file, saved state and export are all on the workstation: the
@@ -122,11 +118,22 @@ FILES: dict[str, dict[str, tuple[str, int]]] = {
 #: was made from a movie that is not on the workstation, so its spots cannot be compared.
 EXTRACTION_IDS: tuple[str, ...] = tuple(i for i, roles in FILES.items() if "tdat" in roles)
 #: Every export with per-molecule factors: the corrected-FRET check starts from its traces.
+#: Two more exports on the workstation hold only the ``-donc-accc-w.txt`` traces, with no
+#: factors and no movie, so no check can use them (ADR-0115).
 FRET_IDS: tuple[str, ...] = ("lab-01", *(i for i, roles in FILES.items() if "mat" in roles))
-#: Exports with only the ``-donc-accc-w.txt`` traces: no factors, so no corrected-FRET check.
-NO_FACTOR_IDS: tuple[str, ...] = tuple(i for i, roles in FILES.items() if set(roles) == {"txt"})
 #: The id whose ``rerun`` role names the folder of the scripted Deep-LASI rerun (#715).
 RERUN_ID = "lab-01"
+
+_HARNESS = Path(__file__).resolve().parents[1] / "scripts" / "reference" / "matlab" / "harness.py"
+
+
+@functools.cache
+def harness():
+    """``scripts/reference/matlab/harness.py`` (ADR-0074), loaded by path: it is no package."""
+    spec = importlib.util.spec_from_file_location("tether_ref_harness", _HARNESS)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @functools.cache
@@ -147,6 +154,30 @@ def agreement_file(private_data, neutral_id: str, role: str) -> Path:
         f"(SHA-256 {sha256[:16]}…, {size} B); see tests/_deeplasi_agreement.py"
     )
     return path
+
+
+def window_export(private_data, neutral_id: str) -> Path:
+    """The ``.mat`` export of ``neutral_id`` that Deep-LASI's window saved, with its record.
+
+    The ``window`` role names a folder made by ``harness.py freeze``: a copy of the export and a
+    ``provenance.json`` that says no scripted run made it and gives the file's own date
+    (ADR-0074, ADR-0115). The copy must be the export the check was recorded on.
+    """
+    from _oracle_a import FILES as ORACLE_A_FILES  # noqa: PLC0415
+
+    folder = private_data.path(neutral_id, "window")
+    record = harness().verify(folder)
+    assert record["method"] == "saved-files" and record["tool"]["name"] == "deep-lasi", (
+        f"{neutral_id}: the window record is not a Deep-LASI saved-files record"
+    )
+    [name] = [n for n in record["outputs"] if n.endswith(".mat")]
+    assert record.get("saved", {}).get(name), f"{neutral_id}: the record gives no file date"
+    pinned = ORACLE_A_FILES["mat"][0] if neutral_id == RERUN_ID else FILES[neutral_id]["mat"][0]
+    assert record["outputs"][name] == pinned, (
+        f"{neutral_id}: the frozen export is not the one the check was recorded on "
+        f"(SHA-256 {pinned[:16]}…); see tests/_deeplasi_agreement.py"
+    )
+    return folder / name
 
 
 #: Largest difference allowed between Tether's formula with Deep-LASI's factors (ADR-0028

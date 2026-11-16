@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -218,6 +219,19 @@ def test_freeze_records_saved_files_and_manual_steps(tmp_path) -> None:
     assert record["inputs"] == {"traces": {"total_XC.csv": harness.sha256(saved)}}
     assert record["manual_steps"] == ["choose the folder test-data/traces"]
     assert record["outputs"] == {"total_XC.csv": harness.sha256(saved)}
+
+
+def test_freeze_dates_each_saved_file_by_its_own_date(tmp_path) -> None:
+    saved = tmp_path / "export.mat"
+    saved.write_bytes(b"MATLAB")
+    when = 1_700_000_000  # 2023-11-14T22:13:20Z
+    os.utime(saved, (when, when))
+    harness.freeze(
+        "deep-lasi", saved=[saved], out=tmp_path / "f", tool_version="1", matlab_release="2023b"
+    )
+    record = harness.verify(tmp_path / "f")
+    assert record["saved"] == {"export.mat": "2023-11-14T22:13:20+00:00"}
+    assert record["date"] != record["saved"]["export.mat"]
 
 
 def _frozen(tmp_path: Path, clone) -> Path:

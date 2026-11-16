@@ -4,7 +4,9 @@
 
 Three checks, all on private laboratory data, so every test here is a ``workstation`` test
 (ADR-0071) that only the workstation runner starts. A result file keeps summary numbers under
-the neutral ids; an assertion message names ids and quantities, never a file.
+the neutral ids; an assertion message names ids and quantities, never a file. Each Deep-LASI
+export is read from its ``window`` folder, a frozen copy whose ``provenance.json`` says that
+Deep-LASI's window saved it and on which date (``harness.py freeze``, ADR-0074).
 
 * **Spots and traces** (:data:`_deeplasi_agreement.EXTRACTION_IDS`): Tether extracts the movie
   with the series map file and the detection settings of the maintainer's Deep-LASI state, and
@@ -22,36 +24,18 @@ the neutral ids; an assertion message names ids and quantities, never a file.
 
 from __future__ import annotations
 
-import importlib.util
 import math
-from pathlib import Path
 
 import pytest
 
 import _deeplasi_agreement as agree
 from _oracle_a import FILES as ORACLE_A_FILES
-from _oracle_a import oracle_a_file
 
 pytestmark = pytest.mark.workstation
-
-_HARNESS = Path(__file__).resolve().parents[1] / "scripts" / "reference" / "matlab" / "harness.py"
-
-
-def _harness():
-    spec = importlib.util.spec_from_file_location("tether_ref_harness", _HARNESS)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _finite(numbers: dict) -> dict:
     return {k: v for k, v in numbers.items() if isinstance(v, int) or math.isfinite(v)}
-
-
-def _mat(private_data, neutral_id: str) -> Path:
-    if neutral_id == agree.RERUN_ID:
-        return oracle_a_file(private_data, "mat")
-    return agree.agreement_file(private_data, neutral_id, "mat")
 
 
 @pytest.mark.parametrize("neutral_id", agree.EXTRACTION_IDS)
@@ -64,9 +48,8 @@ def test_spots_and_traces_meet_the_oracle_a_limits(private_data, neutral_id, tmp
     from tether.project.oracle import evaluate_project  # noqa: PLC0415
 
     movie = private_data.path(neutral_id, "movie")
-    tmap, tdat, mat = (
-        agree.agreement_file(private_data, neutral_id, r) for r in ("tmap", "tdat", "mat")
-    )
+    tmap, tdat = (agree.agreement_file(private_data, neutral_id, r) for r in ("tmap", "tdat"))
+    mat = agree.window_export(private_data, neutral_id)
     out = tmp_path / f"{neutral_id}.tether"
     summary = extract_movie(movie, out, tmap=tmap, tdat=tdat)
     assert out.is_file(), f"{neutral_id}: extraction wrote no project"
@@ -100,7 +83,7 @@ def test_corrected_fret_against_the_deeplasi_export(private_data, neutral_id) ->
     pytest.importorskip("scipy")
     from tether.io.deeplasi import read_deeplasi_mat  # noqa: PLC0415
 
-    mat = _mat(private_data, neutral_id)
+    mat = agree.window_export(private_data, neutral_id)
     export = read_deeplasi_mat(mat)
     b, g = agree.read_factors(mat)
     numbers = agree.fret_agreement(export, b, g)
@@ -117,7 +100,7 @@ def test_the_scripted_rerun_of_video_010_repeats_the_old_export(private_data) ->
     pytest.importorskip("scipy")
     from tether.io.deeplasi import read_deeplasi_mat  # noqa: PLC0415
 
-    harness = _harness()
+    harness = agree.harness()
     folder = private_data.path(agree.RERUN_ID, "rerun")
     record = harness.verify(folder)
     pin = harness.load_pins()["deep-lasi"]
@@ -131,7 +114,7 @@ def test_the_scripted_rerun_of_video_010_repeats_the_old_export(private_data) ->
 
     import numpy as np  # noqa: PLC0415
 
-    old = read_deeplasi_mat(oracle_a_file(private_data, "mat"))
+    old = read_deeplasi_mat(agree.window_export(private_data, agree.RERUN_ID))
     new = read_deeplasi_mat(rerun_mat)
     numbers = agree.compare_exports(old, new)
     _, g_new = agree.read_factors(rerun_mat)
