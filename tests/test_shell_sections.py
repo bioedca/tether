@@ -127,6 +127,30 @@ def test_the_browser_dock_belongs_to_curate_and_shows_only_there(shell) -> None:
     assert not shell.browser_dock.isHidden()
 
 
+def _dock_menu_titles(shell) -> list[str]:
+    """The dock items the window's own dock menu (a right click on the menu bar) offers."""
+    menu = shell.window.createPopupMenu()
+    try:
+        return [a.text() for a in menu.actions() if a.isVisible() and not a.isSeparator()]
+    finally:
+        menu.deleteLater()
+
+
+def test_the_dock_menu_offers_only_the_current_sections_docks(shell, tmp_path) -> None:
+    project = _store(tmp_path)
+    assert shell.load_project(project.path) is not None
+    assert shell.show_histogram() is not None
+    assert shell.section == "analyze"
+    # In Analyze, the dock menu cannot bring the Browser or the Overlap dock over the page.
+    assert _dock_menu_titles(shell) == ["Population histogram"]
+    assert not shell.browser_dock.toggleViewAction().isVisible()
+    shell.set_section("curate")
+    assert sorted(_dock_menu_titles(shell)) == ["Browser", "Overlap"]
+    shell.set_section("prepare")
+    assert _dock_menu_titles(shell) == []
+    assert shell.browser_dock.isHidden()
+
+
 def test_a_dock_the_user_closed_stays_closed_across_a_switch(shell) -> None:
     shell.browser_dock.close()
     assert shell.browser_dock.isHidden()

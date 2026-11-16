@@ -865,7 +865,11 @@ class TetherShell:
         self._section_actions[section_id].setChecked(True)
 
     def _show_section(self, section_id: str) -> None:
-        """Make ``section_id`` current: its page in the stack, its docks shown, others hidden."""
+        """Make ``section_id`` current: its page in the stack, its docks shown, others hidden.
+
+        The show/hide item of each other section's dock is hidden too, so the window's dock
+        menu (a right click on the menu bar) cannot show a dock outside its section.
+        """
         for other, docks in self._section_docks.items():
             if other == section_id:
                 continue
@@ -873,7 +877,9 @@ class TetherShell:
                 if dock_widget not in self._dock_restore:
                     self._dock_restore[dock_widget] = not dock_widget.isHidden()
                 dock_widget.hide()
+                dock_widget.toggleViewAction().setVisible(False)
         for dock_widget in self._section_docks[section_id]:
+            dock_widget.toggleViewAction().setVisible(True)
             if self._dock_restore.pop(dock_widget, True):
                 dock_widget.show()
         self._section_stack.setCurrentWidget(self._section_pages[section_id])
@@ -897,6 +903,7 @@ class TetherShell:
         if section_id != self._section:
             self._dock_restore[dock_widget] = True
             dock_widget.hide()
+            dock_widget.toggleViewAction().setVisible(False)
         return dock_widget
 
     def _detach_section_dock(self, dock_widget: Any) -> None:
