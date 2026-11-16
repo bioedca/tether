@@ -3,10 +3,10 @@
 """Headless tMAVEN sidecar driver — vbFRET round-trip (PRD §4.3, §7.4, Appendix D.2).
 
 This is the base-environment half of the idealization hand-off. It writes the
-selected molecules to an SMD (:func:`tether.idealize.write_smd`), launches the
-**isolated sidecar interpreter** on :mod:`tether.idealize._sidecar_runner` to
+selected molecules to an SMD ([`tether.idealize.write_smd`][]), launches the
+**isolated sidecar interpreter** on `tether.idealize._sidecar_runner` to
 drive ``tmaven.maven.maven_class`` headlessly, then reads the resulting
-Appendix-D.2 ``model`` file back into a :class:`StateModel` and derives
+Appendix-D.2 ``model`` file back into a [`StateModel`][] and derives
 per-molecule state paths and dwell segments.
 
 Why a subprocess and not an in-process import: tMAVEN pins ``numpy<2`` + PyQt5
@@ -19,7 +19,7 @@ spawn a Qt app, so it runs headless under ``QT_QPA_PLATFORM=offscreen``.
 
 The sidecar interpreter is located via the ``sidecar_python`` argument, then the
 ``TETHER_SIDECAR_PYTHON`` environment variable, then the installer's sibling
-``envs/sidecar`` derived from :data:`sys.prefix` (ADR-0049/0051 — a shortcut or
+``envs/sidecar`` derived from [`sys.prefix`][] (ADR-0049/0051 — a shortcut or
 ``PATH``-shim launch never runs the conda ``activate.d`` hook that exports the
 variable). There is still no hard-coded path: the last step resolves relative to the
 running interpreter, so any env built from ``sidecar/conda-lock.yml`` (with tMAVEN
@@ -57,16 +57,16 @@ SIDECAR_ENV_VAR = "TETHER_SIDECAR_PYTHON"
 MODEL_GROUP = "model"
 #: State index assigned to frames outside the analysis window / not idealized.
 NO_STATE = -1
-#: Default timeout for the tMAVEN SMD open-check (:func:`check_smd_opens`). No fit
+#: Default timeout for the tMAVEN SMD open-check (`check_smd_opens`). No fit
 #: runs, but a cold ``tmaven``/Numba import is not instant, so the window is generous
-#: (mirrors the startup liveness probe, :data:`supervisor.DEFAULT_PROBE_TIMEOUT`).
+#: (mirrors the startup liveness probe, `supervisor.DEFAULT_PROBE_TIMEOUT`).
 DEFAULT_OPEN_CHECK_TIMEOUT = 120.0
 #: Default per-idealization-call timeout in seconds (§11.2). The **one** source of
-#: truth for it: every public surface that forwards a ``timeout`` to :func:`run_vbfret`
+#: truth for it: every public surface that forwards a ``timeout`` to `run_vbfret`
 #: defaults to this name rather than repeating the number, so the value cannot drift
 #: between the driver, the project-level functions and the documented default.
 #:
-#: It lives here rather than in :mod:`tether.idealize.supervisor` — where it was first
+#: It lives here rather than in `tether.idealize.supervisor` — where it was first
 #: written and from where it is still re-exported — because the supervisor imports the
 #: driver, so the reverse direction would be an import cycle.
 DEFAULT_SIDECAR_TIMEOUT = 1800.0
@@ -80,7 +80,7 @@ class SidecarError(RuntimeError):
     ``transient`` distinguishes a **process-level** failure a fresh process may
     recover (a crash or timeout — the default) from a **deterministic** one the
     sidecar cleanly reported (a fit error on this data), which a restart cannot fix.
-    :func:`tether.idealize.supervisor.supervise_idealize` retries only transient
+    [`tether.idealize.supervisor.supervise_idealize`][] retries only transient
     failures.
     """
 
@@ -107,7 +107,7 @@ class StateModel:
     the **normalized** state-population vector (sums to 1); and ``priors`` are the
     variational prior hyperparameters (the ``priors/`` subgroup — ``a_prior``,
     ``b_prior``, ``beta_prior``, ``mu_prior``, ``pi_prior``, ``tm_prior``). All are
-    optional: :func:`read_model` reads each when the model file carries it and leaves
+    optional: [`read_model`][] reads each when the model file carries it and leaves
     it ``None`` otherwise (a threshold/k-means model has no rate matrix or priors).
     """
 
@@ -147,7 +147,7 @@ class IdealizationResult:
     Tether ``molecule_key`` of each SMD molecule (from the superset group) when
     present, so a result row maps back to its store molecule without relying on
     order; the general scrambled-order return leg is handled separately by
-    :func:`tether.idealize.match_return_leg`.
+    [`tether.idealize.match_return_leg`][].
     """
 
     model: StateModel
@@ -162,7 +162,7 @@ class IdealizationResult:
 class SMDOpenCheck:
     """What tMAVEN's own loader parsed from an SMD (the standalone-GUI load path).
 
-    Produced by :func:`check_smd_opens`, which drives the exact loader the standalone
+    Produced by [`check_smd_opens`][], which drives the exact loader the standalone
     tMAVEN GUI's *File → Load SMD* uses. ``n_molecules``/``n_frames``/``n_channels`` are
     the trace dimensions tMAVEN read; ``raw_shape``/``raw_sum`` fingerprint the loaded
     intensities so a caller can assert the trace data survived the hand-off; and
@@ -185,7 +185,7 @@ def _decode(value) -> str:
 
 
 def read_model(path: str | PathLike[str], group: str = MODEL_GROUP) -> StateModel:
-    """Read a tMAVEN/Appendix-D.2 ``model`` HDF5 file into a :class:`StateModel`.
+    """Read a tMAVEN/Appendix-D.2 ``model`` HDF5 file into a [`StateModel`][].
 
     Tolerant of optional members: only ``mean`` (state levels) is required;
     ``var``/``tmatrix``/``norm_tmatrix``/``idealized``/``likelihood``/``ran`` are
@@ -257,7 +257,7 @@ def states_from_idealized(idealized: np.ndarray, means: np.ndarray) -> np.ndarra
     """Map a float idealized array to integer state indices (nearest mean).
 
     ``idealized`` is ``(n_molecules, n_frames)``; non-finite entries (outside the
-    analysis window) map to :data:`NO_STATE`. Returns an ``int64`` array of the
+    analysis window) map to [`NO_STATE`][]. Returns an ``int64`` array of the
     same shape.
     """
     idealized = np.asarray(idealized, dtype="float64")
@@ -276,8 +276,8 @@ def states_from_idealized(idealized: np.ndarray, means: np.ndarray) -> np.ndarra
 def dwells_from_states(state_path: np.ndarray, molecule_index: int) -> list[Dwell]:
     """Run-length-encode one molecule's 1-D integer state path into dwells.
 
-    Contiguous runs of the same state are emitted as :class:`Dwell` segments;
-    :data:`NO_STATE` frames are skipped (they break a run but are not dwells).
+    Contiguous runs of the same state are emitted as [`Dwell`][] segments;
+    [`NO_STATE`][] frames are skipped (they break a run but are not dwells).
     """
     path = np.asarray(state_path, dtype="int64").reshape(-1)
     dwells: list[Dwell] = []
@@ -311,7 +311,7 @@ def bundled_sidecar_python() -> Path | None:
     ``PATH`` shim or a ``.desktop`` entry (ADR-0051) never sees it and idealization
     would fail on an otherwise correct install.
 
-    Deriving the sibling from :data:`sys.prefix` covers every launch path without
+    Deriving the sibling from [`sys.prefix`][] covers every launch path without
     relying on the shell. Returns ``None`` when the sibling is absent — a development
     checkout — so the caller still reports the actionable "set the env var" error
     rather than a confusing missing-path one.
@@ -327,14 +327,14 @@ def resolve_sidecar_python(sidecar_python: str | PathLike[str] | None) -> Path:
     """Resolve the sidecar interpreter from the argument, environment, or install layout.
 
     Precedence: the explicit argument, then ``TETHER_SIDECAR_PYTHON``, then the
-    installer's sibling ``envs/sidecar`` (:func:`bundled_sidecar_python`). The last
+    installer's sibling ``envs/sidecar`` ([`bundled_sidecar_python`][]). The last
     step is what makes idealization work when the app is launched from a shortcut
     rather than an activated environment.
 
-    Raises a clear :class:`SidecarError` (not a bare ``KeyError``) when none resolves,
+    Raises a clear [`SidecarError`][] (not a bare ``KeyError``) when none resolves,
     so callers get an actionable message. Both failures are **deterministic
     configuration errors** (``transient=False``): no auto-restart can conjure an
-    interpreter mid-run, so :func:`tether.idealize.supervisor.supervise_idealize`
+    interpreter mid-run, so [`tether.idealize.supervisor.supervise_idealize`][]
     must fail fast rather than burn the restart budget on them.
     """
     candidate = sidecar_python or os.environ.get(SIDECAR_ENV_VAR) or bundled_sidecar_python()
@@ -354,7 +354,7 @@ def resolve_sidecar_python(sidecar_python: str | PathLike[str] | None) -> Path:
 def _sidecar_env() -> dict[str, str]:
     """Subprocess environment for launching the sidecar (headless Qt, sync loader).
 
-    Shared by :func:`run_vbfret` and :func:`tether.idealize.supervisor.probe_sidecar`
+    Shared by [`run_vbfret`][] and [`tether.idealize.supervisor.probe_sidecar`][]
     so both launch paths stay in sync.
     """
     env = dict(os.environ)
@@ -366,7 +366,7 @@ def _sidecar_env() -> dict[str, str]:
 def _check_seed(seed: object) -> int | None:
     """Return ``seed`` as a plain ``int``, or ``None``; refuse anything else.
 
-    Only integer types pass: :class:`numbers.Integral`, which holds ``int`` and
+    Only integer types pass: [`numbers.Integral`][], which holds ``int`` and
     the NumPy integer types, never ``bool`` (nor ``numpy.bool_``, which is not
     registered as integral). A float such as ``3.0`` is refused although it
     equals an integer (issue #839), and so is a string such as ``"3"``. The
@@ -399,11 +399,11 @@ def run_vbfret(
     Parameters
     ----------
     smd_path:
-        An SMD-HDF5 file (e.g. written by :func:`tether.idealize.write_smd`).
+        An SMD-HDF5 file (e.g. written by [`tether.idealize.write_smd`][]).
     sidecar_python:
         The sidecar interpreter; falls back to ``$TETHER_SIDECAR_PYTHON``.
     model_type:
-        One of the keys in :data:`tether.idealize._sidecar_runner._DISPATCH`
+        One of the keys in `tether.idealize._sidecar_runner._DISPATCH`
         (default ``"vbconhmm"`` — the consensus VB-HMM behind the reference
         model fixture and the M0.5 parity target).
     nstates:
@@ -419,7 +419,7 @@ def run_vbfret(
         points from operating-system entropy, so two fits of one file differ
         (PRD §7.4). The sidecar seeds both random streams tMAVEN's fits draw from
         (issue #311; ADR-0075, and
-        :func:`tether.idealize._sidecar_runner.seed_random_streams`).
+        `tether.idealize._sidecar_runner.seed_random_streams`).
 
     Returns
     -------
@@ -493,7 +493,7 @@ def run_vbfret(
         # failure (bad data, a model that cannot fit these traces) — re-launching the
         # same input only repeats it, so it is not transient. A missing/garbled status
         # (a crash before any output) is a process-level failure — transient and worth a
-        # supervised restart (:mod:`tether.idealize.supervisor`).
+        # supervised restart (`tether.idealize.supervisor`).
         reported_error = status is not None and status.get("ok") is False
         detail = status.get("error") if status is not None else None
         if status is None:
@@ -538,7 +538,7 @@ def run_vbconhmm(
 
     The global variational-Bayes HMM fit across the SMD's molecules [Bronson2009];
     the default idealizer behind the M0.5 parity target and the reference model
-    fixture. A thin named alias for :func:`run_vbfret` with ``model_type`` fixed, so
+    fixture. A thin named alias for [`run_vbfret`][] with ``model_type`` fixed, so
     the M6 analysis suite has an explicit population-model entry point. All other
     keywords (``sidecar_python``, ``nrestarts``, ``timeout``, ``model_out``,
     ``group``, ``seed``) forward unchanged.
@@ -552,8 +552,8 @@ def run_ebhmm(smd_path: str | PathLike[str], *, nstates: int = 2, **kwargs) -> I
     ebFRET fits a hierarchical/empirical-Bayes HMM that pools information across the
     population of molecules to infer a consensus kinetic model, sharpening rate and
     state estimates that vary widely trace-by-trace [vandeMeent2014]. A thin named
-    alias for :func:`run_vbfret` with ``model_type='ebhmm'``; keywords forward as in
-    :func:`run_vbconhmm`.
+    alias for [`run_vbfret`][] with ``model_type='ebhmm'``; keywords forward as in
+    [`run_vbconhmm`][].
 
     References
     ----------
@@ -587,7 +587,7 @@ def check_smd_opens(
 ) -> SMDOpenCheck:
     """Confirm ``smd_path`` opens in the standalone tMAVEN GUI, via tMAVEN's own loader.
 
-    Launches the sidecar interpreter on :mod:`tether.idealize._sidecar_runner`'s
+    Launches the sidecar interpreter on `tether.idealize._sidecar_runner`'s
     ``--load-check`` fast path, which drives ``maven.io.load_smdtmaven_hdf5`` — the
     exact loader tMAVEN's *File → Load SMD* menu uses (``pysmd.load_smd_in_hdf5`` for
     the standard ``data``/``sources`` groups plus the per-trace ``tMAVEN`` window/class
@@ -595,11 +595,11 @@ def check_smd_opens(
     opens (PRD §7.4, issue #13). No fit runs — this is the scripted half of the M9
     hand-off verification (the manual GUI leg is documented separately).
 
-    Returns an :class:`SMDOpenCheck` with the trace dimensions, a raw-intensity
-    checksum, and the analysis windows tMAVEN read back. Raises :class:`SidecarError`
+    Returns an [`SMDOpenCheck`][] with the trace dimensions, a raw-intensity
+    checksum, and the analysis windows tMAVEN read back. Raises [`SidecarError`][]
     if the interpreter is unset/missing, the launch fails, the load times out, or
     tMAVEN could not open the file. ``_run`` is an injectable subprocess launcher
-    (test seam), defaulting to :func:`subprocess.run`.
+    (test seam), defaulting to [`subprocess.run`][].
     """
     py = resolve_sidecar_python(sidecar_python)
     smd_path = Path(smd_path)
@@ -653,7 +653,7 @@ def _parse_status(stdout: str) -> dict | None:
 
     Only a JSON **object** counts: a stray ``STATUS_PREFIX`` line carrying a non-object
     payload (a bare number/string/array) is ignored, so every caller can safely
-    ``status.get(...)`` — this keeps :func:`tether.idealize.supervisor.probe_sidecar`'s
+    ``status.get(...)`` — this keeps [`tether.idealize.supervisor.probe_sidecar`][]'s
     "never raises" contract intact.
     """
     status: dict | None = None

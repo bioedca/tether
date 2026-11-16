@@ -1,3 +1,7 @@
+---
+description: "Find what you saw, such as an error message or an unexpected result, and read the cause, the module responsible and what to do."
+---
+
 # Troubleshooting
 
 **Who this page is for.** Anyone whose Tether run did something other than what they
@@ -9,7 +13,7 @@ responsible. Any term that reads as jargon is defined in the
 [Glossary](glossary.md).
 
 The **silent** failures come first, because nothing will tell you about them. They are marked
-with a *Signature* block: something you can check on your own store to confirm or rule the
+with a *Signature* block: something you can check on your own project file to confirm or rule the
 diagnosis out.
 
 ---
@@ -30,22 +34,21 @@ one after the other, with a clear drop in one channel and a clear rise in the ot
 first bleach. With fewer, the check does not warn: `tether extract` prints
 `donor side: not enough bleach events to check the donor side`, and `tether batch` neither
 marks the movie `halves-swapped?` nor adds it to its list of movies whose halves look
-swapped. The CLI takes `--donor-side` as free text (`tether.cli`, `metavar="{left,right}"`
-rather than `choices=`), so
-a *typo* is rejected downstream by `ExtractOptions.__post_init__`:
+swapped. The CLI accepts only `left` or `right` for `--donor-side`, so
+a *typo* is a usage error (exit code 2) before any file is opened:
 
 ```text
-tether extract: donor_side must be 'left' or 'right', got 'middle'
+tether extract: error: argument --donor-side: invalid choice: 'middle' (choose from left, right)
 ```
 
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
-crop tuple is returned by `_half_split_geometry` in `tether.project.extract`, and detection
+crop tuple is returned by [`_half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) in `tether.project.extract`, and detection
 is [donor-anchored](glossary.md#donor-anchored-colocalization) — so the swapped run still
 colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the two channels
 gives exactly `1 − E`.
 
 The molecule count is *not* a control here. Donor-anchoring makes the molecule set exactly
-the detections in the half you **labelled** donor, so swapping the label swaps which half is
+the detections in the half you **labeled** donor, so swapping the label swaps which half is
 counted. The two counts agree only when both halves detect the same number of spots — true of
 a symmetric synthetic movie, and not something to rely on with real data, where the
 acceptor-dark and low-FRET population ADR-0015 exists to preserve is precisely the set present
@@ -56,13 +59,14 @@ Two related traps:
 - With `--tmap`, `--donor-side` is **ignored**: the split comes from the `.tmap`'s own crop
   geometry. No warning is emitted when both flags are passed.
 - The `tether batch` **CLI cannot set it at all.** `run_batch()` *does* take an
-  `extract_options=` argument and forwards it, but `tether.cli._run_batch` never builds one —
+  `extract_options=` argument and forwards it. The batch service command
+  [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py) never builds one,
   so every batch run takes the `ExtractOptions` defaults. Dumped from a real batch run's
   `/settings/extraction.attrs["profile_json"]`: `"donor_side": "left"`,
   `"detection_mode": "wavelet"`, `"pair_tol": 2.0`, `"rms_gate": 0.5`.
 
 > **Signature.** Run the two extractions side by side on one movie and compare. The relevant
-> store fields, dumped from a real pair of runs on the same input — a **symmetric** 3-spot
+> project-file fields, dumped from a real pair of runs on the same input — a **symmetric** 3-spot
 > synthetic movie, which is why the two counts match:
 >
 > | Field | `--donor-side left` | `--donor-side right` |
@@ -94,7 +98,7 @@ orientation *before* you trust a dataset, two ways:
 - **Against a trace.** Open a molecule that photobleaches. At the acceptor-bleach step the
   acceptor channel drops to background and the donor channel *rises* — the dequenching step
   Tether's own γ estimator measures as `ΔI_A / ΔI_D` (`tether.fret.gamma`). If in your traces
-  the channel labelled *acceptor* is the one that rises, the sides are swapped.
+  the channel labeled *acceptor* is the one that rises, the sides are swapped.
 
 If it was wrong, **re-extract**. There is no in-place fix and nothing to flip after the fact:
 the crops, the registration map, the molecule keys and the tags are all written from the
@@ -160,7 +164,7 @@ acceptor-bleach step. `compute_leakage_alpha` withholds α below
 console never says so, because the explanation lives in the stage *detail* string, which the
 end-of-run report does not print.
 
-> **Signature.** Three store reads, dumped from a real run:
+> **Signature.** Three project-file reads, dumped from a real run:
 >
 > ```text
 > /settings/correction : {'apparent_e_only': False, 'n_molecules': 7, 'n_corrected': 0, 'n_manual': 0, 'n_apparent': 7, 'total_failure': True, ...}
@@ -170,7 +174,8 @@ end-of-run report does not print.
 >
 > `total_failure=True` **with** `apparent_e_only=False` is the unambiguous "correction
 > failed" signature; `total_failure=True` with `apparent_e_only=True` is the deliberate
-> user toggle. The absence of `/settings/gamma` is itself diagnostic — γ never ran.
+> user toggle. The absence of `/settings/gamma` is itself diagnostic — no current γ pass: γ
+> never ran, or a later withheld leakage pass removed it.
 > `/molecules.correction_method` reads `apparent-E (corrections unavailable)` with
 > `correction_confidence = 0.0`. The stage detail string spells it out. The line below is
 > copied byte-for-byte from a real `batch-log.jsonl`, so the `α` that `run_correct_stage`
@@ -216,9 +221,9 @@ re-export (`tether.analysis.histogram`, `.cloud`, `tether.gui.trace_dock`,
 
 The results are the old ones, reported as `ok`, exit `0`.
 
-**Cause.** For a normal completed extraction, `_do_extract` in
+**Cause.** For a normal completed extraction, [`_do_extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py) in
 `tether.project.batch` finds the `/settings/extraction` checkpoint and returns `skipped`;
-`--overwrite` is not a general "recompute completed work" switch. `_do_correct` likewise
+`--overwrite` is not a general "recompute completed work" switch. [`_do_correct`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py) likewise
 skips a completed `/settings/correction`.
 
 There is one deliberate extraction exception. Under `--policy fail`, the runner reads the
@@ -258,8 +263,8 @@ and `low_confidence: False`, on a movie you know is not perfectly registered.
 
 **Cause.** The gate is **vacuous whenever the control points exactly determine the fit** — the
 residual of an exactly-determined least-squares fit is zero by construction, so it measures
-nothing about the mapping. `_fit_both` in `tether.imaging.calibrate` uses a degree-2
-polynomial at `_MIN_POLY_POINTS = 6` pairs or more and a 4-DOF similarity below that, which
+nothing about the mapping. [`_fit_both`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/calibrate.py) in `tether.imaging.calibrate` uses a degree-2
+polynomial at [`_MIN_POLY_POINTS = 6`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/calibrate.py) pairs or more and a 4-DOF similarity below that, which
 gives the condition two arms:
 
 - **2 pairs, `degree: 1`** — 4 unknowns, 4 equations.
@@ -268,7 +273,7 @@ gives the condition two arms:
 
 At **3–5 pairs the similarity is over-determined and the residual is real** — the gate works
 normally there, and a `low_confidence: True` on a 4-point fit is a genuine warning, not an
-artefact. (What it cannot tell you is whether the map needs degree 2: a 3–5-point residual
+artifact. (What it cannot tell you is whether the map needs degree 2: a 3–5-point residual
 only measures how well a *similarity* fits.) Separately, `pair_control_points` silently
 **drops** outlier pairs beyond `--pair-tol` (default 2 px), which is how a movie with plenty
 of spots lands on 6 surviving pairs; only fewer than 2 is a hard error.
@@ -373,12 +378,15 @@ Two more from the same family, raised by `tether.project.extract`:
 
 Every operator-actionable tunable is validated in `ExtractOptions.__post_init__`
 (`tether.project.extract`) so bad input fails with a clean one-line message on stderr and
-exit `1` — never a traceback. The ones you are most likely to meet:
+exit `1` — never a traceback. Three flags are refused earlier: argparse checks
+`--donor-side`, `--detection-mode` and `--prealign` against their allowed values, so a wrong
+value gives the usage line, `invalid choice: '<value>' (choose from …)` and exit `2`. The
+`ExtractOptions` messages below are what you meet otherwise:
 
 | Message | Fix |
 |---|---|
-| `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` |
-| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three |
+| `donor_side must be 'left' or 'right', got 'middle'` | use `left` or `right` (library call; the CLI refuses it at parse time) |
+| `detection_mode must be one of ('wavelet', 'intensity', 'bandpass'), got 'gaussian'` | pick one of the three (library call; the CLI refuses it at parse time) |
 | `detection_threshold must be in [0, 1) (a fraction of the detection-image max), got 1.5` | it is a fraction, not a count |
 | `min_separation must be > 0, got -1.0` | omit it to get each mode's faithful default |
 | `window must be a positive odd integer, got 20` | the aperture side must be odd (default 21) |
@@ -389,7 +397,7 @@ exit `1` — never a traceback. The ones you are most likely to meet:
 
 > **Ordering gotcha.** Option validation runs **before** any file-existence check, and
 > `movie not found` fires before `tmap not found` / `tdat not found`. So
-> `tether extract nope.tif -o x --donor-side middle` reports the donor-side error, not the
+> `tether extract nope.tif -o x --window 20` reports the aperture-window error, not the
 > missing movie.
 
 ### Registration was flagged low-confidence
@@ -447,7 +455,7 @@ library directly.
 Two siblings from the same family:
 
 - `project has no /traces/<layer>; run extraction first` (a `KeyError`, identical text in
-  `tether.project.photobleach`, `.leakage` and `.gamma`) — the store has no traces yet.
+  `tether.project.photobleach`, `.leakage` and `.gamma`) — the project file has no traces yet.
 - `intensity_quantity must be one of ['corrected', 'raw'], got 'bogus'` — only those two
   layers exist. `tether.project.export` phrases the same condition differently:
   `unknown intensity_quantity 'bogus'; expected one of ['corrected', 'raw']`.
@@ -456,7 +464,7 @@ Two siblings from the same family:
 
 **Symptom.** `query_molecules(project, key={"ligand": "tRNA"})` matches zero molecules, or a
 per-condition histogram overlay **called with that same `key=` filter** comes back with no
-curves — while the plain population histogram over the same store is fine.
+curves — while the plain population histogram over the same project file is fine.
 
 The `key` filter is the whole story: an overlay called *without* `key` groups on the raw
 `condition_id` and is unaffected by everything below, so if your unfiltered overlay is empty,
@@ -472,7 +480,7 @@ this is not your entry.
 2. **A condition query never returns a molecule with an empty `condition_id`** — it is a
    *condition* query by definition. This one is a defensive invariant rather than a likely
    cause: every Tether writer stamps the id from `ConditionKey.condition_id()`, which always
-   returns a non-empty `cond-<12 hex>`, so no natively-extracted or imported store should
+   returns a non-empty `cond-<12 hex>`, so no natively-extracted or imported project file should
    contain one. If you do meet an empty id, note that `sync_conditions` cannot repair it — it
    skips empty ids outright (`if not cid: … continue`) and excludes them from `referenced`, so
    it reports `n_unresolved=0` while fixing nothing. `rekey_condition` is not the escape hatch
@@ -495,7 +503,7 @@ this is not your entry.
 > plain per-condition overlay were never affected — if one of those is what came back empty,
 > `sync_conditions` will not change it.
 
-**Remedy.** Call `sync_conditions(path)` once per store before using `key` filters, then
+**Remedy.** Call `sync_conditions(path)` once per project file before using `key` filters, then
 `validate_conditions(path)` to see anything still dangling. `sync_conditions` reports
 `n_unresolved` for ids with neither an existing row nor a filename witness — but read that
 number narrowly: `n_unresolved=0` means every **non-empty** id either already had a row or got
@@ -503,14 +511,14 @@ one from a filename witness. It is not a claim that every molecule is now key-ma
 
 ### A plot shows fewer molecules than I curated
 
-**Cause.** Two on-by-default invariants on every store-level group-B/C entry point, both
-Tether additions with no tMAVEN analogue: **stale** molecules are excluded, and **rejected**
+**Cause.** Two on-by-default invariants on every project-level group-B/C entry point, both
+Tether additions with no tMAVEN analog: **stale** molecules are excluded, and **rejected**
 molecules are excluded. A molecule goes stale when its input trace, its analysis window, or
 its effective applied α/γ changed after the model was fitted — so re-running the corrections
 can silently empty a TDP that worked yesterday.
 
 **Remedy.** Pass `include_stale=True` / `include_rejected=True` to see them, or re-idealize
-to make the model fresh again. Mind the blast radius: the α estimator is **store-wide** —
+to make the model fresh again. Mind the blast radius: the α estimator is **project-wide** —
 `compute_leakage_alpha` fits one dataset median over every analysable molecule and writes it
 to every one of their `/molecules.alpha` cells, with no partition by condition — so
 re-estimating α re-stales **every** molecule in the project, not one condition's cohort. A
@@ -529,7 +537,7 @@ loaded project stays in place.
 | `file schema_version 99 is newer than this app's 1; refusing to open (PRD section 5.4).` | written by a newer Tether | **upgrade Tether.** Do not attempt to edit the file |
 | `<path> is not a .tether project (format marker=None)` | valid HDF5, but not ours — an SMD, a model, or a `.mat` opened by mistake | open the right file |
 | `<path> is not a readable .tether HDF5 project` | not HDF5 at all, or truncated beyond reading | restore from backup; check the copy completed |
-| `<path> is not a complete .tether project; missing: /movies, /molecules, …` | a half-written store; every missing group is named | re-extract. `tether extract` itself writes atomically (temp file + replace), so this comes from an external interruption |
+| `<path> is not a complete .tether project; missing: /movies, /molecules, …` | a half-written project file; every missing group is named | re-extract. `tether extract` itself writes atomically (temp file + replace), so this comes from an external interruption |
 
 > A batch **resume** additionally refuses a newer-schema output even under `--overwrite`:
 > `--overwrite` means "redo my extraction", not "discard whatever a newer Tether wrote". A
@@ -604,7 +612,7 @@ for the pin in the lock file or the workflow — `.github/workflows/sidecar.yml`
 script.
 
 *Sidecar that came with the installer.* The pin is applied for you. `envs/sidecar` is
-materialised from the rendered `sidecar/conda-lock.yml` (setuptools `82.0.1`), and the
+materialized from the rendered `sidecar/conda-lock.yml` (setuptools `82.0.1`), and the
 constructor `post_install` script then lays a bundled `setuptools<81` wheel over it — a
 third offline wheel alongside `tether-*.whl` and `tmaven-*.whl` — before installing tMAVEN.
 So on an installed app this failure should not happen; if it does, the sidecar env has been
@@ -685,21 +693,72 @@ LockedError: <path>.tether.lock is locked: the lock file is corrupt (unknown own
 CorruptLockError: unparseable lock file: <path>.tether.lock
 ```
 
-**Cause and remedy — the three cases differ, and the message tells you which one you have.**
+**Cause and remedy — the cases differ, and the message tells you which one you have.**
+In the application, the project opens read-only and the Browser's read-only banner names the
+case. The banner shows an action button only when an action is safe. Do not delete the
+`.tether.lock` file by hand.
 
-- **No `; stale` suffix** — a live writer. Close the other Tether window, or ask the named
-  host's user to. Do not steal.
+- **The lock names this computer and your login, and that Tether no longer runs** — Tether
+  stopped without releasing the lock, for example after a crash. The banner shows
+  **Recover**. Click it: Tether takes the lock and opens the project again, writable. No
+  other writer can lose work in this case, so no confirmation is asked.
+- **The lock names a Tether that still runs on this computer** — another application window
+  has the project open. The banner shows no action, and Tether never takes this lock. Close
+  the other application window.
+- **No `; stale` suffix** (another computer or another login) — a live writer, or one that
+  stopped less than ≈30 minutes ago. The banner shows no action and says when a takeover
+  becomes possible. Close the other Tether application window, or ask the named
+  host's user to.
 - **`; stale`** — the holder has been idle longer than the ≈30-minute staleness timeout.
   Liveness is judged by wall clock, not by probing the PID, because a remote PID cannot be
-  probed and cloud storage is eventually consistent. A stale lock is reclaimable only by an
-  **explicit steal**; it is never auto-acquired, and the ousted owner's unsaved work is not
-  merged.
+  probed and cloud storage is eventually consistent. Only a holder on this computer is
+  probed, as the first two cases say. The banner shows **Take over…**. Tether asks you to
+  type the project file name and warns that the holder's unsaved work can be lost; that work
+  is not merged. A stale lock is never taken without this step.
 - **`the lock file is corrupt (unknown owner)`** — the `.lock` JSON is unreadable, so no
-  owner can be identified and writes are refused until an explicit steal overwrites it.
-  Deleting the stray `.tether.lock` file is the manual fix.
+  owner can be identified and writes are refused. Tether judges it by the age of the lock
+  file: once it is older than the staleness timeout, the banner shows **Take over…**.
+
+Both actions check the lock again just before they take it. If the holder refreshed it, or
+someone else took it first, Tether refuses, shows the new state and writes nothing. Each
+takeover is logged at WARNING on the `tether.project.lock` logger with the ousted and the new
+holder. From a script, `tether.project.lock.lock_recovery` reports the case and
+`tether.project.lock.recover_lock` acts on it.
+
+**Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
+Tether gives that file read and write access for each group of users who can write the project
+folder, so another lab member can run the steal above. For a guard made by a release before #257,
+Tether attempts the same correction the next time its owner opens the project. On some network filesystems a user who cannot
+write the guard gets `PermissionError: ... lock lifecycle guard is not writable by this user`;
+the guard's owner can open the project in Tether once, which attempts the fix. If the error stays,
+the owner fixes it by hand with `chgrp <lab group> <path>.tether.lock.guard` and then
+`chmod g+rw <path>.tether.lock.guard`, where `<lab group>` is the project folder's group.
 
 While locked out you can still open the project read-only and curate into your own
 split/subset `.tether`, merged back later on `molecule_key`.
+
+**Replacing a project.** `tether extract --overwrite`, `tether batch --overwrite` and the
+Deep-LASI import with overwrite on all take the destination project's writer lock before they
+replace it, so they stop with the same `is locked` message when someone has the project open.
+This includes a Tether application window in the same program: close the project there first. A script that
+calls `extract_movie`, `reconstruct_project` or `import_analysis_only_project` to replace an
+existing project gets `... needs its writer lock` (`ExtractionError` from `extract_movie`,
+`PublishGuardRequiredError` from the other two) unless it holds
+`tether.project.lock.publish_lock` on the destination and passes the check it yields as
+`publish_guard`.
+
+**Two names for one file.** A hard link gives one project two names. Tether treats both names as
+one file for your user: while one name is open for writing, opening the other name says
+`is locked` and names the lock of the first name. Tether keeps a small record of which name owns
+each file in your per-user lock folder (`%LOCALAPPDATA%\tether\locks` on Windows,
+`~/.local/state/tether/locks` on Linux, `~/Library/Caches/tether/locks` on macOS). A steal through
+either name takes the file from the other name too. If Tether cannot make that folder, it refuses
+to open the project for writing: `cannot create the per-user lock directory`. Fix the folder's
+permissions, or set `XDG_STATE_HOME` (Linux, macOS) to a folder you can write.
+This record is per user. If two users open the same file through two different names, each name
+has its own `.lock` and each user has their own record, so Tether does not stop the second user,
+and an `--overwrite` by one of them does not stop with `is locked` either. Give a shared project
+one name only.
 
 ### The spot and overlap views are unavailable
 
@@ -761,12 +820,15 @@ Then, per platform:
 
 - **Windows.** SmartScreen shows *"Windows protected your PC"*. Choose **More info** →
   **Run anyway**.
-- **macOS.** The old Control-click → **Open** shortcut **no longer works**: macOS Sequoia
-  removed it, and Tahoe tightened the path further. Open **System Settings → Privacy &
+- **macOS.** When you double-click the `.pkg`, macOS shows *"Tether-….pkg" Not Opened* and
+  *Apple could not verify "Tether-….pkg" is free of malware that may harm your Mac or
+  compromise your privacy.* (macOS 26.6.2, November 2026). The old Control-click → **Open**
+  shortcut **no longer works**: macOS Sequoia removed it, and Tahoe tightened the path
+  further. Open **System Settings → Privacy &
   Security**, scroll to **Security**, and use the **Open Anyway** button, then authenticate as
   an administrator. Two things catch people out: the button only appears *after* you have
   tried to open the file and been blocked, and it is available for **about an hour** after
-  that — miss the window and you must trigger the block again.
+  that — miss that hour and you must trigger the block again.
 - **Linux.** The `.sh` installer is not gated by an OS trust prompt; verify it and run it.
 
 #### If macOS will not open the `.pkg`
@@ -785,9 +847,9 @@ packaging build, on GitHub's `macos-latest` and `macos-15-intel` runners, and th
 launches `tether --version` and the sidecar from the installed prefix. So the package is known
 to install this way on real macOS.
 
-One difference is worth knowing, because it is the part we have **not** observed end to end: a
-`.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one does
-not. If macOS still refuses after the above, you can clear it:
+A `.pkg` you downloaded through a browser carries a quarantine attribute that a CI-built one
+does not. On a Mac with macOS 26.6.2, a `.pkg` with that attribute installed with the command
+above and asked nothing. If macOS still refuses on your Mac, you can clear it:
 
 ```bash
 xattr -d com.apple.quarantine Tether-<version>-MacOSX-<arch>.pkg
@@ -804,6 +866,29 @@ making about software you have chosen to trust, not a step our verification has 
 If you hit something these steps do not cover,
 [tell us what you saw](https://github.com/bioedca/tether/issues) with your macOS version, and
 this entry will be corrected from the observation.
+
+#### If macOS will not open Tether.app
+
+From the next release, the macOS installer adds **Tether** (`Tether.app`) to
+`~/Applications`, or to `/Applications` for an install outside your home folder
+([ADR-0091](adr/0091-macos-launcher-bundle.md)). Like the installer, it is not signed.
+The installer writes it on your Mac, so it does not carry the quarantine attribute of a
+download. On a test Mac with macOS 26.6.2, it opened from the first start with no dialog. If
+macOS blocks the first start all the same, use the same route as for the installer: try to
+open **Tether** once, then open **System Settings → Privacy & Security**, and use
+**Open Anyway** under **Security**. You do this one time; later starts open directly.
+
+If nothing happens when you open **Tether** (no application window and no message), make sure that the
+installer matches your Mac. `Tether.app` asks macOS to start it as the architecture of its
+installer. The `osx-arm64` installer is for Apple silicon. The `osx-64` installer is for
+Intel, and on Apple silicon it needs Rosetta 2, which macOS does not install by default.
+
+If **Tether** is not in Launchpad or Spotlight right after the install, wait some minutes:
+the installer asks Spotlight to index the application, but Spotlight first indexes the new
+install folder. On a test Mac, Spotlight listed **Tether** about ten minutes after the install. You can
+also open the `Applications` folder of your home folder in Finder, where macOS sees the
+application. Until then, and whenever the application does not open, run `tether-gui` in
+Terminal: it starts the same application and shows any error text.
 
 ### The deep classifier does not see the GPU
 

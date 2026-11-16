@@ -17,7 +17,28 @@ as a top-level module on every OS in the CI matrix, like ``tests/_analysis_store
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
+
+# --- A page's YAML front matter ------------------------------------------------------
+
+#: MkDocs' own rule (``mkdocs.utils.meta.YAML_RE``, MkDocs 1.6.1): a block that opens with
+#: ``---`` on the first line and closes with ``---`` or ``...``. A copy, not an import, because
+#: the 3-OS matrix does not install MkDocs.
+_FRONT_MATTER_RE = re.compile(r"\A-{3}[ \t]*\n(.*?\n)(?:\.{3}|-{3})[ \t]*\n", re.DOTALL)
+
+
+def split_front_matter(text: str) -> tuple[str, str]:
+    """A page split into its YAML front matter and the Markdown after it (#599).
+
+    A page without front matter returns ``""`` and the whole text. Blank lines between the
+    closing ``---`` and the first line of Markdown are dropped, so a guard that reads "the
+    first line of the page" reads the H1 whether or not the page has front matter.
+    """
+    match = _FRONT_MATTER_RE.match(text)
+    if match is None:
+        return "", text
+    return match.group(1), text[match.end() :].lstrip("\n")
 
 
 def module_constant(src: Path, dotted: str, name: str) -> object:

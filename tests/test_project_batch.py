@@ -2154,3 +2154,89 @@ def test_no_defer_skips_probe_and_runs_idealize(tmp_path: Path) -> None:
     )
     assert probed["called"] is False  # no probe when deferral is disabled
     assert summary.results[0].stages[STAGE_IDEALIZE].status == STATUS_DONE
+
+
+# --- Replacing an existing output holds its writer lock (#346, ADR-0112) -----
+
+
+def test_overwrite_of_an_unextracted_output_publishes_under_its_lock(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "a")
+    create_project(jobs[0].output_path)  # exists, but holds no extraction
+    seen: list[object] = []
+    stub = _extract_stub()
+
+    def runner(movie_path, output_path, **kwargs):
+        seen.append(kwargs.get("publish_guard"))
+        assert lock.read_lock(output_path) is not None
+        return stub(movie_path, output_path, **kwargs)
+
+    summary = _run(jobs, overwrite=True, _extract=runner)
+
+    assert summary.results[0].stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert len(seen) == 1
+    assert callable(seen[0])
+    assert lock.read_lock(jobs[0].output_path) is None
+
+
+def test_overwrite_of_an_output_another_writer_holds_fails_that_movie(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "a")
+    create_project(jobs[0].output_path)
+    foreign = lock.acquire(
+        jobs[0].output_path, identity=lock.LockIdentity(host="OTHER", user="bob", pid=999)
+    )
+
+    summary = _run(jobs, overwrite=True, _extract=_raising_extract)
+
+    r = summary.results[0]
+    assert r.stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "locked" in (r.stages[STAGE_EXTRACT].error or "")
+    assert lock.read_lock(jobs[0].output_path) == foreign
+    # The refused job never owned the project, so it stamped no provenance into it.
+    with h5py.File(jobs[0].output_path, "r") as f:
+        assert "batch" not in f["settings"]
+
+
+def test_a_fresh_extract_that_loses_the_output_race_stamps_nothing(tmp_path: Path) -> None:
+    """Another writer's project at the output path never gets this job's provenance."""
+    jobs = _jobs(tmp_path, "a")
+
+    def runner(movie_path, output_path, **kwargs):
+        create_project(output_path)  # another writer published here first
+        raise RuntimeError(f"{Path(output_path).name} exists; replacing it needs its writer lock")
+
+    summary = _run(jobs, _extract=runner)
+
+    assert summary.results[0].stages[STAGE_EXTRACT].status == STATUS_FAILED
+    with h5py.File(jobs[0].output_path, "r") as f:
+        assert "batch" not in f["settings"]
+
+
+def test_the_provenance_stamp_holds_the_writer_lock(tmp_path: Path) -> None:
+    """A writer that opens the project after this job published it stops the stamp."""
+    jobs = _jobs(tmp_path, "a")
+    stub = _extract_stub()
+    foreign: list[lock.LockInfo] = []
+
+    def runner(movie_path, output_path, **kwargs):
+        result = stub(movie_path, output_path, **kwargs)
+        foreign.append(
+            lock.acquire(output_path, identity=lock.LockIdentity(host="OTHER", user="bob", pid=9))
+        )
+        return result
+
+    summary = _run(jobs, _extract=runner)
+
+    assert summary.results[0].stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert lock.read_lock(jobs[0].output_path) == foreign[0]
+    with h5py.File(jobs[0].output_path, "r") as f:
+        assert "batch" not in f["settings"]
+
+
+def test_the_provenance_stamp_releases_its_writer_lock(tmp_path: Path) -> None:
+    jobs = _jobs(tmp_path, "a")
+
+    _run(jobs)
+
+    assert lock.read_lock(jobs[0].output_path) is None
+    with h5py.File(jobs[0].output_path, "r") as f:
+        assert "batch" in f["settings"]

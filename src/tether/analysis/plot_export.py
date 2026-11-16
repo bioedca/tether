@@ -11,19 +11,19 @@ a **vector SVG**, and a **raster PNG**, each carrying a provenance stamp.
 Design
 ------
 - **Headless, Qt-free.** Rendering uses Matplotlib's object-oriented
-  :class:`matplotlib.figure.Figure` API directly (never ``pyplot``), so no GUI
+  [`matplotlib.figure.Figure`][] API directly (never ``pyplot``), so no GUI
   backend is ever selected — this keeps the base environment free of PyQt5/Tk
   (the §4.1 no-PyQt5 base invariant that motivated shipping ``matplotlib-base``,
   ADR-0044). ``Figure.savefig`` attaches the format-appropriate canvas (Agg for
   PNG, ``backend_pdf`` for PDF, ``backend_svg`` for SVG) on demand.
 - **Rendering is separate from IO.** Each ``render_*`` returns a bare
-  :class:`~matplotlib.figure.Figure` (no stamp, no file); :func:`export_figure`
+  [`Figure`][matplotlib.figure.Figure] (no stamp, no file); [`export_figure`][]
   adds the visible provenance footer and writes the three files + the sidecar.
   A caller can therefore embed the same figure in the GUI and export it
   identically.
 - **Provenance travels three ways** (§8 NFR-REPRO, invariant §1.3(4)): a
   ``<stem>.provenance.json`` sidecar (reusing
-  :func:`tether.project.export.write_provenance_sidecar`, the single stamping
+  [`tether.project.export.write_provenance_sidecar`][], the single stamping
   convention shared with the table/subset exports); a **visible on-figure footer**
   (``Tether <version> · <utc> · <kind>``) so the stamp travels *on the plot* a
   reader sees; and **embedded file metadata** (PDF/SVG/PNG document metadata).
@@ -35,7 +35,8 @@ Design
 
 This module is **lazily re-exported** by the ``tether.analysis`` package: its
 ``__init__`` resolves ``plot_export`` and every name in this module's ``__all__`` on
-first attribute access through a module ``__getattr__`` (:pep:`562`), and
+first attribute access through a module ``__getattr__``
+([PEP 562](https://peps.python.org/pep-0562/)), and
 ``dir(tether.analysis)`` lists them. A plain ``import tether.analysis`` therefore
 still does not import Matplotlib, which the lightweight headless paths do not need.
 Either spelling works, and both import Matplotlib at that point::
@@ -55,7 +56,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-from matplotlib import rc_context
+from matplotlib import colormaps, rc_context
+from matplotlib.colors import LogNorm, Normalize
 from matplotlib.figure import Figure
 
 from tether.analysis.cloud import RawFretCloud
@@ -76,6 +78,8 @@ __all__ = [
     "DEFAULT_EXPORT_DPI",
     "DEFAULT_FIGSIZE",
     "DEFAULT_PLOT_FORMATS",
+    "DEFAULT_TDP_COLOR_SCALE",
+    "TDP_COLOR_SCALES",
     "PlotExportResult",
     "export_figure",
     "render_cross_correlation",
@@ -103,6 +107,26 @@ DEFAULT_PLOT_FORMATS: tuple[str, ...] = ("pdf", "svg", "png")
 #: Fixed SVG id hash-salt so re-exports are byte-reproducible (matplotlib otherwise
 #: salts element ids per process).
 _SVG_HASHSALT = "tether.analysis.plot_export"
+
+#: The colour scales `render_transition_density` can draw the B1 TDP with.
+TDP_COLOR_SCALES: tuple[str, ...] = ("log", "linear")
+
+#: PRD Appendix C B1 names the TDP *log-normalized* [McKinney2006], as tMAVEN draws it
+#: (``data_tdp.py`` ``hist_log = True``), so the export defaults to a log colour scale
+#: (#556). Display only: the stored histogram is never transformed, and the scale is
+#: recorded in the plot provenance. A cosmetic output knob, not a §11.2 tunable.
+DEFAULT_TDP_COLOR_SCALE = "log"
+
+#: How many decades the TDP log colour scale's floor sits below the smallest non-empty
+#: bin. At zero the weakest transition would share the floor colour with an empty bin,
+#: which is the "low-count transitions vanish" failure #556 fixes; one decade lifts it
+#: clear of the floor while the scale still spans the data. Display only.
+_TDP_LOG_FLOOR_DECADES = 1.0
+
+#: Figure attribute a ``render_*`` helper sets to tell `export_figure` how it
+#: drew the data (for example the TDP colour scale), so the provenance sidecar records
+#: what the reader actually sees without the caller having to repeat it.
+_DISPLAY_ATTR = "_tether_display_parameters"
 
 _STATE_COLORS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
 
@@ -206,6 +230,26 @@ def _add_footer(figure: Figure, *, version: str, created_iso: str, kind: str) ->
     )
 
 
+def _merged_display_parameters(figure: Figure, parameters: dict[str, object]) -> dict[str, object]:
+    """The figure's own display record, checked against any the caller passed.
+
+    A ``render_*`` helper records how it drew the data on the figure; the caller may
+    repeat it under ``parameters["display"]`` but may not contradict it, or the
+    provenance would describe a picture other than the one written.
+    """
+    drawn = dict(getattr(figure, _DISPLAY_ATTR, None) or {})
+    given = parameters.get("display")
+    if given is None:
+        return drawn
+    if not isinstance(given, dict):
+        raise ValueError(f"parameters['display'] must be a dict, got {type(given).__name__}")
+    clashes = sorted(k for k in given.keys() & drawn.keys() if given[k] != drawn[k])
+    if clashes:
+        detail = ", ".join(f"{k}: given {given[k]!r}, drawn {drawn[k]!r}" for k in clashes)
+        raise ValueError(f"parameters['display'] contradicts how the figure was drawn ({detail})")
+    return {**given, **drawn}
+
+
 def export_figure(
     figure: Figure,
     out_stem: str | os.PathLike[str],
@@ -234,7 +278,10 @@ def export_figure(
         The source project / dataset identifier for the provenance sidecar.
     parameters
         The plot parameters to record (bins, ranges, model name, …) — the §7.9
-        *"stamped with provenance and parameters"* payload.
+        *"stamped with provenance and parameters"* payload. How the ``render_*``
+        helper drew the data (for example the TDP ``color_scale``) is added under
+        ``"display"`` from the figure itself; a ``"display"`` entry here that
+        contradicts the figure raises [`ValueError`][].
     title
         Optional human title embedded in the document metadata; defaults to
         ``tether_export``.
@@ -261,6 +308,8 @@ def export_figure(
         )
     if not formats:
         raise ValueError("at least one export format is required")
+
+    display = _merged_display_parameters(figure, parameters)
 
     stem = Path(out_stem)
     version = _app_version()
@@ -298,6 +347,7 @@ def export_figure(
         source=source,
         parameters={
             **parameters,
+            **({"display": display} if display else {}),
             "formats": [f for f in DEFAULT_PLOT_FORMATS if f in formats],
             "dpi": int(dpi),
             "outputs": {f: p.name for f, p in paths.items()},
@@ -313,7 +363,7 @@ def export_figure(
 
 
 def _new_figure(figsize: tuple[float, float] | None) -> Figure:
-    """A constrained-layout :class:`Figure` (no pyplot, so no GUI backend)."""
+    """A constrained-layout [`Figure`][] (no pyplot, so no GUI backend)."""
     return Figure(figsize=figsize or DEFAULT_FIGSIZE, layout="constrained")
 
 
@@ -331,10 +381,10 @@ def render_histogram1d(
 ) -> Figure:
     """Render the A1 1-D population apparent-E histogram (Appendix C A1).
 
-    Accepts a bare :class:`~tether.analysis.histogram.Histogram1D` or a
-    :class:`~tether.analysis.histogram.HistogramBootstrapCI` (whose per-bin
+    Accepts a bare [`Histogram1D`][tether.analysis.histogram.Histogram1D] or a
+    [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI] (whose per-bin
     percentile band is drawn as a shaded region). An optional
-    :class:`~tether.analysis.histogram.ModelGaussianOverlay` draws the idealized
+    [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] draws the idealized
     model's per-state Gaussians and their sum.
     """
     if isinstance(hist, HistogramBootstrapCI):
@@ -424,20 +474,75 @@ def render_histogram2d(
     return fig
 
 
+def _tdp_norm(counts: np.ndarray, color_scale: str) -> Normalize:
+    """The colour normalization for a TDP ``counts`` array.
+
+    ``"log"`` is zero-safe: [`LogNorm`][matplotlib.colors.LogNorm] masks every bin
+    ``<= 0`` instead of taking ``log(0) = -inf``, and its limits come from the positive
+    finite bins only. The floor sits `_TDP_LOG_FLOOR_DECADES` below the smallest
+    non-empty bin, so the weakest transition is drawn visibly above the floor colour
+    that marks an empty bin. With no positive bin at all (an empty TDP) there is no
+    magnitude to span, so the limits are a nominal ``[1, 10]`` and every bin is masked.
+    """
+    positive = counts[np.isfinite(counts) & (counts > 0)]
+    if color_scale == "log":
+        if positive.size == 0:
+            return LogNorm(vmin=1.0, vmax=10.0)
+        floor = float(positive.min()) / 10.0**_TDP_LOG_FLOOR_DECADES
+        return LogNorm(vmin=floor, vmax=float(positive.max()))
+    finite = counts[np.isfinite(counts)]
+    vmax = float(finite.max()) if finite.size else 1.0
+    return Normalize(vmin=0.0, vmax=vmax if vmax > 0 else 1.0)
+
+
 def render_transition_density(
     tdp: TransitionDensityPlot,
     *,
     title: str = "Transition-density plot (B1)",
     figsize: tuple[float, float] | None = None,
+    color_scale: str = DEFAULT_TDP_COLOR_SCALE,
 ) -> Figure:
-    """Render the B1 real transition-density plot: initial vs final idealized E."""
+    """Render the B1 real transition-density plot: initial vs final idealized E.
+
+    Parameters
+    ----------
+    tdp
+        The binned transition density to draw.
+    title
+        The axes title.
+    figsize
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    color_scale
+        ``"log"`` (default, [`DEFAULT_TDP_COLOR_SCALE`][]) or ``"linear"``. PRD
+        Appendix C B1 names the TDP log-normalized, so a rare transition stays visible
+        beside a dominant one. The log scale is zero-safe: an empty bin is drawn in the
+        colour map's floor colour, never as ``-inf`` or a hole. It is display only — the
+        drawn array is ``tdp.counts`` unchanged — and [`export_figure`][] records it
+        in the provenance sidecar under ``parameters["display"]["color_scale"]``.
+    """
+    if color_scale not in TDP_COLOR_SCALES:
+        raise ValueError(
+            f"unknown TDP color_scale {color_scale!r}; expected one of {list(TDP_COLOR_SCALES)}"
+        )
     counts = np.asarray(tdp.counts, dtype="float64")  # (signal_bins, signal_bins) [init, final]
     edges = np.asarray(tdp.signal_edges, dtype="float64")
 
     fig = _new_figure(figsize)
     ax = fig.add_subplot()
+    # Empty (masked) bins take the colour map's floor colour, as a zero does on the
+    # linear scale, so the white annotation and diagonal stay readable on both.
+    cmap = colormaps["viridis"]
+    cmap = cmap.with_extremes(bad=cmap(0.0), under=cmap(0.0))
     # counts is [initial, final]; x=initial, y=final → transpose so rows=final.
-    mesh = ax.pcolormesh(edges, edges, counts.T, cmap="viridis", shading="flat")
+    mesh = ax.pcolormesh(
+        edges,
+        edges,
+        counts.T,
+        cmap=cmap,
+        norm=_tdp_norm(counts, color_scale),
+        shading="flat",
+    )
+    setattr(fig, _DISPLAY_ATTR, {"color_scale": color_scale})
     fig.colorbar(mesh, ax=ax, label="Density" if tdp.density else "Counts")
     lo, hi = tdp.signal_range
     ax.plot([lo, hi], [lo, hi], color="w", lw=0.8, ls=":", alpha=0.7)
@@ -613,7 +718,7 @@ def render_raw_fret_cloud(
 
     ``max_points`` caps the scatter overlay for a manageable vector file; the density
     surface (when computed) is unaffected by that cap — but it was fit by
-    :func:`tether.analysis.cloud.raw_fret_cloud` on the in-range points only
+    [`tether.analysis.cloud.raw_fret_cloud`][] on the in-range points only
     (``n_out_of_range`` counts the rest).
     """
     points = np.asarray(cloud.points, dtype="float64")
