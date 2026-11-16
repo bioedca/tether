@@ -158,6 +158,7 @@ guaranteed to be there.
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
 | `/conditions` rows, `/conditions/categories/<condition_id>`, `/settings/condition_audit` | 0 rows / absent | `tether.project.conditions` |
 | `/settings/molecule_audit` | absent | `set_category` / `clear_category` / `set_analysis_window` / `reset_analysis_window` (`src/tether/project/molecule_edits.py`) |
+| `/settings/lock_takeovers` | absent | `record_takeover` (`src/tether/project/lock_takeovers.py`), called by the application after a Recover or Take over |
 | `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/models/*` | no | nothing yet — see below |
@@ -511,7 +512,7 @@ leave `/patches` empty**, because they have no coordinates.
 ## `/settings` — provenance of each pipeline stage
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
-datasets**, except `condition_audit` and `molecule_audit`, which are datasets.
+datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -523,6 +524,7 @@ datasets**, except `condition_audit` and `molecule_audit`, which are datasets.
 | `analysis_only` | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | Marker that movie round-trip is unavailable for this store. |
 | `condition_audit` | `tether.project.conditions` | A **dataset**: append-only re-key/merge log, created lazily. |
 | `molecule_audit` | `tether.project.molecule_edits` | A **dataset**: append-only log of per-molecule category and analysis-window edits, created lazily. |
+| `lock_takeovers` | `tether.project.lock_takeovers` | A **dataset**: append-only log of each successful lock Recover or Take over, created lazily (ADR-0121). |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -572,6 +574,16 @@ indices), `labeler`, `timestamp`, `reason` and `app_version`. A category row car
 row is written **before** the `/molecules` field changes, and an edit that changes
 nothing writes no row. Category edits are logged here and **not** in `/labels`, whose
 `label_value` is the accept/reject codec.
+
+`/settings/lock_takeovers` is a resizable 1-D compound dataset with one row for each
+successful lock takeover ([`_dtype`](https://github.com/bioedca/tether/blob/main/src/tether/project/lock_takeovers.py) in `src/tether/project/lock_takeovers.py`, ADR-0121):
+`timestamp` (the new lock's UTC acquisition instant), `action` (`recover` or `take_over`),
+`holder_user`, `holder_host`, `holder_pid` (`i8`), `ousted_corrupt` (`u1`, `1` when the ousted
+lock could not be parsed), `ousted_user`, `ousted_host`, `ousted_pid` (`i8`),
+`ousted_timestamp` and `app_version`. A corrupt ousted lock carries `""`, `""`, `-1` and `""` in
+the four `ousted_*` holder fields. The row is written after the project has been reopened
+writable under the new lock, so a refused or failed takeover writes none. It is append-only and
+never rewritten.
 
 ## `/idealization` — one subgroup per fitted model
 
