@@ -1,3 +1,7 @@
+---
+description: "Download, verify, install and uninstall the Tether desktop installer on Windows, macOS or Linux. No Python or conda knowledge is necessary."
+---
+
 # Install Tether
 
 **Who this page is for.** A lab scientist who wants to run Tether on their own Windows, macOS
@@ -196,9 +200,14 @@ echo 'export PATH="$PATH:$HOME/Tether/bin"' >> ~/.zshrc
   "User")
 ```
 
-The folder goes at the **end** of your PATH on purpose. On Linux and macOS it also holds the
-installer's own copies of `python`, `pip` and `conda`; at the end, any you already use keep
-working exactly as before.
+The folder goes at the **end** of your PATH on purpose. In rc3, on Linux and macOS, it also
+holds the installer's own copies of `python`, `pip` and `conda`; at the end, any you already use
+keep working exactly as before.
+
+**From the next release**, the installer puts the two launchers in a folder of their own,
+`launchers`, which holds nothing else
+([#492](https://github.com/bioedca/tether/issues/492)). With that release, write `launchers`
+in place of `bin` in the line for your system, for example `$HOME/tether/launchers` on Linux.
 
 ## 5. Check that Tether runs
 
@@ -231,8 +240,14 @@ Windows PowerShell. To start the desktop application:
 - **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
   (A desktop that was already running may only show the menu entry after you log out and back
   in.)
-- **macOS:** run `tether-gui` in Terminal. The Dock shows the Tether icon while the
-  application runs, but there is no Launchpad entry yet.
+- **macOS:** with rc3, run `tether-gui` in Terminal. The Dock shows the Tether icon while
+  the application runs. From the next release, the installer also puts **Tether** in the
+  `Applications` folder of your home folder
+  ([#663](https://github.com/bioedca/tether/issues/663)): open it from **Launchpad**, find it
+  with **Spotlight** (press Command-Space and type `Tether`), or double-click it in Finder.
+  You can keep it in the Dock. `tether-gui` in Terminal still works and is the fallback. If
+  macOS blocks the first start of **Tether**, see
+  [If macOS will not open Tether.app](troubleshooting.md#if-macos-will-not-open-tetherapp).
 
 While the application loads, a splash window shows the Tether name, the version and
 **Loading…**. The splash window closes when the main window opens.
@@ -251,22 +266,82 @@ Everything lives in the single folder you chose (`~/tether` on Linux, `~/Tether`
 
 | Inside the install folder | What it is |
 |---|---|
-| `bin/tether`, `bin/tether-gui` (on Windows, `bin\tether.bat`, `bin\tether-gui.bat`) | The two launchers this page puts on your PATH. |
+| `bin/tether`, `bin/tether-gui` (on Windows, `bin\tether.bat`, `bin\tether-gui.bat`) | The two launchers this page puts on your PATH. From the next release they are in `launchers/` (on Windows, `launchers\`), a folder that holds only them. |
 | `envs/tether` | The Tether application and everything it runs on. |
 | `envs/sidecar` | A separate, isolated copy of tMAVEN used for one-click idealization. It is kept apart because it needs older library versions than the application. |
 | everything else | The small installer toolkit used once, at install time, to lay down the two folders above. It holds no Tether code. |
 
-Outside the install folder, Tether's own files are one menu entry: on Windows a **Tether**
+Outside the install folder, the installer adds one menu entry: on Windows a **Tether**
 Start menu shortcut, and on Linux an application-menu entry at
 `~/.local/share/applications/tether.desktop` with its icon. The icon is nine files in
 `~/.local/share/icons/hicolor`: `tether.png` in the `apps` folder of each of the eight size
 folders `16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256` and `512x512`,
-and `tether.svg` in `scalable/apps`. On macOS there is none. Windows and macOS also
+and `tether.svg` in `scalable/apps`. On macOS, from the next release, it is the
+application `Tether.app` in `~/Applications`, or in `/Applications` when you installed into a
+folder outside your home folder. `Tether.app` is a small launcher: it starts the application
+in the install folder and holds no copy of it. Windows and macOS also
 keep their usual record of an installed program: the **Installed apps** entry that the Windows
-uninstaller runs from, and the package receipt macOS records for every `.pkg`.
+uninstaller runs from, and the package receipt macOS records for every `.pkg`. Tether itself
+can also write the [settings file](#settings-tether-keeps-outside-the-install-folder) below,
+and only after you answer its question.
 
 On a Linux test install of this release the folder came to **3.6 GB**; the other systems have
 not been measured yet.
+
+## Settings Tether keeps outside the install folder
+
+Tether keeps one application setting outside any `.tether` project: your answer to the
+question whether Tether may check for a newer release. Tether does not ask this question yet,
+and makes no network connection. The setting exists now so that your answer, once you give it,
+is not lost when you install a newer release over the old one.
+
+The answer is in a small file in your own settings folder, **not** in the install folder. An
+installer can replace or delete the install folder, so a file there could be lost on an update.
+
+| Your computer | Settings file |
+|---|---|
+| Windows | `%LOCALAPPDATA%\MondragonLab\Tether\settings.json` |
+| macOS | `~/Library/Application Support/MondragonLab/Tether/settings.json` |
+| Linux | `~/.config/tether/settings.json` (or `$XDG_CONFIG_HOME/tether/settings.json` if you set `XDG_CONFIG_HOME` to an absolute path) |
+
+The file holds only two values: a format number and your answer, `allowed` or `declined`. It
+holds no name, no computer name, no time, no file path and no project data. If the file is
+missing, empty or damaged, Tether reads it as *no answer yet*: it makes no network connection
+and the answer stays unset. Tether never reads a damaged file as *allowed*.
+
+### For a site administrator: turn the update check off for every user
+
+On a shared computer, an administrator can turn the update check off for every user of the
+computer, whatever each user answers. Create an empty file with this name:
+
+| Computer | File to create |
+|---|---|
+| Windows | `%PROGRAMDATA%\MondragonLab\Tether\disable-update-check` (normally `C:\ProgramData\MondragonLab\Tether\disable-update-check`) |
+| macOS | `/Library/Application Support/MondragonLab/Tether/disable-update-check` |
+| Linux | `/etc/tether/disable-update-check` |
+
+The file can be empty; Tether does not read what is in it. While it is there, Tether makes no
+update request and does not ask the question. If Tether cannot examine the file, for example
+because a folder permission stops it, Tether also turns the check off. This file can only turn
+the check off. Nothing lets an administrator turn the check on for a user who did not agree.
+
+For example, on Linux:
+
+```bash
+sudo mkdir -p /etc/tether
+sudo touch /etc/tether/disable-update-check
+```
+
+On Windows, in a PowerShell window opened with **Run as administrator**:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:ProgramData\MondragonLab\Tether" | Out-Null
+New-Item -ItemType File -Force "$env:ProgramData\MondragonLab\Tether\disable-update-check" | Out-Null
+```
+
+The override applies to the Tether application, not to a user who changes the files of their
+own install folder. Each user owns their own install, so the override is a site setting, not a
+lock. To remove it, delete the file.
 
 ## If it did not work
 
@@ -275,7 +350,8 @@ terminal cannot see the launcher folder. Check that you opened a **new** termina
 4, and that the folder in the PATH line matches where you installed.
 
 **The application does not open.** Tether does not write a log file, so start it from a
-terminal with `tether-gui` and read what it prints. On Windows the Start menu shortcut and
+terminal with `tether-gui` and read what it prints. The macOS **Tether** application and
+the Windows Start menu shortcut show no text when the start fails. On Windows the Start menu shortcut and
 `tether-gui` show no console, so run this instead to see the error text:
 
 ```powershell
@@ -315,15 +391,30 @@ rm -f ~/.local/share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256x25
 rm -f ~/.local/share/icons/hicolor/scalable/apps/tether.svg
 ```
 
-Then delete the `export PATH=…/tether/bin` line from `~/.bashrc`.
+Then delete the `export PATH=…/tether/bin` line (`…/tether/launchers` from the next release)
+from `~/.bashrc`.
 
 **macOS**
+
+First remove the **Tether** application (`Tether.app`) that this install added:
+
+```bash
+~/Tether/envs/tether/bin/python -m tether.gui.macos_app remove --prefix ~/Tether
+```
+
+It removes a `Tether.app` only when it is Tether's launcher for this install folder, so another
+program's `Tether.app` stays. If it says `could not remove`, run it again with `sudo` before you
+go on. With rc3 it says `No module named tether.gui.macos_app`: rc3 adds no `Tether.app`, so go
+on. Then delete the install folder:
 
 ```bash
 rm -rf ~/Tether
 ```
 
-Then delete the `export PATH=…/Tether/bin` line from `~/.zshrc`.
+If you installed into a folder outside your home folder, use that folder in both commands, and
+put `sudo` before the first one, because the launcher is then in `/Applications`. Then delete
+the `export PATH=…/Tether/bin` line (`…/Tether/launchers` from the next release) from
+`~/.zshrc`.
 macOS keeps its package receipt for the install; it is a small record and does no harm left
 in place.
 
@@ -331,11 +422,17 @@ in place.
 **Uninstall**. The uninstaller removes the Start menu shortcut as well. An installer from
 1.0.0-rc2 or earlier does not, so if a **Tether** folder is still in the Start menu afterwards,
 delete it. Remove
-`C:\Users\<you>\Tether\bin` from your user PATH under **Settings → System → About → Advanced
+`C:\Users\<you>\Tether\bin` (`C:\Users\<you>\Tether\launchers` from the next release) from your
+user PATH under **Settings → System → About → Advanced
 system settings → Environment Variables**.
 
 Projects, movies and exports saved anywhere **outside** the install folder are not touched
 by any of these steps.
+
+The [settings file](#settings-tether-keeps-outside-the-install-folder) is not touched either,
+so a later install keeps your answer. To remove it too, delete the `MondragonLab\Tether`
+folder (Windows, macOS) or, on Linux, the `tether` folder in `$XDG_CONFIG_HOME` if you set
+that variable to an absolute path, otherwise `~/.config/tether`.
 
 ## The optional GPU add-on
 

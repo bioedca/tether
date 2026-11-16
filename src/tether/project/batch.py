@@ -11,7 +11,7 @@ status and names any failure.
 Design (ADR-0030):
 
 * **One ``.tether`` per movie** is the unit of isolation — it mirrors
-  :func:`tether.project.extract.extract_movie` (which writes a fresh project per
+  [`tether.project.extract.extract_movie`][] (which writes a fresh project per
   movie, atomically) and means a corrupt movie can never damage another's store.
 * **Checkpoint = provenance presence, with the ADR-0056 extraction exception.**
   Presence normally means "already done" — ``/settings/extraction`` (extract),
@@ -22,7 +22,7 @@ Design (ADR-0030):
 * **The correct stage** runs the Appendix-B order photobleach → leakage α →
   γ → corrected-E. γ is skipped when leakage *withholds* the dataset α (an
   intentional "withhold rather than fabricate" outcome, not a failure —
-  :func:`tether.project.gamma.compute_gamma` requires a non-sentinel
+  [`tether.project.gamma.compute_gamma`][] requires a non-sentinel
   ``/molecules.alpha`` and would otherwise raise); the corrected-E pass then degrades
   the missing factors to apparent E, never a NaN factor (PRD §7.2).
 
@@ -30,7 +30,7 @@ Scope — **M3 PR7-A** landed the queue, per-movie isolation, per-stage checkpoi
 structured log/summary, the warn-vs-fail over-gate policy (PRD §11.2, ADR-0014), and a
 ``/settings/batch`` provenance stamp. **M3 PR7-B** (this addition, ADR-0031) layers
 **sidecar supervision** over the idealize stage via an opt-in ``supervision``
-(:class:`tether.idealize.supervisor.SidecarSupervision`): a startup liveness probe that
+([`tether.idealize.supervisor.SidecarSupervision`][]): a startup liveness probe that
 puts the whole run into **idealization-deferred mode** when the sidecar env is
 absent/corrupt (extract + correct still run and checkpoint; a later run resumes only the
 deferred idealize stage), and **auto-restart up to N** on a transient sidecar failure
@@ -45,6 +45,7 @@ import contextlib
 import json
 import logging
 import math
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -130,7 +131,7 @@ class MovieJob:
     """One input movie and the ``.tether`` it extracts into.
 
     ``tmap`` / ``tdat`` are optional per-movie Deep-LASI imports (a condition
-    typically shares one ``.tmap``); paths are coerced to :class:`~pathlib.Path`.
+    typically shares one ``.tmap``); paths are coerced to [`Path`][pathlib.Path].
     """
 
     movie_path: Path
@@ -316,7 +317,7 @@ class BatchLog:
     """An append-only structured event log (one JSON object per stage transition).
 
     Records are plain dicts (assertion-friendly in tests, JSONL-serializable). Each is
-    mirrored to a :mod:`logging` logger as a human line and, if ``path`` is given,
+    mirrored to a [`logging`][] logger as a human line and, if ``path`` is given,
     written as one JSON object per line. Usable as a context manager so the file
     handle is closed on exit.
     """
@@ -493,15 +494,15 @@ def _assert_output_not_newer(path: Path) -> None:
 
     The probes above decide what to skip by opening the output ``.tether`` directly, so
     a resume never passes through a guarded entry point: with extract already done its
-    stage is skipped, :func:`tether.imaging.extract.write_extraction`'s check never
+    stage is skipped, [`tether.imaging.extract.write_extraction`][]'s check never
     runs, and the later stages open the same file ``r+`` and write to it. This is the
     guard for that path.
 
-    Deliberately narrower than :func:`tether.io.schema.assert_is_compatible_project`:
+    Deliberately narrower than [`tether.io.schema.assert_is_compatible_project`][]:
     only a file carrying our ``format`` marker *and* declaring a newer
     ``schema_version`` is refused. A missing, unreadable, foreign or half-written
     project raises nothing, so the probes keep the "(re-)attempt rather than falsely
-    skip" behaviour documented on :func:`_group_present` — a crashed run must stay
+    skip" behaviour documented on `_group_present` — a crashed run must stay
     resumable, and an incomplete store is a stage to redo, not a movie to fail.
 
     Checking the marker matters: a foreign HDF5 that happens to carry a
@@ -518,7 +519,7 @@ def _assert_output_not_newer(path: Path) -> None:
     ------
     ValueError
         If the file declares a ``schema_version`` newer than this app's. The message is
-        :func:`tether.io.schema.assert_compatible`'s, so a refusal reads the same
+        [`tether.io.schema.assert_compatible`][]'s, so a refusal reads the same
         wherever the user meets it.
     """
     if not path.exists():
@@ -557,7 +558,7 @@ def _assert_output_not_newer(path: Path) -> None:
 def _is_idealized(path: Path) -> bool:
     """True when ``/idealization`` holds at least one *completed* fitted model.
 
-    Delegates to the public :func:`tether.project.idealize.list_idealizations`, which
+    Delegates to the public [`tether.project.idealize.list_idealizations`][], which
     already filters out the transient ``{model}.__writing__`` staging group a crashed
     overwrite can leave behind — so a crashed idealization is correctly re-run on resume
     rather than falsely reported done, and the checkpoint does not depend on a private
@@ -587,7 +588,7 @@ def run_correct_stage(
     photobleach → leakage α → **(γ only when α was applied)** → corrected FRET. γ is
     skipped when leakage *withholds* the dataset α: that is a deliberate
     "withhold rather than fabricate" outcome (fewer than ``min_qualifying_traces``
-    donor-only tails), and :func:`~tether.project.gamma.compute_gamma` would raise on
+    donor-only tails), and [`compute_gamma`][tether.project.gamma.compute_gamma] would raise on
     the resulting NaN α-sentinel. The corrected-FRET pass then degrades the missing
     factors to apparent E — never a NaN factor (PRD §7.2, §1.3 invariant 3).
 
@@ -646,6 +647,40 @@ def _idealize_detail(stored: Any) -> str:
 
 
 # --- Provenance stamp --------------------------------------------------------
+
+
+def _stamp_under_writer_lock(
+    path: Path,
+    *,
+    ownership_guard: Callable[[], None] | None,
+    policy: str,
+    idealize_requested: bool,
+    stages: dict[str, StageResult],
+) -> None:
+    """Stamp ``/settings/batch`` while this job holds ``path``'s writer lock (ADR-0112).
+
+    The job-level claim supplies the lock when there is one. Otherwise the stamp takes
+    [`publish_lock`][tether.project.lock.publish_lock] for just this write, so a writer
+    that opened the project after this job published it stops the stamp (a provenance
+    warning) instead of having its file rewritten.
+    """
+    scope: contextlib.AbstractContextManager[Callable[[], None]]
+    if ownership_guard is not None:
+        scope = contextlib.nullcontext(ownership_guard)
+    else:
+        from tether.project.lock import publish_lock  # noqa: PLC0415
+
+        scope = publish_lock(path)
+    with scope as guard:
+        guard()
+        _stamp_batch_settings(
+            path,
+            policy=policy,
+            idealize_requested=idealize_requested,
+            stages=stages,
+            write_guard=guard,
+        )
+        guard()
 
 
 def _stamp_batch_settings(
@@ -809,7 +844,7 @@ def run_batch(
         over-gate movie with a flag; ``"fail"`` fails it, including on resume when
         the persisted extraction profile remains over its recorded gate.
     extract_options
-        A :class:`tether.project.extract.ExtractOptions` (or ``None`` for defaults),
+        A [`tether.project.extract.ExtractOptions`][] (or ``None`` for defaults),
         applied to every movie.
     idealize
         Whether to run the idealize stage (``False`` marks it *not-requested*).
@@ -820,7 +855,7 @@ def run_batch(
         use the same env/timeout); any values for those two keys here are overridden.
     supervision
         Opt-in sidecar supervision (PR7-B): a
-        :class:`tether.idealize.supervisor.SidecarSupervision` enabling a startup
+        [`tether.idealize.supervisor.SidecarSupervision`][] enabling a startup
         liveness probe (→ idealization-deferred mode when the sidecar is absent/corrupt)
         and per-movie auto-restart on transient sidecar failures. ``None`` (default)
         keeps the idealize stage a single error-isolated call.
@@ -831,14 +866,14 @@ def run_batch(
     stamp_provenance
         Write the additive ``/settings/batch`` provenance group into each project.
     log
-        A :class:`BatchLog` sink; a throwaway one is created if omitted.
+        A [`BatchLog`][] sink; a throwaway one is created if omitted.
     _extract, _correct, _idealize
         Injectable stage runners (test seams). Default to
-        :func:`tether.project.extract.extract_movie`, :func:`run_correct_stage`, and
-        :func:`tether.project.idealize.idealize_molecules` respectively.
+        [`tether.project.extract.extract_movie`][], [`run_correct_stage`][], and
+        [`tether.project.idealize.idealize_molecules`][] respectively.
     _probe
         Injectable startup-liveness probe (test seam) taking the ``supervision`` and
-        returning a :class:`~tether.idealize.supervisor.ProbeResult`. Defaults to a real
+        returning a [`ProbeResult`][tether.idealize.supervisor.ProbeResult]. Defaults to a real
         sidecar probe. Only consulted when ``supervision.defer_if_unavailable``.
 
     Returns
@@ -1026,17 +1061,13 @@ def run_batch(
                 )
                 if stamp_provenance and rec.canonical_write_safe and job.output_path.exists():
                     try:
-                        if ownership_guard is not None:
-                            ownership_guard()
-                        _stamp_batch_settings(
+                        _stamp_under_writer_lock(
                             job.output_path,
+                            ownership_guard=ownership_guard,
                             policy=policy,
                             idealize_requested=idealize,
                             stages=rec.stages,
-                            write_guard=ownership_guard,
                         )
-                        if ownership_guard is not None:
-                            ownership_guard()
                     except Exception as exc:  # provenance must never fail a movie
                         _safe_event(
                             log,
@@ -1145,22 +1176,43 @@ def _do_extract(
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
-        runner_kwargs: dict[str, Any] = {}
-        if ownership_guard is not None:
-            runner_kwargs["publish_guard"] = ownership_guard
-        summary = runner(
-            job.movie_path,
-            job.output_path,
-            options=options,
-            tmap=job.tmap,
-            tdat=job.tdat,
-            overwrite=overwrite,
-            **runner_kwargs,
-        )
+        # Replacing an existing output needs its writer lock (#346, ADR-0112). The
+        # job-level claim supplies it for a rejected checkpoint; any other overwrite of
+        # an existing path holds the lock for just this publish.
+        publish_scope: contextlib.AbstractContextManager[Callable[[], None] | None]
+        publish_scope = contextlib.nullcontext(ownership_guard)
+        locked_for_publish = False
+        if ownership_guard is None and overwrite and os.path.lexists(job.output_path):
+            from tether.project.lock import publish_lock  # noqa: PLC0415
+
+            publish_scope = publish_lock(job.output_path)
+            # Until this publish succeeds the job does not own the project, so the
+            # unguarded provenance stamp must not write to it (another writer may hold it).
+            rec.canonical_write_safe = False
+            locked_for_publish = True
+        with publish_scope as publish_guard:
+            runner_kwargs: dict[str, Any] = {}
+            if publish_guard is not None:
+                runner_kwargs["publish_guard"] = publish_guard
+            summary = runner(
+                job.movie_path,
+                job.output_path,
+                options=options,
+                tmap=job.tmap,
+                tdat=job.tdat,
+                overwrite=overwrite,
+                **runner_kwargs,
+            )
         if ownership_guard is not None:
             ownership_guard()
     except Exception as exc:  # ExtractionError and any lower-level failure
+        if ownership_guard is None:
+            # An unguarded attempt may have lost a race to another writer, whose
+            # project now sits at the output path; never stamp that one.
+            rec.canonical_write_safe = False
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
+    if locked_for_publish:
+        rec.canonical_write_safe = True  # this job published the project just now
     low_conf = bool(getattr(summary, "low_confidence_registration", False))
     if low_conf and policy == POLICY_FAIL:
         return rec.record(
@@ -1217,7 +1269,7 @@ def _do_idealize(
     """Run (or skip/block/decline/defer) the idealize stage; returns whether it is satisfied.
 
     With ``supervision`` set, the runner call is wrapped by
-    :func:`tether.idealize.supervisor.supervise_idealize`, which auto-restarts a
+    [`tether.idealize.supervisor.supervise_idealize`][], which auto-restarts a
     transient sidecar failure up to ``supervision.max_restarts`` and re-raises the
     spent budget as ``RestartsExhausted`` (caught here → this movie's idealization
     fails in isolation). ``deferred`` (a failed startup probe) records the stage

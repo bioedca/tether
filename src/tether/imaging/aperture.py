@@ -3,17 +3,17 @@
 """Aperture geometry + Sum integration (PRD Appendix E Stages 5, 11-15; §11.2).
 
 A faithful NumPy/SciPy port of Deep-LASI's aperture photometry — the second half
-of the M0.5(b) extraction preview, fed by the :mod:`tether.imaging.detect` spot
+of the M0.5(b) extraction preview, fed by the [`tether.imaging.detect`][] spot
 coordinates:
 
-* **Aperture geometry** (:func:`aperture_masks`): a ``21x21`` window holding a
+* **Aperture geometry** ([`aperture_masks`][]): a ``21x21`` window holding a
   central **PSF disk** (Euclidean radius 3 -> 29 px) and a concentric
   **background ring** (inner 6, outer 8 -> 84 px), with a deliberate **dead-zone**
   gap ``3 < d <= 6`` between them so the ring samples background uncontaminated
   by the PSF tail. The boundary conventions (``d <= r`` for the disk,
   ``r < d <= R`` for the ring) mirror ``deeplasi/functions/filtering/circ.m``.
 
-* **Sum integration** (:func:`integrate_traces`, ``deeplasi/functions/traces/
+* **Sum integration** ([`integrate_traces`][], ``deeplasi/functions/traces/
   extractTracesC.m:13-33``): per frame, the **total** is the disk sum
   ``TOT = sum(crop * disk)``; the **background** is the ring mean of a
   **10-frame uniform temporal moving average** of the crop (replicate edges),
@@ -26,8 +26,8 @@ Aperture-based background estimation with a concentric annulus, and temporal
 local background subtraction, are established single-molecule TIRF/FRET intensity
 methods (Preus 2016, *Biophys. J.*; Isaacoff 2019, *Biophys. J.*).
 
-**Coordinate convention.** :func:`integrate_traces` consumes ``(N, 2)`` ``[x, y]``
-= ``[column, row]`` coordinates — exactly :func:`tether.imaging.detect.detect_spots`'
+**Coordinate convention.** [`integrate_traces`][] consumes ``(N, 2)`` ``[x, y]``
+= ``[column, row]`` coordinates — exactly [`tether.imaging.detect.detect_spots`][]'
 output — and crops at ``(row=round(y), col=round(x))``.
 """
 
@@ -51,9 +51,9 @@ __all__ = [
 def _validate_window(window: int) -> None:
     """Reject an aperture side length that is not a positive odd integer.
 
-    The canonical window check shared by :func:`aperture_masks`,
-    :func:`aperture_in_frame`, and (transitively) :func:`integrate_traces` /
-    :func:`tether.imaging.coloc.colocalize`, so a window a crop cannot use is
+    The canonical window check shared by [`aperture_masks`][],
+    [`aperture_in_frame`][], and (transitively) [`integrate_traces`][] /
+    [`tether.imaging.coloc.colocalize`][], so a window a crop cannot use is
     rejected the same way everywhere. A non-integer (e.g. ``21.5``) is rejected too,
     not silently floored.
     """
@@ -87,8 +87,8 @@ def aperture_in_frame(
     A spot is in-frame iff its full square crop, centred at the away-from-zero
     rounded centre ``(row=round(y), col=round(x))``, lies entirely inside the frame
     -- the single source of truth for the extraction crop-box guardrail (Stage 13),
-    shared by :func:`integrate_traces` (its ``valid`` mask) and
-    :func:`tether.imaging.coloc.colocalize` (its skip-out-of-frame guardrail), so
+    shared by [`integrate_traces`][] (its ``valid`` mask) and
+    [`tether.imaging.coloc.colocalize`][] (its skip-out-of-frame guardrail), so
     the two agree by construction (``traces/extractTraces.m:9-25``).
 
     Parameters
@@ -211,9 +211,9 @@ def integrate_traces(
         background averages the positive in-ring pixels.
     coords:
         ``(N, 2)`` ``[x, y]`` = ``[col, row]`` spot coordinates (e.g. from
-        :func:`tether.imaging.detect.detect_spots`).
+        [`tether.imaging.detect.detect_spots`][]).
     window, disk_radius, ring_inner, ring_outer:
-        Aperture geometry, passed to :func:`aperture_masks`.
+        Aperture geometry, passed to [`aperture_masks`][].
     bg_window:
         Temporal moving-average window for the background estimate, in frames
         (Deep-LASI default 10, replicate edges).

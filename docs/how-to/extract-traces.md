@@ -1,3 +1,7 @@
+---
+description: "Make a .tether project of donor and acceptor traces from a dual-view TIRF movie, with or without a Deep-LASI channel map."
+---
+
 # Extract traces from a dual-view movie
 
 ## Who this page is for
@@ -90,7 +94,11 @@ tether extract movie.tif -o movie.tether --tmap beads.tmap
 ```
 
 Tether refuses to replace a project that already exists. To extract again into the same
-file, add `--overwrite`.
+file, add `--overwrite`. Tether then takes the project's writer lock before it replaces the
+file. If another Tether window or process has the project open, the command stops with
+`is locked` and does not change the file; close the project there first. (One exception: another
+user who opened the same file through a different hard-link name; see
+[Troubleshooting](../troubleshooting.md).)
 
 ## 5. Check that it worked
 
