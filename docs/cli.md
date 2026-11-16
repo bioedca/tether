@@ -237,7 +237,9 @@ idealization — extraction and correction still happen for every movie — unle
 
 Two movies whose filenames share a basename would both map to the same output project,
 and the checkpoint would treat the second as already done using the first's data. That is
-rejected before any work starts:
+rejected before any work starts. Letter case does not count, because Windows and macOS
+treat `Movie.tether` and `movie.tether` as one file, so `a/Movie.tif` and `b/movie.tif`
+are refused the same way on every operating system:
 
 ```console
 $ tether batch a/movie_010.tif b/movie_010.tif -d out

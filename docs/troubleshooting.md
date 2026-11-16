@@ -934,7 +934,8 @@ Two things the console deliberately does not print, and where to find them inste
   error text only for a `failed` stage. Everything else — the over-gate flag, the α-withheld
   fallback, the deferral reason — lives in the **JSONL structured log**, whose path is echoed
   to stderr on every run (`<out-dir>/batch-log.jsonl` by default, or `--log`).
-- **Basename collisions.** Two input movies with the same stem are refused **up front**, exit
+- **Basename collisions.** Two input movies with the same stem, ignoring letter case
+  (`Movie.tif` and `movie.tif` are one file on Windows and macOS), are refused **up front**, exit
   `2`, before any work: `movies '…/flat.tif' and '…/sub2/flat.tif' both map to
   '…/bout/flat.tether'; rename one or use a separate --out-dir`. This is the classic
   `movie_010.tif` in two condition folders; the checkpoint would otherwise treat the second

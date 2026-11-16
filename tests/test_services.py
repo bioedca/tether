@@ -308,6 +308,24 @@ def test_batch_refuses_an_empty_movie_list_before_it_writes(tmp_path) -> None:
     assert not out.exists()
 
 
+def test_batch_refuses_two_movies_whose_stems_differ_only_in_case(tmp_path) -> None:
+    # #1077: on a case-insensitive file system (the Windows and macOS defaults)
+    # `Movie.tether` and `movie.tether` are one file, so the second movie would reuse
+    # the first one's project. The refusal must not depend on the file system the
+    # test runs on, and must name both movies as given.
+    first = str(tmp_path / "a" / "Movie.tif")
+    second = str(tmp_path / "b" / "movie.tif")
+    out = tmp_path / "out"
+    request = services.BatchRequest(movies=(first, second), out_dir=str(out))
+    with pytest.raises(services.RequestRefused, match="rename one") as refused:
+        services.run(request)
+    message = str(refused.value)
+    assert repr(first) in message
+    assert repr(second) in message
+    # Only the output directory itself exists before the refusal, as for equal stems.
+    assert list(out.iterdir()) == []
+
+
 def test_batch_reports_an_output_directory_it_cannot_make_as_a_failed_command(tmp_path) -> None:
     # CodeRabbit finding on #1058: an OSError must not escape as a traceback.
     blocker = tmp_path / "a-file"

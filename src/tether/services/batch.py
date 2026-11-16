@@ -101,17 +101,21 @@ def run(request: BatchRequest) -> BatchResult:
     # (e.g. `movie_010.tif` from different condition folders) would collide on one
     # output, and the batch runner's provenance checkpoint would silently treat the
     # second as "already done" using the first's data -- reject them up front.
+    # Stems compare casefolded (#1077): on a case-insensitive file system (the
+    # Windows and macOS defaults) `Movie.tether` and `movie.tether` are one file.
     jobs = []
-    seen: dict[str, str] = {}
+    seen: dict[str, tuple[str, str]] = {}
     for movie in request.movies:
         stem = Path(movie).stem
-        if stem in seen:
+        key = stem.casefold()
+        if key in seen:
+            first_movie, first_stem = seen[key]
             raise RequestRefused(
-                f"movies {seen[stem]!r} and {movie!r} both map to "
-                f"{(out_dir / (stem + '.tether')).as_posix()!r}; rename one or use a "
+                f"movies {first_movie!r} and {movie!r} both map to "
+                f"{(out_dir / (first_stem + '.tether')).as_posix()!r}; rename one or use a "
                 "separate --out-dir"
             )
-        seen[stem] = movie
+        seen[key] = (movie, stem)
         jobs.append(
             MovieJob(
                 movie_path=movie,
