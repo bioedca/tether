@@ -48,8 +48,10 @@ nothing you mark will be saved. Close the other writer and open the project agai
 ## 2. Move from trace to trace
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
-underneath.
+(green), acceptor (magenta) and their total (gray) on top, its apparent FRET efficiency (blue)
+underneath. These colors stay apart for readers with a red-green color-vision deficiency. To
+draw the acceptor in red instead, select **View → Trace colors → Classic green and red**
+([Application window themes and trace colors](../reference/gui-theme.md#select-the-trace-colors)).
 
 1. Press **Right arrow** or **Down arrow** for the next molecule.
 2. Press **Left arrow** or **Up arrow** for the previous one.

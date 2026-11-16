@@ -290,12 +290,15 @@ not been measured yet.
 
 ## Settings Tether keeps outside the install folder
 
-Tether keeps one application setting outside any `.tether` project: your answer to the
-question whether Tether may check for a newer release. Tether does not ask this question yet,
-and makes no network connection. The setting exists now so that your answer, once you give it,
-is not lost when you install a newer release over the old one.
+Tether keeps two application settings outside any `.tether` project:
 
-The answer is in a small file in your own settings folder, **not** in the install folder. An
+- Your answer to the question whether Tether may check for a newer release. Tether does not ask
+  this question yet, and makes no network connection. The setting exists now so that your
+  answer, once you give it, is not lost when you install a newer release over the old one.
+- Your selection in **View → Trace colors**: the color-blind safe set (the default) or the classic
+  green and red set ([Application window themes and trace colors](reference/gui-theme.md)).
+
+The settings are in a small file in your own settings folder, **not** in the install folder. An
 installer can replace or delete the install folder, so a file there could be lost on an update.
 
 | Your computer | Settings file |
@@ -304,10 +307,12 @@ installer can replace or delete the install folder, so a file there could be los
 | macOS | `~/Library/Application Support/MondragonLab/Tether/settings.json` |
 | Linux | `~/.config/tether/settings.json` (or `$XDG_CONFIG_HOME/tether/settings.json` if you set `XDG_CONFIG_HOME` to an absolute path) |
 
-The file holds only two values: a format number and your answer, `allowed` or `declined`. It
+The file holds only three values: a format number, your answer (`allowed` or `declined`) and
+your trace colors (`safe` or `classic`). Each value is there only after you give it. The file
 holds no name, no computer name, no time, no file path and no project data. If the file is
 missing, empty or damaged, Tether reads it as *no answer yet*: it makes no network connection
-and the answer stays unset. Tether never reads a damaged file as *allowed*.
+and the answer stays unset, and the traces use the default colors. Tether never reads a damaged
+file as *allowed*, and a change of trace colors never writes an answer to the update question.
 
 ### For a site administrator: turn the update check off for every user
 
