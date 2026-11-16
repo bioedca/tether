@@ -641,6 +641,7 @@ def apply_reconcile(
         report=report,
         accept_win_ids=accept_win_ids,
         accept_cls_ids=accept_cls_ids,
+        writer_guard=writer_guard,
     )
     return AppliedReconcile(
         windows_applied=windows_applied,
@@ -834,12 +835,15 @@ def _commit_store_edits(
     report: ReconcileReport,
     accept_win_ids: set[str],
     accept_cls_ids: set[str],
+    writer_guard: Callable[[], object] | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
     """Write accepted window / class edits to ``/molecules`` (one r+ pass).
 
     An accepted window edit that changes a row ``/features/table`` holds deletes that
     table first (``tether.project.features.invalidate_features``), under
     ``WINDOW_WRITE_GUARD``, so the ranker never reads features from the old frames.
+    ``writer_guard`` is checked again once that guard is held, because the wait for it
+    is time in which the project lock can change owners.
     """
     import h5py
 
@@ -851,8 +855,14 @@ def _commit_store_edits(
     if not accept_win_ids and not accept_cls_ids:
         return windows_applied, classes_applied, stale_after
 
+    def _open_checked() -> h5py.File:
+        if writer_guard is not None:
+            writer_guard()
+        return h5py.File(path, "r+")
+
     by_id = {t.molecule_id: t for t in report.matched}
-    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
+    # The open (and its ownership check) runs only once WINDOW_WRITE_GUARD is held.
+    with WINDOW_WRITE_GUARD, _open_checked() as f:
         table = f["molecules"][TABLE]
         stored = table["analysis_window"]
         invalidate_features(

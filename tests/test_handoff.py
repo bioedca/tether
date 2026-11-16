@@ -579,6 +579,45 @@ def test_apply_reconcile_keeps_the_cache_when_no_featured_window_changes(tmp_pat
     assert _has_features(proj.path)  # the edited molecule was never featured
 
 
+def test_apply_reconcile_rechecks_ownership_after_the_window_guard(tmp_path, monkeypatch):
+    """A lock stolen while the merge-back waits for ``WINDOW_WRITE_GUARD`` must not write.
+
+    #1112 makes the store write wait for the in-process window guard; ownership is
+    checked again once the guard is held, so a steal during that wait is refused.
+    """
+    from contextlib import contextmanager, suppress
+
+    from tether.project import features as _features
+    from tether.project import lock as _lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor)
+    real_guard = _features.WINDOW_WRITE_GUARD
+
+    @contextmanager
+    def _steal_while_waiting():
+        foreign = _lock.acquire(
+            proj.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999), steal=True
+        )
+        assert _lock.release(proj.path, foreign)
+        with real_guard:
+            yield
+
+    proj.acquire_lock()
+    try:
+        before = read_molecules(proj.path)["analysis_window"].copy()
+        monkeypatch.setattr(_features, "WINDOW_WRITE_GUARD", _steal_while_waiting())
+        with pytest.raises(LockedError):
+            proj.apply_reconcile(ret, accept_windows=True, require_held_lock=True)
+    finally:
+        with suppress(Exception):
+            proj.release_lock()
+
+    np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"], before)
+
+
 def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch):
     """A lock stolen while ``_reconcile`` runs must not reach the store (§5.4).
 
