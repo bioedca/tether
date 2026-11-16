@@ -364,7 +364,7 @@ that one finds nothing.
 | Message | What it means | Remedy |
 |---|---|---|
 | `… is not memory-mappable; the lazy reader needs an uncompressed, contiguous TIFF (the reference movie format, PRD Appendix A).` | A compressed (lossless, for example LZW) or tiled TIFF. This is the most common real-world case. | Re-save uncompressed — in ImageJ, *Save As → Tiff* with no compression. |
-| `…: the frames are stored with the lossy JPEG codec. …` | A lossy codec (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC) has already discarded intensity information. | Export again without compression from the original acquisition; re-saving this file cannot bring the values back. |
+| `…: the frames are stored with the JPEG codec, which can be lossy. …` | A codec that can discard intensity information (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether this file used a lossless mode, so Tether refuses it rather than guess. | Export again without compression from the original acquisition. If the compression was lossy, re-saving this file cannot bring the values back. |
 | `…: the pixels are palette (color-map) indices, not intensities.` or `…: each pixel has 3 samples (for example RGB); …` | The file holds color images, not one intensity per pixel — often a screenshot or an export for a slide. | Export the raw single-channel stack. |
 | `…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').` | A single-page TIFF — often a max-projection saved instead of the stack. | Point Tether at the stack. |
 | `…: the name says TIFF, but the content is not a TIFF file …` | The file is named `.tif` but is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |

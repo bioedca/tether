@@ -220,7 +220,7 @@ def test_a_lossy_codec_is_refused_by_name(tmp_path: Path, code: int, name: str) 
     path = tmp_path / "lossy.tif"
     tifffile.imwrite(path, _stack())
     _set_first_page_compression(path, code)
-    with pytest.raises(LossyCodecError, match=rf"lossy {name} codec"):
+    with pytest.raises(LossyCodecError, match=rf"the {name} codec, which can be lossy"):
         open_movie(path)
 
 

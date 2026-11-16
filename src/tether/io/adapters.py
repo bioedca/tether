@@ -66,7 +66,7 @@ class UnsupportedContainerError(ValueError):
 
 
 class LossyCodecError(ValueError):
-    """The frames are stored with a lossy codec, so quantitative values are lost."""
+    """The frames use a codec that can be lossy, so they may not hold the acquired values."""
 
 
 class InvalidPixelError(ValueError):

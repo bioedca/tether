@@ -74,15 +74,15 @@ package; the built-in adapters register on the first read of the registry.
 
 ### The TIFF adapter
 
-`tether.io.movie.MovieReader` is the first adapter, `TIFF_ADAPTER`, unchanged in what it returns.
-It now also refuses a lossy codec by name (`LossyCodecError`: the JPEG family, JPEG 2000 whole —
-the tag does not say whether a stream is its lossless mode — JPEG XR, JPEG XL, WebP and LERC) and a
-pixel that is not one real sample (`InvalidPixelError`: a palette, more than one sample per pixel,
-or a dtype that is not an integer or a float). Both are `ValueError`s, so every caller that caught
-the old error still catches them. A lossless compressed TIFF keeps its old "not memory-mappable"
-refusal. `open_movie` now reaches the reader through the registry; because its callers use the
-TIFF memory map (`MovieReader.data`), it refuses a source from any other adapter until those callers
-read through `read_frames`, which is the first container's work (#902).
+`tether.io.movie.MovieReader` is the first adapter, `TIFF_ADAPTER`, unchanged in what it returns. It
+now also refuses, by name, a codec that can be lossy (`LossyCodecError`: the JPEG family, JPEG 2000
+whole — the tag does not say whether a stream is its lossless mode — JPEG XR, JPEG XL, WebP and
+LERC) and a pixel that is not one real sample (`InvalidPixelError`: a palette, more than one sample
+per pixel, or a dtype that is not an integer or a float). Both are `ValueError`s, so every caller
+that caught the old error still catches them. A lossless compressed TIFF keeps its old "not
+memory-mappable" refusal. `open_movie` now reaches the reader through the registry; because its
+callers use the TIFF memory map (`MovieReader.data`), it refuses a source from any other adapter
+until those callers read through `read_frames`, which is the first container's work (#902).
 
 ### The rule for a reader package in the base lock
 

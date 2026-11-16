@@ -18,7 +18,7 @@ decide.
 
 Only uncompressed, contiguous movies are memory-mappable (the reference format,
 Appendix A); a compressed or tiled TIFF raises a clear [`ValueError`][] rather
-than silently loading the stack. A lossy codec (JPEG and its kin) is refused
+than silently loading the stack. A codec that can be lossy (JPEG and its kin) is refused
 with [`tether.io.adapters.LossyCodecError`][], which names the codec, and a pixel
 that is not one real intensity sample (RGB, a palette index, a complex number)
 with [`tether.io.adapters.InvalidPixelError`][]; both are [`ValueError`][]s.
@@ -55,10 +55,11 @@ if TYPE_CHECKING:
 
 __all__ = ["TIFF_ADAPTER", "MovieReader", "open_movie"]
 
-# TIFF compression schemes that discard information. Conversion from them cannot
-# recover the lost quantitative values, so the reader refuses them by name rather
-# than with the generic "not memory-mappable" message. JPEG 2000 is listed whole:
-# the tag does not say whether a given stream is its lossless or its lossy mode.
+# TIFF compression schemes that can discard information. Conversion cannot recover
+# values that a lossy stream lost, and the Compression tag does not say whether a
+# given stream used a lossless mode (JPEG 2000, JPEG XL, WebP and LERC all have
+# one), so the reader refuses each of them by name rather than guess, and rather
+# than with the generic "not memory-mappable" message.
 _LOSSY_COMPRESSION = frozenset(
     {
         "OJPEG",
@@ -304,7 +305,7 @@ class MovieReader:
 
 
 def _check_pixels(path: Path, page: tifffile.TiffPage) -> None:
-    """Refuse a lossy codec, or a pixel that is not one real intensity sample.
+    """Refuse a codec that can be lossy, or a pixel that is not one real intensity sample.
 
     The checks read the first page's tags only; they run before the series is
     built, so a refusal names the cause instead of a later shape mismatch.
@@ -312,10 +313,11 @@ def _check_pixels(path: Path, page: tifffile.TiffPage) -> None:
     codec = getattr(page.compression, "name", str(page.compression))
     if codec in _LOSSY_COMPRESSION:
         raise LossyCodecError(
-            f"{path}: the frames are stored with the lossy {codec} codec. A lossy codec "
-            "has already discarded intensity information, and no conversion can recover "
-            "it; export the movie again without compression from the original "
-            "acquisition."
+            f"{path}: the frames are stored with the {codec} codec, which can be lossy. "
+            "The TIFF tags do not show that this file used a lossless mode, so Tether "
+            "refuses it rather than guess. Export the movie again without compression "
+            "from the original acquisition; if the compression was lossy, no conversion "
+            "of this file can recover the discarded intensity values."
         )
     if page.photometric == tifffile.PHOTOMETRIC.PALETTE:
         raise InvalidPixelError(
