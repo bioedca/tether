@@ -157,7 +157,7 @@ guaranteed to be there.
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
 | `/conditions` rows, `/conditions/categories/<condition_id>`, `/settings/condition_audit` | 0 rows / absent | `tether.project.conditions` |
 | `/settings/molecule_audit` | absent | `set_category` / `clear_category` / `set_analysis_window` / `reset_analysis_window` (`src/tether/project/molecule_edits.py`) |
-| `/features/table` | no | `compute_features` (`src/tether/project/features.py`); deleted by `set_analysis_window` / `reset_analysis_window` when they change a row it holds |
+| `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/models/*` | no | nothing yet — see below |
 
@@ -277,7 +277,7 @@ rewrites `condition_id`, and the per-molecule setters in
 | `correction_method` | `str:utf-8` | scalar | Closed vocabulary from `src/tether/project/correct.py`: `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)`. `""` before any correction pass. |
 | `correction_confidence` | `f8` | scalar | A **provenance flag, not a confidence interval**: `1.0` when a real correction was applied, `0.0` on apparent-E fallback, `NaN` before any pass. |
 | `curation_label` | `i4` | scalar | Signed codec `CurationLabel` (`src/tether/project/labels.py`): `0` uncurated, `1` accept, `-1` reject. Mirrors the most recent **human** label only. |
-| `category` | `str:utf-8` | scalar | Editable per-condition category value, independent of accept/reject. `""` at extraction. Stored by **name**; `set_category` accepts only a name in the condition's `/conditions/categories/<condition_id>` list, and `clear_category` writes `""`. |
+| `category` | `str:utf-8` | scalar | Editable per-condition category value, independent of accept/reject. `""` at extraction. Stored by **name**. `set_category` accepts only a name in the condition's `/conditions/categories/<condition_id>` list, and `clear_category` writes `""`. |
 | `quality_class` | `f8` | scalar | Read-only ML ranker output, dimensionless. `NaN` when none; no shipped ML path writes it yet. |
 | `condition_id` | `str:utf-8` | scalar | Current foreign key into `/conditions/table`; rewritten by a re-key. |
 | `condition_id_provisional` | `str:utf-8` | scalar | The filename-derived condition id, retained verbatim across any re-key. |
@@ -553,7 +553,7 @@ append-only and never rewritten.
 `reset_analysis_window`), `molecule_id`, `molecule_key`, `condition_id`, `old_category`,
 `new_category`, `old_window` and `new_window` (`i4`, shape `(2,)`, `[start, stop)` frame
 indices), `labeler`, `timestamp`, `reason` and `app_version`. A category row carries
-`[-1, -1]` in both window fields; a window row carries `""` in both category fields. The
+`[-1, -1]` in both window fields, and a window row carries `""` in both category fields. The
 row is written **before** the `/molecules` field changes, and an edit that changes
 nothing writes no row. Category edits are logged here and **not** in `/labels`, whose
 `label_value` is the accept/reject codec.
