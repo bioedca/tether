@@ -259,7 +259,9 @@ def _idealize_sidecar(size: str, workdir: Path):
     tr = _traces(size)
     n = tr.donor.shape[0] // 4  # 10 and 40 molecules: the sidecar fits each one
     smd = write_smd(workdir / "bench.hdf5", np.stack([tr.donor[:n], tr.acceptor[:n]], axis=-1))
-    return lambda: run_vbfret(smd, nstates=2, nrestarts=1, timeout=1800.0), {}
+    # Seeded, so base and head fit the same model in the same number of iterations: an
+    # unseeded tMAVEN draws its start from OS entropy, and that spread reads as a change.
+    return lambda: run_vbfret(smd, nstates=2, nrestarts=1, timeout=1800.0, seed=_SEED), {}
 
 
 CASES: dict[str, Case] = {
