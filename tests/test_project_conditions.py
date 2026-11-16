@@ -941,7 +941,7 @@ def test_copied_category_list_is_additive_data_schema_guard_stays_green(tmp_path
     assert diff_manifest(build_manifest(), real) == []
 
 
-# --- the persisted tMAVEN class lookup (#367, ADR-0121) -----------------------
+# --- the persisted tMAVEN class lookup (#367, ADR-0125) -----------------------
 
 
 def _stored_lookup_attr(path: Path, cid: str) -> dict[str, str]:

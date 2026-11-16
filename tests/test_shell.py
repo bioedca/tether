@@ -234,7 +234,7 @@ def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> N
     monkeypatch.setattr(shell_mod.OverflowCategoryPicker, "exec", lambda self: 11)
     shell.show_overflow_picker()
     assert shell.controller.last == Command(CurationAction.ASSIGN_CATEGORY, 11)
-    # class 11 resolves through the class lookup to the eleventh category (ADR-0121)
+    # class 11 resolves through the class lookup to the eleventh category (ADR-0125)
     assert "Category 11 (category 11)" in shell.status_message
 
 

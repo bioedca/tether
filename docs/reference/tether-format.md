@@ -390,7 +390,7 @@ always means no category (`""`). The same writer rewrites the attribute with eve
 edit, so it never lags the names. The tMAVEN hand-off, its return leg and the curation hotkeys
 read it through `read_class_lookup`. A list saved before the attribute existed reads as the
 lookup its order defines, and a lookup that disagrees with the names beside it is refused
-([ADR-0121](../adr/0121-the-tmaven-class-lookup-follows-the-category-list.md)).
+([ADR-0125](../adr/0125-the-tmaven-class-lookup-follows-the-category-list.md)).
 
 A condition can span several projects ([ADR-0068](../adr/0068-a-project-holds-one-experiment.md)),
 and each project keeps its own copy of this list. `copy_category_list` in

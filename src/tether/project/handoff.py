@@ -15,7 +15,7 @@ Outbound leg — [`hand_off_to_tmaven`][]
     integer↔category lookup ([`tether.project.conditions.ClassLookup`][]; class ``0``
     = uncategorized), so an untouched round trip carries no class diff. A stored
     category its condition's lookup does not hold is written as class ``0`` and named
-    in [`HandoffManifest.unclassed`][] (ADR-0121).
+    in [`HandoffManifest.unclassed`][] (ADR-0125).
 
 Return leg — [`read_return_leg`][] (preview) + [`apply_reconcile`][] (commit)
     tMAVEN's writer has no per-molecule slot and its exporter may subset/reorder by the
@@ -38,7 +38,7 @@ Return leg — [`read_return_leg`][] (preview) + [`apply_reconcile`][] (commit)
     ([`tether.project.conditions.read_class_lookups`][]): class ``0`` ↔ uncategorized,
     class ``k`` ↔ the condition's ``k``-th category. A class the lookup does not hold
     is surfaced as **unmapped** and never written — reported, never guessed (§7.4,
-    ADR-0025, ADR-0121).
+    ADR-0025, ADR-0125).
 """
 
 from __future__ import annotations
@@ -144,7 +144,7 @@ class ClassChange:
     uncategorized for ``class 0``, else the category the molecule's condition lookup
     maps the class to); it is ``None`` when the class is **unmapped** (its
     condition's lookup holds no such class) and ``applicable`` is then ``False`` —
-    such a change is surfaced for the user but never committed (ADR-0121).
+    such a change is surfaced for the user but never committed (ADR-0125).
     """
 
     returned_class: int
@@ -312,7 +312,7 @@ def _class_change(
     """Diff a returning integer class against the store's free-text ``category``.
 
     The returning class resolves through the molecule's condition ``lookup``
-    (ADR-0121). A class the lookup holds is applicable when it names a different
+    (ADR-0125). A class the lookup holds is applicable when it names a different
     category; one it does not hold is surfaced as unmapped (``applicable=False``,
     ``proposed_category=None``) and never guessed. A returning class ``0`` against a
     stored category the lookup cannot express is **no change**: the outbound leg
@@ -443,7 +443,7 @@ def hand_off_to_tmaven(
         source_names=[path.name],
         # Each molecule's category rides along as its tMAVEN class through its
         # condition's lookup, and the per-trace analysis windows ride along, so the
-        # GUI opens with both set (§7.4, ADR-0121).
+        # GUI opens with both set (§7.4, ADR-0125).
         classes=classes,
         pre_list=pre,
         post_list=post,
@@ -626,7 +626,7 @@ def apply_reconcile(
     3. Apply accepted class changes through each molecule's condition lookup:
        ``class 0`` → clear ``category`` to uncategorized, ``class k`` → the
        condition's ``k``-th category; a class the lookup does not hold is recorded as
-       deferred and not written (ADR-0121).
+       deferred and not written (ADR-0125).
 
     ``accept_windows`` / ``accept_classes`` are ``True`` (accept every applicable
     change) or an iterable of ``molecule_id`` to accept.

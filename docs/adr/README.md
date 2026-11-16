@@ -155,7 +155,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0109](0109-one-selection-argument-and-one-return-shape-on-the-population-functions.md) | One selection argument and one return shape on the population functions | accepted | §7.7 FR-ANALYZE (population views), §5.1 (stale idealizations), §7.5 (the |
 | [0110](0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md) | Idealization parity: per-trace vbFRET, the transition-matrix term, the re-freeze on the pinned build, and a lock on the frozen bounds | accepted | §7.4, §9.2 (the idealization-parity gate), §9.6, §11.2, §8 NFR-VALID (b) |
 | [0112](0112-every-publishing-writer-holds-its-destination-lock.md) | Every publishing writer holds its destination lock, and one helper names a file | accepted; amends [ADR-0055](0055-gui-session-writer-ownership.md) on the GUI write | §5.4 (single writer), §7.10 FR-CONCURRENCY |
-| [0121](0121-the-tmaven-class-lookup-follows-the-category-list.md) | The tMAVEN class lookup follows the category list | accepted; amends [ADR-0025](0025-tmaven-handoff-and-return-leg-reconcile.md) on the tMAVEN class leg | §5.1 (the category list and its lookup), §7.3 (the hotkeys), §7.4 FR-IDEALIZE, Appendix D.1 |
+| [0125](0125-the-tmaven-class-lookup-follows-the-category-list.md) | The tMAVEN class lookup follows the category list | accepted; amends [ADR-0025](0025-tmaven-handoff-and-return-leg-reconcile.md) on the tMAVEN class leg | §5.1 (the category list and its lookup), §7.3 (the hotkeys), §7.4 FR-IDEALIZE, Appendix D.1 |
 
 <!-- gen:adr-index end -->
 

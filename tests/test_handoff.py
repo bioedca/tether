@@ -12,7 +12,7 @@ Locks the headless core of "Hand to tMAVEN" (PRD §7.4/§5.3):
   remapped by the match, additive so ``schema-guard`` holds), an accepted window edit
   re-stales that molecule's dependent idealizations, and a returning tMAVEN class
   resolves through its condition's persisted integer↔category lookup (class ``0`` ↔
-  uncategorized, class ``k`` ↔ the ``k``-th category; #367, ADR-0121) while an
+  uncategorized, class ``k`` ↔ the ``k``-th category; #367, ADR-0125) while an
   unmapped class is surfaced as deferred and never written.
 
 Wholly headless (no sidecar / Qt); the interactive reconcile dialog is the M2 S7

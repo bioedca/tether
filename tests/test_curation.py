@@ -191,7 +191,7 @@ def test_uncategorized_class_is_zero_and_nine_slots() -> None:
 
 
 def test_uncategorized_class_is_the_lookup_pin() -> None:
-    """The hotkey ``0`` pin is the one the persisted class lookup holds (ADR-0121)."""
+    """The hotkey ``0`` pin is the one the persisted class lookup holds (ADR-0125)."""
     from tether.project import conditions
 
     assert UNCATEGORIZED_CLASS == conditions.UNCATEGORIZED_CLASS

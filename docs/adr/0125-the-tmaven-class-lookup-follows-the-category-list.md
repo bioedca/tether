@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0121 — The tMAVEN class lookup follows the category list
+# 0125 — The tMAVEN class lookup follows the category list
 
 - **Status:** accepted; amends [ADR-0025](0025-tmaven-handoff-and-return-leg-reconcile.md) on the
   tMAVEN class leg

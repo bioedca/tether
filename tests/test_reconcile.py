@@ -145,7 +145,7 @@ def test_deferred_class_is_surfaced_but_not_committable(qtbot) -> None:
     dlg = _dialog(qtbot, _report([_trace(0, "a", cls=_deferred_class())]))
     # The non-zero class is shown (transparency) …
     assert [t.molecule_key for t in dlg.change_rows()] == ["a"]
-    # … but its Accept box is disabled (its class is unmapped, ADR-0121).
+    # … but its Accept box is disabled (its class is unmapped, ADR-0125).
     assert dlg.class_checkbox("id-a").isEnabled() is False
 
 

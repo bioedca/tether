@@ -18,7 +18,7 @@ Design notes:
 * **Accept per facet.** Each matched trace with a change gets an *Accept window* and
   an *Accept class* checkbox, enabled only for the facet that actually changed. A
   tMAVEN class the molecule's condition lookup does not hold is **unmapped**
-  (ADR-0121), so its ``class_change.applicable`` is ``False`` — the row is
+  (ADR-0125), so its ``class_change.applicable`` is ``False`` — the row is
   **surfaced** (so the curator sees it) but its Accept box stays disabled (it is
   never committed, matching the headless layer).
 * **Idealization import** is a single project-level checkbox, enabled only when the

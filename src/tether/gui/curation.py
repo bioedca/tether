@@ -72,7 +72,7 @@ UNCATEGORIZED_CLASS = 0
 #: The number of categories addressable by the ``1``–``9`` hotkeys; categories
 #: beyond this are assigned via the overflow picker. Hotkey ``n`` and the picker
 #: both name an integer class, resolved to a category name through the condition's
-#: [`ClassLookup`][tether.project.conditions.ClassLookup] (ADR-0121).
+#: [`ClassLookup`][tether.project.conditions.ClassLookup] (ADR-0125).
 CATEGORY_SLOTS = 9
 
 

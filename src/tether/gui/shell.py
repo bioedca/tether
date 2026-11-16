@@ -254,7 +254,7 @@ class OverflowCategoryPicker:
     whose integer class exceeds [`CATEGORY_SLOTS`][tether.gui.curation.CATEGORY_SLOTS]
     and returns the chosen **integer class** — resolved through the same
     [`ClassLookup`][tether.project.conditions.ClassLookup] the tMAVEN hand-off and
-    return leg read (§7.3, §7.4; ADR-0121), so class ``n`` here is class ``n`` there.
+    return leg read (§7.3, §7.4; ADR-0125), so class ``n`` here is class ``n`` there.
     """
 
     def __init__(self, categories: list[str], *, parent: QtWidgets.QWidget | None = None) -> None:
@@ -2240,7 +2240,7 @@ class TetherShell:
 
     def _assign_category(self, integer_class: int) -> None:
         # The hotkey's integer class resolves through the same lookup the tMAVEN
-        # round trip reads (ADR-0121); a class the list does not hold is "?".
+        # round trip reads (ADR-0125); a class the list does not hold is "?".
         name = ClassLookup.from_categories("", self._categories).category_of(integer_class)
         if name is None:
             name = "?"

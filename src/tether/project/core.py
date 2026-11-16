@@ -506,7 +506,7 @@ class Project:
         return conditions.read_category_list(self.path, condition_id)
 
     def class_lookup(self, condition_id: str) -> ClassLookup:
-        """A condition's persisted tMAVEN class ↔ category lookup (§7.4; ADR-0121).
+        """A condition's persisted tMAVEN class ↔ category lookup (§7.4; ADR-0125).
 
         Delegates to
         [`conditions.read_class_lookup`][tether.project.conditions.read_class_lookup];

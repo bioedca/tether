@@ -107,7 +107,7 @@ _CATEGORIES_GROUP = "categories"
 
 #: The attribute on ``/conditions/categories/<condition_id>`` that persists the
 #: condition's tMAVEN integer-class ↔ category lookup (PRD §5.1, §7.4; #367,
-#: ADR-0121): a JSON object ``{"<class>": "<category name>"}`` over the classes
+#: ADR-0125): a JSON object ``{"<class>": "<category name>"}`` over the classes
 #: ``>= 1``. It is written by the one list writer, `_write_category_names`, in the
 #: same file session as the names, so the two cannot drift through Tether's own
 #: writes; [`read_class_lookup`][] refuses a pair that disagrees.
@@ -886,7 +886,7 @@ class CategoryList:
 
 @dataclass(frozen=True)
 class ClassLookup:
-    """A condition's tMAVEN integer-class ↔ category lookup (PRD §5.1, §7.4; ADR-0121).
+    """A condition's tMAVEN integer-class ↔ category lookup (PRD §5.1, §7.4; ADR-0125).
 
     tMAVEN stores a per-trace integer ``class``; Tether stores the free-text
     ``/molecules.category`` name. This is the one translation between them, read by
@@ -1108,7 +1108,7 @@ def _write_category_names(f: object, condition_id: str, names: tuple[str, ...]) 
     resizable vlen-string dataset on first use (additive data). An emptied list
     resizes the dataset to 0 rows (kept, not deleted, to avoid HDF5 free-space churn).
     Also (re)writes the ``tmaven_class_lookup`` attribute the names define, so the
-    persisted lookup always travels with the list (ADR-0121).
+    persisted lookup always travels with the list (ADR-0125).
     """
     import h5py  # noqa: PLC0415
 
@@ -1132,7 +1132,7 @@ def _write_category_names(f: object, condition_id: str, names: tuple[str, ...]) 
         ds[:] = list(names)
     # The tMAVEN class lookup is persisted beside the names it is derived from, in
     # this same write, so every list edit (set / add / rename / remove / copy)
-    # carries its lookup with it (PRD §5.1, ADR-0121).
+    # carries its lookup with it (PRD §5.1, ADR-0125).
     ds.attrs[_CLASS_LOOKUP_ATTR] = _encode_class_lookup(names)
 
 
