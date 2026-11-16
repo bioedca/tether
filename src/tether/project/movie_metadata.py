@@ -7,14 +7,14 @@ frame interval behind it (§11.1). This module records, for each ``/movies`` row
 where three values came from: ``file`` (read from the movie's own metadata),
 ``user`` (typed in), or ``unknown``. A frame time is **verified** only when it
 came from the file, or when the user confirms it in a separate action
-(:func:`confirm_frame_time`); giving a value never verifies it.
+([`confirm_frame_time`][]); giving a value never verifies it.
 
 Storage is additive data: one attribute-only group ``/movies/metadata/<movie_id>``,
 the same per-id child pattern as ``/conditions/categories``. The frozen
 ``/movies.frame_time`` field keeps its meaning (the file's ``finterval``, ``0.0``
 when absent) and is never rewritten here; a user's value lives in the group. A
 store without the group (written before #911, or by a writer that does not record
-origins) reads with the rule :func:`read_movie_metadata` documents.
+origins) reads with the rule [`read_movie_metadata`][] documents.
 """
 
 from __future__ import annotations
@@ -65,6 +65,7 @@ class MovieMetadataRecord:
     channel_roles_origin: str = ORIGIN_UNKNOWN
 
     def __post_init__(self) -> None:
+        """Refuse an origin outside ``ORIGINS`` and a verified unknown frame time."""
         for name in ("frame_time_origin", "pixel_size_origin", "channel_roles_origin"):
             if getattr(self, name) not in ORIGINS:
                 raise ValueError(f"{name} must be one of {ORIGINS}, got {getattr(self, name)!r}")
@@ -72,12 +73,12 @@ class MovieMetadataRecord:
             raise ValueError("an unknown frame time cannot be verified")
 
     def to_dict(self) -> dict[str, object]:
-        """The record as a plain JSON-ready mapping."""
+        """Return the record as a plain JSON-ready mapping."""
         return asdict(self)
 
 
 def positive_value(value: float, name: str) -> float:
-    """Return ``value`` as a float; :class:`ValueError` unless finite and positive."""
+    """Return ``value`` as a float; [`ValueError`][] unless finite and positive."""
     number = float(value)
     if not (math.isfinite(number) and number > 0.0):
         raise ValueError(f"{name} must be a finite positive number, got {value!r}")
@@ -95,7 +96,7 @@ def write_metadata_record(f: object, record: MovieMetadataRecord) -> None:
 
 
 def _legacy_record(row: object) -> MovieMetadataRecord:
-    """A record for a movie row with no stored origins.
+    """Build the record for a movie row with no stored origins.
 
     ``/movies.frame_time`` has only ever been filled from the movie's ImageJ
     ``finterval``, so a positive value is a file value (and so verified); ``0.0`` is
@@ -160,9 +161,9 @@ def update_movie_metadata(
     ``frame_time`` (seconds) and ``pixel_size_um`` record a given value (origin
     ``user``); a given frame time is never verified. ``confirm_frame_time`` verifies
     the frame time the store holds when the file is opened, so it cannot be combined
-    with ``frame_time`` (:class:`ValueError`): the confirmation is a separate action.
+    with ``frame_time`` ([`ValueError`][]): the confirmation is a separate action.
     Every check runs inside the one read-write open, before anything is written, so
-    a refused call (:class:`KeyError` for an unknown movie, :class:`ValueError` for a
+    a refused call ([`KeyError`][] for an unknown movie, [`ValueError`][] for a
     value that is not finite and positive or an unknown frame time) changes nothing.
     """
     import h5py  # noqa: PLC0415
@@ -199,7 +200,7 @@ def set_frame_time(path: str | Path, movie_id: str, seconds: float) -> MovieMeta
     """Record a frame time the user gives (origin ``user``, **not** verified).
 
     The value replaces any earlier one, a file value included, and clears the
-    verified flag: only :func:`confirm_frame_time` verifies a user's value.
+    verified flag: only [`confirm_frame_time`][] verifies a user's value.
     """
     return update_movie_metadata(path, movie_id, frame_time=seconds)
 
@@ -207,7 +208,7 @@ def set_frame_time(path: str | Path, movie_id: str, seconds: float) -> MovieMeta
 def confirm_frame_time(path: str | Path, movie_id: str) -> MovieMetadataRecord:
     """Mark a movie's frame time as verified by the user (the separate action).
 
-    Refuses (:class:`ValueError`) when the frame time is unknown.
+    Refuses ([`ValueError`][]) when the frame time is unknown.
     """
     return update_movie_metadata(path, movie_id, confirm_frame_time=True)
 

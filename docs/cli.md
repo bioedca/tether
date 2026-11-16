@@ -466,7 +466,7 @@ tether metadata [-h] [--movie MOVIE_ID] [--frame-time SECONDS] [--pixel-size UM]
 
 With no option the command changes nothing and prints each movie. A value of `0` means
 unknown. The values are kept beside the `/movies` table, and `/movies.frame_time` keeps
-the value from the file ([`.tether` project store](reference/tether-format.md#movies-one-row-per-source-movie)).
+the value from the file ([`.tether` file format](reference/tether-format.md#movies-one-row-per-source-movie)).
 
 ```console
 $ tether metadata run.tether --frame-time 0.1

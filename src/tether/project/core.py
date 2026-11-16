@@ -655,7 +655,8 @@ class Project:
     def movie_metadata(self) -> dict[str, MovieMetadataRecord]:
         """Each movie's frame time, pixel size and channel roles with their origins.
 
-        Read-only; delegates to :func:`movie_metadata.read_movie_metadata`.
+        Read-only; delegates to
+        [`movie_metadata.read_movie_metadata`][tether.project.movie_metadata.read_movie_metadata].
         """
         from tether.project import movie_metadata
 

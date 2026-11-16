@@ -201,7 +201,9 @@ def test_every_subcommand_is_documented() -> None:
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    assert names == {"extract", "batch", "info", "metadata"}, f"unexpected subcommand set: {sorted(names)}"
+    assert names == {"extract", "batch", "info", "metadata"}, (
+        f"unexpected subcommand set: {sorted(names)}"
+    )
     for name in sorted(names):
         assert f"`tether {name}`" in text, (
             f"docs/cli.md has no `tether {name}` section for the {name!r} subcommand"

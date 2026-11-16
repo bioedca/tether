@@ -248,10 +248,11 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `donor_flip` | `i1` | `(2,)` | `[vertical, horizontal]` flip flags, `0`/`1`. |
 | `acceptor_flip` | `i1` | `(2,)` | Same, acceptor channel. |
 
-The group also holds an additive child, `/movies/metadata/<movie_id>`: one group with
-no datasets per movie, whose attributes record three values with their **origin** — `file`
-(read from the movie), `user` (given by a person) or `unknown` (`src/tether/project/movie_metadata.py`,
-#911). It does not change `frame_time` above, which keeps the value from the file.
+The group also holds an additive child, `/movies/metadata/<movie_id>`. It is one group
+with no datasets for each movie. Its attributes record three values, each with its
+**origin**: `file` (read from the movie), `user` (given by a person) or `unknown`
+(`src/tether/project/movie_metadata.py`, #911). It does not change `frame_time` above,
+which keeps the value from the file.
 
 | Attribute | Type | Meaning / units |
 |---|---|---|
@@ -262,11 +263,11 @@ no datasets per movie, whose attributes record three values with their **origin*
 | `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
 | `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap`, `user` for a native extraction (`--donor-side`). |
 
-`extract_movie` writes the group. A row with no group — a store written before #911, or by
-the Deep-LASI reconstruction or the analysis-only import — reads (`read_movie_metadata`)
-with `frame_time_origin` `file` and verified when `frame_time` is positive, because that
-field has only ever been filled from the ImageJ `finterval`, and `unknown` otherwise; its
-pixel size and channel roles read `unknown`.
+`extract_movie` writes the group. Some rows have no group: a store written before #911,
+or one from the Deep-LASI reconstruction or the analysis-only import. Such a row reads
+(`read_movie_metadata`) as follows. A positive `frame_time` has origin `file` and is
+verified, because that field has only ever been filled from the ImageJ `finterval`. A
+`frame_time` of `0.0` is `unknown`. The pixel size and the channel roles are `unknown`.
 
 ## `/molecules` — one row per molecule
 
