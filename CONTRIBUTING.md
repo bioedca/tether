@@ -418,9 +418,10 @@ governs.
 3. Ask Codex for a review with an `@codex review` comment.
 4. Fix each blocking Codex finding and ask Codex again. Repeat until Codex finds nothing blocking.
 5. Mark the PR ready for review.
-6. Ask CodeRabbit once with an `@coderabbitai full review` comment. A load-bearing PR asks one
-   Greptile review in its place (ADR-0099). The incremental CodeRabbit command reviews nothing on
-   this repository. A refusal is not that one review.
+6. Ask CodeRabbit once with an `@coderabbitai full review` comment. The incremental command
+   reviews nothing here. A refusal is not that one review. A load-bearing PR asks one Greptile
+   review instead (ADR-0099). If it has findings, treat them as step 7 says, then ask CodeRabbit
+   once on the fixed head and Codex for a closing review of the final head.
 7. Fix each serious finding. Defer or answer the others as `AGENTS.md` says.
 8. Resolve each review thread. An unresolved thread blocks the merge, even with green checks.
 
