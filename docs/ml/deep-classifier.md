@@ -180,10 +180,10 @@ therefore can never become a required merge check. To run the GPU leg, dispatch 
 self-hosted runner labeled `self-hosted` + your GPU label (default `gpu`), choosing the CUDA
 channel (`cu126` / `cu124` / `cu128`) that matches the runner's driver.
 
-### Reference on public labelled traces
+### Reference on public labeled traces
 
 Tether ships no trained model, so no reference model exists to compare with. The reference is a
-public labelled set instead ([ADR-0098](../adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md),
+public labeled set instead ([ADR-0098](../adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md),
 #759): the traces file of the PySMACKS tutorial record (Zenodo
 [10.5281/zenodo.21793247](https://doi.org/10.5281/zenodo.21793247), CC0-1.0). A person marked
 frame ranges of 123 traces as `FRET`, `DO` (donor only) or `AO` (acceptor only). Each range is one
@@ -194,16 +194,16 @@ test part), the training seed, the metric and the floor.
 The nightly `deep / smoke` job trains the model once, at the default hyperparameters, and checks
 two things:
 
-- **Frozen numbers.** The loss of each epoch, the score of each test range and the metrics equal
-  `tests/golden/deep/pysmacks_classifier.json` within a relative limit measured in ten runs on
-  GitHub runners. A deliberate change runs `python scripts/update_deep_golden.py` in the deep env
+- **Frozen numbers.** The loss of each epoch, the score of each test range and the metrics equal the
+  [committed golden file](https://github.com/bioedca/tether/blob/main/tests/golden/deep/pysmacks_classifier.json)
+  within a relative limit measured in ten runs on GitHub runners. A deliberate change runs `python scripts/update_deep_golden.py` in the deep env
   and pastes the old/new table, with a `Cause:` line, in the pull request (the rule of the
   self-drift suite, ADR-0080).
 - **Accuracy floor.** The area under the ROC curve on the test part must reach the floor, which
   sits below the scores of ten training seeds by three standard deviations of those scores. A
   model that predicts the majority class gets 0.5 and fails it.
 
-The floor says that the default model learns this one human-labelled distinction on CPU. It is
+The floor says that the default model learns this one human-labeled distinction on CPU. It is
 not a measure of how well the model sorts other data. `deep / ranker` puts the scores of the
 quality ranker on the same split beside it, as a report.
 
