@@ -29,7 +29,7 @@ The ``.lock`` sidecar is a JSON file (``<file>.tether.lock``) carrying
 **not** part of the M0-frozen HDF5 schema (the schema module says so explicitly),
 so nothing here touches ``schema-guard``. "Last-write-wins with version stamping"
 (§5.4) is the HDF5 ``r+`` semantics plus the file's monotonic ``schema_version``;
-a steal *surfaces* the prior owner (:func:`steal_lock` returns them) so the GUI can
+a steal *surfaces* the prior owner ([`steal_lock`][] returns them) so the GUI can
 warn the stealer — the prior owner's unsaved work is never silently merged back.
 
 Concurrent curation without blocking (PRD §7.10)
@@ -38,15 +38,15 @@ Curation is the central daily workflow and must never be blocked while a file is
 locked, so a locked-out non-owner can still **browse the canonical file read-only
 and curate into their own split/subset ``.tether``** — writing provenance-tagged
 ``/labels`` keyed by the stable ``molecule_key`` (§5.1/§7.10) via
-:func:`create_split_curation`. That split is the *producer* side of the M5
+[`create_split_curation`][]. That split is the *producer* side of the M5
 owner-pull merge (the owner's retrain later joins every split's ``/labels`` on
 ``molecule_key``); the merge itself is M5, not here.
 
-OneDrive is also **detected, not prevented** (§5.4): :func:`conflict_copies`
+OneDrive is also **detected, not prevented** (§5.4): [`conflict_copies`][]
 surfaces the sync-conflict duplicates OneDrive/SharePoint leave beside the
 project so the user can reconcile them, and :func:`conflict_copy_warning` words
 that result once for both front doors — the GUI's open-project banner and the
-CLI's ``extract``/``batch`` stderr line — so they cannot drift apart.
+CLI's ``extract``/``batch``/``info`` stderr line — so they cannot drift apart.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ import glob as _glob
 import json
 import os
 import socket
+import stat
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -108,9 +109,10 @@ DEFAULT_STALENESS_TIMEOUT_S: float = 30.0 * 60.0
 LOCK_SUFFIX = ".lock"
 
 #: Stable same-path sidecar used only as an OS advisory serialization inode.
-#: Lifecycle operations request ``0666`` (subject to the site's umask) so a
-#: group-shared project can keep one cross-user ``O_RDWR`` guard, and never unlink
-#: or replace it.
+#: Lifecycle operations request ``0666`` (subject to the site's umask), then the
+#: guard's owner adds read/write for every permission class that can write the
+#: project directory, so a shared project keeps one cross-user ``O_RDWR`` guard
+#: even under ``umask 022`` (#257, ADR-0096). Tether never unlinks or replaces it.
 _GUARD_SUFFIX = ".guard"
 _GUARD_ACQUIRE_TIMEOUT_S = 5.0
 _GUARD_RETRY_INTERVAL_S = 0.01
@@ -176,7 +178,7 @@ class CorruptLockError(LockError):
     """A ``.lock`` sidecar exists but is not readable/parseable JSON.
 
     Surfaced rather than silently ignored: an unparseable lock has an unknown
-    owner, so a write is refused (via :class:`LockedError`) until the lock is
+    owner, so a write is refused (via [`LockedError`][]) until the lock is
     explicitly stolen (which overwrites it once no process-local reservation blocks
     that execution context).
     """
@@ -260,7 +262,7 @@ class LockInfo:
         return LockIdentity(self.host, self.user, self.pid)
 
     def acquired_at(self) -> datetime:
-        """Parse :attr:`timestamp` into an offset-aware :class:`datetime`."""
+        """Parse [`timestamp`][] into an offset-aware [`datetime`][]."""
         parsed = datetime.fromisoformat(self.timestamp)
         if parsed.tzinfo is None:  # defensive: we only ever write offset-aware stamps
             parsed = parsed.replace(tzinfo=UTC)
@@ -291,9 +293,9 @@ class LockInfo:
     def from_dict(cls, data: dict[str, object]) -> LockInfo:
         """Reconstruct from a parsed JSON mapping.
 
-        Raises :class:`KeyError` on a missing field, ``TypeError`` on an ill-typed
+        Raises [`KeyError`][] on a missing field, ``TypeError`` on an ill-typed
         one, and ``ValueError`` on an unparseable ``timestamp`` — callers map all of
-        these to :class:`CorruptLockError`, so a malformed record is treated as a
+        these to [`CorruptLockError`][], so a malformed record is treated as a
         corrupt lock up front rather than escaping as a valid-looking foreign lock or
         crashing a later staleness check. Fields are **type-checked**, not coerced:
         ``str(None)`` / ``str([...])`` would otherwise smuggle a ``null`` or array
@@ -453,6 +455,97 @@ def _ensure_windows_guard_byte(fd: int, gp: Path, *, deadline: float) -> None:
             time.sleep(_GUARD_RETRY_INTERVAL_S)
 
 
+def _share_guard_with_directory_writers(fd: int, gp: Path) -> None:
+    """Give the guard read/write for each class that can write its directory (#257).
+
+    Anyone who can write the project directory can already create, replace, or
+    remove the lock sidecar, so the guard grants them nothing new; without it, a
+    guard created ``0644`` under ``umask 022`` admits only its first creator to
+    ``O_RDWR``. Bits are only added, never removed, and only the guard's owner can
+    change them, so the repair of a guard an earlier release created is attempted
+    the next time its owner runs a lifecycle operation. Where the directory is
+    group-writable, the guard also takes the directory's group: without a setgid
+    directory Linux gives a new file its creator's primary group, which need not
+    be the group that shares the project.
+
+    Nothing is changed unless the descriptor is an empty regular file with one
+    link that the guard path itself names. An entry another directory writer
+    planted — a hard link to a file the caller owns elsewhere, or such a file
+    renamed onto the guard path — is left alone whenever it holds any data: a
+    POSIX guard never holds data, so sharing the guard can never disclose the
+    contents of an unrelated file. Best effort: a filesystem that refuses
+    ``fchmod`` still has the read-only fallback in `_open_guard`.
+    """
+    try:
+        current = os.fstat(fd)
+        if current.st_uid != os.geteuid():
+            return
+        if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1:
+            return
+        if current.st_size != 0:
+            return
+        entry = os.lstat(gp)
+        if (entry.st_dev, entry.st_ino) != (current.st_dev, current.st_ino):
+            return
+        directory = os.stat(gp.parent)
+        wanted = 0
+        if directory.st_mode & stat.S_IWGRP:
+            wanted |= stat.S_IRGRP | stat.S_IWGRP
+            if current.st_gid != directory.st_gid:
+                with suppress(OSError):
+                    os.fchown(fd, -1, directory.st_gid)
+        if directory.st_mode & stat.S_IWOTH:
+            wanted |= stat.S_IROTH | stat.S_IWOTH
+        mode = stat.S_IMODE(current.st_mode)
+        if mode & wanted != wanted:
+            os.fchmod(fd, mode | wanted)
+    except OSError:
+        return
+
+
+def _open_guard(gp: Path) -> tuple[int, bool]:
+    """Open (creating if needed) the lifecycle guard; return ``(fd, read_only)``.
+
+    The guard is never opened through a symbolic link (``O_NOFOLLOW``): a symlink
+    a directory writer planted at the guard path fails the operation closed
+    rather than locking, or changing the permissions of, the file it points to.
+
+    On POSIX a guard another user created without group write (an earlier release,
+    or a strict site umask) is opened read-only instead of failing: ``flock()``
+    takes an exclusive lock regardless of the descriptor's access mode, so a
+    second user can still serialize with the owner and run an explicit steal.
+
+    On POSIX both opens are non-blocking and the result must be a regular file. A
+    FIFO a directory writer planted at the guard path would otherwise block a
+    read-only open indefinitely while the process-wide guard registry lock is
+    held; any non-regular guard fails the operation closed instead.
+    """
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
+    posix_flags = 0 if os.name == "nt" else no_follow | getattr(os, "O_NONBLOCK", 0)
+    read_only = False
+    try:
+        fd = os.open(gp, os.O_CREAT | os.O_RDWR | posix_flags, 0o666)
+    except PermissionError as exc:
+        if os.name == "nt":
+            raise
+        try:
+            fd = os.open(gp, os.O_RDONLY | posix_flags)
+        except OSError:
+            raise exc from None
+        read_only = True
+    if os.name == "nt":
+        return fd, False
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "lock lifecycle guard is not a regular file", str(gp))
+    except BaseException:
+        os.close(fd)
+        raise
+    if not read_only:
+        _share_guard_with_directory_writers(fd, gp)
+    return fd, read_only
+
+
 _register_at_fork = getattr(os, "register_at_fork", None)
 if _register_at_fork is not None:  # pragma: no branch - platform capability
     _register_at_fork(
@@ -475,7 +568,7 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
     """
     gp = _guard_path(lp)
     with _GUARD_REGISTRY_LOCK:
-        fd = os.open(gp, os.O_CREAT | os.O_RDWR, 0o666)
+        fd, read_only = _open_guard(gp)
         try:
             os.set_inheritable(fd, False)
             _ACTIVE_GUARD_FDS.add(fd)
@@ -513,6 +606,18 @@ def _lifecycle_guard(lp: Path) -> Iterator[None]:
                     acquired = True
                     break
                 except OSError as exc:
+                    if read_only and exc.errno == errno.EBADF:
+                        # Some network filesystems emulate flock() with byte-range
+                        # locks, which need a writable descriptor.
+                        raise PermissionError(
+                            errno.EACCES,
+                            "lock lifecycle guard is not writable by this user and this "
+                            "filesystem cannot lock it read-only; ask its owner to give "
+                            "it the project directory's group and make it group-writable "
+                            "(chgrp <group> and chmod g+rw); its owner running Tether "
+                            "on the project once attempts both",
+                            str(gp),
+                        ) from exc
                     if exc.errno not in {errno.EACCES, errno.EAGAIN}:
                         raise
                     if time.monotonic() >= deadline:
@@ -585,9 +690,9 @@ def _read_tolerant(lp: Path) -> tuple[LockInfo | None, bool]:
 def _read_settled(
     lp: Path, *, attempts: int = 5, delay: float = 0.01
 ) -> tuple[LockInfo | None, bool]:
-    """:func:`_read_tolerant`, but retry a *corrupt* read a few times first.
+    """`_read_tolerant`, but retry a *corrupt* read a few times first.
 
-    Used only right after losing an :func:`_exclusive_create` race: the winner has
+    Used only right after losing an `_exclusive_create` race: the winner has
     created the file but may not have finished writing its JSON, so a single read
     could see a transient partial file and misclassify it as corrupt. A genuinely
     corrupt lock simply fails every attempt and is reported corrupt as before.
@@ -642,7 +747,7 @@ def acquire_process_reservation(project_path: str | Path) -> ProcessReservation:
     """Fail-fast claim of one normalized destination inside this Python process.
 
     The returned token is also installed as this thread's active execution context,
-    allowing owning-path canonical writers to re-enter :func:`assert_writable`.
+    allowing owning-path canonical writers to re-enter [`assert_writable`][].
     Recursive reservation claims remain untransferred and are refused.
     """
     key = _reservation_key(project_path)
@@ -789,9 +894,9 @@ def assert_writable(
 
     First refuses a reservation held by another local execution context. Otherwise
     passes when the sidecar is unlocked or ours (a full ``(host, user, pid)`` identity
-    match). A foreign lock — live *or* stale — raises :class:`LockedError` (carrying
+    match). A foreign lock — live *or* stale — raises [`LockedError`][] (carrying
     ``stale`` so the GUI can offer a steal); a corrupt lock raises too (unknown owner).
-    This is the boundary the :class:`~tether.project.core.Project` writers consult
+    This is the boundary the [`Project`][tether.project.core.Project] writers consult
     before mutating the canonical file.
     """
     with _process_local_access(
@@ -820,9 +925,9 @@ def _acquire_sidecar(
 ) -> LockInfo:
     """Claim the sidecar under the OS lifecycle guard.
 
-    Two independent exclusions compose here, outermost first: :func:`acquire` holds
+    Two independent exclusions compose here, outermost first: [`acquire`][] holds
     the process-local reservation gate, this frame holds the cross-process
-    ``_lifecycle_guard`` inode, and :func:`_acquire_without_guard` performs the
+    ``_lifecycle_guard`` inode, and `_acquire_without_guard` performs the
     sidecar I/O. Neither guard subsumes the other — the reservation orders writers
     inside one interpreter, the guard orders them across processes.
     """
@@ -848,7 +953,7 @@ def _acquire_without_guard(
     allow_existing_owner: bool,
     now: datetime | None,
 ) -> LockInfo:
-    """Implement :func:`acquire` while its caller holds ``_lifecycle_guard``.
+    """Implement [`acquire`][] while its caller holds ``_lifecycle_guard``.
 
     ``allow_existing_owner=False`` is the strict batch claim: it refuses any
     already-present lock, including this process's own, and takes precedence over
@@ -917,10 +1022,10 @@ def refresh(
 ) -> LockInfo:
     """Refresh one retained session without changing or recreating its nonce.
 
-    Unlike :func:`acquire`, this operation never claims an unlocked path and never
+    Unlike [`acquire`][], this operation never claims an unlocked path and never
     treats a matching process identity as sufficient. The current sidecar must carry
     ``held.nonce``; a vanished, corrupt, or replacement record raises
-    :class:`LockedError`. A successful refresh advances only the timestamp, preserving
+    [`LockedError`][]. A successful refresh advances only the timestamp, preserving
     the ownership epoch that long-running writers validate before persistence.
     """
     lp = lock_path(project_path)
@@ -959,21 +1064,21 @@ def acquire(
     process_reservation: ProcessReservation | None = None,
     now: datetime | None = None,
 ) -> LockInfo:
-    """Acquire the single-writer lock, returning the written :class:`LockInfo`.
+    """Acquire the single-writer lock, returning the written [`LockInfo`][].
 
     With ``steal=False`` (default) a foreign lock — live or stale — raises
-    :class:`LockedError` (a stale lock still requires an explicit steal, PRD §5.4);
+    [`LockedError`][] (a stale lock still requires an explicit steal, PRD §5.4);
     an unlocked file, or one already held by this same ``(host, user, pid)``
     identity, is (re)written and refreshed. With ``steal=True`` an existing sidecar
     is overwritten when no process-local reservation blocks access (prefer
-    :func:`steal_lock`, which also returns the ousted owner so the caller can warn).
+    [`steal_lock`][], which also returns the ousted owner so the caller can warn).
     With ``allow_existing_owner=False``, any already-present lock is refused, including
     one with this process's identity; strict mode takes precedence over ``steal=True``
     and never replaces a lock. This mode is for destructive jobs that have not
     received an explicit transfer of another same-process writer's critical section.
 
     A fresh claim on an unlocked path uses an atomic ``O_CREAT | O_EXCL`` create
-    (:func:`_exclusive_create`) so two concurrent local writers cannot both claim it;
+    (`_exclusive_create`) so two concurrent local writers cannot both claim it;
     if the race is lost, the winner's lock is re-evaluated as a foreign lock. An active
     process reservation refuses ordinary recursive/competing acquisition;
     ``process_reservation`` is the explicit owning token used by the strict batch path.
@@ -1002,7 +1107,7 @@ def steal_lock(
     (PRD §5.4): last-write-wins, and the prior owner's unsaved work is not merged.
     A corrupt prior lock is reported as ``None`` (unknown owner) and overwritten.
     A process-local reservation held by another execution context is never stolen;
-    it raises :class:`LockedError` before the sidecar is inspected or replaced.
+    it raises [`LockedError`][] before the sidecar is inspected or replaced.
     """
     identity = identity if identity is not None else local_identity()
     lp = lock_path(project_path)
@@ -1056,7 +1161,7 @@ def held_lock(
 ) -> Iterator[LockInfo]:
     """Context manager that acquires the lock on entry and releases it on exit.
 
-    Raises :class:`LockedError` on entry if a process-local reservation blocks
+    Raises [`LockedError`][] on entry if a process-local reservation blocks
     acquisition, or if a foreign sidecar blocks it and ``steal=False``. A local
     reservation is never overridden by ``steal=True``. Release is nonce-checked,
     so a lock stolen mid-session is not clobbered on exit.
@@ -1112,8 +1217,8 @@ def conflict_copy_warning(project_path: str | Path) -> str | None:
     """The one-line warning for :func:`conflict_copies` hits, or ``None`` when there are none.
 
     The GUI (on :meth:`~tether.gui.shell.TetherShell.load_project`) and the CLI
-    (``tether extract`` / ``tether batch``) both surface the same text, so the user
-    reads one message whichever door opened the project. It names every candidate
+    (``tether extract``, ``tether batch`` and ``tether info``) all surface the same
+    text, so the user reads one message whichever door opened the project. It names every candidate
     sibling by file name, says they are only *possible* conflict copies (the match
     is a naming heuristic, see :func:`conflict_copies`), and states that Tether
     leaves them alone: detection only, never reconciliation, deletion or merge
@@ -1156,8 +1261,8 @@ def create_split_curation(
     **browses the canonical file read-only** (this reads its ``/molecules`` without
     ever writing it) and gets back a fresh, fully-owned ``.tether`` holding just the
     curated subset's molecule rows — enough for ``molecule_key`` to resolve — into
-    which they log their own provenance-tagged ``/labels`` (:func:`Project.accept`
-    / :func:`Project.reject`). That split is the **producer** side of the M5
+    which they log their own provenance-tagged ``/labels`` ([`Project.accept`][]
+    / [`Project.reject`][]). That split is the **producer** side of the M5
     owner-pull merge, which later joins every split's ``/labels`` on the stable
     ``molecule_key`` (§5.1/§7.10); the merge itself is M5, not here.
 
@@ -1170,7 +1275,7 @@ def create_split_curation(
     molecule_keys:
         Restrict the copied ``/molecules`` rows to these keys; ``None`` copies all.
     overwrite:
-        Passed to :func:`~tether.io.schema.create_project` for ``split_path``; an
+        Passed to [`create_project`][tether.io.schema.create_project] for ``split_path``; an
         overwrite is refused (``LockedError``) if the split is locked by another
         writer.
     identity:

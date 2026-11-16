@@ -1,3 +1,7 @@
+---
+description: "Estimate the leakage factor alpha and the gamma factor from your traces and record them on every molecule of a project."
+---
+
 # Correct a dataset for leakage (α) and gamma (γ)
 
 ## Who this page is for
@@ -144,9 +148,8 @@ To report a corrected efficiency, compute it from the exported factors, as
 
 The settings the α, γ and correction steps used are recorded in the project; photobleach
 detection records none of its own. If you run the steps again and α is withheld this time,
-γ is skipped, and the γ settings from the earlier run stay in the project although no
-molecule carries that γ any more. The molecules' own `alpha` and `gamma` values are the
-current result. [Analysis
+γ is skipped, and the α step removes the γ settings of the earlier run, because no molecule
+carries that γ any more. [Analysis
 parameters](../reference/parameters.md#correction-factors) lists them, with what each one
 changes.
 
