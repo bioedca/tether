@@ -455,7 +455,7 @@ tether idealize [-h] [--method {vbconhmm,ebhmm}] [--nstates N | --nstates-grid L
 | Argument | Default | Meaning |
 |---|---|---|
 | `project` | *(required)* | the `.tether` project to fit |
-| `--method {vbconhmm,ebhmm}` | `vbconhmm` | the fit: `vbconhmm` is the consensus VB-HMM, one shared model across all molecules; `ebhmm` is ebFRET |
+| `--method {vbconhmm,ebhmm}` | `vbconhmm` | the fit: `vbconhmm` is the consensus VB-HMM, one shared model across all molecules, and `ebhmm` is ebFRET |
 | `--nstates N` | automatic | fit exactly N states. Without it, the command fits each state count of `--nstates-grid` and keeps the one with the largest ELBO |
 | `--nstates-grid LIST` | `1,2,3,4` | the state counts the automatic choice tries, comma-separated, for example `2,3,4,5`. Do not give it with `--nstates` |
 | `--model-name NAME` | the method | store the fit as `/idealization/NAME`. With `--stale-only`, refit only this model |
@@ -477,7 +477,7 @@ start, the command says why, exits `3` and does not change the project.
 
 **The command holds the project's lock while it fits.** Close the project in the desktop
 application first. When another user or the application holds the lock, the command exits
-`1` and fits nothing. A fit can take minutes; the lock is released when the command ends.
+`1` and fits nothing. A fit can take minutes. The lock is released when the command ends.
 
 **`--stale-only` refits a whole model.** A molecule is *stale* in a model when its trace,
 its analysis window or its correction factors changed after the fit. A consensus VB-HMM or
@@ -493,7 +493,7 @@ selecting one is planned work ([#939](https://github.com/bioedca/tether/issues/9
 | `0` | the fit is stored, or `--stale-only` found nothing stale |
 | `1` | the fit failed, or the lock could not be taken |
 | `2` | bad command-line arguments, or a refusal to start: an unknown condition, a model that exists without `--overwrite`, a project that cannot be opened, or fit options with `--stale-only` |
-| `3` | the sidecar was not available; nothing was written |
+| `3` | the sidecar was not available, and nothing was written |
 
 ### Example — fit a project, then refit it after a correction
 
@@ -563,7 +563,7 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 | `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
 
-`tether idealize` has a code `3` of its own, for a sidecar that cannot start; its codes are
+`tether idealize` has a code `3` of its own, for a sidecar that cannot start. Its codes are
 in [its section](#tether-idealize).
 
 Exit code `2` means no movie was processed: either argparse rejected the command line

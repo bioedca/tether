@@ -21,8 +21,8 @@ dwell-time analyses read.
   sidecar, see [Idealization cannot find the sidecar
   interpreter](../troubleshooting.md#idealization-cannot-find-the-sidecar-interpreter).
 - For a whole-project fit, a terminal where the `tether` command runs
-  ([Command line](../cli.md#launching-tether-after-an-installer-install)). To fit from a
-  Python script instead, the Python that came with Tether:
+  ([Command line](../cli.md#launching-tether-after-an-installer-install)). For a Python
+  script instead, the Python that came with Tether:
   `~/tether/envs/tether/bin/python` on Linux, `~/Tether/envs/tether/bin/python` on macOS, or
   `$env:USERPROFILE\Tether\envs\tether\python.exe` on Windows, at the default install
   locations. Close the project in the desktop application before running a script on it.
@@ -75,8 +75,8 @@ tether idealize movie.tether
 
 It fits every molecule that is not rejected and stores the result as the `vbconhmm` model.
 Tether tries one to four states and keeps the count the data support best. The command
-prints the method, the state count it kept, the ELBO of each state count it tried and the
-number of molecules it fitted. To fix the count yourself, add `--nstates`
+prints the method and the state count it kept. It also prints the ELBO of each state count
+it tried and the number of molecules it fitted. To fix the count yourself, add `--nstates`
 ([`nstates`](../reference/parameters.md#param-idealize-nstates)):
 
 ```console
@@ -92,13 +92,15 @@ tether idealize movie.tether --method ebhmm
 ```
 
 A fit refuses to replace a model of the same name that is already in the project. To fit
-again, add `--overwrite`. Add `--seed` with a number to make the fit repeatable: the same
-project, options and seed give the same model. [`tether idealize`](../cli.md#tether-idealize)
-lists every option and the exit codes; code `3` means the sidecar could not start and the
-project was not changed.
+again, add `--overwrite`. Add `--seed` and a number to make the fit repeatable. The same
+project, options and seed then give the same model.
+
+[`tether idealize`](../cli.md#tether-idealize)
+lists every option and the exit codes. Code `3` means the sidecar could not start. The
+project is then not changed.
 
 The command is the same fit as `idealize_molecules` in Python. To fit from a script, save
-this as `idealize.py` beside the project and run it with Tether's Python:
+this as `idealize.py` beside the project. Run it with Tether's Python:
 
 ```python
 from tether.project.idealize import idealize_molecules
@@ -137,10 +139,10 @@ tether idealize movie.tether --stale-only
 ```
 
 For each model the command prints how many molecules were stale and how many current. It
-refits each model that has a stale molecule, with the settings stored in the model, over all
-the molecules of that model, because a consensus or ebFRET model is one fit over all of them.
-A model with no stale molecule is left as it is. From Python, the same refit of one model is
-`reidealize`:
+refits each model that has a stale molecule, with the settings stored in the model. It
+refits all the molecules of that model. A consensus or ebFRET model is one fit over all of
+them. A model with no stale molecule is left as it is. From Python, the same refit of one
+model is `reidealize`:
 
 ```python
 from tether.project.idealize import reidealize
