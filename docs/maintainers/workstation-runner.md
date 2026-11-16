@@ -275,14 +275,14 @@ other golden files. The script prints neutral ids and numbers only.
 The weekly run also compares Tether with the Deep-LASI results of more acquisitions than video
 010 (`tests/test_deeplasi_agreement.py`, ADR-0115). It has three checks:
 
-- **Spots and traces**, for `lab-02` to `lab-08`, `lab-10` and `lab-12`: Tether extracts the
-  movie with the map file and the detection settings of the saved Deep-LASI state, and the
+- **Spots and traces**, for `lab-02` to `lab-08`, `lab-10` and `lab-12`. Tether extracts the
+  movie with the map file and the detection settings of the saved Deep-LASI state. The
   oracle (a) scorer compares the result with the Deep-LASI export. Each id passes or fails
   alone, at the oracle (a) limits. The numbers are `matched_fraction`, `position_rms_px`,
   `donor_pearson_median`, `acceptor_pearson_median`, `precision` and the counts.
-- **Corrected FRET**, for the ids above and `lab-01`, `lab-13`, `dlexp-01` and `dlexp-02`:
-  Tether's correction chain on the traces of each export, against Deep-LASI's corrected FRET
-  with the export's own factors. The numbers are recorded, and there is no agreement limit.
+- **Corrected FRET**, for the ids above and `lab-01`, `lab-13`, `dlexp-01` and `dlexp-02`.
+  Tether's correction chain runs on the traces of each export. Its corrected FRET is compared
+  with Deep-LASI's, on the export's own factors. The numbers are recorded, and there is no agreement limit.
   The check fails only when the two formulas do not agree with the same factors.
 - **The scripted rerun of video 010**: the output of `scripts/reference/matlab/deep_lasi.py`
   must agree with its provenance record and repeat the old export of `lab-01`.
@@ -303,15 +303,15 @@ Each role names a file, and the self-check reads each one. Two rules keep these 
 changing other checks:
 
 - Do not name a folder by its neutral id. The runner treats each folder name in the mapping file
-  as private and removes it from the results, and the results contain the neutral ids. Give
+  as private. It then withholds each result, because the results contain the neutral ids. Give
   each `window` folder a number instead, for example `deeplasi-window/01`.
 - The saved state has the role `deeplasi-state`, not `tdat`. The speed check gives a `tdat`
-  role to its extraction, so a `tdat` role on a `speed` id changes what that check measures.
+  role to its extraction. Thus a `tdat` role on a `speed` id changes what that check measures.
 
 `tests/_deeplasi_agreement.py` pins the SHA-256 and size of each Deep-LASI file. A check fails
 with the id and the role when a file is not the pinned one.
 
-Make a `window` folder one time for each export. Use the MATLAB release that saved the export,
+Make a `window` folder one time for each export. Give the MATLAB release that saved the export
 and the Deep-LASI version of the window:
 
 ```sh
@@ -328,7 +328,7 @@ commit:
 python scripts/reference/matlab/deep_lasi.py run --clone <Deep-LASI clone> --task extract --input movie=<movie> --input tmap=<tmap> --input tdat=<tdat> --out <data folder>/deeplasi-runs/01 --matlab <matlab>
 ```
 
-The scripted run cannot make Deep-LASI's correction factors: they come from a step in its
+The scripted run cannot make Deep-LASI's correction factors. They come from a step in its
 window after the state is saved. The factors of every check come from the `window` exports.
 
 ## Add a check
