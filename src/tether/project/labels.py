@@ -40,7 +40,7 @@ Scope (M2 S5). This logs **accept / reject / un-reject** — the ML training sig
 the M5 ranker consumes. A *category* assignment is **not** logged here: category is
 independent of accept/reject (§7.6) and its authoritative home is
 ``/molecules.category``. Since #358 it is written by
-:func:`tether.project.molecule_edits.set_category` / ``clear_category``, which check
+[`tether.project.molecule_edits.set_category`][] / ``clear_category``, which check
 the name against the condition's editable category list and log each change to their
 own append-only ``/settings/molecule_audit`` — never to ``/labels``, whose
 ``label_value`` is this accept/reject codec, so a category code there would read as an

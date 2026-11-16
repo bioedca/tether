@@ -5,24 +5,24 @@
 The headless writers behind a curator's two per-molecule edits:
 
 * **Category** — the molecule's editable per-condition category value, stored by
-  *name* in the M0-frozen ``/molecules.category`` field. :func:`set_category` accepts
-  only a name in the molecule's condition's :class:`~tether.project.conditions.CategoryList`
-  (that vocabulary stays authoritative); :func:`clear_category` writes ``""``, the
+  *name* in the M0-frozen ``/molecules.category`` field. [`set_category`][] accepts
+  only a name in the molecule's condition's [`CategoryList`][tether.project.conditions.CategoryList]
+  (that vocabulary stays authoritative); [`clear_category`][] writes ``""``, the
   "no category" value every importer writes (``rows["category"] = ""`` in
-  :mod:`tether.project.analysis_import`).
+  [`tether.project.analysis_import`][]).
 * **Analysis window** — the ``[start, stop)`` frames the analysis reads, the frozen
-  ``/molecules.analysis_window`` field. :func:`set_analysis_window` clamps the request
+  ``/molecules.analysis_window`` field. [`set_analysis_window`][] clamps the request
   with the same rule an SMD import applies
-  (:func:`tether.project.analysis_import._resolve_windows`), bounded by the molecule's
-  own ``frame_range`` inside ``[0, n_frames]``. :func:`reset_analysis_window` restores
-  ``frame_range``, the extraction default (:mod:`tether.project.photobleach`).
+  (`tether.project.analysis_import._resolve_windows`), bounded by the molecule's
+  own ``frame_range`` inside ``[0, n_frames]``. [`reset_analysis_window`][] restores
+  ``frame_range``, the extraction default ([`tether.project.photobleach`][]).
 
 Both fields already exist in the frozen schema, so these writes are additive **data**
 and the ``schema-guard`` freeze (ADR-0005) is untouched.
 
 Manual window versus the photobleach auto-default
 -------------------------------------------------
-:func:`tether.project.photobleach.compute_photobleach` sets the auto window only on a
+[`tether.project.photobleach.compute_photobleach`][] sets the auto window only on a
 row whose window still equals ``frame_range``. A window set here that differs from
 ``frame_range`` is therefore a manual override, and a later photobleach pass leaves it
 alone. A reset, or a set that resolves to the whole ``frame_range``, puts the row back
@@ -34,18 +34,18 @@ Provenance (append-only)
 Each changed ``/molecules`` row gets one row in ``/settings/molecule_audit``, a
 lazily-created, resizable compound dataset under the frozen ``/settings`` container
 (the ``/settings/condition_audit`` idiom). The audit row is written **before** the
-``/molecules`` field, as :func:`tether.project.labels.set_curation_label` orders its
+``/molecules`` field, as [`tether.project.labels.set_curation_label`][] orders its
 two writes, so a crash leaves at worst an orphan audit row, never an unaudited change.
 
 Category edits are **not** logged to ``/labels``: ``/labels.label_value`` carries the
-:class:`~tether.project.labels.CurationLabel` accept/reject codec that the ML ranker
+[`CurationLabel`][tether.project.labels.CurationLabel] accept/reject codec that the ML ranker
 and the merge-back read, and a category code there would read as a training label.
 
 An edit that would not change a row writes nothing for that row (the
-:func:`tether.project.labels.unreject` no-op rule), so the log holds only real changes.
+[`tether.project.labels.unreject`][] no-op rule), so the log holds only real changes.
 
 The single-writer ``.lock`` is the caller's responsibility, as for every module-level
-``r+`` writer in this package; the :class:`~tether.project.core.Project` methods check
+``r+`` writer in this package; the [`Project`][tether.project.core.Project] methods check
 it before they call in.
 """
 
@@ -86,7 +86,7 @@ _NO_WINDOW = (-1, -1)
 
 
 def _audit_dtype() -> np.dtype:
-    """The ``/settings/molecule_audit`` compound dtype (a ``/settings`` artifact)."""
+    """Return the ``/settings/molecule_audit`` compound dtype (a ``/settings`` artifact)."""
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
 
@@ -131,7 +131,7 @@ def _resolve_provenance(labeler: str | None, timestamp: str | None) -> tuple[str
 
 
 def _matched_rows(table: np.ndarray, molecule_key: str, path: Path) -> list[int]:
-    """Row indices carrying ``molecule_key``; :class:`KeyError` when there are none."""
+    """Row indices carrying ``molecule_key``; [`KeyError`][] when there are none."""
     from tether.project.labels import _match_indices  # noqa: PLC0415
 
     idx = _match_indices(table["molecule_key"], molecule_key)
@@ -182,7 +182,7 @@ def _write_category(
     reason: str,
     timestamp: str | None,
 ) -> np.ndarray:
-    """Shared body of :func:`set_category` / :func:`clear_category`."""
+    """Shared body of [`set_category`][] / [`clear_category`][]."""
     import h5py  # noqa: PLC0415
 
     from tether.project.conditions import _read_category_names  # noqa: PLC0415
@@ -259,9 +259,10 @@ def set_category(
     molecule_key:
         The molecule's cross-file content identity (§5.1).
     category:
-        A name in the molecule's condition's :class:`~tether.project.conditions.CategoryList`.
+        A name in the molecule's condition's
+        [`CategoryList`][tether.project.conditions.CategoryList].
     labeler:
-        Curator identity; defaults to :func:`tether.project.labels.default_labeler`.
+        Curator identity; defaults to [`tether.project.labels.default_labeler`][].
     reason:
         Free-text audit note.
     timestamp:
@@ -278,7 +279,7 @@ def set_category(
     KeyError
         If no ``/molecules`` row carries ``molecule_key``.
     ValueError
-        If ``category`` is empty (use :func:`clear_category`), is not in the
+        If ``category`` is empty (use [`clear_category`][]), is not in the
         condition's category list, the matched rows disagree on ``condition_id``, or
         ``timestamp`` is not an offset-aware ISO-8601 string. Nothing is written.
     """
@@ -308,8 +309,8 @@ def clear_category(
 ) -> np.ndarray:
     """Clear a molecule's category to ``""``, the "no category" value (§5.1).
 
-    Same matching, provenance and no-op rule as :func:`set_category`; returns the
-    appended audit rows. Raises :class:`KeyError` for an unknown ``molecule_key``.
+    Same matching, provenance and no-op rule as [`set_category`][]; returns the
+    appended audit rows. Raises [`KeyError`][] for an unknown ``molecule_key``.
     """
     return _write_category(
         path,
@@ -323,7 +324,7 @@ def clear_category(
 
 
 def _n_frames(f: object) -> int | None:
-    """The stored trace length (``/traces`` axis 1), or ``None`` when no layer exists."""
+    """Return the stored trace length (``/traces`` axis 1), or ``None`` without a layer."""
     traces = f[_TRACES]  # type: ignore[index]
     for name in traces:
         layer = traces[name]
@@ -335,7 +336,7 @@ def _n_frames(f: object) -> int | None:
 def _clamped_window(frame_range: object, start: int, stop: int, n_frames: int | None) -> tuple:
     """Clamp ``[start, stop)`` into the row's ``frame_range`` inside ``[0, n_frames]``.
 
-    Reuses :func:`tether.project.analysis_import._resolve_windows` rather than restating
+    Reuses `tether.project.analysis_import._resolve_windows` rather than restating
     its rule: the request is shifted so the row's valid extent ``[lo, hi)`` reads as
     ``[0, hi - lo]``, resolved there, and shifted back. That clamps both ends into the
     extent, and a window that is empty after clamping falls back to the whole extent —
@@ -368,7 +369,7 @@ def _write_window(
     reason: str,
     timestamp: str | None,
 ) -> np.ndarray:
-    """Shared body of :func:`set_analysis_window` / :func:`reset_analysis_window`.
+    """Shared body of [`set_analysis_window`][] / [`reset_analysis_window`][].
 
     ``window=None`` is the reset: each row's target is its own ``frame_range``.
     """
@@ -434,11 +435,12 @@ def set_analysis_window(
 
     Each row carrying ``molecule_key`` gets the request clamped into its own
     ``frame_range`` (itself bounded by ``[0, n_frames]``, the stored trace length), by
-    the rule :func:`tether.project.analysis_import._resolve_windows` applies. A request
+    the rule `tether.project.analysis_import._resolve_windows` applies. A request
     that is empty after clamping — it lies wholly outside the frames — resolves to the
     whole ``frame_range``, as that rule's fallback does; read the returned audit rows'
     ``new_window`` for what was stored. A window that differs from ``frame_range`` is a
-    manual override that a later :func:`~tether.project.photobleach.compute_photobleach`
+    manual override that a later
+    [`compute_photobleach`][tether.project.photobleach.compute_photobleach]
     leaves alone.
 
     Parameters
@@ -450,7 +452,7 @@ def set_analysis_window(
     start, stop:
         The requested absolute frame indices, ``start < stop``.
     labeler, reason, timestamp:
-        Audit provenance, as for :func:`set_category`.
+        Audit provenance, as for [`set_category`][].
 
     Returns
     -------
@@ -497,9 +499,9 @@ def reset_analysis_window(
     """Restore a molecule's analysis window to its ``frame_range`` (the extraction default).
 
     After a reset the row is again under the photobleach auto-default
-    (:mod:`tether.project.photobleach`): the next
-    :func:`~tether.project.photobleach.compute_photobleach` pass may narrow it. Same
-    matching, provenance and no-op rule as :func:`set_analysis_window`.
+    ([`tether.project.photobleach`][]): the next
+    [`compute_photobleach`][tether.project.photobleach.compute_photobleach] pass may narrow it. Same
+    matching, provenance and no-op rule as [`set_analysis_window`][].
     """
     return _write_window(
         path,

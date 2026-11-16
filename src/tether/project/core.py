@@ -556,11 +556,11 @@ class Project:
         timestamp: str | None = None,
     ) -> np.ndarray:
         """Set a molecule's category to a name in its condition's list
-        (:func:`molecule_edits.set_category`).
+        ([`molecule_edits.set_category`][tether.project.molecule_edits.set_category]).
 
-        The condition's :meth:`category_list` is the vocabulary: a name not in it is
+        The condition's [`category_list`][] is the vocabulary: a name not in it is
         refused. Refuses the write if the file is locked by another writer
-        (:meth:`_assert_writable`, §5.4).
+        (`_assert_writable`, §5.4).
         """
         from tether.project import molecule_edits
 
@@ -582,7 +582,7 @@ class Project:
         reason: str = "",
         timestamp: str | None = None,
     ) -> np.ndarray:
-        """Clear a molecule's category to ``""`` (:func:`molecule_edits.clear_category`).
+        """Clear a molecule's category to ``""`` (`molecule_edits.clear_category`).
 
         Refuses the write if the file is locked by another writer (§5.4).
         """
@@ -604,7 +604,7 @@ class Project:
         timestamp: str | None = None,
     ) -> np.ndarray:
         """Set a molecule's ``[start, stop)`` analysis window, clamped to its frames
-        (:func:`molecule_edits.set_analysis_window`).
+        ([`molecule_edits.set_analysis_window`][tether.project.molecule_edits.set_analysis_window]).
 
         A window narrower than ``frame_range`` is a manual override that photobleach
         detection leaves alone. Refuses the write if the file is locked by another
@@ -632,7 +632,7 @@ class Project:
         timestamp: str | None = None,
     ) -> np.ndarray:
         """Restore a molecule's analysis window to its ``frame_range``
-        (:func:`molecule_edits.reset_analysis_window`).
+        ([`molecule_edits.reset_analysis_window`][tether.project.molecule_edits.reset_analysis_window]).
 
         Refuses the write if the file is locked by another writer (§5.4).
         """
@@ -644,7 +644,7 @@ class Project:
         )
 
     def read_molecule_audit(self) -> np.ndarray:
-        """The append-only per-molecule edit log (:func:`molecule_edits.read_molecule_audit`)."""
+        """The append-only per-molecule edit log (`molecule_edits.read_molecule_audit`)."""
         from tether.project import molecule_edits
 
         return molecule_edits.read_molecule_audit(self.path)
