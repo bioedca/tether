@@ -40,8 +40,10 @@ from _campos_chavez_2024 import (
     compare_trace_sheet,
     dwells_from_survival,
     find_windows,
+    locate_blocks,
     read_book,
     read_double_params,
+    read_run,
     read_traces,
     rounding_bound,
 )
@@ -130,6 +132,26 @@ def test_dwells_from_survival_give_back_the_survival_curve() -> None:
 def test_column_reads_down_to_the_first_gap() -> None:
     rows = [(None, "Fig"), ("Time (s)", "x"), (0.0, 1.0), (0.1, 2.0), (None, None), (0.2, 3.0)]
     np.testing.assert_array_equal(column(rows, "Time (s)", 0), [0.0, 0.1])
+
+
+def test_locate_blocks_joins_runs_in_order_and_searches_every_start(tmp_path) -> None:
+    rng = np.random.default_rng(1128)
+    runs = [(rng.uniform(50, 150, (1500, n)), rng.uniform(10, 90, (1500, n))) for n in (3, 2)]
+    e = [apparent_fret(d, a) for d, a in runs]
+    blocks = [e[0][:400, 0], e[0][:400, 1], e[0][:400, 2], e[1][:400, 0], e[1][:400, 1]]
+    blocks += [e[1][700:1100, 0], np.full(400, 0.5)]  # found at frame 700; found nowhere
+    got = locate_blocks(np.concatenate(blocks), runs)
+    assert got["run_molecules"] == [3, 2] and got["column_molecules"] == 7
+    assert got["leading_equal"] == 5 and got["max_abs_deviation"] == 0.0
+    assert got["unmatched"] == [6]
+    # Swapping the order of the runs breaks the join at the first block.
+    assert locate_blocks(np.concatenate(blocks), runs[::-1])["leading_equal"] == 0
+    # A run file is read as the notebook reads it: the first line (the molecule ids) is skipped.
+    path = tmp_path / "run.txt"
+    np.savetxt(path, np.vstack([[7, 7], np.column_stack([runs[1][0][:, 0], runs[1][1][:, 0]])]))
+    donor, acceptor = read_run(path)
+    np.testing.assert_allclose(donor[:, 0], runs[1][0][:, 0], rtol=1e-15)
+    assert acceptor.shape == (1500, 1)
 
 
 def test_every_double_exponential_panel_has_a_committed_parameter_file() -> None:
