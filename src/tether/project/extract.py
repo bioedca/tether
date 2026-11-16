@@ -97,7 +97,9 @@ from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
 from tether.io.movie import open_movie
 from tether.io.tdat import read_detection_settings
+from tether.project._guarded_publish import publish_staged_project, require_publish_guard
 from tether.project.core import Project
+from tether.project.lock import PublishGuardRequiredError
 
 if TYPE_CHECKING:
     import numpy as np
@@ -426,10 +428,13 @@ def extract_movie(
     overwrite:
         Replace an existing ``output_path``.
     publish_guard:
-        Optional ownership check called after the replacement project is complete
-        and immediately before its atomic publish. An exception aborts the publish
-        and leaves an existing destination unchanged. The batch resume path uses
-        this to prove it still owns the destination lock.
+        Ownership check called after the new project is complete and immediately
+        before its atomic publish; an exception aborts the publish and leaves an
+        existing destination unchanged. It is **required** to replace an existing
+        ``output_path`` (#346, ADR-0112): hold
+        [`publish_lock`][tether.project.lock.publish_lock] on ``output_path`` and pass
+        the check it yields. Without one, a new path is published only if it is
+        still absent, and an existing one is refused.
 
     Returns
     -------
@@ -445,7 +450,8 @@ def extract_movie(
         Any operator-actionable failure: invalid options, a missing or
         unreadable/compressed movie, a missing or undecodable ``.tmap`` or
         ``.tdat`` (or a ``.tdat`` with an unsupported detection mode), a
-        pre-existing output without ``overwrite``, an un-splittable frame, too few
+        pre-existing output without ``overwrite`` or without a ``publish_guard``,
+        an un-splittable frame, too few
         matched control points to register (native path), or a write failure. Never
         a raw primitive traceback.
     """
@@ -461,6 +467,10 @@ def extract_movie(
         raise ExtractionError(f"tdat not found: {tdat}")
     if output_path.exists() and not overwrite:
         raise ExtractionError(f"output exists: {output_path} (use overwrite=True / --overwrite)")
+    try:
+        require_publish_guard(output_path, publish_guard)
+    except PublishGuardRequiredError as exc:
+        raise ExtractionError(str(exc)) from exc
 
     # A .tdat supplies the detection mode/threshold the movie was actually detected
     # with; resolve it up front (before any movie IO) so a bad or unsupported-mode
@@ -635,9 +645,7 @@ def extract_movie(
             registration_map=reg_map,
             settings=settings,
         )
-        if publish_guard is not None:
-            publish_guard()
-        os.replace(tmp_path, output_path)
+        publish_staged_project(tmp_path, output_path, publish_guard=publish_guard)
     except ExtractionError:
         tmp_path.unlink(missing_ok=True)
         raise
