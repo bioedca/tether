@@ -1,0 +1,27 @@
+digraph Tether {
+graph [layout=dot, rankdir=TB, overlap=true, compound=true, newrank=true, bgcolor="white", fontname="Arial", nodesep=0.65, ranksep=0.85, pad=0.20, splines=polyline, outputorder=edgesfirst];
+node [fontname="Arial", fontsize=13, color="#263D4C", fontcolor="#122937", penwidth=1.2, margin="0.16,0.11", width=2.45, height=0.58];
+edge [fontname="Arial", fontsize=10, color="#364D5C", fontcolor="#263F4E", penwidth=1.25, arrowsize=0.7];
+start [label="", shape=circle, style=filled, fillcolor="#263D4C", width=0.19, height=0.19, fixedsize=true];
+apparent [label="APPARENT_REVIEW\nManual curation / confirmed ML labels", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+alpha [label="BLEEDTHROUGH_REQUIRED\nSource and confirm condition factor", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+gamma [label="GAMMA_REVIEW\nInspect curated bleach-step\ncontributors", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+blocked [label="CALIBRATION_BLOCKED\nNo usable steps / invalid factor", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+approved [label="CALIBRATION_APPROVED\nFreeze factors + contributor evidence", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+corrected [label="CORRECTED_REVIEW\nReview boundaries, windows and traces", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+reviewed [label="ANALYSIS_READY\nApproved correction + review snapshot", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+stale [label="CALIBRATION_STALE\nDownstream analysis disabled", shape=box, style="rounded,filled", fillcolor="#EAF1F6", height=0.9];
+start -> apparent [];
+apparent -> alpha [tooltip="finish initial curation", label="finish initial curation"];
+alpha -> gamma [tooltip="confirm alpha [valid + sourced]\n/ estimate gamma", label="confirm alpha [valid +\nsourced] / estimate gamma"];
+gamma -> blocked [tooltip="insufficient evidence", label="insufficient evidence"];
+blocked -> gamma [tooltip="new evidence / valid sourced override", label="new evidence / valid\nsourced override", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+gamma -> approved [tooltip="approve [gamma valid]", label="approve [gamma valid]"];
+approved -> corrected [tooltip="apply correction version", label="apply correction version"];
+corrected -> reviewed [tooltip="finish review [all dependencies current]", label="finish review [all\ndependencies current]"];
+corrected -> stale [tooltip="calibration evidence changes", label="calibration evidence\nchanges"];
+reviewed -> stale [tooltip="factor / contributor evidence changes", label="factor / contributor\nevidence changes"];
+stale -> alpha [tooltip="alpha missing / invalid", label="alpha missing / invalid", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+stale -> gamma [tooltip="alpha valid / recalculate", label="alpha valid / recalculate", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+reviewed -> corrected [tooltip="edit analysis windows / curation", label="edit analysis windows /\ncuration", constraint=false, style=dashed, color="#99602B", fontcolor="#885421"];
+}

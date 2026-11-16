@@ -27,9 +27,11 @@ The first call is timed apart and reported as ``first_call_s``: it holds the one
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -47,6 +49,11 @@ MEMORY_FLOOR_BYTES = 1 << 20
 #: The noise report keeps the 1.5 gate on a case only when max/min over its runs is at most this.
 NOISE_CEILING = 1.2
 _MIN_REPEAT_S = 0.05
+#: One child measurement that runs longer than this is stopped and recorded as an error. The
+#: slowest case took about 10 s on a GitHub runner in the noise run of #722. A case that timed
+#: out on one tree is not run again on that tree (``_cmd_run``), so a hanging case costs at most
+#: sizes x trees x this (20 min for base and head), inside the job's 60-minute limit (#875).
+CHILD_TIMEOUT_S = 300.0
 
 
 def _peak_rss_bytes(children: bool = False) -> int | None:
@@ -113,15 +120,41 @@ def _cmd_one(args: argparse.Namespace) -> int:
     return 0
 
 
-def _child(src: str, case: str, size: str, repeats: int) -> dict:
-    cmd = [sys.executable, "-I", str(Path(__file__).resolve()), "one", "--src", src]
-    cmd += ["--case", case, "--size", size, "--repeats", str(repeats)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    lines = proc.stdout.strip().splitlines()
+def run_child(cmd: list[str], timeout: float = CHILD_TIMEOUT_S) -> dict:
+    """Run one measurement command and return its last JSON line, or an ``error`` record.
+
+    The child gets its own process group, so a timeout also stops what it started (the
+    sidecar fit runs in a grandchild); otherwise an orphan could hold the output pipe open
+    and keep this call waiting after the child itself was killed.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if hasattr(os, "killpg"):
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+        proc.kill()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.communicate(timeout=10)
+        return {"error": f"timed out after {timeout:g} s"}
+    lines = stdout.strip().splitlines()
     try:
         return json.loads(lines[-1])
     except (IndexError, json.JSONDecodeError):
-        return {"error": f"exit {proc.returncode}: {proc.stderr.strip()[-400:]}"}
+        return {"error": f"exit {proc.returncode}: {stderr.strip()[-400:]}"}
+
+
+def _child(src: str, case: str, size: str, repeats: int, timeout: float) -> dict:
+    cmd = [sys.executable, "-I", str(Path(__file__).resolve()), "one", "--src", src]
+    cmd += ["--case", case, "--size", size, "--repeats", str(repeats)]
+    return run_child(cmd, timeout)
 
 
 def expand_sides(specs: list[str], copies: int = 1) -> dict[str, str]:
@@ -161,12 +194,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
         names = [n for n in names if n in args.cases.split(",")]
     sizes = args.sizes.split(",") if args.sizes else list(SIZES)
     raw: dict[str, dict[str, list[dict]]] = {side: {} for side in sides}
+    timed_out: dict[tuple[str, str], dict] = {}  # (src, case/size) -> its timeout record
     for r in range(args.rounds):
         order = list(sides) if r % 2 == 0 else list(reversed(sides))
         for name in names:
             for size in sizes:
                 for side in order:
-                    rec = _child(sides[side], name, size, args.repeats)
+                    key = (sides[side], f"{name}/{size}")
+                    if key in timed_out:  # the same tree again (a later round, a noise copy)
+                        rec = dict(timed_out[key])
+                    else:
+                        rec = _child(sides[side], name, size, args.repeats, args.timeout)
+                        if str(rec.get("error", "")).startswith("timed out after"):
+                            timed_out[key] = rec
                     raw[side].setdefault(f"{name}/{size}", []).append(rec)
                     print(f"round {r + 1} {side:>6} {name}/{size}: {rec}", flush=True)
     result = {
@@ -309,6 +349,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--copies", type=int, default=1, help="measure each side N times")
     run.add_argument("--sizes", default="")
     run.add_argument("--cases", default="")
+    run.add_argument(
+        "--timeout", type=float, default=CHILD_TIMEOUT_S, help="seconds per measurement"
+    )
     run.add_argument("--out", required=True)
     cmp_ = sub.add_parser("compare")
     cmp_.add_argument("result")
