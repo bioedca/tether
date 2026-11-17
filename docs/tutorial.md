@@ -47,7 +47,8 @@ In the terminal, move into that folder:
 cd ~/tether-tutorial
 ```
 
-On Windows PowerShell the same folder is `cd $env:USERPROFILE\tether-tutorial`.
+On Windows PowerShell the same folder is `cd $env:USERPROFILE\tether-tutorial`. In the
+Tether Command Prompt it is `cd /d "%USERPROFILE%\tether-tutorial"`.
 
 ## 3. Extract the molecules
 
