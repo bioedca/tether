@@ -559,6 +559,9 @@ parameters are the scalars, ranges and grid of the result, never its data. The d
 and line style, or the panel. The layout goes to `parameters.display` (`series_layout`, and
 `series_cycle` or `series_color_scale`).
 
+A model drawn with a series keeps its own parameters in the record. Examples are the Gaussian
+means, variances and weights, or the fitted rates. Its sampled curve is data and is left out.
+
 To add your own keys to a series, such as the selection
 and its version, pass `parameters["series"]` as a list of one dict per series. A key that
 contradicts what was drawn raises `ValueError`. ADR-0127 records these choices.

@@ -144,7 +144,9 @@ weight, `nskip`, the HDR coverages, the scan window) may differ; it is recorded 
 
 A renderer given a sequence records, on the figure, one entry per series: its `label`, its `result`
 type, the `parameters` that result carries (every scalar and range, and the arrays that are its grid
-or its probed values: bin edges, state numbers, lags, `k`, HDR coverages; never its data), and its
+or its probed values: bin edges, state numbers, lags, `k`, HDR coverages; and the parameters of a
+model drawn with it: a Gaussian overlay's means, variances and weights, a dwell fit's rates and
+amplitudes with their errors; never its data, a model's sampled curve included), and its
 `display` (color and line style, or its panel). A model overlay or a cloud passed with a series is
 recorded with it. `export_figure` writes the list to `parameters.series`, and the figure layout to
 `parameters.display` (`series_layout`, `series_cycle`, `series_color_scale`). The caller may add its

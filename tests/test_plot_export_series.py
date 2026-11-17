@@ -404,6 +404,32 @@ def test_the_grid_and_counts_of_each_series_are_recorded(results, tmp_path):
     assert display == {"series_layout": "overlay", "series_cycle": "okabe-ito-4"}
 
 
+def test_the_model_parameters_of_each_series_are_recorded(results, tmp_path):
+    # Two overlays that differ only in their model must not leave identical records:
+    # the Gaussian means, variances and weights are parameters, the sampled curve is not.
+    proj, _ = build_store_with_model(tmp_path, STATES, MEANS)
+    model = population_model_gaussian_overlay(proj, "vbconhmm")
+    shifted = replace(model, means=np.asarray(model.means) + 0.05)
+    wt, mut = results["h1"]
+    fig = pe.render_histogram1d([("WT", wt), ("mutant", mut)], overlay=[model, shifted])
+    records = _sidecar(_export(fig, tmp_path / "m"))["parameters"]["series"]
+    for record, m in zip(records, (model, shifted), strict=True):
+        overlay = record["overlay"]
+        assert overlay["means"] == np.asarray(m.means).tolist()
+        assert overlay["variances"] == np.asarray(m.variances).tolist()
+        assert overlay["frac"] == np.asarray(m.frac).tolist()
+        assert "total" not in overlay and "components" not in overlay
+    assert records[0]["overlay"] != records[1]["overlay"]
+    # A dwell fit's rates and amplitudes are recorded; its sampled survival is not.
+    dwell = results["dwell"]
+    records = _sidecar(_export(pe.render_dwell_survival(_two(results, "dwell")), tmp_path / "d"))
+    for record, a in zip(records["parameters"]["series"], dwell, strict=True):
+        fit = record["parameters"]["fit"]
+        np.testing.assert_array_equal(fit["rates"], a.fit.rates)
+        np.testing.assert_array_equal(fit["amplitudes"], a.fit.amplitudes)
+        assert "model_survival" not in fit
+
+
 def test_the_caller_adds_its_own_parameters_per_series(results, tmp_path):
     fig = pe.render_dwell_survival(_two(results, "dwell"))
     given = [{"selection": "wt v1", "include_stale": False}, {"selection": "mut v2", "dt": 1.0}]

@@ -188,7 +188,10 @@ _SERIES_HATCHES: tuple[str, ...] = ("", "//", "..", "xx")
 _SERIES_ATTR = "_tether_series"
 
 #: Array fields of a result that are parameters of the series (its grid, its probed
-#: values), and so travel into the provenance file. Every other array is data.
+#: values, and the parameters of a model drawn with it: the Gaussian overlay's means,
+#: variances and weights, a dwell fit's rates and amplitudes with their errors), and so
+#: travel into the provenance file. Every other array is data, including a model's
+#: sampled curve (``components``, ``total``, ``model_survival``).
 _PARAMETER_ARRAYS = frozenset(
     {
         "bin_edges",
@@ -199,6 +202,15 @@ _PARAMETER_ARRAYS = frozenset(
         "lags",
         "k_values",
         "hdr_coverages",
+        "means",
+        "variances",
+        "frac",
+        "rates",
+        "amplitudes",
+        "rate_stderr",
+        "amplitude_stderr",
+        "rate_ci",
+        "amplitude_ci",
     }
 )
 
