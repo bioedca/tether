@@ -336,8 +336,9 @@ $ tether batch data/day4 -d out
 tether batch: folder 'data/day4' holds no movie file (.tif, .tiff); add --recursive to include its sub-folders
 ```
 
-A folder that Tether cannot list stops the run in the same way. With `--recursive` this
-includes each of its sub-folders, so a batch never runs with one of them left out.
+A folder that Tether cannot list stops the run in the same way. This includes each
+sub-folder that `--recursive` or a pattern looks in, so a batch never runs with one of them
+left out.
 
 ### Output names when two movies have the same file name
 

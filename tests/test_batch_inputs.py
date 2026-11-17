@@ -175,6 +175,58 @@ def test_a_sub_folder_that_cannot_be_listed_is_refused_under_recursive(
         expand_movie_arguments([str(folder)], recursive=True)
 
 
+@pytest.mark.parametrize("pattern", ["data/**/*.tif", "data/day*/*.tif", "data/*/movie_010.tif"])
+def test_a_folder_a_pattern_cannot_list_is_refused(
+    tmp_path: Path, monkeypatch, pattern: str
+) -> None:
+    """``glob`` drops a folder it cannot list; the pattern is refused rather than cut short."""
+    folder = tmp_path / "data"
+    (folder / "day1").mkdir(parents=True)
+    (folder / "day2").mkdir()
+    (folder / "day1" / "movie_010.tif").write_bytes(b"")
+    (folder / "day2" / "movie_010.tif").write_bytes(b"")
+    locked = folder / "day2"
+    real_scandir = os.scandir
+
+    def _scandir(path=".", *args, **kwargs):
+        if os.path.abspath(os.fspath(path)) == os.path.abspath(locked):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path, *args, **kwargs)
+
+    real_lstat = os.lstat
+
+    def _lstat(path, *args, **kwargs):
+        # A folder without search permission: nothing inside it can be looked up either.
+        if os.path.dirname(os.path.abspath(os.fspath(path))) == os.path.abspath(locked):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(os, "scandir", _scandir)
+    monkeypatch.setattr(os, "lstat", _lstat)
+    with pytest.raises(MovieArgumentError, match=r"cannot read movie argument .*day2"):
+        expand_movie_arguments([pattern])
+
+
+def test_a_pattern_skips_a_hidden_folder_it_cannot_list(tmp_path: Path, monkeypatch) -> None:
+    """A hidden folder is not one a pattern looks in, so it cannot stop the batch."""
+    folder = tmp_path / "data"
+    (folder / "day1").mkdir(parents=True)
+    (folder / ".trash").mkdir()
+    (folder / "day1" / "movie_010.tif").write_bytes(b"")
+    locked = folder / ".trash"
+    real_scandir = os.scandir
+
+    def _scandir(path=".", *args, **kwargs):
+        if os.path.abspath(os.fspath(path)) == os.path.abspath(locked):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path, *args, **kwargs)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(os, "scandir", _scandir)
+    assert expand_movie_arguments(["data/**/*.tif"]) == (Path("data/day1/movie_010.tif"),)
+
+
 @pytest.mark.parametrize(
     ("argument", "message"),
     [

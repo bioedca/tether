@@ -25,6 +25,7 @@ to show in a dry run:
 
 from __future__ import annotations
 
+import fnmatch
 import glob
 import os
 from collections import defaultdict
@@ -112,6 +113,70 @@ def _folder_movies(folder: Path, *, recursive: bool) -> list[Path]:
     return found
 
 
+def _listed_names(folder: Path) -> list[os.DirEntry[str]]:
+    """List ``folder``; a folder that is missing gives nothing, one that cannot be read raises."""
+    try:
+        with os.scandir(folder) as entries:
+            return list(entries)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+
+
+def _present(path: Path) -> bool:
+    """Whether ``path`` exists; a path whose folder cannot be searched raises."""
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return True
+
+
+def _check_pattern_folders(pattern: str) -> None:
+    """Raise the [`OSError`][] of any folder that ``pattern`` must list and cannot.
+
+    [`glob.glob`][] treats a folder it cannot list as empty, so ``data/**/*.tif`` with one
+    unreadable day folder would give the other days' movies and no error. This walks the
+    folders the pattern looks in, as ``glob`` does (a wildcard part lists its folder, ``**``
+    every folder below it, hidden names only for a part that starts with ``.``), and lets
+    a listing error through so that the argument is refused by name.
+    """
+    parts = Path(pattern).parts
+    anchor = Path(pattern).anchor
+    folders = [Path(anchor) if anchor else Path()]
+    if anchor:
+        parts = parts[1:]
+    for index, part in enumerate(parts):
+        last = index == len(parts) - 1
+        if part == "**":
+            below: list[Path] = []
+            for folder in folders:
+                if not folder.is_dir():
+                    continue
+
+                def _refuse(exc: OSError) -> None:
+                    raise exc
+
+                for top, dirnames, _ in os.walk(folder, onerror=_refuse):
+                    dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+                    below.append(Path(top))
+            folders = below
+        elif glob.has_magic(part):
+            matched = []
+            for folder in folders:
+                for entry in _listed_names(folder):
+                    if entry.name.startswith(".") and not part.startswith("."):
+                        continue
+                    if fnmatch.fnmatch(entry.name, part) and (last or entry.is_dir()):
+                        matched.append(folder / entry.name)
+            folders = matched
+        else:
+            folders = [folder / part for folder in folders if _present(folder / part)]
+            if not last:
+                folders = [folder for folder in folders if folder.is_dir()]
+        if last or not folders:
+            return
+
+
 def _expand_one(argument: str, *, recursive: bool) -> list[Path]:
     path = Path(argument)
     if path.is_dir():
@@ -128,6 +193,7 @@ def _expand_one(argument: str, *, recursive: bool) -> list[Path]:
         return [path]
     if not _GLOB_CHARACTERS.intersection(argument):
         raise MovieArgumentError(f"no such movie file or folder: {argument!r}")
+    _check_pattern_folders(argument)
     found = []
     for match in sorted(glob.glob(argument, recursive=True)):
         match_path = Path(match)
@@ -182,8 +248,8 @@ def expand_movie_arguments(
     ------
     MovieArgumentError
         If an argument is a missing path, a folder with no movie file, a pattern that
-        matches no movie file, or a folder that cannot be listed (with ``recursive``,
-        also one of its sub-folders). The message names the argument.
+        matches no movie file, or a folder that cannot be listed (also a sub-folder that
+        ``recursive`` or a pattern looks in). The message names the argument.
     """
     found: dict[str, Path] = {}
     for argument in arguments:
