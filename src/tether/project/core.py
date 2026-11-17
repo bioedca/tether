@@ -49,7 +49,8 @@ if TYPE_CHECKING:
     )
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
-    from tether.project.lock import LockIdentity, LockInfo
+    from tether.project.lock import LockIdentity, LockInfo, RecoveryAction
+    from tether.project.movie_metadata import MovieMetadataRecord
 
 __all__ = ["Project"]
 
@@ -295,6 +296,31 @@ class Project:
         info, prior = lock.steal_lock(self.path, identity=self._acting_identity())
         self._held_lock = info
         return info, prior
+
+    def record_lock_takeover(
+        self, action: RecoveryAction | str, taken: LockInfo, ousted: LockInfo | None
+    ) -> np.ndarray:
+        """Keep a durable record of a successful Recover or Take over (#1099, ADR-0121).
+
+        Appends one row to ``/settings/lock_takeovers``
+        ([`lock_takeovers.record_takeover`][tether.project.lock_takeovers.record_takeover])
+        for the ``(taken, ousted)`` pair that
+        [`recover_lock`][tether.project.lock.recover_lock] returned. Call it once the
+        project has been reopened writable under the new lock; it goes through the same
+        single-writer check as every other write (`_assert_writable`, §5.4), so a lock
+        lost again in the meantime raises [`LockedError`][tether.project.lock.LockedError]
+        and nothing is written.
+        """
+        from tether.project import lock_takeovers
+
+        self._assert_writable()
+        return lock_takeovers.record_takeover(self.path, action, taken, ousted)
+
+    def read_lock_takeovers(self) -> np.ndarray:
+        """The append-only takeover record (`lock_takeovers.read_takeovers`); may be empty."""
+        from tether.project import lock_takeovers
+
+        return lock_takeovers.read_takeovers(self.path)
 
     def release_lock(self) -> bool:
         """Release the lock this handle holds; ``False`` if it holds none / lost it.
@@ -552,6 +578,164 @@ class Project:
 
         self._assert_writable()
         return conditions.remove_category(self.path, condition_id, name)
+
+    # --- per-molecule category + analysis window (PRD §5.1, §7.2; #358) --------
+
+    def set_category(
+        self,
+        molecule_key: str,
+        category: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Set a molecule's category to a name in its condition's list
+        ([`molecule_edits.set_category`][tether.project.molecule_edits.set_category]).
+
+        The condition's [`category_list`][] is the vocabulary: a name not in it is
+        refused. Refuses the write if the file is locked by another writer
+        (`_assert_writable`, §5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.set_category(
+            self.path,
+            molecule_key,
+            category,
+            labeler=labeler,
+            reason=reason,
+            timestamp=timestamp,
+        )
+
+    def clear_category(
+        self,
+        molecule_key: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Clear a molecule's category to ``""`` (`molecule_edits.clear_category`).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.clear_category(
+            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def set_analysis_window(
+        self,
+        molecule_key: str,
+        start: int,
+        stop: int,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Set a molecule's ``[start, stop)`` analysis window, clamped to its frames
+        ([`molecule_edits.set_analysis_window`][tether.project.molecule_edits.set_analysis_window]).
+
+        A window narrower than ``frame_range`` is a manual override that photobleach
+        detection leaves alone. Refuses the write if the file is locked by another
+        writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.set_analysis_window(
+            self.path,
+            molecule_key,
+            start,
+            stop,
+            labeler=labeler,
+            reason=reason,
+            timestamp=timestamp,
+        )
+
+    def reset_analysis_window(
+        self,
+        molecule_key: str,
+        *,
+        labeler: str | None = None,
+        reason: str = "",
+        timestamp: str | None = None,
+    ) -> np.ndarray:
+        """Restore a molecule's analysis window to its ``frame_range``
+        ([`molecule_edits.reset_analysis_window`][tether.project.molecule_edits.reset_analysis_window]).
+
+        Refuses the write if the file is locked by another writer (§5.4).
+        """
+        from tether.project import molecule_edits
+
+        self._assert_writable()
+        return molecule_edits.reset_analysis_window(
+            self.path, molecule_key, labeler=labeler, reason=reason, timestamp=timestamp
+        )
+
+    def read_molecule_audit(self) -> np.ndarray:
+        """The append-only per-molecule edit log (`molecule_edits.read_molecule_audit`)."""
+        from tether.project import molecule_edits
+
+        return molecule_edits.read_molecule_audit(self.path)
+
+    # --- movie metadata with its origin (#911; §7.1, §11.1 units) --------------
+
+    def movie_metadata(self) -> dict[str, MovieMetadataRecord]:
+        """Each movie's frame time, pixel size and channel roles with their origins.
+
+        Read-only; delegates to
+        [`movie_metadata.read_movie_metadata`][tether.project.movie_metadata.read_movie_metadata].
+        """
+        from tether.project import movie_metadata
+
+        return movie_metadata.read_movie_metadata(self.path)
+
+    def set_frame_time(self, movie_id: str, seconds: float) -> MovieMetadataRecord:
+        """Give a movie's frame time (origin ``user``, not verified). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_frame_time(self.path, movie_id, seconds)
+
+    def confirm_frame_time(self, movie_id: str) -> MovieMetadataRecord:
+        """Verify a movie's frame time (the user's separate action). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.confirm_frame_time(self.path, movie_id)
+
+    def update_movie_metadata(
+        self,
+        movie_id: str,
+        *,
+        frame_time: float | None = None,
+        pixel_size_um: float | None = None,
+        confirm_frame_time: bool = False,
+    ) -> MovieMetadataRecord:
+        """Apply several metadata changes in one all-or-nothing write. Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.update_movie_metadata(
+            self.path,
+            movie_id,
+            frame_time=frame_time,
+            pixel_size_um=pixel_size_um,
+            confirm_frame_time=confirm_frame_time,
+        )
+
+    def set_pixel_size(self, movie_id: str, micrometres: float) -> MovieMetadataRecord:
+        """Give a movie's pixel size in µm (origin ``user``). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_pixel_size(self.path, movie_id, micrometres)
 
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 

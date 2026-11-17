@@ -15,12 +15,13 @@ site will change that.
 Tether reads **uncompressed multi-page TIFF movies from a single camera whose frame is
 split side by side, down the vertical midline, into a left and a right half** — one donor
 channel, one acceptor channel — recorded with **one excitation laser** and **two colors**.
-That is the dual-view TIRF geometry the whole pipeline is built around. A top/bottom
-(stacked) dual-view export does not fit native extraction: the built-in splitter cuts on
-width only, so it would slice each channel in two rather than separating them. (If you have
-a Deep-LASI `.tmap` whose per-channel crops describe the stacked tiles, extracting with
-`--tmap` splits at those crops instead — but that combination is untested, so treat it as
-unsupported.)
+That is the dual-view TIRF geometry the whole pipeline is built around. It is the only one
+that the `tether extract` and `tether batch` commands split by. Other single-camera layouts
+are extracted from Python with a channel layout: a top/bottom (stacked) export, or two
+channels at two free rectangles of the frame. See [Acquisition
+geometry](#acquisition-geometry). (A Deep-LASI `.tmap` whose per-channel crops describe the
+stacked tiles also splits at those crops with `--tmap`, but that combination is untested, so
+treat it as unsupported.)
 
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
 *three-color*, or *confocal point detectors* describes your setup, it does not — see
@@ -35,19 +36,30 @@ read them.
 | Container | multi-page TIFF |
 | Compression | **none** — the movie must be uncompressed and contiguous |
 | Dimensions | exactly 3-D: `(frames, height, width)` |
-| Pixel type | not constrained by the reader; the reference acquisition is 16-bit unsigned big-endian, and byte order is preserved end to end |
-| Geometry | one frame containing both channels side by side, split down the vertical midline |
+| Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |
+| Pixel type | one real sample per pixel: an unsigned or signed integer, or a float, in either byte order; the reference acquisition is 16-bit unsigned big-endian, and byte order is preserved end to end. RGB, palette and complex pixels are refused |
+| Geometry | one frame containing both channels; side by side, split down the vertical midline, from the command line; side by side, top and bottom, or two equal rectangles from Python (`ExtractOptions(channel_layout=…)`) |
 
 The reader is `tether.io.movie.MovieReader`, and it refuses rather than guesses. It raises
-`ValueError` when the TIFF series is not 3-D, when the file is not memory-mappable — which
-is what a compressed or non-contiguous TIFF looks like from here — and when the memory-map
-geometry disagrees with the geometry the TIFF directory reported. That last one is
-deliberate belt-and-braces: serving frames from a mismatched map would return wrong data
-quietly, which is worse than failing.
+`ValueError` when:
 
-**The extension is not what decides.** On the native path (`tether extract`, `tether
-batch`) the filename suffix is never checked; the file is handed to `tifffile`, so a real
-`.nd2` fails with a parse error ("not a TIFF file") rather than being politely classified.
+- The TIFF series is not 3-D.
+- The codec can be lossy (the message names it).
+- A pixel is not one real intensity sample.
+- The file is not memory-mappable, which is what a compressed or non-contiguous TIFF looks
+  like from here.
+- The memory-map geometry disagrees with the geometry the TIFF directory reported.
+
+That last one is deliberate belt-and-braces: serving frames from a mismatched map would
+return wrong data quietly, which is worse than failing.
+
+**The content decides, not the extension.** Every movie opens through the reader registry
+in `tether.io.adapters`, which reads the first bytes of the file. A TIFF saved as
+`movie.dat` still opens. A file named `movie.tif` that is not a TIFF is refused, and the
+message says so. A container Tether does not read, such as a real `.nd2`, is refused too.
+That message lists what Tether reads (today, TIFF) and names the Bio-Formats route for the
+others.
+
 Extension matching exists only in the Deep-LASI folder-intake wizard, where
 `tether.io.intake.classify_file` maps `.tif`/`.tiff` to the movie role, `.tdat`, `.tmap`,
 `.mat`, `.txt` and `.hdf5`/`.h5` to their own legacy roles, and anything it does not
@@ -66,10 +78,20 @@ The reference acquisition the performance envelope is written against is a
 
 ## Acquisition geometry
 
-Tether splits each frame into a left half and a right half and treats one as donor and the
-other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
-`left`); the split itself is [`tether.project.extract._half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py), which crops
-both halves from the frame *width* — there is no top/bottom split.
+By default Tether splits each frame into a left half and a right half and treats one as donor and
+the other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
+`left`).
+
+For other optical layouts, `ExtractOptions(channel_layout=…)` takes a `ChannelLayout`
+(`tether.imaging.layout`) from Python. A `top-bottom` layout has the channels one above the other,
+stacked and not rotated, with the donor `top` or `bottom`. A `rectangles` layout has one free
+`[y1, x1, y2, x2]` rectangle for each channel, 1-based and inclusive. The two channels must be the same
+size, so a layout that gives two different sizes is refused. A rectangle outside the frame is
+refused too, and overlapping rectangles give a warning.
+
+Each movie's layout is stored as `/movies/layouts/<movie_id>` in the project. There is no
+command-line option for a layout yet, and no rotation or flip of a channel; a movie whose two
+channels are separate files is not supported yet either.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
 batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,

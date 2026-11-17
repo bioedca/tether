@@ -6,9 +6,10 @@ description: "Run tether extract and tether batch without the application window
 
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. Today the command line has three subcommands:
-`tether extract` and `tether batch` write projects, and `tether info` only reads them and
-prints a summary.
+extraction from recorded settings. Today the command line has four subcommands:
+`tether extract` and `tether batch` write projects, `tether info` only reads them and
+prints a summary, and `tether metadata` shows or gives the frame time, pixel size and
+channel roles of a project's movies.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -435,6 +436,48 @@ value that the project does not record is `null`. The keys are:
 | `projects[].lock.age_s` | the age of the lock in seconds |
 | `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
 
+## `tether metadata`
+
+Show, or give, the metadata of the movies in a project: the frame time, the pixel size and
+the channel roles (which half is the donor). Each value has an **origin**: `file` when
+Tether read it from the movie (the ImageJ `finterval` and the ImageJ pixel size in µm, or
+the channel crops of an imported `.tmap`), `user` when a person gave it, and `unknown`
+when there is no value. A native extraction records the channel roles as `user`, because
+`--donor-side` names the donor half.
+
+A frame time is **verified** only when it is from the file, or when you confirm it in a
+second call. A value you type stays not verified until you confirm it. Tether stores
+this flag now. Rate calculations do not check it yet: that is planned work
+([#941](https://github.com/bioedca/tether/issues/941)).
+
+```text
+tether metadata [-h] [--movie MOVIE_ID] [--frame-time SECONDS] [--pixel-size UM]
+                [--confirm-frame-time] [--json]
+                project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | path to the `.tether` project |
+| `--movie MOVIE_ID` | the only movie | the movie to change; required when the project has more than one movie |
+| `--frame-time SECONDS` | none | give the frame time (origin `user`, not verified) |
+| `--pixel-size UM` | none | give the pixel size in µm per pixel (origin `user`) |
+| `--confirm-frame-time` | off | mark the movie's frame time as verified; refused in the same call as `--frame-time` |
+| `--json` | off | print the records as JSON instead of text |
+
+With no option the command changes nothing and prints each movie. A value of `0` means
+unknown. The values are kept beside the `/movies` table, and `/movies.frame_time` keeps
+the value from the file ([`.tether` file format](reference/tether-format.md#movies-one-row-per-source-movie)).
+
+```console
+$ tether metadata run.tether --frame-time 0.1
+mov-…:
+  frame time: 0.1 s (user, not verified)
+  pixel size: 0 um (unknown)
+  channel roles: user
+$ tether metadata run.tether --confirm-frame-time
+```
+
 ## Service commands
 
 `tether extract` and `tether batch` are each the command-line route of one *service command*
@@ -475,11 +518,11 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` | `tether info` |
-|---|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
+| Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` |
+|---|---|---|---|---|
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read | the records were printed, after any change |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
@@ -507,3 +550,26 @@ per-movie, per-stage detail — to **stdout**, together with the JSONL structure
 writes to `<out-dir>/batch-log.jsonl`. Only the log's path, and startup refusals, go to
 stderr. If you are capturing streams separately, per-movie failure detail is in stdout and
 the log, not in stderr.
+
+### Exit code `4`: a person must approve a step
+
+Code `4` is reserved, and it has one meaning in every `tether` command: the run stopped
+before a step that needs a person, because nothing approved that step. No command returns
+it today. `tether batch` never returns it, because it applies its `--policy` rule to the
+map and accepts the estimated correction factors, as it does now
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+
+The codes that have one meaning in every command:
+
+- `0`: the command completed.
+- `1`: the command ran, and at least one item failed.
+- `2`: bad command-line arguments, or a refusal to start.
+- `4`: the run stopped at an approval step, and nothing failed.
+
+The approval steps are: accept a map, confirm the bleedthrough factor α, approve γ, and
+select the active fit. A command that stops with `4` writes one message to stderr with the
+step, its subject, the report that is the evidence, the command that approves the step and
+the command that continues the run. The work done before the stop is kept, and the
+continued run does not do it again. A run that has a failed item and also stopped exits
+`1`. A code that this list does not name has the meaning that the table of its command
+gives.
