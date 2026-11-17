@@ -212,6 +212,15 @@ class MovieResult:
         """The failed stages, for naming in the summary."""
         return [s for s in self.stages.values() if s.status == STATUS_FAILED]
 
+    @property
+    def deferred(self) -> list[str]:
+        """The names of this movie's ``deferred`` stages, in pipeline order (#647)."""
+        return [
+            name
+            for name in STAGES
+            if (sr := self.stages.get(name)) is not None and sr.status == STATUS_DEFERRED
+        ]
+
 
 @dataclass(frozen=True)
 class BatchSummary:
@@ -235,6 +244,25 @@ class BatchSummary:
     def n_failed(self) -> int:
         """Number of movies with at least one failed stage."""
         return sum(1 for r in self.results if not r.ok)
+
+    @property
+    def n_deferred(self) -> int:
+        """Number of movies with at least one ``deferred`` stage (#647).
+
+        Only a requested stage can be deferred; one the user did not ask for is
+        ``not-requested``. ``tether batch`` exits ``3`` when this is non-zero and no movie
+        failed.
+        """
+        return sum(1 for r in self.results if r.deferred)
+
+    def deferred_by_stage(self) -> dict[str, int]:
+        """For each deferred stage, the number of movies it was deferred in (#647)."""
+        counts: dict[str, int] = {}
+        for name in STAGES:
+            n = sum(1 for r in self.results if name in r.deferred)
+            if n:
+                counts[name] = n
+        return counts
 
     @property
     def donor_side_flagged(self) -> list[MovieResult]:
@@ -264,6 +292,12 @@ class BatchSummary:
             if r.donor_side_swapped:
                 stage_bits.append("halves-swapped?")
             lines.append(f"  {flag}  {r.job.label:<{width}}  {' '.join(stage_bits)}")
+        deferred = self.deferred_by_stage()
+        if deferred:
+            stages = ", ".join(
+                f"{name} in {n} of {self.n_movies} movie(s)" for name, n in deferred.items()
+            )
+            lines.append(f"Deferred: {stages}; re-run the same command to resume.")
         flagged = self.donor_side_flagged
         if flagged:
             lines.append(
