@@ -445,21 +445,25 @@ def reconcile_jobs(project: Project) -> list[str]:
     """Store *interrupted* for each running job with no live owner; return their ids.
 
     Needs the writer lock. [`submit_job`][], [`run_job`][] and [`retry_job`][] call it first,
-    so the first writer after a crash stores what every reader already reports. Each
-    write binds to the lock epoch this call started under, so a steal stops it even when
-    the thief has released the lock since.
+    so the first writer after a crash stores what every reader already reports. A lock must
+    be present and this writer's: an absent one refuses with ``LockedError``. Each write binds
+    to the lock epoch this call started under, so a steal stops it even when the thief has
+    released the lock since.
     """
     from tether.project import lock  # noqa: PLC0415
 
-    project._assert_writable()
-    start = lock.read_lock(project.path)
-    epoch = None if start is None else start.nonce
-
-    def check() -> None:
+    def held_nonce() -> str:
         project._assert_writable()
         current = lock.read_lock(project.path)
-        if (None if current is None else current.nonce) != epoch:
-            raise lock.LockedError(current, path=project.lock_path)
+        if current is None:
+            raise lock.LockedError(None, path=project.lock_path)
+        return current.nonce
+
+    epoch = held_nonce()
+
+    def check() -> None:
+        if held_nonce() != epoch:
+            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
 
     seen = [
         j

@@ -459,6 +459,20 @@ def test_a_steal_and_release_while_a_reconcile_waits_for_the_file_stops_its_writ
     assert jobs.read_job(project.path, job.job_id).stored_state is jobs.JobState.RUNNING
 
 
+def test_a_reconcile_needs_a_lock_and_refuses_one_stolen_and_released_before_it(
+    project: Project,
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    owner = json.dumps({"nonce": project._held_lock.nonce, "pid": os.getpid()})
+    jobs._write_job(project.path, job.job_id, state="running", owner=owner, started_utc="t0")
+    thief = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+    thief.steal_lock()
+    thief.release_lock()
+    with pytest.raises(LockedError):
+        jobs.reconcile_jobs(project)  # no lock at all: not a writer
+    assert jobs.read_job(project.path, job.job_id).stored_state is jobs.JobState.RUNNING
+
+
 def test_a_reconcile_never_stores_interrupted_over_a_run_that_started_after_it_looked(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
