@@ -156,6 +156,7 @@ guaranteed to be there.
 | `/movies/metadata/<movie_id>` | absent | `extract_movie` (`src/tether/project/extract.py`); changed by `tether.project.movie_metadata` |
 | `/idealization/{model}` | no | `write_idealization_model` (`src/tether/project/idealize.py`) |
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
+| `/labels/reject_log` | absent | `reject` / `unreject` (`src/tether/project/labels.py`) |
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
 | `/conditions` rows, `/conditions/categories/<condition_id>`, `/settings/condition_audit` | 0 rows / absent | `tether.project.conditions` |
 | `/settings/molecule_audit` | absent | `set_category` / `clear_category` / `set_analysis_window` / `reset_analysis_window` (`src/tether/project/molecule_edits.py`) |
@@ -454,6 +455,44 @@ so a crash leaves at worst an orphan label row, never an unaudited state change.
 | `weight` | `f8` | scalar | Effective training weight, dimensionless. Human labels are `1.0`; provisional weights decay as human labels accrue and this column is **rewritten** at retrain. |
 | `label_value` | `i4` | scalar | The same signed codec as `curation_label`: `0` uncurated, `1` accept, `-1` reject. |
 | `condition_id` | `str:utf-8` | scalar | The condition the label is scoped to. |
+
+### `/labels/reject_log` — the reason of each reject
+
+A resizable 1-D compound dataset, **append-only**, created on the first human reject
+(`reject`, `src/tether/project/labels.py`), so a fresh store does not have it
+([ADR-0104](../adr/0104-a-reject-reason-log-under-labels.md)). Each
+human reject appends a `reject` row and each un-reject appends a `restore` row.
+
+A rejected trace stays in the store: a reject sets `curation_label` to `-1` and deletes
+nothing. The log is a record only. The curation filter, the ranker and every analysis
+read `/molecules.curation_label` and not the reason. Provisional-source rejects write
+no row. `reject_record_of` returns the `reject` row that joins the molecule's
+latest human `/labels` event when that event is a reject, or `None` (also for a store
+written before this log existed).
+
+| Field | Type | Shape | Meaning / units |
+|---|---|---|---|
+| `molecule_key` | `str:utf-8` | scalar | Join key into `/molecules.molecule_key`. |
+| `event` | `str:utf-8` | scalar | `reject` or `restore`. |
+| `reason` | `str:utf-8` | scalar | A code from the list below; empty on a `restore` row. |
+| `note` | `str:utf-8` | scalar | Optional free text (valid UTF-8, no NUL character; anything else is refused before the reject or restore is written). |
+| `value` | `f8` | scalar | The score threshold of a `threshold` reject; `NaN` on all other rows. |
+| `labeler` | `str:utf-8` | scalar | Who rejected or restored. The same value as the matching `/labels` row. |
+| `timestamp` | `str:utf-8` | scalar | When. The same value as the matching `/labels` row, so the two rows join on `molecule_key` + `labeler` + `timestamp`. |
+| `condition_id` | `str:utf-8` | scalar | The condition of the matching `/labels` row. |
+
+The reasons are a fixed list, defined once in `REJECT_REASONS`
+(`src/tether/project/labels.py`). Any other value is refused before a write.
+
+| Code | Meaning |
+|---|---|
+| `unspecified` | No reason was given. The default of a reject. |
+| `no-anticorrelation` | Donor and acceptor do not anti-correlate. |
+| `multiple-molecules` | More than one donor or acceptor in the spot. |
+| `artifact` | A blink, spike, drift or other artifact makes the trace unusable. |
+| `low-signal` | The signal is too low or too noisy to use. |
+| `threshold` | Rejected by a score threshold. The row must carry the threshold in `value`. |
+| `other` | Another reason. The row must carry a `note` that says which. |
 
 ## `/traces` — the integrated intensity arrays
 
