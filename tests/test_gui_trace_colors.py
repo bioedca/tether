@@ -39,8 +39,14 @@ _needs_qt = pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not instal
 
 
 @pytest.fixture(autouse=True)
-def _default_palette():
-    """Every test starts and ends on the default palette (module state)."""
+def _default_palette(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Every test starts and ends on the default palette (module state).
+
+    Outside the ``gui`` tests the ``"system"`` theme resolves to light without asking
+    Qt, so the palette and store tests run where PySide6 and pyqtgraph are absent.
+    """
+    if request.node.get_closest_marker("gui") is None:
+        monkeypatch.setattr(theme, "system_theme_name", lambda: "light")
     theme.set_trace_palette(theme.DEFAULT_TRACE_PALETTE)
     yield
     theme.set_trace_palette(theme.DEFAULT_TRACE_PALETTE)
