@@ -13,6 +13,11 @@ Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x. The Source Data archi
   :data:`LIMITS` were measured on Linux, macOS and Windows (ADR-0097 has the numbers) and are
   frozen; the smoothed-array limit (#1029) is measured on three systems by #1130.
 
+* Weekly, Fig. 5c (#1030, ADR-0120): Tether's two-Gaussian fit of each Fig. 5b histogram gives the
+  fraction of the closed state that the archive's notebook printed, in all five columns. Three of
+  them also equal Fig. 5c; in the two 5 uM columns Fig. 5c differs from the notebook, and the test
+  holds Tether to the notebook there.
+
 These are advisory references. The HMM fits of the paper are #757 and its rate bounds are #758.
 """
 
@@ -34,6 +39,7 @@ from _campos_chavez_2024 import (
     TDPS,
     TRACE_SHEETS,
     column,
+    compare_closed_fraction,
     compare_histogram,
     compare_intrafret,
     compare_survival,
@@ -42,8 +48,11 @@ from _campos_chavez_2024 import (
     compare_trace_sheet,
     dwells_from_survival,
     find_windows,
+    intrafret_efficiencies,
     read_book,
     read_double_params,
+    read_fig5c,
+    read_notebook_fractions,
     read_traces,
     rounding_bound,
 )
@@ -62,11 +71,19 @@ LIMITS = {
     "model_rel": 2e-5,
     "params_rel": 5e-5,
     "errors_rel": 1e-2,
+    # Fig. 5c and the notebook print each fraction and error with four decimals, so a value equal
+    # to the unrounded one is within half a unit of the fourth decimal (ADR-0120).
+    "fraction_abs": 5e-5,
     # The smoothed transition density (#1029): Tether's view beside the array checkTDP.py
     # computes, both peak-normalized to 1, from the same counts with the same SciPy calls
     # (0.0 for all seven sheets on Linux, 2026-11-16; #1130 measures it on three systems).
     "tdp_view_abs": 1e-12,
 }
+#: Fig. 5b columns whose Fig. 5c fraction is not the one the archive's notebook printed (ADR-0120):
+#: 5 uM WT tRNA (notebook 0.3956, Fig. 5c 0.3961) and 5 uM tRNA-NCCA (0.3623 and 0.3630).
+FIG5C_NOT_NOTEBOOK = (2, 6)
+#: The Fig. 5b columns of Fig. 5c (one for each row of the sheet).
+FIG5C_COLUMNS = (0, 2, 4, 6, 8)
 
 
 @functools.cache
@@ -82,6 +99,16 @@ def _book():
 @functools.cache
 def _traces(name: str):
     return read_traces(_archive(), name)
+
+
+@functools.cache
+def _closed_fraction(col: int) -> dict:
+    """Tether's fit of one Fig. 5b column: of Tether's efficiencies where the archive has the trace
+    matrix, else (5 uM WT tRNA) of the published efficiencies."""
+    values = column(_book()["Fig5b"], "FRET Efficiency", col)
+    name = INTRAFRET.get(col)
+    source = intrafret_efficiencies(values, *_traces(name)) if name else values
+    return compare_closed_fraction(source)
 
 
 # --- required matrix: the method, on data built here --------------------------------------------
@@ -138,6 +165,17 @@ def test_column_reads_down_to_the_first_gap() -> None:
     np.testing.assert_array_equal(column(rows, "Time (s)", 0), [0.0, 0.1])
 
 
+def test_read_fig5c_maps_each_row_to_its_fig5b_column() -> None:
+    rows = [
+        (None, "Fig. 5c", None, None),
+        ("Condition", "tRNA concentration (mM)", "Value (area ratio)", "Error"),
+        ("No tRNA", 0.0, 0.3, 0.01),
+        ("tRNA Ile", 5.0, 0.4, 0.02),
+        (None, None, None, None),
+    ]
+    assert read_fig5c(rows) == {0: (0.3, 0.01), 2: (0.4, 0.02)}
+
+
 def test_every_double_exponential_panel_has_a_committed_parameter_file() -> None:
     manifest = fetch.load_manifest()
     files = {d.extract_member for d in manifest.values() if d.extract_member}
@@ -182,6 +220,44 @@ def test_intrafret_histogram_values_are_tethers_first_400_frames(col: int) -> No
     assert [s for s, _ in got["start_groups"]] == [0, 1], got
     assert got["max_bound_ratio"] <= LIMITS["bound_ratio"], got
     assert got["unbounded_values"] == 0, got  # every value is held to a finite bound
+
+
+@pytest.mark.reference_download
+def test_the_fig5c_sheet_and_the_notebook_cover_every_fig5b_column() -> None:
+    assert sorted(read_fig5c(_book()["Fig5c"])) == list(FIG5C_COLUMNS)
+    assert sorted(read_notebook_fractions(_archive())) == list(FIG5C_COLUMNS)
+
+
+@pytest.mark.reference_download
+@pytest.mark.parametrize("col", FIG5C_COLUMNS)
+def test_two_gaussian_fit_gives_the_closed_state_fraction(col: int) -> None:
+    got = _closed_fraction(col)
+    assert got["success"], got
+    assert got["bins_differing"] == 0, got  # Tether's histogram is the notebook's
+    printed = read_notebook_fractions(_archive())[col]
+    published = read_fig5c(_book()["Fig5c"])[col]
+    # Tether gives what the notebook printed, the fraction and the notebook's error of it.
+    assert abs(got["fraction"] - printed[0]) <= LIMITS["fraction_abs"], (got, printed)
+    assert abs(got["published_error"] - printed[1]) <= LIMITS["fraction_abs"], (got, printed)
+    # Fig. 5c has the notebook's errors; two of its fractions are not the notebook's.
+    assert abs(got["published_error"] - published[1]) <= LIMITS["fraction_abs"], (got, published)
+    off = abs(got["fraction"] - published[0])
+    if col in FIG5C_NOT_NOTEBOOK:
+        assert off > LIMITS["fraction_abs"], (got, published)
+        assert abs(printed[0] - published[0]) > LIMITS["fraction_abs"], (printed, published)
+    else:
+        assert off <= LIMITS["fraction_abs"], (got, published)
+    # Tether's own error keeps the covariances that the notebook leaves out, and is smaller.
+    assert 0.0 < got["tether_error"] < got["published_error"], got
+
+
+@pytest.mark.reference_download
+def test_the_published_fractions_use_the_bin_sum_area_not_the_integral() -> None:
+    # 13 uM WT tRNA: the area A sqrt(2 pi) sigma of the Methods gives 0.4158, not Fig. 5c's 0.4166.
+    got = _closed_fraction(4)
+    published = read_fig5c(_book()["Fig5c"])[4]
+    assert abs(got["fraction"] - published[0]) <= LIMITS["fraction_abs"], got
+    assert abs(got["integral_fraction"] - published[0]) > 10 * LIMITS["fraction_abs"], got
 
 
 @pytest.mark.reference_download

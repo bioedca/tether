@@ -158,12 +158,16 @@ else would make it a worse historical record in exchange for a working link.
 | [0112](0112-every-publishing-writer-holds-its-destination-lock.md) | Every publishing writer holds its destination lock, and one helper names a file | accepted; amends [ADR-0055](0055-gui-session-writer-ownership.md) on the GUI write | §5.4 (single writer), §7.10 FR-CONCURRENCY |
 | [0113](0113-one-movie-reader-interface-an-adapter-registry-and-a-rule-for-reader-packages.md) | One movie reader interface, an adapter registry, and a rule for reader packages | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0114](0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md) | Leave-one-video-out is the second held-out ranker protocol | accepted | §8 NFR-VALID (d), §7.5 (FR-ML precision@k), §9 M5, §9.6, §11.2 (ranker |
+| [0115](0115-deep-lasi-acquisitions-in-oracle-a-and-how-a-failure-is-handled.md) | Deep-LASI acquisitions in oracle (a), and how a failure on one is handled | accepted | §9.5 (the validation suite, oracle (a)), §8 NFR-VALID (a), §8 NFR-FIXTURES |
 | [0116](0116-the-shell-hosts-its-sections-in-one-stack.md) | The shell hosts its sections in one stack, and each dock belongs to one section | accepted | §4.2 (`tether.gui`), §7.3 (the curation shell), §7.10 FR-CONCURRENCY, FR-WORKFLOW |
 | [0117](0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md) | A movie is appended to a project once, under its writer lock, and keeps its own settings | accepted | §5.1 (data model), §5.4 (single writer), §7.11 FR-EXTRACT / FR-BATCH, §7.8 (the |
+| [0118](0118-the-tether-file-type-is-registered-by-the-installer.md) | The installer registers the .tether file type on each system | accepted | §4.1 NFR-PKG, goal G6 |
 | [0119](0119-the-condition-model-has-its-own-lock-and-a-project-reference.md) | The condition model has its own single-writer lock, and a project records it under `/models` | accepted; completes the store integration that [ADR-0035](0035-portable-model-persistence.md) deferred | §5.1 (`/models`), §5.4 (single writer, steal-lock), §7.5 (FR-ML), §7.10 FR-CONCURRENCY |
+| [0120](0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md) | A sum-of-Gaussians fit of a FRET histogram, its two area definitions and its errors | proposed | §7.7 FR-ANALYZE (FRET histograms), §8 NFR-VALID |
 | [0121](0121-each-lock-takeover-leaves-a-record-in-the-project.md) | Each lock takeover leaves a record in the project | accepted | §7.10 FR-CONCURRENCY, §5.4 (single writer), §5 (schema) |
 | [0122](0122-the-session-is-remembered-in-a-preferences-file-beside-the-settings-file.md) | The session is remembered in a preferences file beside the settings file | accepted | §7.3 (the curation shell); §5.1 `/labels` (the `labeler`); goal G6 |
 | [0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md) | The plot builder's composition unit, its one renderer, and its staleness and frame-time policies | accepted | §7.7 FR-PLOT (composed plots), §7.9 FR-EXPORT, §4.1 (no PyQt in the base stack) |
+| [0126](0126-jobs-and-stale-marks-are-stored-in-the-project.md) | Jobs, their checkpoints and the stale marks are stored in the project | accepted | §7.13 (FR-WORKFLOW), §7.10 (FR-CONCURRENCY), §5 (data model) |
 
 <!-- gen:adr-index end -->
 
