@@ -8,6 +8,8 @@ import ast
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import h5py
@@ -293,6 +295,80 @@ def test_a_job_needs_the_writer_lock_and_stops_when_it_is_stolen(tmp_path: Path)
     assert seen.state is jobs.JobState.INTERRUPTED  # the lock no longer carries its nonce
     with pytest.raises(LockedError):
         jobs.set_stale_marks(project, "map", "m1", "new")
+
+
+_HOLD_OPEN = """
+import sys, time
+from pathlib import Path
+import h5py
+with h5py.File(sys.argv[1], "r"):
+    Path(sys.argv[2]).write_text("open")
+    time.sleep(float(sys.argv[3]))
+"""
+
+
+def test_a_checkpoint_write_waits_out_a_reader_that_holds_the_file(
+    project: Project, tmp_path: Path
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    ready = tmp_path / "ready"
+    reader = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_OPEN, str(project.path), str(ready), "0.5"], cwd=ROOT
+    )
+    try:
+        for _ in range(400):
+            if ready.exists() or reader.poll() is not None:
+                break
+            time.sleep(0.025)
+        assert ready.exists()
+        # The reader holds the file while the job starts and writes its first checkpoint.
+        done = jobs.run_job(project, job.job_id, lambda *_: None)
+    finally:
+        reader.wait(timeout=60)
+    assert (done.state, done.completed, done.error) == (jobs.JobState.DONE, PARTS, "")
+
+
+def test_two_starts_of_one_job_in_one_process_never_both_run(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+
+    def fail_at_c(part: str, _c: jobs.CancelToken) -> None:
+        if part == "c":
+            raise RuntimeError("disk full")
+
+    assert jobs.run_job(project, job.job_id, fail_at_c).state is jobs.JobState.FAILED
+
+    # Hold the first retry between its state check and its first write.
+    real_write = jobs._write_job
+    at_start, go_on = threading.Event(), threading.Event()
+
+    def held_write(path: Path, job_id: str, **fields: str) -> None:
+        if fields.get("state") == "running" and not at_start.is_set():
+            at_start.set()
+            assert go_on.wait(30)
+        real_write(path, job_id, **fields)
+
+    monkeypatch.setattr(jobs, "_write_job", held_write)
+    ran: list[str] = []
+    first: dict[str, jobs.JobRecord] = {}
+
+    def retry() -> None:
+        first["job"] = jobs.retry_job(project, job.job_id, lambda part, _c: ran.append(part))
+
+    thread = threading.Thread(target=retry)
+    thread.start()
+    try:
+        assert at_start.wait(30)
+        with pytest.raises(jobs.JobError, match="already running"):
+            jobs.retry_job(project, job.job_id, lambda part, _c: ran.append(part))
+        with pytest.raises(jobs.JobError, match="already running"):
+            jobs.run_job(project, job.job_id, lambda part, _c: ran.append(part))
+    finally:
+        go_on.set()
+        thread.join(30)
+    assert ran == ["c", "d", "e"]
+    assert (first["job"].state, first["job"].completed) == (jobs.JobState.DONE, PARTS)
 
 
 # --- the stale marks (ADR-0103) -------------------------------------------------------------

@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -44,7 +44,7 @@ from uuid import uuid4
 from tether.project import dependency_graph as graph
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
     from pathlib import Path
 
     from tether.project.core import Project
@@ -323,11 +323,34 @@ def _read_rows(path: str | Path, name: str) -> list[dict[str, str]]:
     return [{n: _text(row[n]) for n in names} for row in data]
 
 
-def _write_job(path: Path, job_id: str, **fields: str) -> None:
-    """Change fields of the stored row of ``job_id`` in place."""
+_OPEN_ATTEMPTS = 20
+_OPEN_DELAY_S = 0.025
+
+
+def _open_for_job_write(path: Path):  # noqa: ANN202 - h5py.File
+    """Open ``path`` for a job write, waiting out a reader that has the file open.
+
+    HDF5 refuses a writable open while a reader holds the file. A reader holds it only for
+    its own short read, so the open is tried again, at most ``_OPEN_ATTEMPTS`` times over
+    about five seconds, before the error is raised.
+    """
+    import time  # noqa: PLC0415
+
     import h5py  # noqa: PLC0415
 
-    with h5py.File(path, "r+") as f:
+    for attempt in range(_OPEN_ATTEMPTS):
+        try:
+            return h5py.File(path, "r+")
+        except OSError:
+            if attempt == _OPEN_ATTEMPTS - 1:
+                raise
+            time.sleep(_OPEN_DELAY_S * (attempt + 1))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _write_job(path: Path, job_id: str, **fields: str) -> None:
+    """Change fields of the stored row of ``job_id`` in place."""
+    with _open_for_job_write(path) as f:
         ds = f[_SETTINGS][_JOBS]
         ids = [_text(v) for v in ds["job_id"]]
         try:
@@ -396,7 +419,8 @@ def read_jobs(path: str | Path) -> list[JobRecord]:
 
     This is a read: it needs no lock, never waits on a running job and writes nothing. A
     stored *running* job whose owner is gone is returned as *interrupted*
-    ([`JobRecord.stored_state`][] keeps what is written).
+    ([`JobRecord.stored_state`][] keeps what is written). A read that meets one of the short
+    writes of a job raises the ``OSError`` of HDF5; a caller that polls tries again.
     """
     return [_record(row, path) for row in _read_rows(path, _JOBS)]
 
@@ -497,10 +521,11 @@ def run_job(
     """
     nonce = project._assert_held_lock()
     reconcile_jobs(project)
-    job = read_job(project.path, job_id)
-    if job.stored_state is not JobState.QUEUED:
-        raise JobError(f"job {job_id} is {job.state.value}; only a queued job starts")
-    return _drive(project, job, nonce, work, cancel or CancelToken(), progress)
+    with _claimed(job_id):
+        job = read_job(project.path, job_id)
+        if job.stored_state is not JobState.QUEUED:
+            raise JobError(f"job {job_id} is {job.state.value}; only a queued job starts")
+        return _drive(project, job, nonce, work, cancel or CancelToken(), progress)
 
 
 def retry_job(
@@ -518,13 +543,32 @@ def retry_job(
     """
     nonce = project._assert_held_lock()
     reconcile_jobs(project)
-    job = read_job(project.path, job_id)
-    if job.stored_state not in RETRYABLE:
-        raise JobError(
-            f"job {job_id} is {job.state.value}; only a failed, cancelled or interrupted "
-            "job can be retried"
-        )
-    return _drive(project, job, nonce, work, cancel or CancelToken(), progress)
+    with _claimed(job_id):
+        job = read_job(project.path, job_id)
+        if job.stored_state not in RETRYABLE:
+            raise JobError(
+                f"job {job_id} is {job.state.value}; only a failed, cancelled or interrupted "
+                "job can be retried"
+            )
+        return _drive(project, job, nonce, work, cancel or CancelToken(), progress)
+
+
+@contextmanager
+def _claimed(job_id: str) -> Iterator[None]:
+    """Hold ``job_id`` for one run in this process; refuse it when a run already holds it.
+
+    The claim is taken before the stored state is read, so two starts of one job never both
+    pass the state check. It is released on every way out.
+    """
+    with _ACTIVE_LOCK:
+        if job_id in _ACTIVE:
+            raise JobError(f"job {job_id} is already running in this process")
+        _ACTIVE.add(job_id)
+    try:
+        yield
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE.discard(job_id)
 
 
 def _drive(
@@ -544,8 +588,6 @@ def _drive(
         _write_job(path, job.job_id, **fields)
 
     completed = list(job.completed)
-    with _ACTIVE_LOCK:
-        _ACTIVE.add(job.job_id)
     try:
         write(
             state=JobState.RUNNING.value,
@@ -572,9 +614,6 @@ def _drive(
         raise
     else:
         write(state=JobState.DONE.value, ended_utc=_now())
-    finally:
-        with _ACTIVE_LOCK:
-            _ACTIVE.discard(job.job_id)
     return read_job(path, job.job_id)
 
 
