@@ -151,7 +151,7 @@ Everything below may change in any release, including a patch release, without n
 |---|---|
 | Any name not in the table above | The default. `tether.analysis`, `tether.imaging`, `tether.fret`, `tether.ml`, `tether.idealize`, and every module of `tether.project` other than the five `Project` members named above are **not covered**. |
 | Everything under `tether.gui.*` | Every module, class, dock, dialog and function. The GUI is a layer over the headless core; it is meant to be used, not imported. `tether-gui` starting is covered; nothing inside it is. |
-| Underscore names | Any module, attribute, function or method whose name begins with `_` — for example `tether.analysis._store`, `tether.project.extract._half_split_geometry`, `tether.io.schema._RICH_TABLES`. A leading underscore means internal, in every case, without further qualification. |
+| Underscore names | Any module, attribute, function or method whose name begins with `_` — for example `tether.analysis._store`, `tether.project.extract._layout_geometry`, `tether.io.schema._RICH_TABLES`. A leading underscore means internal, in every case, without further qualification. |
 | The sidecar interface | The isolated tMAVEN idealization backend and everything that talks to it: `tether.idealize._sidecar_runner` and its argv contract, the `TETHER_SIDECAR_STATUS` stdout protocol, and the pinned `sidecar/conda-lock.yml` environment. It is an implementation detail of idealization, pinned to an old numeric stack we do not control. See the [standalone-tMAVEN hand-off page](idealize/standalone-tmaven-handoff.md). |
 | Environment variables | `TETHER_SIDECAR_PYTHON` (`SIDECAR_ENV_VAR` in `tether.idealize.driver`) is the only Tether-namespaced environment variable the application reads. The [standalone-tMAVEN hand-off page](idealize/standalone-tmaven-handoff.md) documents exporting it as the supported way to point at a sidecar interpreter, and it will not be removed casually — but it belongs to the uncovered sidecar interface, so it is not frozen for `1.x`. (`TETHER_SIDECAR_STATUS` is not a variable at all: it is the stdout line prefix of the sidecar protocol, listed above.) |
 | Console output and log formats | Progress text, warning wording, report layout, and the `batch` JSONL log schema. |
@@ -226,7 +226,7 @@ a file stamped version 2 produces exactly this:
 file schema_version 2 is newer than this app's 1; refusing to open (PRD section 5.4).
 ```
 
-Four call sites in `src/tether/` invoke that guard, and they are the ones a person goes
+Five call sites in `src/tether/` invoke that guard, and they are the ones a person goes
 through:
 
 | Guarded entry point | Reached by |
@@ -234,9 +234,10 @@ through:
 | `Project.open` (`tether.project.core`) | the GUI's **Open project** dialog (`tether.gui.shell`) and any script that opens a project the covered way |
 | `extract_movie` (`tether.imaging.extract`) | `tether extract`, and the extract stage of `tether batch` |
 | `write_calibration` (`tether.imaging.calibrate`) | writing a registration map into a project |
+| `add_movie_to_project` (`tether.project.extract`) | appending a movie into an existing project |
 | `export_subset_tether` (`tether.project.export`) | subset export |
 
-A `tether batch` **resume** reaches none of those four: the checkpoint probes read the output
+A `tether batch` **resume** reaches none of those five: the checkpoint probes read the output
 project directly to decide what to skip, so with extraction already complete the guard inside
 `write_extraction` never runs. That path has its own check (`tether.project.batch`), added
 deliberately narrower than `assert_is_compatible_project` — it refuses only a file that

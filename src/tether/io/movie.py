@@ -119,6 +119,7 @@ class MovieReader:
             # for the on-disk dtype.
             self._byteorder = ">" if tif.byteorder == ">" else "<"
             self._frame_time = _read_frame_time(tif)
+            self._pixel_size_um = _read_pixel_size_um(tif)
         if series.dtype.kind not in _VALID_PIXEL_KINDS:
             raise InvalidPixelError(
                 f"{self._path}: pixel type {series.dtype} is not a real intensity "
@@ -188,12 +189,14 @@ class MovieReader:
         """The acquisition metadata, each value with its origin.
 
         The frame time is read from the ImageJ ``finterval`` tag ([`frame_time`][])
-        and is ``"unknown"`` without it. This adapter reads no pixel size or channel
-        names, so those two are ``"unknown"``.
+        and the pixel size from the ImageJ resolution ([`pixel_size_um`][]); each is
+        ``"unknown"`` without it. This adapter reads no channel names, so those are
+        ``"unknown"``.
         """
-        ft = self._frame_time
+        ft, px = self._frame_time, self._pixel_size_um
         return MovieMetadata(
-            frame_time=MetadataValue.from_file(ft) if ft is not None else MetadataValue.unknown()
+            frame_time=MetadataValue.from_file(ft) if ft is not None else MetadataValue.unknown(),
+            pixel_size=MetadataValue.from_file(px) if px is not None else MetadataValue.unknown(),
         )
 
     @property
@@ -216,6 +219,18 @@ class MovieReader:
         collapses to the ``0.0`` "unknown" default.
         """
         return self._frame_time
+
+    @property
+    def pixel_size_um(self) -> float | None:
+        """Micrometres per pixel if the TIFF declares it (ImageJ resolution), else None.
+
+        Read from the first page's ``XResolution``/``YResolution`` (pixels per unit)
+        when the ImageJ ``unit`` is micrometres and the pixels are square; any other
+        unit, a non-square or non-positive resolution, absent tags, the ``1/1``
+        placeholder, or no ImageJ metadata gives ``None`` (a default resolution is not
+        a pixel size).
+        """
+        return self._pixel_size_um
 
     @property
     def data(self) -> np.memmap:
@@ -348,6 +363,44 @@ def _read_frame_time(tif: tifffile.TiffFile) -> float | None:
     except (TypeError, ValueError):
         return None
     return ft if math.isfinite(ft) and ft > 0 else None
+
+
+#: ImageJ ``unit`` spellings that mean micrometres.
+_MICROMETRE_UNITS = frozenset({"um", "micron", "microns", "\u00b5m", "\u03bcm", "\\u00B5m"})
+
+
+def _resolution_tag(page: tifffile.TiffPage, name: str) -> tuple[int, int] | None:
+    """Return a resolution tag as raw ``(numerator, denominator)``; None if absent/invalid."""
+    tag = page.tags.get(name)
+    if tag is None:
+        return None
+    try:
+        num, den = (int(v) for v in tag.value)
+    except (TypeError, ValueError):
+        return None
+    return (num, den) if num > 0 and den > 0 else None
+
+
+def _read_pixel_size_um(tif: tifffile.TiffFile) -> float | None:
+    """Best-effort micrometres per pixel from an ImageJ TIFF; None if absent/invalid.
+
+    The raw ``XResolution``/``YResolution`` tags are read, not
+    ``TiffPage.resolution``, which reports ``(1, 1)`` when the tags are absent. A
+    ``1/1`` pair is also taken as absent: it is the placeholder a writer fills in
+    when it was given no resolution, so it is not a pixel size from the file.
+    """
+    meta = tif.imagej_metadata or {}
+    if str(meta.get("unit", "")).strip() not in _MICROMETRE_UNITS:
+        return None
+    page = tif.pages[0]
+    x_tag = _resolution_tag(page, "XResolution")
+    y_tag = _resolution_tag(page, "YResolution")
+    if x_tag is None or y_tag is None or x_tag == y_tag == (1, 1):
+        return None
+    x_res, y_res = x_tag[0] / x_tag[1], y_tag[0] / y_tag[1]
+    if not (math.isfinite(x_res) and math.isclose(x_res, y_res, rel_tol=1e-6)):
+        return None
+    return 1.0 / x_res
 
 
 def _is_tiff(head: bytes) -> bool:

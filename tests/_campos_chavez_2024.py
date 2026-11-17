@@ -38,7 +38,7 @@ import numpy as np
 from _kinsoft_measured import read_workbook
 from tether.analysis.dwell import fit_survival, survival_curve
 from tether.analysis.histogram import apparent_e_histogram
-from tether.analysis.tdp import transition_density
+from tether.analysis.tdp import smooth_transition_density, transition_density
 from tether.fret import apparent_fret
 
 ARCHIVE_ID = "campos2024-source-data"
@@ -96,6 +96,16 @@ TDPS = ("Fig2d", "Fig3c", "Fig3i", "Fig4c", "Fig4g", "Fig6c", "Fig7c")
 TDP_BINS = 50
 TDP_RANGE = (-0.25, 1.25)
 EPS = float(np.finfo(np.float64).eps)
+#: The authors' TDP script, committed unchanged (ADR-0083).
+CHECKTDP = Path(__file__).parent / "fixtures" / "campos_chavez_2024" / "checkTDP.py"
+#: The lines of ``checkTDP.py`` that :func:`checktdp_array` does not run: the two imports it
+#: needs only to read a CSV and to plot, and the CSV read, whose columns are passed in instead.
+CHECKTDP_SKIPPED = (
+    "import matplotlib.pyplot as plt",
+    "import pandas as pd",
+    "filename = 'fig3i.csv'",
+    "data = pd.read_csv(filename)",
+)
 
 
 # --- reading ------------------------------------------------------------------------------------
@@ -380,10 +390,67 @@ def compare_tdp(rows: list[tuple]) -> dict:
     }
 
 
+class _Column:
+    """One column of the CSV ``checkTDP.py`` reads: it asks only for ``.values``."""
+
+    def __init__(self, values: np.ndarray) -> None:
+        self.values = values
+
+
+def checktdp_array(initial: np.ndarray, final: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``(z_interp, x_interp)`` of the published ``checkTDP.py``, run on one sheet's columns.
+
+    The script itself is run, from its first line to its ``# Plot`` comment, so the reference
+    is the authors' code and not a copy of it. Only :data:`CHECKTDP_SKIPPED` is left out, and
+    each of those lines must still be in the script, so a changed script fails here instead of
+    being compared on different terms.
+    """
+    source = CHECKTDP.read_text(encoding="utf-8")
+    head, sep, _plot = source.partition("# Plot")
+    if not sep:
+        raise ValueError(f"{CHECKTDP.name} has no '# Plot' section")
+    lines = head.splitlines()
+    for skipped in CHECKTDP_SKIPPED:
+        if lines.count(skipped) != 1:
+            raise ValueError(f"{CHECKTDP.name} no longer has the line {skipped!r} once")
+    kept = "\n".join(line for line in lines if line not in CHECKTDP_SKIPPED)
+    namespace: dict = {
+        "data": {"Initial E_FRET": _Column(initial), "Final E_FRET": _Column(final)},
+    }
+    exec(compile(kept, str(CHECKTDP), "exec"), namespace)  # noqa: S102 - the committed script
+    return namespace["z_interp"], namespace["x_interp"]
+
+
+def compare_tdp_view(rows: list[tuple]) -> dict:
+    """Tether's smoothed transition density beside ``checkTDP.py``'s array of one sheet."""
+    initial = column(rows, "Initial E_FRET", 0)
+    final = column(rows, "Final E_FRET", 1)
+    tdp = transition_density(
+        [np.array([a, b]) for a, b in zip(initial, final, strict=True)],
+        nskip=1,
+        signal_bins=TDP_BINS,
+        signal_range=TDP_RANGE,
+    )
+    view = smooth_transition_density(tdp)  # the defaults are checkTDP.py's settings
+    ref, ref_grid = checktdp_array(initial, final)
+    return {
+        "shape_equal": view.values.shape == ref.shape,
+        "grid_equal": bool(np.array_equal(view.grid, ref_grid)),
+        "max_abs": float(np.max(np.abs(view.values - ref))),
+    }
+
+
 def measure(archive: Path) -> dict:
     """Every comparison of this module on one archive, by panel."""
     book = read_book(archive)
-    out: dict = {"traces": {}, "histograms": {}, "intrafret": {}, "survival": {}, "tdp": {}}
+    out: dict = {
+        "traces": {},
+        "histograms": {},
+        "intrafret": {},
+        "survival": {},
+        "tdp": {},
+        "tdp_view": {},
+    }
     for sheet in TRACE_SHEETS:
         out["traces"][sheet] = compare_trace_sheet(book[sheet])
     cache: dict[str, tuple] = {}
@@ -400,6 +467,7 @@ def measure(archive: Path) -> dict:
         out["survival"][f"{sheet}:{col}"] = compare_survival(book[sheet], col, model, params)
     for sheet in TDPS:
         out["tdp"][sheet] = compare_tdp(book[sheet])
+        out["tdp_view"][sheet] = compare_tdp_view(book[sheet])
     return out
 
 

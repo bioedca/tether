@@ -92,6 +92,10 @@ def create_shell(
     ``False`` decides it explicitly. Before the shell is built, the trace colors stored
     by **View → Trace colors** ([`tether.gui.app_settings`][]) are applied, so the
     choice survives a restart (#636).
+
+    The shell remembers the session in the per-user preferences file
+    ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
+    the molecule selected at close, the layout and the curator name.
     """
     args = build_parser().parse_args(argv)
 
@@ -113,12 +117,14 @@ def create_shell(
     screen = startup.open_splash(app) if wanted else None
     try:
         from tether.gui import app_settings, theme
+        from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
         # The stored View -> Trace colors choice (#636, ADR-0123); unset is the default.
         theme.set_trace_palette(app_settings.stored_trace_colors() or theme.DEFAULT_TRACE_PALETTE)
 
-        shell = TetherShell()
+        # The application remembers the session on this computer (#628, ADR-0122).
+        shell = TetherShell(preferences_file=preferences_path())
         if args.project is not None:
             shell.load_project(args.project)
     except BaseException:

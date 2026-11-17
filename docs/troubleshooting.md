@@ -42,7 +42,8 @@ tether extract: error: argument --donor-side: invalid choice: 'middle' (choose f
 ```
 
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
-crop tuple is returned by [`_half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) in `tether.project.extract`, and detection
+half the default side-by-side layout names donor (`resolve_channel_layout` in
+`tether.project.extract`), and detection
 is [donor-anchored](glossary.md#donor-anchored-colocalization) — so the swapped run still
 colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the two channels
 gives exactly `1 − E`.
@@ -300,8 +301,10 @@ over-determined. Get more pairs: raise `--pair-tol` so genuine pairs are not dis
 Importing a Deep-LASI map with `--tmap` does **not** help here: the imported path skips pairing
 entirely, so the residual is left NaN and the gate is not merely vacuous but absent (see
 [registration was flagged low-confidence](#registration-was-flagged-low-confidence)). Tether
-also has no `.tmap` **writer** — `tether.imaging.register.read_tmap` is the only entry point —
-so there is no way to extract a bead movie in Tether and export a calibration map from it.
+also has no `.tmap` **writer** — `tether.imaging.register.read_tmap` is the only entry point.
+From Python, `tether.imaging.beadmap.bead_map_from_file` makes a map from a bead video or
+image, and `tether.imaging.calibrate.save_map` writes it as a Tether `.npz` map file, but
+`tether extract` cannot read that file yet, so it does not help a `tether extract` run.
 
 ### Extraction found no molecules
 
@@ -550,6 +553,25 @@ loaded project stays in place.
 ---
 
 ## Setup and environment failures
+
+### The terminal does not find `tether`
+
+**Symptom.** You type `tether --version` after installing, and the terminal does not know the
+command. These messages come from the terminal, not from Tether: `tether: command not found`
+on Linux and macOS, *"is not recognized as the name of a cmdlet"* in Windows PowerShell, and
+*"is not recognized as an internal or external command"* in a Windows Command Prompt.
+
+**Cause.** The installer does not edit your `PATH` (ADR-0051), so a new terminal does not know
+the folder that holds Tether's launchers. The installer is not broken. The launchers are in
+the install folder, written by `packaging/scripts/post_install.sh` or `post_install.bat`.
+
+**Remedy.**
+
+- **Windows**, from the next release: open the Start menu, choose **Tether Command Prompt**,
+  and type the command there. That console finds `tether` for as long as it is open, and your
+  `PATH` does not change ([#666](https://github.com/bioedca/tether/issues/666)).
+- **Any system:** run the launcher by its full path, or put the launcher folder on your `PATH`
+  once. [Install Tether, step 4](install.md#4-open-a-terminal-where-tether-works) gives both.
 
 ### Idealization cannot find the sidecar interpreter
 

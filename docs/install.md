@@ -15,8 +15,8 @@ If you have not decided yet whether Tether suits your experiment, read
 checkout or contribute to it, this is not your page; see
 [Installers & offline bundle](packaging.md) and the repository's `CONTRIBUTING.md`.
 
-The steps are: download one installer, check it, run it, put Tether's launcher folder on your
-`PATH`, and confirm it answers. Uninstalling is covered at the end.
+The steps are: download one installer, check it, run it, open a terminal where `tether` works,
+and confirm it answers. Uninstalling is covered at the end.
 
 > **The current release is a pre-release.** The newest published release is
 > [`v1.0.0-rc3`](https://github.com/bioedca/tether/releases/tag/v1.0.0-rc3), a release
@@ -172,13 +172,40 @@ development, and code signing comes first, so that macOS stops blocking the inst
 Windows names who published it. When a funding goal for signing is set, its progress is shown
 on that Sponsors page.
 
-## 4. Put Tether's launcher folder on your PATH
+## 4. Open a terminal where `tether` works
 
 The installer creates a `bin` folder inside the install folder holding two launchers: `tether`
 (the command-line tool) and `tether-gui` (the desktop application). It deliberately **does not
-edit your PATH, shell settings or registry**, so a terminal cannot find those launchers until
-you add that folder once. Run the line for your system, then **close the terminal and open a
-new one**.
+edit your PATH, shell settings or registry**. So a new terminal cannot find those launchers by
+their names alone. Do the step for your system.
+
+**Windows.** From the next release, open the Start menu and choose **Tether Command Prompt**
+([#666](https://github.com/bioedca/tether/issues/666)). It opens a console in which `tether`
+works, and its first line shows the Tether version. Only that console finds the launchers.
+Your PATH does not change. rc3 has no such shortcut. With rc3, run the launcher by its full
+path in PowerShell:
+
+```powershell
+& "$env:USERPROFILE\Tether\bin\tether.bat" --version
+```
+
+**macOS and Linux.** Run the launcher by its full path. This needs no change to a shell file:
+
+```bash
+~/Tether/bin/tether --version    # macOS
+~/tether/bin/tether --version    # Linux
+```
+
+From the next release, the launchers are in a folder named `launchers` instead of `bin`
+([#492](https://github.com/bioedca/tether/issues/492)). The commands are then
+`~/Tether/launchers/tether --version` and `~/tether/launchers/tether --version`.
+
+To type `tether` with no path in any terminal, put the launcher folder on your PATH, as the
+next section tells. That step is optional on all three systems.
+
+### Optional: put the launcher folder on your PATH
+
+Run the line for your system, then **close the terminal and open a new one**.
 
 **Linux** (bash):
 
@@ -211,11 +238,13 @@ in place of `bin` in the line for your system, for example `$HOME/tether/launche
 
 ## 5. Check that Tether runs
 
-In the **new** terminal, run:
+In the **Tether Command Prompt**, or in a **new** terminal after the optional PATH step, run:
 
 ```bash
 tether --version
 ```
+
+If you did neither, run the full-path command from step 4 instead.
 
 It prints `tether` and the version, for this release:
 
@@ -237,15 +266,18 @@ Windows PowerShell. To start the desktop application:
   find a **Tether** entry in the Start menu, you can also choose it there. From the next
   release, that entry also opens no console window
   ([#579](https://github.com/bioedca/tether/issues/579)).
-- **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal.
-  (A desktop that was already running may only show the menu entry after you log out and back
+- **Linux:** choose **Tether** from your applications menu, or run `tether-gui` in a terminal
+  (`~/tether/bin/tether-gui` if you skipped the optional PATH step, and
+  `~/tether/launchers/tether-gui` from the next release). (A desktop that was already running may only show the menu entry after you log out and back
   in.)
-- **macOS:** with rc3, run `tether-gui` in Terminal. The Dock shows the Tether icon while
+- **macOS:** with rc3, run `tether-gui` in Terminal (`~/Tether/bin/tether-gui` if you skipped
+  the optional PATH step). The Dock shows the Tether icon while
   the application runs. From the next release, the installer also puts **Tether** in the
   `Applications` folder of your home folder
   ([#663](https://github.com/bioedca/tether/issues/663)): open it from **Launchpad**, find it
   with **Spotlight** (press Command-Space and type `Tether`), or double-click it in Finder.
-  You can keep it in the Dock. `tether-gui` in Terminal still works and is the fallback. If
+  You can keep it in the Dock. `tether-gui` in Terminal still works and is the fallback
+  (`~/Tether/launchers/tether-gui` if you skipped the optional PATH step). If
   macOS blocks the first start of **Tether**, see
   [If macOS will not open Tether.app](troubleshooting.md#if-macos-will-not-open-tetherapp).
 
@@ -272,7 +304,8 @@ Everything lives in the single folder you chose (`~/tether` on Linux, `~/Tether`
 | everything else | The small installer toolkit used once, at install time, to lay down the two folders above. It holds no Tether code. |
 
 Outside the install folder, the installer adds one menu entry: on Windows a **Tether**
-Start menu shortcut, and on Linux an application-menu entry at
+Start menu shortcut (from the next release, beside it a **Tether Command Prompt** shortcut,
+which runs `tether-prompt.bat` from the install folder), and on Linux an application-menu entry at
 `~/.local/share/applications/tether.desktop` with its icon. The icon is nine files in
 `~/.local/share/icons/hicolor`: `tether.png` in the `apps` folder of each of the eight size
 folders `16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256` and `512x512`,
@@ -352,8 +385,11 @@ lock. To remove it, delete the file.
 ## If it did not work
 
 **`tether: command not found`, or *"is not recognized as the name of a cmdlet"*.** The
-terminal cannot see the launcher folder. Check that you opened a **new** terminal after step
-4, and that the folder in the PATH line matches where you installed.
+terminal cannot see the launcher folder. On Windows, from the next release, open the
+**Tether Command Prompt** from the Start menu and type the command there. On any system you
+can run the launcher by its full path, as step 4 shows. If you did the optional PATH step,
+check that you opened a **new** terminal after it, and that the folder in the PATH line
+matches where you installed.
 
 **The application does not open.** Tether does not write a log file, so start it from a
 terminal with `tether-gui` and read what it prints. The macOS **Tether** application and
@@ -382,8 +418,8 @@ Everything else, keyed by the message you saw, is in [Troubleshooting](troublesh
 
 ## Uninstall
 
-Tether keeps to its one folder, so removing it is mostly deleting that folder. Then remove
-the PATH line you added in step 4.
+Tether keeps to its one folder, so removing it is mostly deleting that folder. If you did the
+optional PATH step in step 4, remove that PATH line too.
 
 > **Check the folder first.** Deleting the install folder deletes *everything* in it. If you
 > ever saved a `.tether` project, a movie or an export inside it, move those out before you
@@ -397,7 +433,7 @@ rm -f ~/.local/share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256x25
 rm -f ~/.local/share/icons/hicolor/scalable/apps/tether.svg
 ```
 
-Then delete the `export PATH=…/tether/bin` line (`…/tether/launchers` from the next release)
+If you did the optional PATH step, delete the `export PATH=…/tether/bin` line (`…/tether/launchers` from the next release)
 from `~/.bashrc`.
 
 **macOS**
@@ -418,16 +454,17 @@ rm -rf ~/Tether
 ```
 
 If you installed into a folder outside your home folder, use that folder in both commands, and
-put `sudo` before the first one, because the launcher is then in `/Applications`. Then delete
-the `export PATH=…/Tether/bin` line (`…/Tether/launchers` from the next release) from
-`~/.zshrc`.
+put `sudo` before the first one, because the launcher is then in `/Applications`. If you did the
+optional PATH step, delete the `export PATH=…/Tether/bin` line (`…/Tether/launchers` from the
+next release) from `~/.zshrc`.
 macOS keeps its package receipt for the install; it is a small record and does no harm left
 in place.
 
 **Windows.** Open **Settings → Apps → Installed apps**, find **Tether**, and choose
-**Uninstall**. The uninstaller removes the Start menu shortcut as well. An installer from
+**Uninstall**. The uninstaller removes the Start menu shortcuts as well (**Tether**, and from
+the next release **Tether Command Prompt**). An installer from
 1.0.0-rc2 or earlier does not, so if a **Tether** folder is still in the Start menu afterwards,
-delete it. Remove
+delete it. If you did the optional PATH step, remove
 `C:\Users\<you>\Tether\bin` (`C:\Users\<you>\Tether\launchers` from the next release) from your
 user PATH under **Settings → System → About → Advanced
 system settings → Environment Variables**.

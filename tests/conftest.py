@@ -4,9 +4,10 @@
 
 Every test gets its own per-user lock directory (``XDG_STATE_HOME`` and ``LOCALAPPDATA``
 point into its temporary tree), so the identity locks of ADR-0112 never touch the real user
-directory and never leak between tests. ``XDG_CONFIG_HOME`` points there too, so on Linux the
-application settings store (ADR-0095) is private to the test as well. Subprocesses a test
-starts inherit it.
+directory and never leak between tests, and its own GUI preferences file
+(``TETHER_PREFERENCES_FILE``, ADR-0122). ``XDG_CONFIG_HOME`` points there too, so on Linux
+the application settings store (ADR-0095) is private to the test as well. Subprocesses a
+test starts inherit all three.
 
 A test marked ``workstation`` needs private laboratory data. It runs in no CI job, on purpose:
 ``scripts/workstation/run_private_checks.py`` runs it from a scheduled task on the maintainer's
@@ -53,6 +54,8 @@ def _private_user_lock_dir(tmp_path_factory: pytest.TempPathFactory, monkeypatch
     monkeypatch.setenv("LOCALAPPDATA", str(state))
     # The application settings store (ADR-0095) on Linux; LOCALAPPDATA covers Windows.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(state))
+    # The GUI's per-user preferences file (#628, ADR-0122) is private to each test too.
+    monkeypatch.setenv("TETHER_PREFERENCES_FILE", str(state / "preferences.json"))
 
 
 @pytest.hookimpl(tryfirst=True)  # before `-m` deselects, so every collected test is seen
