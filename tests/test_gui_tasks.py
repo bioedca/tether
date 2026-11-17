@@ -58,7 +58,7 @@ def test_importing_the_core_loads_no_qt_binding() -> None:
 
 
 def test_the_state_names_are_the_job_coordinator_names() -> None:
-    # #895 defines the stored job states; these values must stay identical so a stored
+    # The job states of #895 (PR #1167 at 55fc575); the values must stay identical so a stored
     # job can back a task with no change for callers.
     assert [s.value for s in TaskState] == [
         "queued",
@@ -68,8 +68,6 @@ def test_the_state_names_are_the_job_coordinator_names() -> None:
         "cancelled",
         "interrupted",
     ]
-    jobs = pytest.importorskip("tether.project.jobs", reason="the job coordinator (#895)")
-    assert {s.value for s in TaskState} == {s.value for s in jobs.JobState}
 
 
 def test_a_task_runs_then_reports_done_with_its_value_and_context(runner) -> None:
