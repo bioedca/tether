@@ -32,19 +32,14 @@ from collections.abc import Sequence
 from pathlib import Path
 
 __all__ = [
-    "MOVIE_SUFFIXES",
     "NAME_SEPARATOR",
     "MovieArgumentError",
     "OutputNameCollision",
     "describe_checkpoint",
     "expand_movie_arguments",
+    "movie_suffixes",
     "output_stems",
 ]
-
-#: The file suffixes a folder or a pattern contributes as movies, compared without regard
-#: to case: the suffixes of the TIFF movie reader ([`tether.io.movie`][]). A file named
-#: as an argument of its own is used whatever its suffix.
-MOVIE_SUFFIXES: tuple[str, ...] = (".tif", ".tiff")
 
 #: What joins the parent folder names and the file stem in a collision-resolved output
 #: stem: ``day1/movie_010.tif`` becomes ``day1__movie_010``.
@@ -61,12 +56,29 @@ class OutputNameCollision(ValueError):
     """Two movies would write one output project and no parent folder tells them apart."""
 
 
+def movie_suffixes() -> tuple[str, ...]:
+    """Return the file suffixes a folder or a pattern contributes as movies.
+
+    They are the extensions of the registered movie readers
+    ([`tether.io.adapters.registered_adapters`][]), lower case and in registration order,
+    so a reader added to the registry is found in folders with no change here. Suffixes
+    are compared without regard to case. A file named as an argument of its own is used
+    whatever its suffix, and the registry then decides by its content.
+    """
+    from tether.io.adapters import registered_adapters  # noqa: PLC0415 - imports the readers
+
+    suffixes: list[str] = []
+    for adapter in registered_adapters():
+        suffixes.extend(ext for ext in adapter.extensions if ext not in suffixes)
+    return tuple(suffixes)
+
+
 def _readable_suffixes() -> str:
-    return ", ".join(MOVIE_SUFFIXES)
+    return ", ".join(movie_suffixes())
 
 
 def _is_movie_file(path: Path) -> bool:
-    return path.suffix.lower() in MOVIE_SUFFIXES and path.is_file()
+    return path.suffix.lower() in movie_suffixes() and path.is_file()
 
 
 def _folder_movies(folder: Path, *, recursive: bool) -> list[Path]:

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,7 @@ from tether.project.batch_inputs import (
     OutputNameCollision,
     describe_checkpoint,
     expand_movie_arguments,
+    movie_suffixes,
     output_stems,
 )
 
@@ -91,6 +93,19 @@ def test_a_relative_pattern_is_expanded_from_the_current_folder(
     monkeypatch.chdir(day_folders)
     movies = expand_movie_arguments(["day2/*.tif"])
     assert [p.as_posix() for p in movies] == ["day2/movie_010.tif"]
+
+
+def test_the_movie_suffixes_are_those_of_the_registered_readers(tmp_path, monkeypatch) -> None:
+    # Item 1 of #653: "The accepted extensions are the ones the reader supports."
+    from tether.io import adapters  # noqa: PLC0415
+
+    assert movie_suffixes() == (".tif", ".tiff")
+    extra = SimpleNamespace(name="Other", extensions=(".nd2",))
+    real = adapters.registered_adapters()
+    monkeypatch.setattr(adapters, "registered_adapters", lambda: (*real, extra))
+    _touch(tmp_path / "a.nd2")
+    _touch(tmp_path / "b.tif")
+    assert [p.name for p in expand_movie_arguments([str(tmp_path)])] == ["a.nd2", "b.tif"]
 
 
 def test_a_file_named_on_its_own_is_kept_whatever_its_name(tmp_path: Path) -> None:

@@ -244,8 +244,9 @@ idealization — extraction and correction still happen for every movie — unle
 Each `movies` argument is one of three things, and Tether expands it itself, so the same
 command gives the same movies in PowerShell, cmd and bash:
 
-- **A folder** gives the movie files directly inside it: the files that end in `.tif` or
-  `.tiff`, in any case. With `--recursive` it also gives the movies in its sub-folders.
+- **A folder** gives the movie files directly inside it. A movie file has an extension that
+  a Tether movie reader opens, in any case. Today these are `.tif` and `.tiff`. With
+  `--recursive` it also gives the movies in its sub-folders.
 - **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
   gives the movie files it matches. `**` matches any number of folders. A folder that the
   pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
