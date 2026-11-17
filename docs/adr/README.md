@@ -164,6 +164,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0121](0121-each-lock-takeover-leaves-a-record-in-the-project.md) | Each lock takeover leaves a record in the project | accepted | §7.10 FR-CONCURRENCY, §5.4 (single writer), §5 (schema) |
 | [0122](0122-the-session-is-remembered-in-a-preferences-file-beside-the-settings-file.md) | The session is remembered in a preferences file beside the settings file | accepted | §7.3 (the curation shell); §5.1 `/labels` (the `labeler`); goal G6 |
 | [0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md) | The plot builder's composition unit, its one renderer, and its staleness and frame-time policies | accepted | §7.7 FR-PLOT (composed plots), §7.9 FR-EXPORT, §4.1 (no PyQt in the base stack) |
+| [0126](0126-jobs-and-stale-marks-are-stored-in-the-project.md) | Jobs, their checkpoints and the stale marks are stored in the project | accepted | §7.13 (FR-WORKFLOW), §7.10 (FR-CONCURRENCY), §5 (data model) |
 | [0127](0127-several-series-on-one-figure-one-color-cycle-small-multiples-and-one-grid.md) | Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid | accepted | §7.7 FR-PLOT (a plot is a layer list), §7.9 FR-EXPORT (per-series provenance) |
 
 <!-- gen:adr-index end -->
