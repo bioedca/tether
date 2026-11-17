@@ -128,7 +128,8 @@ recorded".
   traces, so a run makes no `.txt`. The window is deleted without its close callback, which
   would write a settings file into the clone; the harness checks the clone again after each run
   and refuses to write a record for a run that changed it. The check reads `git status`, which
-  does not see a file that the clone ignores ([#1193](https://github.com/bioedca/tether/issues/1193)).
+  does not see a file that the clone ignores, so it also compares the SHA-256 of each ignored
+  file before and after the run ([#1193](https://github.com/bioedca/tether/issues/1193)).
 - **The rerun of video 010 repeats the old export.** Measured 2026-11-16 on the workstation with
   MATLAB R2023b: the same 250 molecules, with a position difference of 0 px and the same raw
   traces (largest relative difference 0). The workstation check asserts this.

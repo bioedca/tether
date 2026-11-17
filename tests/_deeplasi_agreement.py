@@ -144,8 +144,9 @@ def harness():
     return module
 
 
-@functools.cache
 def _sha256(path: Path) -> str:
+    # Not cached: a file that changes content but not size within one pytest process must not
+    # pass on the digest of its old bytes (#1193).
     digest = hashlib.sha256()
     with path.open("rb") as fh:
         for block in iter(lambda: fh.read(1 << 22), b""):
