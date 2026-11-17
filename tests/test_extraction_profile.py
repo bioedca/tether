@@ -21,6 +21,7 @@ import pytest
 pytest.importorskip("numpy")
 
 from tether import cli  # noqa: E402
+from tether.imaging.layout import ChannelLayout  # noqa: E402
 from tether.project.extract import ExtractOptions  # noqa: E402
 from tether.services import (  # noqa: E402
     BatchRequest,
@@ -34,6 +35,7 @@ from tether.services import (  # noqa: E402
     request_from_text,
     write_profile,
 )
+from tether.services.profile import LAYOUT_FIELDS  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 CLI_PAGE = REPO / "docs" / "cli.md"
@@ -41,9 +43,21 @@ PRD = REPO / "docs" / "PRD.md"
 
 _OPTION_FIELDS = [f.name for f in dataclasses.fields(ExtractOptions)]
 
-#: A value away from the default for every ExtractOptions field, all valid together.
+#: The ExtractOptions fields a profile holds under other names; every other field is held
+#: under its own name.
+_CARRIED_AS: dict[str, tuple[str, ...]] = {"channel_layout": LAYOUT_FIELDS}
+
+#: The two halves of the 64 x 96 synthetic movie of test_extract_cli, as rectangles.
+_DONOR_RECT = (1, 1, 64, 48)
+_ACCEPTOR_RECT = (1, 49, 64, 96)
+
+#: A value for every ExtractOptions field, all valid together and all away from the default
+#: except ``donor_side``, which a channel layout requires at ``left`` (it has its own test).
 _NON_DEFAULT: dict[str, Any] = {
-    "donor_side": "right",
+    "donor_side": "left",
+    "channel_layout": ChannelLayout(
+        kind="rectangles", donor_rect=_DONOR_RECT, acceptor_rect=_ACCEPTOR_RECT
+    ),
     "detection_mode": "bandpass",
     "detection_threshold": 0.9,
     "detection_block": 25,
@@ -62,9 +76,22 @@ _NON_DEFAULT: dict[str, Any] = {
     "bg_window": 5,
 }
 
+#: ``_NON_DEFAULT`` as the fields of a profile.
+_NON_DEFAULT_PROFILE: dict[str, Any] = {
+    **{k: v for k, v in _NON_DEFAULT.items() if k != "channel_layout"},
+    "channel_layout": "rectangles",
+    "channel_layout_donor": None,
+    "channel_layout_donor_rect": _DONOR_RECT,
+    "channel_layout_acceptor_rect": _ACCEPTOR_RECT,
+}
+
+#: Every field name a profile holds.
+_PROFILE_FIELDS = sorted(name for f in _OPTION_FIELDS for name in _CARRIED_AS.get(f, (f,)))
+
 #: The PRD §11.2 row that registers each ExtractOptions field (by a phrase of its label).
 _PRD_ROWS: dict[str, str] = {
     "donor_side": "Donor half (`donor_side`)",
+    "channel_layout": "Channel layout (split geometry)",
     "detection_mode": "Particle detection mode",
     "detection_threshold": "Detection threshold (intensity mode)",
     "detection_block": "Detection block size",
@@ -84,28 +111,32 @@ _PRD_ROWS: dict[str, str] = {
 }
 
 
-# --- The seventeen fields ------------------------------------------------------------
+# --- The fields ----------------------------------------------------------------------
 
 
 def test_the_value_table_names_every_extract_option() -> None:
+    # An ExtractOptions field added without a value here fails, and with it every test below.
     assert sorted(_NON_DEFAULT) == sorted(_OPTION_FIELDS)
-    assert len(_OPTION_FIELDS) == 17
     ExtractOptions(**_NON_DEFAULT)  # valid together
 
 
 @pytest.mark.parametrize("cls", [ExtractionFields, ExtractionProfile, ExtractRequest, BatchRequest])
 def test_each_profile_carrier_has_every_extract_option_with_its_default(cls) -> None:
     carried = {f.name: f for f in dataclasses.fields(cls)}
-    missing = [name for name in _OPTION_FIELDS if name not in carried]
-    assert not missing, f"{cls.__name__} lacks the ExtractOptions field(s) {missing}"
     library = {f.name: f.default for f in dataclasses.fields(ExtractOptions)}
-    for name in _OPTION_FIELDS:
-        expected = None if name == "detection_mode" else library[name]
-        assert carried[name].default == expected, (cls.__name__, name)
+    for option in _OPTION_FIELDS:
+        names = _CARRIED_AS.get(option, (option,))
+        missing = [name for name in names if name not in carried]
+        assert not missing, f"{cls.__name__} lacks {missing} for ExtractOptions.{option}"
+        for name in names:
+            # detection_mode None is "no choice"; the layout fields are None for no layout.
+            expected = library[name] if (name == option and name != "detection_mode") else None
+            assert carried[name].default == expected, (cls.__name__, name)
+    assert library["channel_layout"] is None
 
 
 def test_a_profile_holds_the_extract_options_and_nothing_else() -> None:
-    assert sorted(f.name for f in dataclasses.fields(ExtractionProfile)) == sorted(_OPTION_FIELDS)
+    assert sorted(f.name for f in dataclasses.fields(ExtractionProfile)) == _PROFILE_FIELDS
 
 
 def test_every_extract_option_is_registered_in_prd_11_2() -> None:
@@ -120,8 +151,8 @@ def test_every_extract_option_is_registered_in_prd_11_2() -> None:
 # --- The text form -------------------------------------------------------------------
 
 
-def test_a_profile_round_trips_all_seventeen_fields(tmp_path: Path) -> None:
-    profile = ExtractionProfile(**_NON_DEFAULT)
+def test_a_profile_round_trips_every_field(tmp_path: Path) -> None:
+    profile = ExtractionProfile(**_NON_DEFAULT_PROFILE)
     assert profile_from_text(profile_to_text(profile)) == profile
     path = tmp_path / "p.json"
     write_profile(profile, path)
@@ -131,12 +162,56 @@ def test_a_profile_round_trips_all_seventeen_fields(tmp_path: Path) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["command"] == "extraction-profile"
     assert data["version"] == 1
-    assert sorted(data["fields"]) == sorted(_OPTION_FIELDS)  # every field is written
+    assert sorted(data["fields"]) == _PROFILE_FIELDS  # every field is written
+    assert data["fields"]["channel_layout_donor_rect"] == list(_DONOR_RECT)
 
 
-def test_a_profile_made_from_options_gives_the_same_options() -> None:
-    for options in (ExtractOptions(), ExtractOptions(**_NON_DEFAULT)):
-        assert ExtractionProfile.from_options(options).extract_options() == options
+def test_a_non_default_donor_side_round_trips() -> None:
+    profile = profile_from_text(profile_to_text(ExtractionProfile(donor_side="right")))
+    assert profile.extract_options() == ExtractOptions(donor_side="right")
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ExtractOptions(),
+        ExtractOptions(**_NON_DEFAULT),
+        ExtractOptions(donor_side="right"),
+        ExtractOptions(channel_layout=ChannelLayout(kind="top-bottom", donor="bottom")),
+        ExtractOptions(channel_layout=ChannelLayout()),
+    ],
+    ids=["defaults", "non-default", "donor-right", "top-bottom", "side-by-side"],
+)
+def test_a_profile_made_from_options_gives_the_same_options(options: ExtractOptions) -> None:
+    profile = ExtractionProfile.from_options(options)
+    assert profile_from_text(profile_to_text(profile)).extract_options() == options
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"channel_layout_donor": "top"}, "need a channel_layout kind"),
+        ({"channel_layout": "diagonal"}, "kind must be one of"),
+        ({"channel_layout": "top-bottom", "channel_layout_donor": "left"}, "donor for a"),
+        ({"channel_layout": "rectangles", "channel_layout_donor_rect": [1, 1, 2, 2]}, "both"),
+        (
+            {
+                "channel_layout": "rectangles",
+                "channel_layout_donor_rect": [1, 1, 2],
+                "channel_layout_acceptor_rect": [1, 3, 2, 4],
+            },
+            "4 values",
+        ),
+        ({"channel_layout_donor_rect": [1, True, 2, 2]}, "list of integers"),
+        ({"channel_layout": "top-bottom", "donor_side": "right"}, "donor_side applies only"),
+    ],
+)
+def test_a_bad_channel_layout_is_refused(tmp_path: Path, fields: dict, message: str) -> None:
+    path = tmp_path / "bad.json"
+    text = {"command": "extraction-profile", "fields": fields, "version": 1}
+    path.write_text(json.dumps(text), encoding="utf-8")
+    with pytest.raises(RequestError, match=message):
+        read_profile(path)
 
 
 def test_a_field_left_out_keeps_its_default(tmp_path: Path) -> None:
@@ -193,18 +268,18 @@ def _parse(*argv: str):
 
 
 def test_extract_profile_sets_every_field_of_the_request(tmp_path: Path) -> None:
-    path = _profile_file(tmp_path, **_NON_DEFAULT)
+    path = _profile_file(tmp_path, **_NON_DEFAULT_PROFILE)
     request = cli._extract_request(
         _parse("extract", "m.tif", "-o", "o.tether", "--profile", str(path))
     )
-    assert request.extraction_values() == _NON_DEFAULT
+    assert request.extraction_values() == _NON_DEFAULT_PROFILE
     assert request.extract_options() == ExtractOptions(**_NON_DEFAULT)
 
 
 def test_batch_profile_sets_every_field_of_the_request(tmp_path: Path) -> None:
-    path = _profile_file(tmp_path, **_NON_DEFAULT)
+    path = _profile_file(tmp_path, **_NON_DEFAULT_PROFILE)
     request = cli._batch_request(_parse("batch", "a.tif", "-d", "out", "--profile", str(path)))
-    assert request.extraction_values() == _NON_DEFAULT
+    assert request.extraction_values() == _NON_DEFAULT_PROFILE
 
 
 @pytest.mark.parametrize("flag", ["--window", "--donor-side", "--detection-mode", "--rms-gate"])
@@ -367,3 +442,30 @@ def test_a_profile_example_on_the_reference_page_reads(tmp_path: Path) -> None:
     path = tmp_path / "example.json"
     path.write_text("".join(example.group(1).split("\n")), encoding="utf-8")
     assert read_profile(path) == ExtractionProfile(disk_radius=2.5, ring_inner=5.0, window=19)
+
+
+def test_the_layout_example_on_the_reference_page_reads(tmp_path: Path) -> None:
+    section = CLI_PAGE.read_text(encoding="utf-8").split("### Extraction profiles", 1)[1]
+    examples = re.findall(r"```json\n(.*?)```", section, re.S)
+    assert len(examples) >= 2, "the Extraction profiles section has no layout example"
+    path = tmp_path / "layout.json"
+    path.write_text("".join(line.strip() for line in examples[1].splitlines()), encoding="utf-8")
+    options = read_profile(path).extract_options()
+    assert options.channel_layout == ChannelLayout(kind="top-bottom", donor="bottom")
+
+
+def test_tether_extract_splits_by_the_profile_s_channel_layout(tmp_path: Path) -> None:
+    helpers = _movie_helpers()
+    movie = helpers._make_movie(tmp_path)
+    out = tmp_path / "rect.tether"
+    path = _profile_file(
+        tmp_path,
+        channel_layout="rectangles",
+        channel_layout_donor_rect=_DONOR_RECT,
+        channel_layout_acceptor_rect=_ACCEPTOR_RECT,
+    )
+    assert cli.main(["extract", str(movie), "-o", str(out), "--profile", str(path)]) == 0
+    recorded = helpers._extraction_profile(out)["channel_layout"]
+    assert recorded["kind"] == "rectangles"
+    assert recorded["donor_rect"] == list(_DONOR_RECT)
+    assert recorded["acceptor_rect"] == list(_ACCEPTOR_RECT)

@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The extraction profile: every extraction option, saved as one file (#349, ADR-0127).
 
-An *extraction profile* holds the seventeen fields of
+An *extraction profile* holds the eighteen fields of
 [`ExtractOptions`][tether.project.extract.ExtractOptions], so a run that names one is fully
-described by it. ``tether extract --profile`` and ``tether batch --profile`` read one, and
-[`ExtractionFields`][] is the same set of fields on the ``extract`` and ``batch`` requests,
-so a request (and a recipe, #899) carries every value the profile gave.
+described by it. Seventeen are one value each; the channel layout (#908) is four fields,
+``channel_layout`` (the kind) and ``channel_layout_donor``, ``channel_layout_donor_rect`` and
+``channel_layout_acceptor_rect``, because a request field holds one plain value.
+``tether extract --profile`` and ``tether batch --profile`` read one, and
+[`ExtractionFields`][] is the same set of fields on the ``extract`` and ``batch`` requests, so
+a request (and a recipe, #899) carries every value the profile gave.
 
 A profile is a file the user names, not an entry in the application settings store
 (ADR-0095): it is an input of an analysis, so it travels with the data and the recipe
@@ -49,6 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "DETECTION_FIELDS",
+    "LAYOUT_FIELDS",
     "PROFILE_COMMAND",
     "ExtractionFields",
     "ExtractionProfile",
@@ -65,19 +69,37 @@ PROFILE_COMMAND = "extraction-profile"
 #: The two fields a ``.tdat`` supplies (``ParticleDetectionMode``, ``DetectionThreshold``).
 DETECTION_FIELDS: tuple[str, ...] = ("detection_mode", "detection_threshold")
 
+#: The profile fields that hold ``ExtractOptions.channel_layout`` (a
+#: [`ChannelLayout`][tether.imaging.layout.ChannelLayout]): its kind, donor and rectangles.
+LAYOUT_FIELDS: tuple[str, ...] = (
+    "channel_layout",
+    "channel_layout_donor",
+    "channel_layout_donor_rect",
+    "channel_layout_acceptor_rect",
+)
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ExtractionFields:
-    """The seventeen extraction options of a profile, an extract and a batch request.
+    """The extraction options of a profile, an extract and a batch request.
 
     The names and defaults are those of
     [`ExtractOptions`][tether.project.extract.ExtractOptions], and a test checks that they
-    agree field by field. The one difference is ``detection_mode``: ``None`` here means
-    "no explicit choice", which tells a choice from the default, so that a ``.tdat`` can
-    be refused alongside a choice and applied without one.
+    agree field by field. Two differ. ``detection_mode`` is ``None`` here for "no explicit
+    choice", which tells a choice from the default, so that a ``.tdat`` can be refused
+    alongside a choice and applied without one. ``ExtractOptions.channel_layout`` is the
+    four [`LAYOUT_FIELDS`][]: ``channel_layout`` is the layout kind (``side-by-side``,
+    ``top-bottom`` or ``rectangles``; ``None`` for the split ``donor_side`` describes),
+    and the other three are the
+    [`ChannelLayout`][tether.imaging.layout.ChannelLayout] fields ``donor``,
+    ``donor_rect`` and ``acceptor_rect``, each ``[y1, x1, y2, x2]`` (1-based, inclusive).
     """
 
     donor_side: str = "left"
+    channel_layout: str | None = None
+    channel_layout_donor: str | None = None
+    channel_layout_donor_rect: tuple[int, ...] | None = None
+    channel_layout_acceptor_rect: tuple[int, ...] | None = None
     detection_mode: str | None = None
     detection_threshold: float | None = None
     detection_block: int = 50
@@ -96,7 +118,7 @@ class ExtractionFields:
     bg_window: int = 10
 
     def extraction_values(self) -> dict[str, Any]:
-        """Return the seventeen extraction fields of this object by name."""
+        """Return the extraction fields of this object by name."""
         return {f.name: getattr(self, f.name) for f in dataclasses.fields(ExtractionFields)}
 
     def sets_detection(self) -> bool:
@@ -108,20 +130,39 @@ class ExtractionFields:
 
         ``detection_mode=None`` becomes the library default, ``"wavelet"``; with a ``.tdat``,
         [`extract_movie`][tether.project.extract.extract_movie] then replaces it with the
-        decoded mode. Raises [`ExtractionError`][tether.project.extract.ExtractionError]
-        for a value the options refuse.
+        decoded mode. The four layout fields become one
+        [`ChannelLayout`][tether.imaging.layout.ChannelLayout], or ``None`` when
+        ``channel_layout`` is ``None``. Raises
+        [`ExtractionError`][tether.project.extract.ExtractionError] for a value the options
+        or the layout refuse.
         """
-        from tether.project.extract import ExtractOptions
+        from tether.imaging.layout import ChannelLayout, ChannelLayoutError
+        from tether.project.extract import ExtractionError, ExtractOptions
 
         values = self.extraction_values()
         if values["detection_mode"] is None:
             values["detection_mode"] = "wavelet"
-        return ExtractOptions(**values)
+        kind, donor, donor_rect, acceptor_rect = (values.pop(name) for name in LAYOUT_FIELDS)
+        layout = None
+        if kind is None:
+            if (donor, donor_rect, acceptor_rect) != (None, None, None):
+                raise ExtractionError(
+                    "channel_layout_donor, channel_layout_donor_rect and "
+                    "channel_layout_acceptor_rect need a channel_layout kind"
+                )
+        else:
+            try:
+                layout = ChannelLayout(
+                    kind=kind, donor=donor, donor_rect=donor_rect, acceptor_rect=acceptor_rect
+                )
+            except ChannelLayoutError as exc:
+                raise ExtractionError(f"channel_layout: {exc}") from exc
+        return ExtractOptions(channel_layout=layout, **values)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ExtractionProfile(ExtractionFields, Request):
-    """An extraction profile: the seventeen [`ExtractionFields`][] and nothing else.
+    """An extraction profile: the [`ExtractionFields`][] and nothing else.
 
     It is a [`Request`][tether.services.base.Request] only for its text form; no service
     command runs it, and the registry refuses its text as a request.
@@ -133,8 +174,17 @@ class ExtractionProfile(ExtractionFields, Request):
     @classmethod
     def from_options(cls, options: ExtractOptions) -> ExtractionProfile:
         """Return the profile of an [`ExtractOptions`][tether.project.extract.ExtractOptions]."""
-        names = {f.name for f in dataclasses.fields(ExtractionFields)}
-        return cls(**{k: v for k, v in dataclasses.asdict(options).items() if k in names})
+        names = {f.name for f in dataclasses.fields(ExtractionFields)} - set(LAYOUT_FIELDS)
+        values: dict[str, Any] = {name: getattr(options, name) for name in names}
+        layout = options.channel_layout
+        if layout is not None:
+            values.update(
+                channel_layout=layout.kind,
+                channel_layout_donor=layout.donor,
+                channel_layout_donor_rect=layout.donor_rect,
+                channel_layout_acceptor_rect=layout.acceptor_rect,
+            )
+        return cls(**values)
 
 
 def profile_to_text(profile: ExtractionProfile) -> str:

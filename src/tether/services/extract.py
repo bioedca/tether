@@ -3,7 +3,7 @@
 """The ``extract`` service command: one movie to a new ``.tether`` project.
 
 [`ExtractRequest`][] holds what ``tether extract`` takes on its command line, with the
-same defaults, and all seventeen extraction options of an extraction profile
+same defaults, and every extraction option of an extraction profile
 ([`tether.services.profile`][], #349); [`run`][] passes it to
 [`tether.project.extract.extract_movie`][].
 The imaging and HDF5 stack is imported when the command runs, not when this module is
@@ -28,13 +28,13 @@ __all__ = ["ExtractRequest", "ExtractResult", "run"]
 class ExtractRequest(ExtractionFields, Request):
     """Extract traces from one dual-channel movie into a new ``.tether`` project.
 
-    The fields are the options of ``tether extract`` (``docs/cli.md``) under their
-    ``argparse`` destination names, with the same defaults, and the seventeen
-    [`ExtractionFields`][tether.services.profile.ExtractionFields]. Seven of those have no
-    flag of their own (``prealign_upsample``, ``prealign_low_sigma``,
-    ``prealign_high_sigma``, ``disk_radius``, ``ring_inner``, ``ring_outer``,
-    ``bg_window``): ``tether extract --profile`` sets them. ``detection_mode=None`` means
-    "no explicit choice": the library default applies, or the mode decoded from ``tdat``.
+    The fields are the options of ``tether extract`` (``docs/cli.md``) under their ``argparse``
+    destination names, with the same defaults, and the
+    [`ExtractionFields`][tether.services.profile.ExtractionFields]. The channel layout fields
+    and seven others have no flag of their own (``prealign_upsample``, ``prealign_low_sigma``,
+    ``prealign_high_sigma``, ``disk_radius``, ``ring_inner``, ``ring_outer``, ``bg_window``):
+    ``tether extract --profile`` sets them. ``detection_mode=None`` means "no explicit choice":
+    the library default applies, or the mode decoded from ``tdat``.
     """
 
     COMMAND: ClassVar[str] = "extract"

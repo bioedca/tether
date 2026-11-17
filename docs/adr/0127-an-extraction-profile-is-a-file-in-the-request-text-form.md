@@ -14,17 +14,19 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Context and problem statement
 
-`ExtractOptions` (`tether.project.extract`) has seventeen fields, and its docstring makes every one
+`ExtractOptions` (`tether.project.extract`) had seventeen fields, and its docstring makes every one
 of them part of the pinned contract, recorded verbatim in `/settings/extraction`. Before #349,
 `tether extract` set ten of them, seven were reachable only from Python, and `tether batch` built
 no `ExtractOptions` at all, so a batch ran at the defaults whatever the experiment needed. A
 `.tdat` replaced the detection mode and threshold with no stated rule.
 
-#349 asks for an *extraction profile* that carries all seventeen fields, for `tether batch` to
+#349 asks for an *extraction profile* that carries all of them, for `tether batch` to
 accept one, for the `--tdat` rule to be stated, and for a decision on where a profile lives
 against the application settings store of #330 (ADR-0095). Its plan change of 2026-11-14 adds that
 the profile becomes the extraction part of a recipe (#899), so its text form must be the request
-form of the service commands (ADR-0100).
+form of the service commands (ADR-0100). While #349 was being written, #908 added an eighteenth field,
+`channel_layout`, whose value is a `ChannelLayout` (a kind, a donor and two rectangles) rather
+than one plain value; the plan change names it as a field of the profile.
 
 ## Decision drivers
 
@@ -39,22 +41,22 @@ form of the service commands (ADR-0100).
 
 ## Considered options
 
-1. **A JSON file the user names, in the request text form, whose seventeen fields are also fields of
+1. **A JSON file the user names, in the request text form, whose fields are also fields of
    the `extract` and `batch` requests.**
 2. **A named profile stored in the application settings store** (ADR-0095), chosen by name.
 3. **A request field that holds the path of a profile file**, read when the command runs.
-4. **Seven more `tether extract` flags and seventeen `tether batch` flags**, and no file.
+4. **A flag for every field on both commands**, and no file.
 
 ## Decision outcome
 
 Chosen option: **1**.
 
-- **A profile is a file** (`tether.services.profile`). `ExtractionProfile` has the seventeen fields
-  of `ExtractOptions`, with the same names and defaults. Its text form is the request text form of
+- **A profile is a file** (`tether.services.profile`). `ExtractionProfile` has the fields of
+  `ExtractOptions`, with the same names and defaults. Its text form is the request text form of
   ADR-0100 with `command` set to `"extraction-profile"`: every field written, sorted keys, a missing
   field taken at its default, an unknown field or wrong type refused. `read_profile` also builds the
   `ExtractOptions`, so a value extraction would refuse is refused when the file is read.
-- **The requests carry the values, not the file.** `ExtractionFields`, the seventeen fields, is a
+- **The requests carry the values, not the file.** `ExtractionFields`, those fields, is a
   base of `ExtractRequest`, `BatchRequest` and `ExtractionProfile`. `--profile` is read by the
   command line into the request, so a stored request, and a recipe, holds every value it ran with,
   and a later edit of the file cannot change what it means. `BatchRequest` builds a real
@@ -74,6 +76,12 @@ Chosen option: **1**.
   not be reproducible from the project and the recipe. The application may later remember the
   *path* of the last profile in the store, as it may remember other recent files; that is a
   preference, not the profile.
+- **The channel layout is four plain fields.** A request field holds one plain value, so
+  `channel_layout` is the layout kind (`None` for the `donor_side` split) and
+  `channel_layout_donor`, `channel_layout_donor_rect` and `channel_layout_acceptor_rect` are the
+  rest of the `ChannelLayout`; `extract_options()` builds the layout and refuses the three without a
+  kind. To hold a rectangle, the request text form gains one field type beside ADR-0100's tuple of
+  `str`: a tuple of `int`, which refuses a boolean as it does for an `int` field.
 - **No version step.** The requests keep version 1: their new fields have defaults, so a request
   written before #349 still reads and means what it meant.
 - **Registered tunables.** Every field is a row of PRD §11.2; `min_separation` and `donor_side`
@@ -82,14 +90,14 @@ Chosen option: **1**.
 
 ### Consequences
 
-- Good: all seventeen fields have a surface; `tether batch` can extract with anything but the
+- Good: every field has a surface; `tether batch` can extract with anything but the
   defaults; a recipe step is complete without a file beside it.
 - Good: the `--tdat` rule is one rule in both commands, stated in the help, `docs/cli.md` and here.
 - Neutral: the profile's filename is not recorded in `/settings/extraction`, only its values. The
   values are what reproduce a run; recording the name would be a new provenance key.
 - Neutral: a batch re-run with a changed profile does not re-extract a movie whose extraction is
   complete, as before for every option (ADR-0056); `docs/cli.md` says to use a new `--out-dir`.
-- Bad: the seventeen defaults are written twice, in `ExtractOptions` and in `ExtractionFields`,
+- Bad: the defaults are written twice, in `ExtractOptions` and in `ExtractionFields`,
   because the services import only the standard library. A test compares them field by field.
 
 ## More information

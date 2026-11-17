@@ -3,7 +3,7 @@
 """The ``batch`` service command: extract, correct and idealize many movies.
 
 [`BatchRequest`][] holds what ``tether batch`` takes on its command line, with the same
-defaults, and the seventeen extraction options of an extraction profile
+defaults, and the extraction options of an extraction profile
 ([`tether.services.profile`][], #349); [`run`][] builds one
 [`MovieJob`][tether.project.batch.MovieJob] for each movie and calls
 [`tether.project.batch.run_batch`][] with the
@@ -31,7 +31,7 @@ class BatchRequest(ExtractionFields, Request):
     """Run the extract -> correct -> idealize pipeline over many movies.
 
     The fields are the options of ``tether batch`` (``docs/cli.md``) with the same
-    defaults, and the seventeen
+    defaults, and the
     [`ExtractionFields`][tether.services.profile.ExtractionFields] applied to every movie,
     which ``tether batch --profile`` sets (none of them has a flag of its own). Two flags
     are stated positively: ``--no-idealize`` is ``idealize=False`` and ``--no-defer`` is

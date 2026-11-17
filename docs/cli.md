@@ -107,7 +107,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
 | `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
-| `--profile PATH` | none | read all seventeen extraction options from an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
+| `--profile PATH` | none | read every extraction option from an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
 
 ### Get `--donor-side` right, and read the donor-side check
 
@@ -196,7 +196,7 @@ The rule for `--tdat`, in `tether extract` and `tether batch` alike:
 
 ### Extraction profiles
 
-An *extraction profile* is a JSON file that holds all seventeen extraction options, so one
+An *extraction profile* is a JSON file that holds every extraction option, so one
 file describes how a movie was extracted. `tether extract --profile` and
 `tether batch --profile` read one. Its form is the form of a
 [service-command request](#service-commands), with `"extraction-profile"` in place of the
@@ -212,6 +212,20 @@ command name:
   options that have no flag: `prealign_upsample`, `prealign_low_sigma`,
   `prealign_high_sigma`, `disk_radius`, `ring_inner`, `ring_outer` and `bg_window`.
   [Analysis parameters](reference/parameters.md) gives each default and what it does.
+- **The channel layout is four fields.** `channel_layout` is the kind: `side-by-side`,
+  `top-bottom` or `rectangles`, or `null` for the split that `donor_side` describes.
+  `channel_layout_donor` is the donor half of a half layout (`left` or `right`, `top` or
+  `bottom`, and `null` takes the first). `channel_layout_donor_rect` and
+  `channel_layout_acceptor_rect` are the two rectangles of a `rectangles` layout, each
+  `[y1, x1, y2, x2]` with 1-based inclusive bounds. A layout is refused beside a
+  `donor_side` other than `left` and beside `--tmap`. For example, a camera that puts the
+  donor in the bottom half:
+
+  ```json
+  {"command":"extraction-profile","fields":{"channel_layout":"top-bottom",
+  "channel_layout_donor":"bottom"},"version":1}
+  ```
+
 - **It is checked before any movie is read.** An unknown field, a value of the wrong type
   and a value extraction refuses (an even `window`, a `ring_outer` that does not fit in the
   window) stop the command with a message that names the file.
@@ -558,7 +572,9 @@ movie.tether` sends this request. The text form is one line. It is broken here t
 the page, and a break between two parts of JSON does not change it:
 
 ```json
-{"command":"extract","fields":{"bg_window":10,"coloc_distance":3.0,"detection_block":50,
+{"command":"extract","fields":{"bg_window":10,"channel_layout":null,
+"channel_layout_acceptor_rect":null,"channel_layout_donor":null,
+"channel_layout_donor_rect":null,"coloc_distance":3.0,"detection_block":50,
 "detection_mode":null,"detection_threshold":null,"disk_radius":3.0,"donor_side":"left",
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
@@ -567,7 +583,7 @@ the page, and a break between two parts of JSON does not change it:
 ```
 
 The field names are the option names with `_` for `-`. Both requests also hold the
-seventeen fields of an [extraction profile](#extraction-profiles), and `--profile` sets
+fields of an [extraction profile](#extraction-profiles), and `--profile` sets
 them: the file itself is not part of the request, so a request holds every value it ran
 with. Two `tether batch` flags are positive fields: `--no-idealize` is
 `"idealize": false` and `--no-defer` is `"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of

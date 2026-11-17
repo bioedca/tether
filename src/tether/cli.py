@@ -231,7 +231,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         default=None,
         metavar="PATH",
         help=(
-            "read all seventeen extraction options from an extraction profile (a JSON "
+            "read every extraction option from an extraction profile (a JSON "
             "file; see docs/cli.md); an option the file leaves out keeps its default. "
             "It cannot be combined with an option flag (--donor-side ... --rms-gate)"
         ),
@@ -243,7 +243,7 @@ class _ProfileRefused(Exception):
 
 
 def _profile_values(args: argparse.Namespace) -> dict[str, object] | None:
-    """Read ``--profile`` into the seventeen extraction fields, or ``None`` without one.
+    """Read ``--profile`` into the extraction fields, or ``None`` without one.
 
     Raises [`_ProfileRefused`][] when the file is not a valid profile, when an extraction
     flag is given beside it, or when it sets a detection field beside ``--tdat``.
@@ -376,7 +376,7 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         default=None,
         metavar="PATH",
         help=(
-            "extract every movie with the seventeen extraction options of an extraction "
+            "extract every movie with the extraction options of an extraction "
             "profile (a JSON file; see docs/cli.md); an option the file leaves out keeps "
             "its default, and without a profile every option is at its default"
         ),
