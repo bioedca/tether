@@ -503,8 +503,19 @@ def _shape(value: Any) -> Any:
     return type(value).__name__ if not isinstance(value, bool | int | float) else "num"
 
 
+def _nan(value: Any) -> bool:
+    return isinstance(value, float) and math.isnan(value)
+
+
+def _non_finite(value: Any) -> bool:
+    return isinstance(value, float) and not math.isfinite(value)
+
+
 def _relative(old: Any, new: Any) -> float | None:
-    """Largest elementwise relative change between two equally shaped numeric values."""
+    """Largest elementwise relative change between two equally shaped numeric values.
+
+    ``inf`` when one side holds NaN or an infinity and the other a different value.
+    """
     a, b = _flatten(old), _flatten(new)
     if len(a) != len(b):
         return None
@@ -516,8 +527,10 @@ def _relative(old: Any, new: Any) -> float | None:
             continue
         if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
             return None
-        if x == y:
+        if x == y or (_nan(x) and _nan(y)):
             continue
+        if _non_finite(x) or _non_finite(y):
+            return math.inf  # NaN or an infinity on one side, a different value on the other
         scale = max(abs(x), abs(y))
         worst = max(worst, abs(x - y) / scale)
     return worst
@@ -535,7 +548,13 @@ def _equal(old: Any, new: Any, rtol: float) -> bool:
                 return False
             if isinstance(x, int) != isinstance(y, int):
                 return False
-            if x != y and abs(x - y) > rtol * max(abs(x), abs(y)):
+            if x == y or (_nan(x) and _nan(y)):
+                continue
+            # A NaN or an infinity makes the relative test below false whatever the other
+            # side holds, so a non-finite float equals only the same non-finite value (#1197).
+            if _non_finite(x) or _non_finite(y):
+                return False
+            if abs(x - y) > rtol * max(abs(x), abs(y)):
                 return False
         elif x != y or type(x) is not type(y):
             return False
