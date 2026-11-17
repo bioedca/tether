@@ -1,3 +1,7 @@
+---
+description: "The writing rules for Tether documentation pages, derived from ASD-STE100, with one number for each rule so that a reviewer can cite it."
+---
+
 # Writing style for documentation
 
 **Who this page is for.** Anyone who writes or reviews a Tether documentation page. It assumes
@@ -8,7 +12,8 @@ This guide is **STE-derived**. It takes the writing rules of
 controlled dictionary of ASD-STE100, because that dictionary is for aerospace maintenance.
 Each rule has a number. A reviewer can cite a rule by its number, for example "rule 2".
 
-No tool checks these rules yet. Read your page against each rule before you ask for a review.
+A test checks the rules that a machine can count. The section [The style budget](#the-style-budget)
+tells you how it works. Read your page against each rule before you ask for a review.
 
 ## Rule 1. Scope
 
@@ -95,10 +100,81 @@ It can also say what the page does not assume. A page in the "Project & maintain
 names the access to `bioedca/tether` that the reader needs. The reader statement of
 [Install Tether](../install.md) is the model.
 
+Link to a Tether source file on `main`: write `blob/main/` and the file path after the
+repository address.
+Do not link to a commit or to a different branch. A release build points these links at the
+release tag.
+
 ## Rule 9. Punctuation
 
 - Do not use a semicolon to join two statements. Write two sentences.
 - Do not use an em dash to join two statements. Write two sentences.
+
+## Rule 10. References on user pages
+
+A page in the "Using Tether" group refers only to things that its reader can open. Do not
+write these on a user page:
+
+- a section of the product specification, such as "PRD §7.8" or "§11.2",
+- a milestone label, such as "M3", as a time,
+- an issue number,
+- the name of a test,
+- a name that starts with an underscore.
+
+For each one, do one of these four things:
+
+1. Delete it, if the sentence is complete without it.
+2. Write the fact that it stands for. "Since M3" becomes "since version 1.0".
+3. Link it to its file in the repository, if the reader can use that file as evidence.
+4. Move it to a section for contributors, if only a contributor needs it.
+
+The [Validation & benchmarks](../validation.md) page shows evidence, so it can name tests.
+A test in `tests/test_docs_nav_audience.py` checks each item of the list above except the issue
+numbers.
+
+## The style budget
+
+The test `tests/test_docs_style_budget.py` counts four things on each nav page and on
+`README.md`. The table `docs/style-budget.toml` holds a budget for each count on each page.
+
+| Count | Rule | What the test counts |
+|---|---|---|
+| `long_share` | Rule 2 | The percentage of sentences over the word limit. The limit is 20 on a `procedure` page and 25 on a `descriptive` page. |
+| `semicolons` | Rule 9 | The semicolons in prose. |
+| `long_paragraphs` | Rule 2 | The paragraphs of more than six sentences. A list item is not a paragraph. |
+| `retired` | Rules 4 and 5 | The uses of a phrase on the `[retired]` list: retired terms, idioms and British spellings. |
+
+The test reads prose only. It does not read code, tables or front matter. It reads headings
+only to find retired phrases. A phrase in quotation marks, such as "project store", is a
+mention and not a use. The sentence splitter is approximate. It is not a full ASD-STE100
+checker.
+
+### Read a failure
+
+A failure names the page, the rule and the count. It is one of two kinds:
+
+1. **Over budget.** Your edit added a long sentence, a semicolon, a long paragraph or a retired
+   phrase. The message quotes the first offender on the page. Rewrite the offending text. Do not
+   raise the budget.
+2. **Well under budget.** Your edit removed one of these things. Lower the budget, as the next
+   section tells you.
+
+The test also fails when a nav page has no entry in the table. Add an entry for each new page.
+
+### Lower a budget
+
+1. Run `python tests/test_docs_style_budget.py`. It prints the table with the values measured now.
+2. Copy the new values for your page into `docs/style-budget.toml`. Or run the same command with
+   `--write`, and then read the diff.
+3. Commit the table with the page.
+
+A budget can go down. To raise a budget, write the reason in the pull request. A reviewer must
+accept it. A `long_share` that is up to two points under its budget does not fail. The other
+counts fail at any value under the budget.
+
+A new page starts as a `descriptive` page. Set `kind = "procedure"` for a tutorial or a how-to
+guide. To retire a phrase, add it to the `[retired]` list. The pages that use it then need an
+allowance until a sweep removes it.
 
 ## Term list
 
@@ -116,4 +192,20 @@ applies them to the existing pages. Later issues add terms.
 | store | The HDF5 layout inside a project file. Use it only on the [format reference](../reference/tether-format.md) and on contributor pages. Define it once on each of those pages. | "project store" |
 | background-subtracted | The trace layer with the local background removed. Tether stores this layer as `intensity_quantity="corrected"`. | "corrected" in prose for this layer |
 | corrected | Only in "corrected FRET": FRET efficiency corrected for leakage (α) and gamma (γ). Write the stored value `corrected` in code formatting only. | "corrected" for background subtraction |
-| window | Always with a qualifier: analysis window, aperture window, estimator window, model window (`window_length`) or application window. | a bare "window" |
+| window | Always with a qualifier: analysis window, aperture window, estimator window, model window (`window_length`), application window or post-synchronization window. The parts of the application window keep their own names: main window, splash window. | a bare "window" |
+
+### Retired phrases
+
+Do not use these phrases in prose. The term list above gives the name to use in their place.
+[Issue #592](https://github.com/bioedca/tether/issues/592) plans a style check that reads this
+list. The list puts the phrases in code formatting, so that the check does not read them as
+prose.
+
+- `provenance sidecar`, `JSON sidecar`, `sidecar .lock file`, `.lock sidecar`
+- `project store`
+- British spellings: `colour`, `analyse`, `behaviour`, `labelled`, `labelling`, `artefact`,
+  `analogue`, `neighbour`, `centre`, `judgement`, `programme`, `grey` and `licence` (the noun)
+- The British `-ise` and `-isation` forms of verbs and nouns, such as `normalise`
+
+Text in code formatting, quoted titles of papers and the titles of accepted ADRs keep their own
+words.

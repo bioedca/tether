@@ -24,6 +24,7 @@ pytest.importorskip("h5py")
 import numpy as np  # noqa: E402
 from scipy.stats import norm  # noqa: E402
 
+from _analysis_store import build_store_with_model  # noqa: E402
 from tether.analysis import (  # noqa: E402
     DEFAULT_OVERLAY_POINTS,
     DEFAULT_RANGE,
@@ -32,9 +33,8 @@ from tether.analysis import (  # noqa: E402
     model_gaussian_overlay,
     population_model_gaussian_overlay,
 )
-from tether.io.schema import create_project  # noqa: E402
 from tether.project.core import Project  # noqa: E402
-from tether.project.idealize import write_idealization_model  # noqa: E402
+from tether.project.idealize import read_idealization, write_idealization_model  # noqa: E402
 
 # --- pure core: faithfulness + shape -----------------------------------------
 
@@ -245,10 +245,16 @@ def _write_model(
     variances,
     frac,
 ) -> None:
-    """Persist a minimal ``/idealization/{model_type}`` with the given members."""
-    create_project(path, overwrite=True)
+    """Persist a ``/idealization/{model_type}`` with the given members over one molecule.
+
+    The store holds one accepted molecule whose fit is fresh, so the model describes
+    the default selection (the overlay is withheld when it describes none, ADR-0109).
+    """
     means_arr = np.asarray(means, dtype="float64")
     n_states = int(means_arr.shape[0])
+    states = np.array([[0] * 5 + [n_states - 1] * 5], dtype="int64")
+    build_store_with_model(path.parent, states, means_arr, model_name=model_type, name=path.name)
+    fit = read_idealization(path, model_type)
     write_idealization_model(
         path,
         model_name=model_type,
@@ -260,11 +266,11 @@ def _write_model(
         tmatrix=None,
         norm_tmatrix=None,
         elbo=1.0,
-        idealized=np.array([[means_arr[0], means_arr[-1]]]),
-        state_paths=np.array([[0, n_states - 1]]),
-        molecule_keys=["m0"],
-        molecule_ids=["m0#0"],
-        input_hashes=["h0"],
+        idealized=fit.idealized,
+        state_paths=fit.state_paths,
+        molecule_keys=fit.molecule_keys,
+        molecule_ids=fit.molecule_ids,
+        input_hashes=fit.input_hashes,
         intensity_quantity="corrected",
         selected_by="fixed",
         elbo_by_nstates=None,

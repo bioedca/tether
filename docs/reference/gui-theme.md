@@ -1,46 +1,50 @@
+---
+description: "How to select the light or dark theme of the Tether application window, and the trace colors with the checks they passed."
+---
+
 <!--
 SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# Window themes and trace colors
+# Application window themes and trace colors
 
-**Who this page is for.** Anyone who uses the Tether window and wants to change its theme, or
-who wants to know the trace colors and how they were checked. It assumes you can open the
-Tether window. It does not assume you know Qt or color science.
+**Who this page is for.** Anyone who wants to change the theme of the Tether application
+window, or who wants to know the trace colors and how they were checked. It assumes you can
+open the Tether application window. It does not assume you know Qt or color science.
 
-The Tether window has a light theme and a dark theme. This page tells you how to select a
+The Tether application window has a light theme and a dark theme. This page tells you how to select a
 theme, and it records the colors of the traces and how they were checked.
 
 ## Select a theme
 
 At the start, Tether uses the light or dark scheme of your operating system. When the
-operating system changes its scheme, the window changes too.
+operating system changes its scheme, the application window changes too.
 
 To select a theme yourself, use **View → Theme**:
 
 | Item | Result |
 |---|---|
-| System | The window follows the operating system. This is the default. |
-| Light | The window is always light. |
-| Dark | The window is always dark. |
+| System | The application window follows the operating system. This is the default. |
+| Light | The application window is always light. |
+| Dark | The application window is always dark. |
 
-The window, the plots and the movie viewer change immediately. You do not have to start
+The application window, the plots and the movie viewer change immediately. You do not have to start
 Tether again. Tether keeps your selection until you close it. A later version keeps it
 for the next session ([#330](https://github.com/bioedca/tether/issues/330)).
 
 If the operating system does not report a scheme, the System item gives the light theme.
 
-![The Tether window in the light theme, with a synthetic demonstration trace](../assets/gui/theme-light.png)
+![The Tether application window in the light theme, with a synthetic demonstration trace](../assets/gui/theme-light.png)
 
-![The Tether window in the dark theme, with the same synthetic demonstration trace](../assets/gui/theme-dark.png)
+![The Tether application window in the dark theme, with the same synthetic demonstration trace](../assets/gui/theme-dark.png)
 
 The two pictures show a synthetic trace, not measured data. They were made on Linux with
 the offscreen Qt platform.
 
 ## What the theme changes
 
-- **The window.** Tether uses the Qt Fusion style on all operating systems, with the colors
+- **The application window.** Tether uses the Qt Fusion style on all operating systems, with the colors
   of the theme. The selected item is ink on light, or chalk on dark. The brand has no
   accent color.
 - **The plots.** The background, the axes, the grid and the labels of each plot take the
@@ -53,7 +57,7 @@ the offscreen Qt platform.
 The theme does not change the figures that Tether exports. Exported figures are made
 with Matplotlib and have no brand element ([ADR-0044](../adr/0044-matplotlib-base-plot-export-backend.md)).
 
-The window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
+The application-window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
 (see [Brand](../brand.md)). The module `tether.gui.theme` is the only module in
 `src/tether/gui` that contains a color value. A test makes sure of this.
 
@@ -98,8 +102,8 @@ move.
 **Progress row.** The progress row is a row of beam dots for a task that gives a
 percentage. The dots fill from left to right, and the percentage is beside the row.
 Assistive technology reads the row as a progress bar with its value. In this version, no
-task gives a percentage, so the window does not show the row. The task service and the
-progress panel of a later version put the row in the window
+task gives a percentage, so the application window does not show the row. The task service and the
+progress panel of a later version put the row in the application window
 ([#343](https://github.com/bioedca/tether/issues/343),
 [#627](https://github.com/bioedca/tether/issues/627)).
 
@@ -115,7 +119,7 @@ The colors of data are not brand colors. Tether has two sets of trace colors. Ea
 has one value for each theme.
 
 - **Classic** is the set that Tether used before: green donor, red acceptor, blue FRET,
-  grey total. It is the default. The idealized line is now ink on light and chalk on
+  gray total. It is the default. The idealized line is now ink on light and chalk on
   dark. Before, it was near-black on a black plot and you could not see it
   ([#617](https://github.com/bioedca/tether/issues/617)).
 - **Safe** is a set for persons with a color-vision deficiency. A later change makes it
@@ -131,7 +135,7 @@ has one value for each theme.
 
 The ratio is the WCAG 2.x contrast against the plot background of the theme (`#fbfbfa`
 light, `#0d0f12` dark). Each trace color has a contrast of 3 : 1 or more. Each text
-color of the window has a contrast of 4.5 : 1 or more.
+color of the application window has a contrast of 4.5 : 1 or more.
 
 ### Sources of the safe set
 
@@ -146,7 +150,7 @@ color of the window has a contrast of 4.5 : 1 or more.
 
 ### Color-vision check of the safe set
 
-The test `tests/test_gui_theme.py` simulates protanopia, deuteranopia and tritanopia.
+The test [`tests/test_gui_theme.py`](https://github.com/bioedca/tether/blob/main/tests/test_gui_theme.py) simulates protanopia, deuteranopia and tritanopia.
 It uses the model of Machado, Oliveira and Fernandes (2009), IEEE TVCG 15(6), 1291–1298,
 [doi:10.1109/TVCG.2009.113](https://doi.org/10.1109/TVCG.2009.113), at severity 1.0. The
 matrices agree with `colorspacious` 1.1.2. Then the test calculates the CIEDE2000 color
