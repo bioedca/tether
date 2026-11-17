@@ -199,6 +199,28 @@ class BeadMapResult:
     image: np.ndarray
 
 
+class _TiffFrames:
+    """A TIFF video read one block of pages at a time, never decoded whole.
+
+    ``frames[a:b]`` decodes pages ``a`` to ``b - 1`` of the series and nothing
+    else, so [`project_frames`][] reads only the selected frames of a compressed
+    file, one block at a time.
+    """
+
+    ndim = 3
+
+    def __init__(self, tif: Any, shape: tuple[int, int, int]) -> None:
+        """Wrap series 0 of the open ``tif``, whose shape is ``(T, H, W)``."""
+        self._tif = tif
+        self.shape = shape
+
+    def __getitem__(self, key: slice) -> np.ndarray:
+        """Decode the pages ``key`` selects, as an array ``(n, H, W)``."""
+        pages = range(*key.indices(self.shape[0]))
+        block = self._tif.asarray(series=0, key=list(pages))
+        return np.asarray(block).reshape(len(pages), *self.shape[1:])
+
+
 def project_frames(
     video: np.ndarray,
     *,
@@ -212,7 +234,8 @@ def project_frames(
     G02's default) or ``"mean"`` (the per-pixel mean). Raises [`BeadMapError`][]
     for a range outside the video or an unknown projection.
     """
-    video = np.asarray(video)
+    if not isinstance(video, _TiffFrames):
+        video = np.asarray(video)
     if video.ndim != 3:
         raise BeadMapError(f"a bead video must be 3-D (T, H, W), got shape {video.shape}")
     start, stop = _frame_range(frames, video.shape[0])
@@ -387,7 +410,8 @@ def bead_map(
         raise BeadMapError(f"min_bead_spots must be a positive integer, got {min_bead_spots}")
     if prealign not in ("translation", "similarity"):
         raise BeadMapError(f"prealign must be 'translation' or 'similarity', got {prealign!r}")
-    data = np.asarray(data)
+    if not isinstance(data, _TiffFrames):
+        data = np.asarray(data)
     if data.ndim == 2:
         if frames is not None or projection != "max":
             raise BeadMapError("frames and projection apply to a bead video, not to one image")
@@ -516,8 +540,11 @@ def bead_map_from_file(
     content and stays the same when the file moves; the file name is stamped as
     ``bead_file``. A one-page TIFF is an image (no frame range, no projection);
     a multi-page TIFF is a video reduced with ``frames`` and ``projection``. The
-    file is memory-mapped and the video projected block by block, so a long video
-    need not fit in memory. A TIFF of another layout (an RGB image, a multichannel
+    video is projected block by block: an uncompressed file is memory-mapped, and
+    a compressed one is decoded one block of the selected pages at a time, so a
+    long video need not fit in memory or on disk. A TIFF whose pixels come in part
+    from other files (a multi-file OME-TIFF) is refused, because the source id
+    names this one file only. A TIFF of another layout (an RGB image, a multichannel
     or a focus stack: any series axes but ``YX``, ``IYX``, ``TYX`` or ``QYX``) is
     refused. Other keyword arguments go to [`bead_map`][].
     """
@@ -542,13 +569,30 @@ def bead_map_from_file(
                 f"(axes {' / '.join(repr(a) for a in _VIDEO_AXES)}), got shape {shape} "
                 f"(axes {axes!r}); channels, colour samples and focus planes are not frames"
             )
-        try:
-            # Memory-map rather than load: a long bead video is reduced block by block
-            # (project_frames), so it never has to fit in memory. tifffile maps the
-            # file itself when it can, else it decodes into a temporary mapped file.
-            data = tif.asarray(series=0, out="memmap")
-        except (OSError, ValueError, tifffile.TiffFileError) as exc:
-            raise BeadMapError(f"could not read the bead file {path.name}: {exc}") from exc
+        if any(page is None or page.parent is not tif for page in series.pages):
+            # A multi-file OME-TIFF: some pages are in (or missing from) other files,
+            # which the sha256 source id of this one file would not name.
+            raise BeadMapError(
+                f"{path.name}: some of its pages are in other files (a multi-file "
+                "OME-TIFF); give one file that holds every frame"
+            )
+        data: Any
+        if len(shape) == 3 and shape[0] > 1 and series.dataoffset is None:
+            # Compressed or scattered pages: decode only the selected frames, one
+            # block at a time (project_frames), never the whole video.
+            if len(series.pages) != shape[0]:
+                raise BeadMapError(
+                    f"{path.name}: {len(series.pages)} pages for {shape[0]} frames; "
+                    "expected one page per frame"
+                )
+            data = _TiffFrames(tif, (shape[0], shape[1], shape[2]))
+        else:
+            try:
+                # Uncompressed and contiguous: tifffile maps the file itself, so a
+                # long video is reduced block by block without being loaded.
+                data = tif.asarray(series=0, out="memmap")
+            except (OSError, ValueError, tifffile.TiffFileError) as exc:
+                raise BeadMapError(f"could not read the bead file {path.name}: {exc}") from exc
         if data.ndim == 3 and data.shape[0] == 1:
             data = data[0]  # a one-frame stack is one image
         if data.ndim == 2 and (frames is not None or projection != "max"):

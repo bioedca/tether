@@ -72,6 +72,12 @@ def _quiet_bead_map(*args, **kwargs):
         return bead_map(*args, **kwargs)
 
 
+def _quiet_from_file(*args, **kwargs):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OverGateRegistrationWarning)
+        return bead_map_from_file(*args, **kwargs)
+
+
 def _assert_same_map(a, b) -> None:
     for name in ("ref_to_moving", "moving_to_ref"):
         ta, tb = getattr(a, name), getattr(b, name)
@@ -284,6 +290,72 @@ def test_from_file_accepts_an_imagej_time_series_and_a_compressed_video(
             assert result.source.kind == "video"
             assert result.source.n_frames == 3
             _assert_same_map(result.registration_map, reference.registration_map)
+
+
+def test_from_file_decodes_only_the_selected_frames_of_a_compressed_video(
+    bead_image: np.ndarray, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A compressed video is decoded one block of the selected pages at a time:
+    never the whole series, and never a page outside the frame range."""
+    rng = np.random.default_rng(5)
+    noise = rng.integers(0, 50, size=(70, *bead_image.shape)).astype(np.float64)
+    video = (noise + bead_image).astype(np.uint16)
+    packed = tmp_path / "beads-zlib-long.tif"
+    tifffile.imwrite(packed, video, photometric="minisblack", compression="zlib")
+    keys: list = []
+    real_asarray = tifffile.TiffFile.asarray
+
+    def spy(self, key=None, **kwargs):
+        keys.append(key)
+        return real_asarray(self, key=key, **kwargs)
+
+    monkeypatch.setattr(tifffile.TiffFile, "asarray", spy)
+    result = _quiet_from_file(packed, frames=(3, 68), projection="mean")
+    assert None not in keys  # the whole series was never decoded
+    read = sorted(page for key in keys for page in key)
+    assert read == list(range(3, 68))  # each selected page once, no other page
+    assert max(len(key) for key in keys) <= 32  # one block at a time
+    expected = _quiet_bead_map(video, source_id="r", frames=(3, 68), projection="mean")
+    _assert_same_map(result.registration_map, expected.registration_map)
+
+
+def test_from_file_refuses_a_multi_file_ome_tiff(bead_image: np.ndarray, tmp_path: Path) -> None:
+    """Pages kept in a companion file are not named by this file's hash, so a
+    multi-file OME-TIFF is refused, with its companion present or missing."""
+    import uuid
+
+    frame = bead_image.astype(np.uint16)
+    height, width = frame.shape
+    ids = {name: f"urn:uuid:{uuid.uuid4()}" for name in ("a.ome.tif", "b.ome.tif")}
+    tiff_data = "".join(
+        f'<TiffData FirstT="{2 * i}" IFD="0" PlaneCount="2">'
+        f'<UUID FileName="{name}">{ident}</UUID></TiffData>'
+        for i, (name, ident) in enumerate(ids.items())
+    )
+    for name, ident in ids.items():
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            f'<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06" UUID="{ident}">'
+            '<Image ID="Image:0"><Pixels ID="Pixels:0" DimensionOrder="XYCZT" Type="uint16" '
+            f'SizeX="{width}" SizeY="{height}" SizeC="1" SizeZ="1" SizeT="4">'
+            f'<Channel ID="Channel:0:0" SamplesPerPixel="1"/>{tiff_data}</Pixels></Image></OME>'
+        )
+        with tifffile.TiffWriter(tmp_path / name) as writer:
+            for page in range(2):
+                writer.write(
+                    frame,
+                    description=xml if page == 0 else None,
+                    metadata=None,
+                    photometric="minisblack",
+                    contiguous=False,
+                )
+    with pytest.raises(BeadMapError, match="other files"):
+        bead_map_from_file(tmp_path / "a.ome.tif")
+    (tmp_path / "b.ome.tif").unlink()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(BeadMapError, match="other files"):
+            bead_map_from_file(tmp_path / "a.ome.tif")
 
 
 def test_projection_in_blocks_equals_the_whole_stack_reduction(tmp_path: Path) -> None:
