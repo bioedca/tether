@@ -57,10 +57,15 @@ Tether used before #908. The layout is stored for each movie as
 ``/movies/layouts/<movie_id>``; the imported path takes its split from the ``.tmap``
 and stores no layout record.
 
-The imported ``.tmap``'s per-channel ``Rotation``/``Flip`` are decoded but their
-*apply* is deferred: a ``.tmap`` whose channels carry a non-identity rotation/flip
-is **refused** (a clean ``ExtractionError``) rather than silently split at the wrong
-frame; the UCKOPSB calibration map stores neither, so only the crop is needed.
+The imported ``.tmap``'s per-channel ``Rotation``/``Flip`` are **applied**: each
+channel of the movie is split in Deep-LASI's ``processImage`` order (rotate by a
+multiple of 90 degrees, then flip, then crop in the rotated/flipped frame), the same
+transform Deep-LASI applied to the calibration image the map was fitted on (#559,
+PRD Appendix E Stage 1). The rotation and flip are recorded per channel in
+``/movies``. A stored rotation or flip that does not decode (an angle that is not
+0, 90, 180 or 270, or a flip that is not ``[v, h]`` in ``{0, 1}``) is a clean
+``ExtractionError``. The UCKOPSB calibration map stores neither, so it is split by
+its crop alone, as before.
 
 After the traces are integrated, an advisory check reads the acceptor-bleach steps for
 the signature of swapped donor and acceptor halves ([`tether.imaging.side_check`][],
@@ -73,8 +78,9 @@ ADR-0117).
 
 Scope note (M1 S9 split): the extraction-vs-Deep-LASI acceptance oracle (recall /
 Pearson / RMS, PRD §8 NFR-VALID(a)) lands in the follow-up PR (S9 PR-C), with the
-gated full-movie fixture + full Deep-LASI export; that PR also lands the rotation/
-flip *apply* (validated against the real movie) -- ADR-0014/ADR-0019.
+gated full-movie fixture + full Deep-LASI export -- ADR-0014/ADR-0019. The rotation/
+flip apply landed later (#559) and is tested on synthetic movies only: no real
+rotated or flipped ``.tmap`` is in the reference data.
 """
 
 from __future__ import annotations
@@ -432,28 +438,19 @@ def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> Registratio
     (the "never a raw traceback" contract). No sample-movie control points are
     supplied, so the imported map's residual stays unknown (NaN) and the bead-fitted
     calibration is trusted as-is -- it never trips the over-gate flag.
+
+    The map's channel geometry carries each channel's crop **and** its decoded
+    ``Rotation`` / ``Flip`` (#559), so the caller splits the movie in the same
+    rotate -> flip -> crop frame the map was fitted in. A rotation or flip that does
+    not decode becomes the same clean ``.tmap``-centric error as any bad map.
     """
     try:
-        channels = read_tmap(tmap_path)
-        unsupported = sorted(cid for cid, ch in channels.items() if not ch.has_simple_geometry)
-        if unsupported:
-            # The .tmap stores a per-channel rotation/flip that processImage applies
-            # before cropping; the imported path honors only the crop so far, so
-            # applying it would split at the wrong frame. Refuse loudly rather than
-            # silently mis-extract (the rotation/flip apply is deferred to a follow-up).
-            raise ExtractionError(
-                f".tmap channel(s) {unsupported} carry a non-identity rotation/flip, which "
-                "the imported registration path does not yet apply (only crop geometry is "
-                "honored); re-run without --tmap to use a native fit."
-            )
         return registration_map_from_tmap(
-            channels,
+            read_tmap(tmap_path),
             app_version=__version__,
             source_file=Path(tmap_path).name,
         )
-    except ExtractionError:
-        raise
-    except Exception as exc:  # bad/foreign .tmap, ambiguous channels, ...
+    except Exception as exc:  # bad/foreign .tmap, ambiguous channels, bad rotation/flip, ...
         raise ExtractionError(f"could not use --tmap {Path(tmap_path).name}: {exc}") from exc
 
 
@@ -654,9 +651,11 @@ def _run_pipeline(
             layout: ChannelLayout | None = None
             if imported_map is not None:
                 # Imported path: registration comes from the .tmap or the map file.
-                # Split + detect at its own stored channel geometry (donor = reference
-                # half, acceptor = moving half), so donor_side / prealign / pairing
-                # are not used. A map without crop geometry leaves the split undefined.
+                # Split + detect at its own stored channel geometry -- rotate, flip,
+                # then crop, as Deep-LASI's processImage did for the map (#559) (donor =
+                # reference half, acceptor = moving half), so donor_side / prealign /
+                # pairing are not used. A map without crop geometry leaves the split
+                # undefined.
                 reg_map = imported_map
                 donor_geom = reg_map.reference_geometry
                 acceptor_geom = reg_map.moving_geometry
@@ -887,8 +886,9 @@ def extract_movie(
     tmap:
         Optional path to a Deep-LASI ``.tmap``. When given, registration is
         **imported** from it (the native detect/prealign/pair/fit is skipped); the
-        two channels are split + read at the ``.tmap``'s own stored crop geometry,
-        so ``options.donor_side`` is ignored and an ``options.channel_layout`` is
+        two channels are split + read at the ``.tmap``'s own stored channel
+        geometry (rotation, flip and crop, in that order), so
+        ``options.donor_side`` is ignored and an ``options.channel_layout`` is
         refused. When ``None`` (default), a native fit is paired from the movie's
         own detections. Cannot be combined with ``map_path``.
     tdat:

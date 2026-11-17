@@ -51,9 +51,8 @@ What S6 adds on top of the M0.5 primitives
 
 Deferred to a follow-up (logged in ADR-0014): the degree-3 polynomial *retry* rung
 of the fit-failure ladder (it needs [`PolyTransform2D`][] to become
-degree-aware) and decoding the imported ``.tmap``'s per-channel rotation/flip (the
-transform coefficients and crop suffice for the S6 map + parity; rotation/flip
-matter for S7 apply-map-at-extraction).
+degree-aware). The imported ``.tmap``'s per-channel rotation/flip, the other
+ADR-0014 deferral, is decoded and carried into the map's channel geometry (#559).
 
 Coordinate convention follows the rest of [`tether.imaging`][]: points are
 ``(N, 2)`` arrays of ``[x, y] = [col, row]`` in 0-based pixels.
@@ -447,8 +446,10 @@ def registration_map_from_tmap(
 
     The imported transforms are the ``.tmap``'s ``reference -> channel`` and
     ``channel -> reference`` maps (0-based via the [`TmapChannel`][] helpers).
-    Each channel's crop is carried from the ``.tmap`` (reference + moving); the
-    per-channel rotation/flip are not yet decoded (S7) and are left unset. When
+    Each channel's split geometry is carried from the ``.tmap`` (reference + moving):
+    its crop and its decoded ``Rotation`` / ``Flip``, applied in ``processImage``
+    order (rotate -> flip -> crop) when the movie is split (#559). A stored rotation
+    or flip that does not decode raises [`ValueError`][]. When
     matched control points
     (``reference_points`` / ``moving_points``, e.g. colocalized molecule pairs) are
     supplied, the imported map's RMS residual is measured at them and the same
@@ -516,12 +517,8 @@ def registration_map_from_tmap(
         n_pts = int(len(reference_points))
         rms = float(point_rms(ref_to_moving.apply(reference_points), moving_points))
 
-    reference_geometry = ChannelGeometry(
-        crop=tuple(np.asarray(reference.crop, dtype=int).ravel().tolist())
-    )
-    moving_geometry = ChannelGeometry(
-        crop=tuple(np.asarray(moving.crop, dtype=int).ravel().tolist())
-    )
+    reference_geometry = _tmap_channel_geometry(reference)
+    moving_geometry = _tmap_channel_geometry(moving)
 
     reg_map = RegistrationMap(
         reference_channel=int(reference_channel),
@@ -539,6 +536,21 @@ def registration_map_from_tmap(
     )
     _emit_over_gate(reg_map, on_over_gate)
     return reg_map
+
+
+def _tmap_channel_geometry(channel: TmapChannel) -> ChannelGeometry:
+    """Return the split geometry a decoded ``.tmap`` channel stores: rotation, flip, crop.
+
+    Deep-LASI registers the channel sub-images that ``processImage`` makes (rotate,
+    then flip, then crop), so the stored polynomials are in that processed frame.
+    Splitting the movie with the same three steps puts the detections in the frame
+    the polynomials expect (PRD Appendix E Stages 1 and 12).
+    """
+    return ChannelGeometry(
+        crop=tuple(np.asarray(channel.crop, dtype=int).ravel().tolist()),
+        rotation_deg=channel.rotation_deg,
+        flip=channel.flip_vh,
+    )
 
 
 def _shift_poly(poly: PolyTransform2D, *, shift_in: float, shift_out: float) -> PolyTransform2D:

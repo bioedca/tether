@@ -47,6 +47,7 @@ from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING, Any
 
+from tether.gui import preferences
 from tether.gui.curation import (
     CATEGORY_SLOTS,
     Command,
@@ -508,6 +509,7 @@ class TetherShell:
         overlap: OverlapSeam | None = None,
         conditions: Project | None = None,
         advance_after_curation: bool = True,
+        preferences_file: Path | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
@@ -602,6 +604,19 @@ class TetherShell:
         self._session_release_future: Any | None = None
         self._idealize_timer: Any | None = None
         self._idealize_key: str | None = None
+        # What this computer remembers between launches (#628, ADR-0122): recent
+        # projects, the molecule selected at close, the layout and the curator name.
+        # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
+        # file of tether.gui.preferences. Nothing of it is written into a project.
+        self._preferences_file = preferences_file
+        # A failed preferences write, kept until the next status message carries it, so a
+        # success message of the same action does not hide it (#628).
+        self._preferences_error: str | None = None
+        # The curator name set for new labels, or None: then the project writes the
+        # operating-system user, exactly as before #628.
+        self._curator_name: str | None = (
+            None if preferences_file is None else preferences.curator_name(preferences_file)
+        )
 
         self._window = QtWidgets.QMainWindow()
         self._window.setWindowTitle(_APP_NAME)
@@ -716,6 +731,12 @@ class TetherShell:
         # Whether a dock of a section that is not current shows again when its section does;
         # kept so a dock the user closed stays closed across a switch.
         self._dock_restore: dict[Any, bool] = {}
+        # Each dock's default area, so View -> Reset layout can return a dock built after
+        # the default layout was captured to its default place too (#628).
+        self._dock_default_area: dict[Any, Any] = {}
+        # The docks the stored layout names as hidden only by their section; a dock built
+        # after the restore reads it too (#628).
+        self._stored_section_hidden: set[str] = set()
         self._section: str = _DEFAULT_SECTION
         dock_widgets: dict[tuple[str, str], Any] = {}
         for spec in self._sections:
@@ -729,6 +750,14 @@ class TetherShell:
         self._window.setCentralWidget(self._section_stack)
         self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
         self._show_section(_DEFAULT_SECTION)
+        # The default layout, kept before a stored one is restored, for View -> Reset
+        # layout (#628). A window never shown reports Qt's placeholder size and takes its
+        # real one from its size hint on the first show; adjustSize applies that sizing now,
+        # so the size kept is the one a fresh launch shows.
+        self._window.adjustSize()
+        self._default_size = self._window.size()
+        self._default_state = self._window.saveState()
+        self._default_docks = set(self._dock_default_area)
 
         # Curation controller + keymap + the application-level event filter.
         self._controller = CurationController(self._build_handlers())
@@ -793,6 +822,17 @@ class TetherShell:
         _set_standard_shortcuts(self._act_close_project, std.Close, "Ctrl+W")
         self._act_close_project.triggered.connect(self.close_project)
         self._act_close_project.setEnabled(False)
+        # File -> Open recent (#628): the last projects opened on this computer, newest
+        # first; one whose file is missing shows disabled, with its path.
+        self._recent_menu = QtWidgets.QMenu("Open &recent", self._window)
+        self._file_menu.insertMenu(self._act_close_project, self._recent_menu)
+        self._recent_menu.aboutToShow.connect(self._sync_recent_menu)
+        self._sync_recent_menu()
+        self._file_menu.addSeparator()
+        # The name written into new labels (#628). Shown in the status bar too, so a
+        # user on a shared computer sees whose labels they are writing.
+        self._act_curator_name = self._file_menu.addAction("Curator &name…")
+        self._act_curator_name.triggered.connect(self._curator_name_dialog)
         self._file_menu.addSeparator()
         self._act_quit = self._file_menu.addAction("&Quit")
         _set_standard_shortcuts(self._act_quit, std.Quit, "Ctrl+Q")
@@ -888,6 +928,11 @@ class TetherShell:
             action.triggered.connect(lambda _checked=False, s=spec.id: self.set_section(s))
             self._section_actions[spec.id] = action
         self._section_actions[self._section].setChecked(True)
+        # View -> Reset layout (#628): the default window size and dock positions, and
+        # the stored layout forgotten, so the next launch starts from the default too.
+        self._view_menu.addSeparator()
+        self._act_reset_layout = self._view_menu.addAction("&Reset layout")
+        self._act_reset_layout.triggered.connect(self.reset_layout)
 
         # Help menu (#629): the installed version's documentation, the shortcut
         # cheat-sheet (the same action as Curation's), the log folder once a log
@@ -930,6 +975,13 @@ class TetherShell:
 
         self._busy_indicator = BusyIndicator()
         self._window.statusBar().addPermanentWidget(self._busy_indicator)
+        self._curator_label = QtWidgets.QLabel()
+        self._curator_label.setAccessibleName("Curator name")
+        self._window.statusBar().addPermanentWidget(self._curator_label)
+        self._sync_curator_label()
+
+        # The stored layout, last: every dock built at startup exists by now (#628).
+        self._restore_layout()
 
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject")
         self._sync_start_page()
@@ -1033,10 +1085,26 @@ class TetherShell:
         dock_widget = QtWidgets.QDockWidget(title, self._window)
         dock_widget.setObjectName(f"{section_id}-{title.lower().replace(' ', '-')}")
         dock_widget.setWidget(widget)
-        self._window.addDockWidget(getattr(QtCore.Qt.DockWidgetArea, area.qt_name), dock_widget)
+        default_area = getattr(QtCore.Qt.DockWidgetArea, area.qt_name)
+        self._dock_default_area[dock_widget] = default_area
+        # A dock built after the stored layout was restored takes its stored place (#628);
+        # a dock the layout does not know goes to its default area. Restore first:
+        # addDockWidget drops the stored placeholder of a dock with the same name.
+        # A restored dock keeps its stored visibility, so one the user closed stays closed,
+        # unless the layout names it as hidden only by its section.
+        restored = self._window.restoreDockWidget(dock_widget)
+        if not restored:
+            self._window.addDockWidget(default_area, dock_widget)
+        shown = (
+            not restored
+            or dock_widget.objectName() in self._stored_section_hidden
+            or not dock_widget.isHidden()
+        )
         self._section_docks[section_id].append(dock_widget)
-        if section_id != self._section:
-            self._dock_restore[dock_widget] = True
+        if section_id == self._section:
+            dock_widget.setVisible(shown)
+        else:
+            self._dock_restore[dock_widget] = shown
             dock_widget.hide()
             dock_widget.toggleViewAction().setVisible(False)
         return dock_widget
@@ -1045,6 +1113,7 @@ class TetherShell:
         """Remove a lazily-built dock from the window and from its section."""
         self._window.removeDockWidget(dock_widget)
         self._dock_restore.pop(dock_widget, None)
+        self._dock_default_area.pop(dock_widget, None)
         for docks in self._section_docks.values():
             if dock_widget in docks:
                 docks.remove(dock_widget)
@@ -1290,6 +1359,216 @@ class TetherShell:
         self._overlap_dock_widget = self._attach_section_dock(
             CURATE_SECTION, "Overlap", self._overlap_dock.widget, DockArea.RIGHT
         )
+
+    # --- what this computer remembers between launches (#628, ADR-0122) -------
+
+    @property
+    def preferences_file(self) -> Path | None:
+        """The per-user preferences file, or ``None`` when this shell remembers nothing."""
+        return self._preferences_file
+
+    def _remember(self, write: Callable[[], object]) -> bool:
+        """Run one preferences write; a failure is a status message, never an exception.
+
+        Remembering is a convenience: a full disk or a read-only home folder must not stop
+        an open, a close or a curation decision.
+        """
+        if self._preferences_file is None:
+            return False
+        try:
+            write()
+        except (OSError, ValueError) as exc:
+            self._preferences_error = f"Could not save preferences: {exc}"
+            self._window.statusBar().showMessage(self._preferences_error)
+            return False
+        return True
+
+    @property
+    def curator_name(self) -> str:
+        """The name written into new labels: the preference, else the operating-system user."""
+        return self._curator_name if self._curator_name is not None else preferences.login_name()
+
+    def _labeler_kwargs(self) -> dict[str, str]:
+        """``labeler=`` for a project write when a curator name is set; else the project's own."""
+        return {} if self._curator_name is None else {"labeler": self._curator_name}
+
+    @property
+    def curator_label(self) -> QtWidgets.QLabel:
+        """The status-bar label that names the curator new labels are written for."""
+        return self._curator_label
+
+    @property
+    def curator_name_action(self) -> Any:
+        """The **File → Curator name…** action."""
+        return self._act_curator_name
+
+    def set_curator_name(self, name: str | None) -> bool:
+        """Write new labels as ``name``; ``None`` or blank returns to the operating-system user.
+
+        Labels already written keep the name they were written with. A name
+        [`validate_curator_name`][tether.gui.preferences.validate_curator_name] refuses
+        changes nothing and is reported on the status bar; the return value says whether
+        the name changed.
+        """
+        value = None if name is None or not name.strip() else name
+        try:
+            checked = None if value is None else preferences.validate_curator_name(value)
+        except ValueError as exc:
+            self._status(f"Curator name not changed: {exc}")
+            return False
+        self._remember(lambda: preferences.set_curator_name(checked, self._preferences_file))
+        self._curator_name = checked
+        self._sync_curator_label()
+        self._status(f"New labels are written as {self.curator_name}")
+        return True
+
+    def _sync_curator_label(self) -> None:
+        self._curator_label.setText(f"Curator: {self.curator_name}")
+        self._curator_label.setToolTip(
+            "New labels are written with this name. Change it with File → Curator name…"
+        )
+
+    def _curator_name_dialog(self) -> None:  # pragma: no cover - interactive dialog
+        from pyqtgraph.Qt import QtWidgets
+
+        text, ok = QtWidgets.QInputDialog.getText(
+            self._window,
+            "Curator name",
+            "Name written into new labels (leave empty for your login name):",
+            text=self.curator_name,
+        )
+        if ok:
+            self.set_curator_name(text)
+
+    @property
+    def recent_menu(self) -> QtWidgets.QMenu:
+        """The **File → Open recent** submenu."""
+        return self._recent_menu
+
+    def recent_projects(self) -> list[Path]:
+        """The projects **File → Open recent** lists, newest first (empty if nothing is kept)."""
+        if self._preferences_file is None:
+            return []
+        return preferences.recent_projects(self._preferences_file)
+
+    def _sync_recent_menu(self) -> None:
+        """Rebuild **File → Open recent** from the preferences file."""
+        self._recent_menu.clear()
+        recent = self.recent_projects()
+        for path in recent:
+            exists = path.is_file()
+            label = path.name if exists else f"{path} (missing)"
+            action = self._recent_menu.addAction(label.replace("&", "&&"))
+            action.setToolTip(str(path))
+            action.setStatusTip(str(path))
+            action.setData(str(path))
+            action.setEnabled(exists)
+            action.triggered.connect(lambda _checked=False, p=path: self.load_project(p))
+        if not recent:
+            empty = self._recent_menu.addAction("No recent projects")
+            empty.setEnabled(False)
+        self._recent_menu.setEnabled(self._preferences_file is not None)
+
+    def _remember_position(self) -> None:
+        """Store the selected molecule as the resume position of the open project."""
+        if self._project_path is None:
+            return
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        key = None if trace is None else trace.molecule_key
+        path = self._project_path
+        self._remember(lambda: preferences.record_resume(path, key, self._preferences_file))
+
+    def _resume_position(self) -> None:
+        """Select the molecule this project showed when it was last closed here, if any."""
+        if self._preferences_file is None or self._project_path is None:
+            return
+        key = preferences.resume_molecule(self._project_path, self._preferences_file)
+        if key is None:
+            return
+        for row, trace in enumerate(self._traces):
+            if trace.molecule_key == key:
+                self._molecule_list.setCurrentRow(row)
+                return
+
+    def _section_hidden_docks(self) -> list[str]:
+        """The docks hidden only because their section is not current (by object name)."""
+        names = {dock.objectName() for dock, shown in self._dock_restore.items() if shown}
+        # A dock not built in this session (Overlap, Population histogram) keeps the stored
+        # answer, since Qt keeps its stored place and visibility for the next launch too.
+        built = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
+        return sorted(names | (self._stored_section_hidden - built))
+
+    def _save_layout(self) -> None:
+        """Store the window geometry and dock positions for the next launch."""
+        geometry = bytes(self._window.saveGeometry().data())
+        state = bytes(self._window.saveState().data())
+        hidden = self._section_hidden_docks()
+        self._remember(
+            lambda: preferences.record_layout(
+                geometry, state, self._preferences_file, section_hidden=hidden
+            )
+        )
+
+    def _restore_layout(self) -> None:
+        """Restore the stored layout, then let the section rules decide what shows."""
+        if self._preferences_file is None:
+            return
+        stored = preferences.stored_layout(self._preferences_file)
+        if stored is None:
+            return
+        from pyqtgraph.Qt import QtCore
+
+        if not self._window.restoreGeometry(QtCore.QByteArray(stored.geometry)):
+            return
+        if not self._window.restoreState(QtCore.QByteArray(stored.state)):
+            return
+        self._stored_section_hidden = set(stored.section_hidden)
+        self._enforce_sections(shown_by_section=self._stored_section_hidden)
+
+    def _enforce_sections(self, *, shown_by_section: set[str]) -> None:
+        """Apply the section rule after Qt restored a state that knows nothing of sections.
+
+        A dock named in ``shown_by_section`` was hidden at save time only because its
+        section was not current, so it counts as shown. The current section's docks then
+        show or stay closed as restored, and every other section's docks are hidden.
+        """
+        self._dock_restore.clear()
+        for section_id, docks in self._section_docks.items():
+            for dock in docks:
+                visible = dock.objectName() in shown_by_section or not dock.isHidden()
+                if section_id == self._section:
+                    dock.setVisible(visible)
+                    dock.toggleViewAction().setVisible(True)
+                else:
+                    self._dock_restore[dock] = visible
+                    dock.hide()
+                    dock.toggleViewAction().setVisible(False)
+
+    def reset_layout(self) -> None:
+        """Return the window to its default size and dock positions (**View → Reset layout**).
+
+        Every dock shows again in its default place, the section rule still applies, and the
+        stored layout is forgotten so the next launch uses the default too.
+        """
+        self._window.restoreState(self._default_state)
+        self._stored_section_hidden = set()
+        # The default state does not know a dock built after it was captured (Overlap,
+        # Population histogram), so restoring it leaves such a dock where the user put it.
+        for dock, area in self._dock_default_area.items():
+            if dock not in self._default_docks:
+                dock.setFloating(False)
+                self._window.addDockWidget(area, dock)
+        self._window.resize(self._default_size)
+        every_dock = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
+        self._enforce_sections(shown_by_section=every_dock)
+        self._remember(lambda: preferences.clear_layout(self._preferences_file))
+        self._status("Layout reset to the default")
+
+    @property
+    def reset_layout_action(self) -> Any:
+        """The **View → Reset layout** action."""
+        return self._act_reset_layout
 
     # --- project (open a produced / extracted .tether live, §7.8) ------------
 
@@ -1550,11 +1829,17 @@ class TetherShell:
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
+        # The project being replaced keeps the molecule it shows now (#628).
+        self._remember_position()
         self._project_path = Path(proj_path)
         self._act_close_project.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
+        # Then the molecule selected when this project was last closed here, and the
+        # project goes to the top of File -> Open recent (#628).
+        self._resume_position()
+        self._remember(lambda: preferences.add_recent_project(proj_path, self._preferences_file))
         if prior_claimed_key != self._claimed_project_key:
             _release_gui_project(prior_claimed_key, self._project_owner_token)
 
@@ -1972,6 +2257,7 @@ class TetherShell:
             self._status("Close project unavailable: wait for idealization to finish")
             return False
         name = self._project_path.name
+        self._remember_position()
         self._reject_active_conditions_dialog()
         self._lock_refresh_timer.stop()
         self._curation_project = None
@@ -2276,6 +2562,7 @@ class TetherShell:
                 self._conditions,
                 writer_guard=self._guard_conditions_write,
                 parent=self._window,
+                **self._labeler_kwargs(),
             )
             self._active_conditions_dialog = dialog
             dialog.exec()
@@ -2516,7 +2803,7 @@ class TetherShell:
                 CurationAction.REJECT: project.reject,
                 CurationAction.UNREJECT: project.unreject,
             }
-            result = writers[action](trace.molecule_key)
+            result = writers[action](trace.molecule_key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
             self._status(f"{verb} failed: {exc}")
             return
@@ -2694,6 +2981,9 @@ class TetherShell:
         self._molecule_list.setCurrentRow(new_row)
 
     def _status(self, message: str) -> None:
+        if self._preferences_error is not None:
+            message = f"{message} ({self._preferences_error})"
+            self._preferences_error = None
         self._window.statusBar().showMessage(message)
 
     # --- lifecycle -----------------------------------------------------------
@@ -2720,6 +3010,9 @@ class TetherShell:
         if self._closed:
             return
         self._closed = True
+        # What the next launch restores (#628), saved while every widget still exists.
+        self._remember_position()
+        self._save_layout()
         self._reject_active_conditions_dialog()
         self._window.removeEventFilter(self._window_close_filter)
         self._window_close_filter = None
