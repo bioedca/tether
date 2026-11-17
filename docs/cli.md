@@ -50,9 +50,10 @@ the install root instead, a folder that holds nothing else
 table.
 
 On Windows, from the next release, Start Menu → **Tether Command Prompt** opens a console
-that needs no `PATH` change ([#666](https://github.com/bioedca/tether/issues/666)). In it, you
-can copy every example on this page as it is. On any system, add that one directory to
-the **end** of your `PATH` and every example works in any terminal.
+that needs no `PATH` change ([#666](https://github.com/bioedca/tether/issues/666)). In it, every
+`tether` command on this page runs as written. The one PowerShell example needs Windows
+PowerShell, not that console. On any system, add that one directory to the **end** of your
+`PATH`, and the `tether` commands work in any terminal.
 [Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)
 gives the line for each system. It also tells why the folder goes at the end: in rc3, on Linux
 and macOS, the `bin` folder also holds the installer's own `python`, `pip` and `conda`, and

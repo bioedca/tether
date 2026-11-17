@@ -23,8 +23,11 @@ tether --version
 
 It prints `tether` and a version number, as in
 [step 5 of the install guide](install.md#5-check-that-tether-runs). If it says the command is
-not found, finish [step 4 of the install guide](install.md#4-open-a-terminal-where-tether-works)
-first.
+not found, open a terminal as
+[step 4 of the install guide](install.md#4-open-a-terminal-where-tether-works) tells. On
+Windows, from the next release, that is the **Tether Command Prompt**. Otherwise, either do
+the optional `PATH` step there, or type the launcher's full path for `tether` and
+`tether-gui` in every command of this tutorial.
 
 ## 2. Download the sample movie
 
