@@ -1024,7 +1024,7 @@ method, the limits and the measurements.
 | Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
 | Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
 | TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
-| Smoothed TDP of the same seven panels | the seven sheets, with the committed `checkTDP.py` run on their columns | `smooth_transition_density` | 800 x 800 values each, equal (0.0; limit 1e-12) |
+| Smoothed TDP of the same seven panels | the seven sheets, with the committed `checkTDP.py` run on their columns | `smooth_transition_density` | 800 x 800 values each, equal (0.0, limit 1e-12) |
 
 The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
 calculated from them can differ from a published one by the rounding of the two intensities. The
