@@ -446,8 +446,9 @@ when there is no value. A native extraction records the channel roles as `user`,
 `--donor-side` names the donor half.
 
 A frame time is **verified** only when it is from the file, or when you confirm it in a
-second call. Rates in s⁻¹ use only a verified frame time, so a value you type stays not
-verified until you confirm it.
+second call. A value you type stays not verified until you confirm it. Tether stores
+this flag now. Rate calculations do not check it yet: that is planned work
+([#941](https://github.com/bioedca/tether/issues/941)).
 
 ```text
 tether metadata [-h] [--movie MOVIE_ID] [--frame-time SECONDS] [--pixel-size UM]

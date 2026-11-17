@@ -260,7 +260,7 @@ which keeps the value from the file.
 | `frame_time` | `float` | **Seconds per frame** in use: the file's value, or the one the user gave; `0.0` unknown. |
 | `frame_time_origin` | `str` | `file`, `user` or `unknown`. |
 | `frame_time_verified` | `bool` | True only for a file value, or after the user confirmed a given value in a separate action (`confirm_frame_time`); giving a value clears it. |
-| `pixel_size_um` | `float` | **Micrometres per pixel**: the ImageJ resolution when its unit is µm and the pixels are square, or the user's value; `0.0` unknown. |
+| `pixel_size_um` | `float` | **Micrometres per pixel**: the ImageJ resolution when its unit is µm, the pixels are square and the resolution is not the `1/1` placeholder, or the user's value; `0.0` unknown. |
 | `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
 | `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap`, `user` for a native extraction (`--donor-side`). |
 

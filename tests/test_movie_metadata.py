@@ -66,6 +66,19 @@ def test_reader_reads_imagej_pixel_size(tmp_path) -> None:
         assert reader.shape[0] == _N_FRAMES
 
 
+def test_reader_ignores_a_micrometre_unit_without_a_resolution(tmp_path) -> None:
+    # tifffile reports (1, 1) when no resolution was written; that is not 1 um/pixel.
+    path = tmp_path / "um-only.tif"
+    data = tifffile.imread(_make_movie(tmp_path))
+    tifffile.imwrite(path, data, imagej=True, metadata={"axes": "TYX", "unit": "um"})
+    with open_movie(path) as reader:
+        assert reader.pixel_size_um is None
+        assert reader.metadata.pixel_size.origin == "unknown"
+    out = tmp_path / "um-only.tether"
+    extract_movie(path, out, options=_OPTIONS)
+    assert (_only(out).pixel_size_um, _only(out).pixel_size_origin) == (0.0, "unknown")
+
+
 def test_reader_ignores_a_resolution_without_a_micrometre_unit(tmp_path) -> None:
     with open_movie(_imagej_movie(tmp_path, unit="pixel")) as reader:
         assert reader.pixel_size_um is None
