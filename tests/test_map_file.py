@@ -395,3 +395,18 @@ def test_map_create_takes_a_frame_range_of_a_video(tmp_path) -> None:
     assert (source["frame_start"], source["frame_stop"], source["projection"]) == (1, 3, "max")
     with pytest.raises(Exception, match="pass both or neither"):
         run(MapCreateRequest(source=str(video), output=str(tmp_path / "w.npz"), frame_start=1))
+
+
+def test_a_channel_layout_beside_a_map_file_is_refused(tmp_path, fitted) -> None:
+    from tether.imaging.layout import ChannelLayout
+
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_010.tif")
+    layout = ChannelLayout(kind="top-bottom")
+    with pytest.raises(ExtractionError, match="channel_layout and map_path"):
+        extract_movie(
+            movie,
+            tmp_path / "d.tether",
+            options=ExtractOptions(window=_WINDOW, channel_layout=layout),
+            map_path=map_file,
+        )

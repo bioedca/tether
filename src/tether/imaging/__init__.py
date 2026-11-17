@@ -73,6 +73,14 @@ from tether.imaging.extract import (
     read_traces,
     write_extraction,
 )
+from tether.imaging.layout import (
+    DEFAULT_CHANNEL_LAYOUT,
+    LAYOUT_KINDS,
+    ChannelLayout,
+    ChannelLayoutError,
+    ChannelOverlapWarning,
+    read_layout_record,
+)
 from tether.imaging.register import (
     PairedControlPoints,
     PolyTransform2D,
@@ -94,9 +102,11 @@ from tether.imaging.split import (
 
 __all__ = [
     "BEAD_PROJECTIONS",
+    "DEFAULT_CHANNEL_LAYOUT",
     "DEFAULT_COLOC_DISTANCE_PX",
     "DEFAULT_MIN_BEAD_SPOTS",
     "DEFAULT_RMS_GATE_PX",
+    "LAYOUT_KINDS",
     "LOW_CONFIDENCE_TAG",
     "MAP_FORMAT_VERSION",
     "MOLECULE_KEY_QUANTUM_PX",
@@ -104,6 +114,9 @@ __all__ = [
     "BeadMapResult",
     "BeadMapSource",
     "ChannelGeometry",
+    "ChannelLayout",
+    "ChannelLayoutError",
+    "ChannelOverlapWarning",
     "ColocalizedMolecules",
     "IntegratedTraces",
     "MapFileError",
@@ -145,6 +158,7 @@ __all__ = [
     "process_image",
     "project_frames",
     "read_calibration",
+    "read_layout_record",
     "read_molecules",
     "read_patches",
     "read_tmap",
