@@ -35,14 +35,10 @@ bleach found the first time, so an analysis window the first pass shortened stay
   on one optical setup can still give two conditions, for example at two laser powers. The
   steps pool every molecule into one dataset α, and molecules without a γ of their own take
   one dataset γ. The steps cannot select a condition, so a project that holds more than one
-  condition gets one value for all of them. `tether extract` and `tether batch` make one
-  project per movie, and give every molecule in it the one provisional condition parsed from
-  the movie's filename. They do not check the sample, so make sure that the movie holds
-  molecules of one condition only, for example of one construct, before you follow these
-  steps.
-- Each movie file in the project once. A file extracted into the project twice puts every
-  trace in it twice, and the α and γ steps count both copies toward the 10 molecules each
-  factor needs, so a factor can pass on half that many real traces.
+  condition gets one value for all of them. Tether gives every molecule the provisional
+  condition parsed from its movie's filename, so a project of two movies can hold two
+  conditions. Tether does not check the sample. Make sure that each movie holds molecules of
+  one condition only, for example of one construct, before you follow these steps.
 - No rejected molecules you distrust. The α and γ steps read every molecule in the project,
   whatever its curation label, so a trace you rejected still enters both estimates when its
   bleach steps pass the checks above. If you rejected traces as contaminants or artifacts,

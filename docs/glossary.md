@@ -636,7 +636,9 @@ contributor pages use it.
 
 One HDF5 file per experiment, that is, one day or one session of acquisition. A project can
 hold several movies and several conditions, and one condition can span several projects
-(ADR-0068). The file has the root attribute `format = "tether-project"` and a
+(ADR-0068). `tether extract` writes a project of one movie, and
+[Add another movie to a project](how-to/extract-traces.md#add-another-movie-to-a-project)
+adds the others. The file has the root attribute `format = "tether-project"` and a
 monotonic `schema_version` (currently `1`). The **entire group skeleton was forward-declared
 when the schema was frozen**, so later versions add *data*, never *structure*
 (ADR-0005); a `schema-guard` CI gate enforces it.

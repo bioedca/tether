@@ -28,10 +28,6 @@ dwell-time analyses read.
   [curate the traces](curate-traces.md) first.
 - Your corrections done. Changing α or γ after a fit makes it stale, so
   [correct the dataset](apply-corrections.md) first.
-- Each movie file in the project once. A file extracted into the project twice gives both
-  copies the same molecule keys, and the one-click fit and `reidealize` pick molecules by key,
-  so they fit every copy together, rejected ones included for `reidealize`. A project made by
-  `tether extract` or `tether batch` holds one movie.
 
 ## Choose a method
 

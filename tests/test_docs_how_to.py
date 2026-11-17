@@ -118,6 +118,7 @@ def test_the_pages_show_tether_commands() -> None:
     assert {argv[1] for _, argv in _tether_commands() if argv[0] == "tether"} == {
         "extract",
         "batch",
+        "info",
     }
 
 
@@ -126,7 +127,7 @@ def test_every_tether_command_parses(name: str, argv: list[str]) -> None:
     if argv[0] == "tether-gui":
         assert len(argv) == 2 and argv[1].endswith(".tether"), (name, argv)
         return
-    assert argv[1] in {"extract", "batch"}, (name, argv)
+    assert argv[1] in {"extract", "batch", "info"}, (name, argv)
     parser = build_parser()
     (sub,) = (a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
     options = set(sub.choices[argv[1]]._option_string_actions)
