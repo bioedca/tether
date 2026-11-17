@@ -232,6 +232,21 @@ def test_is_a_molecule_selection_that_names_nothing_in_another_project(tmp_path:
     assert resolve_selection(sel, other) == []  # same keys, different project: no pooling
 
 
+def test_a_relative_project_path_is_frozen_when_the_selection_is_made(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for folder in ("a", "b"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / "exp.tether").write_bytes(b"")
+    monkeypatch.chdir(tmp_path / "a")
+    sel = SavedSelection("x", "exp.tether", ("k0",))
+    assert sel.project_path == str((tmp_path / "a" / "exp.tether").resolve())
+
+    monkeypatch.chdir(tmp_path / "b")  # another project with the same relative name
+    assert not sel.is_in(tmp_path / "b" / "exp.tether")
+    assert sel.is_in(tmp_path / "a" / "exp.tether")
+
+
 def test_drives_a_population_function_as_its_keys_do(tmp_path: Path) -> None:
     states = np.array([[0, 1, 2, 1, 0, 1], [2, 2, 1, 0, 0, 1], [1, 0, 0, 2, 2, 2]], dtype="int64")
     project, keys = build_store_with_model(tmp_path, states, MEANS)

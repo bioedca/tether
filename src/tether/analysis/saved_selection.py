@@ -206,11 +206,17 @@ class SavedSelection:
     filter: SelectionFilter = SelectionFilter()
 
     def __post_init__(self) -> None:
-        """Check the name and store the keys as a tuple of strings."""
+        """Check the name, freeze the project path and store the keys as a tuple of strings.
+
+        A relative ``project_path`` is resolved now, against the working directory the
+        selection is made in, so a later change of directory never points it at another
+        project.
+        """
         if not isinstance(self.name, str) or not self.name.strip():
             raise ValueError("a saved selection needs a non-empty name")
         if isinstance(self.molecule_keys, str | bytes):
             raise TypeError("molecule_keys must be an iterable of strings, not a bare string")
+        object.__setattr__(self, "project_path", _project_path(self.project_path))
         object.__setattr__(self, "molecule_keys", tuple(str(k) for k in self.molecule_keys))
 
     @property
