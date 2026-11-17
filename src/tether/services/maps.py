@@ -139,10 +139,10 @@ def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
         raise
     except OSError:  # no hard links here (a FAT drive, some network shares)
         pass
-    with open(output, "xb") as f:  # FileExistsError if another session made it meanwhile
-        try:
+    f = open(output, "xb")  # noqa: SIM115 - FileExistsError if another session made it
+    try:
+        with f:  # the close flushes, and a failed flush is a failed write
             f.write(written.read_bytes())
-        except BaseException:
-            f.close()
-            output.unlink(missing_ok=True)  # the file this call made, never another's
-            raise
+    except BaseException:
+        output.unlink(missing_ok=True)  # the file this call made, never another's
+        raise

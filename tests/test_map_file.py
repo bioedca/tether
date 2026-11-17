@@ -471,6 +471,41 @@ def test_a_failed_copy_without_hard_links_leaves_no_file(monkeypatch, tmp_path, 
     assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
 
 
+def test_a_failed_flush_without_hard_links_leaves_no_file(monkeypatch, tmp_path, capsys) -> None:
+    """A disk-full error at close, after the write returned, is a failed write (Codex P2)."""
+    import builtins
+
+    from tether.services import maps
+
+    class _FullOnClose:
+        def __init__(self, f):
+            self._f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+        def write(self, data):
+            return self._f.write(data)
+
+        def close(self):
+            self._f.close()
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+
+    def open_full_on_close(*args, **kwargs):
+        return _FullOnClose(builtins.open(*args, **kwargs))  # noqa: SIM115 - closed by the wrapper
+
+    monkeypatch.setattr(maps, "open", open_full_on_close, raising=False)
+    beads = _write_beads(tmp_path / "beads.tif")
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "full.npz")]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
+
+
 def _no_hard_links(src, dst):
     raise PermissionError(1, "hard links are not supported here", str(dst))
 
