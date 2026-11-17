@@ -401,7 +401,7 @@ have:
   straight from a source tree that was never installed.
 
 To see the version you have installed, run `tether --version` once Tether's launcher folder
-is on your PATH ([Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)),
+is on your PATH ([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)),
 or run the launcher by its full path as that page shows. For results already on disk, read
 the stamps above instead: they record the version that actually ran each step, which may not
 be the one installed today.

@@ -29,9 +29,9 @@ The format has **two layers**, and they carry different guarantees:
   page is a bug**.
 - Everything a pipeline stage writes *later* — `/traces/*`, `/patches/*`,
   `/settings/*`, `/idealization/{model}`, `/features/table`, `/conditions/categories`,
-  `/movies/layouts`, `/calibration/*` — is additive per-record data declared by the module that writes
-  it. None of it appears in the manifest, so the manifest cannot arbitrate it: the
-  writer named in each section below is the authority. Note the `/*`: the **container
+  `/movies/layouts`, `/calibration/*`, `/models/*` — is additive per-record data declared
+  by the module that writes it. None of it appears in the manifest, so the manifest
+  cannot arbitrate it: the writer named in each section below is the authority. Note the `/*`: the **container
   groups** these live in are themselves part of the frozen skeleton above, and only
   their contents are additive.
 
@@ -156,13 +156,15 @@ guaranteed to be there.
 | `/movies/metadata/<movie_id>` | absent | `extract_movie` (`src/tether/project/extract.py`); changed by `tether.project.movie_metadata` |
 | `/idealization/{model}` | no | `write_idealization_model` (`src/tether/project/idealize.py`) |
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
+| `/labels/reject_log` | absent | `reject` / `unreject` (`src/tether/project/labels.py`) |
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
 | `/conditions` rows, `/conditions/categories/<condition_id>`, `/settings/condition_audit` | 0 rows / absent | `tether.project.conditions` |
 | `/settings/molecule_audit` | absent | `set_category` / `clear_category` / `set_analysis_window` / `reset_analysis_window` (`src/tether/project/molecule_edits.py`) |
 | `/settings/lock_takeovers` | absent | `record_takeover` (`src/tether/project/lock_takeovers.py`), called by the application after a Recover or Take over |
 | `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
-| `/models/*` | no | nothing yet — see below |
+| `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
+| `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
 `write_extraction` is not the only writer of `/molecules` rows and `/traces`. Four
 shipped provenances produce a populated store, and they differ in what they fill in.
@@ -478,6 +480,44 @@ so a crash leaves at worst an orphan label row, never an unaudited state change.
 | `label_value` | `i4` | scalar | The same signed codec as `curation_label`: `0` uncurated, `1` accept, `-1` reject. |
 | `condition_id` | `str:utf-8` | scalar | The condition the label is scoped to. |
 
+### `/labels/reject_log` — the reason of each reject
+
+A resizable 1-D compound dataset, **append-only**, created on the first human reject
+(`reject`, `src/tether/project/labels.py`), so a fresh store does not have it
+([ADR-0104](../adr/0104-a-reject-reason-log-under-labels.md)). Each
+human reject appends a `reject` row and each un-reject appends a `restore` row.
+
+A rejected trace stays in the store: a reject sets `curation_label` to `-1` and deletes
+nothing. The log is a record only. The curation filter, the ranker and every analysis
+read `/molecules.curation_label` and not the reason. Provisional-source rejects write
+no row. `reject_record_of` returns the `reject` row that joins the molecule's
+latest human `/labels` event when that event is a reject, or `None` (also for a store
+written before this log existed).
+
+| Field | Type | Shape | Meaning / units |
+|---|---|---|---|
+| `molecule_key` | `str:utf-8` | scalar | Join key into `/molecules.molecule_key`. |
+| `event` | `str:utf-8` | scalar | `reject` or `restore`. |
+| `reason` | `str:utf-8` | scalar | A code from the list below; empty on a `restore` row. |
+| `note` | `str:utf-8` | scalar | Optional free text (valid UTF-8, no NUL character; anything else is refused before the reject or restore is written). |
+| `value` | `f8` | scalar | The score threshold of a `threshold` reject; `NaN` on all other rows. |
+| `labeler` | `str:utf-8` | scalar | Who rejected or restored. The same value as the matching `/labels` row. |
+| `timestamp` | `str:utf-8` | scalar | When. The same value as the matching `/labels` row, so the two rows join on `molecule_key` + `labeler` + `timestamp`. |
+| `condition_id` | `str:utf-8` | scalar | The condition of the matching `/labels` row. |
+
+The reasons are a fixed list, defined once in `REJECT_REASONS`
+(`src/tether/project/labels.py`). Any other value is refused before a write.
+
+| Code | Meaning |
+|---|---|
+| `unspecified` | No reason was given. The default of a reject. |
+| `no-anticorrelation` | Donor and acceptor do not anti-correlate. |
+| `multiple-molecules` | More than one donor or acceptor in the spot. |
+| `artifact` | A blink, spike, drift or other artifact makes the trace unusable. |
+| `low-signal` | The signal is too low or too noisy to use. |
+| `threshold` | Rejected by a score threshold. The row must carry the threshold in `value`. |
+| `other` | Another reason. The row must carry a `note` that says which. |
+
 ## `/traces` — the integrated intensity arrays
 
 Empty in a fresh store. **Up to six** datasets, named
@@ -574,7 +614,8 @@ leave `/patches` empty**, because they have no coordinates.
 ## `/settings` — provenance of each pipeline stage
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
-datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, which are datasets.
+datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
+`recorded_inputs` and `stale_marks`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -587,6 +628,9 @@ datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, whi
 | `condition_audit` | `tether.project.conditions` | A **dataset**: append-only re-key/merge log, created lazily. |
 | `molecule_audit` | `tether.project.molecule_edits` | A **dataset**: append-only log of per-molecule category and analysis-window edits, created lazily. |
 | `lock_takeovers` | `tether.project.lock_takeovers` | A **dataset**: append-only log of each successful lock Recover or Take over, created lazily (ADR-0121). |
+| `jobs` | `tether.project.jobs` | A **dataset**: one row per job, created lazily; a row changes as its job runs. |
+| `recorded_inputs` | `tether.project.jobs` | A **dataset**: append-only identities of the inputs of each record, created lazily. |
+| `stale_marks` | `tether.project.jobs` | A **dataset**: append-only stale marks, created lazily; a mark is never removed. |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -646,6 +690,39 @@ lock could not be parsed), `ousted_user`, `ousted_host`, `ousted_pid` (`i8`),
 the four `ousted_*` holder fields. The row is written after the project has been reopened
 writable under the new lock, so a refused or failed takeover writes none. It is append-only and
 never rewritten.
+
+### Jobs, recorded inputs and stale marks
+
+`/settings/jobs` holds one row for each job of the job and dependency coordinator
+([ADR-0126](../adr/0126-jobs-and-stale-marks-are-stored-in-the-project.md)). Every field is a
+UTF-8 string: `job_id` (32 hex characters), `command` and `request` (the service request in
+its text form, ADR-0100), `state`, `parts` and `completed` (JSON arrays of part names, and
+the second is the checkpoint), `inputs` (a JSON object from `"<node key>:<instance id>"` to the
+identity of that input), `owner` (JSON: `host`, `user`, `pid` and the lock `nonce` of the
+writer that last ran the job), `created_utc`, `started_utc`, `ended_utc` (ISO-8601 UTC, `""`
+when not reached), `error` and `app_version`. The `state` is one of:
+
+| State | Meaning |
+|---|---|
+| `queued` | Stored and not started. |
+| `running` | A writer session is doing the parts now. |
+| `done` | Every part is complete. |
+| `failed` | A part raised an error; `error` says which and why. A retry continues from `completed`. |
+| `cancelled` | Stopped by the user; the complete parts are kept. A retry continues from `completed`. |
+| `interrupted` | It was running when its owner stopped. A retry continues from `completed`. |
+
+A stored `running` row can outlive its writer: the lock no longer carries its `nonce`, or its
+process on this computer is not running. Such a row is **read** as `interrupted`, and the next
+writer stores it so. A reader needs no lock and the file is closed between parts, so a reader
+never waits on a job.
+
+`/settings/recorded_inputs` has the string fields `node`, `instance`, `upstream_node`,
+`upstream_instance` and `identity`: one row for each direct input of a record of the
+dependency graph ([ADR-0103](../adr/0103-the-project-dependency-graph-and-the-stale-rules.md)),
+written once when the record is made. `/settings/stale_marks` has the string fields `node`,
+`instance`, `edge` (the edge number of ADR-0103), `upstream_node`, `upstream_instance`,
+`edited_node`, `edited_instance`, `event`, `timestamp` and `app_version`. A record with a mark
+is stale: it stays readable and never supplies a current result. Both are append-only.
 
 ## `/idealization` — one subgroup per fitted model
 
@@ -753,16 +830,43 @@ Group attributes record the scalar provenance: `reference_channel`,
 geometry attributes written by [`_write_geometry_attrs`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/calibrate.py)
 (`src/tether/imaging/calibrate.py`).
 
-## `/models` — reserved, and empty today
+## `/models` — a reference to each condition's model file
 
-`/models` exists in every store because the schema freeze forward-declared it, but
-**nothing in Tether writes to it**. The quality ranker is persisted as a standalone
-portable model file instead, deliberately: it travels with a *condition* across many
-experiment files rather than being trapped inside one `.tether`
-(`src/tether/ml/persistence.py`, which states outright that nothing in it touches a
-`.tether`). Subset export copies the group verbatim
-(`src/tether/project/export.py`). Treat `/models` as reserved: expect it to be
-present and empty, and do not attach your own payload to it.
+`/models` exists in every store because the schema freeze forward-declared it. The
+quality ranker itself is **not** in the project. It is a standalone portable model
+file that travels with a *condition* across many experiment files
+(`src/tether/ml/persistence.py`, ADR-0035). The project only records **where that
+file is and which version of it the project last saw**. It keeps one group per
+condition, written by
+[`record_model_reference`](https://github.com/bioedca/tether/blob/main/src/tether/project/model_artifact.py)
+(`src/tether/project/model_artifact.py`, ADR-0119). The group is empty until a model
+is saved for a condition the project holds.
+
+`/models/<condition_id>` is a group with no datasets and these attributes:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `reference_version` | int | the layout version of this group (`MODEL_REFERENCE_VERSION`, currently `1`); independent of the store's `schema_version` |
+| `condition_id` | str | the condition, the same as the group name |
+| `artifact_path` | str | the model file, an absolute path on the machine that saved it |
+| `artifact_sha256` | str | the SHA-256 of the model file at that save: compare it with the file to see whether the model changed since |
+| `n_retrains` | int | the model's retrain count at that save |
+| `model_updated_utc` | str | the model's last fit time (ISO-8601 UTC) |
+| `recorded_utc` | str | when this reference was written (ISO-8601 UTC) |
+| `app_version` | str | the Tether version that wrote it |
+
+A later save replaces the attributes of that condition's group. A project keeps one
+reference per condition. The model file has its own single-writer lock: `<model>.lock`
+beside it, the same record as a project's `.lock`. The condition's owner-curator
+holds it while they retrain and save.
+
+The reference has no user or host field. Its `artifact_path` is an absolute path, and a
+path can still name a user or a host, such as a home folder or a network share. If you
+share a project or a subset of it, keep the model under a neutral folder.
+Subset export copies the group verbatim (`src/tether/project/export.py`). A missing
+`/models` child means "no model recorded". An `artifact_path` that does not exist on
+the reader's machine is normal: the file may live on another computer or in a synced
+folder.
 
 ## Where to look next
 

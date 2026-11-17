@@ -128,6 +128,23 @@ the movie and its files through the name table of the workstation runner, under 
 (`tests/fixtures/deeplasi_export_slice.mat`, `tests/fixtures/deeplasi_traces_slice.txt`)
 covers the readers on every matrix run.
 
+**More acquisitions.** Nine more acquisitions of the same laboratory (`lab-02` to `lab-08`,
+`lab-10`, `lab-12`) have the same bundle. The workstation run scores each one alone with the
+limits below (`tests/test_deeplasi_agreement.py`,
+[ADR-0115](adr/0115-deep-lasi-acquisitions-in-oracle-a-and-how-a-failure-is-handled.md)). A
+failure on one of them is a finding to investigate, never a reason to change a limit. Each
+Deep-LASI export is read from a frozen copy whose provenance record gives the file's date,
+because the exports were made in Deep-LASI's window.
+
+A scripted Deep-LASI run (`scripts/reference/matlab/deep_lasi.py`) at a pinned commit repeats
+the export of video 010: the same 250 molecules, positions and raw traces. It cannot make the
+correction factors, which come from a later step in the window. The workstation run also
+compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
+on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
+means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
+from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
+
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
 
 | Constant | Value | Role |
@@ -187,16 +204,19 @@ and gates registration RMS only when the map is fit natively (an imported `.tmap
 it as not applicable). Its own behavior is pinned without the movie by
 `tests/test_run_m1_oracle.py`.
 
-**Newest recorded run.** On the maintainer's workstation on 2026-11-13, at commit `3697f80`
-(a run by hand of the pull request of [#699](https://github.com/bioedca/tether/issues/699),
-before the weekly task had a `main` commit that holds this check): **passed**, matched fraction
-0.984 (246 of 250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854.
-The numbers agree with ADR-0022. The record is
+**Newest recorded run.** On the maintainer's workstation on 2026-11-14, at commit `19796a9`
+on `main` (a scheduled run of the workstation task): **passed**, matched fraction 0.984 (246 of
+250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854. The first
+scheduled run that held this check, earlier that day, and the run by hand of the pull request of
+[#699](https://github.com/bioedca/tether/issues/699) on 2026-11-13 gave the same numbers. The
+numbers agree with ADR-0022. The record is
 [`docs/validation/oracle-a-last-run.json`](validation/oracle-a-last-run.json), one check entry of
 a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
-step. Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
+step.
+
+Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
 reads one stops when the file is not the pinned one; the pins were measured on the workstation
-on 2026-11-13 after this run, and they are the full digests the fixture provenance table
+on 2026-11-13, and they are the full digests the fixture provenance table
 records. A deliberate regression (the donor traces reversed in time) made the same check fail at the
 donor Pearson gate; the demonstration is recorded on
 [#699](https://github.com/bioedca/tether/issues/699).
@@ -602,34 +622,53 @@ derivation on a model whose answer is known.
 
 ## (d) Ranker held-out cross-validation
 
-**What is compared.** Prequential (interleaved test-then-train) precision@k of the trained
-per-condition ranker against the file-order baseline, per video, aggregated as the
-**median across videos** and reported as an uplift in percentage points.
+**What is compared.** The held-out precision@k of the trained per-condition ranker against
+the file-order baseline, per video, aggregated as the **median across videos** and reported as
+an uplift in percentage points. Two protocols make that measurement
+([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)):
+
+- **Prequential** (interleaved test-then-train): each video is scored by a model trained on the
+  videos curated before it. The first video is skipped. This is the ship gate.
+- **Leave-one-video-out**: each video is scored by a model trained on every other video of the
+  condition, never on itself. The first video is scored too, and which videos train each
+  scorer does not depend on the curation order. It is reported beside the gate, at the same
+  bar. The store entry point evaluates one condition at a time.
 
 **Frozen tolerance.** `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py` — a
 Python constant, not a JSON artifact. Asserted exactly by
 `tests/test_ml_prequential.py::test_default_ship_bar_is_ten_points`, which pins
-`DEFAULT_SHIP_BAR_PTS == 10.0` as the specification's value. The rationale that apparent
-precision@k is *not* the gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
+`DEFAULT_SHIP_BAR_PTS == 10.0` as the specification's value, and both protocols default to it
+(`test_lovo_keeps_the_ship_bar_and_k`). The rationale that apparent precision@k is *not* the
+gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
 
-**Measured result.** None on real data. Both enforcing tests build synthetic or
+**Measured result.** None on real data. Every enforcing test builds synthetic or
 programmatic project files; no committed artifact records a precision@k uplift measured on a real
-labeled video set. What is proven is that the *protocol* behaves: the first video is
-skipped rather than scored against nothing, a ranker equal to file order yields zero uplift
-and does not ship, a non-finite score raises instead of being ranked last, and a
-single-movie project raises rather than inventing a held-out video.
+labeled video set (withheld, see the gap below). What is
+proven is that both *protocols* behave: the prequential walk skips the first video rather than
+scoring it against nothing, leave-one-video-out trains each video's scorer on exactly the other
+videos' rows and labels of one condition, a ranker equal to file order yields zero uplift and does not ship, a
+non-finite score raises instead of being ranked last, a video split over two folds raises, and
+a single-movie project raises rather than inventing a held-out video.
 
 **Enforcing tests** (all unmarked — required 3-OS matrix): `tests/test_ml_prequential.py`
 (pure core with fake scorers, including `test_perfect_ranker_beats_file_order`,
 `test_ranker_equal_to_file_order_is_zero_uplift_not_shipped`,
-`test_no_trainable_prior_raises_never_fabricates`) and `tests/test_project_prequential.py`
+`test_no_trainable_prior_raises_never_fabricates`,
+`test_lovo_prior_is_every_other_video_never_itself`,
+`test_lovo_priors_hold_the_same_rows_whatever_the_fold_order` and
+`test_lovo_duplicate_movie_id_raises`) and `tests/test_project_prequential.py`
 (project-integrated: `test_gate_ships_on_separable_multivideo`,
 `test_gate_uplift_is_held_out_not_apparent`, `test_custom_ship_bar_can_withhold_a_ship`,
-`test_single_movie_project_has_no_held_out_video`).
+`test_single_movie_project_has_no_held_out_video`,
+`test_lovo_gate_ships_on_separable_multivideo`,
+`test_lovo_trains_on_every_other_video_never_itself` and
+`test_lovo_refuses_a_project_whose_labels_span_conditions`).
 
-> Gap, stated plainly. The specification says "prequential / leave-one-video-out". Only the
-> **prequential** protocol exists — a repository-wide search for `leave_one_video_out`
-> returns nothing in `src/` or `tests/`.
+> Gap, stated plainly. Both protocols exist, but neither has been measured on a real labeled
+> multi-video set. No curated multi-video project with accept/reject labels exists yet, so the
+> real-data leg is withheld
+> ([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)), and it is
+> tracked in [#1100](https://github.com/bioedca/tether/issues/1100).
 
 ## (e) α / γ estimator edge cases
 
@@ -1465,7 +1504,7 @@ evidence about the size of the difference and not a tolerance.
   not recover the level-2 rates.
 - (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
   comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
-  tolerance (see "Measured traces with a stored vbFRET path"). (d) has no leave-one-video-out protocol and no
+  tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle. Each is stated in its own section above with the ADR that
   deferred it. (f) has no migration tests, which is not a gap: the specification makes them

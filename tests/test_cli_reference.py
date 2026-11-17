@@ -435,7 +435,7 @@ def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
 
 
 def test_the_exit_code_table_documents_every_code() -> None:
-    """The table names 0, 1 and 2 for every subcommand.
+    """The table names 0, 1, 2 and 3 (``batch`` only, #647) for every subcommand.
 
     Presence of the row is the weak half; the exercised tests above are what pin the
     behaviour. What this adds is that the page cannot quietly drop a code.
@@ -452,8 +452,8 @@ def test_the_exit_code_table_documents_every_code() -> None:
         if match:
             cells = [cell.strip() for cell in match.group(2).split("|")]
             rows.setdefault(match.group(1), []).append(cells)
-    assert sorted(rows) == ["0", "1", "2"], (
-        f"the exit-code table documents the codes {sorted(rows)}, not 0, 1 and 2"
+    assert sorted(rows) == ["0", "1", "2", "3"], (
+        f"the exit-code table documents the codes {sorted(rows)}, not 0, 1, 2 and 3"
     )
     for code, found in sorted(rows.items()):
         assert len(found) == 1, f"the exit-code table has {len(found)} rows for `{code}`"
@@ -477,17 +477,20 @@ def test_the_page_does_not_claim_extract_never_exits_2() -> None:
 
 
 def test_the_deferred_idealization_caveat_survives() -> None:
-    """Exit 0 from ``batch`` does not imply idealization ran, and the page must say so.
+    """A deferred stage exits 3, and the page says so rather than warning about 0 (#647).
 
     ``run_batch`` records an unavailable-at-startup sidecar as ``deferred``, which is not
-    ``failed``, so ``n_failed`` stays 0 and the run exits 0 having done extraction and
-    correction only. A script consuming those projects as fully idealized is the failure
-    this paragraph exists to prevent.
+    ``failed``; the run has done extraction and correction only, and ``tether batch``
+    exits 3 so that a script cannot take those projects as complete. The page used to warn
+    that such a run exits 0; that warning must not come back.
     """
     section = _exit_code_section()
     assert "defer" in section.lower(), (
-        "the exit-code section no longer warns that `tether batch` can exit 0 with "
-        "idealization deferred"
+        "the exit-code section no longer explains the deferred-stage exit code"
+    )
+    assert "exits `3`" in section, "the exit-code section no longer says a deferral exits 3"
+    assert "exits `0` having done" not in section, (
+        "the exit-code section again warns that a deferred run exits 0"
     )
 
 
