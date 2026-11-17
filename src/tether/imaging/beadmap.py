@@ -41,7 +41,7 @@ import operator
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -58,6 +58,9 @@ from tether.imaging.register import (
     point_rms,
 )
 from tether.imaging.split import ChannelGeometry, split_channels
+
+if TYPE_CHECKING:
+    from tether.project.lock import FileIdentity
 
 __all__ = [
     "BEAD_PROJECTIONS",
@@ -695,7 +698,7 @@ def bead_map_from_file(
     path = Path(path)
     if not path.is_file():
         raise BeadMapError(f"bead file not found: {path}")
-    before = _file_identity(path.stat())
+    before = _file_state(path)
     source_id = f"sha256:{_sha256_file(path)}"
     try:
         tif = tifffile.TiffFile(path)
@@ -750,13 +753,17 @@ def bead_map_from_file(
     # since it was hashed would make the source id name bytes that were not used.
     # Size and modification time alone miss a replacement that copies both, so the
     # file identity (device and inode) is compared too.
-    if _file_identity(path.stat()) != before:
+    if _file_state(path) != before:
         raise BeadMapError(f"{path.name} changed while it was read; run it again")
     return result
 
 
-def _file_identity(stat: os.stat_result) -> tuple[int, int, int, int]:
-    """Return the fields that say a path still names the same unchanged file."""
-    # On a file system with no inode numbers both st_ino values are 0 and the
+def _file_state(path: Path) -> tuple[FileIdentity | None, int, int]:
+    """Return the identity, size and modification time of the file at ``path``."""
+    # The identity (device and inode) comes from the one canonical helper. On a
+    # file system with no inode numbers it is None on both sides and the
     # comparison falls back to size and modification time.
-    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    from tether.project.lock import file_identity  # noqa: PLC0415
+
+    stat = path.stat()
+    return (file_identity(path), stat.st_size, stat.st_mtime_ns)
