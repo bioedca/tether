@@ -456,6 +456,21 @@ def test_map_create_writes_a_map_where_there_are_no_hard_links(monkeypatch, tmp_
     assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", "copied.npz"]
 
 
+def test_a_failed_copy_without_hard_links_leaves_no_file(monkeypatch, tmp_path, capsys) -> None:
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+
+    def disk_full(self):
+        raise OSError(28, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", disk_full)
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "full.npz")]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
+
+
 def _no_hard_links(src, dst):
     raise PermissionError(1, "hard links are not supported here", str(dst))
 
