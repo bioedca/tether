@@ -1047,7 +1047,7 @@ so each test finds the windows in the trace matrix when it runs.
 
 **Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
 time of a double exponential with its error, and the two-Gaussian fit of Fig. 5c. #1028 and #1030
-add the functions; their comparisons are #1129 and #1131.
+add the functions, and #1129 and #1131 compare them.
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
 `test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
