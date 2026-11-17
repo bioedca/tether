@@ -8,7 +8,8 @@ tasks; this module does the rest:
 * ``run`` verifies the tool's clone (pinned commit, no local change; or the SHA-256 of each
   script for a ``kind = "files"`` pin), runs one task with ``matlab -batch`` on named inputs, and
   writes ``provenance.json`` beside the outputs. It verifies the clone again after the run, so a
-  tool that writes into its own folder is refused rather than recorded.
+  tool that changes or adds a file in its own folder is refused rather than recorded. That check
+  reads ``git status``, which does not see a file that the clone ignores (#1193).
 * ``freeze`` makes the same record for files that the tool already saved (exports, project
   files), for a tool that cannot run without its window. The record says so, gives the date of
   each saved file, and lists any manual step that made a result.
