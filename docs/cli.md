@@ -357,6 +357,7 @@ Batch run: 2 movie(s), 2 ok, 0 failed (policy=warn, idealize=off)
   ok    flipped_011  extract=done correct=done idealize=not-requested halves-swapped?
 Donor and acceptor halves look swapped in 1 movie(s) (advisory; nothing was changed):
   flipped_011: 27 of 27 bleach events are consistent with swapped donor and acceptor halves; extract this movie again with --donor-side right
+Exit code 0: every requested stage ran for every movie.
 ```
 
 The structured log carries the same finding as a `donor-side-check` event with status
@@ -597,9 +598,10 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 
 | Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` |
 |---|---|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read | the records were printed, after any change |
-| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
+| `0` | extraction completed | every requested stage ran for every movie | every project was read | the records were printed, after any change |
+| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
+| `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
@@ -614,13 +616,19 @@ having a failed stage; fix those and re-run the same command to resume the rest.
 means `tether batch` could not create `--out-dir` or write the log. It then prints one line
 on stderr that names the path.
 
-> **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
-> when the run starts, the default behavior is to *defer* idealization: the stage is
-> recorded as `deferred`, which is not `failed`, so the run exits `0` having done
-> extraction and correction only. A script that treats `0` as "these projects are fully
-> idealized" will consume them too early. Re-run the same command once the sidecar is
-> available and the per-stage checkpoint resumes just the idealization, or pass
-> `--no-defer` to make an unavailable sidecar a per-movie failure (exit `1`) instead.
+> **`3` from `tether batch` means the projects are not finished.** If the sidecar is
+> unavailable when the run starts, the default behavior is to *defer* idealization: the
+> stage is recorded as `deferred`, which is not `failed`, and the run exits `3` having done
+> extraction and correction only. The report prints a `Deferred:` line with the stage and
+> the number of movies. Re-run the same command once the sidecar is available and the
+> per-stage checkpoint resumes just the idealization, or pass `--no-defer` to make an
+> unavailable sidecar a per-movie failure (exit `1`) instead.
+>
+> `1` takes precedence over `3`: a run with a failed movie exits `1` even when another
+> movie's idealization was deferred. A stage you did not ask for is not deferred, so a run
+> with `--no-idealize` exits `0` when every movie extracted and corrected. The last line of
+> the report names the exit code and its meaning, and `tether batch --help` lists the four
+> codes.
 
 **Where to look for what failed.** `tether batch` prints its end-of-run summary — the
 per-movie, per-stage detail — to **stdout**, together with the JSONL structured log it
