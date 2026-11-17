@@ -503,9 +503,20 @@ def _tmap_channel_geometry(channel: TmapChannel) -> ChannelGeometry:
     then flip, then crop), so the stored polynomials are in that processed frame.
     Splitting the movie with the same three steps puts the detections in the frame
     the polynomials expect (PRD Appendix E Stages 1 and 12).
+
+    The crop is decoded as ``float64``; a value that is not finite or not a whole
+    number raises [`ValueError`][] naming the channel rather than being truncated
+    by an integer cast, which would split the movie at different pixels than the
+    ``.tmap`` names (#1190). A whole number stored as a float (``1.0``) loads.
     """
+    crop = np.asarray(channel.crop, dtype=np.float64).ravel()
+    if not (np.isfinite(crop).all() and bool(np.all(crop == np.round(crop)))):
+        raise ValueError(
+            f"channel {channel.channel_id} crop values must be whole numbers, "
+            f"got {np.asarray(channel.crop).tolist()}"
+        )
     return ChannelGeometry(
-        crop=tuple(np.asarray(channel.crop, dtype=int).ravel().tolist()),
+        crop=tuple(int(v) for v in crop),
         rotation_deg=channel.rotation_deg,
         flip=channel.flip_vh,
     )
