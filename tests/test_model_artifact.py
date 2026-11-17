@@ -540,6 +540,57 @@ def test_recording_is_refused_while_another_writer_holds_the_project(tmp_path) -
     assert read_model_references(project) == {}
 
 
+def test_a_writer_that_takes_the_project_lock_mid_record_waits_for_the_write(
+    tmp_path, monkeypatch
+) -> None:
+    """A lock taken after the check and before the write cannot land under the write."""
+    import threading
+
+    from tether.project import model_artifact
+
+    project = tmp_path / "day1.tether"
+    _store(project, seed=7)
+    cid = _condition(project)
+    path = tmp_path / "cond.tethermodel"
+    model = train_condition_model(project, condition_id=cid)
+    save_model(model, path)
+    real_attrs = model_artifact._reference_attrs
+    taken: list[lock.LockInfo] = []
+    bob = threading.Thread(target=lambda: taken.append(lock.acquire(project, identity=BOB)))
+    bob_was_blocked: list[bool] = []
+
+    def attrs_with_bob_arriving(reference):
+        bob.start()  # the check has passed; the write has not happened yet
+        bob.join(timeout=0.5)
+        bob_was_blocked.append(bob.is_alive())
+        return real_attrs(reference)
+
+    monkeypatch.setattr(model_artifact, "_reference_attrs", attrs_with_bob_arriving)
+    record_model_reference(project, model, path)
+    bob.join(timeout=10)
+    assert bob_was_blocked == [True]
+    assert [t.identity for t in taken] == [BOB]  # Bob gets the lock once the write is done
+    assert read_model_reference(project, cid).is_current()
+    with pytest.raises(LockedError):  # and from then on the project is Bob's
+        record_model_reference(project, model, path)
+
+
+def test_writing_refuses_a_block_after_a_foreign_lock_and_leaves_ownership_alone(
+    tmp_path,
+) -> None:
+    project = tmp_path / "day1.tether"
+    project.write_bytes(b"")
+    with lock.writing(project, identity=ALICE):
+        pass
+    assert lock.read_lock(project) is None  # it holds no lock of its own
+    lock.acquire(project, identity=BOB)
+    with pytest.raises(LockedError), lock.writing(project, identity=ALICE):
+        pytest.fail("the block must not run under Bob's lock")
+    with lock.writing(project, identity=BOB):
+        pass
+    assert lock.read_lock(project).identity == BOB
+
+
 def test_recording_needs_a_project_that_holds_the_condition(tmp_path) -> None:
     project = tmp_path / "day1.tether"
     _store(project, seed=7)

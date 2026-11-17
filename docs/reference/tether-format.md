@@ -760,7 +760,9 @@ reference per condition. The model file has its own single-writer lock: `<model>
 beside it, the same record as a project's `.lock`. The condition's owner-curator
 holds it while they retrain and save.
 
-The reference carries no user or host name.
+The reference has no user or host field. Its `artifact_path` is an absolute path, and a
+path can still name a user or a host, such as a home folder or a network share. If you
+share a project or a subset of it, keep the model under a neutral folder.
 Subset export copies the group verbatim (`src/tether/project/export.py`). A missing
 `/models` child means "no model recorded". An `artifact_path` that does not exist on
 the reader's machine is normal: the file may live on another computer or in a synced

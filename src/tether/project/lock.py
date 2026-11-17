@@ -1935,6 +1935,34 @@ def holding(project_path: str | Path, held: LockInfo) -> Iterator[LockInfo]:
 
 
 @contextmanager
+def writing(
+    project_path: str | Path,
+    *,
+    identity: LockIdentity | None = None,
+    timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
+    now: datetime | None = None,
+) -> Iterator[None]:
+    """Run a short canonical write that no cooperating acquire or steal can overtake (#561).
+
+    [`assert_writable`][] only checks: a writer that takes the lock after the check and
+    before the write would find the file changed under its lock. This context manager
+    takes the per-user identity guard and the path's OS lifecycle guard, in the order
+    [`acquire`][] and [`steal_lock`][] take them, makes the same check inside them, and
+    runs the block there. An acquire or steal of this file under any spelling waits for
+    the block to end, and a block that starts after one is refused with
+    [`LockedError`][]. It holds no lock of its own, so it neither needs nor changes
+    ownership: an unlocked file stays unlocked and a writer's own lock stays its own.
+
+    Keep the block short, as for [`holding`][]: another process's lifecycle call waits
+    for the guard for at most a few seconds before it fails with ``TimeoutError``.
+    """
+    lp = lock_path(project_path)
+    with _identity_guard(project_path, claim=False), _lifecycle_guard(lp):
+        assert_writable(project_path, identity=identity, timeout_s=timeout_s, now=now)
+        yield
+
+
+@contextmanager
 def held_lock(
     project_path: str | Path,
     *,

@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
-from contextlib import contextmanager, suppress
+from contextlib import AbstractContextManager, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -261,6 +261,20 @@ def _assert_project_writable(project: ProjectRef, identity: LockIdentity | None)
         lock.assert_writable(_project_path(project), identity=identity)
 
 
+def _project_write(
+    project: ProjectRef, identity: LockIdentity | None
+) -> AbstractContextManager[None]:
+    """Hold off other writers of ``project`` while a short write runs ([`lock.writing`][]).
+
+    The writer identity is resolved as in `_assert_project_writable`.
+    """
+    from tether.project.core import Project  # noqa: PLC0415
+
+    if identity is None and isinstance(project, Project):
+        identity = project._acting_identity()
+    return lock.writing(_project_path(project), identity=identity)
+
+
 def _require_condition(path: Path, condition_id: str) -> None:
     """Refuse a project that holds no molecule of the condition it records a model for."""
     from tether.imaging.extract import read_molecules  # noqa: PLC0415
@@ -284,7 +298,9 @@ def record_model_reference(
     Writes one group per condition and replaces that condition's earlier reference, so a project
     keeps one reference per condition. This is a canonical write: it is refused with
     [`LockedError`][tether.project.lock.LockedError] while another writer holds the *project's*
-    lock ([`tether.project.lock.assert_writable`][]).
+    lock. The check and the write run under the project's lock guard
+    ([`tether.project.lock.writing`][]), so a writer that takes the lock meanwhile waits for
+    the write to end rather than finding the file changed under its lock.
 
     Parameters
     ----------
@@ -293,7 +309,9 @@ def record_model_reference(
     model:
         The model that was saved to ``artifact_path``.
     artifact_path:
-        The model file. It is recorded as an absolute path.
+        The model file. It is recorded as an absolute path, and that path can name a user or
+        a host (a home folder, a network share); subset export copies it into the shared
+        file, so keep a model you share under a neutral folder.
     artifact_sha256:
         The SHA-256 of the saved file ([`ModelWriter.save`][] returns it). When ``None`` the file
         is read and hashed now; a missing file is then an error.
@@ -319,7 +337,7 @@ def record_model_reference(
     condition_id = _require_safe_condition_id(model.condition_id)
     target = Path(artifact_path).absolute()
     digest = artifact_sha256 if artifact_sha256 is not None else _sha_or_raise(target)
-    _assert_project_writable(project, identity)
+    _assert_project_writable(project, identity)  # refuse early, before reading the project
     _require_condition(path, condition_id)
     reference = ModelReference(
         condition_id=condition_id,
@@ -331,7 +349,9 @@ def record_model_reference(
         app_version=_app_version(),
         reference_version=MODEL_REFERENCE_VERSION,
     )
-    with h5py.File(path, "r+") as f:
+    # Check and write under the project's lock guard, so a writer that takes the lock
+    # after the early check waits for this write instead of finding the file changed.
+    with _project_write(project, identity), h5py.File(path, "r+") as f:
         models = f[_MODELS]
         group = (
             models[condition_id]
