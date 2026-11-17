@@ -163,6 +163,7 @@ guaranteed to be there.
 | `/settings/lock_takeovers` | absent | `record_takeover` (`src/tether/project/lock_takeovers.py`), called by the application after a Recover or Take over |
 | `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
+| `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
 | `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
 `write_extraction` is not the only writer of `/molecules` rows and `/traces`. Four
@@ -590,7 +591,8 @@ leave `/patches` empty**, because they have no coordinates.
 ## `/settings` — provenance of each pipeline stage
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
-datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, which are datasets.
+datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
+`recorded_inputs` and `stale_marks`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -603,6 +605,9 @@ datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, whi
 | `condition_audit` | `tether.project.conditions` | A **dataset**: append-only re-key/merge log, created lazily. |
 | `molecule_audit` | `tether.project.molecule_edits` | A **dataset**: append-only log of per-molecule category and analysis-window edits, created lazily. |
 | `lock_takeovers` | `tether.project.lock_takeovers` | A **dataset**: append-only log of each successful lock Recover or Take over, created lazily (ADR-0121). |
+| `jobs` | `tether.project.jobs` | A **dataset**: one row per job, created lazily; a row changes as its job runs. |
+| `recorded_inputs` | `tether.project.jobs` | A **dataset**: append-only identities of the inputs of each record, created lazily. |
+| `stale_marks` | `tether.project.jobs` | A **dataset**: append-only stale marks, created lazily; a mark is never removed. |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -662,6 +667,39 @@ lock could not be parsed), `ousted_user`, `ousted_host`, `ousted_pid` (`i8`),
 the four `ousted_*` holder fields. The row is written after the project has been reopened
 writable under the new lock, so a refused or failed takeover writes none. It is append-only and
 never rewritten.
+
+### Jobs, recorded inputs and stale marks
+
+`/settings/jobs` holds one row for each job of the job and dependency coordinator
+([ADR-0126](../adr/0126-jobs-and-stale-marks-are-stored-in-the-project.md)). Every field is a
+UTF-8 string: `job_id` (32 hex characters), `command` and `request` (the service request in
+its text form, ADR-0100), `state`, `parts` and `completed` (JSON arrays of part names, and
+the second is the checkpoint), `inputs` (a JSON object from `"<node key>:<instance id>"` to the
+identity of that input), `owner` (JSON: `host`, `user`, `pid` and the lock `nonce` of the
+writer that last ran the job), `created_utc`, `started_utc`, `ended_utc` (ISO-8601 UTC, `""`
+when not reached), `error` and `app_version`. The `state` is one of:
+
+| State | Meaning |
+|---|---|
+| `queued` | Stored and not started. |
+| `running` | A writer session is doing the parts now. |
+| `done` | Every part is complete. |
+| `failed` | A part raised an error; `error` says which and why. A retry continues from `completed`. |
+| `cancelled` | Stopped by the user; the complete parts are kept. A retry continues from `completed`. |
+| `interrupted` | It was running when its owner stopped. A retry continues from `completed`. |
+
+A stored `running` row can outlive its writer: the lock no longer carries its `nonce`, or its
+process on this computer is not running. Such a row is **read** as `interrupted`, and the next
+writer stores it so. A reader needs no lock and the file is closed between parts, so a reader
+never waits on a job.
+
+`/settings/recorded_inputs` has the string fields `node`, `instance`, `upstream_node`,
+`upstream_instance` and `identity`: one row for each direct input of a record of the
+dependency graph ([ADR-0103](../adr/0103-the-project-dependency-graph-and-the-stale-rules.md)),
+written once when the record is made. `/settings/stale_marks` has the string fields `node`,
+`instance`, `edge` (the edge number of ADR-0103), `upstream_node`, `upstream_instance`,
+`edited_node`, `edited_instance`, `event`, `timestamp` and `app_version`. A record with a mark
+is stale: it stays readable and never supplies a current result. Both are append-only.
 
 ## `/idealization` — one subgroup per fitted model
 
