@@ -86,15 +86,29 @@ def _folder_movies(folder: Path, *, recursive: bool) -> list[Path]:
 
     Hidden names are left out because the patterns of [`glob`][] leave them out too, and
     because macOS writes ``._name.tif`` resource files beside a movie on some drives.
+
+    A sub-folder that cannot be listed raises its [`OSError`][] rather than being passed
+    over, so a recursive batch never runs on a list with a folder silently missing. That is
+    why this walks with [`os.walk`][] and its ``onerror`` instead of [`pathlib.Path.rglob`][],
+    which drops such an error. Links to folders are not followed, as with ``rglob``.
     """
-    candidates = folder.rglob("*") if recursive else folder.iterdir()
+    if not recursive:
+        return [
+            path
+            for path in folder.iterdir()
+            if not path.name.startswith(".") and _is_movie_file(path)
+        ]
     found = []
-    for path in candidates:
-        relative = path.relative_to(folder).parts
-        if any(part.startswith(".") for part in relative):
-            continue
-        if _is_movie_file(path):
-            found.append(path)
+
+    def _refuse(exc: OSError) -> None:
+        raise exc
+
+    for top, dirnames, filenames in os.walk(folder, onerror=_refuse):
+        dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        for name in filenames:
+            path = Path(top, name)
+            if not name.startswith(".") and _is_movie_file(path):
+                found.append(path)
     return found
 
 
@@ -168,8 +182,8 @@ def expand_movie_arguments(
     ------
     MovieArgumentError
         If an argument is a missing path, a folder with no movie file, a pattern that
-        matches no movie file, or a folder that cannot be listed. The message names the
-        argument.
+        matches no movie file, or a folder that cannot be listed (with ``recursive``,
+        also one of its sub-folders). The message names the argument.
     """
     found: dict[str, Path] = {}
     for argument in arguments:

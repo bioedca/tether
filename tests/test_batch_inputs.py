@@ -153,6 +153,28 @@ def test_a_folder_that_cannot_be_listed_is_refused_by_name(tmp_path: Path, monke
         expand_movie_arguments([str(folder)])
 
 
+def test_a_sub_folder_that_cannot_be_listed_is_refused_under_recursive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An unreadable sub-folder is a named refusal, not a movie list with a folder missing."""
+    folder = tmp_path / "data"
+    (folder / "day1").mkdir(parents=True)
+    (folder / "day2").mkdir()
+    (folder / "day1" / "movie_010.tif").write_bytes(b"")
+    (folder / "day2" / "movie_010.tif").write_bytes(b"")
+    locked = folder / "day2"
+    real_scandir = os.scandir
+
+    def _scandir(path=".", *args, **kwargs):
+        if os.path.abspath(os.fspath(path)) == os.path.abspath(locked):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "scandir", _scandir)
+    with pytest.raises(MovieArgumentError, match=r"cannot read movie argument .*data.*day2"):
+        expand_movie_arguments([str(folder)], recursive=True)
+
+
 @pytest.mark.parametrize(
     ("argument", "message"),
     [
