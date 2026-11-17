@@ -1707,6 +1707,21 @@ def test_writing_holds_off_a_claim_through_a_hard_link_made_with_the_lock_dir(
     assert lock.read_lock(first) is None
 
 
+def test_writing_fails_closed_when_the_lock_dir_cannot_be_made(tmp_path: Path, monkeypatch) -> None:
+    """No identity guard, no write: a claim through a hard link could overtake it (#561)."""
+    project = tmp_path / "p.tether"
+    create_project(project)
+    if lock.file_identity(project) is None:  # pragma: no cover - no inode numbers
+        pytest.skip("this filesystem reports no file identity")
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("")
+    monkeypatch.setattr(lock, "user_lock_dir", lambda: blocker / "locks")
+    ran: list[bool] = []
+    with pytest.raises(OSError), lock.writing(project):
+        ran.append(True)
+    assert ran == []
+
+
 def test_strict_and_same_process_claims_through_an_alias_are_refused(tmp_path: Path) -> None:
     first, second = _hard_link_pair(tmp_path)
     held = lock.acquire(first)

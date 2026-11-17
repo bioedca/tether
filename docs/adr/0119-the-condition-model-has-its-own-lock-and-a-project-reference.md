@@ -95,8 +95,8 @@ Chosen option: **3**, in the new module `tether.project.model_artifact`.
   that takes the project's lock meanwhile, through this name or a hard link this user opens,
   waits for the write to end. `lock.writing` holds no lock of its own; it takes the same OS
   guards as `acquire` and `steal_lock`, in their order, and first creates the per-user lock
-  directory if it is missing, as a claim does. A hard link opened by another user is not
-  covered, as ADR-0112 records for every claim.
+  directory if it is missing, failing closed if it cannot, as a claim does. A hard link opened
+  by another user is not covered, as ADR-0112 records for every claim.
   `ModelReference.is_current()` compares the recorded hash with the file on disk.
 - **No identity field in the reference.** The owner's `user@host` is in the model's lock sidecar
   while the owner holds it. The reference does not copy it, because a subset export copies

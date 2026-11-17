@@ -1958,16 +1958,14 @@ def writing(
 
     The per-user directory is created first if it is missing, as a claim does, so that a
     claim through a hard link that creates it meanwhile still waits for the identity guard.
-    If it cannot be created, a claim by this user cannot create it either and fails
-    closed, so the block goes on under the path's guard alone.
+    If it cannot be created for a file that has an identity, the write fails closed with
+    [`OSError`][] before the block runs, as a claim does.
 
     Keep the block short, as for [`holding`][]: another process's lifecycle call waits
     for the guard for at most a few seconds before it fails with ``TimeoutError``.
     """
     lp = lock_path(project_path)
-    with suppress(OSError):
-        user_lock_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
-    with _identity_guard(project_path, claim=False), _lifecycle_guard(lp):
+    with _identity_guard(project_path, claim=True), _lifecycle_guard(lp):
         assert_writable(project_path, identity=identity, timeout_s=timeout_s, now=now)
         yield
 
