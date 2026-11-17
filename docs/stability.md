@@ -5,7 +5,7 @@ description: "Which Tether surfaces keep a compatibility promise in the 1.x line
 # Stability policy
 
 **Who this page is for.** Anyone who is about to depend on Tether not changing under them:
-a lab standardising on one version, someone scripting `tether batch` into a pipeline, or
+a lab standardizing on one version, someone scripting `tether batch` into a pipeline, or
 another group writing a tool that reads `.tether` files. It says exactly which surfaces
 carry a compatibility promise in the `1.x` line, which deliberately do not, what happens
 when two people in the same lab run different versions, and how a name is retired. No repository
@@ -40,10 +40,10 @@ launcher (`[project.gui-scripts]` → `tether.gui.app:main`).
 |---|---|
 | Subcommand names | `tether extract` and `tether batch` — the only two (`tether.cli`). No others exist to promise. |
 | `tether --version` | Prints the version and exits `0`. |
-| `tether-gui` | Exists as a launcher and starts the application. Nothing about the window layout or its behaviour is covered. |
+| `tether-gui` | Exists as a launcher and starts the application. Nothing about the window layout or its behavior is covered. |
 | Flag names and meanings | Every option listed by `tether extract --help` and `tether batch --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
 | Documented defaults | The default values printed in `--help` — e.g. `--donor-side left`, `--window 21`, `--coloc-distance 3`, `--rms-gate 0.5` — do not change within `1.x`. A default that changes silently changes a scientific result, so it is treated as a breaking change, not a tweak. |
-| Exit status | `0` on success, non-zero on failure. |
+| Exit status | `0` on success, non-zero otherwise. The exit codes are part of this contract: `1` the work failed (an `ExtractionError`, or at least one movie failed in a batch), `2` a usage or configuration error, and — `tether batch` only — `3` no movie failed but at least one requested stage was deferred. `1` takes precedence over `3`. See [Exit codes](cli.md#exit-codes). |
 
 **Sidecar carve-out.** Four `tether batch` options — `--sidecar-python`, `--sidecar-timeout`,
 `--max-restarts` and `--no-defer` — describe the [sidecar interface](#not-covered), which is
@@ -56,17 +56,16 @@ are literals in the help strings, held equal to those constants by a committed t
 not treat those two numbers as frozen.
 
 Not covered on this surface: the wording and layout of anything printed to stdout or
-stderr, the field set of the `batch` JSONL structured log, and the *specific* non-zero exit
-values. For the record, `tether.cli` currently returns `1` when the work itself failed
-(an `ExtractionError`, or at least one movie failed in a batch) and `2` for a usage or
-configuration error — but only "non-zero" is promised. Do not branch on `1` vs `2`.
+stderr (the exit-code line at the end of the `tether batch` report included), and the field
+set of the `batch` JSONL structured log. The four exit codes above are covered, so a script
+may branch on them: `3` means "re-run this batch later", not "these projects are complete".
 
 New optional flags and new subcommands may appear in a minor release. Nothing that exists
 today disappears before `2.0.0`.
 
 ### 2. The `.tether` on-disk format
 
-The project store is HDF5. Covered for `1.x`: the root `format` attribute value
+The project file is HDF5. Covered for `1.x`: the root `format` attribute value
 `tether-project` (`FORMAT_TAG`), the `schema_version` attribute and its rules, the
 top-level group skeleton, and the compound-dtype field sets of the four entity tables.
 
@@ -123,13 +122,13 @@ not a promise this project could keep.
 | `tether.io.schema.MOVIES_DTYPE` | `numpy.dtype` | Present; fields additive-only. |
 | `tether.io.schema.LABELS_DTYPE` | `numpy.dtype` | Present; fields additive-only. |
 | `tether.io.schema.CONDITIONS_DTYPE` | `numpy.dtype` | Present; fields additive-only. |
-| `tether.io.schema.create_project(path, *, overwrite=..., stamp_app_version=...)` | function | Signature and behaviour. |
-| `tether.io.schema.read_schema_version(path)` | function | Signature and behaviour. |
+| `tether.io.schema.create_project(path, *, overwrite=..., stamp_app_version=...)` | function | Signature and behavior. |
+| `tether.io.schema.read_schema_version(path)` | function | Signature and behavior. |
 | `tether.io.schema.assert_compatible(file_version)` | function | Signature; raises `ValueError` on a newer file. |
 | `tether.io.schema.assert_is_compatible_project(path)` | function | Signature; raises `ValueError` on a non-project, an incomplete skeleton, or a newer file; returns the on-disk `schema_version`. |
 | `tether.project.Project` | class | The class exists and is importable from `tether.project`. |
-| `Project.create(path, *, overwrite=..., identity=...)` | classmethod | Signature and behaviour. |
-| `Project.open(path, *, identity=...)` | classmethod | Signature and behaviour. |
+| `Project.create(path, *, overwrite=..., identity=...)` | classmethod | Signature and behavior. |
+| `Project.open(path, *, identity=...)` | classmethod | Signature and behavior. |
 | `Project.path` | attribute | A `pathlib.Path`. |
 | `Project.schema_version` | property | The on-disk version. |
 | `Project.app_schema_version` | property | The version this build writes. |
@@ -151,12 +150,12 @@ Everything below may change in any release, including a patch release, without n
 |---|---|
 | Any name not in the table above | The default. `tether.analysis`, `tether.imaging`, `tether.fret`, `tether.ml`, `tether.idealize`, and every module of `tether.project` other than the five `Project` members named above are **not covered**. |
 | Everything under `tether.gui.*` | Every module, class, dock, dialog and function. The GUI is a layer over the headless core; it is meant to be used, not imported. `tether-gui` starting is covered; nothing inside it is. |
-| Underscore names | Any module, attribute, function or method whose name begins with `_` — for example `tether.analysis._store`, `tether.project.extract._half_split_geometry`, `tether.io.schema._RICH_TABLES`. A leading underscore means internal, in every case, without further qualification. |
+| Underscore names | Any module, attribute, function or method whose name begins with `_` — for example `tether.analysis._store`, `tether.project.extract._layout_geometry`, `tether.io.schema._RICH_TABLES`. A leading underscore means internal, in every case, without further qualification. |
 | The sidecar interface | The isolated tMAVEN idealization backend and everything that talks to it: `tether.idealize._sidecar_runner` and its argv contract, the `TETHER_SIDECAR_STATUS` stdout protocol, and the pinned `sidecar/conda-lock.yml` environment. It is an implementation detail of idealization, pinned to an old numeric stack we do not control. See the [standalone-tMAVEN hand-off page](idealize/standalone-tmaven-handoff.md). |
 | Environment variables | `TETHER_SIDECAR_PYTHON` (`SIDECAR_ENV_VAR` in `tether.idealize.driver`) is the only Tether-namespaced environment variable the application reads. The [standalone-tMAVEN hand-off page](idealize/standalone-tmaven-handoff.md) documents exporting it as the supported way to point at a sidecar interpreter, and it will not be removed casually — but it belongs to the uncovered sidecar interface, so it is not frozen for `1.x`. (`TETHER_SIDECAR_STATUS` is not a variable at all: it is the stdout line prefix of the sidecar protocol, listed above.) |
 | Console output and log formats | Progress text, warning wording, report layout, and the `batch` JSONL log schema. |
 | Exception message text | Except the schema refusal quoted below. |
-| Everything else in the repository | Test helpers, `scripts/`, `packaging/`, fixtures, CI workflow names, and the golden manifest's serialised form. |
+| Everything else in the repository | Test helpers, `scripts/`, `packaging/`, fixtures, CI workflow names, and the golden manifest's serialized form. |
 
 > **Worked example.** Is `tether.analysis.histogram.Histogram1D` covered by the `1.x`
 > promise? **No.** It is not in the stable table, so it may change in any release. It is a
@@ -226,7 +225,7 @@ a file stamped version 2 produces exactly this:
 file schema_version 2 is newer than this app's 1; refusing to open (PRD section 5.4).
 ```
 
-Four call sites in `src/tether/` invoke that guard, and they are the ones a person goes
+Five call sites in `src/tether/` invoke that guard, and they are the ones a person goes
 through:
 
 | Guarded entry point | Reached by |
@@ -234,9 +233,10 @@ through:
 | `Project.open` (`tether.project.core`) | the GUI's **Open project** dialog (`tether.gui.shell`) and any script that opens a project the covered way |
 | `extract_movie` (`tether.imaging.extract`) | `tether extract`, and the extract stage of `tether batch` |
 | `write_calibration` (`tether.imaging.calibrate`) | writing a registration map into a project |
+| `add_movie_to_project` (`tether.project.extract`) | appending a movie into an existing project |
 | `export_subset_tether` (`tether.project.export`) | subset export |
 
-A `tether batch` **resume** reaches none of those four: the checkpoint probes read the output
+A `tether batch` **resume** reaches none of those five: the checkpoint probes read the output
 project directly to decide what to skip, so with extraction already complete the guard inside
 `write_extraction` never runs. That path has its own check (`tether.project.batch`), added
 deliberately narrower than `assert_is_compatible_project` — it refuses only a file that
@@ -251,7 +251,7 @@ One route is **not** guarded, and you should know about it rather than be surpri
   scope. `Project(path).schema_version` on a version-2 file returns `2` instead of raising.
   Use `Project.open` (which *is* on the covered list) whenever the file came from elsewhere.
 
-That gap is not a licence to rely on reading a future file: the forward-only rule is the
+That gap is not a license to rely on reading a future file: the forward-only rule is the
 policy, and a route that skips the check is a bug to report under
 [If a covered surface breaks anyway](#if-a-covered-surface-breaks-anyway), not an
 alternative supported path.

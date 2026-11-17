@@ -7,7 +7,7 @@ description: "What Tether and this documentation site collect and do not collect
 **Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
 needed to read it or to rely on it.
 
-**Effective date: 30 July 2026**
+**Effective date: 16 November 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the
 **Tether desktop application** and this **documentation website**
@@ -20,7 +20,7 @@ storage, and temporary idealization files are described below.
 
 ## The desktop application
 
-- **Local-only processing.** Tether analyses your microscopy movies and single-molecule
+- **Local-only processing.** Tether analyzes your microscopy movies and single-molecule
   FRET data entirely on your own machine. Your data — image movies, `.tether` project
   files, exported results — stays on your computer (or wherever you choose to save it).
   During idealization, selected traces are copied to your operating system's temporary
@@ -32,16 +32,28 @@ storage, and temporary idealization files are described below.
   any third party, nor "phones home".
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
-  files**. The `.tether` project store records the application version, your analysis
+  files**. The `.tether` project file records the application version, your analysis
   parameters, and your operating-system username (as the curator, or "labeler", of your
-  annotations). A separate sidecar `.lock` file records your computer's hostname, username
+  annotations). If you set a curator name in the application, new annotations record that
+  name instead. A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell
   who currently holds the write-lock. This information is stored only in files at the
   location you choose and is **never transmitted by Tether** to the project or to any third
   party. If you share a `.tether` file with a collaborator it carries your OS username and
-  the source movie paths you selected (the `.lock` sidecar is a separate file and is not
+  the source movie paths you selected (the lock file is a separate file and is not
   embedded in the project) — so treat shared project files as you would any working
-  document.
+  document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
+  shows how to see these fields before you make a file public.
+- **What the application remembers.** So that you can carry on where you stopped, the
+  desktop application keeps a small file, `preferences.json`, in your own settings folder.
+  It holds the paths of the last ten projects you opened. For up to 50 projects it also
+  holds the path and the molecule you last selected there. A path can therefore stay in the
+  file after it has left **Open recent**. It also holds the window layout, and the curator
+  name if you set one. This file
+  is never written into a `.tether` file and is **never transmitted by Tether**. Delete it
+  and the application forgets these things.
+  [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)
+  lists the folder on each system.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
   These run locally, and Tether does not configure them to collect or transmit your data.
