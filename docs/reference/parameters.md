@@ -34,15 +34,14 @@ here**.
 | **Set via** | A real surface: a `tether` CLI flag, a GUI control, or a documented keyword argument. Where a value is *not* user-settable this is stated explicitly. |
 | **Recorded in `.tether`** | The path in the project file where the value you used is persisted, or **no** if it is not recoverable from the project file. |
 
-Tether has no settings dialog. Eleven of the eighteen `ExtractOptions` fields are exposed as
+Tether has no settings dialog. Eleven of the nineteen `ExtractOptions` fields are exposed as
 `tether extract` flags — `--donor-side`, `--detection-mode`, `--detection-threshold`,
 `--detection-block`, `--min-separation`, `--window`, `--prealign`, `--pair-tol`, `--rms-gate`,
 `--coloc-distance` and `--colocalization` — and for those the command line is the **only**
-surface. The other
-seven have no flag and no GUI control at all, and are reachable only from Python: the aperture
-group (`disk_radius`, `ring_inner`, `ring_outer`,
+surface. The other eight have no flag and no GUI control at all, and are reachable only from Python: the channel
+layout (`channel_layout`), the aperture group (`disk_radius`, `ring_inner`, `ring_outer`,
 `bg_window`) and the prealign group (`prealign_upsample`, `prealign_low_sigma`,
-`prealign_high_sigma`). Their rows below say so individually, and all eighteen are recorded
+`prealign_high_sigma`). Their rows below say so individually, and all nineteen are recorded
 alike — the recording is the same whether the value came from a flag or from Python.
 `tether batch` exposes one of them, `--colocalization`. Its other flags are `--tmap`,
 `--tdat`, `--policy` and the sidecar-supervision options, so every movie in a batch is
@@ -93,10 +92,11 @@ The two groups are tabled separately under [Analysis and histograms](#analysis-a
 ## Detection and extraction
 
 Defaults are the fields of `ExtractOptions` (`tether.project.extract`), which is the pinned
-CLI contract. Sixteen of the eighteen fields pin an explicit value rather than passing
+CLI contract. Sixteen of the nineteen fields pin an explicit value rather than passing
 through to whatever the underlying primitive happens to default to; `detection_threshold` and
 `min_separation` are deliberate `None` sentinels that defer to each detection mode's own
-faithful default (tabled below). All eighteen fields are serialized verbatim into the
+faithful default (tabled below), and `channel_layout` is a `None` sentinel for the
+side-by-side split that `donor_side` describes. All nineteen fields are serialized verbatim into the
 `profile_json` attribute of `/settings/extraction` on the **first** extraction into a project;
 later movies appended to the same project leave that record untouched, and their
 aperture/integration parameters are checked against it rather than re-recorded.
@@ -104,6 +104,7 @@ aperture/integration parameters are checked against it rather than re-recorded.
 | Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
 | --- | --- | --- | --- | --- | --- |
 | <a id="param-donor-side"></a>`donor_side`<br>`tether.project.extract` | `left` | enum `left`/`right` | Which horizontal half of the frame is the donor channel. Getting it backwards swaps donor and acceptor, which inverts every FRET efficiency; the advisory [donor-side check](#tolerances-and-gates) warns after extraction when there are enough bleach events to tell. Ignored entirely when a Deep-LASI `.tmap` is imported, because the channels are then split at the map's own crop geometry. | `tether extract --donor-side` | `/settings/extraction` |
+| <a id="param-channel-layout"></a>`channel_layout`<br>`tether.project.extract` | `None` | a `ChannelLayout` (`tether.imaging.layout`): kind `side-by-side`/`top-bottom`/`rectangles` | Where the donor and the acceptor channel are in the frame. `None` is the side-by-side split, with the donor on the `donor_side` half — the only split before #908. `top-bottom` cuts the frame into a top and a bottom half (donor `top` or `bottom`; stacked, not rotated); `rectangles` takes one `[y1, x1, y2, x2]` rectangle (1-based, inclusive) for each channel. Both channels must be the same size, so a half layout drops an odd trailing column or row, and two rectangles of different size, or a rectangle outside the frame, are refused with an error; rectangles that overlap give a `ChannelOverlapWarning`. A layout beside a non-default `donor_side`, or beside an imported `.tmap`, is refused. | `ExtractOptions(channel_layout=…)` — no CLI flag, no GUI control | `/settings/extraction`; the layout each movie was split by is also stored as `/movies/layouts/<movie_id>` |
 | <a id="param-detection-mode"></a>`detection_mode`<br>`tether.project.extract` | `wavelet` | enum `wavelet`/`intensity`/`bandpass` | Which particle finder runs. `wavelet` is an à trous multi-scale detector that is robust to smooth background gradients; `intensity` and `bandpass` are Crocker-Grier style band-pass finders driven by a brightness threshold. The choice also changes the default minimum separation (see below), so it moves both which spots are found and how close two of them may sit. | `tether extract --detection-mode`; supplied automatically by `--tdat` | `/settings/extraction` |
 | <a id="param-detection-threshold"></a>`detection_threshold`<br>`tether.project.extract` | `None` (per-mode: `0.5` intensity, `0.98` bandpass) | dimensionless fraction of the detection-image maximum | How bright a pixel must be to survive. Raising it finds fewer, brighter molecules; lowering it finds more, at the cost of false positives that later have to be curated out. Under `bandpass` the value is dual-use — it both floors the image and keeps only the top `1 - threshold` fraction of band-pass values — so it bites much harder there than under `intensity`. **Recorded but inert under `wavelet`.** | `tether extract --detection-threshold`; supplied automatically by `--tdat` | `/settings/extraction` |
 | `detection_block`<br>`tether.project.extract` | `50` | frames | Block size of the moving-average max-projection that the detector runs on. Raising it averages away more blinking and shot noise, but the trailing partial block (the `T % block` remainder frames) is dropped, so a large block silently discards more of the end of the movie. Lowering it lets single-frame spikes into the per-pixel maximum and shifts which spots are found. Movies shorter than one block fall back to a sum projection. | `tether extract --detection-block` | `/settings/extraction` |

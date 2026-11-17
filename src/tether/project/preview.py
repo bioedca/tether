@@ -55,7 +55,8 @@ from tether.project.extract import (
     _ACCEPTOR_CHANNEL,
     _DONOR_CHANNEL,
     ExtractOptions,
-    _half_split_geometry,
+    _layout_geometry,
+    resolve_channel_layout,
 )
 
 if TYPE_CHECKING:
@@ -168,6 +169,13 @@ def _geometry(
     params: dict[str, Any],
 ) -> tuple[ChannelGeometry, ChannelGeometry]:
     """Resolve the channel geometry exactly as ``extract_movie`` does, recording its source."""
+    if registration is not None and options.channel_layout is not None:
+        # As in extract_movie: an imported map carries its own split, and a layout
+        # beside it would name a second, competing one (#908). Checked before the
+        # geometry argument, so an explicit geometry does not hide the conflict.
+        raise ValueError(
+            "channel_layout and an imported registration both set the channel split; give only one"
+        )
     if geometry is not None:
         params["geometry_source"] = "argument"
         if registration is not None:
@@ -186,9 +194,12 @@ def _geometry(
         if donor is None or acceptor is None:
             raise ValueError("the registration map lacks per-channel crop geometry")
         return donor, acceptor
-    params.update(geometry_source="half-split", donor_side=options.donor_side)
+    if options.channel_layout is None:
+        params.update(geometry_source="half-split", donor_side=options.donor_side)
+    else:
+        params.update(geometry_source="layout", channel_layout=options.channel_layout.to_dict())
     height, width = movie.shape[-2:]
-    return _half_split_geometry(width, height, options.donor_side)
+    return _layout_geometry(resolve_channel_layout(options), width, height)
 
 
 def iter_extraction_stages(
@@ -211,10 +222,12 @@ def iter_extraction_stages(
         ``.tdat`` into them first; the preview reads no files.
     geometry:
         The ``(donor, acceptor)`` channel geometry. ``None`` uses the geometry of
-        ``registration`` when one is given, else the left/right half split that
-        ``options.donor_side`` names. With a ``registration`` that records its own
-        geometry, a different one fails the ``split`` stage, because the map's
-        coordinates are local to its own crops.
+        ``registration`` when one is given, else the split of
+        ``options.channel_layout``, or the left/right half split that
+        ``options.donor_side`` names when no layout is set. With a ``registration``
+        that records its own geometry, a different one fails the ``split`` stage,
+        because the map's coordinates are local to its own crops. A
+        ``channel_layout`` beside a ``registration`` fails it too.
     registration:
         An imported map (for example from
         [`registration_map_from_tmap`][tether.imaging.calibrate.registration_map_from_tmap]).
