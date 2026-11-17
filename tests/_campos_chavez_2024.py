@@ -37,6 +37,7 @@ import numpy as np
 
 from _kinsoft_measured import read_workbook
 from tether.analysis.dwell import fit_survival, survival_curve
+from tether.analysis.gaussian_fit import fit_gaussians
 from tether.analysis.histogram import apparent_e_histogram
 from tether.analysis.tdp import smooth_transition_density, transition_density
 from tether.fret import apparent_fret
@@ -65,6 +66,23 @@ INTRAFRET = {
     8: "intraFRET_WT+NCCA_13uM",
 }
 INTRAFRET_FRAMES = 400  # Methods, "IntraFRET data analysis"
+#: Fig. 5c (#1030, ADR-0120): the notebook bins the intraFRET efficiencies with
+#: ``np.linspace(-0.2, 1.2, 200)`` (199 bins, density) and starts its two-Gaussian fit at the means
+#: 0 and 0.33. Gaussian 2, the higher mean, is the closed state.
+FRACTION_NOTEBOOK = (
+    "ErrorCalculations_CodeAndSourceData/FractionOfClosedState/ErrorFractionOfClosedState.ipynb"
+)
+FRACTION_BINS = 199
+FRACTION_RANGE = (-0.2, 1.2)
+FRACTION_INITIAL_MEANS = (0.0, 0.33)
+#: Folder the notebook read (the end of the path it printed) -> Fig. 5b column (0-based).
+FRACTION_FOLDERS = {
+    "notRNA": 0,
+    "WTtRNA/5uM": 2,
+    "WTtRNA/13uM": 4,
+    "NCCAtRNA/5uM": 6,
+    "NCCAtRNA/13uM": 8,
+}
 #: Representative-trace sheets (Figs. 2b, 3g, 4a, 4e): Cy3, Cy5 and FRET efficiency columns.
 TRACE_SHEETS = ("Fig2b", "Fig3g", "Fig4a", "Fig4e")
 #: Survival panel (sheet, first column) -> the exponential model the published curve is.
@@ -130,6 +148,43 @@ def read_double_params(archive: Path, name: str) -> np.ndarray:
     """``A1, A1err, A2, A2err, K1, K1err, K2, K2err`` of one parameter file."""
     with zipfile.ZipFile(archive) as zf:
         return np.loadtxt(io.BytesIO(zf.read(f"{DOUBLE_DIR}/{name}.txt")))
+
+
+def read_notebook_fractions(archive: Path) -> dict[int, tuple[float, float]]:
+    """Fig. 5b column -> ``(fraction, error)`` as the archive's notebook printed them.
+
+    Each code cell of ``ErrorFractionOfClosedState.ipynb`` asks for a folder, and its saved output
+    holds the answer and the line ``Ratio of Gaussian 2 area over total area: R ± E``. Only the
+    folder's last components are read (:data:`FRACTION_FOLDERS`).
+    """
+    with zipfile.ZipFile(archive) as zf:
+        notebook = json.loads(zf.read(FRACTION_NOTEBOOK))
+    out: dict[int, tuple[float, float]] = {}
+    for cell in notebook["cells"]:
+        lines = [
+            ln.strip()
+            for o in cell.get("outputs", [])
+            for ln in "".join(o.get("text", "")).splitlines()
+        ]
+        ratio = next((ln for ln in lines if ln.startswith("Ratio of Gaussian 2")), None)
+        if ratio is None:
+            continue
+        path = next(ln for ln in lines if "GaussianFRET2/" in ln)
+        folder = path.rstrip("/").split("GaussianFRET2/")[-1]
+        value, error = ratio.split(":")[1].split("±")
+        out[FRACTION_FOLDERS[folder]] = (float(value), float(error))
+    return out
+
+
+def read_fig5c(rows: list[tuple]) -> dict[int, tuple[float, float]]:
+    """Fig. 5b column -> ``(fraction, error)`` of the Fig. 5c sheet, whose rows follow Fig. 5b."""
+    start = next(i for i, r in enumerate(rows) if r and r[0] == "Condition") + 1
+    out = {}
+    for i, r in enumerate(rows[start:]):
+        if len(r) < 4 or not isinstance(r[2], float):
+            break
+        out[2 * i] = (r[2], r[3])
+    return out
 
 
 def column(rows: list[tuple], header: str, col: int) -> np.ndarray:
@@ -297,17 +352,16 @@ def compare_histogram(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
     }
 
 
-def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarray) -> dict:
-    """Tether's efficiency of the first 400 frames of each molecule beside Fig. 5b.
+def _intrafret_starts(
+    e: np.ndarray, bound: np.ndarray, values: np.ndarray
+) -> tuple[list[int | None], float, int]:
+    """For each published block of 400 values, the first frame (0 or 1) it matches, if any.
 
-    The published notebook reads each movie's file with ``skiprows=1``; the archive's matrix joins
-    the files, so for each molecule the window starts at frame 0 or at frame 1. Each published block
-    of 400 values is matched with one of the two.
+    Also returns the largest ratio to the rounding bound over the matched blocks and the number of
+    their frames without a finite bound.
     """
-    e = apparent_fret(donor, acceptor)
-    bound = rounding_bound(donor, acceptor)
     blocks = values.reshape(-1, INTRAFRET_FRAMES)
-    starts = []
+    starts: list[int | None] = []
     ratio = 0.0
     unbounded = 0
     for mol, block in enumerate(blocks):
@@ -321,6 +375,18 @@ def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
         starts.append(found)
         if found is not None:
             ratio = max(ratio, best)
+    return starts, ratio, unbounded
+
+
+def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarray) -> dict:
+    """Tether's efficiency of the first 400 frames of each molecule beside Fig. 5b.
+
+    The published notebook reads each movie's file with ``skiprows=1``; the archive's matrix joins
+    the files, so for each molecule the window starts at frame 0 or at frame 1. Each published block
+    of 400 values is matched with one of the two.
+    """
+    e = apparent_fret(donor, acceptor)
+    starts, ratio, unbounded = _intrafret_starts(e, rounding_bound(donor, acceptor), values)
     groups: list[list] = []
     for s in starts:
         if groups and groups[-1][0] == s:
@@ -328,11 +394,64 @@ def compare_intrafret(values: np.ndarray, donor: np.ndarray, acceptor: np.ndarra
         else:
             groups.append([s, 1])
     return {
-        "molecules": int(blocks.shape[0]),
+        "molecules": len(starts),
         "matrix_molecules": int(e.shape[1]),
         "start_groups": groups,
         "max_bound_ratio": ratio,
         "unbounded_values": unbounded,
+    }
+
+
+def intrafret_efficiencies(
+    values: np.ndarray, donor: np.ndarray, acceptor: np.ndarray
+) -> np.ndarray:
+    """Tether's efficiencies of the 400-frame window of each molecule that Fig. 5b pools."""
+    e = apparent_fret(donor, acceptor)
+    starts, _, _ = _intrafret_starts(e, rounding_bound(donor, acceptor), values)
+    if any(s is None for s in starts):
+        raise ValueError("a published block of Fig. 5b matches no window of the trace matrix")
+    return np.concatenate([e[s : s + INTRAFRET_FRAMES, m] for m, s in enumerate(starts)])
+
+
+def published_fraction_error(areas: np.ndarray, fit) -> float:
+    """The notebook's error of the closed-state fraction, from a fit's parameter errors.
+
+    The notebook takes ``dA_i = sqrt(2 pi) * sqrt((A_i dsigma_i)**2 + (sigma_i dA_i)**2)`` for each
+    Gaussian, ``dT = sqrt(dA_1**2 + dA_2**2)`` for the total ``T``, and
+    ``dR = R * sqrt((dA_2 / A_2)**2 + (dT / T)**2)`` for ``R = A_2 / T``: no covariance enters,
+    and ``A_2`` and ``T`` are treated as independent. ``areas`` are the areas the notebook divides.
+    """
+    a, s = fit.amplitudes, fit.widths
+    d_area = np.sqrt(2 * np.pi) * np.hypot(a * fit.width_stderr, s * fit.amplitude_stderr)
+    total = float(np.sum(areas))
+    ratio = float(areas[1]) / total
+    d_total = float(np.hypot(*d_area))
+    return ratio * float(np.hypot(d_area[1] / areas[1], d_total / total))
+
+
+def compare_closed_fraction(efficiencies: np.ndarray) -> dict:
+    """Tether's two-Gaussian fit of one Fig. 5b histogram, as the fraction of the closed state.
+
+    ``fraction`` uses the notebook's area (``bin_sum``) and ``published_error`` the notebook's
+    propagation (:func:`published_fraction_error`); ``tether_error`` is Tether's own error, from
+    the full covariance. ``integral_fraction`` is the same fit with the Methods' area
+    ``A sqrt(2 pi) sigma``. ``bins_differing`` compares Tether's histogram with the notebook's
+    ``np.histogram(..., bins=np.linspace(-0.2, 1.2, 200), density=True)``.
+    """
+    hist = apparent_e_histogram(efficiencies, bins=FRACTION_BINS, value_range=FRACTION_RANGE)
+    edges = np.linspace(FRACTION_RANGE[0], FRACTION_RANGE[1], FRACTION_BINS + 1)
+    ref, _ = np.histogram(efficiencies, bins=edges, density=True)
+    fit = fit_gaussians(hist, FRACTION_INITIAL_MEANS, area="bin_sum")
+    integral = fit_gaussians(hist, FRACTION_INITIAL_MEANS, area="integral")
+    return {
+        "values": int(efficiencies.size),
+        "bins_differing": int(np.sum(hist.counts != ref)),
+        "success": bool(fit.success and integral.success),
+        "means": fit.means.tolist(),
+        "fraction": float(fit.fractions[1]),
+        "published_error": published_fraction_error(fit.areas, fit),
+        "tether_error": float(fit.fraction_stderr[1]),
+        "integral_fraction": float(integral.fractions[1]),
     }
 
 
@@ -447,6 +566,7 @@ def measure(archive: Path) -> dict:
         "traces": {},
         "histograms": {},
         "intrafret": {},
+        "closed_fraction": {},
         "survival": {},
         "tdp": {},
         "tdp_view": {},
@@ -461,6 +581,15 @@ def measure(archive: Path) -> dict:
     for col, name in INTRAFRET.items():
         values = column(book["Fig5b"], "FRET Efficiency", col)
         out["intrafret"][name] = compare_intrafret(values, *read_traces(archive, name))
+    printed = read_notebook_fractions(archive)
+    fig5c = read_fig5c(book["Fig5c"])
+    for col in sorted(fig5c):
+        values = column(book["Fig5b"], "FRET Efficiency", col)
+        name = INTRAFRET.get(col)
+        source = intrafret_efficiencies(values, *read_traces(archive, name)) if name else values
+        got = compare_closed_fraction(source)
+        got["fig5c"], got["notebook"] = fig5c[col], printed[col]
+        out["closed_fraction"][col] = got
     for (sheet, col), model in SURVIVAL.items():
         name = DOUBLE_PARAMS.get((sheet, col))
         params = read_double_params(archive, name) if name else None
