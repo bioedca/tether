@@ -20,6 +20,11 @@ binding that is already loaded.
 
 Between the ``QApplication`` and the slow import of the shell, [`create_shell`][]
 shows the startup splash ([`tether.gui.splash`][], #676) on a platform with a screen.
+
+Once the shell exists, [`create_shell`][] installs the opt-in update notice
+([`tether.gui.update_notice`][], #248). It asks its first-run question, or starts one
+check on a background thread when the user allowed it, after the event loop starts; it
+makes no network request without that stored consent.
 """
 
 from __future__ import annotations
@@ -89,7 +94,9 @@ def create_shell(
     shows, before the import of [`tether.gui.shell`][], which is the slow part; it
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
-    ``False`` decides it explicitly.
+    ``False`` decides it explicitly. Last, the update notice is installed
+    ([`tether.gui.update_notice.install_update_notice`][]); its start is queued for the
+    event loop.
     """
     args = build_parser().parse_args(argv)
 
@@ -115,6 +122,12 @@ def create_shell(
         shell = TetherShell()
         if args.project is not None:
             shell.load_project(args.project)
+        # The opt-in update notice (#248): the first-run question, or one check on a
+        # background thread once the user allowed it. Queued for the event loop, so it
+        # never delays the window, and it makes no request without the stored consent.
+        from tether.gui.update_notice import install_update_notice
+
+        install_update_notice(shell.window, help_menu=shell.help_menu)
     except BaseException:
         if screen is not None:
             screen.abort()

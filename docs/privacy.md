@@ -7,7 +7,7 @@ description: "What Tether and this documentation site collect and do not collect
 **Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
 needed to read it or to rely on it.
 
-**Effective date: 30 July 2026**
+**Effective date: 17 November 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the
 **Tether desktop application** and this **documentation website**
@@ -16,7 +16,9 @@ This policy describes how the **Tether** project handles data. It covers both th
 
 In short: **Tether does not transmit or sell your personal data.** The application
 processes your research data locally on your own computer; you choose its persistent
-storage, and temporary idealization files are described below.
+storage, and temporary idealization files are described below. The only network request
+the application can make is an optional check for a newer release, which is **off until
+you allow it** (below).
 
 ## The desktop application
 
@@ -29,7 +31,28 @@ storage, and temporary idealization files are described below.
 - **No telemetry or analytics.** The application contains no usage tracking, no analytics,
   no crash/telemetry reporting, no advertising, and no account or login. It makes **no
   network connection** as part of normal analysis; it neither sends your data to us or to
-  any third party, nor "phones home".
+  any third party, nor "phones home". The one exception is the optional check for a newer
+  release described next, and it is off until you allow it.
+- **Optional check for a newer release (off by default).** The first time the application
+  starts, it asks in a bar at the top of the window whether it may check GitHub for a newer
+  release. **Until you answer yes, it makes no network request at all**, and if you never
+  answer, it never makes one. If you answer yes, then each time the application starts it
+  sends **one** unauthenticated HTTPS request to GitHub:
+  `GET https://api.github.com/repos/bioedca/tether/releases/latest`. GitHub necessarily
+  sees your computer's **IP address**, the time of the request, and the user-agent
+  `Tether`; the GitHub General Privacy Statement linked below applies to that request, and
+  the Tether project does not receive its data. Tether adds **nothing** to the request: no
+  account, no installation id, no version number, no usage data, no telemetry, and nothing
+  about your computer, your projects or your data. It reads only the version number of the
+  newest release from the answer and, if that is newer than the copy you run, shows a
+  notice with a link to the Releases page. It **downloads nothing and installs nothing**;
+  you download a new release yourself. If the request fails (no network, a proxy, a
+  timeout), nothing is shown. The request uses your proxy settings (`HTTPS_PROXY`).
+- **Turning the check off.** Untick **Help → Check for new releases at startup**, or
+  answer **Don't check** to the first question. Your answer is kept in a small settings
+  file outside the install folder, so a newer release you install keeps it. An
+  administrator can turn the check off for every user of a computer; [Install Tether](install.md#settings-tether-keeps-outside-the-install-folder)
+  says where that file and the settings file are.
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project file records the application version, your analysis
