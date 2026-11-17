@@ -70,9 +70,12 @@ plan memory for extraction by that rather than by the file size
 
 ### Split
 
-`tether.imaging.split` cuts each frame into its donor and acceptor halves.
+`tether.imaging.split` cuts each frame into its donor and acceptor channels. The movie's channel
+layout (`tether.imaging.layout`) says where each channel is. It is side by side (the default),
+top and bottom, or one free rectangle for each channel.
 
-- **Writes:** nothing on its own.
+- **Writes:** the layout record `/movies/layouts/<movie_id>`, with the movie's other records,
+  when the movie is extracted.
 
 ### Detect
 
