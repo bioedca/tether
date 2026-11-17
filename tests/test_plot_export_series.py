@@ -248,6 +248,25 @@ def test_a_condition_keeps_its_colour_in_every_panel():
     assert colours[0] == colours[1]
 
 
+def test_each_kde_curve_takes_its_series_line_style_past_four_series(results):
+    # Colour repeats after four series; the line style is what keeps the fifth KDE curve
+    # apart from the first, so it must match its own histogram's style.
+    wt, _ = results["tprob"]
+    assert wt.kde_x is not None
+    fig = pe.render_transition_prob([(f"s{k}", wt) for k in range(5)])
+    ax = fig.axes[0]
+    kde = ax.lines
+    assert len(kde) == 5
+    for k, line in enumerate(kde):
+        style = pe.series_style(k)
+        assert line.get_color() == style.color
+        assert line.get_linestyle() == style.linestyle
+    assert (kde[0].get_color(), kde[0].get_linestyle()) != (
+        kde[4].get_color(),
+        kde[4].get_linestyle(),
+    )
+
+
 def test_state_number_series_are_grouped_bars(results):
     wt, mut = results["statenum"]
     fig = pe.render_state_number([("WT", wt), ("mutant", mut)])

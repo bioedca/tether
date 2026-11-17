@@ -1599,6 +1599,7 @@ def render_transition_prob(
                 np.asarray(h.kde_x, dtype="float64"),
                 np.asarray(h.kde_y, dtype="float64"),
                 color=style.color,
+                ls=style.linestyle,
                 lw=1.0,
                 alpha=0.8,
             )
