@@ -473,6 +473,22 @@ def test_a_reconcile_needs_a_lock_and_refuses_one_stolen_and_released_before_it(
     assert jobs.read_job(project.path, job.job_id).stored_state is jobs.JobState.RUNNING
 
 
+def test_a_reconcile_refuses_a_lock_taken_by_another_handle_of_the_same_identity(
+    project: Project,
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    owner = json.dumps({"nonce": project._held_lock.nonce, "pid": os.getpid()})
+    jobs._write_job(project.path, job.job_id, state="running", owner=owner, started_utc="t0")
+    other = Project(project.path, identity=project._acting_identity())
+    other.steal_lock()
+    try:
+        with pytest.raises(LockedError):
+            jobs.reconcile_jobs(project)  # same identity, but not this handle's lock
+    finally:
+        other.release_lock()
+    assert jobs.read_job(project.path, job.job_id).stored_state is jobs.JobState.RUNNING
+
+
 def test_a_reconcile_never_stores_interrupted_over_a_run_that_started_after_it_looked(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
