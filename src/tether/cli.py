@@ -28,11 +28,17 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from tether import __version__
-from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
+from tether.extract_choices import (
+    COLOCALIZATION_POLICIES,
+    DEFAULT_COLOCALIZATION_POLICY,
+    DETECTION_MODES,
+    DONOR_SIDES,
+    PREALIGN_MODES,
+)
 from tether.services import (
     COMMANDS,
     BatchRequest,
@@ -159,6 +165,25 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         help="acceptor colocalization distance in px (default: 3)",
     )
     extract.add_argument(
+        "--colocalization",
+        default=DEFAULT_COLOCALIZATION_POLICY,
+        choices=COLOCALIZATION_POLICIES,
+        help=(
+            "which molecules to keep: 'partner-in-both' keeps a donor spot only when an "
+            "acceptor spot was detected at its mapped position (Deep-LASI's rule); "
+            "'donor-anchored' keeps every donor spot, for weak-acceptor and low-FRET "
+            "samples (default: partner-in-both)"
+        ),
+    )
+    extract.add_argument(
+        "--count-only",
+        action="store_true",
+        help=(
+            "run detection, registration and colocalization, print the molecule count "
+            "of each colocalization rule, and write nothing"
+        ),
+    )
+    extract.add_argument(
         "--rms-gate",
         type=float,
         default=0.5,
@@ -200,10 +225,18 @@ def _extract_request(args: argparse.Namespace) -> ExtractRequest:
         prealign=args.prealign,
         pair_tol=args.pair_tol,
         coloc_distance=args.coloc_distance,
+        colocalization=args.colocalization,
         rms_gate=args.rms_gate,
         tmap=args.tmap,
         tdat=args.tdat,
+        count_only=args.count_only,
     )
+
+
+def _describe_rule_counts(chosen: str, counts: Mapping[str, int]) -> str:
+    """One line naming the rule that ran and what the other rule would have kept."""
+    others = ", ".join(f"{rule} would keep {n}" for rule, n in counts.items() if rule != chosen)
+    return f"{chosen} kept {counts.get(chosen, 0)}" + (f" ({others})" if others else "")
 
 
 def _run_extract(args: argparse.Namespace) -> int:
@@ -216,7 +249,14 @@ def _run_extract(args: argparse.Namespace) -> int:
         return 1
 
     summary = result.summary
+    if summary is None:  # --count-only: the counts before a run, nothing written
+        print(f"Molecules in {request.movie} under each colocalization rule (nothing written):")
+        for rule, count in result.rule_counts.items():
+            chosen = " (selected)" if rule == request.colocalization else ""
+            print(f"  {rule}: {count}{chosen}")
+        return 0
     print(f"Extracted {summary.n_molecules} molecule(s) -> {summary.output_path}")
+    print(f"  colocalization: {_describe_rule_counts(summary.colocalization, result.rule_counts)}")
     if summary.registration_source == "imported":
         print(f"  registration: imported from {request.tmap}")
     if request.tdat is not None:
@@ -284,6 +324,15 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         ),
     )
     batch.add_argument(
+        "--colocalization",
+        default=DEFAULT_COLOCALIZATION_POLICY,
+        choices=COLOCALIZATION_POLICIES,
+        help=(
+            "which molecules each extraction keeps: 'partner-in-both' (default) or "
+            "'donor-anchored'; see tether extract --colocalization"
+        ),
+    )
+    batch.add_argument(
         "--no-idealize",
         action="store_true",
         help="skip the idealization stage (extract + correct only)",
@@ -344,6 +393,7 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
         tmap=args.tmap,
         tdat=args.tdat,
         policy=args.policy,
+        colocalization=args.colocalization,
         idealize=not args.no_idealize,
         overwrite=args.overwrite,
         log=args.log,

@@ -107,8 +107,8 @@ stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
 > **A wrong `--donor-side` raises no error during extraction.** Both values are legal, so
 > extraction succeeds and every trace looks plausible.
 >
-> It is worse than a mislabeling. Spot detection is **donor-anchored**: Tether finds spots
-> in the half you called donor and colocalizes the other channel against them. Get it
+> It is worse than a mislabeling. Spot detection is **anchored on the donor half**: Tether
+> finds spots in the half you called donor and colocalizes the other channel against them. Get it
 > backwards and you have anchored on the acceptor half, so the molecule *set* itself is
 > different. You cannot repair the project by swapping the column names afterwards, and you
 > cannot repair the efficiencies by taking `1 − E` — that is only a clean mirror for the

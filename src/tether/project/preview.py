@@ -23,7 +23,8 @@ native fit is the ``over-gate`` outcome of the ``register`` stage, and the run c
 the molecules flagged, as ``extract_movie`` does (ADR-0014).
 
 The channel geometry, the registration source and the colocalization policy are arguments.
-Today the only policy is ``donor-anchored`` (ADR-0015); #920 adds the second.
+The ``colocalize`` stage reports the molecule count of both rules (``rule_counts``), so a
+caller can show what each rule keeps before the run (#920, ADR-0127).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from tether import __version__
+from tether.extract_choices import COLOCALIZATION_POLICIES
 from tether.imaging import (
     ChannelGeometry,
     OverGateRegistrationWarning,
@@ -63,8 +65,6 @@ if TYPE_CHECKING:
 
 #: The stages in the order ``extract_movie`` runs them.
 STAGES = ("split", "detect", "prealign", "pair", "register", "colocalize", "extract")
-#: The colocalization rules the preview accepts. #920 adds a second rule.
-COLOCALIZATION_POLICIES = ("donor-anchored",)
 #: A stage ran and its result is usable.
 OUTCOME_OK = "ok"
 #: The native fit's residual exceeds the RMS gate; molecules are flagged, not dropped.
@@ -197,7 +197,7 @@ def iter_extraction_stages(
     options: ExtractOptions | None = None,
     geometry: tuple[ChannelGeometry, ChannelGeometry] | None = None,
     registration: RegistrationMap | None = None,
-    policy: str = "donor-anchored",
+    policy: str | None = None,
 ) -> Iterator[StageResult]:
     """Yield one [`StageResult`][] per extraction stage of ``movie``.
 
@@ -221,16 +221,22 @@ def iter_extraction_stages(
         ``None`` fits a native
         map from the movie's own spots. With a map, prealign and pair are ``skipped``.
     policy:
-        The colocalization rule, one of [`COLOCALIZATION_POLICIES`][].
+        The colocalization rule, one of
+        [`COLOCALIZATION_POLICIES`][tether.extract_choices.COLOCALIZATION_POLICIES].
+        ``None`` uses ``options.colocalization``, the rule ``extract_movie`` would run.
+        The ``colocalize`` stage outputs the molecule count of both rules as
+        ``rule_counts`` whichever is chosen.
 
     Raises
     ------
     ValueError
         For an unknown ``policy``. A stage that fails is yielded, never raised.
     """
+    opts = options or ExtractOptions()
+    if policy is None:
+        policy = opts.colocalization
     if policy not in COLOCALIZATION_POLICIES:
         raise ValueError(f"policy must be one of {COLOCALIZATION_POLICIES}, got {policy!r}")
-    opts = options or ExtractOptions()
     out: dict[str, Any] = {}  # every output so far, keyed as the stages name them
 
     def split() -> dict[str, Any]:
@@ -307,8 +313,13 @@ def iter_extraction_stages(
             acceptor_spots=out["acceptor_spots"],
             window=opts.window,
             coloc_distance_px=opts.coloc_distance,
+            policy=policy,
         )
-        return {"molecules": molecules, "n_molecules": int(molecules.n_molecules)}
+        return {
+            "molecules": molecules,
+            "n_molecules": int(molecules.n_molecules),
+            "rule_counts": dict(molecules.rule_counts),
+        }
 
     def extract() -> dict[str, Any]:
         stacks = (out["donor_stack"], out["acceptor_stack"])

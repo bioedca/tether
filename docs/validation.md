@@ -155,10 +155,14 @@ the specification's original extraction gate asked for 1 px recall and r ≥ 0.9
 
 ADR-0022 records the reasons each reframed bar is science rather than a lowered
 standard: 1 px recall is a localizer-*identity* test between two independent sub-pixel
-localizers on human-curated picks; Tether is donor-anchored
+localizers on human-curated picks; the oracle extraction is donor-anchored
 ([ADR-0015](adr/0015-donor-anchored-colocalization.md)), so the acceptor is read at the
 mapped donor position and its Pearson carries the map's molecule-domain scatter; and a
-bidirectional colocalization filter was measured to collapse recall to ≈0.66.
+bidirectional colocalization filter was measured to collapse recall to ≈0.66. A new
+extraction defaults to that filter, the partner-in-both rule
+([ADR-0127](adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)),
+so the oracle test and `scripts/run_m1_oracle.py` select `donor-anchored` by name and keep
+the frozen numbers.
 
 **Enforcing tests.** `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`
 — `@pytest.mark.workstation`, so no CI job collects it

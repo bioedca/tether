@@ -11,6 +11,7 @@ imported (ADR-0100).
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, ClassVar
 
 from tether.services.base import CommandFailed, Request
@@ -28,6 +29,8 @@ class ExtractRequest(Request):
     The fields are the options of ``tether extract`` (``docs/cli.md``) under their
     ``argparse`` destination names, with the same defaults. ``detection_mode=None`` means
     "no explicit choice": the library default applies, or the mode decoded from ``tdat``.
+    ``count_only`` runs the stages up to colocalization, writes nothing and returns the
+    molecule count of each colocalization rule (#920).
     """
 
     COMMAND: ClassVar[str] = "extract"
@@ -45,16 +48,24 @@ class ExtractRequest(Request):
     prealign: str = "translation"
     pair_tol: float = 2.0
     coloc_distance: float = 3.0
+    colocalization: str = "partner-in-both"  # = DEFAULT_COLOCALIZATION_POLICY (tested)
     rms_gate: float = 0.5
     tmap: str | None = None
     tdat: str | None = None
+    count_only: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
 class ExtractResult:
-    """The outcome of an ``extract`` command: the core's extraction summary."""
+    """The outcome of an ``extract`` command.
 
-    summary: ExtractionSummary
+    ``summary`` is the core's extraction summary, or ``None`` for a ``count_only``
+    request, which writes nothing. ``rule_counts`` is ``{rule: n_molecules}``, the
+    molecules each colocalization rule keeps from the movie's spots (#920).
+    """
+
+    summary: ExtractionSummary | None
+    rule_counts: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
 
 def run(request: ExtractRequest) -> ExtractResult:
@@ -66,7 +77,12 @@ def run(request: ExtractRequest) -> ExtractResult:
     """
     from contextlib import nullcontext
 
-    from tether.project.extract import ExtractionError, ExtractOptions, extract_movie
+    from tether.project.extract import (
+        ExtractionError,
+        ExtractOptions,
+        count_molecules_by_rule,
+        extract_movie,
+    )
     from tether.project.lock import LockError, publish_lock
 
     try:
@@ -92,8 +108,14 @@ def run(request: ExtractRequest) -> ExtractResult:
             prealign=request.prealign,
             pair_tol=request.pair_tol,
             coloc_distance=request.coloc_distance,
+            colocalization=request.colocalization,
             rms_gate=request.rms_gate,
         )
+        if request.count_only:
+            counts = count_molecules_by_rule(
+                request.movie, options=options, tmap=request.tmap, tdat=request.tdat
+            )
+            return ExtractResult(summary=None, rule_counts=counts)
         # An overwrite replaces a project another writer may hold open, so it holds the
         # destination's writer lock across the run and publishes under it (#346).
         with publish_lock(request.output) if request.overwrite else nullcontext() as guard:
@@ -110,4 +132,4 @@ def run(request: ExtractRequest) -> ExtractResult:
         # OSError: publish_lock opens the destination's guard file before
         # extract_movie runs, so a missing or unwritable directory fails there.
         raise CommandFailed(str(exc)) from exc
-    return ExtractResult(summary=summary)
+    return ExtractResult(summary=summary, rule_counts=dict(summary.rule_counts))

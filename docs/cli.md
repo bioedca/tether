@@ -85,8 +85,10 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--min-separation MIN_SEPARATION]
                [--detection-block DETECTION_BLOCK]
                [--prealign {translation,similarity}] [--pair-tol PAIR_TOL]
-               [--coloc-distance COLOC_DISTANCE] [--rms-gate RMS_GATE]
-               [--tmap PATH] [--tdat PATH]
+               [--coloc-distance COLOC_DISTANCE]
+               [--colocalization {partner-in-both,donor-anchored}]
+               [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
+               [--tdat PATH]
                movie
 ```
 
@@ -104,6 +106,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--prealign {translation,similarity}` | `translation` | registration prealign degrees of freedom |
 | `--pair-tol PAIR_TOL` | `2` | control-point pairing tolerance in px |
 | `--coloc-distance COLOC_DISTANCE` | `3` | acceptor colocalization distance in px |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | which molecules to keep: `partner-in-both` keeps a donor spot only when an acceptor spot was detected at its mapped position (Deep-LASI's rule); `donor-anchored` keeps every donor spot, for weak-acceptor and low-FRET samples ([see below](#choose-the-colocalization-rule)) |
+| `--count-only` | off | run detection, registration and colocalization, print the molecule count of each colocalization rule, and write nothing |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
 | `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with; mutually exclusive with `--detection-mode`/`--detection-threshold` |
@@ -181,6 +185,33 @@ $ tether extract movie.tif -o movie.tether --tdat run.tdat --detection-mode wave
 tether extract: --detection-mode/--detection-threshold cannot be combined with --tdat (the .tdat supplies the detection mode); pass one or the other
 ```
 
+### Choose the colocalization rule
+
+A molecule starts as a donor spot. By default (`--colocalization partner-in-both`) Tether
+keeps it only when an acceptor spot was also detected within `--coloc-distance` of its
+mapped position, which is the rule Deep-LASI uses. That rule **drops the low-FRET and
+acceptor-dark molecules**: their acceptor is too weak to be detected as a spot of its own.
+If your sample has a weak acceptor, or you expect a low-FRET population, extract with
+`--colocalization donor-anchored`, which keeps every donor spot whose aperture fits in the
+frame. Under both rules the acceptor intensity is read at the mapped donor position.
+
+To see what each rule keeps before you commit to a run, add `--count-only`. It writes
+nothing (`-o` is still required):
+
+```console
+$ tether extract movie.tif -o movie.tether --count-only
+Molecules in movie.tif under each colocalization rule (nothing written):
+  partner-in-both: 412 (selected)
+  donor-anchored: 455
+```
+
+A large gap between the two counts means many donor spots have no detected acceptor. The
+rule is recorded with each movie in the project, and every molecule records whether an
+acceptor spot was detected for it (`/molecules/acceptor_detected`). A project extracted
+before the rule could be chosen used the donor-anchored rule, and it reads that way.
+Extracting the movie again uses the new default unless you name `donor-anchored`.
+`tether batch --colocalization` sets the rule for every movie in a batch.
+
 ### Example — one movie to one project
 
 ```bash
@@ -189,10 +220,13 @@ tether extract movie.tif -o movie.tether
 
 ```console
 Extracted 412 molecule(s) -> movie.tether
+  colocalization: partner-in-both kept 412 (donor-anchored would keep 455)
   donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 
-The second line is the [donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
+The second line names the [colocalization rule](#choose-the-colocalization-rule) and what
+the other rule would have kept. The third is the
+[donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
 If the registration RMS residual exceeds `--rms-gate`, extraction still succeeds and
 still exits 0, but a warning goes to stderr and the affected molecules are tagged
 `low-confidence-registration` in the project — a flag you can filter on later rather
@@ -209,6 +243,7 @@ resumes only the incomplete stages instead of redoing finished work.
 
 ```text
 tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
+             [--colocalization {partner-in-both,donor-anchored}]
              [--no-idealize] [--overwrite] [--log PATH] [--max-restarts N]
              [--sidecar-timeout SECONDS] [--sidecar-python PATH] [--no-defer]
              movies [movies ...]
@@ -221,6 +256,7 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | the colocalization rule of every movie's extraction; see [`tether extract`](#choose-the-colocalization-rule) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
 | `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
 | `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
@@ -504,8 +540,9 @@ movie.tether` sends this request. The text form is one line. It is broken here t
 the page, and a break between two parts of JSON does not change it:
 
 ```json
-{"command":"extract","fields":{"coloc_distance":3.0,"detection_block":50,
-"detection_mode":null,"detection_threshold":null,"donor_side":"left",
+{"command":"extract","fields":{"coloc_distance":3.0,"colocalization":"partner-in-both",
+"count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
+"donor_side":"left",
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","rms_gate":0.5,"tdat":null,"tmap":null,
 "window":21},"version":1}

@@ -63,6 +63,34 @@ Pick one of these:
 If two molecules close together come out as one, lower `--min-separation`
 ([`min_separation`](../reference/parameters.md#param-min-separation)).
 
+Then choose which donor spots become molecules
+([`colocalization`](../reference/parameters.md#param-colocalization)):
+
+- **Most movies, and to match Deep-LASI:** add nothing. Tether keeps a donor spot only
+  when it also finds an acceptor spot there (`partner-in-both`).
+- **Low-FRET molecules, or a dark acceptor:** add `--colocalization donor-anchored`.
+  Tether then keeps every donor spot. It reads the acceptor at the mapped place, found or
+  not. The default drops these molecules. A FRET histogram without them leans toward high
+  FRET.
+
+!!! note "The default changed"
+    Before this version every extraction was `donor-anchored`. A new extraction now keeps
+    only molecules with an acceptor spot. It can find fewer molecules than before. A
+    project made before the change opens as it was, and reads as `donor-anchored`.
+
+To see the cost before you run, count the molecules under both rules. This writes no
+project:
+
+```bash
+tether extract movie.tif -o movie.tether --count-only
+```
+
+```text
+Molecules in movie.tif under each colocalization rule (nothing written):
+  partner-in-both: 412 (selected)
+  donor-anchored: 455
+```
+
 ## 3. Choose how the two halves are lined up
 
 - **Native registration (the default):** add nothing. Tether matches spots between the two
@@ -102,11 +130,13 @@ user who opened the same file through a different hard-link name; see
 
 ## 5. Check that it worked
 
-A successful run prints a line naming the molecule count and the project, then the result
-of the donor-side check:
+A successful run prints a line naming the molecule count and the project, a line naming
+the colocalization rule with the count the other rule would keep, then the result of the
+donor-side check:
 
 ```text
 Extracted 412 molecule(s) -> movie.tether
+  colocalization: partner-in-both kept 412 (donor-anchored would keep 455)
   donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 

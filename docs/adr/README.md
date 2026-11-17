@@ -65,7 +65,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0012](0012-registration-pairing-mutual-nn.md) | Registration pairing: mutual NN, fit on original coords; translation prealign first | accepted | App E §7–8, §11.2 |
 | [0013](0013-fourier-mellin-similarity-prealign.md) | 4-DOF Fourier-Mellin similarity prealign: log-polar recovery, masked-NCC disambiguation, real-data oracle | accepted; amended by [ADR-0089](0089-the-similarity-prealign-samples-a-square-padded-spectrum.md) on the spectrum sampling, the band-pass default and the regime | App E §7, §11.2 |
 | [0014](0014-registration-map-rms-gate-and-over-gate.md) | Registration map: numeric RMS gate, over-gate flag-don't-drop, and a unified native/imported calibration | accepted | §7.1, App E §9–10, §11.2 |
-| [0015](0015-donor-anchored-colocalization.md) | Donor-anchored colocalization: keep dark/low-FRET acceptors, apply the map in the coordinate domain | accepted | §7.1, App E §11–13, §11.2 |
+| [0015](0015-donor-anchored-colocalization.md) | Donor-anchored colocalization: keep dark/low-FRET acceptors, apply the map in the coordinate domain | accepted; molecule anchor superseded by [ADR-0127](0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md) | §7.1, App E §11–13, §11.2 |
 | [0016](0016-extraction-trace-store-layout.md) | Extraction trace-store layout: zero-pad-to-max-T traces, cached patches, and the molecule_key content hash | accepted | §5.1, §7.10, App E §14–15, §11.2 |
 | [0017](0017-deeplasi-validation-reader.md) | Minimal Deep-LASI `.mat` / `.txt` validation reader: M1-scoped fields, coordinate convention, and lazy scipy | accepted | §9 M1, §8 NFR-VALID (a), App A |
 | [0018](0018-extract-cli-native-pipeline.md) | `tether extract` CLI: a native auto-registration pipeline; imported `.tmap` + the Deep-LASI oracle deferred to the S9 follow-up | accepted | §7.11, §9 M1, App E, §11.2 |
@@ -159,6 +159,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0116](0116-the-shell-hosts-its-sections-in-one-stack.md) | The shell hosts its sections in one stack, and each dock belongs to one section | accepted | §4.2 (`tether.gui`), §7.3 (the curation shell), §7.10 FR-CONCURRENCY, FR-WORKFLOW |
 | [0117](0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md) | A movie is appended to a project once, under its writer lock, and keeps its own settings | accepted | §5.1 (data model), §5.4 (single writer), §7.11 FR-EXTRACT / FR-BATCH, §7.8 (the |
 | [0121](0121-each-lock-takeover-leaves-a-record-in-the-project.md) | Each lock takeover leaves a record in the project | accepted | §7.10 FR-CONCURRENCY, §5.4 (single writer), §5 (schema) |
+| [0127](0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md) | The colocalization policy: a partner in both channels by default, or donor-anchored | accepted | §7.1, App E §11, §11.2, §5 |
 
 <!-- gen:adr-index end -->
 

@@ -14,6 +14,7 @@ import dataclasses
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+from tether.extract_choices import COLOCALIZATION_POLICIES
 from tether.services.base import CommandFailed, Request, RequestRefused
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -30,6 +31,7 @@ class BatchRequest(Request):
     defaults. Two flags are stated positively: ``--no-idealize`` is ``idealize=False``
     and ``--no-defer`` is ``defer_if_unavailable=False``. ``None`` in a supervision field
     means the [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
+    ``colocalization`` is the colocalization rule of every movie's extraction (ADR-0127).
     """
 
     COMMAND: ClassVar[str] = "batch"
@@ -40,6 +42,7 @@ class BatchRequest(Request):
     tmap: str | None = None
     tdat: str | None = None
     policy: str = "warn"
+    colocalization: str = "partner-in-both"  # = DEFAULT_COLOCALIZATION_POLICY (tested)
     idealize: bool = True
     overwrite: bool = False
     log: str | None = None
@@ -67,11 +70,17 @@ def run(request: BatchRequest) -> BatchResult:
     cannot be written. A failed stage is not an error: it is in the summary.
     """
     from tether.project.batch import POLICIES, BatchLog, MovieJob, run_batch
+    from tether.project.extract import ExtractOptions
 
     if not request.movies:
         raise RequestRefused("a batch needs at least one movie")
     if request.policy not in POLICIES:
         raise RequestRefused(f"policy must be one of {POLICIES}, got {request.policy!r}")
+    if request.colocalization not in COLOCALIZATION_POLICIES:
+        raise RequestRefused(
+            f"colocalization must be one of {COLOCALIZATION_POLICIES}, "
+            f"got {request.colocalization!r}"
+        )
     # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
     # a startup liveness probe -> idealization-deferred mode when the sidecar env is
     # absent/corrupt, plus per-movie auto-restart on transient failures. Unset overrides
@@ -126,6 +135,7 @@ def run(request: BatchRequest) -> BatchResult:
             summary = run_batch(
                 jobs,
                 policy=request.policy,
+                extract_options=ExtractOptions(colocalization=request.colocalization),
                 idealize=request.idealize,
                 supervision=supervision,
                 overwrite=request.overwrite,

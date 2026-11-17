@@ -65,7 +65,7 @@ retired = 0
 [pages."docs/pipeline.md"]
 kind = "descriptive"
 long_share = 37.3
-semicolons = 36
+semicolons = 35
 long_paragraphs = 2
 retired = 4
 
@@ -99,7 +99,7 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 21.2
+long_share = 19.1
 semicolons = 8
 long_paragraphs = 0
 retired = 3

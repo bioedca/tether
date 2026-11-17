@@ -117,13 +117,16 @@ Python entry point only for now: `tether extract` has no option to use such a ma
 ### Colocalize
 
 `tether.imaging.coloc` pairs each donor spot with the acceptor position the registration map
-predicts for it. The donor is the anchor: every donor spot whose aperture window fits
-inside both channels becomes a molecule, whether or not a separate acceptor spot was detected
-there; the ADR records why Tether chose the donor as the anchor
-([donor-anchored colocalization](glossary.md#donor-anchored-colocalization);
-[ADR-0015](adr/0015-donor-anchored-colocalization.md)).
+predicts for it, and keeps the donor spots whose aperture window fits inside both channels.
+By default it keeps only those with an acceptor spot detected near that position
+([partner-in-both](glossary.md#partner-in-both-colocalization)); with
+`--colocalization donor-anchored` it keeps them all
+([donor-anchored](glossary.md#donor-anchored-colocalization)). Either way the acceptor is
+read at the mapped position, and the molecule count of each rule is reported
+([ADR-0127](adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)).
 
-- **Writes:** nothing on its own; the pairs are what extraction integrates.
+- **Writes:** nothing on its own; the pairs are what extraction integrates, and whether each
+  molecule's acceptor was detected is stored with it (`/molecules/acceptor_detected`).
 
 ### Extract
 
