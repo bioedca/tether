@@ -394,9 +394,12 @@ def test_the_condition_dialog_writes_its_audit_entry_as_the_curator(launch, tmp_
     def _correct_then_close() -> None:
         dialog = shell._active_conditions_dialog
         seen.append(type(dialog).__name__)
-        (from_id,) = dialog.row_condition_ids()
-        seen.append(dialog.apply_correction(from_id, corrected))
-        dialog.dialog.accept()
+        try:
+            (from_id,) = dialog.row_condition_ids()
+            seen.append(dialog.apply_correction(from_id, corrected))
+        finally:
+            # Close the modal loop on every path, so a regression fails the test, not hangs it.
+            dialog.dialog.accept()
 
     QtCore.QTimer.singleShot(0, _correct_then_close)
     shell._validate_conditions_dialog()
