@@ -239,10 +239,10 @@ retired = 2
 
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
-long_share = 23.6
+long_share = 21.4
 semicolons = 27
 long_paragraphs = 2
-retired = 7
+retired = 6
 
 [pages."docs/citing.md"]
 kind = "descriptive"
