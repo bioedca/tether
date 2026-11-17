@@ -418,6 +418,10 @@ def test_from_file_refuses_a_file_replaced_with_same_size_and_mtime(
     tifffile.imwrite(replacement, other, photometric="minisblack")
     assert replacement.stat().st_size == path.stat().st_size
     assert beadmap._sha256_file(replacement) != beadmap._sha256_file(path)
+    from tether.project.lock import file_identity
+
+    if file_identity(path) is None or file_identity(replacement) is None:
+        pytest.skip("the file system reports no inode numbers, so no file identity")
     real_hash = beadmap._sha256_file
 
     def hash_then_replace(target: Path) -> str:
