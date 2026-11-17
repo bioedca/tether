@@ -8,9 +8,10 @@ Nat Commun 15:6592 (2024), doi:10.1038/s41467-024-50885-x. The Source Data archi
 * Required matrix: the method of ``_campos_chavez_2024`` on data built here — the rounding bound,
   the window search and the survival-curve inversion.
 * Weekly ``reference-data`` job (``reference_download``): the archive is downloaded and verified,
-  and each published efficiency, histogram, survival curve, exponential fit and transition density
-  count is compared with Tether's. The limits in :data:`LIMITS` were measured on Linux, macOS and
-  Windows (ADR-0097 has the numbers) and are frozen.
+  and each published efficiency, histogram, survival curve, exponential fit, transition density
+  count and smoothed transition density array is compared with Tether's. The limits in
+  :data:`LIMITS` were measured on Linux, macOS and Windows (ADR-0097 has the numbers) and are
+  frozen; the smoothed-array limit (#1029) is measured on three systems by #1130.
 
 * Weekly, Fig. 5c (#1030, ADR-0120): Tether's two-Gaussian fit of each Fig. 5b histogram gives the
   fraction of the closed state that the archive's notebook printed, in all five columns. Three of
@@ -43,6 +44,7 @@ from _campos_chavez_2024 import (
     compare_intrafret,
     compare_survival,
     compare_tdp,
+    compare_tdp_view,
     compare_trace_sheet,
     dwells_from_survival,
     find_windows,
@@ -72,6 +74,10 @@ LIMITS = {
     # Fig. 5c and the notebook print each fraction and error with four decimals, so a value equal
     # to the unrounded one is within half a unit of the fourth decimal (ADR-0120).
     "fraction_abs": 5e-5,
+    # The smoothed transition density (#1029): Tether's view beside the array checkTDP.py
+    # computes, both peak-normalized to 1, from the same counts with the same SciPy calls
+    # (0.0 for all seven sheets on Linux, 2026-11-16; #1130 measures it on three systems).
+    "tdp_view_abs": 1e-12,
 }
 #: Fig. 5b columns whose Fig. 5c fraction is not the one the archive's notebook printed (ADR-0120):
 #: 5 uM WT tRNA (notebook 0.3956, Fig. 5c 0.3961) and 5 uM tRNA-NCCA (0.3623 and 0.3630).
@@ -295,3 +301,14 @@ def test_transition_density_counts_equal_checktdp(sheet: str) -> None:
     assert got["edges_equal"], got
     assert got["tether_transitions"] == got["transitions"], got
     assert got["counts_differing"] == 0, got
+
+
+@pytest.mark.reference_download
+@pytest.mark.parametrize("sheet", TDPS)
+def test_smoothed_transition_density_equals_checktdp(sheet: str) -> None:
+    # The array before the colour map: Gaussian filter, bicubic spline to 800 x 800 points
+    # with negatives set to 0, normalization to the maximum (#1029).
+    got = compare_tdp_view(_book()[sheet])
+    assert got["shape_equal"], got
+    assert got["grid_equal"], got
+    assert got["max_abs"] <= LIMITS["tdp_view_abs"], got
