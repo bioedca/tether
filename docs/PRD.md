@@ -1589,6 +1589,7 @@ this section.
 
 | Parameter | Default | Source / rationale |
 |---|---|---|
+| Channel layout (split geometry) | `side-by-side`, donor on the left (`ExtractOptions.channel_layout = None`, `donor_side = left`) — selectable `{side-by-side, top-bottom, rectangles}`; both channels the same size (a half layout drops an odd trailing column/row); rectangles of different size or outside the frame are refused, overlapping rectangles warn | Tether (#908, G02 note 01); the per-channel crop is Deep-LASI's `processImage` crop (`deeplasi/functions/tools/processImage.m`) |
 | Detection block size (moving-average window) | 50 frames | `deeplasi/functions/classes/TRACERdata.m:42` (`MovingAverageWindowSize = 50` defined here; the projection mechanism is `TRACEdata.m` `CalcCumulated`) |
 | à trous scales / threshold | J = 6, σ = 2·MAD hard-threshold, AND of scales 1 & 4 | `deeplasi/functions/external/Wave_Partfind.m`; [Olivo-Marin2002] |
 | Sub-pixel localization | centroid + ≤ 3 px max-pixel snap (Gaussian σ = 1), mode 1 | `deeplasi/functions/mapping/findPart.m:88-101`; [Izeddin2012] |
