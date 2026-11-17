@@ -71,7 +71,7 @@ retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
-long_share = 28.3
+long_share = 25.4
 semicolons = 9
 long_paragraphs = 0
 retired = 6
@@ -127,7 +127,7 @@ retired = 1
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 35.7
+long_share = 32.8
 semicolons = 8
 long_paragraphs = 1
 retired = 0
@@ -211,7 +211,7 @@ retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 28.8
+long_share = 27.2
 semicolons = 29
 long_paragraphs = 0
 retired = 0
