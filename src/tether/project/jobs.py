@@ -467,7 +467,11 @@ def reconcile_jobs(project: Project) -> list[str]:
                 ):
                     continue
                 _write_job(
-                    project.path, job.job_id, state=JobState.INTERRUPTED.value, ended_utc=_now()
+                    project.path,
+                    job.job_id,
+                    project._assert_writable,
+                    state=JobState.INTERRUPTED.value,
+                    ended_utc=_now(),
                 )
         except JobError:
             continue

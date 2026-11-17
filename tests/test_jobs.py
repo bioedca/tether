@@ -400,6 +400,33 @@ def test_a_steal_while_a_write_waits_for_the_file_stops_the_write(
     assert (seen.stored_state, seen.completed) == (jobs.JobState.QUEUED, ())
 
 
+def test_a_steal_while_a_reconcile_waits_for_the_file_stops_its_write(
+    project: Project, tmp_path: Path
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    owner = json.dumps({"nonce": project._held_lock.nonce, "pid": os.getpid()})
+    jobs._write_job(project.path, job.job_id, state="running", owner=owner, started_utc="t0")
+    ready = tmp_path / "ready"
+    reader = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_OPEN, str(project.path), str(ready), "0.6"], cwd=ROOT
+    )
+    thief = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+    try:
+        for _ in range(400):
+            if ready.exists() or reader.poll() is not None:
+                break
+            time.sleep(0.025)
+        assert ready.exists()
+        stealer = threading.Timer(0.2, thief.steal_lock)
+        stealer.start()
+        with pytest.raises(LockedError):
+            jobs.reconcile_jobs(project)
+        stealer.join(30)
+    finally:
+        reader.wait(timeout=60)
+    assert jobs.read_job(project.path, job.job_id).stored_state is jobs.JobState.RUNNING
+
+
 def test_a_reconcile_never_stores_interrupted_over_a_run_that_started_after_it_looked(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
