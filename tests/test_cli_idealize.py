@@ -226,6 +226,19 @@ def _conditions_members(path: Path) -> dict[str, list[str]]:
     return Project.open(path).molecules_by_condition()
 
 
+@pytest.mark.parametrize("name", ["/traces", "a/b", "..", ".", "", "fit.__writing__"])
+def test_a_model_name_outside_idealization_is_refused(tmp_path, sidecar, capsys, name):
+    # "/traces" is an absolute HDF5 path: with --overwrite the writer would replace the
+    # project's traces with the model. Nothing is fitted or written for any of these.
+    path = _store(tmp_path)
+    before = _digest(path)
+    argv = ["idealize", str(path), "--model-name", name, "--overwrite"]
+    assert cli.main(argv) == 2
+    assert "is not allowed" in capsys.readouterr().err
+    assert sidecar.calls == []
+    assert _digest(path) == before
+
+
 def _conditions(path: Path) -> list[str]:
     from tether.project.core import Project
 

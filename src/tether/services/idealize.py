@@ -201,6 +201,21 @@ def _selected_keys(project: Any, conditions: tuple[str, ...]) -> list[str] | Non
     return list(dict.fromkeys(keys))
 
 
+def _refuse_bad_model_name(name: str, core: Any) -> None:
+    """Refuse a model name that is not one plain entry of ``/idealization``.
+
+    The name becomes an HDF5 path under ``/idealization``. A ``/`` in it reaches another
+    group (``/traces`` is absolute, so ``--overwrite`` would replace the traces), and a name
+    ending in the writer's staging suffix is hidden by ``list_idealizations`` and cleaned
+    up by the next write of the shorter name.
+    """
+    if not name or "/" in name or name in {".", ".."} or name.endswith(core._WRITING_SUFFIX):
+        raise RequestRefused(
+            f"model name {name!r} is not allowed: give one name with no '/', not '.' or "
+            f"'..', and not ending in {core._WRITING_SUFFIX!r}"
+        )
+
+
 # ``nstates_selected_by`` of a model written by the standalone-tMAVEN return leg.
 _IMPORTED = "imported"
 
@@ -260,6 +275,8 @@ def run(request: IdealizeRequest) -> IdealizeResult:
         )
     except ValueError as exc:
         raise RequestRefused(str(exc)) from exc
+    if request.model_name is not None:
+        _refuse_bad_model_name(request.model_name, core)
     supervision = _supervision(request)
 
     try:

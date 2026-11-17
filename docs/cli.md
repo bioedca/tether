@@ -464,7 +464,7 @@ tether idealize [-h] [--method {vbconhmm,ebhmm}] [--nstates N | --nstates-grid L
 | `--method {vbconhmm,ebhmm}` | `vbconhmm` | the fit: `vbconhmm` is the consensus VB-HMM, one shared model across all molecules, and `ebhmm` is ebFRET |
 | `--nstates N` | automatic | fit exactly N states. Without it, the command fits each state count of `--nstates-grid` and keeps the one with the largest ELBO |
 | `--nstates-grid LIST` | `1,2,3,4` | the state counts the automatic choice tries, comma-separated, for example `2,3,4,5`. Do not give it with `--nstates` |
-| `--model-name NAME` | the method | store the fit as `/idealization/NAME`. With `--stale-only`, refit only this model |
+| `--model-name NAME` | the method | store the fit as `/idealization/NAME`. NAME is one name, with no `/`. With `--stale-only`, refit only this model |
 | `--condition ID` | all molecules | fit only the molecules of this condition ID (`tether info` lists them). Give it again for more conditions |
 | `--include-rejected` | off | also fit the molecules marked rejected. Without it they are left out |
 | `--overwrite` | off | replace a model of the same name. Without it the command refuses and fits nothing |
