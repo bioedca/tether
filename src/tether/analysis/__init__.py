@@ -64,14 +64,19 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   [`population_transition_density`][tether.analysis.tdp.population_transition_density] — the B1 real
   Transition
   Density Plot: the initial-vs-final idealized-FRET density over state-change frames of
-  a population's *fresh* idealizations [McKinney2006].
+  a population's *fresh* idealizations [McKinney2006];
+  [`smooth_transition_density`][tether.analysis.tdp.smooth_transition_density] is its
+  drawn view (Gaussian filter, bicubic spline, normalization to the maximum), a view of
+  the stored counts and never a reported number.
 - [`state_dwells`][tether.analysis.dwell.state_dwells] /
   [`survival_curve`][tether.analysis.dwell.survival_curve] /
   [`fit_survival`][tether.analysis.dwell.fit_survival] /
   [`population_dwell_times`][tether.analysis.dwell.population_dwell_times] — the B2 dwell-time
   analysis:
   per-state dwell-length distributions, their empirical survival function, and its
-  exponential-fit exit rates with confidence intervals + residuals [Schrangl2024].
+  exponential-fit exit rates with confidence intervals + residuals [Schrangl2024];
+  [`mean_dwell_time`][tether.analysis.dwell.mean_dwell_time] gives the amplitude-weighted mean
+  dwell time of a sum-of-exponentials fit with its propagated error (#1028).
 -
   [`empirical_transition_probability`][tether.analysis.transition_prob.empirical_transition_probability]
   /
@@ -146,6 +151,15 @@ Changed at M17 (#369, ADR-0109):
   ([`no_region`][tether.analysis.cloud.AlphaShape.no_region]
   when the cloud has no 2-D region).
 
+Added at M17 (FR-PLOT, PRD §7.7; #373, ADR-0124):
+
+- [`SavedSelection`][tether.analysis.saved_selection.SavedSelection] /
+  [`select_molecules`][tether.analysis.saved_selection.select_molecules] /
+  [`preset_selections`][tether.analysis.saved_selection.preset_selections] — the Qt-free,
+  serializable one-project series of the plot builder: a named selection frozen from a
+  [`query_molecules`][tether.analysis.query.query_molecules] result with the filter that made
+  it, and the one-click presets (one selection per condition, movie or source file).
+
 Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
 
 - [`dirichlet_rate_bounds`][tether.analysis.rate_bounds.dirichlet_rate_bounds] /
@@ -217,6 +231,7 @@ from tether.analysis.dwell import (
     DwellTimeAnalysis,
     StateDwells,
     fit_survival,
+    mean_dwell_time,
     population_dwell_times,
     state_dwells,
     survival_curve,
@@ -277,6 +292,12 @@ from tether.analysis.rate_bounds import (
     dirichlet_rate_bounds,
     model_rate_bounds,
 )
+from tether.analysis.saved_selection import (
+    SavedSelection,
+    SelectionFilter,
+    preset_selections,
+    select_molecules,
+)
 from tether.analysis.selection import MoleculeSelection, Selection, resolve_selection
 from tether.analysis.state_number import (
     DEFAULT_STATE_NUMBER_LOW,
@@ -286,11 +307,16 @@ from tether.analysis.state_number import (
     state_number_counts,
 )
 from tether.analysis.tdp import (
+    DEFAULT_TDP_INTERP_RES,
+    DEFAULT_TDP_NORMALIZE,
     DEFAULT_TDP_NSKIP,
     DEFAULT_TDP_SIGNAL_BINS,
     DEFAULT_TDP_SIGNAL_RANGE,
+    DEFAULT_TDP_SMOOTH,
+    SmoothedTransitionDensity,
     TransitionDensityPlot,
     population_transition_density,
+    smooth_transition_density,
     transition_density,
 )
 from tether.analysis.transition_prob import (
@@ -360,9 +386,12 @@ __all__ = [
     "DEFAULT_SIGNAL_RANGE",
     "DEFAULT_STATE_NUMBER_LOW",
     "DEFAULT_SYNC_PREFRAME",
+    "DEFAULT_TDP_INTERP_RES",
+    "DEFAULT_TDP_NORMALIZE",
     "DEFAULT_TDP_NSKIP",
     "DEFAULT_TDP_SIGNAL_BINS",
     "DEFAULT_TDP_SIGNAL_RANGE",
+    "DEFAULT_TDP_SMOOTH",
     "DEFAULT_TIME_BINS",
     "DEFAULT_TIME_DT",
     "DEFAULT_TPROB_KDE_BANDWIDTH",
@@ -390,8 +419,11 @@ __all__ = [
     "PerConditionHistograms",
     "PopulationAnticorrelation",
     "RateBounds",
+    "SavedSelection",
     "RawFretCloud",
     "Selection",
+    "SelectionFilter",
+    "SmoothedTransitionDensity",
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
@@ -411,6 +443,7 @@ __all__ = [
     "fit_survival",
     "k_rmse_elbow",
     "load_kinsoft_reference",
+    "mean_dwell_time",
     "model_gaussian_overlay",
     "model_rate_bounds",
     "occupied_state_count",
@@ -430,9 +463,12 @@ __all__ = [
     "population_transition_density",
     "population_transition_prob_histogram",
     "population_transition_sync_histogram2d",
+    "preset_selections",
     "query_molecules",
     "raw_fret_cloud",
     "resolve_selection",
+    "select_molecules",
+    "smooth_transition_density",
     "state_dwells",
     "state_number_counts",
     "survival_curve",

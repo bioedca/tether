@@ -78,7 +78,7 @@ retired = 6
 
 [pages."docs/install.md"]
 kind = "procedure"
-long_share = 26.7
+long_share = 27.3
 semicolons = 17
 long_paragraphs = 0
 retired = 0
@@ -127,7 +127,7 @@ retired = 1
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 39.1
+long_share = 36.0
 semicolons = 8
 long_paragraphs = 1
 retired = 0
