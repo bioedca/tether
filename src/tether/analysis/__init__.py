@@ -156,9 +156,23 @@ Added at M19 (FR-ANALYZE, PRD §7.7; #758, ADR-0092):
   HMM's un-normalized transition count matrix with their Dirichlet lower and upper
   bounds, the method of the Source Data of [CamposChavez2024], from an array or from a
   stored idealization model (the result carries its provenance stamp).
+
+Exposed lazily (FR-EXPORT, PRD §7.9; #372):
+
+- [`plot_export`][tether.analysis.plot_export] and every name in its ``__all__`` —
+  [`export_figure`][tether.analysis.plot_export.export_figure], the ``render_*`` helpers,
+  [`PlotExportResult`][tether.analysis.plot_export.PlotExportResult] and the export
+  constants — resolve on first attribute access through a module ``__getattr__``
+  ([PEP 562](https://peps.python.org/pep-0562/)), so
+  ``from tether.analysis import export_figure`` works while ``import tether.analysis``
+  still does not import Matplotlib. ``dir(tether.analysis)`` lists these names. They
+  are deliberately **not** in this package's ``__all__``: a star import then stays
+  Matplotlib-free as well.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from tether.analysis.anticorrelation import (
     DEFAULT_ANTICORR_MIN_MAGNITUDE,
@@ -298,6 +312,31 @@ from tether.analysis.transition_prob import (
     transition_prob_histogram,
 )
 
+if TYPE_CHECKING:  # static checkers see the real types; runtime resolves them lazily
+    from tether.analysis import plot_export
+    from tether.analysis.plot_export import (
+        DEFAULT_EXPORT_DPI,
+        DEFAULT_FIGSIZE,
+        DEFAULT_PLOT_FORMATS,
+        DEFAULT_TDP_COLOR_SCALE,
+        TDP_COLOR_SCALES,
+        PlotExportResult,
+        export_figure,
+        render_alpha_shape,
+        render_cross_correlation,
+        render_dwell_survival,
+        render_histogram1d,
+        render_histogram2d,
+        render_per_condition_histograms,
+        render_population_anticorrelation,
+        render_raw_fret_cloud,
+        render_state_number,
+        render_state_number_elbow,
+        render_transition_density,
+        render_transition_prob,
+        render_transition_sync_histogram2d,
+    )
+
 __all__ = [
     "DEFAULT_ALPHA_FACTOR",
     "DEFAULT_ANTICORR_MIN_MAGNITUDE",
@@ -417,3 +456,51 @@ __all__ = [
     "two_state_rate_constants",
     "viterbi_paths",
 ]
+
+#: Names this package resolves on first access (PEP 562) instead of importing at load
+#: time: the `tether.analysis.plot_export` module and its ``__all__``. Importing that
+#: module imports Matplotlib, so an eager import here would put Matplotlib on every
+#: ``import tether.analysis``. ``tests/test_imports.py`` keeps this set equal to
+#: ``plot_export.__all__``.
+_LAZY_PLOT_EXPORT_NAMES = frozenset(
+    {
+        "plot_export",
+        "DEFAULT_EXPORT_DPI",
+        "DEFAULT_FIGSIZE",
+        "DEFAULT_PLOT_FORMATS",
+        "DEFAULT_TDP_COLOR_SCALE",
+        "TDP_COLOR_SCALES",
+        "PlotExportResult",
+        "export_figure",
+        "render_alpha_shape",
+        "render_cross_correlation",
+        "render_dwell_survival",
+        "render_histogram1d",
+        "render_histogram2d",
+        "render_per_condition_histograms",
+        "render_population_anticorrelation",
+        "render_raw_fret_cloud",
+        "render_state_number",
+        "render_state_number_elbow",
+        "render_transition_density",
+        "render_transition_prob",
+        "render_transition_sync_histogram2d",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a `tether.analysis.plot_export` name on first access (PEP 562)."""
+    if name in _LAZY_PLOT_EXPORT_NAMES:
+        import importlib
+
+        module = importlib.import_module("tether.analysis.plot_export")
+        value = module if name == "plot_export" else getattr(module, name)
+        globals()[name] = value  # cache: later lookups skip this hook
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """List the eager names plus the lazily resolved plot-export names."""
+    return sorted(set(globals()) | _LAZY_PLOT_EXPORT_NAMES)
