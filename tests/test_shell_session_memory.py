@@ -421,6 +421,19 @@ def test_a_shell_without_a_preferences_file_remembers_nothing(launch, prefs, tmp
     assert not shell.recent_menu.isEnabled()
 
 
+def test_a_write_another_window_holds_up_is_a_status_message_not_an_error(
+    launch, monkeypatch
+) -> None:
+    from tether.gui import preferences
+
+    shell = launch()
+    # Another instance holds the lock for longer than a write waits (#1171).
+    monkeypatch.setattr(preferences, "_try_lock", lambda _fd: False)
+    monkeypatch.setattr(preferences, "_LOCK_TIMEOUT_S", 0.05)
+    assert shell.set_curator_name("Ana")
+    assert "being written by another Tether window" in shell.status_message
+
+
 def test_a_failed_preferences_write_is_a_status_message_not_an_error(
     launch, tmp_path, monkeypatch
 ) -> None:
