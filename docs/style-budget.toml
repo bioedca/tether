@@ -64,7 +64,7 @@ retired = 0
 
 [pages."docs/pipeline.md"]
 kind = "descriptive"
-long_share = 37.3
+long_share = 35.2
 semicolons = 35
 long_paragraphs = 2
 retired = 4
