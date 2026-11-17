@@ -131,6 +131,34 @@ def test_donor_anchored_keeps_the_dark_acceptor_and_stores_its_flag(tmp_path) ->
     assert profile["colocalization"] == DONOR_ANCHORED
 
 
+def _writer_given(monkeypatch, edit) -> None:
+    """Make ``extract_movie`` hand the shared writer a settings profile changed by ``edit``."""
+    from tether.imaging import extract as writer_mod  # noqa: PLC0415
+    from tether.project import extract as extract_mod  # noqa: PLC0415
+
+    def write(*args, settings=None, **kwargs):
+        return writer_mod.write_extraction(*args, settings=edit(settings), **kwargs)
+
+    monkeypatch.setattr(extract_mod, "write_extraction", write)
+
+
+@pytest.mark.parametrize("edit", [lambda s: None, lambda s: {"window": 21}])
+def test_the_writer_stamps_the_rule_of_the_molecules(tmp_path, monkeypatch, edit) -> None:
+    """A caller that passes no rule still gets the rule its molecules were kept by."""
+    _writer_given(monkeypatch, edit)
+    out = tmp_path / "partner.tether"
+    extract_movie(_movie(tmp_path), out)
+    (policy,) = read_colocalization_policies(out).values()
+    assert policy == PARTNER_IN_BOTH
+
+
+def test_the_writer_refuses_a_rule_its_molecules_were_not_kept_by(tmp_path, monkeypatch) -> None:
+    _writer_given(monkeypatch, lambda s: {**s, "colocalization": DONOR_ANCHORED})
+    out = tmp_path / "conflict.tether"
+    with pytest.raises((ValueError, ExtractionError), match="colocalization"):
+        extract_movie(_movie(tmp_path), out)
+
+
 # --- an existing project --------------------------------------------------------------
 
 

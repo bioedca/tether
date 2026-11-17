@@ -604,7 +604,7 @@ Deep-LASI, not by Tether:
 | `n_psf` | int | Number of pixels in the disk mask (derived from the radii). |
 | `molecule_key_quantum_px` | float | The `molecule_key` coordinate quantum, pixels (`0.1`). |
 | `app_version` | str | Writing Tether version. |
-| `profile_json` | str | The caller's settings profile as JSON — present only when one was supplied. |
+| `profile_json` | str | The caller's settings profile as JSON, with the `colocalization` rule the writer stamps from a detected molecule list (ADR-0127) — present only when there is a profile or a rule to record. |
 
 The stamp describes only the first extraction. So each movie's own settings profile is also
 kept on the child group **`/settings/extraction/movies`**. It holds one string attribute per

@@ -635,7 +635,11 @@ def write_extraction(
     movie:
         Source + geometry provenance for the ``/movies`` row.
     molecules:
-        The donor-anchored molecule list (S7).
+        The colocalized molecule list (S7). When its acceptor detection was measured
+        ([`detection_recorded`][tether.imaging.coloc.ColocalizedMolecules.detection_recorded]),
+        its [`policy`][tether.imaging.coloc.ColocalizedMolecules.policy] is stamped into
+        the movie's settings profile under ``colocalization`` (ADR-0127), so the stored
+        rule is the one the molecules were kept by, whatever ``settings`` holds.
     traces:
         The integrated traces + patches ([`extract_molecules`][]), row-aligned
         with ``molecules``.
@@ -651,7 +655,9 @@ def write_extraction(
         Optional extra settings profile, JSON-serialized into
         ``/settings/extraction@profile_json`` on the first extraction and, for every
         movie, into ``/settings/extraction/movies@<movie_id>``
-        ([`read_movie_settings`][], #347, ADR-0117).
+        ([`read_movie_settings`][], #347, ADR-0117). A ``colocalization`` entry that
+        differs from the molecules' rule raises ``ValueError`` before anything is
+        written.
 
     Returns
     -------
@@ -681,7 +687,8 @@ def write_extraction(
         movie_row = _build_movie_row(movie)
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
         _refuse_stored_molecule_keys(f, project_path, rows["molecule_key"])
-        profile_json = json.dumps(dict(settings), sort_keys=True) if settings else None
+        profile = _stamp_colocalization(settings, molecules)
+        profile_json = json.dumps(profile, sort_keys=True) if profile else None
 
         _append_compound_rows(f["movies"][TABLE], movie_row)
         if movie.channel_layout is not None:
@@ -703,6 +710,30 @@ def write_extraction(
             _append_patches(patches_grp, "donor", traces.donor_patches)
             _append_patches(patches_grp, "acceptor", traces.acceptor_patches)
     return mol_ids
+
+
+def _stamp_colocalization(
+    settings: Mapping[str, Any] | None, molecules: ColocalizedMolecules
+) -> dict[str, Any]:
+    """Return the settings profile with the molecules' colocalization rule in it (ADR-0127).
+
+    A molecule list whose acceptor detection was measured came out of
+    [`colocalize`][tether.imaging.coloc.colocalize] under its ``policy``, so that rule
+    is recorded even when the caller passes no profile or one without the key; a
+    caller value that names a different rule is refused. A hand-built list (detection
+    not recorded) adds nothing, and its movie reads as ``donor-anchored``.
+    """
+    profile = dict(settings) if settings else {}
+    if not molecules.detection_recorded:
+        return profile
+    stated = profile.get(_COLOCALIZATION_KEY)
+    if stated is not None and stated != molecules.policy:
+        raise ValueError(
+            f"settings colocalization {stated!r} does not match the rule the molecules "
+            f"were kept by ({molecules.policy!r})"
+        )
+    profile[_COLOCALIZATION_KEY] = molecules.policy
+    return profile
 
 
 def _append_acceptor_detected(group: Any, n_existing: int, molecules: ColocalizedMolecules) -> None:
