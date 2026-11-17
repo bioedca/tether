@@ -49,9 +49,9 @@ the install root instead, a folder that holds nothing else
 ([#492](https://github.com/bioedca/tether/issues/492)): read `launchers` for `bin` in the
 table.
 
-On Windows, from the next release, Start Menu → **Tether Command Prompt** opens a console in
-which you can copy every example on this page as it is, with no `PATH` change
-([#666](https://github.com/bioedca/tether/issues/666)). On any system, add that one directory to
+On Windows, from the next release, Start Menu → **Tether Command Prompt** opens a console
+that needs no `PATH` change ([#666](https://github.com/bioedca/tether/issues/666)). In it, you
+can copy every example on this page as it is. On any system, add that one directory to
 the **end** of your `PATH` and every example works in any terminal.
 [Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)
 gives the line for each system. It also tells why the folder goes at the end: in rc3, on Linux
