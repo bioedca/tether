@@ -29,6 +29,14 @@ from tether.services.base import (
 )
 from tether.services.batch import BatchRequest, BatchResult
 from tether.services.extract import ExtractRequest, ExtractResult
+from tether.services.profile import (
+    ExtractionFields,
+    ExtractionProfile,
+    profile_from_text,
+    profile_to_text,
+    read_profile,
+    write_profile,
+)
 from tether.services.registry import (
     COMMANDS,
     ServiceCommand,
@@ -44,13 +52,19 @@ __all__ = [
     "CommandFailed",
     "ExtractRequest",
     "ExtractResult",
+    "ExtractionFields",
+    "ExtractionProfile",
     "Request",
     "RequestError",
     "RequestRefused",
     "ServiceCommand",
     "ServiceError",
     "command",
+    "profile_from_text",
+    "profile_to_text",
+    "read_profile",
     "request_from_text",
     "request_to_text",
     "run",
+    "write_profile",
 ]

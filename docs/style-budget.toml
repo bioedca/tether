@@ -190,7 +190,7 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 21.2
+long_share = 19.3
 semicolons = 19
 long_paragraphs = 0
 retired = 6
@@ -204,7 +204,7 @@ retired = 1
 
 [pages."docs/reference/parameters.md"]
 kind = "descriptive"
-long_share = 36.9
+long_share = 34.5
 semicolons = 14
 long_paragraphs = 2
 retired = 0
@@ -240,7 +240,7 @@ retired = 2
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
 long_share = 21.4
-semicolons = 26
+semicolons = 25
 long_paragraphs = 2
 retired = 6
 
