@@ -136,6 +136,15 @@ def test_a_moved_acceptor_spot_shows() -> None:
     assert numbers["acceptor_position_max_px"] == pytest.approx(0.5)
 
 
+def test_a_missing_acceptor_coordinate_is_not_an_exact_repeat() -> None:
+    donor, acceptor, _ = _acquisition(n=6)
+    reference = _export(donor, acceptor)
+    other = _export(donor, acceptor)
+    other.acceptor_xy[3, 0] = np.nan
+    numbers = agree.compare_exports(reference, other)
+    assert numbers["acceptor_position_max_px"] == float("inf")
+
+
 def test_a_nan_in_one_trace_is_not_an_exact_repeat() -> None:
     donor, acceptor, _ = _acquisition(n=6)
     reference = _export(donor, acceptor)
@@ -251,6 +260,7 @@ def test_the_documented_roles_keep_the_neutral_ids_public() -> None:
         },
         "lab-01": {"rerun": "deeplasi-runs/01/acquisition.mat"},
     }
+    assert all(runner.ROLE.fullmatch(r) for roles in mapping.values() for r in roles)
     tokens = runner.private_tokens(mapping)
     assert not any(neutral_id in token for token in tokens for neutral_id in mapping)
     assert agree.STATE != "tdat"

@@ -295,7 +295,7 @@ The ids need these roles in the mapping file:
 | Role | File |
 |---|---|
 | `movie`, `tmap` | as for the golden numbers |
-| `deeplasi-state` | the saved Deep-LASI state (`.tdat`) of the acquisition (the spots-and-traces ids) |
+| `deeplasi_state` | the saved Deep-LASI state (`.tdat`) of the acquisition (the spots-and-traces ids) |
 | `window` | the `.mat` export in a folder that `harness.py freeze` made from it (every id above) |
 | `rerun` | `lab-01` only: the `.mat` export in the output folder of the scripted rerun |
 
@@ -305,7 +305,7 @@ changing other checks:
 - Do not name a folder by its neutral id. The runner treats each folder name in the mapping file
   as private. It then withholds each result, because the results contain the neutral ids. Give
   each `window` folder a number instead, for example `deeplasi-window/01`.
-- The saved state has the role `deeplasi-state`, not `tdat`. The speed check gives a `tdat`
+- The saved state has the role `deeplasi_state`, not `tdat`. The speed check gives a `tdat`
   role to its extraction. Thus a `tdat` role on a `speed` id changes what that check measures.
 
 `tests/_deeplasi_agreement.py` pins the SHA-256 and size of each Deep-LASI file. A check fails

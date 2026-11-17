@@ -54,7 +54,7 @@ __all__ = [
 #: The role of the saved Deep-LASI state (``.tdat``) of an agreement id. It is not ``tdat``:
 #: the speed check (``tests/test_workstation_perf.py``) gives a ``tdat`` role to its extraction,
 #: and the agreement ids must not change what that check measures.
-STATE = "deeplasi-state"
+STATE = "deeplasi_state"
 
 #: SHA-256 and size of each Deep-LASI file of the agreement checks, by neutral id and role
 #: (measured on the workstation, 2026-11-16). ``mat`` is the TRACY-style export (read through
@@ -339,8 +339,8 @@ def compare_exports(reference: DeepLasiExport, other: DeepLasiExport) -> dict[st
 
     Adds the largest relative difference of the raw donor and acceptor traces of the matched
     molecules over their common frames, and the largest distance between their acceptor
-    coordinates, so that an exact repeat reads 0 on both. A NaN in one trace where the other
-    has a number counts as an infinite difference, never as no difference.
+    coordinates, so that an exact repeat reads 0 on both. A NaN in one trace or coordinate where
+    the other has a number counts as an infinite difference, never as no difference.
     """
     from tether.project.oracle import evaluate_extraction  # noqa: PLC0415
 
@@ -349,10 +349,14 @@ def compare_exports(reference: DeepLasiExport, other: DeepLasiExport) -> dict[st
     worst = 0.0
     acceptor_px = 0.0
     for gi, ei, _ in res.matches:
-        step = np.asarray(other.acceptor_xy[ei], float) - np.asarray(
-            reference.acceptor_xy[gi], float
-        )
-        acceptor_px = max(acceptor_px, float(np.hypot(*step)))
+        ref_xy = np.asarray(reference.acceptor_xy[gi], float)
+        got_xy = np.asarray(other.acceptor_xy[ei], float)
+        if np.array_equal(np.isnan(ref_xy), np.isnan(got_xy)):
+            known = ~np.isnan(ref_xy)
+            step = float(np.linalg.norm((got_xy - ref_xy)[known]))
+        else:  # a coordinate in one export and none in the other is no repeat
+            step = float("inf")
+        acceptor_px = max(acceptor_px, step)
         for ref, got in (
             (reference.donor_raw[gi, :frames], other.donor_raw[ei, :frames]),
             (reference.acceptor_raw[gi, :frames], other.acceptor_raw[ei, :frames]),
