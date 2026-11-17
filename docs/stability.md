@@ -225,7 +225,7 @@ a file stamped version 2 produces exactly this:
 file schema_version 2 is newer than this app's 1; refusing to open (PRD section 5.4).
 ```
 
-Four call sites in `src/tether/` invoke that guard, and they are the ones a person goes
+Five call sites in `src/tether/` invoke that guard, and they are the ones a person goes
 through:
 
 | Guarded entry point | Reached by |
@@ -233,9 +233,10 @@ through:
 | `Project.open` (`tether.project.core`) | the GUI's **Open project** dialog (`tether.gui.shell`) and any script that opens a project the covered way |
 | `extract_movie` (`tether.imaging.extract`) | `tether extract`, and the extract stage of `tether batch` |
 | `write_calibration` (`tether.imaging.calibrate`) | writing a registration map into a project |
+| `add_movie_to_project` (`tether.project.extract`) | appending a movie into an existing project |
 | `export_subset_tether` (`tether.project.export`) | subset export |
 
-A `tether batch` **resume** reaches none of those four: the checkpoint probes read the output
+A `tether batch` **resume** reaches none of those five: the checkpoint probes read the output
 project directly to decide what to skip, so with extraction already complete the guard inside
 `write_extraction` never runs. That path has its own check (`tether.project.batch`), added
 deliberately narrower than `assert_is_compatible_project` — it refuses only a file that
