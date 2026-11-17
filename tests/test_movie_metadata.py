@@ -279,8 +279,26 @@ _METHODS = (
 
 
 def _sections(obj: object) -> list[str]:
+    """The section headings of ``obj``'s docstring, in the order the docstring has them."""
     doc = inspect.getdoc(obj) or ""
-    return [s for s in _SECTIONS if f"\n{s}\n{'-' * len(s)}\n" in doc]
+    at = {s: doc.find(f"\n{s}\n{'-' * len(s)}\n") for s in _SECTIONS}
+    return sorted((s for s in _SECTIONS if at[s] >= 0), key=at.__getitem__)
+
+
+def test_the_section_check_sees_a_wrong_order() -> None:
+    def misordered() -> None:
+        """Do nothing.
+
+        Examples
+        --------
+        >>> misordered()
+
+        Returns
+        -------
+        None
+        """
+
+    assert _sections(misordered) == ["Examples", "Returns"]
 
 
 @pytest.mark.parametrize("obj", _FUNCTIONS + _METHODS, ids=lambda o: o.__qualname__)
