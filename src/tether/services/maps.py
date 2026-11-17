@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The ``map`` service command: a channel map file made from a bead video or image.
+
+[`MapCreateRequest`][] holds what ``tether map create`` takes on its command line, with
+the same defaults; [`run`][] makes the map with
+[`tether.imaging.beadmap.bead_map_from_file`][] and saves it with
+[`tether.imaging.calibrate.save_map`][]. The saved ``.npz`` is the file that
+``tether extract --map`` applies to a later movie (#353). The application's
+calibration action runs this same command, so the two cannot drift (ADR-0100).
+
+The command line is ``tether map create``; the check and show commands and the map
+report come with #918. The imaging stack is imported when the command runs, not when
+this module is imported.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import os
+from pathlib import Path
+from typing import ClassVar
+
+from tether.services.base import CommandFailed, Request
+
+__all__ = ["MapCreateRequest", "MapCreateResult", "run"]
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class MapCreateRequest(Request):
+    """Make a channel map file from a bead video or one bead image.
+
+    The fields are the options of ``tether map create`` (``docs/cli.md``) under their
+    ``argparse`` destination names, with the same defaults. ``frame_start`` and
+    ``frame_stop`` are the 0-based half-open frame range of a video, given together or
+    not at all (``None`` = every frame); with an image both stay ``None`` and
+    ``projection`` stays ``"max"``.
+    """
+
+    COMMAND: ClassVar[str] = "map"
+    VERSION: ClassVar[int] = 1
+
+    source: str
+    output: str
+    overwrite: bool = False
+    frame_start: int | None = None
+    frame_stop: int | None = None
+    projection: str = "max"
+    donor_side: str = "left"
+    rms_gate: float = 0.5
+
+
+@dataclasses.dataclass(frozen=True)
+class MapCreateResult:
+    """The outcome of a ``map`` command: the file written and its quality record."""
+
+    path: Path
+    rms_residual: float
+    n_pairs: int
+    coverage: float
+    low_confidence: bool
+    source_id: str
+
+
+def run(request: MapCreateRequest) -> MapCreateResult:
+    """Run *request*; raise [`CommandFailed`][tether.services.base.CommandFailed] on a user error.
+
+    The map is written to a sibling temporary file and moved into place in one step, so
+    a failed run leaves no partial file and an existing map is replaced only by a
+    complete one (and only with ``overwrite``). A map over the RMS gate is still saved:
+    it carries its low-confidence verdict, as the native fit does (§7.1).
+    """
+    import warnings
+    from uuid import uuid4
+
+    import tether
+    from tether.imaging.beadmap import BeadMapError, bead_map_from_file
+    from tether.imaging.calibrate import OverGateRegistrationWarning, save_map
+
+    output = Path(request.output)
+    if output.suffix.lower() != ".npz":
+        raise CommandFailed(f"the map file must end in .npz, got {output.name!r}")
+    if output.exists() and not request.overwrite:
+        raise CommandFailed(f"output exists: {output} (use --overwrite)")
+    if (request.frame_start is None) != (request.frame_stop is None):
+        raise CommandFailed("--frames takes a start and a stop; pass both or neither")
+    frames = None if request.frame_start is None else (request.frame_start, request.frame_stop)
+    tmp = output.with_name(f"{output.stem}.{uuid4().hex}.tmp.npz")
+    try:
+        with warnings.catch_warnings():
+            # The verdict is reported once, in the result; mute the library's warning.
+            warnings.simplefilter("ignore", OverGateRegistrationWarning)
+            result = bead_map_from_file(
+                request.source,
+                frames=frames,
+                projection=request.projection,
+                donor_side=request.donor_side,
+                gate_px=request.rms_gate,
+                on_over_gate="warn",
+                app_version=tether.__version__,
+            )
+        written = save_map(result.registration_map, tmp)
+        os.replace(written, output)
+    except (BeadMapError, OSError, ValueError) as exc:
+        tmp.unlink(missing_ok=True)
+        raise CommandFailed(str(exc)) from exc
+    reg_map = result.registration_map
+    return MapCreateResult(
+        path=output,
+        rms_residual=float(reg_map.rms_residual),
+        n_pairs=int(result.quality.n_pairs),
+        coverage=float(result.quality.coverage),
+        low_confidence=bool(reg_map.low_confidence),
+        source_id=result.source.source_id,
+    )

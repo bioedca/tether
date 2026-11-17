@@ -49,7 +49,13 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11, "info": 2, "metadata": 5}
+_EXPECTED_OPTION_COUNTS = {
+    "extract": 15,
+    "batch": 11,
+    "map create": 6,
+    "info": 2,
+    "metadata": 5,
+}
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -87,16 +93,32 @@ def _documented_flags(text: str) -> set[str]:
     return set(_FLAG_RE.findall(text)) | set(_SHORT_FLAG_RE.findall(text))
 
 
-def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
-    """The registered subcommands, by name.
-
-    argparse exposes no public accessor for this, so reach through the
-    ``_SubParsersAction`` the way the stdlib's own tests do.
-    """
+def _choices(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser] | None:
     for action in parser._actions:  # noqa: SLF001 - no public API for subparser lookup
         if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
             return dict(action.choices)
-    raise AssertionError("tether's top-level parser registers no subcommands")
+    return None
+
+
+def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    """The registered subcommands, by name; a nested action is named ``"map create"``.
+
+    argparse exposes no public accessor for this, so reach through the
+    ``_SubParsersAction`` the way the stdlib's own tests do. A subcommand that only
+    groups actions (``tether map``, #353) is replaced by its actions, each documented
+    under its own ``## `tether map create` `` heading.
+    """
+    top = _choices(parser)
+    if top is None:
+        raise AssertionError("tether's top-level parser registers no subcommands")
+    flat: dict[str, argparse.ArgumentParser] = {}
+    for name, sub in top.items():
+        nested = _choices(sub)
+        if nested is None:
+            flat[name] = sub
+        else:
+            flat.update({f"{name} {action}": child for action, child in nested.items()})
+    return flat
 
 
 def _option_strings(parser: argparse.ArgumentParser) -> set[str]:
@@ -194,14 +216,15 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """`extract`, `batch`, `info` (#655) and `metadata` (#911) each get their own section.
+    """`extract`, `batch`, `map create` (#353), `info` (#655) and `metadata` (#911) each get
+    their own section.
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    assert names == {"extract", "batch", "info", "metadata"}, (
+    assert names == {"extract", "batch", "map create", "info", "metadata"}, (
         f"unexpected subcommand set: {sorted(names)}"
     )
     for name in sorted(names):

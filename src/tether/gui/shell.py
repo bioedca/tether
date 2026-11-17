@@ -842,6 +842,24 @@ class TetherShell:
         self._act_import_deeplasi = self._legacy_menu.addAction("&Deep-LASI bundle…")
         self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
 
+        # Calibration menu (#353): make a channel map from a bead video or image, or
+        # choose a saved one, and extract a later movie with it. Each action is a
+        # service command (map, extract); the mapping page itself is #917.
+        from tether.gui.calibration import ChannelMapActions
+
+        self._channel_map = ChannelMapActions(
+            status=self._status, open_project=self.load_project, window=self._window
+        )
+        self._calibration_menu = self._window.menuBar().addMenu("Ca&libration")
+        self._act_make_map = self._calibration_menu.addAction("&Make channel map…")
+        self._act_make_map.triggered.connect(self._channel_map.make_map_dialog)
+        self._act_choose_map = self._calibration_menu.addAction("&Choose channel map…")
+        self._act_choose_map.triggered.connect(self._channel_map.choose_map_dialog)
+        self._act_extract_with_map = self._calibration_menu.addAction(
+            "&Extract a movie with the channel map…"
+        )
+        self._act_extract_with_map.triggered.connect(self._channel_map.extract_with_map_dialog)
+
         # View menu: View -> Theme -> System / Light / Dark (#675). The choice lasts
         # for the session until the settings store (#330) can keep it.
         self._view_menu = self._window.menuBar().addMenu("&View")
@@ -922,6 +940,14 @@ class TetherShell:
     def window(self) -> QtWidgets.QMainWindow:
         """The wrapped ``QMainWindow`` hosting the docks, menu bar, and status bar."""
         return self._window
+
+    @property
+    def channel_map(self) -> Any:
+        """The Calibration menu's actions.
+
+        A [`ChannelMapActions`][tether.gui.calibration.ChannelMapActions] (#353).
+        """
+        return self._channel_map
 
     @property
     def trace_dock(self) -> Any:

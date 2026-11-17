@@ -72,6 +72,13 @@ If two molecules close together come out as one, lower `--min-separation`
   `--donor-side` is ignored when you pass one. Tether reads only the crop of each channel
   from the map, so a map that also rotates or flips a channel stops the extraction with an
   error; use native registration for that movie instead.
+- **A saved Tether map:** make a map once from a bead slide with
+  `tether map create beads.tif -o beads.npz`. In the application, use **Calibration → Make
+  channel map…**. Then add `--map beads.npz` to extract each later movie with it. The map
+  keeps its own channel layout. So `--donor-side` is ignored here too.
+
+Pass one map at most. Tether refuses `--tmap` and `--map` together. The
+[command reference](../cli.md#registration-one-map-source) gives the full rule.
 
 ## 4. Run the extraction
 

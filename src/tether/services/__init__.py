@@ -29,6 +29,7 @@ from tether.services.base import (
 )
 from tether.services.batch import BatchRequest, BatchResult
 from tether.services.extract import ExtractRequest, ExtractResult
+from tether.services.maps import MapCreateRequest, MapCreateResult
 from tether.services.registry import (
     COMMANDS,
     ServiceCommand,
@@ -44,6 +45,8 @@ __all__ = [
     "CommandFailed",
     "ExtractRequest",
     "ExtractResult",
+    "MapCreateRequest",
+    "MapCreateResult",
     "Request",
     "RequestError",
     "RequestRefused",

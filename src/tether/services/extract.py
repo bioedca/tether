@@ -28,6 +28,8 @@ class ExtractRequest(Request):
     The fields are the options of ``tether extract`` (``docs/cli.md``) under their
     ``argparse`` destination names, with the same defaults. ``detection_mode=None`` means
     "no explicit choice": the library default applies, or the mode decoded from ``tdat``.
+    ``map_path`` is a Tether ``.npz`` map file (``--map``); it and ``tmap`` are the two
+    ways to replace the native fit, and passing both is refused (#353).
     """
 
     COMMAND: ClassVar[str] = "extract"
@@ -48,6 +50,7 @@ class ExtractRequest(Request):
     rms_gate: float = 0.5
     tmap: str | None = None
     tdat: str | None = None
+    map_path: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -103,6 +106,7 @@ def run(request: ExtractRequest) -> ExtractResult:
                 options=options,
                 tmap=request.tmap,
                 tdat=request.tdat,
+                map_path=request.map_path,
                 overwrite=request.overwrite,
                 publish_guard=guard,
             )

@@ -40,7 +40,10 @@ What S6 adds on top of the M0.5 primitives
 * [`save_map`][] / [`load_map`][] -- Stage-10 map-file persistence to ``.npz``
   (explicit coefficients both directions + geometry + provenance; **no raw images,
   no pickled transform objects**), kept separate from the session ``.tether``
-  (mirroring Deep-LASI's ``.tmap`` vs ``.tdat`` split).
+  (mirroring Deep-LASI's ``.tmap`` vs ``.tdat`` split). The file carries a
+  ``format_version`` ([`MAP_FORMAT_VERSION`][]) so a later reader can add fields
+  without breaking a file written now (#353); a map file is applied at extraction
+  with ``extract_movie(map_path=...)``.
 * [`write_calibration`][] / [`read_calibration`][] -- persist the calibration
   *into* a project's frozen ``/calibration`` container group as **additive data**
   (the M0 schema freeze allows data, not structure; the group is forward-declared
@@ -76,6 +79,8 @@ from tether.imaging.split import ChannelGeometry
 __all__ = [
     "DEFAULT_RMS_GATE_PX",
     "LOW_CONFIDENCE_TAG",
+    "MAP_FORMAT_VERSION",
+    "MapFileError",
     "OverGateRegistrationWarning",
     "RegistrationMap",
     "RegistrationOverGateError",
@@ -96,6 +101,32 @@ DEFAULT_RMS_GATE_PX = 0.5
 #: molecule it extracts (§7.1; applied at integration, M1 S8).
 LOW_CONFIDENCE_TAG = "low-confidence-registration"
 
+#: The version of the ``.npz`` map file that [`save_map`][] writes (#353). A file
+#: written before the field existed reads as version ``0``; it holds the same
+#: arrays. [`load_map`][] refuses a file whose version is newer than this one,
+#: because it may hold fields this Tether would silently drop.
+MAP_FORMAT_VERSION = 1
+
+#: The arrays every map file holds, whatever its version (each geometry prefix
+#: adds its own arrays only when that geometry is present).
+_MAP_REQUIRED_KEYS = (
+    "reference_channel",
+    "moving_channel",
+    "rms_residual",
+    "n_control_points",
+    "gate_px",
+    "degree",
+    "source",
+    "provenance_json",
+    *(
+        f"{direction}_{part}"
+        for direction in ("ref_to_moving", "moving_to_ref")
+        for part in ("a", "b", "norm_xy", "norm_uv")
+    ),
+    "reference_geometry_present",
+    "moving_geometry_present",
+)
+
 #: Minimum control points for a degree-2 polynomial fit; below this a 4-DOF
 #: similarity is fitted instead (Stage 9 "similarity fallback if < ~6 points").
 _MIN_POLY_POINTS = 6
@@ -112,6 +143,15 @@ class RegistrationOverGateError(RuntimeError):
 
     Only raised under the ``on_over_gate="fail"`` batch policy (§7.1 fail-movie);
     the default ``"warn"`` policy returns the (flagged) map instead.
+    """
+
+
+class MapFileError(ValueError):
+    """A ``.npz`` map file that cannot be read as a [`RegistrationMap`][].
+
+    Raised by [`load_map`][] for a file that is not an ``.npz`` archive, holds a
+    pickled object, lacks an array every map file has, or was written by a newer
+    map-file version than [`MAP_FORMAT_VERSION`][].
     """
 
 
@@ -579,13 +619,15 @@ def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
     """Persist a [`RegistrationMap`][] to a ``.npz`` map file (Stage 10).
 
     Stores explicit coefficients (both directions), geometry, the RMS residual and
-    gate, the control-point count, source, degree, and provenance. **No raw images
-    and no pickled objects** -- everything is a plain array or a 0-d string, so the
-    file reloads with ``allow_pickle=False`` (the default). Map files are kept
-    separate from session ``.tether`` files (mirroring ``.tmap`` vs ``.tdat``).
+    gate, the control-point count, source, degree, provenance, and the map-file
+    ``format_version`` ([`MAP_FORMAT_VERSION`][]). **No raw images and no pickled
+    objects** -- everything is a plain array or a 0-d string, so the file reloads
+    with ``allow_pickle=False`` (the default). Map files are kept separate from
+    session ``.tether`` files (mirroring ``.tmap`` vs ``.tdat``).
     """
     path = Path(path)
     arrays: dict[str, np.ndarray] = {
+        "format_version": np.array(MAP_FORMAT_VERSION, dtype=np.int64),
         "reference_channel": np.array(reg_map.reference_channel, dtype=np.int64),
         "moving_channel": np.array(reg_map.moving_channel, dtype=np.int64),
         "rms_residual": np.array(reg_map.rms_residual, dtype=np.float64),
@@ -606,22 +648,72 @@ def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
 
 
 def load_map(path: str | Path) -> RegistrationMap:
-    """Load a [`RegistrationMap`][] from a ``.npz`` map file ([`save_map`][])."""
-    with np.load(Path(path), allow_pickle=False) as data:
-        return RegistrationMap(
-            reference_channel=int(data["reference_channel"]),
-            moving_channel=int(data["moving_channel"]),
-            ref_to_moving=_poly_from_arrays("ref_to_moving", data),
-            moving_to_ref=_poly_from_arrays("moving_to_ref", data),
-            rms_residual=float(data["rms_residual"]),
-            n_control_points=int(data["n_control_points"]),
-            gate_px=float(data["gate_px"]),
-            degree=int(data["degree"]),
-            source=str(data["source"]),
-            reference_geometry=_geometry_from_arrays("reference_geometry", data),
-            moving_geometry=_geometry_from_arrays("moving_geometry", data),
-            provenance=_provenance_from_json(str(data["provenance_json"])),
+    """Load a [`RegistrationMap`][] from a ``.npz`` map file ([`save_map`][]).
+
+    The file is read with ``allow_pickle=False``, so no pickled object enters the
+    map: an archive that holds one is refused. A file without ``format_version``
+    (written before #353) reads as version ``0``; a version newer than
+    [`MAP_FORMAT_VERSION`][] is refused.
+
+    Raises
+    ------
+    MapFileError
+        The file is not a readable ``.npz`` archive, holds a pickled object, lacks an
+        array of a map file, holds a value a map cannot take, or has a newer
+        ``format_version``.
+    """
+    path = Path(path)
+    try:
+        archive = np.load(path, allow_pickle=False)
+    except (OSError, ValueError) as exc:  # missing, unreadable, not an .npz / pickle
+        raise MapFileError(f"{path.name} is not a readable .npz map file: {exc}") from exc
+    if not isinstance(archive, np.lib.npyio.NpzFile):  # a bare .npy array
+        raise MapFileError(f"{path.name} is not a .npz map file (it holds one bare array)")
+    with archive as data:
+        try:
+            version = _map_format_version(data)
+        except MapFileError as exc:
+            raise MapFileError(f"{path.name}: {exc}") from exc
+        missing = [key for key in _MAP_REQUIRED_KEYS if key not in data.files]
+        if missing:
+            raise MapFileError(f"{path.name} is not a Tether map file: it lacks {missing}")
+        try:
+            return RegistrationMap(
+                reference_channel=int(data["reference_channel"]),
+                moving_channel=int(data["moving_channel"]),
+                ref_to_moving=_poly_from_arrays("ref_to_moving", data),
+                moving_to_ref=_poly_from_arrays("moving_to_ref", data),
+                rms_residual=float(data["rms_residual"]),
+                n_control_points=int(data["n_control_points"]),
+                gate_px=float(data["gate_px"]),
+                degree=int(data["degree"]),
+                source=str(data["source"]),
+                reference_geometry=_geometry_from_arrays("reference_geometry", data),
+                moving_geometry=_geometry_from_arrays("moving_geometry", data),
+                provenance=_provenance_from_json(str(data["provenance_json"])),
+            )
+        except Exception as exc:  # a pickled array, a bad value, a missing geometry part
+            raise MapFileError(
+                f"{path.name} is not a usable map file (format_version {version}): {exc}"
+            ) from exc
+
+
+def _map_format_version(data: Any) -> int:
+    """Return the map file's ``format_version`` (``0`` when absent), refusing a newer one."""
+    if "format_version" not in data.files:
+        return 0
+    raw = np.asarray(data["format_version"])
+    if raw.shape != () or raw.dtype.kind not in "iu":  # an object array raised already
+        raise MapFileError(f"format_version must be one integer, got {raw!r}")
+    version = int(raw)
+    if version > MAP_FORMAT_VERSION:
+        raise MapFileError(
+            f"map file format_version {version} is newer than this Tether reads "
+            f"({MAP_FORMAT_VERSION}); update Tether to use it"
         )
+    if version < 0:
+        raise MapFileError(f"format_version must not be negative, got {version}")
+    return version
 
 
 def _provenance_to_json(provenance: dict[str, Any]) -> str:
