@@ -202,3 +202,14 @@ def test_swapped_halves_are_a_warning_and_a_refused_open_is_said(monkeypatch, tm
     assert "swap.tether (saved, not opened" in messages[-1]
     assert "warning: donor and acceptor halves look swapped (9 of 10" in messages[-1]
     assert "low confidence" not in messages[-1]
+
+
+def test_a_map_without_overwrite_keeps_an_existing_file(shell, tmp_path) -> None:
+    """A name the save dialog did not ask about is never replaced (author-side check)."""
+    existing = tmp_path / "setup.npz"
+    existing.write_bytes(b"an earlier map")
+    beads = _write(tmp_path / "beads.tif", _frame(_BEADS))
+    assert shell.channel_map.make_map(beads, existing, overwrite=False) is None
+    assert existing.read_bytes() == b"an earlier map"
+    assert shell.channel_map.map_path is None
+    assert "output exists" in shell.window.statusBar().currentMessage()

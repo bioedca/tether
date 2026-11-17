@@ -73,16 +73,21 @@ class ChannelMapActions:
         return self._map_path
 
     def make_map(
-        self, source: str | PathLike[str], output: str | PathLike[str]
+        self,
+        source: str | PathLike[str],
+        output: str | PathLike[str],
+        *,
+        overwrite: bool = True,
     ) -> MapCreateResult | None:
         """Make a map file from a bead file and keep it as the session's map.
 
         Returns the command's result, or ``None`` when it failed; the status bar says
-        which. An existing file at ``output`` is replaced, by a complete map only (the
-        save dialog asks first). A map over the RMS gate is still kept, and the status
-        line says it is low-confidence.
+        which. With ``overwrite`` (the save dialog asked first) an existing file at
+        ``output`` is replaced, by a complete map only; without it an existing file is
+        refused. A map over the RMS gate is still kept, and the status line says it is
+        low-confidence.
         """
-        request = MapCreateRequest(source=str(source), output=str(output), overwrite=True)
+        request = MapCreateRequest(source=str(source), output=str(output), overwrite=overwrite)
         try:
             result: MapCreateResult = run_service(request)
         except CommandFailed as exc:
@@ -164,9 +169,12 @@ class ChannelMapActions:
         if not output:
             self._status("Channel map cancelled")
             return
-        if not output.lower().endswith(".npz"):
+        # The dialog asked before replacing the name it returned; a name the suffix
+        # changes was never asked about, so an existing file there is refused.
+        asked = output.lower().endswith(".npz")
+        if not asked:
             output += ".npz"
-        self.make_map(source, output)
+        self.make_map(source, output, overwrite=asked)
 
     def choose_map_dialog(self) -> None:  # pragma: no cover - interactive file dialog
         """Menu entry: pick an existing map file."""
