@@ -15,12 +15,13 @@ site will change that.
 Tether reads **uncompressed multi-page TIFF movies from a single camera whose frame is
 split side by side, down the vertical midline, into a left and a right half** — one donor
 channel, one acceptor channel — recorded with **one excitation laser** and **two colors**.
-That is the dual-view TIRF geometry the whole pipeline is built around. A top/bottom
-(stacked) dual-view export does not fit native extraction: the built-in splitter cuts on
-width only, so it would slice each channel in two rather than separating them. (If you have
-a Deep-LASI `.tmap` whose per-channel crops describe the stacked tiles, extracting with
-`--tmap` splits at those crops instead — but that combination is untested, so treat it as
-unsupported.)
+That is the dual-view TIRF geometry the whole pipeline is built around. It is the only one
+that the `tether extract` and `tether batch` commands split by. Other single-camera layouts
+are extracted from Python with a channel layout: a top/bottom (stacked) export, or two
+channels at two free rectangles of the frame. See [Acquisition
+geometry](#acquisition-geometry). (A Deep-LASI `.tmap` whose per-channel crops describe the
+stacked tiles also splits at those crops with `--tmap`, but that combination is untested, so
+treat it as unsupported.)
 
 If that describes your setup, Tether fits. If any of *ALEX/PIE*, *stoichiometry*,
 *three-color*, or *confocal point detectors* describes your setup, it does not — see
@@ -37,7 +38,7 @@ read them.
 | Dimensions | exactly 3-D: `(frames, height, width)` |
 | Codecs that can be lossy | **refused by name** (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether a file used a lossless mode, so Tether refuses these codecs rather than guess. Export again from the original acquisition |
 | Pixel type | one real sample per pixel: an unsigned or signed integer, or a float, in either byte order; the reference acquisition is 16-bit unsigned big-endian, and byte order is preserved end to end. RGB, palette and complex pixels are refused |
-| Geometry | one frame containing both channels side by side, split down the vertical midline |
+| Geometry | one frame containing both channels; side by side, split down the vertical midline, from the command line; side by side, top and bottom, or two equal rectangles from Python (`ExtractOptions(channel_layout=…)`) |
 
 The reader is `tether.io.movie.MovieReader`, and it refuses rather than guesses. It raises
 `ValueError` when:
@@ -77,10 +78,20 @@ The reference acquisition the performance envelope is written against is a
 
 ## Acquisition geometry
 
-Tether splits each frame into a left half and a right half and treats one as donor and the
-other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
-`left`); the split itself is [`tether.project.extract._half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py), which crops
-both halves from the frame *width* — there is no top/bottom split.
+By default Tether splits each frame into a left half and a right half and treats one as donor and
+the other as acceptor. Which half is which is yours to declare, with `--donor-side` (default
+`left`).
+
+For other optical layouts, `ExtractOptions(channel_layout=…)` takes a `ChannelLayout`
+(`tether.imaging.layout`) from Python. A `top-bottom` layout has the channels one above the other,
+stacked and not rotated, with the donor `top` or `bottom`. A `rectangles` layout has one free
+`[y1, x1, y2, x2]` rectangle for each channel, 1-based and inclusive. The two channels must be the same
+size, so a layout that gives two different sizes is refused. A rectangle outside the frame is
+refused too, and overlapping rectangles give a warning.
+
+Each movie's layout is stored as `/movies/layouts/<movie_id>` in the project. There is no
+command-line option for a layout yet, and no rotation or flip of a channel; a movie whose two
+channels are separate files is not supported yet either.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
 batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,
@@ -89,18 +100,22 @@ donor on the right, run it through `tether extract` per movie, supply a `.tmap` 
 reference channel then defines donor), or drive `tether.project.batch.run_batch` from Python
 with `extract_options=ExtractOptions(donor_side="right")`.
 
-With `--tmap`, the split instead comes from an imported Deep-LASI map's own per-channel
-crops, and `--donor-side` is ignored — donor is the map's reference channel. **Crop is the
-only geometry imported.** Deep-LASI's `processImage` rotates and flips *before* cropping,
-and the imported path does not apply either yet, so
-[`tether.project.extract._imported_registration_map`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) refuses a `.tmap` whose channels carry
-a non-identity `Rotation` or `Flip` rather than splitting at the wrong frame — the
-`ExtractionError` names the channels and says the imported path "does not yet apply (only
-crop geometry is honored); re-run without `--tmap` to use a native fit"
-([`tests/test_extract_cli.py::test_extract_imported_tmap_nonidentity_geometry_refused`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
-covers both axes). Empty or all-zero `Rotation`/`Flip` — what the reference UCKOPSB map
-stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
-`tether.imaging.register`).
+With `--tmap`, the split comes from the imported Deep-LASI map's own per-channel geometry
+instead. `--donor-side` is ignored, because donor is the map's reference channel.
+Deep-LASI's `processImage` turns each channel by its `Rotation` (0, 90, 180 or 270
+degrees, clockwise). It then mirrors the channel by its `Flip` (`[v, h]`: rows, then
+columns) and crops it in that turned frame. The `.tmap` polynomials were fitted in that
+frame. Tether splits the movie in the same three steps and records each channel's
+rotation and flip in `/movies` next to its crop.
+
+So a turned movie gives the same molecules as an unturned movie of the same scene
+([`tests/test_extract_cli.py::test_extract_imported_tmap_applies_rotation_and_flip`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
+covers every rotation and flip, on either channel; #559). A `Rotation` or `Flip` that
+`processImage` could not have applied is refused with "could not use --tmap". That is an
+angle other than 0, 90, 180 or 270, or a flip value other than 0 or 1. Empty or all-zero
+values, which the reference UCKOPSB map stores, split by the crop alone. This is tested
+on synthetic movies only, since the reference data holds no real `.tmap` with a rotation
+or a flip.
 
 > ### Getting `--donor-side` backwards raises no error, and relabeling afterwards will not fix it
 >

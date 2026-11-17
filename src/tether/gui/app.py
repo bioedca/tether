@@ -90,6 +90,10 @@ def create_shell(
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
     ``False`` decides it explicitly.
+
+    The shell remembers the session in the per-user preferences file
+    ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
+    the molecule selected at close, the layout and the curator name.
     """
     args = build_parser().parse_args(argv)
 
@@ -110,9 +114,11 @@ def create_shell(
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
-        shell = TetherShell()
+        # The application remembers the session on this computer (#628, ADR-0122).
+        shell = TetherShell(preferences_file=preferences_path())
         if args.project is not None:
             shell.load_project(args.project)
     except BaseException:
