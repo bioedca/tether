@@ -1948,15 +1948,25 @@ def writing(
     before the write would find the file changed under its lock. This context manager
     takes the per-user identity guard and the path's OS lifecycle guard, in the order
     [`acquire`][] and [`steal_lock`][] take them, makes the same check inside them, and
-    runs the block there. An acquire or steal of this file under any spelling waits for
-    the block to end, and a block that starts after one is refused with
-    [`LockedError`][]. It holds no lock of its own, so it neither needs nor changes
-    ownership: an unlocked file stays unlocked and a writer's own lock stays its own.
+    runs the block there. An acquire or steal of this file, through this spelling or a
+    hard link that this user opens, waits for the block to end, and a block that starts
+    after one is refused with [`LockedError`][]. A hard link that *another user* opens is
+    not covered, as for [`acquire`][]: that user's identity record lives in their own
+    per-user directory (ADR-0112). It holds no lock of its own, so it neither needs nor
+    changes ownership: an unlocked file stays unlocked and a writer's own lock stays its
+    own.
+
+    The per-user directory is created first if it is missing, as a claim does, so that a
+    claim through a hard link that creates it meanwhile still waits for the identity guard.
+    If it cannot be created, a claim by this user cannot create it either and fails
+    closed, so the block goes on under the path's guard alone.
 
     Keep the block short, as for [`holding`][]: another process's lifecycle call waits
     for the guard for at most a few seconds before it fails with ``TimeoutError``.
     """
     lp = lock_path(project_path)
+    with suppress(OSError):
+        user_lock_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
     with _identity_guard(project_path, claim=False), _lifecycle_guard(lp):
         assert_writable(project_path, identity=identity, timeout_s=timeout_s, now=now)
         yield
