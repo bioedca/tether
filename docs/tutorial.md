@@ -195,6 +195,12 @@ Close the Tether application window. Then start the Python that came with Tether
 & "$env:USERPROFILE\Tether\envs\tether\python.exe"
 ```
 
+In the Tether Command Prompt on Windows, the line is:
+
+```bat
+"%USERPROFILE%\Tether\envs\tether\python.exe"
+```
+
 These are the default install folders; if you chose another one, use that instead. At the
 `>>>` prompt, type these three lines:
 
