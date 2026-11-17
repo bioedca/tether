@@ -19,6 +19,14 @@ Two companion dialogs complete the §7.3 contract:
 * [`CheatSheetOverlay`][] renders the shipped, always-current keyboard
   cheat-sheet from the live [`Keymap`][tether.gui.curation.Keymap].
 
+The window hosts its **sections** (#341, ADR-0116): the central widget is a
+``QStackedWidget`` with one page per section of the
+[`SectionRegistry`][tether.gui.sections.SectionRegistry] — Prepare, Curate and
+correct, Analyze — and each dock belongs to one section and shows only while that
+section is current.
+[`TetherShell.set_section`][tether.gui.shell.TetherShell.set_section] switches; a
+switch never touches the session lock of ADR-0055.
+
 The shell also carries the desktop basics (#629): File → Close project and Quit
 with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
 log folder, and the About box of [`tether.gui.about`][]), opening a dropped
@@ -31,6 +39,7 @@ subclass one) so importing this module costs no Qt, matching the rest of
 
 from __future__ import annotations
 
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -47,6 +56,7 @@ from tether.gui.curation import (
     CurationHandlers,
     Keymap,
 )
+from tether.gui.sections import DockArea, DockSpec, SectionRegistry, SectionSpec
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -107,7 +117,10 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "ANALYZE_SECTION",
+    "CURATE_SECTION",
     "DEFERRED_ACTIONS",
+    "PREPARE_SECTION",
     "CheatSheetOverlay",
     "OverflowCategoryPicker",
     "TetherShell",
@@ -161,6 +174,15 @@ _SMD_SUFFIXES = (".hdf5", ".smd")
 
 #: File filter for the ``&File → Open project…`` dialog (a ``.tether`` HDF5 store).
 _TETHER_FILTER = "Tether project (*.tether);;All files (*)"
+
+#: The ids of the sections the shell registers (#341, ADR-0116), in the order of page 1
+#: of the design (#897). The Deposit section (order 4) is registered by #897 / #956.
+PREPARE_SECTION = "prepare"
+CURATE_SECTION = "curate"
+ANALYZE_SECTION = "analyze"
+
+#: The section that shows when the shell opens: its page holds the start page (#629).
+_DEFAULT_SECTION = CURATE_SECTION
 
 # Initial acquisition treats the same host/user/PID as one identity. Separate shells
 # in one QApplication therefore need an additional process-local ownership boundary
@@ -237,6 +259,30 @@ def _local_paths(mime: Any) -> list[Path]:
     if mime is None or not mime.hasUrls():
         return []
     return [Path(url.toLocalFile()) for url in mime.urls() if url.isLocalFile()]
+
+
+def _guide_page(title: str, text: str) -> Any:
+    """A plain page with a heading and one paragraph that says where the tools are.
+
+    The Prepare and Analyze sections show one until their own content lands (#897 and the
+    issues it lists); the page never offers an action the shell cannot do.
+    """
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    from tether.gui import theme
+
+    page = QtWidgets.QWidget()
+    page.setAccessibleName(f"{title} section")
+    layout = QtWidgets.QVBoxLayout(page)
+    heading = QtWidgets.QLabel(title)
+    heading.setFont(theme.heading_font())
+    body = QtWidgets.QLabel(text)
+    body.setWordWrap(True)
+    layout.addWidget(heading)
+    layout.addWidget(body)
+    layout.addStretch(1)
+    layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+    return page
 
 
 def _quit_application() -> None:  # pragma: no cover - ends the process's event loop
@@ -329,12 +375,14 @@ class CheatSheetOverlay:
         *,
         parent: QtWidgets.QWidget | None = None,
         unavailable: frozenset[CurationAction] = frozenset(),
+        note: str | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
         self._keymap = keymap
         self._unavailable = frozenset(unavailable)
         self._rows: list[tuple[str, str]] = []
+        self._note = note
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("Keyboard shortcuts")
         layout = QtWidgets.QVBoxLayout(self._dialog)
@@ -343,6 +391,12 @@ class CheatSheetOverlay:
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
+        if note:
+            # A behavior the key rows cannot carry, such as the advance-after-curation
+            # preference (#631): shown under the table, never as a key row.
+            label = QtWidgets.QLabel(note)
+            label.setWordWrap(True)
+            layout.addWidget(label)
         self.refresh()
 
     @property
@@ -354,6 +408,11 @@ class CheatSheetOverlay:
     def rows(self) -> list[tuple[str, str]]:
         """The ``(key_label, action)`` rows currently displayed."""
         return list(self._rows)
+
+    @property
+    def note(self) -> str | None:
+        """The text shown under the key table, or ``None`` when there is none."""
+        return self._note
 
     def refresh(self) -> None:
         """Re-read the keymap and repopulate the table (reflects rebindings)."""
@@ -432,7 +491,11 @@ class TetherShell:
     draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
     ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
-    (§7.3). Use as a context manager or call [`close`][].
+    (§7.3). The trace dock and the Browser belong to the Curate and correct section,
+    one of the sections [`set_section`][] switches between (#341). After a stored
+    accept or reject the next listed molecule is selected, so one key both decides
+    and moves on; ``advance_after_curation=False`` keeps the selection in place
+    instead. Use as a context manager or call [`close`][].
     """
 
     def __init__(
@@ -444,6 +507,7 @@ class TetherShell:
         histogram: HistogramSeam | None = None,
         overlap: OverlapSeam | None = None,
         conditions: Project | None = None,
+        advance_after_curation: bool = True,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
@@ -459,6 +523,10 @@ class TetherShell:
         )
         self._traces: list[TraceView] = []
         self._current_index = -1
+        # "Advance after accept or reject" (#631): a stored accept or reject selects
+        # the next listed molecule. On by default; the settings store (#330) will
+        # carry the preference, until then the caller passes it here.
+        self._advance_after_curation = bool(advance_after_curation)
         # The writable project behind Space/Backspace/Delete. It is set only by a
         # successful load_project call: synthetic/demo traces and a bare shell must
         # never acquire an accidental persistence target.
@@ -569,10 +637,11 @@ class TetherShell:
             on_open=lambda: self._open_project_dialog(),
             on_tutorial=self.open_tutorial,
         )
-        self._central = QtWidgets.QStackedWidget()
-        self._central.addWidget(self._start_page.widget)
-        self._central.addWidget(self._trace_dock.widget)
-        self._window.setCentralWidget(self._central)
+        # The page of the Curate and correct section: the start page while nothing is
+        # loaded, else the trace dock. The section stack itself is built further down.
+        self._curate_stack = QtWidgets.QStackedWidget()
+        self._curate_stack.addWidget(self._start_page.widget)
+        self._curate_stack.addWidget(self._trace_dock.widget)
         # A .tether file dropped anywhere on the window opens it (#629).
         self._window.setAcceptDrops(True)
 
@@ -634,10 +703,32 @@ class TetherShell:
         vbox.addWidget(category_title)
         vbox.addWidget(self._category_field)
         vbox.addWidget(self._unreject_button)
-        browser = QtWidgets.QDockWidget("Browser", self._window)
-        browser.setWidget(panel)
-        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, browser)
-        self._browser_dock = browser
+        self._browser_panel = panel
+
+        # The sections (#341, ADR-0116): the central widget of the one QMainWindow is a
+        # QStackedWidget with one page per registered section, and each dock belongs to
+        # one section and shows only while that section is current. A section switch
+        # changes only which page and which docks show; it never touches the session lock.
+        self._sections = self._build_sections()
+        self._section_stack = QtWidgets.QStackedWidget()
+        self._section_pages: dict[str, Any] = {}
+        self._section_docks: dict[str, list[Any]] = {spec.id: [] for spec in self._sections}
+        # Whether a dock of a section that is not current shows again when its section does;
+        # kept so a dock the user closed stays closed across a switch.
+        self._dock_restore: dict[Any, bool] = {}
+        self._section: str = _DEFAULT_SECTION
+        dock_widgets: dict[tuple[str, str], Any] = {}
+        for spec in self._sections:
+            page = spec.central(self)
+            self._section_stack.addWidget(page)
+            self._section_pages[spec.id] = page
+            for dock in spec.docks:
+                dock_widgets[spec.id, dock.id] = self._attach_section_dock(
+                    spec.id, dock.title, dock.factory(self), dock.area
+                )
+        self._window.setCentralWidget(self._section_stack)
+        self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
+        self._show_section(_DEFAULT_SECTION)
 
         # Curation controller + keymap + the application-level event filter.
         self._controller = CurationController(self._build_handlers())
@@ -710,7 +801,10 @@ class TetherShell:
 
         # Help / overflow actions (menu + the shipped cheat-sheet).
         self._cheatsheet = CheatSheetOverlay(
-            self._keymap, parent=self._window, unavailable=DEFERRED_ACTIONS
+            self._keymap,
+            parent=self._window,
+            unavailable=DEFERRED_ACTIONS,
+            note=self._advance_note(),
         )
         menu = self._window.menuBar().addMenu("&Curation")
         act_help = menu.addAction("Keyboard &shortcuts…")
@@ -763,6 +857,19 @@ class TetherShell:
             self._theme_actions[value] = action
         self._theme_menu.aboutToShow.connect(self._sync_theme_menu)
         self._sync_theme_menu()
+        # View -> Section: one checkable item per registered section (#341). The guided
+        # mode and the full direct navigation of #897 replace this plain list.
+        self._section_menu = self._view_menu.addMenu("&Section")
+        self._section_group = QtGui.QActionGroup(self._window)
+        self._section_actions: dict[str, Any] = {}
+        for spec in self._sections:
+            action = self._section_menu.addAction(spec.title)
+            action.setCheckable(True)
+            action.setData(spec.id)
+            self._section_group.addAction(action)
+            action.triggered.connect(lambda _checked=False, s=spec.id: self.set_section(s))
+            self._section_actions[spec.id] = action
+        self._section_actions[self._section].setChecked(True)
 
         # Help menu (#629): the installed version's documentation, the shortcut
         # cheat-sheet (the same action as Curation's), the log folder once a log
@@ -818,8 +925,155 @@ class TetherShell:
 
     @property
     def trace_dock(self) -> Any:
-        """The `TraceDock` occupying the window's central widget."""
+        """The `TraceDock` on the page of the Curate and correct section."""
         return self._trace_dock
+
+    # --- sections (#341, ADR-0116) -----------------------------------------
+
+    @property
+    def sections(self) -> SectionRegistry:
+        """The [`SectionRegistry`][tether.gui.sections.SectionRegistry] the shell hosts."""
+        return self._sections
+
+    @property
+    def section_stack(self) -> QtWidgets.QStackedWidget:
+        """The central widget of the window: one page per registered section, in order."""
+        return self._section_stack
+
+    @property
+    def section(self) -> str:
+        """The id of the section that shows now."""
+        return self._section
+
+    @property
+    def section_actions(self) -> dict[str, Any]:
+        """The checkable **View → Section** actions, by section id."""
+        return dict(self._section_actions)
+
+    def section_page(self, section_id: str) -> QtWidgets.QWidget:
+        """The page of ``section_id`` in [`section_stack`][]; raise `KeyError` if unknown."""
+        self._sections.get(section_id)
+        return self._section_pages[section_id]
+
+    def section_docks(self, section_id: str) -> list[QtWidgets.QDockWidget]:
+        """The docks attached to ``section_id`` now, lazily built ones included."""
+        self._sections.get(section_id)
+        return list(self._section_docks[section_id])
+
+    def set_section(self, section_id: str) -> None:
+        """Show the section ``section_id``: its page, its docks, and no other section's docks.
+
+        A switch changes only what shows. It does not acquire, refresh or release the session
+        lock, and it does not change which write controls are enabled (ADR-0055 governs both,
+        unchanged). An unknown id raises `KeyError` and changes nothing.
+        """
+        self._sections.get(section_id)
+        if section_id == self._section:
+            return
+        self._show_section(section_id)
+        self._section_actions[section_id].setChecked(True)
+
+    def _show_section(self, section_id: str) -> None:
+        """Make ``section_id`` current: its page in the stack, its docks shown, others hidden.
+
+        The show/hide item of each other section's dock is hidden too, so the window's dock
+        menu (a right click on the menu bar) cannot show a dock outside its section.
+        """
+        for other, docks in self._section_docks.items():
+            if other == section_id:
+                continue
+            for dock_widget in docks:
+                if dock_widget not in self._dock_restore:
+                    self._dock_restore[dock_widget] = not dock_widget.isHidden()
+                dock_widget.hide()
+                dock_widget.toggleViewAction().setVisible(False)
+        for dock_widget in self._section_docks[section_id]:
+            dock_widget.toggleViewAction().setVisible(True)
+            if self._dock_restore.pop(dock_widget, True):
+                dock_widget.show()
+        self._section_stack.setCurrentWidget(self._section_pages[section_id])
+        self._section = section_id
+
+    def _attach_section_dock(
+        self, section_id: str, title: str, widget: Any, area: DockArea
+    ) -> QtWidgets.QDockWidget:
+        """Dock ``widget`` into the window as a dock of ``section_id``.
+
+        The dock shows at once when ``section_id`` is current; otherwise it stays hidden
+        until that section shows.
+        """
+        from pyqtgraph.Qt import QtCore, QtWidgets
+
+        dock_widget = QtWidgets.QDockWidget(title, self._window)
+        dock_widget.setObjectName(f"{section_id}-{title.lower().replace(' ', '-')}")
+        dock_widget.setWidget(widget)
+        self._window.addDockWidget(getattr(QtCore.Qt.DockWidgetArea, area.qt_name), dock_widget)
+        self._section_docks[section_id].append(dock_widget)
+        if section_id != self._section:
+            self._dock_restore[dock_widget] = True
+            dock_widget.hide()
+            dock_widget.toggleViewAction().setVisible(False)
+        return dock_widget
+
+    def _detach_section_dock(self, dock_widget: Any) -> None:
+        """Remove a lazily-built dock from the window and from its section."""
+        self._window.removeDockWidget(dock_widget)
+        self._dock_restore.pop(dock_widget, None)
+        for docks in self._section_docks.values():
+            if dock_widget in docks:
+                docks.remove(dock_widget)
+
+    def _build_sections(self) -> SectionRegistry:
+        """The sections this shell hosts, in the order of page 1 of the design (#897).
+
+        Each factory returns a widget the shell already owns or a plain guide page, so the
+        registry adds no second owner of any widget. Prepare and Analyze write to the open
+        project in later work (#352 publishes an extraction into it; analysis results are
+        stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
+        """
+        browser_panel = self._browser_panel
+        return SectionRegistry(
+            [
+                SectionSpec(
+                    id=PREPARE_SECTION,
+                    title="Prepare",
+                    order=1,
+                    central=lambda _host: _guide_page(
+                        "Prepare",
+                        "To make a project from a folder of Deep-LASI files, choose "
+                        "Import → Deep-LASI bundle…. The project opens in this window.",
+                    ),
+                    writes_project=True,
+                ),
+                SectionSpec(
+                    id=CURATE_SECTION,
+                    title="Curate and correct",
+                    order=2,
+                    central=lambda _host: self._curate_stack,
+                    writes_project=True,
+                    docks=(
+                        DockSpec(
+                            id="browser",
+                            title="Browser",
+                            area=DockArea.LEFT,
+                            factory=lambda _host: browser_panel,
+                        ),
+                    ),
+                    keymap_scope="curation",
+                ),
+                SectionSpec(
+                    id=ANALYZE_SECTION,
+                    title="Analyze",
+                    order=3,
+                    central=lambda _host: _guide_page(
+                        "Analyze",
+                        "To see the population histogram of the open project, choose "
+                        "Analysis → Population histogram…. It shows below this text.",
+                    ),
+                    writes_project=True,
+                ),
+            ]
+        )
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -1006,13 +1260,10 @@ class TetherShell:
             self._attach_overlap_dock()
 
     def _attach_overlap_dock(self) -> None:
-        """Dock the (lazily-built) overlap view into the right of the window."""
-        from pyqtgraph.Qt import QtCore, QtWidgets
-
-        dock_widget = QtWidgets.QDockWidget("Overlap", self._window)
-        dock_widget.setWidget(self._overlap_dock.widget)
-        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock_widget)
-        self._overlap_dock_widget = dock_widget
+        """Dock the (lazily-built) overlap view at the right, in Curate and correct."""
+        self._overlap_dock_widget = self._attach_section_dock(
+            CURATE_SECTION, "Overlap", self._overlap_dock.widget, DockArea.RIGHT
+        )
 
     # --- project (open a produced / extracted .tether live, §7.8) ------------
 
@@ -1414,6 +1665,15 @@ class TetherShell:
             else f"{ousted.user}@{ousted.host} (pid {ousted.pid})"
         )
         warning = "" if action is RecoveryAction.RECOVER else "; their unsaved work is not merged"
+        # The durable record goes in under the new lock, through the writable reopen,
+        # so a refused, failed or read-only takeover never writes one (#1099, ADR-0121).
+        try:
+            self._curation_project.record_lock_takeover(action, taken, ousted)
+        except Exception as exc:  # noqa: BLE001 - the takeover stands; say the record failed
+            logging.getLogger("tether.project.lock").warning(
+                "lock %s on %s: the takeover record was not written: %s", action.value, path, exc
+            )
+            warning += f"; the takeover record was not written ({exc})"
         self._status(f"{label}: took the lock from {holder}; {path.name} is writable{warning}")
         return opened
 
@@ -1632,7 +1892,7 @@ class TetherShell:
         ):
             widget = getattr(self, widget_attr)
             if widget is not None:
-                self._window.removeDockWidget(widget)
+                self._detach_section_dock(widget)
             dock = getattr(self, dock_attr)
             if dock is not None:
                 dock.close()
@@ -1699,6 +1959,8 @@ class TetherShell:
         self._project_path = None
         self._act_close_project.setEnabled(False)
         self.set_molecules([])
+        # The start page is the page of Curate and correct, so show that section.
+        self.set_section(CURATE_SECTION)
         self._retry_session_release()
         self._status(f"Closed {name}")
         return True
@@ -1717,12 +1979,15 @@ class TetherShell:
 
     @property
     def start_page_visible(self) -> bool:
-        """Whether the start page, not the trace dock, fills the window."""
-        return self._central.currentWidget() is self._start_page.widget
+        """Whether the start page fills the window: Curate and correct shows, nothing loaded."""
+        return (
+            self._section == CURATE_SECTION
+            and self._curate_stack.currentWidget() is self._start_page.widget
+        )
 
     def _sync_start_page(self) -> None:
         empty = self._project_path is None and not self._traces
-        self._central.setCurrentWidget(
+        self._curate_stack.setCurrentWidget(
             self._start_page.widget if empty else self._trace_dock.widget
         )
 
@@ -2112,6 +2377,9 @@ class TetherShell:
             if newly_built:
                 dock.close()
             return None
+        # The histogram is a dock of the Analyze section (#341), so showing it shows that
+        # section; View → Section returns to Curate and correct.
+        self.set_section(ANALYZE_SECTION)
         if newly_built:
             self._histogram_dock = dock
             self._attach_histogram_dock()
@@ -2148,13 +2416,10 @@ class TetherShell:
             self._status(f"Histogram refresh failed: {error}")
 
     def _attach_histogram_dock(self) -> None:
-        """Dock the (already-built, successfully-drawn) histogram into the window."""
-        from pyqtgraph.Qt import QtCore, QtWidgets
-
-        dock_widget = QtWidgets.QDockWidget("Population histogram", self._window)
-        dock_widget.setWidget(self._histogram_dock.widget)
-        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, dock_widget)
-        self._histogram_dock_widget = dock_widget
+        """Dock the (already-built, successfully-drawn) histogram at the bottom, in Analyze."""
+        self._histogram_dock_widget = self._attach_section_dock(
+            ANALYZE_SECTION, "Population histogram", self._histogram_dock.widget, DockArea.BOTTOM
+        )
 
     # --- handlers ------------------------------------------------------------
 
@@ -2235,7 +2500,44 @@ class TetherShell:
 
         target = trace.name or trace.molecule_key
         self._queue_open_histogram_refresh()
-        self._status(f"{completed} {target}")
+        if action is CurationAction.UNREJECT or not self._advance_after_curation:
+            self._status(f"{completed} {target}")
+            return
+        self._advance_from(row, f"{completed} {target}")
+
+    def _advance_from(self, row: int, done: str) -> None:
+        """Select the next listed molecule after ``row`` once a decision is stored.
+
+        "Next" is the next row in list order that the list shows, so a hidden
+        (filtered-out) row is skipped and the list is never reordered (§7.5). At the
+        last shown row the selection stays and the status says the end was reached.
+        The navigation status the move produces is kept after ``done``, so an overlap
+        failure on the new molecule is still reported.
+        """
+        nxt = row + 1
+        while nxt < len(self._traces) and self._molecule_list.isRowHidden(nxt):
+            nxt += 1
+        if nxt >= len(self._traces):
+            self._status(f"{done}; end of the list reached")
+            return
+        self._molecule_list.setCurrentRow(nxt)
+        self._status(f"{done}; {self.status_message}")
+
+    @property
+    def advance_after_curation(self) -> bool:
+        """Whether a stored accept or reject selects the next listed molecule.
+
+        Set once by the ``advance_after_curation`` constructor argument, on by default.
+        """
+        return self._advance_after_curation
+
+    def _advance_note(self) -> str:
+        """The cheat-sheet line that states the advance-after-curation preference."""
+        state = "on" if self._advance_after_curation else "off"
+        return (
+            f"Advance after accept or reject: {state}. When on, Accept and Reject show "
+            "the next trace; Un-reject and the category keys keep the same trace."
+        )
 
     def _assign_category(self, integer_class: int) -> None:
         name = (
