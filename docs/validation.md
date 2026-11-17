@@ -128,6 +128,23 @@ the movie and its files through the name table of the workstation runner, under 
 (`tests/fixtures/deeplasi_export_slice.mat`, `tests/fixtures/deeplasi_traces_slice.txt`)
 covers the readers on every matrix run.
 
+**More acquisitions.** Nine more acquisitions of the same laboratory (`lab-02` to `lab-08`,
+`lab-10`, `lab-12`) have the same bundle. The workstation run scores each one alone with the
+limits below (`tests/test_deeplasi_agreement.py`,
+[ADR-0115](adr/0115-deep-lasi-acquisitions-in-oracle-a-and-how-a-failure-is-handled.md)). A
+failure on one of them is a finding to investigate, never a reason to change a limit. Each
+Deep-LASI export is read from a frozen copy whose provenance record gives the file's date,
+because the exports were made in Deep-LASI's window.
+
+A scripted Deep-LASI run (`scripts/reference/matlab/deep_lasi.py`) at a pinned commit repeats
+the export of video 010: the same 250 molecules, positions and raw traces. It cannot make the
+correction factors, which come from a later step in the window. The workstation run also
+compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
+on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
+means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
+from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
+
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
 
 | Constant | Value | Role |

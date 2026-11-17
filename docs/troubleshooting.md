@@ -112,16 +112,18 @@ chosen split.
 ```text
 Batch run: 1 movie(s), 1 ok, 0 failed (policy=warn, idealize=on)
   ok    warp_010  extract=done correct=done idealize=deferred
+Deferred: idealize in 1 of 1 movie(s); re-run the same command to resume.
+Exit code 3: no movie failed, but a requested stage was deferred for at least one movie.
 ```
 
-Exit code `0`. `/idealization` is empty.
+Exit code `3`. `/idealization` is empty.
 
 **Cause.** `tether batch` probes the sidecar once at startup. When no interpreter resolves,
 and `defer_if_unavailable` is on (the default), the idealize stage is recorded as
-`deferred` rather than `failed` — and `deferred` is not a failure, so `n_failed` stays `0`
-and the CLI returns `0` (`tether.project.batch`). The *reason* is logged at `INFO`, below
-Python's last-resort handler threshold, so it never reaches your console; the word
-`deferred` in the stage list is the only tell.
+`deferred` rather than `failed`. `deferred` is not a failure, so `n_failed` stays `0`, but
+`BatchSummary.n_deferred` counts the movie and the CLI returns `3` (`tether.cli`). The
+*reason* is logged at `INFO`, below Python's last-resort handler threshold, so it never
+reaches your console; the stage list, the `Deferred:` line and the exit code are the tells.
 
 > **Signature.** `/settings/batch.attrs["idealize_status"] == "deferred"`, `/idealization`
 > empty, and the JSONL log carries the explanation:
@@ -146,11 +148,13 @@ which fails each movie's idealize stage in isolation and exits `1`:
 warp_010 · idealize: failed — no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed
 Batch run: 1 movie(s), 0 ok, 1 failed (policy=warn, idealize=on)
   FAIL  warp_010  extract=done correct=done idealize=failed(no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed)
+Exit code 1: at least one movie had a failed stage.
 ```
 
 The first line is `BatchLog.event`'s console record — it joins movie and stage with a middle
-dot (` · `) and the error with an **em dash** (` — `). The last two lines are
+dot (` · `) and the error with an **em dash** (` — `). The next two lines are
 `BatchSummary.format_report`, which appends the error text only because the stage is `failed`.
+The last line is the exit-code line that `tether batch` prints after the report.
 
 ### The batch says `correct=done` but no corrections were applied
 
@@ -220,7 +224,7 @@ re-export (`tether.analysis.histogram`, `.cloud`, `tether.gui.trace_dock`,
   ok    warp_010  extract=skipped correct=skipped idealize=deferred
 ```
 
-The results are the old ones, reported as `ok`, exit `0`.
+The results are the old ones, reported as `ok`, exit `3` (idealization was deferred again).
 
 **Cause.** For a normal completed extraction, [`_do_extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py) in
 `tether.project.batch` finds the `/settings/extraction` checkpoint and returns `skipped`;
@@ -959,8 +963,12 @@ are on the [Deep trace classifier](ml/deep-classifier.md#gpu-cuda-setup) page.
 | Command | `0` | `1` | `2` |
 |---|---|---|---|
 | `tether extract` | success — **including a low-confidence-registration warning** | the run failed; the message is on stderr as `tether extract: <msg>` | argparse rejected the command line |
-| `tether batch` | every movie finished without a `failed` stage — **including `deferred`**, `not-requested` and `warning` | at least one movie had a failed stage | argparse rejected the command line, **or** the run refused to start (colliding output basenames, a bad supervision argument) |
+| `tether batch` | every requested stage ran for every movie (`not-requested` and `warning` included) | at least one movie had a failed stage | argparse rejected the command line, **or** the run refused to start (a movie argument that gives no movie, two movies no folder name tells apart, a bad supervision argument) |
 | `tether` (no subcommand) | prints help | — | an unknown subcommand or top-level flag |
+
+`tether batch` has a fourth code, `3`: no movie failed, and at least one requested stage was
+`deferred`. `1` takes precedence over `3`. See
+[The batch finished "ok" but nothing was idealized](#the-batch-finished-ok-but-nothing-was-idealized).
 
 Two notes on that table:
 
@@ -980,8 +988,10 @@ Two things the console deliberately does not print, and where to find them inste
   error text only for a `failed` stage. Everything else — the over-gate flag, the α-withheld
   fallback, the deferral reason — lives in the **JSONL structured log**, whose path is echoed
   to stderr on every run (`<out-dir>/batch-log.jsonl` by default, or `--log`).
-- **Basename collisions.** Two input movies with the same stem are refused **up front**, exit
-  `2`, before any work: `movies '…/flat.tif' and '…/sub2/flat.tif' both map to
-  '…/bout/flat.tether'; rename one or use a separate --out-dir`. This is the classic
-  `movie_010.tif` in two condition folders; the checkpoint would otherwise treat the second
-  movie as already done using the first's data.
+- **Movies with one file name.** Two input movies with the same file name, such as
+  `movie_010.tif` in two condition folders, get their parent folder in front of their output
+  name: `condA__movie_010.tether` and `condB__movie_010.tether`. The structured log records
+  each movie and its output first, and `--dry-run` prints them before anything runs. Only
+  two names that no folder tells apart, such as `A.tif` and `a.tif` in one folder, are
+  refused up front with exit `2`. See [Output names when two movies have the same file
+  name](cli.md#output-names-when-two-movies-have-the-same-file-name).

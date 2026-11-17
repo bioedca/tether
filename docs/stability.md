@@ -43,7 +43,7 @@ launcher (`[project.gui-scripts]` → `tether.gui.app:main`).
 | `tether-gui` | Exists as a launcher and starts the application. Nothing about the window layout or its behavior is covered. |
 | Flag names and meanings | Every option listed by `tether extract --help` and `tether batch --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
 | Documented defaults | The default values printed in `--help` — e.g. `--donor-side left`, `--window 21`, `--coloc-distance 3`, `--rms-gate 0.5` — do not change within `1.x`. A default that changes silently changes a scientific result, so it is treated as a breaking change, not a tweak. |
-| Exit status | `0` on success, non-zero on failure. |
+| Exit status | `0` on success, non-zero otherwise. The exit codes are part of this contract: `1` the work failed (an `ExtractionError`, or at least one movie failed in a batch), `2` a usage or configuration error, and — `tether batch` only — `3` no movie failed but at least one requested stage was deferred. `1` takes precedence over `3`. See [Exit codes](cli.md#exit-codes). |
 
 **Sidecar carve-out.** Four `tether batch` options — `--sidecar-python`, `--sidecar-timeout`,
 `--max-restarts` and `--no-defer` — describe the [sidecar interface](#not-covered), which is
@@ -56,10 +56,9 @@ are literals in the help strings, held equal to those constants by a committed t
 not treat those two numbers as frozen.
 
 Not covered on this surface: the wording and layout of anything printed to stdout or
-stderr, the field set of the `batch` JSONL structured log, and the *specific* non-zero exit
-values. For the record, `tether.cli` currently returns `1` when the work itself failed
-(an `ExtractionError`, or at least one movie failed in a batch) and `2` for a usage or
-configuration error — but only "non-zero" is promised. Do not branch on `1` vs `2`.
+stderr (the exit-code line at the end of the `tether batch` report included), and the field
+set of the `batch` JSONL structured log. The four exit codes above are covered, so a script
+may branch on them: `3` means "re-run this batch later", not "these projects are complete".
 
 New optional flags and new subcommands may appear in a minor release. Nothing that exists
 today disappears before `2.0.0`.
