@@ -483,7 +483,8 @@ start, the command says why, exits `3` and does not change the project.
 
 **The command holds the project's lock while it fits.** Close the project in the desktop
 application first. When another user or the application holds the lock, the command exits
-`1` and fits nothing. A fit can take minutes. The lock is released when the command ends.
+`1` and fits nothing. The molecules of each `--condition` are read again once the command
+holds the lock. A fit can take minutes. The lock is released when the command ends.
 
 **`--stale-only` refits a whole model.** A molecule is *stale* in a model when its trace,
 its analysis window or its correction factors changed after the fit. A consensus VB-HMM or

@@ -196,6 +196,36 @@ def test_a_condition_limits_the_fit_and_an_unknown_one_is_refused(tmp_path, side
     assert _digest(path) == before
 
 
+def test_a_condition_is_resolved_again_under_the_lock(tmp_path, sidecar, monkeypatch):
+    # Another writer changes the condition's members while the sidecar probe runs (here,
+    # by standing in for the membership read). The fit takes the members read under the
+    # lock, not the ones read before the probe.
+    from tether.project import conditions as conditions_module
+
+    path = _store(tmp_path)
+    (condition,) = _conditions(path)
+    members = _conditions_members(path)[condition]
+
+    def probe_while_another_writer_rekeys(supervision):
+        monkeypatch.setattr(
+            conditions_module,
+            "aggregate_molecules_by_condition",
+            lambda _path: {condition: members[:2]},
+        )
+        return ProbeResult(True, "fake sidecar")
+
+    monkeypatch.setattr(service, "_probe", probe_while_another_writer_rekeys)
+    assert cli.main(["idealize", str(path), "--condition", condition]) == 0
+    assert [c["keys"] for c in sidecar.calls] == [members[:2]] * len(sidecar.calls)
+    assert core.read_idealization(path, "vbconhmm").n_molecules == 2
+
+
+def _conditions_members(path: Path) -> dict[str, list[str]]:
+    from tether.project.core import Project
+
+    return Project.open(path).molecules_by_condition()
+
+
 def _conditions(path: Path) -> list[str]:
     from tether.project.core import Project
 

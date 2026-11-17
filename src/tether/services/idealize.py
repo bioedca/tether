@@ -308,6 +308,9 @@ def run(request: IdealizeRequest) -> IdealizeResult:
         raise CommandFailed(f"cannot take the lock of {request.project}: {exc}") from exc
     try:
         if not request.stale_only:
+            # Under the lock, so the fit takes the molecules in the conditions now; the
+            # selection above only refused an unknown condition before the probe.
+            keys = _selected_keys(project, request.conditions)
             fitted = supervise_idealize(
                 core.idealize_molecules,
                 project,
