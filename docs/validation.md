@@ -183,16 +183,19 @@ and gates registration RMS only when the map is fit natively (an imported `.tmap
 it as not applicable). Its own behavior is pinned without the movie by
 `tests/test_run_m1_oracle.py`.
 
-**Newest recorded run.** On the maintainer's workstation on 2026-11-13, at commit `3697f80`
-(a run by hand of the pull request of [#699](https://github.com/bioedca/tether/issues/699),
-before the weekly task had a `main` commit that holds this check): **passed**, matched fraction
-0.984 (246 of 250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854.
-The numbers agree with ADR-0022. The record is
+**Newest recorded run.** On the maintainer's workstation on 2026-11-14, at commit `19796a9`
+on `main` (a scheduled run of the workstation task): **passed**, matched fraction 0.984 (246 of
+250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854. The first
+scheduled run that held this check, earlier that day, and the run by hand of the pull request of
+[#699](https://github.com/bioedca/tether/issues/699) on 2026-11-13 gave the same numbers. The
+numbers agree with ADR-0022. The record is
 [`docs/validation/oracle-a-last-run.json`](validation/oracle-a-last-run.json), one check entry of
 a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
-step. Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
+step.
+
+Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
 reads one stops when the file is not the pinned one; the pins were measured on the workstation
-on 2026-11-13 after this run, and they are the full digests the fixture provenance table
+on 2026-11-13, and they are the full digests the fixture provenance table
 records. A deliberate regression (the donor traces reversed in time) made the same check fail at the
 donor Pearson gate; the demonstration is recorded on
 [#699](https://github.com/bioedca/tether/issues/699).
