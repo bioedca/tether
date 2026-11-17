@@ -42,7 +42,8 @@ tether extract: error: argument --donor-side: invalid choice: 'middle' (choose f
 ```
 
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
-crop tuple is returned by [`_half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) in `tether.project.extract`, and detection
+half the default side-by-side layout names donor (`resolve_channel_layout` in
+`tether.project.extract`), and detection
 is [donor-anchored](glossary.md#donor-anchored-colocalization) — so the swapped run still
 colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the two channels
 gives exactly `1 − E`.
@@ -111,16 +112,18 @@ chosen split.
 ```text
 Batch run: 1 movie(s), 1 ok, 0 failed (policy=warn, idealize=on)
   ok    warp_010  extract=done correct=done idealize=deferred
+Deferred: idealize in 1 of 1 movie(s); re-run the same command to resume.
+Exit code 3: no movie failed, but a requested stage was deferred for at least one movie.
 ```
 
-Exit code `0`. `/idealization` is empty.
+Exit code `3`. `/idealization` is empty.
 
 **Cause.** `tether batch` probes the sidecar once at startup. When no interpreter resolves,
 and `defer_if_unavailable` is on (the default), the idealize stage is recorded as
-`deferred` rather than `failed` — and `deferred` is not a failure, so `n_failed` stays `0`
-and the CLI returns `0` (`tether.project.batch`). The *reason* is logged at `INFO`, below
-Python's last-resort handler threshold, so it never reaches your console; the word
-`deferred` in the stage list is the only tell.
+`deferred` rather than `failed`. `deferred` is not a failure, so `n_failed` stays `0`, but
+`BatchSummary.n_deferred` counts the movie and the CLI returns `3` (`tether.cli`). The
+*reason* is logged at `INFO`, below Python's last-resort handler threshold, so it never
+reaches your console; the stage list, the `Deferred:` line and the exit code are the tells.
 
 > **Signature.** `/settings/batch.attrs["idealize_status"] == "deferred"`, `/idealization`
 > empty, and the JSONL log carries the explanation:
@@ -145,11 +148,13 @@ which fails each movie's idealize stage in isolation and exits `1`:
 warp_010 · idealize: failed — no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed
 Batch run: 1 movie(s), 0 ok, 1 failed (policy=warn, idealize=on)
   FAIL  warp_010  extract=done correct=done idealize=failed(no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed)
+Exit code 1: at least one movie had a failed stage.
 ```
 
 The first line is `BatchLog.event`'s console record — it joins movie and stage with a middle
-dot (` · `) and the error with an **em dash** (` — `). The last two lines are
+dot (` · `) and the error with an **em dash** (` — `). The next two lines are
 `BatchSummary.format_report`, which appends the error text only because the stage is `failed`.
+The last line is the exit-code line that `tether batch` prints after the report.
 
 ### The batch says `correct=done` but no corrections were applied
 
@@ -219,7 +224,7 @@ re-export (`tether.analysis.histogram`, `.cloud`, `tether.gui.trace_dock`,
   ok    warp_010  extract=skipped correct=skipped idealize=deferred
 ```
 
-The results are the old ones, reported as `ok`, exit `0`.
+The results are the old ones, reported as `ok`, exit `3` (idealization was deferred again).
 
 **Cause.** For a normal completed extraction, [`_do_extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/batch.py) in
 `tether.project.batch` finds the `/settings/extraction` checkpoint and returns `skipped`;
@@ -552,6 +557,25 @@ loaded project stays in place.
 ---
 
 ## Setup and environment failures
+
+### The terminal does not find `tether`
+
+**Symptom.** You type `tether --version` after installing, and the terminal does not know the
+command. These messages come from the terminal, not from Tether: `tether: command not found`
+on Linux and macOS, *"is not recognized as the name of a cmdlet"* in Windows PowerShell, and
+*"is not recognized as an internal or external command"* in a Windows Command Prompt.
+
+**Cause.** The installer does not edit your `PATH` (ADR-0051), so a new terminal does not know
+the folder that holds Tether's launchers. The installer is not broken. The launchers are in
+the install folder, written by `packaging/scripts/post_install.sh` or `post_install.bat`.
+
+**Remedy.**
+
+- **Windows**, from the next release: open the Start menu, choose **Tether Command Prompt**,
+  and type the command there. That console finds `tether` for as long as it is open, and your
+  `PATH` does not change ([#666](https://github.com/bioedca/tether/issues/666)).
+- **Any system:** run the launcher by its full path, or put the launcher folder on your `PATH`
+  once. [Install Tether, step 4](install.md#4-open-a-terminal-where-tether-works) gives both.
 
 ### Idealization cannot find the sidecar interpreter
 
@@ -939,9 +963,13 @@ are on the [Deep trace classifier](ml/deep-classifier.md#gpu-cuda-setup) page.
 | Command | `0` | `1` | `2` |
 |---|---|---|---|
 | `tether extract` | success — **including a low-confidence-registration warning** | the run failed; the message is on stderr as `tether extract: <msg>` | argparse rejected the command line |
-| `tether batch` | every movie finished without a `failed` stage — **including `deferred`**, `not-requested` and `warning` | at least one movie had a failed stage | argparse rejected the command line, **or** the run refused to start (colliding output basenames, a bad supervision argument) |
+| `tether batch` | every requested stage ran for every movie (`not-requested` and `warning` included) | at least one movie had a failed stage | argparse rejected the command line, **or** the run refused to start (colliding output basenames, a bad supervision argument) |
 | `tether export` | every export was written | at least one export failed; each failure is one `tether export <form>: <msg>` line on stderr | argparse rejected the command line, **or** the export refused to start (two projects mapping to one export, `-o` a file where a folder is needed) |
 | `tether` (no subcommand) | prints help | — | an unknown subcommand or top-level flag |
+
+`tether batch` has a fourth code, `3`: no movie failed, and at least one requested stage was
+`deferred`. `1` takes precedence over `3`. See
+[The batch finished "ok" but nothing was idealized](#the-batch-finished-ok-but-nothing-was-idealized).
 
 Two notes on that table:
 

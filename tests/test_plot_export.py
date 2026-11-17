@@ -439,6 +439,97 @@ def test_render_transition_density_log_scale_survives_an_empty_tdp(tmp_path):
     _assert_valid(result)
 
 
+def test_render_transition_density_draws_the_smoothed_view(tmp_path):
+    """#1029: the smoothed view is drawn as checkTDP.py draws it — an image on its
+    interpolation grid, initial E on x, final E on y — and its settings are recorded."""
+    from matplotlib.colors import LogNorm
+    from matplotlib.image import AxesImage
+
+    from tether.analysis.tdp import smooth_transition_density
+
+    tdp = _tdp_with_empty_bins()
+    counts_before = np.asarray(tdp.counts).copy()
+    view = smooth_transition_density(tdp)
+    fig = pe.render_transition_density(view)
+    ax = fig.axes[0]
+    assert not [c for c in ax.collections if isinstance(c, QuadMesh)]
+    (image,) = [i for i in ax.get_images() if isinstance(i, AxesImage)]
+    # values is [initial, final]; the image rows are final E (origin lower), columns initial E.
+    np.testing.assert_array_equal(np.asarray(image.get_array()), view.values.T)
+    assert image.origin == "lower"
+    step = view.grid[1] - view.grid[0]
+    lo, hi = tdp.signal_range
+    np.testing.assert_allclose(image.get_extent(), [lo - step / 2, hi + step / 2] * 2)
+    assert ax.get_xlim() == pytest.approx(tdp.signal_range)
+    # The peak is at (initial 0.2, final 0.8): the 40-count transition, not its mirror.
+    rows, cols = np.unravel_index(np.argmax(image.get_array()), view.values.T.shape)
+    assert abs(view.grid[cols] - 0.2) < 0.02 and abs(view.grid[rows] - 0.8) < 0.02
+    # Log floor at 1e-4 of the peak (checkTDP.py's color_floor on its normalized array).
+    assert isinstance(image.norm, LogNorm)
+    assert image.norm.vmax == pytest.approx(1.0)
+    assert image.norm.vmin == pytest.approx(1e-4)
+    assert fig.axes[1].get_ylabel() == "Normalized density"
+    # The counts underneath are untouched (NFR-REPRO).
+    np.testing.assert_array_equal(tdp.counts, counts_before)
+    result = pe.export_figure(
+        fig, tmp_path / "b1s", tether_export="plot:b1", source="s", parameters={}
+    )
+    _assert_valid(result)
+    payload = json.loads(result.provenance_path.read_text(encoding="utf-8"))
+    assert payload["parameters"]["display"] == {
+        "color_scale": "log",
+        "smoothing": {"smooth": [1.0, 1.0], "interp_res": 800, "normalized": True},
+    }
+
+
+def test_render_smoothed_view_linear_and_unnormalized(tmp_path):
+    from tether.analysis.tdp import smooth_transition_density
+
+    tdp = _tdp_with_empty_bins()
+    view = smooth_transition_density(tdp, interp_res=0, normalize=False)
+    fig = pe.render_transition_density(view, color_scale="linear")
+    (image,) = fig.axes[0].get_images()
+    assert image.norm.vmin == 0.0
+    assert image.norm.vmax == pytest.approx(float(view.values.max()))
+    assert fig.axes[1].get_ylabel() == "Smoothed counts"
+    result = pe.export_figure(
+        fig, tmp_path / "b1s", tether_export="plot:b1", source="s", parameters={}
+    )
+    payload = json.loads(result.provenance_path.read_text(encoding="utf-8"))
+    assert payload["parameters"]["display"]["smoothing"] == {
+        "smooth": [1.0, 1.0],
+        "interp_res": 0,
+        "normalized": False,
+    }
+
+
+def test_render_smoothed_view_of_one_bin_fills_the_signal_range():
+    from tether.analysis.tdp import smooth_transition_density, transition_density
+
+    tdp = transition_density(
+        [np.array([0.2, 0.8])], nskip=1, signal_bins=1, signal_range=(-0.25, 1.25)
+    )
+    view = smooth_transition_density(tdp, interp_res=0)
+    assert view.grid.size == 1
+    fig = pe.render_transition_density(view)
+    (image,) = fig.axes[0].get_images()
+    np.testing.assert_allclose(image.get_extent(), [-0.25, 1.25, -0.25, 1.25])
+
+
+def test_render_smoothed_view_of_an_empty_tdp(tmp_path):
+    from tether.analysis.tdp import smooth_transition_density, transition_density
+
+    view = smooth_transition_density(transition_density([np.full(6, 0.5)]))
+    fig = pe.render_transition_density(view)
+    (image,) = fig.axes[0].get_images()
+    rgba = image.to_rgba(view.values)
+    assert np.all(np.isfinite(rgba))
+    result = pe.export_figure(
+        fig, tmp_path / "b1s", tether_export="plot:b1", source="s", parameters={}
+    )
+    _assert_valid(result)
+
+
 def test_render_transition_density_rejects_an_unknown_color_scale():
     tdp = _tdp_with_empty_bins()
     with pytest.raises(ValueError, match="color_scale"):
