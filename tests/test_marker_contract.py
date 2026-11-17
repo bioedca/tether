@@ -780,6 +780,12 @@ def _sidecar_inputs() -> set[str]:
         # settings of the live run from its [tool.pytest.ini_options] (#833).
         REPO_ROOT / "pyproject.toml",
         SIDECAR_WORKFLOW,
+        # test_cli_idealize_sidecar.py runs the command through its service and compares
+        # it with the library fit, so all of them decide its live result (#657).
+        REPO_ROOT / "src" / "tether" / "cli.py",
+        REPO_ROOT / "src" / "tether" / "services" / "idealize.py",
+        REPO_ROOT / "src" / "tether" / "project" / "idealize.py",
+        REPO_ROOT / "src" / "tether" / "idealize_choices.py",
     }
     inputs |= set(_sidecar_tier_files())
     fixtures = [path for path in (TESTS_DIR / "fixtures").rglob("*") if path.is_file()]
