@@ -183,6 +183,17 @@ def test_overlaid_series_are_drawn_in_one_axis_with_a_label_each(results, kind):
     assert any(t.startswith("mutant") for t in texts), texts
 
 
+@pytest.mark.parametrize("kind", OVERLAID)
+def test_a_series_label_starting_with_an_underscore_keeps_its_legend_entry(results, kind):
+    # Matplotlib's automatic legend skips labels that start with "_"; a caller's own
+    # series name must not lose its entry that way while its curve is still drawn.
+    wt, mut = results[kind]
+    fig = RENDER[kind]([("_control", wt), ("mutant", mut)])
+    texts = [t.get_text() for t in _panels(fig)[0].get_legend().get_texts()]
+    assert any(t.startswith("_control") for t in texts), texts
+    assert any(t.startswith("mutant") for t in texts), texts
+
+
 @pytest.mark.parametrize("kind", SMALL_MULTIPLES)
 def test_series_that_cannot_share_an_axis_are_small_multiples(results, tmp_path, kind):
     fig = RENDER[kind](_two(results, kind))

@@ -732,6 +732,17 @@ def _labelled(label: str, n_molecules: int | None) -> str:
     return label if n_molecules is None else f"{label} (N = {n_molecules})"
 
 
+def _series_legend(ax: Any, handles: list[Any], **kwargs: Any) -> None:
+    """Draw a legend of exactly ``handles``, under the labels they were drawn with.
+
+    Matplotlib's automatic legend leaves out every artist whose label starts with an
+    underscore, which would drop a series a caller named ``_control`` while its curve is
+    still drawn. The handles are passed explicitly, in drawing order, so every series
+    keeps its entry under the name the caller gave it.
+    """
+    ax.legend(handles=handles, labels=[h.get_label() for h in handles], **kwargs)
+
+
 def _panel_shape(n: int) -> tuple[int, int]:
     """``(rows, columns)`` of a near-square grid of ``n`` small multiples."""
     cols = math.ceil(math.sqrt(n))
@@ -856,10 +867,11 @@ def render_histogram1d(
     )
     fig = _new_figure(figsize)
     ax = fig.add_subplot()
+    handles: list[Any] = []
     for k, ((label, h), (_, base), model) in enumerate(zip(series, bases, overlays, strict=True)):
         style = series_style(k)
         edges = np.asarray(base.bin_edges, dtype="float64")
-        ax.stairs(
+        handle = ax.stairs(
             np.asarray(base.counts, dtype="float64"),
             edges,
             fill=False,
@@ -868,8 +880,9 @@ def render_histogram1d(
             lw=1.5,
             label=_labelled(label, base.n_molecules),
         )
+        handles.append(handle)
         if isinstance(h, HistogramBootstrapCI):
-            ax.fill_between(
+            band = ax.fill_between(
                 _bin_centers(edges),
                 np.asarray(h.ci_low, dtype="float64"),
                 np.asarray(h.ci_high, dtype="float64"),
@@ -879,8 +892,9 @@ def render_histogram1d(
                 linewidth=0,
                 label=f"{label}: {h.ci_level:.0%} CI",
             )
+            handles.append(band)
         if model is not None:
-            ax.plot(
+            (line,) = ax.plot(
                 np.asarray(model.x, dtype="float64"),
                 np.asarray(model.total, dtype="float64"),
                 color=style.color,
@@ -888,12 +902,13 @@ def render_histogram1d(
                 ls=(0, (1, 1)),
                 label=f"{label}: model",
             )
+            handles.append(line)
     first = bases[0][1]
     ax.set_xlim(first.value_range)
     ax.set_xlabel("Apparent FRET efficiency $E$")
     ax.set_ylabel("Density" if first.density else "Counts")
     ax.set_title(title)
-    ax.legend(loc="upper left", fontsize=8, frameon=False)
+    _series_legend(ax, handles, loc="upper left", fontsize=8, frameon=False)
     _record_series(
         fig,
         series,
@@ -1306,9 +1321,10 @@ def render_dwell_survival(
         ax = fig.add_subplot()
         ax_res = None
     notes: list[str] = []
+    handles: list[Any] = []
     for k, ((label, a), ok) in enumerate(zip(series, fitted, strict=True)):
         style = series_style(k)
-        ax.semilogy(
+        (points,) = ax.semilogy(
             np.asarray(a.tau, dtype="float64"),
             np.clip(np.asarray(a.survival, dtype="float64"), 1e-6, None),
             marker="o",
@@ -1317,10 +1333,11 @@ def render_dwell_survival(
             color=style.color,
             label=f"{label} · state {a.state} (N = {a.n_molecules})",
         )
+        handles.append(points)
         note = f"{label}: {a.n_dwells} dwells · level {a.level:.2f}"
         if ok and a.fit is not None:
             fit = a.fit
-            ax.semilogy(
+            (curve,) = ax.semilogy(
                 np.asarray(fit.tau, dtype="float64"),
                 np.clip(np.asarray(fit.model_survival, dtype="float64"), 1e-6, None),
                 color=style.color,
@@ -1328,6 +1345,7 @@ def render_dwell_survival(
                 lw=1.5,
                 label=f"{label}: {fit.model} exp fit ($R^2$={fit.r_squared:.3f})",
             )
+            handles.append(curve)
             rates = ", ".join(f"{r:.3g}" for r in np.asarray(fit.rates, dtype="float64"))
             note += f" · k = {rates}"
             if ax_res is not None:
@@ -1342,7 +1360,7 @@ def render_dwell_survival(
     unit = "Dwell time (s)" if series[0][1].dt != 1.0 else "Dwell time (frames)"
     ax.set_ylabel("Survival $S(t)$")
     ax.set_title(title if title is not None else "Dwell survival (B2)")
-    ax.legend(loc="upper right", fontsize=7, frameon=False)
+    _series_legend(ax, handles, loc="upper right", fontsize=7, frameon=False)
     ax.annotate(
         "\n".join(notes),
         xy=(0.03, 0.03),
@@ -1477,9 +1495,10 @@ def render_transition_prob(
     pair = f"$P({first.init_state}\\to{first.final_state})$"
     fig = _new_figure(figsize)
     ax = fig.add_subplot()
+    handles: list[Any] = []
     for k, (label, h) in enumerate(series):
         style = series_style(k)
-        ax.stairs(
+        handle = ax.stairs(
             np.asarray(h.counts, dtype="float64"),
             np.asarray(h.edges, dtype="float64"),
             fill=False,
@@ -1488,6 +1507,7 @@ def render_transition_prob(
             lw=1.5,
             label=_labelled(label, h.n_molecules),
         )
+        handles.append(handle)
         if h.kde_x is not None and h.kde_y is not None:
             ax.plot(
                 np.asarray(h.kde_x, dtype="float64"),
@@ -1500,7 +1520,7 @@ def render_transition_prob(
     ax.set_xlabel(f"{pair} per molecule")
     ax.set_ylabel("Density" if first.density else "Counts")
     ax.set_title(title if title is not None else f"Transition-probability {pair} (B3)")
-    ax.legend(loc="upper left", fontsize=8, frameon=False)
+    _series_legend(ax, handles, loc="upper left", fontsize=8, frameon=False)
     _record_series(fig, series, display=_overlay_display(fig, len(series)))
     return fig
 
@@ -1589,12 +1609,13 @@ def render_state_number(
     width = 0.8 / len(series)
     fig = _new_figure(figsize)
     ax = fig.add_subplot()
+    handles: list[Any] = []
     for k, (label, c) in enumerate(series):
         style = series_style(k)
         name = _labelled(label, c.n_molecules)
         if c.n_out_of_range:
             name += f", {c.n_out_of_range} out of range"
-        ax.bar(
+        bars = ax.bar(
             states + (k - (len(series) - 1) / 2) * width,
             np.asarray(c.counts, dtype="int64"),
             width=width,
@@ -1604,11 +1625,12 @@ def render_state_number(
             linewidth=0.5,
             label=name,
         )
+        handles.append(bars)
     ax.set_xticks(states)
     ax.set_xlabel("Number of occupied states")
     ax.set_ylabel("Molecules")
     ax.set_title(title)
-    ax.legend(loc="best", fontsize=8, frameon=False)
+    _series_legend(ax, handles, loc="best", fontsize=8, frameon=False)
     _set_display(fig, series_layout="grouped_bars", series_cycle=SERIES_COLOR_CYCLE)
     bars = [series_style(k) for k in range(len(series))]
     _record_series(fig, series, display=[{"color": b.color, "hatch": b.hatch} for b in bars])
@@ -1852,9 +1874,10 @@ def render_cross_correlation(
     ax = fig.add_subplot()
     ax.axhline(0.0, color="k", lw=0.6)
     ax.axvline(0.0, color="k", lw=0.6, ls=":")
+    handles: list[Any] = []
     for k, (label, c) in enumerate(series):
         style = series_style(k)
-        ax.plot(
+        (line,) = ax.plot(
             np.asarray(c.lags, dtype="float64"),
             np.asarray(c.values, dtype="float64"),
             color=style.color,
@@ -1862,10 +1885,11 @@ def render_cross_correlation(
             lw=1.2,
             label=f"{_labelled(label, c.n_molecules)} · {c.n_frames} frames",
         )
+        handles.append(line)
     ax.set_xlabel("Lag (frames)")
     ax.set_ylabel(f"Cross-correlation ({series[0][1].normalize})")
     ax.set_title(title)
-    ax.legend(loc="upper right", fontsize=8, frameon=False)
+    _series_legend(ax, handles, loc="upper right", fontsize=8, frameon=False)
     _record_series(fig, series, display=_overlay_display(fig, len(series)))
     return fig
 
@@ -2273,6 +2297,7 @@ def render_alpha_shape(
     fig = _new_figure(figsize)
     ax = fig.add_subplot()
     notes: list[str] = []
+    handles: list[Any] = []
     for k, ((label, s), c) in enumerate(zip(series, clouds, strict=True)):
         style = series_style(k)
         if c is not None:
@@ -2284,15 +2309,15 @@ def render_alpha_shape(
                     shown[:, 0], shown[:, 1], s=2, color=style.color, alpha=0.15, linewidths=0
                 )
         if not s.is_empty:
-            ax.add_collection(
-                LineCollection(
-                    np.asarray(s.boundary_edges, dtype="float64"),
-                    colors=style.color,
-                    linestyles=style.linestyle,
-                    linewidths=1.2,
-                    label=label,
-                )
+            boundary = LineCollection(
+                np.asarray(s.boundary_edges, dtype="float64"),
+                colors=style.color,
+                linestyles=style.linestyle,
+                linewidths=1.2,
+                label=label,
             )
+            ax.add_collection(boundary)
+            handles.append(boundary)
         notes.append(f"{label}: {_alpha_note(s)} · {s.n_points} points")
     if with_cloud:
         ax.set_xlim(with_cloud[0][1].time_range)
@@ -2302,8 +2327,8 @@ def render_alpha_shape(
     ax.set_xlabel("Time (s)" if dts[0] != 1.0 else "Frame")
     ax.set_ylabel("Apparent FRET efficiency $E$")
     ax.set_title(title)
-    if any(not s.is_empty for _, s in series):
-        ax.legend(loc="lower right", fontsize=8, frameon=False)
+    if handles:
+        _series_legend(ax, handles, loc="lower right", fontsize=8, frameon=False)
     ax.annotate(
         "\n".join(notes),
         xy=(0.03, 0.95),
@@ -2435,13 +2460,14 @@ def render_state_number_elbow(
     ax = fig.add_subplot()
     notes: list[str] = []
     probed: set[int] = set()
+    handles: list[Any] = []
     for k, (label, e) in enumerate(series):
         style = series_style(k)
         ks = np.asarray(e.k_values, dtype="int64")
         rmse = np.asarray(e.rmse, dtype="float64")
         probed.update(int(v) for v in ks)
         if ks.size:
-            ax.plot(
+            (line,) = ax.plot(
                 ks,
                 rmse,
                 marker="o",
@@ -2451,6 +2477,7 @@ def render_state_number_elbow(
                 lw=1.2,
                 label=label,
             )
+            handles.append(line)
         if e.elbow_k is not None:
             (at,) = np.flatnonzero(ks == int(e.elbow_k))
             ax.plot([ks[at]], [rmse[at]], "o", ms=9, mfc="none", mec=style.color, mew=1.5)
@@ -2461,7 +2488,7 @@ def render_state_number_elbow(
             notes.append(f"{label}: no elbow · {e.n_samples} samples · seed {e.seed}")
     if probed:
         ax.set_xticks(sorted(probed))
-        ax.legend(loc="upper right", fontsize=8, frameon=False)
+        _series_legend(ax, handles, loc="upper right", fontsize=8, frameon=False)
     ax.set_xlabel("Number of clusters $k$")
     ax.set_ylabel("Within-cluster RMSE of $E$")
     ax.set_title(title)
