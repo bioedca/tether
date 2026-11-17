@@ -311,10 +311,14 @@ def run_export(args: argparse.Namespace) -> int:
     projects = [Path(p) for p in args.projects]
     try:
         targets, folder = _targets(form, projects, Path(args.output))
+        refusal = _input_overwritten(form, targets)
     except _UsageError as exc:
         print(f"{prog}: {exc}", file=sys.stderr)
         return 2
-    refusal = _input_overwritten(form, targets)
+    except OSError as exc:
+        # A path the checks cannot stat (a name too long, a folder it may not read).
+        print(f"{prog}: {exc}", file=sys.stderr)
+        return 1
     if refusal is not None:
         print(f"{prog}: {refusal}", file=sys.stderr)
         return 1

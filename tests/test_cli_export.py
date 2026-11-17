@@ -462,6 +462,22 @@ def test_an_output_folder_that_cannot_be_made_fails_with_code_1(source, tmp_path
     assert capsys.readouterr().err.startswith("tether export traces: ")
 
 
+@pytest.mark.parametrize("form", ["table", "traces", "subset"])
+def test_an_unreadable_output_path_fails_with_code_1(source, tmp_path, capsys, form) -> None:
+    """An error while checking ``-o`` is one stderr line and exit 1, never a traceback.
+
+    A path component longer than the file system allows makes ``Path.is_dir`` raise
+    ``OSError`` (``ENAMETOOLONG``) before any export starts.
+    """
+    path, _ = source
+    output = tmp_path / ("x" * 300) / "out"
+
+    assert main(["export", form, str(path), "-o", str(output)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"tether export {form}: ")
+    assert len(err.strip().splitlines()) == 1
+
+
 def test_several_projects_and_an_output_file_is_refused_with_code_2(source, tmp_path) -> None:
     path, _ = source
     other = _second(tmp_path)
