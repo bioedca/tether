@@ -180,8 +180,9 @@ class MovieResult:
 
     ``donor_side`` is the advisory donor-side check read back from the movie's stored
     extraction provenance (#646, ADR-0070): the check's record from
-    ``/settings/extraction`` plus the ``donor_side`` and ``registration_source`` it was
-    extracted with, or ``None`` when the movie has no readable record.
+    ``/settings/extraction`` plus the ``donor_side``, ``registration_source`` and
+    channel layout (#908, ``None`` when none was given) it was extracted with, or
+    ``None`` when the movie has no readable record.
     """
 
     job: MovieJob
@@ -268,12 +269,19 @@ class BatchSummary:
 
 def _describe_donor_side(record: dict[str, Any] | None) -> str:
     """The donor-side check's operator sentence for a stored record (#646)."""
+    from tether.imaging.layout import ChannelLayout  # noqa: PLC0415
     from tether.imaging.side_check import DonorSideCheck  # noqa: PLC0415
 
     record = dict(record or {})
     donor_side = str(record.pop("extracted_donor_side", "left"))
     imported = record.pop("registration_source", "native") == "imported"
-    return DonorSideCheck.from_dict(record).describe(donor_side=donor_side, imported_map=imported)
+    # The layout the movie was extracted with (#908), stored as its to_dict() form; it
+    # names its own donor, so the remedy changes the layout, not --donor-side (#1157).
+    raw_layout = record.pop("extracted_channel_layout", None)
+    layout = ChannelLayout.from_dict(raw_layout) if isinstance(raw_layout, dict) else None
+    return DonorSideCheck.from_dict(record).describe(
+        donor_side=donor_side, imported_map=imported, channel_layout=layout
+    )
 
 
 # --- Structured log ----------------------------------------------------------
@@ -430,9 +438,17 @@ def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
     answer for a fresh extraction and for a resumed one whose extract stage was skipped.
     A profile with no record (an extraction older than the check), or one that cannot be
     read, gives ``None``: the check is advisory, so a missing record is silence.
+
+    The extraction's channel layout (#908) rides along as ``extracted_channel_layout``,
+    normalized through [`ChannelLayout`][tether.imaging.layout.ChannelLayout] so the
+    report can trust it; ``None`` when the extraction was given no layout. A stored
+    layout that does not rebuild makes the whole record unreadable, because the
+    remedy would otherwise name the wrong setting (#1157).
     """
     try:
         import h5py  # noqa: PLC0415
+
+        from tether.imaging.layout import ChannelLayout  # noqa: PLC0415
 
         with h5py.File(path, "r") as f:
             raw_profile = f[f"/{_SETTINGS_GROUP}/{_EXTRACTION_SETTINGS}"].attrs.get("profile_json")
@@ -442,10 +458,15 @@ def _stored_donor_side_check(path: Path) -> dict[str, Any] | None:
         record = profile.get("donor_side_check") if isinstance(profile, dict) else None
         if not isinstance(record, dict):
             return None
+        raw_layout = profile.get("channel_layout")
+        if raw_layout is not None and not isinstance(raw_layout, dict):
+            return None
+        layout = None if raw_layout is None else ChannelLayout.from_dict(raw_layout).to_dict()
         return {
             **record,
             "extracted_donor_side": profile.get("donor_side", "left"),
             "registration_source": profile.get("registration_source", "native"),
+            "extracted_channel_layout": layout,
         }
     except (KeyError, TypeError, ValueError, RecursionError, OSError):
         return None

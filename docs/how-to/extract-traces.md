@@ -131,7 +131,10 @@ starting `detection: mode`, naming what was applied. Then check three things:
       Extract again as the message says, with `--overwrite`, which replaces
       `movie.tether`. With `--tmap` the message names the map's channel order instead,
       because `--donor-side` is ignored: extract again with a correctly oriented map or
-      without `--tmap`.
+      without `--tmap`. With a channel layout from Python
+      ([other layouts](../compatibility.md#acquisition-geometry)), the message names a
+      change to the layout. Give the other half as the donor, or exchange `donor_rect` and
+      `acceptor_rect`.
     - `donor side: not enough bleach events to check the donor side (…)`, or a result that
       is *not a clear majority either way*. The check cannot decide, which is usual with
       low FRET, with no acceptor, or with few molecules. Check by eye.

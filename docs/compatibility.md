@@ -89,6 +89,10 @@ stacked and not rotated, with the donor `top` or `bottom`. A `rectangles` layout
 size, so a layout that gives two different sizes is refused. A rectangle outside the frame is
 refused too, and overlapping rectangles give a warning.
 
+The donor-side check also works with a layout. When it finds swapped channels, its message names
+a change to the layout. It does not name `--donor-side`. For a half layout, give the other half as
+the donor. For a `rectangles` layout, exchange `donor_rect` and `acceptor_rect`.
+
 Each movie's layout is stored as `/movies/layouts/<movie_id>` in the project. There is no
 command-line option for a layout yet, and no rotation or flip of a channel; a movie whose two
 channels are separate files is not supported yet either.

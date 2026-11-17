@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, fields
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -78,6 +79,9 @@ from tether.fret.photobleach import (
     PB_PRIOR_MU,
     detect_photobleach,
 )
+
+if TYPE_CHECKING:
+    from tether.imaging.layout import ChannelLayout
 
 __all__ = [
     "EVENT_CONSISTENT",
@@ -289,11 +293,22 @@ class DonorSideCheck:
         names = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in record.items() if k in names})  # type: ignore[arg-type]
 
-    def describe(self, *, donor_side: str = "left", imported_map: bool = False) -> str:
+    def describe(
+        self,
+        *,
+        donor_side: str = "left",
+        imported_map: bool = False,
+        channel_layout: ChannelLayout | None = None,
+    ) -> str:
         """One plain sentence for the operator, with the evidence and the remedy.
 
         ``donor_side`` is the side the movie was extracted with; ``imported_map`` says
         the split came from an imported ``.tmap``, where ``--donor-side`` does not apply.
+        ``channel_layout`` is the [`ChannelLayout`][tether.imaging.layout.ChannelLayout]
+        the extraction was given (#908), or ``None`` when the split came from
+        ``donor_side``. A layout names its own donor, so the remedy for swapped halves
+        then changes the layout (the other half as the donor, or the two rectangles
+        exchanged) and never mentions ``--donor-side`` (#1157).
         """
         if self.verdict == VERDICT_NOT_RUN:
             return f"the donor-side check did not run ({self.reason})"
@@ -309,6 +324,8 @@ class DonorSideCheck:
                     "check the channel order of the .tmap, or extract again without --tmap "
                     "and with the right --donor-side"
                 )
+            elif channel_layout is not None:
+                remedy = _layout_remedy(channel_layout)
             else:
                 other = "right" if donor_side == "left" else "left"
                 remedy = f"extract this movie again with --donor-side {other}"
@@ -322,6 +339,25 @@ class DonorSideCheck:
             f"{self.n_consistent} of {self.n_events} bleach events agree with the donor side "
             "as extracted"
         )
+
+
+def _layout_remedy(layout: ChannelLayout) -> str:
+    """The swapped-halves remedy for an extraction given a channel layout (#1157).
+
+    A half layout takes its other half as the donor; a ``rectangles`` layout
+    exchanges its two rectangles. Neither is a ``--donor-side`` value, which applies
+    only when no layout is given.
+    """
+    if layout.donor_rect is not None and layout.acceptor_rect is not None:
+        return (
+            "extract this movie again with donor_rect and acceptor_rect exchanged in the "
+            f"{layout.kind} channel layout (now donor_rect {list(layout.donor_rect)}, "
+            f"acceptor_rect {list(layout.acceptor_rect)})"
+        )
+    return (
+        f"extract this movie again with a {layout.kind} channel layout whose donor is "
+        f"{layout.acceptor}, not {layout.donor}"
+    )
 
 
 def check_donor_side(

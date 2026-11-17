@@ -235,6 +235,7 @@ def _run_extract(args: argparse.Namespace) -> int:
         note = check.describe(
             donor_side=request.donor_side,
             imported_map=summary.registration_source == "imported",
+            channel_layout=summary.channel_layout,
         )
         if check.swapped:
             print(f"  warning: {note}.", file=sys.stderr)
