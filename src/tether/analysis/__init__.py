@@ -64,7 +64,10 @@ Added at M6 (FR-ANALYZE, PRD §7.7, Appendix C plot A1):
   [`population_transition_density`][tether.analysis.tdp.population_transition_density] — the B1 real
   Transition
   Density Plot: the initial-vs-final idealized-FRET density over state-change frames of
-  a population's *fresh* idealizations [McKinney2006].
+  a population's *fresh* idealizations [McKinney2006];
+  [`smooth_transition_density`][tether.analysis.tdp.smooth_transition_density] is its
+  drawn view (Gaussian filter, bicubic spline, normalization to the maximum), a view of
+  the stored counts and never a reported number.
 - [`state_dwells`][tether.analysis.dwell.state_dwells] /
   [`survival_curve`][tether.analysis.dwell.survival_curve] /
   [`fit_survival`][tether.analysis.dwell.fit_survival] /
@@ -304,11 +307,16 @@ from tether.analysis.state_number import (
     state_number_counts,
 )
 from tether.analysis.tdp import (
+    DEFAULT_TDP_INTERP_RES,
+    DEFAULT_TDP_NORMALIZE,
     DEFAULT_TDP_NSKIP,
     DEFAULT_TDP_SIGNAL_BINS,
     DEFAULT_TDP_SIGNAL_RANGE,
+    DEFAULT_TDP_SMOOTH,
+    SmoothedTransitionDensity,
     TransitionDensityPlot,
     population_transition_density,
+    smooth_transition_density,
     transition_density,
 )
 from tether.analysis.transition_prob import (
@@ -378,9 +386,12 @@ __all__ = [
     "DEFAULT_SIGNAL_RANGE",
     "DEFAULT_STATE_NUMBER_LOW",
     "DEFAULT_SYNC_PREFRAME",
+    "DEFAULT_TDP_INTERP_RES",
+    "DEFAULT_TDP_NORMALIZE",
     "DEFAULT_TDP_NSKIP",
     "DEFAULT_TDP_SIGNAL_BINS",
     "DEFAULT_TDP_SIGNAL_RANGE",
+    "DEFAULT_TDP_SMOOTH",
     "DEFAULT_TIME_BINS",
     "DEFAULT_TIME_DT",
     "DEFAULT_TPROB_KDE_BANDWIDTH",
@@ -412,6 +423,7 @@ __all__ = [
     "RawFretCloud",
     "Selection",
     "SelectionFilter",
+    "SmoothedTransitionDensity",
     "StateDwells",
     "StateNumberCounts",
     "StateNumberElbow",
@@ -456,6 +468,7 @@ __all__ = [
     "raw_fret_cloud",
     "resolve_selection",
     "select_molecules",
+    "smooth_transition_density",
     "state_dwells",
     "state_number_counts",
     "survival_curve",
