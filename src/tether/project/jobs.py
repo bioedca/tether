@@ -348,9 +348,17 @@ def _open_for_job_write(path: Path):  # noqa: ANN202 - h5py.File
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-def _write_job(path: Path, job_id: str, **fields: str) -> None:
-    """Change fields of the stored row of ``job_id`` in place."""
+def _write_job(
+    path: Path, job_id: str, check: Callable[[], object] | None = None, **fields: str
+) -> None:
+    """Change fields of the stored row of ``job_id`` in place.
+
+    ``check`` runs once the file is open and before the row changes, so a lock check made
+    there still holds when the open had to wait for a reader.
+    """
     with _open_for_job_write(path) as f:
+        if check is not None:
+            check()
         ds = f[_SETTINGS][_JOBS]
         ids = [_text(v) for v in ds["job_id"]]
         try:
@@ -440,13 +448,30 @@ def reconcile_jobs(project: Project) -> list[str]:
     so the first writer after a crash stores what every reader already reports.
     """
     project._assert_writable()
-    gone = [
-        j.job_id
+    seen = [
+        j
         for j in read_jobs(project.path)
         if j.stored_state is JobState.RUNNING and j.state is JobState.INTERRUPTED
     ]
-    for job_id in gone:
-        _write_job(project.path, job_id, state=JobState.INTERRUPTED.value, ended_utc=_now())
+    gone: list[str] = []
+    for job in seen:
+        # A run may have started since the read; the claim keeps one from starting now, and
+        # a fresh row with the same start is the dead run that was read.
+        try:
+            with _claimed(job.job_id):
+                now = read_job(project.path, job.job_id)
+                if (now.stored_state, now.started_utc, now.owner) != (
+                    JobState.RUNNING,
+                    job.started_utc,
+                    job.owner,
+                ):
+                    continue
+                _write_job(
+                    project.path, job.job_id, state=JobState.INTERRUPTED.value, ended_utc=_now()
+                )
+        except JobError:
+            continue
+        gone.append(job.job_id)
     return gone
 
 
@@ -583,9 +608,12 @@ def _drive(
     held = project._held_lock
     owner = {"host": held.host, "user": held.user, "pid": held.pid, "nonce": nonce}
 
-    def write(**fields: str) -> None:
+    def check() -> None:
         project._assert_held_lock(expected_nonce=nonce)
-        _write_job(path, job.job_id, **fields)
+
+    def write(**fields: str) -> None:
+        check()
+        _write_job(path, job.job_id, check, **fields)
 
     completed = list(job.completed)
     try:

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -343,11 +344,11 @@ def test_two_starts_of_one_job_in_one_process_never_both_run(
     real_write = jobs._write_job
     at_start, go_on = threading.Event(), threading.Event()
 
-    def held_write(path: Path, job_id: str, **fields: str) -> None:
+    def held_write(path: Path, job_id: str, check: object = None, **fields: str) -> None:
         if fields.get("state") == "running" and not at_start.is_set():
             at_start.set()
             assert go_on.wait(30)
-        real_write(path, job_id, **fields)
+        real_write(path, job_id, check, **fields)
 
     monkeypatch.setattr(jobs, "_write_job", held_write)
     ran: list[str] = []
@@ -369,6 +370,83 @@ def test_two_starts_of_one_job_in_one_process_never_both_run(
         thread.join(30)
     assert ran == ["c", "d", "e"]
     assert (first["job"].state, first["job"].completed) == (jobs.JobState.DONE, PARTS)
+
+
+def test_a_steal_while_a_write_waits_for_the_file_stops_the_write(
+    project: Project, tmp_path: Path
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    ready = tmp_path / "ready"
+    reader = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_OPEN, str(project.path), str(ready), "0.6"], cwd=ROOT
+    )
+    thief = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+    try:
+        for _ in range(400):
+            if ready.exists() or reader.poll() is not None:
+                break
+            time.sleep(0.025)
+        assert ready.exists()
+        # The first write passes its lock check, then waits for the reader; the lock is
+        # taken over while it waits.
+        stealer = threading.Timer(0.2, thief.steal_lock)
+        stealer.start()
+        with pytest.raises(LockedError):
+            jobs.run_job(project, job.job_id, lambda *_: None)
+        stealer.join(30)
+    finally:
+        reader.wait(timeout=60)
+    seen = jobs.read_job(project.path, job.job_id)
+    assert (seen.stored_state, seen.completed) == (jobs.JobState.QUEUED, ())
+
+
+def test_a_reconcile_never_stores_interrupted_over_a_run_that_started_after_it_looked(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = jobs.submit_job(project, REQUEST, PARTS)
+    owner = json.dumps({"nonce": project._held_lock.nonce, "pid": os.getpid()})
+    # A run in this process that died without storing its end: running, and not active.
+    jobs._write_job(project.path, job.job_id, state="running", owner=owner, started_utc="t0")
+    assert jobs.read_job(project.path, job.job_id).state is jobs.JobState.INTERRUPTED
+
+    real_read_jobs = jobs.read_jobs
+    looked, go_on = threading.Event(), threading.Event()
+
+    def paused_read_jobs(path: str | Path) -> list[jobs.JobRecord]:
+        out = real_read_jobs(path)
+        if threading.current_thread().name == "late-reconcile" and not looked.is_set():
+            looked.set()
+            assert go_on.wait(30)
+        return out
+
+    monkeypatch.setattr(jobs, "read_jobs", paused_read_jobs)
+    late = threading.Thread(target=jobs.reconcile_jobs, args=(project,), name="late-reconcile")
+    late.start()
+    assert looked.wait(30)
+
+    in_part, finish = threading.Event(), threading.Event()
+
+    def work(part: str, _c: jobs.CancelToken) -> None:
+        if part == "a":
+            in_part.set()
+            assert finish.wait(30)
+
+    retried: dict[str, jobs.JobRecord] = {}
+    retry = threading.Thread(
+        target=lambda: retried.update(job=jobs.retry_job(project, job.job_id, work))
+    )
+    retry.start()
+    try:
+        assert in_part.wait(30)
+        go_on.set()
+        late.join(30)
+        # The late reconcile saw the dead run; the retry that started since is not touched.
+        assert jobs.read_job(project.path, job.job_id).stored_state is jobs.JobState.RUNNING
+    finally:
+        go_on.set()
+        finish.set()
+        retry.join(30)
+    assert retried["job"].state is jobs.JobState.DONE
 
 
 # --- the stale marks (ADR-0103) -------------------------------------------------------------
