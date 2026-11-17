@@ -44,8 +44,8 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
 > **There is no CLI or GUI export command, and this page will not invent one.**
-> `tether.cli` registers three subcommands, `extract`, `batch` and `info`, and none of
-> them exports; no module
+> `tether.cli` registers four subcommands, `extract`, `batch`, `info` and `metadata`, and
+> none of them exports; no module
 > under `src/tether/gui/` references any of the four functions above. They are a Python
 > API today. Every snippet on this page is therefore the call you actually run.
 
@@ -387,8 +387,11 @@ Provenance-file `parameters` for this export: `include_raw`, `include_rejected`,
 a bare `matplotlib.figure.Figure` and writes nothing; `export_figure` is the only function
 that touches disk. Figures are built with the object-oriented `Figure` API rather than
 `pyplot`, so no GUI backend is selected and the base environment stays `matplotlib-base`
-(ADR-0044). The module is deliberately **not** re-exported from `tether.analysis`, so
-importing the package does not pull in Matplotlib.
+(ADR-0044). `tether.analysis` re-exports the module and its public names **lazily**: a
+module-level `__getattr__` ([PEP 562](https://peps.python.org/pep-0562/)) imports
+`plot_export` on the first access to one of them. `from tether.analysis import export_figure`
+therefore works, and `import tether.analysis` alone still does not pull in Matplotlib. The
+names are not in `tether.analysis.__all__`, so a star import does not pull it in either.
 
 ```python
 from tether.analysis.histogram import population_apparent_e_histogram
@@ -436,19 +439,24 @@ A plot export is stamped **three** ways:
 > object, so exporting the *same* figure twice with `stamp=True` leaves two overlapping
 > footers with two different timestamps. Re-render before re-exporting.
 
-The eight renderers, and the plot each produces (Appendix-C ids as used in the
+The thirteen renderers, and the plot each produces (Appendix-C ids as used in the
 [seven-plot parity gallery](../analysis/parity-gallery.md)):
 
 | Renderer | Input dataclass | Plot | x-axis unit |
 |---|---|---|---|
 | `render_histogram1d` | `Histogram1D` or `HistogramBootstrapCI` (+ optional `ModelGaussianOverlay`) | A1 population histogram | Apparent FRET efficiency *E* (dimensionless) |
 | `render_histogram2d` | `Histogram2D` | A2 time-vs-signal heatmap | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
-| `render_transition_density` | `TransitionDensityPlot` | B1 transition-density plot | Initial *E* (dimensionless) |
+| `render_transition_density` | `TransitionDensityPlot` or `SmoothedTransitionDensity` | B1 transition-density plot | Initial *E* (dimensionless) |
 | `render_dwell_survival` | `DwellTimeAnalysis` | B2 survival curve (+ residual panel when a fit succeeded) | `Dwell time (s)` when `dt != 1.0`, otherwise `Dwell time (frames)` |
 | `render_transition_prob` | `TransitionProbHistogram` | B3 transition-probability histogram | Probability per molecule (dimensionless) |
 | `render_state_number` | `StateNumberCounts` | C1 state-number distribution | Number of occupied states (a count) |
 | `render_raw_fret_cloud` | `RawFretCloud` | QC raw FRET cloud | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
 | `render_cross_correlation` | `CrossCorrelation` | Donor–acceptor cross-correlation | `Lag (frames)` — always frames; there is no seconds variant |
+| `render_per_condition_histograms` | `PerConditionHistograms` | Per-condition overlay: each condition's A1 histogram on one shared axis | Apparent FRET efficiency *E* (dimensionless) |
+| `render_transition_sync_histogram2d` | `TransitionSyncHistogram2D` | A2b post-synchronized heatmap | `Time from transition (s)` when `time_dt != 1.0`, otherwise `Frames from transition` |
+| `render_alpha_shape` | `AlphaShape` (+ optional `RawFretCloud`) | Alpha-shape support boundary of the raw FRET cloud | `Time (s)` when the frame duration is not `1.0`, otherwise `Frame` |
+| `render_state_number_elbow` | `StateNumberElbow` | k-vs-RMSE elbow state-count hint | Number of clusters *k* (a count) |
+| `render_population_anticorrelation` | `PopulationAnticorrelation` | Anticorrelation events, one row per molecule | `Frame (analysis window)` — always frames |
 
 `render_transition_density` draws the B1 color scale as `color_scale="log"` by default, the
 log-normalized TDP that the product specification names. Use `color_scale="linear"` for a
@@ -460,10 +468,42 @@ to a frequent one. The scale is display-only: the drawn array is the stored hist
 not have to pass it. If you pass a `display` entry that does not agree with the figure,
 `export_figure` raises `ValueError`.
 
+To draw the TDP as published figures show it, pass the smoothed view instead of the counts:
+`render_transition_density(smooth_transition_density(tdp))`. The view is the counts
+Gaussian-filtered, interpolated onto an 800 × 800 grid and normalized to their maximum, with the
+settings of the `checkTDP.py` published by Campos-Chavez et al. 2024 (see the
+[parameter reference](parameters.md)). It is drawn as an image on that grid. On the log scale its
+floor is 10⁻⁴ of the peak, the color floor of `checkTDP.py`. `export_figure` writes the smoothing
+settings to the provenance file as `parameters.display.smoothing`. The counts are not changed.
+
 > **A time axis says seconds only if you supplied a frame duration.** `dt` / `time_dt`
 > default to `1.0`, and at that default the renderer labels the axis in frames. The same
 > applies to rates read off a B2 survival fit: `tether.analysis.dwell` reports them in
 > `1 / (frames · dt)`, i.e. **per frame** at the default.
+
+`render_per_condition_histograms` draws every condition as an unfilled outline on the
+overlay's one shared bin grid, in the overlay's own order, and labels each curve with its
+condition id and molecule count. A condition binned on another grid raises `ValueError`
+rather than being drawn with its bins in the wrong place.
+
+`render_transition_sync_histogram2d` draws time relative to the selected transition: the
+axis runs negative before it, and a dotted line marks relative time zero. The note names
+the selected states, with `any` for `-1`.
+
+`render_alpha_shape` draws the boundary segments and nothing else of the shape. When there
+is no boundary, it draws no line and the note tells you why: the cloud spans no 2-D region,
+or the alpha was too small to keep a triangle. Pass `cloud=` to draw the points underneath
+and take the axis limits and time unit from the cloud. Without a cloud, pass `time_dt=` for
+a time axis in seconds.
+
+`render_state_number_elbow` draws the RMSE curve, the chord from its first to its last
+point, and the elbow when there is one. The elbow is a hint and the figure says so: the
+state count of record is the model's.
+
+`render_population_anticorrelation` gives each scanned molecule one row, in store order. An
+event is a bar over its frames, colored by its peak `|lag-0|`, with a tick at its peak
+frame. A molecule with no event keeps its empty row. The rows carry the `molecule_key` up
+to 30 molecules and an index above that.
 
 `render_raw_fret_cloud` decimates its scatter overlay when the population exceeds
 `max_points` (default 20 000) to keep the vector file manageable; the density surface

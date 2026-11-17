@@ -66,6 +66,7 @@ __all__ = [
     "StateDwells",
     "double_exp_survival",
     "fit_survival",
+    "mean_dwell_time",
     "population_dwell_times",
     "single_exp_survival",
     "state_dwells",
@@ -303,6 +304,112 @@ class DwellFit:
         if np.isfinite(self.r_squared):
             lines.append(f"R² = {round(self.r_squared, 3)}")
         return "\n".join(lines)
+
+    def mean_dwell_time(self) -> tuple[float, float]:
+        """Return the amplitude-weighted mean dwell time of this fit and its propagated error.
+
+        The module function `mean_dwell_time` applied to this fit's ``amplitudes``, ``rates``
+        and their ``*_stderr``, so it comes in the reciprocal of the rate unit (seconds when the
+        fit was done in seconds). The four arrays of a `DwellFit` are already paired: each error
+        belongs to the parameter at the same index, after the sort by rate. A fit that did not
+        succeed gives ``(nan, nan)``.
+
+        Returns
+        -------
+        tuple[float, float]
+            ``(tau, tau_stderr)``.
+
+        Raises
+        ------
+        ValueError
+            For the ``"stretched"`` model, whose mean is not a weighted sum of ``1 / k``.
+        """
+        if self.model == "stretched":
+            raise ValueError(
+                "mean_dwell_time is defined for the sums of exponentials, not 'stretched'"
+            )
+        return mean_dwell_time(
+            self.amplitudes,
+            self.rates,
+            amplitude_stderr=self.amplitude_stderr,
+            rate_stderr=self.rate_stderr,
+        )
+
+
+def mean_dwell_time(
+    amplitudes: np.ndarray,
+    rates: np.ndarray,
+    *,
+    amplitude_stderr: np.ndarray | None = None,
+    rate_stderr: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """Mean dwell time of a sum of exponentials, with its first-order propagated error.
+
+    ``tau = sum(A_i / k_i) / sum(A_i)``, the amplitude-weighted mean of the lifetimes
+    ``1 / k_i``; for one exponential it is ``1 / k``. The error is first-order propagation of
+    the parameter errors, ``sqrt(sum((d tau / d p)^2 * err_p^2))`` over every amplitude and
+    rate, with
+
+    * ``d tau / d A_j = (1 / k_j - tau) / sum(A_i)``
+    * ``d tau / d k_j = -A_j / (k_j^2 * sum(A_i))``.
+
+    This is the formula of ``CalculateDoubleExponentialErrors.py`` in the Source Data of
+    Campos-Chavez et al. 2024 (doi:10.1038/s41467-024-50885-x, Supplementary Table 6). Like
+    that script it takes the errors as independent: the covariances between the fitted
+    parameters are not used, so the result is the error of that formula and not a full
+    covariance propagation.
+
+    **Pair each error with its own parameter first.** tMAVEN's ``optimize_double_surv`` (and the
+    triple form) sorts the rates and the amplitudes but not their errors (#756, ADR-0097), so a
+    table of tMAVEN errors, such as the published ``.txt`` files of that archive, is in tMAVEN's
+    order and not in the order of the sorted rates. This function uses the errors in the order
+    it is given them, at the index of the parameter it multiplies, and cannot detect a wrong
+    pairing. [`DwellFit.mean_dwell_time`][] needs no re-pairing, because Tether keeps each error
+    with its parameter.
+
+    Parameters
+    ----------
+    amplitudes, rates
+        ``A_i`` and ``k_i``, the same length (one, two or three for the ``single``, ``double``
+        and ``triple`` models). ``tau`` is in the reciprocal of the unit of ``rates``.
+    amplitude_stderr, rate_stderr
+        The 1-sigma error of each ``A_i`` and each ``k_i``, aligned to them. ``None`` counts
+        that group as exact (an error of zero).
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(tau, tau_stderr)``; ``NaN`` wherever an input is ``NaN``.
+
+    Raises
+    ------
+    ValueError
+        If the arrays are empty or their lengths differ.
+    """
+    a = np.atleast_1d(np.asarray(amplitudes, dtype="float64"))
+    k = np.atleast_1d(np.asarray(rates, dtype="float64"))
+    a_err = (
+        np.zeros_like(a)
+        if amplitude_stderr is None
+        else np.atleast_1d(np.asarray(amplitude_stderr, dtype="float64"))
+    )
+    k_err = (
+        np.zeros_like(k)
+        if rate_stderr is None
+        else np.atleast_1d(np.asarray(rate_stderr, dtype="float64"))
+    )
+    if a.ndim != 1 or a.size == 0 or not (a.shape == k.shape == a_err.shape == k_err.shape):
+        raise ValueError(
+            "amplitudes, rates and their errors must be non-empty 1-D arrays of one length, got "
+            f"{a.shape}, {k.shape}, {a_err.shape}, {k_err.shape}"
+        )
+    with np.errstate(divide="ignore", invalid="ignore"):  # a zero rate or total gives inf/NaN
+        total = np.sum(a)
+        tau = np.sum(a / k) / total
+        d_a = (1.0 / k - tau) / total
+        d_k = -a / (k**2 * total)
+        err = np.sqrt(np.sum((d_a * a_err) ** 2) + np.sum((d_k * k_err) ** 2))
+    return float(tau), float(err)
 
 
 def _t_multiplier(ci_level: float, dof: int) -> float:

@@ -110,8 +110,9 @@ def test_every_registered_command_has_a_command_line_route() -> None:
     )
     names = [entry.name for entry in services.COMMANDS]
     assert list(subparsers.choices)[: len(names)] == names
-    # `tether info` (#655) only reads a project: a plain subcommand, not a service command.
-    assert list(subparsers.choices)[len(names) :] == ["info"]
+    # `tether info` (#655) only reads a project, and `tether metadata` (#911) shows or edits
+    # stored movie metadata through `Project`: plain subcommands, not service commands.
+    assert list(subparsers.choices)[len(names) :] == ["info", "metadata"]
 
 
 def test_a_registered_command_with_no_route_fails(monkeypatch) -> None:

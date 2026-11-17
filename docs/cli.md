@@ -6,9 +6,11 @@ description: "Run tether extract and tether batch without the application window
 
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. Today the command line has four subcommands:
+extraction from recorded settings. Today the command line has five subcommands:
 `tether extract` and `tether batch` write projects, `tether idealize` fits the traces of a
-project that exists, and `tether info` only reads projects and prints a summary.
+project that exists, `tether info` only reads projects and prints a summary, and
+`tether metadata` shows or gives the frame time, pixel size and channel roles of a project's
+movies.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -39,7 +41,7 @@ the install root you chose during installation:
 
 | Platform | Command-line launcher | Application-window launcher |
 |---|---|---|
-| Windows | `<install-root>\bin\tether.bat` | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
+| Windows | `<install-root>\bin\tether.bat`, or `tether` in Start Menu → **Tether Command Prompt** from the next release | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
 | macOS | `<install-root>/bin/tether` | `<install-root>/bin/tether-gui` |
 
@@ -48,13 +50,17 @@ the install root instead, a folder that holds nothing else
 ([#492](https://github.com/bioedca/tether/issues/492)): read `launchers` for `bin` in the
 table.
 
-Add that one directory to the **end** of your `PATH`, and you can copy every example on
-this page as it is. [Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)
+On Windows, from the next release, Start Menu → **Tether Command Prompt** opens a console
+that needs no `PATH` change ([#666](https://github.com/bioedca/tether/issues/666)). In it, you
+can type `tether` by name. An example written for one shell, such as the Bash or PowerShell
+batch example, still needs that shell. On any system, add that one directory to the **end**
+of your `PATH`, and `tether` works by name in any terminal.
+[Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)
 gives the line for each system. It also tells why the folder goes at the end: in rc3, on Linux
 and macOS, the `bin` folder also holds the installer's own `python`, `pip` and `conda`, and
 these must not hide your own.
 
-Without that step, substitute the full launcher path from the table for `tether` in
+Without either, substitute the full launcher path from the table for `tether` in
 every command below; nothing else changes. Verify the install with:
 
 ```console
@@ -523,6 +529,48 @@ movie_010.tether
 
 The numbers above are an example, not a reference result.
 
+## `tether metadata`
+
+Show, or give, the metadata of the movies in a project: the frame time, the pixel size and
+the channel roles (which half is the donor). Each value has an **origin**: `file` when
+Tether read it from the movie (the ImageJ `finterval` and the ImageJ pixel size in µm, or
+the channel crops of an imported `.tmap`), `user` when a person gave it, and `unknown`
+when there is no value. A native extraction records the channel roles as `user`, because
+`--donor-side` names the donor half.
+
+A frame time is **verified** only when it is from the file, or when you confirm it in a
+second call. A value you type stays not verified until you confirm it. Tether stores
+this flag now. Rate calculations do not check it yet: that is planned work
+([#941](https://github.com/bioedca/tether/issues/941)).
+
+```text
+tether metadata [-h] [--movie MOVIE_ID] [--frame-time SECONDS] [--pixel-size UM]
+                [--confirm-frame-time] [--json]
+                project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | path to the `.tether` project |
+| `--movie MOVIE_ID` | the only movie | the movie to change; required when the project has more than one movie |
+| `--frame-time SECONDS` | none | give the frame time (origin `user`, not verified) |
+| `--pixel-size UM` | none | give the pixel size in µm per pixel (origin `user`) |
+| `--confirm-frame-time` | off | mark the movie's frame time as verified; refused in the same call as `--frame-time` |
+| `--json` | off | print the records as JSON instead of text |
+
+With no option the command changes nothing and prints each movie. A value of `0` means
+unknown. The values are kept beside the `/movies` table, and `/movies.frame_time` keeps
+the value from the file ([`.tether` file format](reference/tether-format.md#movies-one-row-per-source-movie)).
+
+```console
+$ tether metadata run.tether --frame-time 0.1
+mov-…:
+  frame time: 0.1 s (user, not verified)
+  pixel size: 0 um (unknown)
+  channel roles: user
+$ tether metadata run.tether --confirm-frame-time
+```
+
 ## Service commands
 
 `tether extract`, `tether batch` and `tether idealize` are each the command-line route of one *service command*
@@ -564,11 +612,11 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` | `tether info` |
-|---|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
+| Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` |
+|---|---|---|---|---|
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read | the records were printed, after any change |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
 
 `tether idealize` has a code `3` of its own, for a sidecar that cannot start. Its codes are
 in [its section](#tether-idealize).
