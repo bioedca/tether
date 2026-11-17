@@ -425,7 +425,9 @@ A plot export is stamped **three** ways:
 1. **The provenance file** `<stem>.provenance.json`, written by the same
    `write_provenance_sidecar`. `export_figure` merges three keys of its own into your
    `parameters`: `formats` (canonical order), `dpi`, and `outputs` (`{format: basename}` —
-   basenames, not paths). The provenance file is written even when `stamp=False`.
+   basenames, not paths). A figure drawn from several series also adds `series`, and a
+   figure that records how it was drawn adds `display` (both below). The provenance file is
+   written even when `stamp=False`.
 2. **A visible on-figure footer**, when `stamp=True` (the default): two 6-point,
    55 %-opacity texts at the bottom of the figure — `Tether <version> · <kind>` on the
    left and the ISO timestamp on the right.
@@ -505,6 +507,58 @@ levels derived from it — on the samples inside `time_range` × `signal_range` 
 un-clipped apparent-E outliers cannot inflate the bandwidth. The excluded count is
 `n_out_of_range`; the on-figure annotation reports only `n_samples` and `n_molecules`,
 so read it off the dataclass.
+
+### Several series on one figure
+
+Every renderer also takes an ordered sequence of `(label, result)` pairs, the series of one
+composed plot (FR-PLOT). Each label must be a distinct, non-empty string. A sequence of one series
+draws exactly the figure of the bare result, byte for byte; its label is written only to the
+provenance file.
+
+```python
+from tether.analysis.histogram import population_apparent_e_histogram
+from tether.analysis.plot_export import export_figure, render_histogram1d
+
+wild_type = population_apparent_e_histogram("wt.tether", bins=151)
+mutant = population_apparent_e_histogram("mutant.tether", bins=151)
+figure = render_histogram1d([("WT", wild_type), ("mutant", mutant)])
+export_figure(
+    figure,
+    "figures/a1-wt-vs-mutant",
+    tether_export="plot:a1",
+    source="wt.tether, mutant.tether",
+    parameters={"series": [{"selection": "WT v1"}, {"selection": "mutant v1"}]},
+)
+```
+
+- **Overlay.** The 1-D histogram, the dwell survival, the transition probability, the state-number
+  chart (as grouped bars), the cross-correlation, the alpha shape and the elbow draw all series on
+  one axis, with a legend entry for each. Series take their colors from one cycle,
+  `SERIES_COLOR_CYCLE = "okabe-ito-4"`: blue, vermilion, bluish green and reddish purple of the
+  Okabe–Ito set, then the same four with the next line style (`--`, `-.`, `:`), 16 series in all.
+  `series_style(k)` returns the style of series `k`. Each of the four colors reaches 3 : 1 against
+  the white background, and every two of them stay apart under simulated protanopia, deuteranopia
+  and tritanopia, the check the [trace colors](gui-theme.md) pass.
+- **Small multiples.** Where one series would hide another, each series gets its own panel, titled
+  with its label: the time-vs-signal heatmap, the transition-density plot, the raw FRET cloud, the
+  transition-synchronized heatmap, the per-condition overlay and the anticorrelation raster. The
+  panels share their axes. The heatmaps and the raster share one color scale and one color bar, so
+  a color means the same value in every panel. In the per-condition panels, a condition keeps one
+  color in every panel.
+- **One grid.** Two series that are not on one grid are refused with a `ValueError` that names the
+  series, what differs and both values. Tether never resamples one series onto another. What must
+  agree depends on the plot: the bin edges, the value range and the density normalization of a
+  histogram, the frame time of anything with a time axis, the `init → final` pair of a
+  transition-probability histogram, the lags of a cross-correlation. A lever of the series (per-molecule
+  equal weight, for example) may differ.
+
+`export_figure` writes one record per series to `parameters.series`, in figure order: its `label`,
+its `result` type, the `parameters` that result carries (its scalars, ranges and grid, never its
+data) and its `display` (color and line style, or its panel). It writes the layout to
+`parameters.display` (`series_layout`, and `series_cycle` or `series_color_scale`). To add your own
+keys to a series, such as the selection and its version, pass `parameters["series"]` as a list of
+one dict per series; a key that contradicts what was drawn raises `ValueError`. ADR-0127 records the
+choices.
 
 <a id="provenance-sidecar"></a>
 
