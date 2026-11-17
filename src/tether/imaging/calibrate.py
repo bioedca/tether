@@ -497,7 +497,7 @@ def registration_map_from_tmap(
 
 
 def _tmap_channel_geometry(channel: TmapChannel) -> ChannelGeometry:
-    """The split geometry a decoded ``.tmap`` channel stores: rotation, flip, crop.
+    """Return the split geometry a decoded ``.tmap`` channel stores: rotation, flip, crop.
 
     Deep-LASI registers the channel sub-images that ``processImage`` makes (rotate,
     then flip, then crop), so the stored polynomials are in that processed frame.

@@ -89,21 +89,22 @@ donor on the right, run it through `tether extract` per movie, supply a `.tmap` 
 reference channel then defines donor), or drive `tether.project.batch.run_batch` from Python
 with `extract_options=ExtractOptions(donor_side="right")`.
 
-With `--tmap`, the split instead comes from an imported Deep-LASI map's own per-channel
-geometry, and `--donor-side` is ignored — donor is the map's reference channel. **The
-rotation and flip are applied, then the crop.** Deep-LASI's `processImage` turns each
-channel by its `Rotation` (0, 90, 180 or 270 degrees, clockwise), then mirrors it by its
-`Flip` (`[v, h]`: rows, then columns), then crops it in that turned frame; the `.tmap`
-polynomials were fitted in that frame. Tether splits the movie in the same three steps,
-records each channel's rotation and flip in `/movies` next to its crop, and so gets the
-same molecules as an unturned movie of the same scene
+With `--tmap`, the split comes from the imported Deep-LASI map's own per-channel geometry
+instead. `--donor-side` is ignored, because donor is the map's reference channel.
+Deep-LASI's `processImage` turns each channel by its `Rotation` (0, 90, 180 or 270
+degrees, clockwise). It then mirrors the channel by its `Flip` (`[v, h]`: rows, then
+columns) and crops it in that turned frame. The `.tmap` polynomials were fitted in that
+frame. Tether splits the movie in the same three steps and records each channel's
+rotation and flip in `/movies` next to its crop.
+
+So a turned movie gives the same molecules as an unturned movie of the same scene
 ([`tests/test_extract_cli.py::test_extract_imported_tmap_applies_rotation_and_flip`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
-covers every rotation and flip, on either channel; #559). A stored `Rotation` or `Flip`
-that `processImage` could not have applied — an angle that is not 0, 90, 180 or 270, or
-a flip value that is not 0 or 1 — is refused with "could not use --tmap". Empty or
-all-zero `Rotation`/`Flip`, what the reference UCKOPSB map stores, is a split by the
-crop alone. This is tested on synthetic movies only: the reference data holds no real
-`.tmap` with a rotation or a flip.
+covers every rotation and flip, on either channel; #559). A `Rotation` or `Flip` that
+`processImage` could not have applied is refused with "could not use --tmap". That is an
+angle other than 0, 90, 180 or 270, or a flip value other than 0 or 1. Empty or all-zero
+values, which the reference UCKOPSB map stores, split by the crop alone. This is tested
+on synthetic movies only, since the reference data holds no real `.tmap` with a rotation
+or a flip.
 
 > ### Getting `--donor-side` backwards raises no error, and relabeling afterwards will not fix it
 >
