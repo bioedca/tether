@@ -178,5 +178,6 @@ counts and 0.067 on the sheets, the same on the three systems to the seventh dig
 **The limit is not derived from the measurement.** Both sides make the same SciPy calls on the same
 counts, so they agree to the bit wherever the counts are equal. The limit of 1e-12 that #1029 set is
 kept: about 4,500 times the spacing of doubles at the peak value 1, room for a change in the order of
-the operations, and more than 10^10 below the smallest error measured. A change of it is the
-maintainer's decision on its pull request (M19).
+the operations, and more than 10^10 below the smallest error measured. The maintainer chose to keep
+it on the #1130 pull request (2026-11-17); a later change of it is again the maintainer's decision
+on its pull request (M19).
