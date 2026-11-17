@@ -213,6 +213,18 @@ set "PROMPT_CMD_EXE=%SystemRoot%\System32\cmd.exe"
   "$s.Save()"
 if errorlevel 1 echo WARNING: could not create the Tether Command Prompt shortcut; run %LAUNCH_D%\tether.bat by its full path
 
+rem The .tether file type (issue #664, ADR-0118): a double-click on a project starts
+rem tether-gui.exe with the project. tether.gui.file_type writes the program identifier
+rem Tether.Project (the name "Tether project", the document icon from the installed wheel
+rem and the open command "...\Scripts\tether-gui.exe" "%%1") and names it for .tether, for
+rem the current user in a Just Me install and for all users otherwise (constructor's
+rem .nonadmin file tells which). An extension another program already owns is left to it;
+rem Tether is then only added to its Open with list. The module never fails the install, and
+rem pre_uninstall.bat removes exactly these keys. The prefix reaches Python as an argument,
+rem never inside its source, for the reason given for the shortcut above.
+"%TETHER_PY%" -m tether.gui.file_type install --prefix "%PREFIX%"
+if errorlevel 1 echo WARNING: could not register the .tether file type; open projects with File, Open project
+
 rem Drop the staged wheels; the environments now own the installed packages.
 del "%WHEELHOUSE%\tether-*.whl" "%WHEELHOUSE%\tmaven-*.whl" "%WHEELHOUSE%\setuptools-*.whl" 2>nul
 exit /b 0
