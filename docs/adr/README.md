@@ -158,6 +158,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0113](0113-one-movie-reader-interface-an-adapter-registry-and-a-rule-for-reader-packages.md) | One movie reader interface, an adapter registry, and a rule for reader packages | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0115](0115-deep-lasi-acquisitions-in-oracle-a-and-how-a-failure-is-handled.md) | Deep-LASI acquisitions in oracle (a), and how a failure on one is handled | accepted | §9.5 (the validation suite, oracle (a)), §8 NFR-VALID (a), §8 NFR-FIXTURES |
 | [0116](0116-the-shell-hosts-its-sections-in-one-stack.md) | The shell hosts its sections in one stack, and each dock belongs to one section | accepted | §4.2 (`tether.gui`), §7.3 (the curation shell), §7.10 FR-CONCURRENCY, FR-WORKFLOW |
+| [0117](0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md) | A movie is appended to a project once, under its writer lock, and keeps its own settings | accepted | §5.1 (data model), §5.4 (single writer), §7.11 FR-EXTRACT / FR-BATCH, §7.8 (the |
 | [0121](0121-each-lock-takeover-leaves-a-record-in-the-project.md) | Each lock takeover leaves a record in the project | accepted | §7.10 FR-CONCURRENCY, §5.4 (single writer), §5 (schema) |
 
 <!-- gen:adr-index end -->

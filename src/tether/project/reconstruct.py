@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -58,6 +58,7 @@ from tether.imaging.coloc import ColocalizedMolecules
 from tether.imaging.extract import (
     MoleculeTraces,
     MovieMetadata,
+    assert_appendable,
     molecule_key,
     write_extraction,
 )
@@ -66,15 +67,20 @@ from tether.io.filename import ParsedFilename, parse_filename
 from tether.io.recover import RecoveredCoordinates, SmdCoordinateMatch, recover_coordinates
 from tether.io.tdat import TdatCorrections
 from tether.ml.weighting import DEFAULT_SEED_WEIGHT
-from tether.project._guarded_publish import publish_staged_project, require_publish_guard
-from tether.project.conditions import set_category_list, sync_conditions
+from tether.project._guarded_publish import (
+    guarded_project_write,
+    publish_staged_project,
+    require_publish_guard,
+)
+from tether.project.conditions import read_category_list, set_category_list, sync_conditions
 from tether.project.core import Project
 from tether.project.correct import compute_corrected_fret
 from tether.project.labels import LABEL_SOURCE_DEEPLASI, CurationLabel, set_curation_label
+from tether.project.lock import PublishGuardRequiredError
 from tether.project.photobleach import compute_photobleach
 from tether.project.weighting import recompute_label_weights
 
-__all__ = ["ReconstructionSummary", "reconstruct_project"]
+__all__ = ["ReconstructionSummary", "add_reconstruction_to_project", "reconstruct_project"]
 
 #: The standard 21×21 aperture / integration parameters recorded in
 #: ``/settings/extraction`` (matching `tether.imaging.extract.extract_molecules`
@@ -314,6 +320,170 @@ def reconstruct_project(
     # therefore needs the caller to hold its writer lock (#346, ADR-0112, §5.4).
     require_publish_guard(output_path, publish_guard)
 
+    tmp_path = output_path.with_name(f"{output_path.name}.{uuid4().hex}.tmp")
+    try:
+        Project.create(tmp_path, overwrite=True)
+        summary = _reconstruct_into(
+            tmp_path,
+            export=export,
+            movie=movie,
+            coordinates=coordinates,
+            corrections=corrections,
+            parsed=parsed,
+            curated_match=curated_match,
+            categories=categories,
+            donor_patches=donor_patches,
+            acceptor_patches=acceptor_patches,
+            detect_photobleach=detect_photobleach,
+            scope_to_movie=False,
+        )
+        publish_staged_project(tmp_path, output_path, publish_guard=publish_guard)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return replace(summary, output_path=output_path)
+
+
+def add_reconstruction_to_project(
+    project_path: str | Path,
+    *,
+    export: DeepLasiExport,
+    movie: MovieMetadata,
+    coordinates: RecoveredCoordinates | None = None,
+    corrections: TdatCorrections | None = None,
+    parsed: ParsedFilename | None = None,
+    curated_match: SmdCoordinateMatch | None = None,
+    categories: Sequence[str] = (),
+    donor_patches: np.ndarray | None = None,
+    acceptor_patches: np.ndarray | None = None,
+    detect_photobleach: bool = True,
+    publish_guard: Callable[[], None] | None,
+) -> ReconstructionSummary:
+    """Append one Deep-LASI acquisition to an existing ``.tether`` project (#347).
+
+    The append path of [`reconstruct_project`][]: the same writer and the same
+    passes, so a Deep-LASI re-analysis of several acquisitions can build one project
+    instead of one file per acquisition. The acquisition gains its own ``/movies``
+    row and its molecules are appended in the positional trace↔molecule order. Its
+    correction factors and its photobleach detection are applied **to its own
+    molecules only**, so the molecules already in the project keep their factors,
+    methods, bleach frames and windows (ADR-0117). Its category seeds are added to
+    the condition's list after the names already there, and its curated selection
+    is written as ``deeplasi-provisional`` labels as for a new project.
+
+    The update is written to a sibling copy and published by one atomic replace
+    under the project's writer lock; a guard that fails, or any other error, leaves
+    the project byte-identical.
+
+    Parameters
+    ----------
+    project_path:
+        An existing, compatible ``.tether`` project.
+    export, movie, coordinates, corrections, parsed, curated_match, categories, \
+donor_patches, acceptor_patches, detect_photobleach:
+        As for [`reconstruct_project`][]. ``movie.movie_id`` must be new to the
+        project, and so must ``movie.sha256``.
+    publish_guard:
+        **Required.** The check yielded by
+        [`publish_lock`][tether.project.lock.publish_lock] held on ``project_path``
+        (#346, ADR-0112).
+
+    Returns
+    -------
+    ReconstructionSummary
+        The appended acquisition's counts; ``output_path`` is ``project_path``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``project_path`` does not exist.
+    tether.project.lock.PublishGuardRequiredError
+        If ``publish_guard`` is ``None``.
+    ValueError
+        If the movie (its ``movie_id`` or its content ``sha256``) is already in the
+        project, the inputs do not align (as for [`reconstruct_project`][]), the
+        project is not a compatible ``.tether``, or its ``/traces`` or ``/patches``
+        arrays do not cover every molecule (an analysis-only import, a subset exported
+        without its raw layers).
+    """
+    project_path = Path(project_path)
+    if not project_path.is_file():
+        raise FileNotFoundError(f"{project_path} does not exist (reconstruct_project creates one)")
+    assert_appendable(project_path)
+    if publish_guard is None:
+        raise PublishGuardRequiredError(
+            f"appending to {project_path.name} needs its writer lock "
+            "(hold tether.project.lock.publish_lock and pass its check as publish_guard)"
+        )
+    _refuse_duplicate_movie(project_path, movie)
+
+    with guarded_project_write(project_path, write_guard=publish_guard, label="append") as stage:
+        _refuse_duplicate_movie(stage, movie)
+        summary = _reconstruct_into(
+            stage,
+            export=export,
+            movie=movie,
+            coordinates=coordinates,
+            corrections=corrections,
+            parsed=parsed,
+            curated_match=curated_match,
+            categories=categories,
+            donor_patches=donor_patches,
+            acceptor_patches=acceptor_patches,
+            detect_photobleach=detect_photobleach,
+            scope_to_movie=True,
+        )
+    return replace(summary, output_path=project_path)
+
+
+def _refuse_duplicate_movie(project_path: Path, movie: MovieMetadata) -> None:
+    """Refuse a movie already in the project by id or by content (#347, ADR-0117).
+
+    A second copy of the same content would give every molecule the
+    ``molecule_key`` (movie ``sha256`` + donor position) of one already stored, so
+    labels keyed by ``molecule_key`` could no longer tell the two apart.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    with h5py.File(project_path, "r") as f:
+        table = f["movies"][TABLE][:]
+    for row in table:
+        movie_id = _decode(row["movie_id"])
+        if movie_id == movie.movie_id or _decode(row["sha256"]).lower() == movie.sha256.lower():
+            raise ValueError(
+                f"movie {movie.movie_id!r} is already in {project_path.name} as {movie_id!r} "
+                "(same movie_id or content sha256); a movie is appended once"
+            )
+
+
+def _decode(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+def _reconstruct_into(
+    path: Path,
+    *,
+    export: DeepLasiExport,
+    movie: MovieMetadata,
+    coordinates: RecoveredCoordinates | None,
+    corrections: TdatCorrections | None,
+    parsed: ParsedFilename | None,
+    curated_match: SmdCoordinateMatch | None,
+    categories: Sequence[str],
+    donor_patches: np.ndarray | None,
+    acceptor_patches: np.ndarray | None,
+    detect_photobleach: bool,
+    scope_to_movie: bool,
+) -> ReconstructionSummary:
+    """Write one acquisition into the existing project at ``path`` and run its passes.
+
+    Shared by [`reconstruct_project`][] (a fresh project) and
+    [`add_reconstruction_to_project`][] (an existing one). With ``scope_to_movie``
+    the correction and photobleach passes cover this movie's molecules only, and the
+    category seeds extend the condition's list instead of replacing it.
+    """
     if coordinates is None:
         coordinates = recover_coordinates(mat=export)
     if coordinates.n_molecules != export.n_molecules:
@@ -339,28 +509,22 @@ def reconstruct_project(
         "exported_by": export.exported_by,
     }
 
-    tmp_path = output_path.with_name(f"{output_path.name}.{uuid4().hex}.tmp")
-    try:
-        Project.create(tmp_path, overwrite=True)
-        write_extraction(
-            tmp_path,
-            movie=movie,
-            molecules=molecules,
-            traces=traces,
-            parsed=parsed,
-            settings=settings,
-        )
-        corrections_applied = _apply_corrections(tmp_path, corrections)
-        n_donor_bleached, n_acceptor_bleached = _apply_photobleach(tmp_path, detect_photobleach)
-        _seed_categories(tmp_path, parsed.condition_id, categories)
-        n_curated = _seed_curated_selection(tmp_path, movie, coordinates, curated_match, parsed)
-        publish_staged_project(tmp_path, output_path, publish_guard=publish_guard)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
+    write_extraction(
+        path,
+        movie=movie,
+        molecules=molecules,
+        traces=traces,
+        parsed=parsed,
+        settings=settings,
+    )
+    scope = movie.movie_id if scope_to_movie else None
+    corrections_applied = _apply_corrections(path, corrections, scope)
+    n_donor_bleached, n_acceptor_bleached = _apply_photobleach(path, detect_photobleach, scope)
+    _seed_categories(path, parsed.condition_id, categories, extend=scope_to_movie)
+    n_curated = _seed_curated_selection(path, movie, coordinates, curated_match, parsed)
 
     return ReconstructionSummary(
-        output_path=output_path,
+        output_path=path,
         movie_id=movie.movie_id,
         coordinate_source=coordinates.source,
         n_molecules=export.n_molecules,
@@ -372,7 +536,9 @@ def reconstruct_project(
     )
 
 
-def _apply_corrections(path: Path, corrections: TdatCorrections | None) -> bool:
+def _apply_corrections(
+    path: Path, corrections: TdatCorrections | None, movie_id: str | None = None
+) -> bool:
     """Stamp the remapped correction factors, or the explicit apparent-E substrate.
 
     Always runs [`tether.project.correct.compute_corrected_fret`][] so the project
@@ -384,26 +550,43 @@ def _apply_corrections(path: Path, corrections: TdatCorrections | None) -> bool:
     if _corrections_usable(corrections):
         assert corrections is not None  # narrowed by _corrections_usable
         compute_corrected_fret(
-            path, alpha_override=corrections.alpha, gamma_override=corrections.gamma
+            path,
+            alpha_override=corrections.alpha,
+            gamma_override=corrections.gamma,
+            movie_id=movie_id,
         )
         return True
-    compute_corrected_fret(path)
+    compute_corrected_fret(path, movie_id=movie_id)
     return False
 
 
-def _apply_photobleach(path: Path, detect: bool) -> tuple[int, int]:
+def _apply_photobleach(path: Path, detect: bool, movie_id: str | None = None) -> tuple[int, int]:
     """Run the M3 photobleach detector (bleach_frames + analysis_window) if requested."""
     if not detect:
         return 0, 0
-    summary = compute_photobleach(path)
+    summary = compute_photobleach(path, movie_id=movie_id)
     return int(summary.n_donor_bleached), int(summary.n_acceptor_bleached)
 
 
-def _seed_categories(path: Path, condition_id: str, categories: Sequence[str]) -> None:
-    """Materialize the ``/conditions`` row then seed its editable category vocabulary."""
+def _seed_categories(
+    path: Path, condition_id: str, categories: Sequence[str], *, extend: bool = False
+) -> None:
+    """Materialize the ``/conditions`` row then seed its editable category vocabulary.
+
+    With ``extend`` (an append), names already in the condition's list keep their
+    order and integer codes, and only new names are added after them: replacing the
+    list would recode categories other movies' molecules already use.
+    """
     sync_conditions(path)
-    if categories:
-        set_category_list(path, condition_id, list(categories))
+    if not categories:
+        return
+    names = [name.strip() if isinstance(name, str) else name for name in categories]
+    if extend:
+        # Compare stripped names, as set_category_list does, so a seed that differs from
+        # a stored name only by surrounding whitespace is the same category.
+        existing = list(read_category_list(path, condition_id).categories)
+        names = existing + [name for name in names if name not in existing]
+    set_category_list(path, condition_id, names)
 
 
 def _seed_curated_selection(

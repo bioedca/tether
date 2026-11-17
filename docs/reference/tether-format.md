@@ -29,7 +29,7 @@ The format has **two layers**, and they carry different guarantees:
   page is a bug**.
 - Everything a pipeline stage writes *later* — `/traces/*`, `/patches/*`,
   `/settings/*`, `/idealization/{model}`, `/features/table`, `/conditions/categories`,
-  `/calibration/*` — is additive per-record data declared by the module that writes
+  `/movies/layouts`, `/calibration/*` — is additive per-record data declared by the module that writes
   it. None of it appears in the manifest, so the manifest cannot arbitrate it: the
   writer named in each section below is the authority. Note the `/*`: the **container
   groups** these live in are themselves part of the frozen skeleton above, and only
@@ -152,7 +152,8 @@ guaranteed to be there.
 | `/movies/table`, `/molecules/table`, `/conditions/table`, `/labels/table` | yes, 0 rows | `create_project` (`src/tether/io/schema.py`) |
 | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models` | yes, empty groups | `create_project` |
 | `/calibration/<calibration_id>/…` | no | `write_calibration` (`src/tether/imaging/calibrate.py`) |
-| `/movies` and `/molecules` rows, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/movies` and `/molecules` rows, `/movies/layouts/<movie_id>`, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/movies/metadata/<movie_id>` | absent | `extract_movie` (`src/tether/project/extract.py`); changed by `tether.project.movie_metadata` |
 | `/idealization/{model}` | no | `write_idealization_model` (`src/tether/project/idealize.py`) |
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
@@ -247,6 +248,44 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `acceptor_rotation_deg` | `i4` | scalar | Same, acceptor channel. |
 | `donor_flip` | `i1` | `(2,)` | `[vertical, horizontal]` flip flags, `0`/`1`. |
 | `acceptor_flip` | `i1` | `(2,)` | Same, acceptor channel. |
+
+The group also holds an additive child, `/movies/layouts/<movie_id>`: the **channel layout**
+the movie was split by (#908), written by `write_layout_record` in `src/tether/imaging/layout.py`. Each
+record is an empty group with attributes only:
+
+- `version` (int): `1`. A reader refuses a newer version (`read_layout_record`).
+- `kind` (str): `side-by-side`, `top-bottom` or `rectangles`.
+- `donor` and `acceptor` (str): the donor and the acceptor half — `left`/`right` or
+  `top`/`bottom` — and `""` for `rectangles`.
+- `donor_rect` and `acceptor_rect` (int32 `[y1, x1, y2, x2]`, 1-based inclusive): for
+  `rectangles` only.
+
+The record states the layout. The crops it resolved to for this frame size are the
+`donor_crop` and `acceptor_crop` fields above. The native `tether extract` path writes one for
+every movie, the default `side-by-side` / `left` included. A store written before #908, a
+Deep-LASI reconstruction, and an extraction that took its split from an imported `.tmap` have
+no record for the movie. For those, read the crop fields instead.
+
+The group also holds a second additive child, `/movies/metadata/<movie_id>`. It is one group
+with no datasets for each movie. Its attributes record three values, each with its
+**origin**: `file` (read from the movie), `user` (given by a person) or `unknown`
+(`src/tether/project/movie_metadata.py`, #911). It does not change `frame_time` above,
+which keeps the value from the file.
+
+| Attribute | Type | Meaning / units |
+|---|---|---|
+| `frame_time` | `float` | **Seconds per frame** in use: the file's value, or the one the user gave; `0.0` unknown. |
+| `frame_time_origin` | `str` | `file`, `user` or `unknown`. |
+| `frame_time_verified` | `bool` | True only for a file value, or after the user confirmed a given value in a separate action (`confirm_frame_time`); giving a value clears it. |
+| `pixel_size_um` | `float` | **Micrometres per pixel**: the ImageJ resolution when its unit is µm, the pixels are square and the resolution is not the `1/1` placeholder, or the user's value; `0.0` unknown. |
+| `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
+| `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap`, `user` for a native extraction (`--donor-side`). |
+
+`extract_movie` writes the group. Some rows have no group: a store written before #911,
+or one from the Deep-LASI reconstruction or the analysis-only import. Such a row reads
+(`read_movie_metadata`) as follows. A positive `frame_time` has origin `file` and is
+verified, because that field has only ever been filled from the ImageJ `finterval`. A
+`frame_time` of `0.0` is `unknown`. The pixel size and the channel roles are `unknown`.
 
 ## `/molecules` — one row per molecule
 
@@ -516,7 +555,7 @@ datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, whi
 
 | Child | Written by | Lifecycle |
 |---|---|---|
-| `extraction` | `write_extraction` (`src/tether/imaging/extract.py`) | **Write-once** per project; later movies must match the recorded parameters or the write is rejected. |
+| `extraction` | `write_extraction` (`src/tether/imaging/extract.py`) | **Write-once** per project; later movies must match the recorded parameters or the write is rejected. Its child group `movies` gains one attribute per movie (below). |
 | `correction` | `compute_corrected_fret` (`src/tether/project/correct.py`) | Replaced on each pass. |
 | `leakage` | `compute_leakage_alpha` (`src/tether/project/leakage.py`) | Replaced on each pass. |
 | `gamma` | `compute_gamma` (`src/tether/project/gamma.py`) | Replaced on each pass. **Removed** by a `compute_leakage_alpha` pass that withholds α, because that pass resets the processed `gamma` rows to `NaN`; absent therefore means no current γ pass. |
@@ -543,6 +582,20 @@ Deep-LASI, not by Tether:
 | `molecule_key_quantum_px` | float | The `molecule_key` coordinate quantum, pixels (`0.1`). |
 | `app_version` | str | Writing Tether version. |
 | `profile_json` | str | The caller's settings profile as JSON — present only when one was supplied. |
+
+The stamp describes only the first extraction. So each movie's own settings profile is also
+kept on the child group **`/settings/extraction/movies`**. It holds one string attribute per
+movie, named by its `movie_id`, with that movie's profile as JSON. The first movie gets one
+too. A movie appended later records its `.tmap` and `.tdat` sources, detection mode and
+registration verdict there.
+
+The appends are `add_movie_to_project`
+(`src/tether/project/extract.py`) and `add_reconstruction_to_project`
+(`src/tether/project/reconstruct.py`). The stamp above does not change.
+`read_movie_settings` (`src/tether/imaging/extract.py`) returns the record as
+`{movie_id: profile}`. A project written before this record existed has no `movies` child.
+It reads as `{}`
+([ADR-0117](../adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
 
 `/settings/condition_audit` is a resizable 1-D compound dataset with the fields
 `event` (`rekey` or `merge`), `from_condition_id`, `to_condition_id`, `n_molecules`

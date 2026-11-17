@@ -44,8 +44,8 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
 > **There is no CLI or GUI export command, and this page will not invent one.**
-> `tether.cli` registers three subcommands, `extract`, `batch` and `info`, and none of
-> them exports; no module
+> `tether.cli` registers four subcommands, `extract`, `batch`, `info` and `metadata`, and
+> none of them exports; no module
 > under `src/tether/gui/` references any of the four functions above. They are a Python
 > API today. Every snippet on this page is therefore the call you actually run.
 
@@ -387,8 +387,11 @@ Provenance-file `parameters` for this export: `include_raw`, `include_rejected`,
 a bare `matplotlib.figure.Figure` and writes nothing; `export_figure` is the only function
 that touches disk. Figures are built with the object-oriented `Figure` API rather than
 `pyplot`, so no GUI backend is selected and the base environment stays `matplotlib-base`
-(ADR-0044). The module is deliberately **not** re-exported from `tether.analysis`, so
-importing the package does not pull in Matplotlib.
+(ADR-0044). `tether.analysis` re-exports the module and its public names **lazily**: a
+module-level `__getattr__` ([PEP 562](https://peps.python.org/pep-0562/)) imports
+`plot_export` on the first access to one of them. `from tether.analysis import export_figure`
+therefore works, and `import tether.analysis` alone still does not pull in Matplotlib. The
+names are not in `tether.analysis.__all__`, so a star import does not pull it in either.
 
 ```python
 from tether.analysis.histogram import population_apparent_e_histogram
