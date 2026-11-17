@@ -303,8 +303,10 @@ over-determined. Get more pairs: raise `--pair-tol` so genuine pairs are not dis
 Importing a Deep-LASI map with `--tmap` does **not** help here: the imported path skips pairing
 entirely, so the residual is left NaN and the gate is not merely vacuous but absent (see
 [registration was flagged low-confidence](#registration-was-flagged-low-confidence)). Tether
-also has no `.tmap` **writer** — `tether.imaging.register.read_tmap` is the only entry point —
-so there is no way to extract a bead movie in Tether and export a calibration map from it.
+also has no `.tmap` **writer** — `tether.imaging.register.read_tmap` is the only entry point.
+From Python, `tether.imaging.beadmap.bead_map_from_file` makes a map from a bead video or
+image, and `tether.imaging.calibrate.save_map` writes it as a Tether `.npz` map file, but
+`tether extract` cannot read that file yet, so it does not help a `tether extract` run.
 
 ### Extraction found no molecules
 
@@ -356,18 +358,22 @@ re-extract. There is no post-hoc re-detection: detection happens once, at extrac
 
 ### The movie will not load
 
-All three of these arrive wrapped by `extract_movie` as
+All of these arrive wrapped by `extract_movie` as
 `could not extract from <name>: …`, exit `1` — that wrapper catches any non-`ExtractionError`,
-so the inner text is passed through unchanged from whatever raised it. The first two come from
-`tether.io.movie`; the third is **not** a Tether message — it is `tifffile`'s own
-`TiffFileError`, raised inside `MovieReader.__init__` when `tifffile.TiffFile` opens the path,
-so grepping `src/` for it finds nothing.
+so the inner text is passed through unchanged from whatever raised it. They come from
+`tether.io.adapters` (which container the file is) and `tether.io.movie` (the TIFF reader). A
+file whose first bytes are a TIFF header but whose body is damaged can still fail inside
+`tifffile` itself, with a `TiffFileError` message that is not Tether's, so grepping `src/` for
+that one finds nothing.
 
 | Message | What it means | Remedy |
 |---|---|---|
-| `… is not memory-mappable; the lazy reader needs an uncompressed, contiguous TIFF (the reference movie format, PRD Appendix A).` | A compressed or tiled TIFF. This is the most common real-world case. | Re-save uncompressed — in ImageJ, *Save As → Tiff* with no compression. |
+| `… is not memory-mappable; the lazy reader needs an uncompressed, contiguous TIFF (the reference movie format, PRD Appendix A).` | A compressed (lossless, for example LZW) or tiled TIFF. This is the most common real-world case. | Re-save uncompressed — in ImageJ, *Save As → Tiff* with no compression. |
+| `…: the frames are stored with the JPEG codec, which can be lossy. …` | A codec that can discard intensity information (JPEG, JPEG 2000, JPEG XR, JPEG XL, WebP, LERC). The TIFF tags do not show whether this file used a lossless mode, so Tether refuses it rather than guess. | Export again without compression from the original acquisition. If the compression was lossy, re-saving this file cannot bring the values back. |
+| `…: the pixels are palette (color-map) indices, not intensities.` or `…: each pixel has 3 samples (for example RGB); …` | The file holds color images, not one intensity per pixel — often a screenshot or an export for a slide. | Export the raw single-channel stack. |
 | `…: expected a 3-D movie (frames, height, width), got shape (64, 64) (axes 'YX').` | A single-page TIFF — often a max-projection saved instead of the stack. | Point Tether at the stack. |
-| `not a TIFF file: header=b'this'` | The file is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
+| `…: the name says TIFF, but the content is not a TIFF file …` | The file is named `.tif` but is not a TIFF at all: renamed, corrupt, or a copy that never finished. | Re-copy from the acquisition machine. |
+| `…: Tether does not read this movie container (.nd2). Tether reads: TIFF (.tif, .tiff). …` | A vendor container (`.nd2`, `.czi`, `.sif`, `.vsi`, …). Readers for some of these are planned; the message names the Bio-Formats route for the rest. | Export the movie to uncompressed TIFF. |
 
 Two more from the same family, raised by `tether.project.extract`:
 
@@ -727,6 +733,26 @@ someone else took it first, Tether refuses, shows the new state and writes nothi
 takeover is logged at WARNING on the `tether.project.lock` logger with the ousted and the new
 holder. From a script, `tether.project.lock.lock_recovery` reports the case and
 `tether.project.lock.recover_lock` acts on it.
+
+**Finding out later whether a lock was taken.** Once the project is open writable again, Tether
+also keeps one row per takeover inside the project file, in `/settings/lock_takeovers`. It names
+the time (UTC), the action (`recover` or `take_over`), the new holder, the ousted holder with the
+time of its last refresh, or a corrupt lock, and the Tether version. Read it with
+`Project.read_lock_takeovers()`.
+
+A project that was never taken over has no rows, and that includes every project written before
+this record existed. A refused or failed takeover adds no row. If the row cannot be written, the takeover still stands, and the status line says
+`the takeover record was not written`.
+
+```python
+from tether.project.core import Project
+
+for row in Project.open("exp.tether").read_lock_takeovers():
+    print(row["timestamp"], row["action"], row["ousted_user"], row["ousted_host"])
+```
+
+A script that calls `recover_lock` itself records the takeover with
+`Project.record_lock_takeover(action, taken, ousted)` after it has the lock.
 
 **Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
 Tether gives that file read and write access for each group of users who can write the project

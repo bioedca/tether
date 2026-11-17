@@ -12,7 +12,9 @@ builds the command's request from its options, runs the command, and prints the 
 pipeline over many movies — see [`tether.services.batch`][]. Their subcommands are made
 from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names any
 registered command that has no route here. ``tether info`` prints a read-only summary of
-what a project holds — see [`tether.project.summary`][].
+what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
+gives a project's movie metadata with its origin — see
+[`tether.project.movie_metadata`][].
 
 The CLI deliberately uses the standard-library [`argparse`][] rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -66,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
         # in the test that names it (unrouted_commands).
         _ROUTES[entry.name].add_parser(subparsers, entry.summary)
     _add_info_parser(subparsers)
+    _add_metadata_parser(subparsers)
     return parser
 
 
@@ -529,6 +532,89 @@ def _run_info(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _add_metadata_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``metadata`` subcommand (show or give movie metadata, #911)."""
+    meta = subparsers.add_parser(
+        "metadata",
+        help="show or give a project's frame time, pixel size and channel roles",
+        description=(
+            "Print each movie's frame time, pixel size and channel roles with their "
+            "origin (file, user or unknown) and whether the frame time is verified. "
+            "--frame-time and --pixel-size give a value (origin user); a given frame "
+            "time is verified only by a separate --confirm-frame-time call."
+        ),
+    )
+    meta.add_argument("project", help="path to the .tether project")
+    meta.add_argument(
+        "--movie",
+        default=None,
+        metavar="MOVIE_ID",
+        help="the movie to change (default: the only movie of the project)",
+    )
+    meta.add_argument(
+        "--frame-time", type=float, default=None, metavar="SECONDS", help="give the frame time"
+    )
+    meta.add_argument(
+        "--pixel-size", type=float, default=None, metavar="UM", help="give the pixel size in um"
+    )
+    meta.add_argument(
+        "--confirm-frame-time",
+        action="store_true",
+        help="mark the movie's frame time as verified (a separate call from --frame-time)",
+    )
+    meta.add_argument("--json", action="store_true", help="print the records as JSON")
+
+
+def _run_metadata(args: argparse.Namespace) -> int:
+    """Handle ``tether metadata``; exit 1 on a refused change, 2 on bad arguments."""
+    import json
+
+    from tether.project.core import Project
+    from tether.project.lock import LockedError
+
+    if args.confirm_frame_time and args.frame_time is not None:
+        print(
+            "tether metadata: --confirm-frame-time is a separate action; "
+            "give --frame-time first, then confirm it in a second call",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        project = Project.open(args.project)
+        records = project.movie_metadata()
+        changes = args.frame_time is not None or args.pixel_size is not None
+        if changes or args.confirm_frame_time:
+            movie_id = args.movie
+            if movie_id is None:
+                if len(records) != 1:
+                    raise ValueError(
+                        f"the project has {len(records)} movies; name one with --movie"
+                    )
+                (movie_id,) = records
+            # One all-or-nothing write: a refused command (exit 1) leaves the
+            # project as it was.
+            project.update_movie_metadata(
+                movie_id,
+                frame_time=args.frame_time,
+                pixel_size_um=args.pixel_size,
+                confirm_frame_time=args.confirm_frame_time,
+            )
+            records = project.movie_metadata()
+    except (KeyError, ValueError, OSError, LockedError) as exc:
+        print(f"tether metadata: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps([r.to_dict() for r in records.values()], indent=2))
+        return 0
+    for r in records.values():
+        state = "verified" if r.frame_time_verified else "not verified"
+        print(f"{r.movie_id}:")
+        print(f"  frame time: {r.frame_time:g} s ({r.frame_time_origin}, {state})")
+        print(f"  pixel size: {r.pixel_size_um:g} um ({r.pixel_size_origin})")
+        print(f"  channel roles: {r.channel_roles_origin}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a process exit code (``0`` on success).
 
@@ -546,6 +632,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return route.invoke(args)
     if command == "info":
         return _run_info(args)
+    if command == "metadata":
+        return _run_metadata(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 

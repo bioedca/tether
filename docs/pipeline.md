@@ -100,6 +100,16 @@ not applied. A `.tmap` that also rotates or flips a channel is refused for now
 ([acquisition geometry](compatibility.md#acquisition-geometry);
 [`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
 
+A map can also come from a bead slide. `tether.imaging.beadmap` takes one bead image, or a
+bead video reduced to one image over the frames you choose with a `max` or `mean`
+projection, and runs the same detection, prealign, pairing and fit on it. With one image it
+gives the same map as the steps above. It stores the source id, the frame range and the
+projection with the map, and a quality record: the RMS residual, the number of pairs, the
+residual of each pair, and the fraction of the field the pairs cover. A source with fewer
+than six bead spots in either half is refused
+([`min_bead_spots`](reference/parameters.md#registration-and-colocalization)). This is a
+Python entry point only for now: `tether extract` has no option to use such a map yet.
+
 - **Writes:** the registration map under `/calibration`, with its residual and source.
 - **Read more:** [registration](glossary.md#registration-tmap),
   [Analysis parameters](reference/parameters.md#registration-and-colocalization)
@@ -128,6 +138,19 @@ file, and row *i* of every trace array is the same molecule
 - **Read more:** [Command line](cli.md#tether-extract),
   [Legacy Deep-LASI import](io/legacy-import.md) for bringing in traces that were extracted
   elsewhere.
+
+### Preview the stages before a run
+
+`tether.project.preview` runs split, detect, register, colocalize and extract on a movie that is
+already in memory, in the same order and with the same settings as a real extraction, and
+stops before anything is written. It gives one result for each stage: what the stage
+produced, the settings it used, and an outcome. A stage that cannot finish reports `failed`
+with the reason, and a native fit that misses the RMS gate reports `over-gate`. The
+molecules and traces it gives are the same, bit for bit, as the ones a real run makes. This
+is true when both use the same channel geometry and the same registration source. A different
+geometry can give a different result ([`tether.project.preview`](https://github.com/bioedca/tether/blob/main/src/tether/project/preview.py)).
+
+- **Writes:** nothing.
 
 ### Curate
 
