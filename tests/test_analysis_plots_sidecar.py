@@ -28,6 +28,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import pytest
+import scipy
 
 from _sidecar_gate import SIDECAR as _SIDECAR
 from _sidecar_gate import requires_sidecar
@@ -35,7 +36,13 @@ from test_analysis_dwell import _tmaven_dwells, _tmaven_survival  # noqa: PLC270
 from test_analysis_histogram_overlay import _tmaven_reference  # noqa: PLC2701
 from test_analysis_histogram_postsync import _tmaven_postsync  # noqa: PLC2701
 from test_analysis_tdp import _tmaven_tdp  # noqa: PLC2701
-from tether.analysis.dwell import fit_survival, state_dwells, survival_curve
+from tether.analysis.dwell import (
+    DwellFit,
+    fit_survival,
+    mean_dwell_time,
+    state_dwells,
+    survival_curve,
+)
 from tether.analysis.histogram import (
     apparent_e_histogram,
     model_gaussian_overlay,
@@ -61,8 +68,14 @@ OVERLAY_RTOL = 1e-13  # measured at most 1.44e-14 (vectorized form vs tMAVEN's l
 # host, up to 3.9e-6 relative (double-exponential rate) on another. 1e-5 is the bound the
 # unmarked multi-exponential fits in test_analysis_dwell.py use; R2 agrees far closer.
 FIT_RTOL, R2_RTOL = 1e-5, 1e-9
+# The standard errors (sqrt(diag(pcov)) at the optimizer's stopping point) and the mean dwell
+# time built from them (#1158), with the bound the rates use. Measured on Linux x86-64: equal to
+# the bit with the test on the sidecar stack, as the sidecar job runs it; with the test on the
+# base stack (NumPy 2.1.3, SciPy 1.18.0) at most 5.2e-6 for an error and 2.6e-6 for the error
+# of the mean dwell time, over the single, double and stretched fits.
+ERR_RTOL = TAU_RTOL = FIT_RTOL
 A2B_PAIRS = ((-1, -1), (0, -1), (-1, 2), (1, 2), (2, 1))
-FITS = ("single", "double", "stretched")
+FITS = ("single", "double", "stretched", "triple")  # the child's FITS, in its order
 TM_PAIRS = ((0, 1), (1, 0), (1, 2), (2, 1), (2, 3), (3, 2))
 
 
@@ -194,14 +207,70 @@ def test_b2_dwells_survival_and_fits_match_live_tmaven(live: dict) -> None:
         tau, surv = survival_curve(dw.lengths[s])
         np.testing.assert_array_equal(tau, tm[f"b2_tau_{s}"])
         np.testing.assert_array_equal(surv, tm[f"b2_surv_{s}"])
-        for j, model in enumerate(FITS):  # the same curve_fit call, to the optimizer's tolerance
-            fit, key = fit_survival(tau, surv, model=model), f"b2_fit_{j}_{s}"
-            close = {"rtol": FIT_RTOL, "atol": 0, "err_msg": key}
-            np.testing.assert_allclose(fit.rates, tm[key + "_k"], **close)
-            np.testing.assert_allclose(fit.amplitudes, tm[key + "_a"], **close)
-            np.testing.assert_allclose(fit.r_squared, tm[key + "_r2"], rtol=R2_RTOL, err_msg=key)
-            if model == "stretched":
-                np.testing.assert_allclose(np.ravel(fit.beta), tm[key + "_beta"], **close)
+        for j, model in enumerate(FITS[:3]):  # the same curve_fit call, to its tolerance
+            _assert_fit_matches(fit_survival(tau, surv, model=model), tm, f"b2_fit_{j}_{s}")
+
+
+@requires_sidecar
+def test_b2_triple_fit_matches_live_tmaven_on_one_stack(live: dict) -> None:
+    """The triple fit, its errors and its mean dwell time, with the test on tMAVEN's stack.
+
+    Six parameters on a survival curve leave curve_fit with nearby local minima, and which one
+    it stops in depends on the NumPy/SciPy build: measured on Linux x86-64, Tether on the base
+    stack (NumPy 2.1.3, SciPy 1.18.0) stops for state 3 in a minimum with a residual sum of
+    squares of 0.180 where tMAVEN, and Tether on the sidecar stack, reach 0.159, and differs by
+    up to 2.4e-4 relative for states 0 to 2. With both on the sidecar stack every value is equal
+    to the bit. So this comparison runs only when the test and the child share NumPy and SciPy,
+    which is how the sidecar job runs it.
+    """
+    tm = live["tm"]
+    here = f"numpy {np.__version__}, scipy {scipy.__version__}"
+    if str(tm["b2_stack"]) != here:
+        pytest.skip(f"triple fit compared on one stack: tMAVEN on {tm['b2_stack']}, test on {here}")
+    dw, j = state_dwells(live["states"]), FITS.index("triple")
+    for s in range(4):
+        tau, surv = survival_curve(dw.lengths[s])
+        _assert_fit_matches(fit_survival(tau, surv, model="triple"), tm, f"b2_fit_{j}_{s}")
+
+
+def _paired_errors(tm: dict, key: str, n_exp: int) -> tuple[np.ndarray, np.ndarray, float | None]:
+    """Return the ``error`` tMAVEN stored for one fit, each error paired with its parameter.
+
+    The single fit stores ``[[k], [A]]`` and the stretched fit ``[[k], [beta], [A]]``. The
+    double and triple fits store ``[errors of k, errors of A]`` in the order of curve_fit's
+    parameters while ``ks`` and ``As`` are sorted by rate (#756, ADR-0097), so both rows are
+    put in the order of the rates the child recorded from curve_fit.
+    """
+    err, popt = tm[key + "_err"], tm[key + "_popt"]
+    if err.shape == (2, 1):
+        return err[0], err[1], None
+    if err.shape == (3, 1):
+        return err[0], err[2], float(err[1, 0])
+    order = np.argsort(popt[:n_exp])
+    np.testing.assert_array_equal(popt[:n_exp][order], tm[key + "_k"], err_msg=key)
+    return err[0][order], err[1][order], None
+
+
+def _assert_fit_matches(fit: DwellFit, tm: dict, key: str) -> None:
+    close = {"rtol": FIT_RTOL, "atol": 0, "err_msg": key}
+    np.testing.assert_allclose(fit.rates, tm[key + "_k"], **close)
+    np.testing.assert_allclose(fit.amplitudes, tm[key + "_a"], **close)
+    np.testing.assert_allclose(fit.r_squared, tm[key + "_r2"], rtol=R2_RTOL, err_msg=key)
+    if fit.model == "stretched":
+        np.testing.assert_allclose(np.ravel(fit.beta), tm[key + "_beta"], **close)
+    rate_err, amp_err, beta_err = _paired_errors(tm, key, fit.rates.size)
+    close["rtol"] = ERR_RTOL
+    np.testing.assert_allclose(fit.rate_stderr, rate_err, **close)
+    np.testing.assert_allclose(fit.amplitude_stderr, amp_err, **close)
+    if fit.model == "stretched":
+        np.testing.assert_allclose(fit.beta_stderr, beta_err, **close)
+    if fit.model in ("double", "triple"):
+        # tMAVEN 0.3.0 has no mean dwell time of its own: its dwell dialog shows the rates, the
+        # errors, the amplitudes and R2 only. So the formula is applied to tMAVEN's paired
+        # parameters and compared with the one Tether's fit gives.
+        a, k = tm[key + "_a"], tm[key + "_k"]
+        want = mean_dwell_time(a, k, amplitude_stderr=amp_err, rate_stderr=rate_err)
+        np.testing.assert_allclose(fit.mean_dwell_time(), want, rtol=TAU_RTOL, atol=0, err_msg=key)
 
 
 @requires_sidecar
