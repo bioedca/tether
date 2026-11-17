@@ -131,6 +131,37 @@ def _present(path: Path) -> bool:
     return True
 
 
+def _folders_below(folder: Path) -> list[Path]:
+    """Return *folder* and every folder that ``**`` lists below it, as ``glob`` does.
+
+    ``glob`` follows links to folders and skips hidden names, so this does the same; a
+    folder reached twice (through a link) is listed once. A listing error is let through.
+    """
+    if not folder.is_dir():
+        return []
+    found: list[Path] = []
+    seen: set[str] = set()
+    pending = [folder]
+    while pending:
+        current = pending.pop()
+        key = os.path.normcase(os.path.realpath(current))
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(current)
+        with os.scandir(current) as entries:
+            for entry in entries:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    is_folder = entry.is_dir()
+                except OSError:
+                    continue
+                if is_folder:
+                    pending.append(current / entry.name)
+    return found
+
+
 def _check_pattern_folders(pattern: str) -> None:
     """Raise the [`OSError`][] of any folder that ``pattern`` must list and cannot.
 
@@ -148,18 +179,7 @@ def _check_pattern_folders(pattern: str) -> None:
     for index, part in enumerate(parts):
         last = index == len(parts) - 1
         if part == "**":
-            below: list[Path] = []
-            for folder in folders:
-                if not folder.is_dir():
-                    continue
-
-                def _refuse(exc: OSError) -> None:
-                    raise exc
-
-                for top, dirnames, _ in os.walk(folder, onerror=_refuse):
-                    dirnames[:] = [name for name in dirnames if not name.startswith(".")]
-                    below.append(Path(top))
-            folders = below
+            folders = [below for folder in folders for below in _folders_below(folder)]
         elif glob.has_magic(part):
             matched = []
             for folder in folders:

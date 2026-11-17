@@ -208,6 +208,31 @@ def test_a_folder_a_pattern_cannot_list_is_refused(
         expand_movie_arguments([pattern])
 
 
+def test_a_pattern_refuses_a_linked_folder_it_cannot_list(tmp_path: Path, monkeypatch) -> None:
+    """``**`` follows a link to a folder, as ``glob`` does, so an unlistable one is refused."""
+    folder = tmp_path / "data"
+    (folder / "day1").mkdir(parents=True)
+    (tmp_path / "outside").mkdir()
+    (folder / "day1" / "movie_010.tif").write_bytes(b"")
+    (tmp_path / "outside" / "movie_010.tif").write_bytes(b"")
+    link = folder / "alias"
+    try:
+        link.symlink_to(tmp_path / "outside", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this system cannot make a link to a folder")
+    real_scandir = os.scandir
+
+    def _scandir(path=".", *args, **kwargs):
+        if os.path.abspath(os.fspath(path)) == os.path.abspath(link):
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_scandir(path, *args, **kwargs)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(os, "scandir", _scandir)
+    with pytest.raises(MovieArgumentError, match=r"cannot read movie argument .*alias"):
+        expand_movie_arguments(["data/**/*.tif"])
+
+
 def test_a_pattern_skips_a_hidden_folder_it_cannot_list(tmp_path: Path, monkeypatch) -> None:
     """A hidden folder is not one a pattern looks in, so it cannot stop the batch."""
     folder = tmp_path / "data"
