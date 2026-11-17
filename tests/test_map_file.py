@@ -272,6 +272,25 @@ def test_the_recorded_digest_names_the_map_actually_applied(monkeypatch, tmp_pat
     assert read_calibration(out, summary.calibration_id).rms_residual == reg_map.rms_residual
 
 
+def test_the_profile_records_the_saved_maps_own_rms_gate(tmp_path, fitted) -> None:
+    """The map is judged against its own gate, so the profile records that gate (Codex P2)."""
+    reg_map, _map_file = fitted
+    strict_gate = reg_map.rms_residual / 2  # this map is over a gate half its residual
+    strict = save_map(replace(reg_map, gate_px=strict_gate), tmp_path / "strict.npz")
+    out = tmp_path / "strict.tether"
+    summary = extract_movie(
+        _write_movie(tmp_path / "movie_010.tif"),
+        out,
+        options=ExtractOptions(window=_WINDOW),  # default rms_gate 0.5
+        map_path=strict,
+    )
+
+    assert summary.low_confidence_registration
+    profile = _profile(out)
+    assert profile["rms_gate"] == strict_gate
+    assert profile["registration_rms_px"] > profile["rms_gate"]
+
+
 def test_a_native_fit_records_no_map_file(tmp_path) -> None:
     out = tmp_path / "native.tether"
     summary = extract_movie(

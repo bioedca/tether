@@ -464,7 +464,8 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     [`ExtractionError`][]. The map is used as saved: its coefficients, geometry,
     residual and over-gate verdict are not changed. Its provenance gains a
     ``map_file`` record (the file name and the sha256 of its bytes), so the
-    ``/calibration`` group says which file produced the map. The file is read once
+    ``/calibration`` group says which file produced the map. [`_resolve_sources`][]
+    then records the map's own ``gate_px`` as the run's ``rms_gate``. The file is read once
     and the map decoded from those bytes, so a file replaced during the call cannot
     pair one file's digest with another's coefficients. A map without channel
     geometry for both halves is refused, since the movie could not be split.
@@ -609,7 +610,10 @@ def _resolve_sources(
     if tmap is not None:
         return options, _imported_registration_map(tmap)
     if map_path is not None:
-        return options, _map_file_registration_map(map_path)
+        reg_map = _map_file_registration_map(map_path)
+        # The saved map was judged against its own gate; record that gate, so the
+        # profile and a resumed batch's over-gate check agree with the map applied.
+        return replace(options, rms_gate=reg_map.gate_px), reg_map
     return options, None
 
 

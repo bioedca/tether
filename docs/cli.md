@@ -193,7 +193,8 @@ which they apply:
 2. **`--tmap PATH`** — a Deep-LASI `.tmap` replaces the native fit.
 3. **`--map PATH`** — a saved Tether `.npz` map file replaces the native fit. It is
    applied as it was saved: its coefficients, its channel geometry, its RMS residual and
-   its low-confidence verdict are not changed.
+   its low-confidence verdict are not changed. The run records the map's own RMS gate,
+   and `--rms-gate` does not change it.
 
 A map file or a `.tmap` replaces the native fit, so `--donor-side` is ignored. The two
 files are never combined: neither can be said to win, so passing both is refused before
