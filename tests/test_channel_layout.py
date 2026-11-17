@@ -431,3 +431,15 @@ def test_the_stage_preview_splits_by_the_channel_layout() -> None:
     )
     assert [(s.name, s.outcome) for s in stages] == [("split", OUTCOME_FAILED)]
     assert "both set the channel split" in stages[0].message
+    # An explicit geometry equal to the map's own does not hide the conflict.
+    own = (registration.reference_geometry, registration.moving_geometry)
+    stages = list(
+        iter_extraction_stages(
+            stacked,
+            options=ExtractOptions(channel_layout=layout),
+            geometry=own,
+            registration=registration,
+        )
+    )
+    assert [(s.name, s.outcome) for s in stages] == [("split", OUTCOME_FAILED)]
+    assert "both set the channel split" in stages[0].message

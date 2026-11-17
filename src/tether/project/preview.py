@@ -169,6 +169,13 @@ def _geometry(
     params: dict[str, Any],
 ) -> tuple[ChannelGeometry, ChannelGeometry]:
     """Resolve the channel geometry exactly as ``extract_movie`` does, recording its source."""
+    if registration is not None and options.channel_layout is not None:
+        # As in extract_movie: an imported map carries its own split, and a layout
+        # beside it would name a second, competing one (#908). Checked before the
+        # geometry argument, so an explicit geometry does not hide the conflict.
+        raise ValueError(
+            "channel_layout and an imported registration both set the channel split; give only one"
+        )
     if geometry is not None:
         params["geometry_source"] = "argument"
         if registration is not None:
@@ -182,13 +189,6 @@ def _geometry(
                 )
         return geometry
     if registration is not None:
-        if options.channel_layout is not None:
-            # As in extract_movie: an imported map carries its own split, and a layout
-            # beside it would name a second, competing one (#908).
-            raise ValueError(
-                "channel_layout and an imported registration both set the channel split; "
-                "give only one"
-            )
         params["geometry_source"] = "registration"
         donor, acceptor = registration.reference_geometry, registration.moving_geometry
         if donor is None or acceptor is None:
