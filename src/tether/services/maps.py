@@ -67,7 +67,9 @@ def run(request: MapCreateRequest) -> MapCreateResult:
 
     The map is written to a sibling temporary file and moved into place in one step, so
     a failed run leaves no partial file and an existing map is replaced only by a
-    complete one (and only with ``overwrite``). A map over the RMS gate is still saved:
+    complete one (and only with ``overwrite``). Without ``overwrite`` the move never
+    replaces a file, so a map another session saves at ``output`` while this one is
+    fitted is kept, and this run is refused. A map over the RMS gate is still saved:
     it carries its low-confidence verdict, as the native fit does (§7.1).
     """
     import warnings
@@ -100,10 +102,13 @@ def run(request: MapCreateRequest) -> MapCreateResult:
                 app_version=tether.__version__,
             )
         written = save_map(result.registration_map, tmp)
-        os.replace(written, output)
+        _publish(written, output, overwrite=request.overwrite)
+    except FileExistsError as exc:  # another session made the file while this one fitted
+        raise CommandFailed(f"output exists: {output} (use --overwrite)") from exc
     except (BeadMapError, OSError, ValueError) as exc:
-        tmp.unlink(missing_ok=True)
         raise CommandFailed(str(exc)) from exc
+    finally:
+        tmp.unlink(missing_ok=True)
     reg_map = result.registration_map
     return MapCreateResult(
         path=output,
@@ -113,3 +118,31 @@ def run(request: MapCreateRequest) -> MapCreateResult:
         low_confidence=bool(reg_map.low_confidence),
         source_id=result.source.source_id,
     )
+
+
+def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
+    """Move the complete map file *written* to *output*; without *overwrite*, never replace.
+
+    ``os.replace`` replaces a file at *output* in one step. Without *overwrite* a hard
+    link is made instead, which fails with [`FileExistsError`][] if *output* exists,
+    also when it appeared after the first check. Where the file system has no hard
+    links, the bytes are copied to a file opened with ``"xb"``, which refuses an
+    existing file the same way.
+    """
+    if overwrite:
+        os.replace(written, output)
+        return
+    try:
+        os.link(written, output)
+    except FileExistsError:
+        raise
+    except OSError:  # no hard links here (a FAT drive, some network shares)
+        data = written.read_bytes()
+        try:
+            with open(output, "xb") as f:
+                f.write(data)
+        except FileExistsError:
+            raise
+        except OSError:
+            output.unlink(missing_ok=True)
+            raise

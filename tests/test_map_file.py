@@ -418,6 +418,48 @@ def test_map_create_refuses_an_existing_output_and_a_bad_name(tmp_path, capsys) 
     assert load_map(existing).n_control_points == 9
 
 
+@pytest.mark.parametrize("hard_links", [True, False])
+def test_map_create_keeps_a_map_saved_meanwhile_without_overwrite(
+    monkeypatch, tmp_path, capsys, hard_links
+) -> None:
+    """A map saved at the output while this one is fitted is kept (Codex P2)."""
+    from tether.imaging import beadmap
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    output = tmp_path / "shared.npz"
+    real_fit = beadmap.bead_map_from_file
+
+    def another_session_saves_first(*args, **kwargs):
+        result = real_fit(*args, **kwargs)
+        output.write_bytes(b"the other session's map")
+        return result
+
+    monkeypatch.setattr(beadmap, "bead_map_from_file", another_session_saves_first)
+    if not hard_links:  # a file system without hard links takes the "xb" copy
+        monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    assert main(["map", "create", str(beads), "-o", str(output)]) == 1
+    assert "output exists" in capsys.readouterr().err
+    assert output.read_bytes() == b"the other session's map"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", "shared.npz"]
+
+
+def test_map_create_writes_a_map_where_there_are_no_hard_links(monkeypatch, tmp_path) -> None:
+    from tether.services import maps
+
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    output = tmp_path / "copied.npz"
+    assert (
+        main(["map", "create", str(_write_beads(tmp_path / "beads.tif")), "-o", str(output)]) == 0
+    )
+    assert load_map(output).n_control_points == 9
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", "copied.npz"]
+
+
+def _no_hard_links(src, dst):
+    raise PermissionError(1, "hard links are not supported here", str(dst))
+
+
 def test_a_failed_map_leaves_no_file(tmp_path, capsys) -> None:
     blank = tmp_path / "blank.tif"
     tifffile.imwrite(blank, np.full(_SHAPE, 80, dtype=">u2"), byteorder=">")
