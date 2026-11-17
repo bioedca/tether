@@ -398,6 +398,38 @@ def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> Registratio
         raise ExtractionError(f"could not use --tmap {Path(tmap_path).name}: {exc}") from exc
 
 
+def _write_metadata_origins(
+    path: Path,
+    movie_id: str,
+    frame_time: float,
+    pixel_size_um: float | None,
+    *,
+    roles_from_tmap: bool,
+) -> None:
+    """Record where frame time, pixel size and channel roles came from (#911).
+
+    A value read off the movie is origin ``file`` (a file frame time is verified).
+    Channel roles are ``file`` from an imported ``.tmap`` and ``user`` on the native
+    path, where the run's ``donor_side`` option names the donor half.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.project import movie_metadata as mm  # noqa: PLC0415
+
+    known_time = frame_time > 0.0
+    record = mm.MovieMetadataRecord(
+        movie_id=movie_id,
+        frame_time=frame_time if known_time else 0.0,
+        frame_time_origin=mm.ORIGIN_FILE if known_time else mm.ORIGIN_UNKNOWN,
+        frame_time_verified=known_time,
+        pixel_size_um=pixel_size_um or 0.0,
+        pixel_size_origin=mm.ORIGIN_FILE if pixel_size_um else mm.ORIGIN_UNKNOWN,
+        channel_roles_origin=mm.ORIGIN_FILE if roles_from_tmap else mm.ORIGIN_USER,
+    )
+    with h5py.File(path, "r+") as f:
+        mm.write_metadata_record(f, record)
+
+
 @dataclass(frozen=True)
 class _Extracted:
     """Everything stages 1-15 produce for one movie, before anything is persisted.
@@ -417,6 +449,7 @@ class _Extracted:
     pixel_dtype: str
     byteorder: str
     frame_time: float
+    pixel_size_um: float | None
     donor_geometry: ChannelGeometry
     acceptor_geometry: ChannelGeometry
     reg_map: RegistrationMap
@@ -489,6 +522,7 @@ def _run_pipeline(
             # ImageJ finterval tag is the only source: the .tdat/.mat decode reads no
             # FrameTime, so a legacy import cannot supply one later either.
             frame_time = float(reader.frame_time) if reader.frame_time is not None else 0.0
+            pixel_size_um = reader.pixel_size_um
 
             if imported_map is not None:
                 # Imported path: registration comes from the .tmap. Split + detect
@@ -594,6 +628,7 @@ def _run_pipeline(
         pixel_dtype=pixel_dtype,
         byteorder=byteorder,
         frame_time=frame_time,
+        pixel_size_um=pixel_size_um,
         donor_geometry=donor_geom,
         acceptor_geometry=acceptor_geom,
         reg_map=reg_map,
@@ -656,6 +691,13 @@ def _persist(
         parsed=parse_filename(movie_path.name),
         registration_map=reg_map,
         settings=settings,
+    )
+    _write_metadata_origins(
+        project_path,
+        movie_id,
+        extracted.frame_time,
+        extracted.pixel_size_um,
+        roles_from_tmap=tmap is not None,
     )
     return movie_id, calibration_id, molecule_ids
 
