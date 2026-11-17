@@ -58,7 +58,8 @@ you allow it** (below).
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project file records the application version, your analysis
   parameters, and your operating-system username (as the curator, or "labeler", of your
-  annotations). A separate lock file (`.lock`) records your computer's hostname, username
+  annotations). If you set a curator name in the application, new annotations record that
+  name instead. A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell
   who currently holds the write-lock. This information is stored only in files at the
   location you choose and is **never transmitted by Tether** to the project or to any third
@@ -67,6 +68,16 @@ you allow it** (below).
   embedded in the project) — so treat shared project files as you would any working
   document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
   shows how to see these fields before you make a file public.
+- **What the application remembers.** So that you can carry on where you stopped, the
+  desktop application keeps a small file, `preferences.json`, in your own settings folder.
+  It holds the paths of the last ten projects you opened. For up to 50 projects it also
+  holds the path and the molecule you last selected there. A path can therefore stay in the
+  file after it has left **Open recent**. It also holds the window layout, and the curator
+  name if you set one. This file
+  is never written into a `.tether` file and is **never transmitted by Tether**. Delete it
+  and the application forgets these things.
+  [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)
+  lists the folder on each system.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
   These run locally, and Tether does not configure them to collect or transmit your data.

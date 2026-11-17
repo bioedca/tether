@@ -4,10 +4,10 @@
 
 Every test gets its own per-user lock directory (``XDG_STATE_HOME`` and ``LOCALAPPDATA``
 point into its temporary tree), so the identity locks of ADR-0112 never touch the real user
-directory and never leak between tests. ``XDG_CONFIG_HOME`` points there too (and, on macOS,
-``HOME``), so the update-check consent of ADR-0095 is read from that tree and not from the
-real one.
-Subprocesses a test starts inherit it.
+directory and never leak between tests, and its own GUI preferences file
+(``TETHER_PREFERENCES_FILE``, ADR-0122). ``XDG_CONFIG_HOME`` points there too (and, on
+macOS, ``HOME``), so the update-check consent of ADR-0095 is read from that tree and not
+from the real one. Subprocesses a test starts inherit all of them.
 
 A test marked ``workstation`` needs private laboratory data. It runs in no CI job, on purpose:
 ``scripts/workstation/run_private_checks.py`` runs it from a scheduled task on the maintainer's
@@ -53,6 +53,8 @@ def _private_user_lock_dir(tmp_path_factory: pytest.TempPathFactory, monkeypatch
     state = tmp_path_factory.mktemp("user-state")
     monkeypatch.setenv("XDG_STATE_HOME", str(state))
     monkeypatch.setenv("LOCALAPPDATA", str(state))
+    # The GUI's per-user preferences file (#628, ADR-0122) is private to each test too.
+    monkeypatch.setenv("TETHER_PREFERENCES_FILE", str(state / "preferences.json"))
     # The application settings store (ADR-0095) reads XDG_CONFIG_HOME on Linux and
     # LOCALAPPDATA on Windows, so a shell a test builds never sees the real consent
     # answer and never starts a real update check (#248).

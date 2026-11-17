@@ -94,9 +94,13 @@ def create_shell(
     shows, before the import of [`tether.gui.shell`][], which is the slow part; it
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
-    ``False`` decides it explicitly. Last, the update notice is installed
-    ([`tether.gui.update_notice.install_update_notice`][]); its start is queued for the
-    event loop.
+    ``False`` decides it explicitly.
+
+    The shell remembers the session in the per-user preferences file
+    ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
+    the molecule selected at close, the layout and the curator name. Last, the update
+    notice is installed ([`tether.gui.update_notice.install_update_notice`][]); its start
+    is queued for the event loop.
     """
     args = build_parser().parse_args(argv)
 
@@ -117,9 +121,11 @@ def create_shell(
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
-        shell = TetherShell()
+        # The application remembers the session on this computer (#628, ADR-0122).
+        shell = TetherShell(preferences_file=preferences_path())
         if args.project is not None:
             shell.load_project(args.project)
         # The opt-in update notice (#248): the first-run question, or one check on a
