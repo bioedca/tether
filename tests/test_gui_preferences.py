@@ -206,7 +206,9 @@ def test_the_curator_name_defaults_to_the_login_and_can_be_set_and_unset(prefs: 
     assert effective_curator_name(prefs) == default_labeler()
 
 
-@pytest.mark.parametrize("bad", ["", "   ", "a\x00b", "line\nbreak", "x" * 101, 3])
+@pytest.mark.parametrize(
+    "bad", ["", "   ", "a\x00b", "line\nbreak", "line\u2028sep", "para\u2029sep", "x" * 101, 3]
+)
 def test_a_bad_curator_name_is_refused_and_nothing_is_written(prefs: Path, bad: object) -> None:
     with pytest.raises(ValueError):
         validate_curator_name(bad)
@@ -221,6 +223,27 @@ def test_a_write_keeps_keys_this_version_does_not_know(prefs: Path) -> None:
     set_curator_name("ana", prefs)
     data = json.loads(prefs.read_text(encoding="utf-8"))
     assert data == {"schema": 1, "from_a_newer_version": [1, 2], "curator_name": "ana"}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b'{"schema": 2, "layout": {"kept": true}}', b'{"schema": "1", "curator_name": "ana"}'],
+    ids=["newer", "schema-text"],
+)
+def test_a_write_never_replaces_a_file_of_another_schema(prefs: Path, content: bytes) -> None:
+    prefs.parent.mkdir(parents=True)
+    prefs.write_bytes(content)
+    with pytest.raises(OSError, match="another format"):
+        set_curator_name("ana", prefs)
+    assert prefs.read_bytes() == content
+    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
+
+
+def test_a_write_replaces_a_file_that_is_not_a_json_object(prefs: Path) -> None:
+    prefs.parent.mkdir(parents=True)
+    prefs.write_bytes(b"{torn")
+    set_curator_name("ana", prefs)
+    assert json.loads(prefs.read_text(encoding="utf-8")) == {"curator_name": "ana", "schema": 1}
 
 
 def test_a_failed_write_leaves_the_old_file_and_no_temporary(

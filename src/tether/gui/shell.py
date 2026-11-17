@@ -751,7 +751,10 @@ class TetherShell:
         self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
         self._show_section(_DEFAULT_SECTION)
         # The default layout, kept before a stored one is restored, for View -> Reset
-        # layout (#628).
+        # layout (#628). A window never shown reports Qt's placeholder size and takes its
+        # real one from its size hint on the first show; adjustSize applies that sizing now,
+        # so the size kept is the one a fresh launch shows.
+        self._window.adjustSize()
         self._default_size = self._window.size()
         self._default_state = self._window.saveState()
         self._default_docks = set(self._dock_default_area)

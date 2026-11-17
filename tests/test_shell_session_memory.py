@@ -167,6 +167,8 @@ def test_the_layout_is_restored_and_reset_layout_returns_the_default(
     right = QtCore.Qt.DockWidgetArea.RightDockWidgetArea
 
     first = launch()
+    first.show()
+    # The size a fresh launch shows, not the placeholder of a window never shown.
     default_size = first.window.size()
     assert first.window.dockWidgetArea(first.browser_dock) == left
     first.window.addDockWidget(right, first.browser_dock)
@@ -175,6 +177,7 @@ def test_the_layout_is_restored_and_reset_layout_returns_the_default(
     first.close()
 
     second = launch()
+    second.show()
     assert second.window.dockWidgetArea(second.browser_dock) == right
     assert second.window.size() == wanted
     assert not second.browser_dock.isHidden()

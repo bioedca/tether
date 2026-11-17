@@ -45,7 +45,8 @@ creates a folder.
 replace the file atomically (a temporary file in the same folder, ``fsync``,
 ``os.replace``), as [`record_update_consent`][tether.gui.app_settings.record_update_consent]
 does. A key this version does not know is kept, so a newer version's keys survive a session
-of this one.
+of this one. A JSON object of another ``schema`` is never replaced: a write refuses with
+`OSError` and leaves it as it was.
 
 **A project's identity** is its resolved absolute path, case-folded on Windows
 ([`project_identity`][]). The ``.tether`` format has no identifier of its own, and the
@@ -146,7 +147,8 @@ def validate_curator_name(name: object) -> str:
 
     A curator name is written into every new label (``labeler``), so it must be non-empty
     after stripping, at most [`CURATOR_NAME_MAX_LENGTH`][] characters, and free of control
-    characters (a NUL or a line break in a label column is unreadable later).
+    characters and line breaks, U+2028 and U+2029 included (a NUL or a line break in a label
+    column is unreadable later).
     """
     if not isinstance(name, str):
         raise ValueError(f"a curator name must be text, not {type(name).__name__}")
@@ -155,7 +157,8 @@ def validate_curator_name(name: object) -> str:
         raise ValueError("a curator name must not be empty")
     if len(stripped) > CURATOR_NAME_MAX_LENGTH:
         raise ValueError(f"a curator name must be at most {CURATOR_NAME_MAX_LENGTH} characters")
-    if any(unicodedata.category(ch).startswith("C") for ch in stripped):
+    # U+2028 and U+2029 are line breaks too, in categories Zl and Zp rather than C.
+    if any(unicodedata.category(ch)[0] == "C" or ch in "\u2028\u2029" for ch in stripped):
         raise ValueError("a curator name must not contain control characters")
     return stripped
 
@@ -164,26 +167,32 @@ def _resolve(preferences_file: Path | None) -> Path:
     return preferences_file if preferences_file is not None else preferences_path()
 
 
-def _read(path: Path) -> dict[str, Any]:
-    """Return the stored object, or ``{}`` for anything this module did not write."""
+def _load(path: Path) -> dict[str, Any] | None:
+    """Return the file's JSON object whatever its ``schema``, or ``None`` if it has none."""
     try:
         with path.open("rb") as handle:
             raw = handle.read(_MAX_BYTES + 1)
     except OSError:
-        return {}
+        return None
     if len(raw) > _MAX_BYTES:
-        return {}
+        return None
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _ours(data: dict[str, Any]) -> bool:
     schema = data.get("schema")
     # An exact int: JSON true and 1.0 compare equal to 1 but are not what this module writes.
-    if type(schema) is not int or schema != PREFERENCES_SCHEMA:
-        return {}
-    return data
+    return type(schema) is int and schema == PREFERENCES_SCHEMA
+
+
+def _read(path: Path) -> dict[str, Any]:
+    """Return the stored object, or ``{}`` for anything this module did not write."""
+    data = _load(path)
+    return data if data is not None and _ours(data) else {}
 
 
 def _write(path: Path, data: dict[str, Any]) -> None:
@@ -210,7 +219,16 @@ def _write(path: Path, data: dict[str, Any]) -> None:
 def _update(preferences_file: Path | None, mutate: Callable[[dict[str, Any]], None]) -> Path:
     """Apply ``mutate`` to the stored object and write it back atomically; return the file."""
     path = _resolve(preferences_file)
-    data = _read(path)
+    data = _load(path)
+    if data is None:
+        # Missing, unreadable or not a JSON object: nothing in it can be kept.
+        data = {}
+    elif not _ours(data):
+        # Another version's format: replacing it would drop every key that version wrote.
+        raise OSError(
+            f"{path.name} was written in another format (schema {data.get('schema')!r}); "
+            "it was left as it was"
+        )
     mutate(data)
     _write(path, data)
     return path
