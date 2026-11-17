@@ -7,9 +7,10 @@ description: "Run tether extract and tether batch without the application window
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, reproducing an
 extraction from recorded settings, or exporting results from many projects. Today the
-command line has four subcommands: `tether extract` and `tether batch` write projects,
-`tether info` only reads them and prints a summary, and `tether export` reads them and
-writes the molecule table, the trace text file or a subset project.
+command line has five subcommands: `tether extract` and `tether batch` write projects,
+`tether info` only reads them and prints a summary, `tether metadata` shows or gives the
+frame time, pixel size and channel roles of a project's movies, and `tether export` reads
+projects and writes the molecule table, the trace text file or a subset project.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -437,6 +438,48 @@ value that the project does not record is `null`. The keys are:
 | `projects[].lock.age_s` | the age of the lock in seconds |
 | `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
 
+## `tether metadata`
+
+Show, or give, the metadata of the movies in a project: the frame time, the pixel size and
+the channel roles (which half is the donor). Each value has an **origin**: `file` when
+Tether read it from the movie (the ImageJ `finterval` and the ImageJ pixel size in µm, or
+the channel crops of an imported `.tmap`), `user` when a person gave it, and `unknown`
+when there is no value. A native extraction records the channel roles as `user`, because
+`--donor-side` names the donor half.
+
+A frame time is **verified** only when it is from the file, or when you confirm it in a
+second call. A value you type stays not verified until you confirm it. Tether stores
+this flag now. Rate calculations do not check it yet: that is planned work
+([#941](https://github.com/bioedca/tether/issues/941)).
+
+```text
+tether metadata [-h] [--movie MOVIE_ID] [--frame-time SECONDS] [--pixel-size UM]
+                [--confirm-frame-time] [--json]
+                project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | path to the `.tether` project |
+| `--movie MOVIE_ID` | the only movie | the movie to change; required when the project has more than one movie |
+| `--frame-time SECONDS` | none | give the frame time (origin `user`, not verified) |
+| `--pixel-size UM` | none | give the pixel size in µm per pixel (origin `user`) |
+| `--confirm-frame-time` | off | mark the movie's frame time as verified; refused in the same call as `--frame-time` |
+| `--json` | off | print the records as JSON instead of text |
+
+With no option the command changes nothing and prints each movie. A value of `0` means
+unknown. The values are kept beside the `/movies` table, and `/movies.frame_time` keeps
+the value from the file ([`.tether` file format](reference/tether-format.md#movies-one-row-per-source-movie)).
+
+```console
+$ tether metadata run.tether --frame-time 0.1
+mov-…:
+  frame time: 0.1 s (user, not verified)
+  pixel size: 0 um (unknown)
+  channel roles: user
+$ tether metadata run.tether --confirm-frame-time
+```
+
 ## `tether export`
 
 Write the results of one or more `.tether` projects to files that another tool can read.
@@ -613,11 +656,11 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` | `tether info` | `tether export` |
-|---|---|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read | every export was written |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output folder could not be made |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
+| Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` | `tether export` |
+|---|---|---|---|---|---|
+| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read | the records were printed, after any change | every export was written |
+| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage, or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output folder could not be made |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` or `tether export` refused to start. Nothing is

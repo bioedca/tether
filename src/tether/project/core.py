@@ -49,7 +49,8 @@ if TYPE_CHECKING:
     )
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
     from tether.project.idealize import StoredIdealization
-    from tether.project.lock import LockIdentity, LockInfo
+    from tether.project.lock import LockIdentity, LockInfo, RecoveryAction
+    from tether.project.movie_metadata import MovieMetadataRecord
 
 __all__ = ["Project"]
 
@@ -295,6 +296,31 @@ class Project:
         info, prior = lock.steal_lock(self.path, identity=self._acting_identity())
         self._held_lock = info
         return info, prior
+
+    def record_lock_takeover(
+        self, action: RecoveryAction | str, taken: LockInfo, ousted: LockInfo | None
+    ) -> np.ndarray:
+        """Keep a durable record of a successful Recover or Take over (#1099, ADR-0121).
+
+        Appends one row to ``/settings/lock_takeovers``
+        ([`lock_takeovers.record_takeover`][tether.project.lock_takeovers.record_takeover])
+        for the ``(taken, ousted)`` pair that
+        [`recover_lock`][tether.project.lock.recover_lock] returned. Call it once the
+        project has been reopened writable under the new lock; it goes through the same
+        single-writer check as every other write (`_assert_writable`, §5.4), so a lock
+        lost again in the meantime raises [`LockedError`][tether.project.lock.LockedError]
+        and nothing is written.
+        """
+        from tether.project import lock_takeovers
+
+        self._assert_writable()
+        return lock_takeovers.record_takeover(self.path, action, taken, ousted)
+
+    def read_lock_takeovers(self) -> np.ndarray:
+        """The append-only takeover record (`lock_takeovers.read_takeovers`); may be empty."""
+        from tether.project import lock_takeovers
+
+        return lock_takeovers.read_takeovers(self.path)
 
     def release_lock(self) -> bool:
         """Release the lock this handle holds; ``False`` if it holds none / lost it.
@@ -648,6 +674,59 @@ class Project:
         from tether.project import molecule_edits
 
         return molecule_edits.read_molecule_audit(self.path)
+
+    # --- movie metadata with its origin (#911; §7.1, §11.1 units) --------------
+
+    def movie_metadata(self) -> dict[str, MovieMetadataRecord]:
+        """Each movie's frame time, pixel size and channel roles with their origins.
+
+        Read-only; delegates to
+        [`movie_metadata.read_movie_metadata`][tether.project.movie_metadata.read_movie_metadata].
+        """
+        from tether.project import movie_metadata
+
+        return movie_metadata.read_movie_metadata(self.path)
+
+    def set_frame_time(self, movie_id: str, seconds: float) -> MovieMetadataRecord:
+        """Give a movie's frame time (origin ``user``, not verified). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_frame_time(self.path, movie_id, seconds)
+
+    def confirm_frame_time(self, movie_id: str) -> MovieMetadataRecord:
+        """Verify a movie's frame time (the user's separate action). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.confirm_frame_time(self.path, movie_id)
+
+    def update_movie_metadata(
+        self,
+        movie_id: str,
+        *,
+        frame_time: float | None = None,
+        pixel_size_um: float | None = None,
+        confirm_frame_time: bool = False,
+    ) -> MovieMetadataRecord:
+        """Apply several metadata changes in one all-or-nothing write. Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.update_movie_metadata(
+            self.path,
+            movie_id,
+            frame_time=frame_time,
+            pixel_size_um=pixel_size_um,
+            confirm_frame_time=confirm_frame_time,
+        )
+
+    def set_pixel_size(self, movie_id: str, micrometres: float) -> MovieMetadataRecord:
+        """Give a movie's pixel size in µm (origin ``user``). Refuses a locked file."""
+        from tether.project import movie_metadata
+
+        self._assert_writable()
+        return movie_metadata.set_pixel_size(self.path, movie_id, micrometres)
 
     # --- idealization (PRD §7.4; the one-click-vbFRET seam behind the GUI) -----
 

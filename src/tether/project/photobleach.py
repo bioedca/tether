@@ -86,6 +86,7 @@ def compute_photobleach(
     beta: float = PB_PRIOR_BETA,
     mu: float = PB_PRIOR_MU,
     write_guard: Callable[[], None] | None = None,
+    movie_id: str | None = None,
 ) -> PhotobleachSummary:
     """Detect per-channel photobleaching and store frames + the auto window.
 
@@ -102,6 +103,10 @@ def compute_photobleach(
     write_guard
         Optional caller-owned lock/lease check invoked before opening the canonical
         project and again after detection immediately before persisting results.
+    movie_id
+        Restrict detection to the molecules of this ``/movies`` row; every other
+        row keeps its stored ``bleach_frames`` and ``analysis_window`` and is not
+        counted. ``None`` (default) examines every molecule (#347, ADR-0117).
 
     Returns
     -------
@@ -137,15 +142,24 @@ def compute_photobleach(
         for layer in (donor_layer, acceptor_layer):
             if layer not in traces_grp:
                 raise KeyError(f"project has no /traces/{layer}; run extraction first")
-        donor_all = traces_grp[donor_layer][:]
-        acceptor_all = traces_grp[acceptor_layer][:]
+        # A whole-project pass reads each layer once. A pass scoped to one movie reads
+        # only that movie's rows from the open datasets, so an append's memory use grows
+        # with the appended acquisition and not with the project (#347).
+        donor_all = traces_grp[donor_layer]
+        acceptor_all = traces_grp[acceptor_layer]
+        if movie_id is None:
+            donor_all = donor_all[:]
+            acceptor_all = acceptor_all[:]
 
         table = f[_MOLECULES][TABLE][:]  # a full copy; only two columns are mutated
         frame_range = table["frame_range"]
         analysis_window = table["analysis_window"]
         bleach_frames = table["bleach_frames"]
 
+        movie_ids = table["movie_id"]
         for i in range(table.shape[0]):
+            if movie_id is not None and _decode(movie_ids[i]) != movie_id:
+                continue  # another movie's molecule: outside this pass (#347)
             start, end = int(frame_range[i][0]), int(frame_range[i][1])
             if end <= start:
                 continue  # no valid native frames — leave the -1 sentinel
@@ -188,3 +202,7 @@ def compute_photobleach(
         n_windows_autoset=n_windows,
         intensity_quantity=intensity_quantity,
     )
+
+
+def _decode(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)

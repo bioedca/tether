@@ -53,6 +53,7 @@ _EXPECTED_OPTION_COUNTS = {
     "extract": 14,
     "batch": 11,
     "info": 2,
+    "metadata": 5,
     "export table": 4,
     "export traces": 5,
     "export subset": 5,
@@ -60,7 +61,7 @@ _EXPECTED_OPTION_COUNTS = {
 
 # The top-level subcommands, each a column of the exit-code table. `export` is one column:
 # its three forms (#658) share one set of exit codes.
-_TOP_LEVEL = ("extract", "batch", "info", "export")
+_TOP_LEVEL = ("extract", "batch", "info", "metadata", "export")
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -218,14 +219,23 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """`extract`, `batch`, `info` (#655) and the three `export` forms (#658) get a section each.
+    """`extract`, `batch`, `info` (#655), `metadata` (#911) and the three `export` forms (#658)
+    get a section each.
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    expected = {"extract", "batch", "info", "export table", "export traces", "export subset"}
+    expected = {
+        "extract",
+        "batch",
+        "info",
+        "metadata",
+        "export table",
+        "export traces",
+        "export subset",
+    }
     assert names == expected, f"unexpected subcommand set: {sorted(names)}"
     for name in sorted(names):
         assert f"`tether {name}`" in text, (
@@ -472,8 +482,8 @@ def test_the_exit_code_table_documents_every_code() -> None:
     The rows themselves are parsed: the prose after the table also spells `` `0` ``,
     `` `1` `` and `` `2` ``, so a search of the section text passed with the whole table
     deleted (#744, GUI-F19). Each code needs exactly one ``| `N` | … | … |`` row with a
-    non-empty cell for each of ``tether extract``, ``tether batch``, ``tether info`` and
-    ``tether export``.
+    non-empty cell for each of ``tether extract``, ``tether batch``, ``tether info``,
+    ``tether metadata`` and ``tether export``.
     """
     rows: dict[str, list[list[str]]] = {}
     for line in _exit_code_section().splitlines():
