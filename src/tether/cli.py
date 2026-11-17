@@ -41,14 +41,47 @@ from tether.services import (
     ExtractRequest,
     ExtractResult,
     Request,
+    RequestError,
     RequestRefused,
 )
 from tether.services import run as run_service
+from tether.services.profile import read_profile
 
 if TYPE_CHECKING:
     # Annotation-only: the summary module pulls in h5py, which ``--version`` must not.
     from tether.project.batch import BatchSummary
     from tether.project.summary import CurationCounts, ProjectSummary
+
+
+#: The attribute of the parsed namespace that names the extraction flags given on the
+#: command line (``_ExplicitStore``), so ``--profile`` can refuse them (#349).
+_EXPLICIT = "explicit_extraction_flags"
+
+#: What ``--profile`` and ``--tdat`` say about each other, in the help of both commands.
+_TDAT_RULE = (
+    "a .tdat sets detection_mode and detection_threshold, and no other option; it is "
+    "refused with --detection-mode/--detection-threshold or with a --profile that sets "
+    "either, and every other option keeps its value"
+)
+
+
+class _ExplicitStore(argparse.Action):
+    """Store an option's value and remember that the option was given (#349).
+
+    argparse calls an action only for an option on the command line, so this tells a flag
+    given at its default from a flag left out, which a default cannot.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        setattr(namespace, self.dest, values)
+        given = getattr(namespace, _EXPLICIT, frozenset())
+        setattr(namespace, _EXPLICIT, given | {option_string or self.dest})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -93,12 +126,14 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
     )
     extract.add_argument(
         "--donor-side",
+        action=_ExplicitStore,
         default="left",
         choices=DONOR_SIDES,
         help="which horizontal half is the donor channel (default: left)",
     )
     extract.add_argument(
         "--detection-mode",
+        action=_ExplicitStore,
         # None, not "wavelet": an explicit choice must stay distinguishable from no
         # flag, for the --tdat conflict check in _run_extract.
         default=None,
@@ -111,6 +146,7 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
     )
     extract.add_argument(
         "--detection-threshold",
+        action=_ExplicitStore,
         type=float,
         default=None,
         metavar="FRAC",
@@ -122,12 +158,14 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
     )
     extract.add_argument(
         "--window",
+        action=_ExplicitStore,
         type=int,
         default=21,
         help="aperture / crop-box side length in px, odd (default: 21)",
     )
     extract.add_argument(
         "--min-separation",
+        action=_ExplicitStore,
         type=float,
         default=None,
         help=(
@@ -137,30 +175,35 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
     )
     extract.add_argument(
         "--detection-block",
+        action=_ExplicitStore,
         type=int,
         default=50,
         help="moving-average block size for the detection image (default: 50)",
     )
     extract.add_argument(
         "--prealign",
+        action=_ExplicitStore,
         default="translation",
         choices=PREALIGN_MODES,
         help="registration prealign degrees of freedom (default: translation)",
     )
     extract.add_argument(
         "--pair-tol",
+        action=_ExplicitStore,
         type=float,
         default=2.0,
         help="control-point pairing tolerance in px (default: 2)",
     )
     extract.add_argument(
         "--coloc-distance",
+        action=_ExplicitStore,
         type=float,
         default=3.0,
         help="acceptor colocalization distance in px (default: 3)",
     )
     extract.add_argument(
         "--rms-gate",
+        action=_ExplicitStore,
         type=float,
         default=0.5,
         help="registration RMS-residual gate in px (default: 0.5)",
@@ -181,35 +224,89 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         help=(
             "auto-apply the particle-detection mode decoded from a Deep-LASI .tdat "
             "(temp/ParticleDetectionMode), so extraction matches the method the movie "
-            "was detected with; mutually exclusive with --detection-mode/-threshold"
+            f"was detected with; {_TDAT_RULE}"
+        ),
+    )
+    extract.add_argument(
+        "--profile",
+        default=None,
+        metavar="PATH",
+        help=(
+            "read every extraction option from an extraction profile (a JSON "
+            "file; see docs/cli.md); an option the file leaves out keeps its default. "
+            "It cannot be combined with an option flag (--donor-side ... --rms-gate)"
         ),
     )
 
 
+class _ProfileRefused(Exception):
+    """The ``--profile`` of a command line cannot be used; the message says why."""
+
+
+def _profile_values(args: argparse.Namespace) -> dict[str, object] | None:
+    """Read ``--profile`` into the extraction fields, or ``None`` without one.
+
+    Raises [`_ProfileRefused`][] when the file is not a valid profile, when an extraction
+    flag is given beside it, or when it sets a detection field beside ``--tdat``.
+    """
+    if args.profile is None:
+        return None
+    given = sorted(getattr(args, _EXPLICIT, frozenset()))
+    if given:
+        raise _ProfileRefused(
+            f"--profile cannot be combined with {', '.join(given)}: the profile sets every "
+            "extraction option; change the value in the profile instead"
+        )
+    try:
+        profile = read_profile(args.profile)
+    except RequestError as exc:
+        raise _ProfileRefused(str(exc)) from exc
+    if args.tdat is not None and profile.sets_detection():
+        raise _ProfileRefused(
+            f"extraction profile {args.profile} sets detection_mode/detection_threshold, "
+            "which cannot be combined with --tdat (the .tdat supplies them); set them to "
+            "null in the profile or drop --tdat"
+        )
+    return profile.extraction_values()
+
+
 def _extract_request(args: argparse.Namespace) -> ExtractRequest:
-    """Build the ``extract`` request from the parsed options."""
+    """Build the ``extract`` request from the parsed options or the ``--profile``.
+
+    Raises [`_ProfileRefused`][] for a ``--profile`` that cannot be used.
+    """
+    values = _profile_values(args)
+    if values is None:
+        # The seven fields with no flag keep their request defaults.
+        values = {
+            "donor_side": args.donor_side,
+            "detection_mode": args.detection_mode,
+            "detection_threshold": args.detection_threshold,
+            "window": args.window,
+            "min_separation": args.min_separation,
+            "detection_block": args.detection_block,
+            "prealign": args.prealign,
+            "pair_tol": args.pair_tol,
+            "coloc_distance": args.coloc_distance,
+            "rms_gate": args.rms_gate,
+        }
     return ExtractRequest(
         movie=args.movie,
         output=args.output,
         overwrite=args.overwrite,
-        donor_side=args.donor_side,
-        detection_mode=args.detection_mode,
-        detection_threshold=args.detection_threshold,
-        window=args.window,
-        min_separation=args.min_separation,
-        detection_block=args.detection_block,
-        prealign=args.prealign,
-        pair_tol=args.pair_tol,
-        coloc_distance=args.coloc_distance,
-        rms_gate=args.rms_gate,
         tmap=args.tmap,
         tdat=args.tdat,
+        **values,  # type: ignore[arg-type]
     )
 
 
 def _run_extract(args: argparse.Namespace) -> int:
-    """Handle ``tether extract``; a failed extraction is exit code 1."""
-    request = _extract_request(args)
+    """Handle ``tether extract``; a failed extraction or an unusable profile is exit code 1."""
+    try:
+        request = _extract_request(args)
+    except _ProfileRefused as exc:
+        print(f"tether extract: {exc}", file=sys.stderr)
+        return 1
     try:
         result: ExtractResult = run_service(request)
     except CommandFailed as exc:
@@ -316,7 +413,17 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         "--tdat",
         default=None,
         metavar="PATH",
-        help="a shared Deep-LASI .tdat detection config applied to every movie",
+        help=f"a shared Deep-LASI .tdat detection config applied to every movie; {_TDAT_RULE}",
+    )
+    batch.add_argument(
+        "--profile",
+        default=None,
+        metavar="PATH",
+        help=(
+            "extract every movie with the extraction options of an extraction "
+            "profile (a JSON file; see docs/cli.md); an option the file leaves out keeps "
+            "its default, and without a profile every option is at its default"
+        ),
     )
     batch.add_argument(
         "--policy",
@@ -393,7 +500,11 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
 
 
 def _batch_request(args: argparse.Namespace) -> BatchRequest:
-    """Build the ``batch`` request from the parsed options."""
+    """Build the ``batch`` request from the parsed options and the ``--profile``.
+
+    Raises [`_ProfileRefused`][] for a ``--profile`` that cannot be used.
+    """
+    values = _profile_values(args) or {}
     return BatchRequest(
         movies=tuple(args.movies),
         out_dir=args.out_dir,
@@ -407,6 +518,7 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
         sidecar_timeout=args.sidecar_timeout,
         sidecar_python=args.sidecar_python,
         defer_if_unavailable=not args.no_defer,
+        **values,  # type: ignore[arg-type]
     )
 
 
@@ -422,7 +534,7 @@ def _run_batch(args: argparse.Namespace) -> int:
     progress = None if args.quiet else TextProgress(sys.stderr, verbose=args.verbose)
     try:
         result: BatchResult = run_service(_batch_request(args), progress=progress)
-    except RequestRefused as exc:
+    except (RequestRefused, _ProfileRefused) as exc:
         print(f"tether batch: {exc}", file=sys.stderr)
         return 2
     except CommandFailed as exc:

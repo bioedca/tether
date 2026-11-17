@@ -49,7 +49,7 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 13, "info": 2, "metadata": 5}
+_EXPECTED_OPTION_COUNTS = {"extract": 15, "batch": 14, "info": 2, "metadata": 5}
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
