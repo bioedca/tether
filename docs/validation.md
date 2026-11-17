@@ -962,7 +962,7 @@ against the BOBA-FRET bootstrap that MASH-FRET itself ran on the same traces ([#
 [ADR-0108](adr/0108-mash-fret-s-stored-bootstrap-is-the-reference-for-tether-s-bootstrap.md)). The
 Path A extract of the previous section keeps that bootstrap: 100 samples of 17 molecules drawn from
 the tag's 17, each molecule weighted to sum 1, with each sample's histogram and its fit of three
-Gaussians. These stored values are the reference; no MATLAB run is needed.
+Gaussians. These stored values are the reference, so no MATLAB run is needed.
 
 **How.** `tests/test_mashfret_bootstrap.py` runs Tether's bootstrap on the same FRET values, with
 the same weights and 100 samples, for ten fixed seeds. Each compared value is a z-score: the
@@ -980,7 +980,7 @@ Six other sets of ten seeds gave a largest |z| of at most 2.69. A bootstrap that
 place of molecules gives |z| = 130 on the bin SD, and a test keeps that case.
 
 **What it does not check.** One tag of one project file. The population fit is test code with
-SciPy; on MASH-FRET's own samples it moves the population means by up to 0.010 from MASH-FRET's
+SciPy. On MASH-FRET's own samples it moves the population means by up to 0.010 from MASH-FRET's
 MATLAB fit, and that difference is inside each population z-score.
 
 ## RF2-ArfA data set of the tMAVEN authors
