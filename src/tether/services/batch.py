@@ -13,15 +13,16 @@ imported when the command runs, not when this module is imported (ADR-0100).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from tether.services.base import CommandFailed, Request, RequestRefused
 from tether.services.profile import ExtractionFields
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from tether.project.batch import BatchSummary
+    from tether.project.batch import BatchSummary, MovieJob, MovieResult
 
 __all__ = ["BatchRequest", "BatchResult", "run"]
 
@@ -64,8 +65,31 @@ class BatchResult:
     log_path: Path
 
 
-def run(request: BatchRequest) -> BatchResult:
+class _Progress(Protocol):
+    """What ``run`` needs of a progress observer.
+
+    [`BatchProgress`][tether.project.batch.BatchProgress] provides it. It is written out
+    here so that this module imports no part of the core (ADR-0100).
+    """
+
+    def run_started(
+        self, *, n_movies: int, out_dir: str | Path, policy: str, idealize: bool
+    ) -> None: ...
+
+    def event(self, record: dict[str, Any]) -> None: ...
+
+    def movie_started(self, index: int, total: int, job: MovieJob) -> None: ...
+
+    def movie_finished(self, index: int, total: int, result: MovieResult) -> None: ...
+
+
+def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchResult:
     """Run *request*.
+
+    *progress*, when given, watches the run (#648): it is told the run's setup before the
+    first movie is read, gets each structured-log event and is told when each movie starts
+    and ends. It is a display, not part of the request, so it has no text form; an
+    exception it raises is swallowed and costs no movie a stage.
 
     Raises [`RequestRefused`][tether.services.base.RequestRefused] before any movie is read when
     the policy, the supervision settings or the extraction options are invalid, when a
@@ -141,8 +165,17 @@ def run(request: BatchRequest) -> BatchResult:
             )
         )
     log_path = Path(request.log) if request.log else out_dir / "batch-log.jsonl"
+    if progress is not None:
+        with contextlib.suppress(Exception):
+            progress.run_started(
+                n_movies=len(jobs),
+                out_dir=out_dir,
+                policy=request.policy,
+                idealize=request.idealize,
+            )
+    on_event = progress.event if progress is not None else None
     try:
-        with BatchLog(path=log_path) as log:
+        with BatchLog(path=log_path, on_event=on_event) as log:
             summary = run_batch(
                 jobs,
                 policy=request.policy,
@@ -151,6 +184,7 @@ def run(request: BatchRequest) -> BatchResult:
                 supervision=supervision,
                 overwrite=request.overwrite,
                 log=log,
+                progress=progress,
             )
     except OSError as exc:
         raise CommandFailed(f"cannot write the batch output or log {log_path}: {exc}") from exc

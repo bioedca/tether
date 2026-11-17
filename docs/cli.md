@@ -276,7 +276,7 @@ resumes only the incomplete stages instead of redoing finished work.
 tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--profile PATH]
              [--policy {warn,fail}] [--no-idealize] [--overwrite] [--log PATH]
              [--max-restarts N] [--sidecar-timeout SECONDS] [--sidecar-python PATH]
-             [--no-defer]
+             [--no-defer] [--quiet | --verbose]
              movies [movies ...]
 ```
 
@@ -295,6 +295,8 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--profile PATH]
 | `--sidecar-timeout SECONDS` | `1800` | per-idealization-call sidecar timeout in seconds |
 | `--sidecar-python PATH` | `$TETHER_SIDECAR_PYTHON` | sidecar interpreter for idealization |
 | `--no-defer` | off | do not defer idealization when the sidecar is unavailable at startup; let each movie's idealize stage fail in isolation instead |
+| `--quiet` | off | print no progress lines on stderr (the summary on stdout is unchanged, [see below](#progress-while-the-batch-runs)) |
+| `--verbose` | off | also print every stage event on stderr, as the structured log records it (not with `--quiet`) |
 
 Idealization runs in the isolated tMAVEN sidecar, not in the application environment. If
 `--sidecar-python` is not given, Tether uses `$TETHER_SIDECAR_PYTHON`; an installed build
@@ -316,6 +318,48 @@ rejected before any work starts:
 $ tether batch a/movie_010.tif b/movie_010.tif -d out
 tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/movie_010.tether'; rename one or use a separate --out-dir
 ```
+
+### Progress while the batch runs
+
+A batch over a condition can run for hours, so `tether batch` prints progress to
+**stderr** while it works. One line states the setup before the first movie is read. It
+gives the number of movies, the output folder, the policy and whether idealization was
+asked for. Check that line first: a wrong option shows there, not hours later in the
+summary. Then each movie gets a start line and an end line. The end line gives its
+position, its name, the result, the time it took and the status of every stage:
+
+```text
+tether batch: 3 movie(s) into projects (policy=warn, idealize=on)
+tether batch: idealize deferred - sidecar unavailable — idealization deferred: no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed
+[1/3] cond_a_010: started
+[1/3] cond_a_010: ok in 4m12s (extract=done correct=done idealize=deferred)
+[2/3] cond_a_011: started
+[2/3] cond_a_011: ok in 3m58s (extract=done correct=done idealize=deferred; flagged: extract)
+[3/3] cond_a_012: started
+[3/3] cond_a_012: FAIL in 0.1s (extract=failed(could not extract from cond_a_012.tif: not a TIFF file: header=b'not ') correct=blocked idealize=blocked)
+```
+
+A line about the whole run, such as the idealization deferred at startup above, starts
+with `tether batch:`. The end line names a flagged stage after `flagged:`. A stage is
+flagged when it kept the movie with a flag (an over-gate registration under
+`--policy warn`) or raised a warning (the [donor-side
+check](#the-donor-side-check-in-the-batch-summary)).
+
+There are three levels:
+
+| Level | stderr while the run works |
+|---|---|
+| `--quiet` | no progress line |
+| default | the setup line, the run-level lines, and a start and an end line for each movie |
+| `--verbose` | the default lines, and also one line for each stage event, such as `[1/3] cond_a_010 extract: done - 3 molecule(s)` |
+
+The lines come from the same events as the structured log, so the two cannot disagree. They
+are plain text with no cursor control, so a redirected stderr or a scheduler's log file
+reads the same as a terminal. **stdout does not change at any level**: it holds the
+end-of-run summary and its `Exit code` line only, so a script that reads stdout is not
+affected. Two lines on stderr do not
+depend on the level. One is the `structured log:` path at the end. The other is a failed
+stage, which Python's logging prints as `movie · stage: failed — reason`.
 
 ### How policy `fail` behaves on resume
 
@@ -632,9 +676,10 @@ on stderr that names the path.
 
 **Where to look for what failed.** `tether batch` prints its end-of-run summary — the
 per-movie, per-stage detail — to **stdout**, together with the JSONL structured log it
-writes to `<out-dir>/batch-log.jsonl`. Only the log's path, and startup refusals, go to
-stderr. If you are capturing streams separately, per-movie failure detail is in stdout and
-the log, not in stderr.
+writes to `<out-dir>/batch-log.jsonl`. stderr carries the
+[progress lines](#progress-while-the-batch-runs) (none with `--quiet`), the log's path and
+startup refusals. If you are capturing streams separately, the complete per-movie failure
+detail is in stdout and the log. The progress lines on stderr are for watching the run.
 
 ### Exit code `4`: a person must approve a step
 

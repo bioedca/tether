@@ -240,7 +240,7 @@ retired = 2
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
 long_share = 21.4
-semicolons = 27
+semicolons = 26
 long_paragraphs = 2
 retired = 6
 

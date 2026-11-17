@@ -485,6 +485,18 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
             "let each movie's idealize stage fail in isolation instead"
         ),
     )
+    # --- Progress on stderr (#648) -------------------------------------------
+    chatter = batch.add_mutually_exclusive_group()
+    chatter.add_argument(
+        "--quiet",
+        action="store_true",
+        help="print no progress lines on stderr; the summary on stdout is unchanged",
+    )
+    chatter.add_argument(
+        "--verbose",
+        action="store_true",
+        help="also print every stage event on stderr, as the structured log records it",
+    )
 
 
 def _batch_request(args: argparse.Namespace) -> BatchRequest:
@@ -516,8 +528,12 @@ def _run_batch(args: argparse.Namespace) -> int:
     A finished run's code is [`batch_exit_code`][]'s, so it is ``3`` when no movie failed and
     a requested stage was deferred (#647).
     """
+    from tether.project.batch import TextProgress
+
+    # Progress goes to stderr so that stdout keeps only the summary (#648).
+    progress = None if args.quiet else TextProgress(sys.stderr, verbose=args.verbose)
     try:
-        result: BatchResult = run_service(_batch_request(args))
+        result: BatchResult = run_service(_batch_request(args), progress=progress)
     except (RequestRefused, _ProfileRefused) as exc:
         print(f"tether batch: {exc}", file=sys.stderr)
         return 2

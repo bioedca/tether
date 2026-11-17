@@ -121,9 +121,12 @@ Exit code `3`. `/idealization` is empty.
 **Cause.** `tether batch` probes the sidecar once at startup. When no interpreter resolves,
 and `defer_if_unavailable` is on (the default), the idealize stage is recorded as
 `deferred` rather than `failed`. `deferred` is not a failure, so `n_failed` stays `0`, but
-`BatchSummary.n_deferred` counts the movie and the CLI returns `3` (`tether.cli`). The
-*reason* is logged at `INFO`, below Python's last-resort handler threshold, so it never
-reaches your console; the stage list, the `Deferred:` line and the exit code are the tells.
+`BatchSummary.n_deferred` counts the movie and the CLI returns `3` (`tether.cli`).
+
+The *reason* is logged at `INFO`, below Python's last-resort handler threshold, so the
+logger never prints it. The progress lines on stderr do, as a
+`tether batch: idealize deferred - …` line before the first movie, unless you passed
+`--quiet`. The stage list, the `Deferred:` line and the exit code are the other tells.
 
 > **Signature.** `/settings/batch.attrs["idealize_status"] == "deferred"`, `/idealization`
 > empty, and the JSONL log carries the explanation:
@@ -142,7 +145,8 @@ reaches your console; the stage list, the `Deferred:` line and the exit code are
 [Idealization cannot find the sidecar interpreter](#idealization-cannot-find-the-sidecar-interpreter))
 and re-run the same batch — extract and correct report `skipped` from their checkpoints and
 only idealization runs. To make the condition loud in the first place, pass `--no-defer`,
-which fails each movie's idealize stage in isolation and exits `1`:
+which fails each movie's idealize stage in isolation and exits `1`. With `--quiet` as
+well, which leaves out the progress lines, the output is:
 
 ```text
 warp_010 · idealize: failed — no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed
