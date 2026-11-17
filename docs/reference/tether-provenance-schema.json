@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Tether export provenance sidecar",
+  "title": "Tether export provenance file",
   "description": "The <file>.provenance.json file that every Tether export writes beside its output (tether.project.export.write_provenance_sidecar). The three store exports write fixed parameters; a figure export (tether.analysis.plot_export.export_figure) writes the caller's parameters plus formats, dpi and outputs. Licensed CC0-1.0.",
   "type": "object",
   "required": [

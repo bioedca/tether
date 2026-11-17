@@ -578,7 +578,7 @@ Tether version that wrote your exports, so that they describe that version:
 |---|---|
 | [`tether-schema.json`](tether-schema.json) | The frozen skeleton of a `.tether` file: its groups, its four compound tables and its root attributes. It is `schema/schema_frozen.json` from the repository, unchanged ([format reference](tether-format.md)). |
 | [`molecule-table-columns.csv`](molecule-table-columns.csv) | The data dictionary of the molecule-table CSV: one row per column, with `name`, `type`, `unit`, `can_be_blank` and `description` ([columns](#molecule-table-columns)). |
-| [`tether-provenance-schema.json`](tether-provenance-schema.json) | A JSON Schema (draft 2020-12) of the `<file>.provenance.json` sidecar ([above](#provenance-sidecar)). Any JSON Schema validator can check a sidecar against it. |
+| [`tether-provenance-schema.json`](tether-provenance-schema.json) | A JSON Schema (draft 2020-12) of the `<file>.provenance.json` provenance file ([above](#provenance-file)). Any JSON Schema validator can check a provenance file against it. |
 
 These three files are licensed **CC0-1.0**, so you can copy them into a deposit with no
 conditions. The program code keeps its GPL-3.0-or-later license.
