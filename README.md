@@ -55,7 +55,7 @@ brings it to the application.
   The status bar calls it vbFRET, but it runs the consensus VB-HMM
   ([#554](https://github.com/bioedca/tether/issues/554)).
 - **Standalone-tMAVEN hand-off.** A non-destructive round trip: save molecules as a file that
-  tMAVEN's own window opens, then import its result back through a per-trace reconcile prompt.
+  tMAVEN's own application window opens, then import its result back through a per-trace reconcile prompt.
 - **Condition validation.** Confirm or correct the condition Tether read from each file name.
 - **Deep-LASI import.** A wizard turns an existing Deep-LASI acquisition into `.tether`
   projects.
@@ -155,7 +155,7 @@ also adds a **Tether** entry to the Start Menu or applications menu. From the ne
 the launchers are in `<install-root>/launchers/` instead, a folder that holds only them
 ([#492](https://github.com/bioedca/tether/issues/492)); read `launchers` for `bin` below.
 
-Open the desktop application from that menu entry, or run the window launcher:
+Open the desktop application from that menu entry, or run the application-window launcher:
 
 ```bash
 <install-root>/bin/tether-gui        # Windows: <install-root>\bin\tether-gui.bat

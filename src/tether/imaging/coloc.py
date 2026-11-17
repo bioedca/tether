@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Donor-anchored colocalization + apply-map-at-extraction (PRD App. E Stages 11-13; M1 S7).
 
-The bridge between spot detection (:mod:`tether.imaging.detect`) and Sum
-integration (:mod:`tether.imaging.aperture`): given donor (reference) spots, an
-acceptor (moving) channel reached through a :class:`~tether.imaging.calibrate.RegistrationMap`,
+The bridge between spot detection ([`tether.imaging.detect`][]) and Sum
+integration ([`tether.imaging.aperture`][]): given donor (reference) spots, an
+acceptor (moving) channel reached through a
+[`RegistrationMap`][tether.imaging.calibrate.RegistrationMap],
 and the two channels' frame shapes, pair each donor with its acceptor read
 position and decide which molecules can actually be extracted.
 
@@ -21,19 +22,21 @@ What this stage does (and deliberately does *not* do)
   and its acceptor intensity is read at the *mapped* position regardless of whether
   an acceptor was independently detected there (Wanninger 2023, *Nat. Commun.*,
   Deep-LASI). The independent-detection test is still computed, but only as an
-  informational :attr:`~ColocalizedMolecules.acceptor_detected` flag -- it never
+  informational [`acceptor_detected`][tether.imaging.coloc.ColocalizedMolecules.acceptor_detected]
+  flag -- it never
   drops a molecule.
 
 * **Stage 12 -- apply the map in the coordinate domain.** The donor->acceptor read
-  position is :meth:`RegistrationMap.apply_reference_to_moving` on the *coordinates*;
+  position is [`RegistrationMap.apply_reference_to_moving`][] on the *coordinates*;
   the acceptor->donor warp used for the detection flag is
-  :meth:`~RegistrationMap.apply_moving_to_reference`. **The movie is never
+  [`apply_moving_to_reference`][tether.imaging.calibrate.RegistrationMap.apply_moving_to_reference].
+  **The movie is never
   resampled** (``batchExtraction.m:132-143`` rewarps the movie only for a
   ``_warped_to_*_ref.tif`` QA export; the extraction path ``:421-431`` feeds raw
   pixels at coordinate-mapped positions): transforming coordinates avoids the
   interpolation bias a pixel rewarp would inject into the integrated intensities.
   Sub-pixel positions are preserved -- the round-to-pixel happens only at the crop,
-  in :func:`tether.imaging.aperture.integrate_traces`.
+  in [`tether.imaging.aperture.integrate_traces`][].
 
 * **Stage 13 -- crop-box guardrail.** A molecule is extractable only if its full
   ``window x window`` (default 21x21) aperture lies inside the frame **in both
@@ -41,10 +44,10 @@ What this stage does (and deliberately does *not* do)
   mapped ``acceptor_xy``. Spots whose window leaves either frame are skipped
   (``extractTraces.m:9-25`` zero-fills out-of-frame crops; Tether drops them from
   the molecule list so no all-zero trace is ever written). The shared in-frame
-  predicate is :func:`tether.imaging.aperture.aperture_in_frame`, so this guardrail
+  predicate is [`tether.imaging.aperture.aperture_in_frame`][], so this guardrail
   and the integrator agree by construction.
 
-**Coordinate convention** (as everywhere in :mod:`tether.imaging`): points are
+**Coordinate convention** (as everywhere in [`tether.imaging`][]): points are
 ``(N, 2)`` arrays of ``[x, y] = [col, row]`` in 0-based pixels; frame shapes are
 ``(H, W) = (rows, cols)``.
 """
@@ -71,7 +74,7 @@ __all__ = [
 
 #: Colocalization nearest-neighbour distance gate, in px (PRD §11.2; Deep-LASI
 #: ``batchExtraction.m:182`` calls ``findColoc(T, 3)``). Used **only** for the
-#: informational :attr:`ColocalizedMolecules.acceptor_detected` flag -- the
+#: informational `ColocalizedMolecules.acceptor_detected` flag -- the
 #: donor-anchored molecule list does not depend on it.
 DEFAULT_COLOC_DISTANCE_PX = 3.0
 
@@ -156,18 +159,21 @@ def colocalize(
     ----------
     donor_spots:
         ``(Nd, 2)`` ``[x, y]`` spot coordinates in the donor (reference) channel,
-        e.g. :func:`tether.imaging.detect.detect_spots` on the donor half.
+        e.g. [`tether.imaging.detect.detect_spots`][] on the donor half.
     registration_map:
-        The donor(reference)<->acceptor(moving) :class:`~tether.imaging.calibrate.RegistrationMap`
-        (built once upstream by :func:`~tether.imaging.calibrate.fit_registration_map`
-        or :func:`~tether.imaging.calibrate.registration_map_from_tmap`). Its
+        The donor(reference)<->acceptor(moving)
+        [`RegistrationMap`][tether.imaging.calibrate.RegistrationMap]
+        (built once upstream by
+        [`fit_registration_map`][tether.imaging.calibrate.fit_registration_map]
+        or [`registration_map_from_tmap`][tether.imaging.calibrate.registration_map_from_tmap]). Its
         forward map warps donor coordinates into the acceptor frame.
     donor_shape, acceptor_shape:
         ``(H, W)`` pixel shapes of the donor and acceptor channel sub-images (e.g.
         each half's ``.shape[-2:]``), used for the per-channel crop-box guardrail.
     acceptor_spots:
         Optional ``(Na, 2)`` ``[x, y]`` independently-detected acceptor-channel
-        spots. When given they annotate :attr:`~ColocalizedMolecules.acceptor_detected`
+        spots. When given they annotate
+        [`acceptor_detected`][tether.imaging.coloc.ColocalizedMolecules.acceptor_detected]
         (warped into donor coordinates and nearest-neighbour matched within
         ``coloc_distance_px``); when ``None`` every molecule is flagged undetected.
         They **never** filter the donor-anchored molecule list.
