@@ -429,17 +429,18 @@ def published_fraction_error(areas: np.ndarray, fit) -> float:
     return ratio * float(np.hypot(d_area[1] / areas[1], d_total / total))
 
 
-def compare_closed_fraction(efficiencies: np.ndarray) -> dict:
+def compare_closed_fraction(efficiencies: np.ndarray, bins: int = FRACTION_BINS) -> dict:
     """Tether's two-Gaussian fit of one Fig. 5b histogram, as the fraction of the closed state.
 
     ``fraction`` uses the notebook's area (``bin_sum``) and ``published_error`` the notebook's
     propagation (:func:`published_fraction_error`); ``tether_error`` is Tether's own error, from
     the full covariance. ``integral_fraction`` is the same fit with the Methods' area
     ``A sqrt(2 pi) sigma``. ``bins_differing`` compares Tether's histogram with the notebook's
-    ``np.histogram(..., bins=np.linspace(-0.2, 1.2, 200), density=True)``.
+    ``np.histogram(..., bins=np.linspace(-0.2, 1.2, 200), density=True)``. ``bins`` other than
+    the notebook's 199 is a deliberate error, for the test that shows the comparison finds it.
     """
-    hist = apparent_e_histogram(efficiencies, bins=FRACTION_BINS, value_range=FRACTION_RANGE)
-    edges = np.linspace(FRACTION_RANGE[0], FRACTION_RANGE[1], FRACTION_BINS + 1)
+    hist = apparent_e_histogram(efficiencies, bins=bins, value_range=FRACTION_RANGE)
+    edges = np.linspace(FRACTION_RANGE[0], FRACTION_RANGE[1], bins + 1)
     ref, _ = np.histogram(efficiencies, bins=edges, density=True)
     fit = fit_gaussians(hist, FRACTION_INITIAL_MEANS, area="bin_sum")
     integral = fit_gaussians(hist, FRACTION_INITIAL_MEANS, area="integral")
