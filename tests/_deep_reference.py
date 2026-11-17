@@ -301,21 +301,35 @@ def train_and_score(
     proba = np.asarray(predict_proba(trained, data_test), dtype=np.float64)
     result = score(test, proba)
     x = data_train.X.astype(np.float64)
-    quantities = {
-        "n_train_ranges": len(train),
-        "n_test_ranges": len(test),
-        "train_input_sum": float(x.sum()),
-        "train_input_sum_of_squares": float((x * x).sum()),
-        "loss_history": [float(v) for v in trained.history],
-        "test_scores": [float(v) for v in proba],
-        "roc_auc": result.roc_auc,
-        "balanced_accuracy": result.balanced_accuracy,
-        "precision_at_k": result.precision_at_k,
-    }
+    quantities = frozen_quantities(
+        {
+            "n_train_ranges": len(train),
+            "n_test_ranges": len(test),
+            "train_input_sum": float(x.sum()),
+            "train_input_sum_of_squares": float((x * x).sum()),
+            "loss_history": [float(v) for v in trained.history],
+            "test_scores": [float(v) for v in proba],
+            "roc_auc": result.roc_auc,
+            "balanced_accuracy": result.balanced_accuracy,
+            "precision_at_k": result.precision_at_k,
+        }
+    )
     return Run(trained, tuple(train), tuple(test), result, quantities)
 
 
 # --- the golden file and the job summary ------------------------------------------------------
+
+
+def frozen_quantities(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """*raw* in the value form of ``_golden``: a non-finite float becomes ``"nan"`` or ``"inf"``.
+
+    ``_golden.compare`` holds two floats to a relative limit, and every comparison with NaN or
+    infinity is false, so a raw non-finite loss would pass against a finite golden value. As a
+    string it differs from any float (the golden runs of #702 do the same through ``run_input``).
+    """
+    import _golden
+
+    return {key: _golden._plain(value) for key, value in raw.items()}
 
 
 def dump_golden(quantities: Mapping[str, Any], directory: Path = GOLDEN_DIR) -> Path:

@@ -194,6 +194,18 @@ def test_the_committed_golden_file_holds_the_reference_quantities() -> None:
     assert golden["roc_auc"] >= float(reference["accuracy"]["floor"])
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("key", ["loss_history", "train_input_sum"])
+def test_a_non_finite_training_number_differs_from_the_golden_file(key: str, bad: float) -> None:
+    golden = _golden.load_golden(ref.GOLDEN_NAME, ref.GOLDEN_DIR)
+    assert golden is not None
+    raw = dict(golden)
+    raw[key] = [bad, *golden[key][1:]] if isinstance(golden[key], list) else bad
+    diffs = _golden.compare(golden, ref.frozen_quantities(raw), rtol=1.0)
+    assert [d.quantity for d in diffs] == [key]
+    assert ref.frozen_quantities(golden) == golden
+
+
 def test_a_changed_deep_golden_file_needs_the_old_new_table() -> None:
     check = _load_script("check_golden_table")
     changed = ["tests/golden/deep/pysmacks_classifier.json"]

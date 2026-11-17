@@ -186,7 +186,8 @@ jobs:
   report:
     # A failed nightly run opens or updates one issue, and the next pass says so (#697). The called
     # workflow decides the event (never a pull request) and is the only job here that writes.
-    # It watches both jobs: the issue opens when either failed (#759 added `deep / ranker`).
+    # It watches both jobs: the issue opens when either failed or hit its own timeout, which a
+    # job reports as `cancelled` (#759 added `deep / ranker`).
     needs: [smoke, ranker]
     if: ${{ !cancelled() }}
     permissions:
@@ -196,4 +197,6 @@ jobs:
     uses: ./.github/workflows/scheduled-failure.yml
     with:
       job-name: deep
-      result: ${{ contains(needs.*.result, 'failure') && 'failure' || needs.smoke.result }}
+      result: >-
+        ${{ contains(needs.*.result, 'failure') && 'failure'
+        || contains(needs.*.result, 'cancelled') && 'cancelled' || needs.smoke.result }}
