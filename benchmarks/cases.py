@@ -68,7 +68,8 @@ def _store(size: str, workdir: Path) -> Path:
 
     _, tif = _movie(size, workdir)
     out = workdir / "bench.tether"
-    extract_movie(tif, out, options=ExtractOptions(window=21), overwrite=True)
+    out.unlink(missing_ok=True)  # a fresh store; replacing one needs its lock (ADR-0112)
+    extract_movie(tif, out, options=ExtractOptions(window=21))
     return out
 
 
@@ -114,7 +115,10 @@ def _extraction(size: str, workdir: Path):
     out = workdir / "bench.tether"
 
     def run() -> object:
-        return extract_movie(tif, out, options=ExtractOptions(window=21), overwrite=True)
+        # The benchmark owns this store: remove it rather than time the publish lock that
+        # replacing a project another writer may hold requires (ADR-0112).
+        out.unlink(missing_ok=True)
+        return extract_movie(tif, out, options=ExtractOptions(window=21))
 
     run()
     return run, {"tether_bytes": out.stat().st_size}
@@ -259,7 +263,9 @@ def _idealize_sidecar(size: str, workdir: Path):
     tr = _traces(size)
     n = tr.donor.shape[0] // 4  # 10 and 40 molecules: the sidecar fits each one
     smd = write_smd(workdir / "bench.hdf5", np.stack([tr.donor[:n], tr.acceptor[:n]], axis=-1))
-    return lambda: run_vbfret(smd, nstates=2, nrestarts=1, timeout=1800.0), {}
+    # Seeded, so base and head fit the same model in the same number of iterations: an
+    # unseeded tMAVEN draws its start from OS entropy, and that spread reads as a change.
+    return lambda: run_vbfret(smd, nstates=2, nrestarts=1, timeout=1800.0, seed=_SEED), {}
 
 
 CASES: dict[str, Case] = {
