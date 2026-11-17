@@ -569,6 +569,8 @@ and line style, or the panel. The layout goes to `parameters.display` (`series_l
 
 A model drawn with a series keeps its own parameters in the record. Examples are the Gaussian
 means, variances and weights, or the fitted rates. Its sampled curve is data and is left out.
+A parameter that is NaN or infinite, such as the `alpha` of an empty alpha shape, is recorded as
+`null`, so the file stays strict JSON.
 
 To add your own keys to a series, such as the selection
 and its version, pass `parameters["series"]` as a list of one dict per series. A key that

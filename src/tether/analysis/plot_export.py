@@ -674,22 +674,36 @@ def _range(value: tuple[float, float]) -> tuple[float, float]:
 _SKIP = object()
 
 
+def _finite(value: object) -> object:
+    """``value`` with every NaN or infinity, at any depth of a list, replaced by ``None``.
+
+    A result may carry a non-finite parameter on purpose (the ``alpha`` of an empty alpha
+    shape, the parameters of a failed fit). JSON has no token for it, and a provenance
+    file must stay readable by a strict JSON reader, so it is recorded as ``null``.
+    """
+    if isinstance(value, list):
+        return [_finite(v) for v in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 def _parameter_value(name: str, value: object) -> object:
     """``value`` as a provenance entry, or `_SKIP` when it is data rather than a parameter."""
     if value is None or isinstance(value, bool | str):
         return value
     if isinstance(value, np.generic):
-        return value.item()
+        return _finite(value.item())
     if isinstance(value, int | float):
-        return value
+        return _finite(value)
     if isinstance(value, np.ndarray):
-        return np.asarray(value).tolist() if name in _PARAMETER_ARRAYS else _SKIP
+        return _finite(np.asarray(value).tolist()) if name in _PARAMETER_ARRAYS else _SKIP
     if is_dataclass(value) and not isinstance(value, type):
         return _result_parameters(value)
     if isinstance(value, tuple) and all(
         isinstance(v, bool | str | int | float | np.generic) for v in value
     ):
-        return [v.item() if isinstance(v, np.generic) else v for v in value]
+        return _finite([v.item() if isinstance(v, np.generic) else v for v in value])
     return _SKIP
 
 

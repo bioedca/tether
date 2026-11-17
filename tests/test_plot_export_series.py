@@ -45,6 +45,7 @@ from test_plot_export import (  # noqa: E402
 )
 from tether.analysis import plot_export as pe  # noqa: E402
 from tether.analysis.cloud import (  # noqa: E402
+    AlphaShape,
     alpha_shape,
     k_rmse_elbow,
     population_raw_fret_cloud,
@@ -439,9 +440,26 @@ def test_the_model_parameters_of_each_series_are_recorded(results, tmp_path):
     records = _sidecar(_export(pe.render_dwell_survival(_two(results, "dwell")), tmp_path / "d"))
     for record, a in zip(records["parameters"]["series"], dwell, strict=True):
         fit = record["parameters"]["fit"]
-        np.testing.assert_array_equal(fit["rates"], a.fit.rates)
-        np.testing.assert_array_equal(fit["amplitudes"], a.fit.amplitudes)
+        for key in ("rates", "amplitudes"):
+            expected = [None if not np.isfinite(v) else float(v) for v in getattr(a.fit, key)]
+            assert fit[key] == expected, key
         assert "model_survival" not in fit
+
+
+def test_a_non_finite_parameter_is_recorded_as_null_in_strict_json(results, tmp_path):
+    # An empty alpha shape carries alpha = NaN on purpose; JSON has no NaN token, so the
+    # provenance file records null and stays readable by a strict JSON reader.
+    wt, _ = results["alpha"]
+    empty = AlphaShape.no_region(2)
+    result = _export(pe.render_alpha_shape([("WT", wt), ("flat", empty)]), tmp_path / "a")
+
+    def refuse(token):
+        raise ValueError(f"non-standard JSON token {token}")
+
+    sidecar = json.loads(result.provenance_path.read_text(encoding="utf-8"), parse_constant=refuse)
+    flat = sidecar["parameters"]["series"][1]["parameters"]
+    assert flat["alpha"] is None
+    assert flat["n_points"] == 2
 
 
 def test_the_caller_adds_its_own_parameters_per_series(results, tmp_path):
