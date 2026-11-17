@@ -90,7 +90,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--detection-block DETECTION_BLOCK]
                [--prealign {translation,similarity}] [--pair-tol PAIR_TOL]
                [--coloc-distance COLOC_DISTANCE] [--rms-gate RMS_GATE]
-               [--tmap PATH] [--tdat PATH]
+               [--tmap PATH] [--tdat PATH] [--profile PATH]
                movie
 ```
 
@@ -110,7 +110,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--coloc-distance COLOC_DISTANCE` | `3` | acceptor colocalization distance in px |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
-| `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with; mutually exclusive with `--detection-mode`/`--detection-threshold` |
+| `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
+| `--profile PATH` | none | read every extraction option from an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
 
 ### Get `--donor-side` right, and read the donor-side check
 
@@ -185,6 +186,66 @@ $ tether extract movie.tif -o movie.tether --tdat run.tdat --detection-mode wave
 tether extract: --detection-mode/--detection-threshold cannot be combined with --tdat (the .tdat supplies the detection mode); pass one or the other
 ```
 
+The rule for `--tdat`, in `tether extract` and `tether batch` alike:
+
+- **A `.tdat` sets `detection_mode` and `detection_threshold`, and no other option.** Every
+  other option, from a flag, a profile or its default, keeps its value. A `.tdat` that
+  holds no threshold keeps the threshold unset, so each detection mode uses its own.
+- **It is refused beside a choice of either field**: a `--detection-mode` or
+  `--detection-threshold` flag, or an [extraction profile](#extraction-profiles) in which
+  either is not `null`. The refusal comes before any movie is read.
+- **The values it applied are recorded.** `/settings/extraction` stores the
+  `detection_mode` and `detection_threshold` that ran, and the `.tdat` filename as
+  `tdat_source`.
+
+### Extraction profiles
+
+An *extraction profile* is a JSON file that holds every extraction option, so one
+file describes how a movie was extracted. `tether extract --profile` and
+`tether batch --profile` read one. Its form is the form of a
+[service-command request](#service-commands), with `"extraction-profile"` in place of the
+command name:
+
+```json
+{"command":"extraction-profile","fields":{"disk_radius":2.5,"ring_inner":5.0,
+"window":19},"version":1}
+```
+
+- **A field you leave out keeps its default**, so a profile you write by hand names only
+  the options it changes. The fields are the option names with `_` for `-`, plus the seven
+  options that have no flag: `prealign_upsample`, `prealign_low_sigma`,
+  `prealign_high_sigma`, `disk_radius`, `ring_inner`, `ring_outer` and `bg_window`.
+  [Analysis parameters](reference/parameters.md) gives each default and what it does.
+- **The channel layout is four fields.** `channel_layout` is the kind: `side-by-side`,
+  `top-bottom` or `rectangles`, or `null` for the split that `donor_side` describes.
+  `channel_layout_donor` is the donor half of a half layout (`left` or `right`, `top` or
+  `bottom`, and `null` takes the first). `channel_layout_donor_rect` and
+  `channel_layout_acceptor_rect` are the two rectangles of a `rectangles` layout, each
+  `[y1, x1, y2, x2]` with 1-based inclusive bounds. A layout is refused beside a
+  `donor_side` other than `left` and beside `--tmap`. For example, a camera that puts the
+  donor in the bottom half:
+
+  ```json
+  {"command":"extraction-profile","fields":{"channel_layout":"top-bottom",
+  "channel_layout_donor":"bottom"},"version":1}
+  ```
+
+- **It is checked before any movie is read.** An unknown field, a value of the wrong type
+  and a value extraction refuses (an even `window`, a `ring_outer` that does not fit in the
+  window) stop the command with a message that names the file.
+- **It replaces the option flags.** `--profile` with any of `--donor-side` to `--rms-gate`
+  is refused, even when the flag repeats the profile's value: change the value in the
+  file. `--tdat` may be combined with a profile whose `detection_mode` and
+  `detection_threshold` are `null` ([the rule above](#detection-settings-pick-one-source)).
+- **The values that ran are recorded.** Every option is written into `/settings/extraction`
+  as before. The profile's filename is not.
+
+A profile is a file you name, not a setting of the application, so it can be kept with the
+data and used on another computer
+([ADR-0129](adr/0129-an-extraction-profile-is-a-file-in-the-request-text-form.md)). From
+Python, `tether.services.write_profile` writes one and
+`tether.services.ExtractionProfile.from_options` makes one from an `ExtractOptions`.
+
 ### Example — one movie to one project
 
 ```bash
@@ -212,9 +273,10 @@ does not stop the run — and each stage is checkpointed, so re-running the same
 resumes only the incomplete stages instead of redoing finished work.
 
 ```text
-tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
-             [--no-idealize] [--overwrite] [--log PATH] [--max-restarts N]
-             [--sidecar-timeout SECONDS] [--sidecar-python PATH] [--no-defer]
+tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--profile PATH]
+             [--policy {warn,fail}] [--no-idealize] [--overwrite] [--log PATH]
+             [--max-restarts N] [--sidecar-timeout SECONDS] [--sidecar-python PATH]
+             [--no-defer]
              movies [movies ...]
 ```
 
@@ -223,7 +285,8 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
 | `movies` | *(required, one or more)* | one or more dual-channel TIFF movies |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
-| `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie |
+| `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
+| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option is at its default |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
 | `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
@@ -239,6 +302,11 @@ also falls back to the `envs/sidecar` interpreter shipped beside the application
 normal install needs neither. When no sidecar can be found at startup the run *defers*
 idealization — extraction and correction still happen for every movie — unless you pass
 `--no-defer`, which instead lets each movie's idealize stage fail on its own.
+
+A profile changes how a movie is extracted, not which stages count as done: a movie whose
+extraction finished in an earlier run is not extracted again with a new profile, not even
+with `--overwrite`. Use a new `--out-dir` to extract a set of movies with a changed
+profile.
 
 Two movies whose filenames share a basename would both map to the same output project,
 and the checkpoint would treat the second as already done using the first's data. That is
@@ -509,16 +577,21 @@ movie.tether` sends this request. The text form is one line. It is broken here t
 the page, and a break between two parts of JSON does not change it:
 
 ```json
-{"command":"extract","fields":{"coloc_distance":3.0,"detection_block":50,
-"detection_mode":null,"detection_threshold":null,"donor_side":"left",
+{"command":"extract","fields":{"bg_window":10,"channel_layout":null,
+"channel_layout_acceptor_rect":null,"channel_layout_donor":null,
+"channel_layout_donor_rect":null,"coloc_distance":3.0,"detection_block":50,
+"detection_mode":null,"detection_threshold":null,"disk_radius":3.0,"donor_side":"left",
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
-"pair_tol":2.0,"prealign":"translation","rms_gate":0.5,"tdat":null,"tmap":null,
-"window":21},"version":1}
+"pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
+"prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
+"rms_gate":0.5,"tdat":null,"tmap":null,"window":21},"version":1}
 ```
 
-The field names are the option names with `_` for `-`. Two `tether batch` flags are
-positive fields: `--no-idealize` is `"idealize": false` and `--no-defer` is
-`"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of
+The field names are the option names with `_` for `-`. Both requests also hold the
+fields of an [extraction profile](#extraction-profiles), and `--profile` sets
+them: the file itself is not part of the request, so a request holds every value it ran
+with. Two `tether batch` flags are positive fields: `--no-idealize` is
+`"idealize": false` and `--no-defer` is `"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of
 these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 
 ## Exit codes
@@ -526,8 +599,8 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 | Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` |
 |---|---|---|---|---|
 | `0` | extraction completed | every requested stage ran for every movie | every project was read | the records were printed, after any change |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
+| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
 | `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
