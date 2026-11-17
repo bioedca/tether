@@ -45,8 +45,8 @@ creates a folder.
 replace the file atomically (a temporary file in the same folder, ``fsync``,
 ``os.replace``), as [`record_update_consent`][tether.gui.app_settings.record_update_consent]
 does. A key this version does not know is kept, so a newer version's keys survive a session
-of this one. A JSON object of another ``schema`` is never replaced: a write refuses with
-`OSError` and leaves it as it was.
+of this one. A JSON object of another ``schema``, or a file too large to read, is never
+replaced: a write refuses with `OSError` and leaves it as it was.
 
 **A project's identity** is its resolved absolute path, case-folded on Windows
 ([`project_identity`][]). The ``.tether`` format has no identifier of its own, and the
@@ -219,6 +219,15 @@ def _write(path: Path, data: dict[str, Any]) -> None:
 def _update(preferences_file: Path | None, mutate: Callable[[dict[str, Any]], None]) -> Path:
     """Apply ``mutate`` to the stored object and write it back atomically; return the file."""
     path = _resolve(preferences_file)
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    if size > _MAX_BYTES:
+        # Too large to read, so it cannot be told from another version's file: keep it.
+        raise OSError(
+            f"{path.name} is larger than {_MAX_BYTES} bytes and was not read; it was left as it was"
+        )
     data = _load(path)
     if data is None:
         # Missing, unreadable or not a JSON object: nothing in it can be kept.

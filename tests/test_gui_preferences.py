@@ -239,6 +239,20 @@ def test_a_write_never_replaces_a_file_of_another_schema(prefs: Path, content: b
     assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
 
 
+def test_a_write_never_replaces_a_file_too_large_to_read(
+    prefs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = json.dumps({"schema": 2, "layout": {"kept": "x" * 64}}).encode("utf-8")
+    monkeypatch.setattr(preferences, "_MAX_BYTES", len(content) - 1)
+    prefs.parent.mkdir(parents=True)
+    prefs.write_bytes(content)
+    assert curator_name(prefs) is None
+    with pytest.raises(OSError, match="larger than"):
+        set_curator_name("ana", prefs)
+    assert prefs.read_bytes() == content
+    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
+
+
 def test_a_write_replaces_a_file_that_is_not_a_json_object(prefs: Path) -> None:
     prefs.parent.mkdir(parents=True)
     prefs.write_bytes(b"{torn")

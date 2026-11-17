@@ -83,11 +83,11 @@ not UTF-8) reads as empty. Reading never raises and never creates a file or fold
 
 **Writing.** One writer reads the file, changes one key, and replaces the file atomically (a
 temporary file in the same folder, `fsync`, `os.replace`), as ADR-0095's writer does. Keys this
-version does not know are kept. A JSON object with another `schema` is never replaced: the write
-refuses and leaves it as it was, so a newer version's file survives a session of this one. In the
-shell every write goes through one guard that turns a failure (a full disk, a read-only home
-folder, another version's file) into a status message, so remembering can never stop an open, a
-close or a curation decision.
+version does not know are kept. A JSON object with another `schema`, or a file too large to read,
+is never replaced: the write refuses and leaves it as it was, so a newer version's file survives a
+session of this one. In the shell every write goes through one guard that turns a failure (a full
+disk, a read-only home folder, another version's file) into a status message, so remembering can
+never stop an open, a close or a curation decision.
 
 **A project's identity** is its resolved absolute path, case-folded on Windows. The `.tether`
 format has no identifier of its own, adding one is a §5 schema change for a convenience, and the
