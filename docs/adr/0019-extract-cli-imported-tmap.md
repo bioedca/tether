@@ -112,3 +112,29 @@ over-gate / unified native-vs-imported map; `registration_map_from_tmap`), ADR-0
 (donor-anchored colocalization), ADR-0016 (the trace store written here), ADR-0018
 (the native CLI this extends). `src/tether/project/extract.py`, `src/tether/cli.py`,
 `tests/test_extract_cli.py`.
+
+## Update — the rotation/flip apply landed (#559)
+
+The deferral above is closed: the imported path **applies** each channel's stored
+`Rotation` and `Flip` instead of refusing them. `TmapChannel.rotation_deg` and
+`TmapChannel.flip_vh` decode the stored values (empty or all-zero is identity);
+`registration_map_from_tmap` puts them, with the crop, in the map's channel geometry; and
+`extract_movie` splits the movie with that geometry in Deep-LASI's `processImage` order —
+rotate (clockwise, 90-degree steps), then flip (`[v, h]`), then crop in the turned frame.
+This is the frame the `.tmap` polynomials were fitted in, so the detections, the
+colocalization and the trace reads all stay in one frame, and `/movies` records the
+rotation and flip next to each crop. No schema change: those columns existed since M0.
+
+A stored value that `processImage` could not have applied (an angle outside
+`{0, 90, 180, 270}`, several values, or a flip that is not two 0/1 values) is still a
+clean `ExtractionError`, because the split would be undefined. `TmapChannel.origin` and
+`reference_to_channel_image` now refuse a turned channel, because its crop is not a
+raw-frame position.
+
+The validation is synthetic, not the real-movie check this record first planned: no
+real `.tmap` with a rotation or flip is in the reference data. A test stores each
+channel of a synthetic movie turned and mirrored, gives the `.tmap` the matching fields,
+and gets the identity-case molecule coordinates back within the §9.2 match tolerance
+(`tests/test_extract_cli.py::test_extract_imported_tmap_applies_rotation_and_flip`).
+`ChannelGeometry.apply` now runs an ordered list of operations
+(`ChannelGeometry.operations`), the form the per-channel geometry recipe of #910 extends.
