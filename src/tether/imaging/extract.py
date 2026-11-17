@@ -78,9 +78,11 @@ __all__ = [
     "MOLECULE_KEY_QUANTUM_PX",
     "MovieMetadata",
     "MoleculeTraces",
+    "assert_appendable",
     "extract_molecules",
     "molecule_key",
     "read_molecules",
+    "read_movie_settings",
     "read_patches",
     "read_traces",
     "write_extraction",
@@ -111,6 +113,8 @@ _TRACES_GROUP = "traces"
 _PATCHES_GROUP = "patches"
 _SETTINGS_GROUP = "settings"
 _EXTRACTION_SETTINGS = "extraction"
+#: Child of ``/settings/extraction`` holding one profile attribute per movie (ADR-0117).
+_MOVIE_SETTINGS = "movies"
 
 #: Sentinels written for the not-yet-computed M3 correction/bleach fields, so the
 #: apparent-E substrate is unambiguous (a finite-factor gate is applied before any
@@ -523,6 +527,47 @@ def _write_settings_once(f: Any, traces: MoleculeTraces, profile_json: str | Non
         grp.attrs["profile_json"] = np.array(profile_json, dtype=str_dt)
 
 
+def _write_movie_settings(f: Any, movie_id: str, profile_json: str | None) -> None:
+    """Record one movie's settings profile under ``/settings/extraction/movies`` (#347).
+
+    The experiment-level stamp is write-once ([`_write_settings_once`][]), so a second
+    movie appended into the project would otherwise leave no record of its own
+    settings (its ``.tmap``/``.tdat`` source, registration verdict, detection mode).
+    Each movie therefore gets one string attribute, named by its ``movie_id``, holding
+    that movie's pre-serialized profile — the first movie included, so the record is
+    the same for every movie. Additive: the stamp's own attributes are never touched
+    (ADR-0117). Nothing is written when the caller supplied no profile.
+    """
+    import h5py  # noqa: PLC0415
+
+    if profile_json is None:
+        return
+    grp = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS]
+    movies = grp.require_group(_MOVIE_SETTINGS)
+    movies.attrs[movie_id] = np.array(profile_json, dtype=h5py.string_dtype(encoding="utf-8"))
+
+
+def read_movie_settings(project_path: str | Path) -> dict[str, dict[str, Any]]:
+    """Read every movie's settings profile, ``{movie_id: profile}`` (#347, ADR-0117).
+
+    Returns an empty dict for a project written before per-movie records existed; its
+    one movie's profile is then the stamp's own ``profile_json``.
+    """
+    import json  # noqa: PLC0415
+
+    import h5py  # noqa: PLC0415
+
+    with h5py.File(Path(project_path), "r") as f:
+        grp = f[_SETTINGS_GROUP].get(_EXTRACTION_SETTINGS)
+        if grp is None or _MOVIE_SETTINGS not in grp:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for movie_id, raw in grp[_MOVIE_SETTINGS].attrs.items():
+            text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+            out[str(movie_id)] = json.loads(text)
+        return out
+
+
 def write_extraction(
     project_path: str | Path,
     *,
@@ -537,8 +582,9 @@ def write_extraction(
 
     Appends, as **additive data** under the M0-frozen skeleton, the ``/movies`` row,
     the ``/molecules`` rows, the six ``/traces`` arrays (zero-padded to the
-    experiment-max frame count), the two ``/patches`` arrays, and — on the first
-    extraction — the ``/settings/extraction`` provenance. Row ``i`` of ``/molecules``,
+    experiment-max frame count), the two ``/patches`` arrays, the movie's own
+    settings record, and — on the first extraction — the ``/settings/extraction``
+    provenance. Row ``i`` of ``/molecules``,
     every ``/traces`` array, and every ``/patches`` array is the same molecule, so
     the trace<->molecule join is positional.
 
@@ -546,7 +592,8 @@ def write_extraction(
     ([`tether.io.schema.assert_is_compatible_project`][]); it is opened ``r+`` so
     this can neither create a store nor graft onto a foreign HDF5 file. A movie is
     **write-once** — re-appending the same ``movie_id`` raises (re-extraction is the
-    batch runner's per-stage concern, §7.11).
+    batch runner's per-stage concern, §7.11). A molecule whose ``molecule_key`` is
+    already in ``/molecules`` raises too, so no two rows share a key (#347, ADR-0117).
 
     Parameters
     ----------
@@ -568,8 +615,10 @@ def write_extraction(
         ``low-confidence-registration`` tag for an over-gate fit, §7.1) is imprinted
         onto every molecule of this movie. ``None`` writes no tag.
     settings:
-        Optional extra settings profile (JSON-serialized into
-        ``/settings/extraction`` on the first extraction).
+        Optional extra settings profile, JSON-serialized into
+        ``/settings/extraction@profile_json`` on the first extraction and, for every
+        movie, into ``/settings/extraction/movies@<movie_id>``
+        ([`read_movie_settings`][], #347, ADR-0117).
 
     Returns
     -------
@@ -596,10 +645,12 @@ def write_extraction(
         _check_against_existing(f, project_path, movie, traces)
         movie_row = _build_movie_row(movie)
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
+        _refuse_stored_molecule_keys(f, project_path, rows["molecule_key"])
         profile_json = json.dumps(dict(settings), sort_keys=True) if settings else None
 
         _append_compound_rows(f["movies"][TABLE], movie_row)
         _write_settings_once(f, traces, profile_json)
+        _write_movie_settings(f, movie.movie_id, profile_json)
         if molecules.n_molecules:
             _append_compound_rows(f["molecules"][TABLE], rows)
             traces_grp = f[_TRACES_GROUP]
@@ -692,6 +743,98 @@ _CONSISTENT_PARAMS: tuple[str, ...] = (
 )
 
 
+def _layer_names() -> tuple[tuple[str, str], ...]:
+    """Every ``(group, dataset)`` a movie appends one row block to, besides the tables."""
+    traces = tuple(
+        (_TRACES_GROUP, f"{channel}_{quantity}")
+        for channel in _CHANNELS
+        for quantity, _ in _QUANTITIES
+    )
+    return (*traces, (_PATCHES_GROUP, "donor"), (_PATCHES_GROUP, "acceptor"))
+
+
+def _assert_layers_aligned(f: Any, project_path: Path) -> None:
+    """Refuse a store whose row-aligned arrays do not cover every ``/molecules`` row.
+
+    ``write_extraction`` appends one block to the six ``/traces`` arrays and the two
+    ``/patches`` arrays and creates any that is missing. On a store that already has
+    molecules but lacks an array — an analysis-only import (no raw, background or
+    patches) or a subset exported without its raw layers — the created array would
+    start at row 0 while ``/molecules`` starts after the existing rows, so the
+    positional trace↔molecule join would break. Such a store cannot take a movie
+    (#347, ADR-0117).
+    """
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    n_rows = int(f["molecules"][TABLE].shape[0])
+    for group, name in _layer_names():
+        dataset = f[group].get(name)
+        if dataset is None:
+            if n_rows:
+                raise ValueError(
+                    f"{project_path.name} has {n_rows} molecule(s) but no /{group}/{name}, so a "
+                    "new movie's rows could not stay aligned with /molecules (an analysis-only "
+                    "import or a subset exported without its raw layers cannot take a movie)"
+                )
+            continue
+        if int(dataset.shape[0]) != n_rows:
+            raise ValueError(
+                f"/{group}/{name} in {project_path.name} has {dataset.shape[0]} row(s) but "
+                f"/molecules has {n_rows}; a new movie's rows could not stay aligned"
+            )
+
+
+def _refuse_stored_molecule_keys(f: Any, project_path: Path, keys: np.ndarray) -> None:
+    """Refuse molecules whose ``molecule_key`` is already in ``/molecules``.
+
+    A label resolves its ``molecule_key`` to every matching row, so two rows with one
+    key cannot be told apart. The ``/movies`` checks do not catch every repeat: a
+    subset export has no ``/movies`` rows but keeps its molecules and their keys, so
+    appending the subset's own movie would store each molecule twice (#347, ADR-0117).
+    """
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    if not len(keys):
+        return
+    stored = f["molecules"][TABLE]
+    if not stored.shape[0]:
+        return
+    present = {_decode_key(value) for value in stored["molecule_key"]}
+    repeated = sum(1 for key in keys if _decode_key(key) in present)
+    if repeated:
+        raise ValueError(
+            f"{repeated} molecule(s) of this movie are already in {project_path.name} "
+            "(same molecule_key); a movie whose molecules the project holds cannot be "
+            "appended again"
+        )
+
+
+def _decode_key(value: object) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def assert_appendable(project_path: str | Path) -> None:
+    """Refuse a project that cannot take another movie, before any work (#347).
+
+    Checks, read-only, that ``project_path`` is a compatible ``.tether`` and that every
+    ``/traces`` and ``/patches`` array a movie appends to covers every ``/molecules``
+    row ([`write_extraction`][] checks the same before it writes).
+
+    Raises
+    ------
+    ValueError
+        If the project is not compatible or an array is missing or misaligned.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import assert_is_compatible_project  # noqa: PLC0415
+
+    project_path = Path(project_path)
+    assert_is_compatible_project(project_path)
+    with h5py.File(project_path, "r") as f:
+        _assert_layers_aligned(f, project_path)
+
+
 def _check_against_existing(
     f: Any, project_path: Path, movie: MovieMetadata, traces: MoleculeTraces
 ) -> None:
@@ -706,6 +849,7 @@ def _check_against_existing(
     """
     from tether.io.schema import TABLE  # noqa: PLC0415
 
+    _assert_layers_aligned(f, project_path)
     if _movie_id_present(f["movies"][TABLE], movie.movie_id):
         raise ValueError(
             f"movie_id {movie.movie_id!r} already in {project_path} "

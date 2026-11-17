@@ -13,7 +13,7 @@ you know what a transition matrix is. It does not assume you know Tether's code.
 An HMM model has a transition count matrix: for each state pair `i → j`, a count of the
 transitions that the fit saw (the Dirichlet posterior of the fit). tMAVEN stores this matrix with
 each model as `tmatrix`, and Tether stores it with each fitted or imported model under
-`/idealization/{model}` ([the project store](../reference/tether-format.md)).
+`/idealization/{model}` ([the project file](../reference/tether-format.md)).
 
 From this matrix and the frame time, Tether calculates for each state pair:
 
