@@ -12,7 +12,8 @@ bundle that does:
     Tether.app/
       Contents/
         Info.plist             the name, the bundle identifier, the version, the icon,
-                               the architecture to start the launcher as
+                               the architecture to start the launcher as, and the
+                               .tether document type (issue #664)
         MacOS/Tether           a sh script: exec <prefix>/envs/tether/bin/tether-gui
         Resources/tether.icns  the application icon from the installed wheel
 
@@ -51,6 +52,7 @@ from pathlib import Path
 from typing import Any
 from xml.parsers.expat import ExpatError
 
+from tether.gui.file_type import macos_document_keys
 from tether.gui.identity import APPLICATION_NAME, app_icon_dir
 
 __all__ = [
@@ -141,6 +143,9 @@ def info_plist(version: str, architecture: str | None = None) -> dict[str, Any]:
 
     *architecture* (``arm64`` or ``x86_64``) is written as ``LSArchitecturePriority``,
     so that macOS starts the launcher natively; see [`native_architecture`][].
+
+    The keys of [`tether.gui.file_type.macos_document_keys`][] declare the ``.tether``
+    document type, so that a double-click on a project opens it in Tether (issue #664).
     """
     keys: dict[str, Any] = {
         "CFBundleDevelopmentRegion": "en",
@@ -155,6 +160,7 @@ def info_plist(version: str, architecture: str | None = None) -> dict[str, Any]:
         "CFBundleVersion": bundle_version(version),
         "LSApplicationCategoryType": "public.app-category.education",
         "NSHighResolutionCapable": True,
+        **macos_document_keys(),
     }
     if architecture is not None:
         keys["LSArchitecturePriority"] = [architecture]
