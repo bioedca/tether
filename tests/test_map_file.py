@@ -494,6 +494,34 @@ def test_a_failed_copy_without_hard_links_leaves_no_file(monkeypatch, tmp_path, 
     assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
 
 
+def _disk_full_after(monkeypatch, then) -> None:
+    """Make the copy of the temporary map fail with ENOSPC, after running *then*."""
+
+    def disk_full(self):
+        then()
+        raise OSError(28, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", disk_full)
+
+
+def _stat_of_output(monkeypatch, output: Path, stat) -> None:
+    """Make ``os.stat(output)`` call *stat*, as another session's change would.
+
+    Simulated rather than done: Windows refuses to replace or remove a file that is
+    still open, so the race exists only where the name can move under an open file.
+    """
+    import os
+
+    real_stat = os.stat
+
+    def patched(path, *args, **kwargs):
+        if Path(path) == output:
+            return stat()
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", patched)
+
+
 def test_a_failed_copy_keeps_a_map_another_writer_published(monkeypatch, tmp_path, capsys) -> None:
     """Cleanup removes only the file this call made, never a map replaced over it (Greptile P1)."""
     import os
@@ -502,21 +530,30 @@ def test_a_failed_copy_keeps_a_map_another_writer_published(monkeypatch, tmp_pat
 
     beads = _write_beads(tmp_path / "beads.tif")
     output = tmp_path / "shared.npz"
+    other = tmp_path / "other.npz"
+    other.write_bytes(b"the other session's map")
     monkeypatch.setattr(maps.os, "link", _no_hard_links)
-    real_read_bytes = Path.read_bytes
-
-    def another_writer_then_disk_full(self):
-        if self.name.endswith(".tmp.npz"):  # the temporary sibling this call is copying
-            other = tmp_path / "other.npz"
-            other.write_bytes(b"the other session's map")
-            os.replace(other, output)  # another session publishes with --overwrite
-            raise OSError(28, "No space left on device", str(self))
-        return real_read_bytes(self)
-
-    monkeypatch.setattr(Path, "read_bytes", another_writer_then_disk_full)
+    # Another session publishes with --overwrite while this copy runs: the name now
+    # points to that session's file.
+    real_stat = os.stat
+    _disk_full_after(
+        monkeypatch, lambda: _stat_of_output(monkeypatch, output, lambda: real_stat(other))
+    )
     assert main(["map", "create", str(beads), "-o", str(output)]) == 1
     assert "No space left" in capsys.readouterr().err
-    assert real_read_bytes(output) == b"the other session's map"
+    assert "shared.npz" in os.listdir(tmp_path)  # the name was left to its new owner
+
+
+def test_a_failed_copy_removes_its_own_file_only(monkeypatch, tmp_path, capsys) -> None:
+    """With the name still this call's file, the failed copy removes it."""
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    _disk_full_after(monkeypatch, lambda: None)
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "own.npz")]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
 
 
 def test_a_failed_copy_whose_file_is_gone_still_reports(monkeypatch, tmp_path, capsys) -> None:
@@ -527,14 +564,12 @@ def test_a_failed_copy_whose_file_is_gone_still_reports(monkeypatch, tmp_path, c
     output = tmp_path / "gone.npz"
     monkeypatch.setattr(maps.os, "link", _no_hard_links)
 
-    def removed_then_disk_full(self):
-        output.unlink()
-        raise OSError(28, "No space left on device", str(self))
+    def gone():
+        raise FileNotFoundError(2, "No such file or directory", str(output))
 
-    monkeypatch.setattr(Path, "read_bytes", removed_then_disk_full)
+    _disk_full_after(monkeypatch, lambda: _stat_of_output(monkeypatch, output, gone))
     assert main(["map", "create", str(beads), "-o", str(output)]) == 1
     assert "No space left" in capsys.readouterr().err
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
 
 
 def test_a_failed_flush_without_hard_links_leaves_no_file(monkeypatch, tmp_path, capsys) -> None:
