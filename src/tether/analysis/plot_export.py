@@ -173,7 +173,7 @@ SERIES_COLOR_CYCLE = "okabe-ito-4"
 #: doi:10.1038/nmeth.1618; the set ``tether.gui.theme`` already cites for its dark
 #: ``safe`` palette). Its orange, sky blue, yellow and black are left out: the first three
 #: reach less than 3 : 1 against the white export background (WCAG 2.x 1.4.11), and black
-#: is the colour of the reference lines and model curves. ``tests/test_plot_export.py``
+#: is the colour of the reference lines and model curves. ``tests/test_plot_export_series.py``
 #: checks both the 3 : 1 floor and a CIEDE2000 difference of at least 10 between every two
 #: of the four under simulated protanopia, deuteranopia and tritanopia, the check
 #: ``tests/test_gui_theme.py`` applies to the trace palette. A cosmetic output choice, not
@@ -1370,7 +1370,7 @@ def render_dwell_survival(
     **Several series** are overlaid on one log axis: each series' survival markers and fit
     curve take its colour, the fit its line style, and the residuals of every fitted series
     share the residual panel. The legend names each series' state and ``N``; the note
-    lists each fit's rates and each series' dwell count and interval level.
+    lists each fit's rates and each series' dwell count and idealized FRET level.
 
     Parameters
     ----------

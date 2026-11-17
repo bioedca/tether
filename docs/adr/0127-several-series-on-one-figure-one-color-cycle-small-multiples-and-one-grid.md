@@ -16,8 +16,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ## Context and problem statement
 
 FR-PLOT (PRD §7.7) composes one figure from several series, each a named selection of molecules
-(ADR-0124 of [#373](https://github.com/bioedca/tether/issues/373), in review, fixes what a series is
-and that the renderer is `tether.analysis.plot_export`). Each of the
+([ADR-0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md)
+of [#373](https://github.com/bioedca/tether/issues/373) fixes what a series is and that the renderer is `tether.analysis.plot_export`). Each of the
 thirteen `render_*` functions drew exactly one analysis result. Before the builder (#374) can show
 a layer list, every renderer has to take several results, and five things have to be fixed:
 
@@ -175,7 +175,7 @@ as a contradicting `display` entry already is.
 - The color measurements above were made with the helpers of `tests/test_gui_theme.py` on
   2026-11-17 (contrast against `#ffffff`; the smallest CIEDE2000 difference per vision type for the
   four chosen colors: normal 37.0, protanopia 12.2, deuteranopia 15.9, tritanopia 12.4).
-- Related: ADR-0124 of #373 (the composition unit and the renderer),
+- Related: [ADR-0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md) of #373 (the composition unit and the renderer),
   [ADR-0109](0109-one-selection-argument-and-one-return-shape-on-the-population-functions.md)
   (the selection seam), [ADR-0044](0044-matplotlib-base-plot-export-backend.md) (the Matplotlib
   export), the trace palette of [`tether.gui.theme`](../reference/gui-theme.md).
