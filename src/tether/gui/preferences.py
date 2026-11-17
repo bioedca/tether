@@ -113,6 +113,11 @@ RESUME_LIMIT = 50
 CURATOR_NAME_MAX_LENGTH = 100
 """The longest curator name accepted, in characters."""
 
+# U+200C ZERO WIDTH NON-JOINER and U+200D ZERO WIDTH JOINER: format characters (Cf) that
+# Persian, Hindi and other scripts use inside ordinary names (#1196).
+_NAME_JOINERS = frozenset("\u200c\u200d")
+_DROP_JOINERS = dict.fromkeys(map(ord, _NAME_JOINERS))
+
 _RECENT = "recent_projects"
 _RESUME = "resume"
 _LAYOUT = "layout"
@@ -146,19 +151,32 @@ def validate_curator_name(name: object) -> str:
     """Return ``name`` stripped, or raise `ValueError` if it cannot be a curator name.
 
     A curator name is written into every new label (``labeler``), so it must be non-empty
-    after stripping, at most [`CURATOR_NAME_MAX_LENGTH`][] characters, and free of control
-    characters and line breaks, U+2028 and U+2029 included (a NUL or a line break in a label
-    column is unreadable later).
+    after stripping, at most [`CURATOR_NAME_MAX_LENGTH`][] characters, and free of anything
+    that would make a label column unreadable or misleading later. Refused are every
+    character in Unicode category ``C`` — control characters (``Cc``, NUL and the line feed
+    included), format characters (``Cf``), surrogates (``Cs``), private-use (``Co``) and
+    unassigned (``Cn``) code points — and the line and paragraph separators U+2028 and U+2029
+    (categories ``Zl`` and ``Zp``).
+
+    The one exception is U+200C ZERO WIDTH NON-JOINER and U+200D ZERO WIDTH JOINER: Persian,
+    Hindi and other scripts need them inside ordinary names, so they are accepted, though a
+    name made of nothing else is refused as empty. Every other format character stays
+    refused, the bidirectional controls U+202A to U+202E and U+2066 to U+2069 among them,
+    because they reorder the text shown around them and so can make a label read as a
+    different curator than the one stored.
     """
     if not isinstance(name, str):
         raise ValueError(f"a curator name must be text, not {type(name).__name__}")
     stripped = name.strip()
-    if not stripped:
+    if not stripped.translate(_DROP_JOINERS).strip():
         raise ValueError("a curator name must not be empty")
     if len(stripped) > CURATOR_NAME_MAX_LENGTH:
         raise ValueError(f"a curator name must be at most {CURATOR_NAME_MAX_LENGTH} characters")
     # U+2028 and U+2029 are line breaks too, in categories Zl and Zp rather than C.
-    if any(unicodedata.category(ch)[0] == "C" or ch in "\u2028\u2029" for ch in stripped):
+    if any(
+        ch not in _NAME_JOINERS and (unicodedata.category(ch)[0] == "C" or ch in "\u2028\u2029")
+        for ch in stripped
+    ):
         raise ValueError("a curator name must not contain control characters")
     return stripped
 

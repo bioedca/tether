@@ -207,7 +207,38 @@ def test_the_curator_name_defaults_to_the_login_and_can_be_set_and_unset(prefs: 
 
 
 @pytest.mark.parametrize(
-    "bad", ["", "   ", "a\x00b", "line\nbreak", "line\u2028sep", "para\u2029sep", "x" * 101, 3]
+    "name",
+    ["\u0645\u06cc\u200c\u0631\u0632\u0627", "\u0915\u094d\u200d\u0937"],
+    ids=["persian-zwnj", "devanagari-zwj"],
+)
+def test_a_curator_name_with_a_zero_width_joiner_is_accepted_and_stored(
+    prefs: Path, name: str
+) -> None:
+    assert validate_curator_name(name) == name
+    set_curator_name(name, prefs)
+    assert curator_name(prefs) == name
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "   ",
+        "a\x00b",
+        "line\nbreak",
+        "line\u2028sep",
+        "para\u2029sep",
+        "x" * 101,
+        3,
+        "\u200c\u200d",
+        " \u200d \u200c ",
+        "Ana\u202eetoN",
+        "Ana\u2067x\u2069",
+        "Ana\u200bL",
+        "Ana\ue000",
+        "Ana\ud800",
+        "Ana\u0378",
+    ],
 )
 def test_a_bad_curator_name_is_refused_and_nothing_is_written(prefs: Path, bad: object) -> None:
     with pytest.raises(ValueError):
