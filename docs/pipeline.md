@@ -129,6 +129,19 @@ file, and row *i* of every trace array is the same molecule
   [Legacy Deep-LASI import](io/legacy-import.md) for bringing in traces that were extracted
   elsewhere.
 
+### Preview the stages before a run
+
+`tether.project.preview` runs split, detect, register, colocalize and extract on a movie that is
+already in memory, in the same order and with the same settings as a real extraction, and
+stops before anything is written. It gives one result for each stage: what the stage
+produced, the settings it used, and an outcome. A stage that cannot finish reports `failed`
+with the reason, and a native fit that misses the RMS gate reports `over-gate`. The
+molecules and traces it gives are the same, bit for bit, as the ones a real run makes. This
+is true when both use the same channel geometry and the same registration source. A different
+geometry can give a different result ([`tether.project.preview`](https://github.com/bioedca/tether/blob/main/src/tether/project/preview.py)).
+
+- **Writes:** nothing.
+
 ### Curate
 
 `tether.project.labels` records each accept or reject you make. The current verdict sits on

@@ -60,12 +60,16 @@ def test_reader_reads_imagej_pixel_size(tmp_path) -> None:
     with open_movie(_imagej_movie(tmp_path)) as reader:
         assert reader.pixel_size_um == pytest.approx(0.16)
         assert reader.frame_time == pytest.approx(0.1)
+        # The adapter metadata (#901) gives the same file value with its origin.
+        assert reader.metadata.pixel_size.origin == "file"
+        assert reader.metadata.pixel_size.value == pytest.approx(0.16)
         assert reader.shape[0] == _N_FRAMES
 
 
 def test_reader_ignores_a_resolution_without_a_micrometre_unit(tmp_path) -> None:
     with open_movie(_imagej_movie(tmp_path, unit="pixel")) as reader:
         assert reader.pixel_size_um is None
+        assert reader.metadata.pixel_size.origin == "unknown"
     with open_movie(_make_movie(tmp_path)) as reader:  # plain TIFF: default 1/1 inch
         assert reader.pixel_size_um is None
 
