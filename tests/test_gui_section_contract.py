@@ -137,6 +137,17 @@ def test_a_project_is_optional(section_shell) -> None:
     assert shell.project_path is None
 
 
+def test_a_second_close_ignores_a_lock_another_shell_took_since(qtbot, tmp_path) -> None:
+    shells = SectionShells(qtbot, tmp_path, lock_timeout_ms=50)
+    first = shells("curate")
+    path = first.project_path
+    shells.close(first)
+    second = shells(project=path)
+    assert second.holds_project_claim
+    shells.close(first)  # idempotent: the lock on ``path`` now belongs to ``second``
+    shells.close_all()
+
+
 def test_the_lock_check_fails_while_the_lock_is_held(qtbot, tmp_path) -> None:
     shells = SectionShells(qtbot, tmp_path, lock_timeout_ms=50)
     shell = shells("curate")

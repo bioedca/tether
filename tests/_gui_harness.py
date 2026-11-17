@@ -189,6 +189,9 @@ class SectionShells:
                 )
             except WaitTimeout:
                 raise AssertionError(f"the session lock outlived close: {lock_file}") from None
+        # Released: forget the paths, so a later close of this shell does not mistake the
+        # lock of another shell that has since opened the same file for a leak of this one.
+        opened.clear()
         assert not shell.holds_project_claim, "the shell still holds its project claim"
         assert shell._project_owner_token not in shell_mod._GUI_PROJECT_OWNERS.values(), (
             "the shell is still an owner in _GUI_PROJECT_OWNERS"
