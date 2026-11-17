@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TEMPORARY (#1131): measures the Fig. 5c comparison on Linux, macOS and Windows. Removed from the
+# branch before review; it never reaches main.
+name: tmp-1131-fig5c
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: measure
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      NAPARI_ASYNC: "0"
+      TETHER_REFERENCE_DOWNLOAD: "1"
+      TETHER_REFERENCE_CACHE: ${{ github.workspace }}/.reference-data-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore env + install tether
+        uses: ./.github/actions/setup-env
+      - name: Install test tooling
+        run: python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0"
+      - name: Measure every Fig. 5c column, with 199 and with 198 bins
+        run: |
+          cd tests
+          python - <<'PY'
+          import json, platform, sys
+          import numpy, scipy
+          import _campos_chavez_2024 as cc
+          from reference_data import fetch
+          arc = fetch.path_for(cc.ARCHIVE_ID)
+          book = cc.read_book(arc)
+          printed = cc.read_notebook_fractions(arc)
+          fig5c = cc.read_fig5c(book["Fig5c"])
+          out = {"platform": platform.platform(), "python": sys.version.split()[0],
+                 "numpy": numpy.__version__, "scipy": scipy.__version__}
+          for bins in (199, 198):
+              for col in sorted(fig5c):
+                  values = cc.column(book["Fig5b"], "FRET Efficiency", col)
+                  name = cc.INTRAFRET.get(col)
+                  src = cc.intrafret_efficiencies(values, *cc.read_traces(arc, name)) if name else values
+                  g = cc.compare_closed_fraction(src, bins)
+                  out[f"{bins}:{col}"] = {
+                      "fraction": g["fraction"], "published_error": g["published_error"],
+                      "tether_error": g["tether_error"], "integral_fraction": g["integral_fraction"],
+                      "bins_differing": g["bins_differing"],
+                      "dev_printed_fraction": abs(g["fraction"] - printed[col][0]),
+                      "dev_printed_error": abs(g["published_error"] - printed[col][1]),
+                      "dev_fig5c_fraction": abs(g["fraction"] - fig5c[col][0]),
+                      "dev_fig5c_error": abs(g["published_error"] - fig5c[col][1]),
+                  }
+          print(json.dumps(out, indent=1))
+          PY
+      - name: Run the Fig. 5c tests
+        run: pytest -v -p no:cacheprovider tests/test_campos_chavez_2024.py -k "fraction or 5um or fig5c or 198"
