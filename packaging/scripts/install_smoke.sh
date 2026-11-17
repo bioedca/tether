@@ -174,6 +174,36 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   echo "Start Menu shortcut AppUserModelID: $lnk_app_id"
   test "$lnk_app_id" = "MondragonLab.Tether" || {
     echo "the Start Menu shortcut does not carry the Tether AppUserModelID: $lnk_app_id"; exit 1; }
+  # The "Tether Command Prompt" shortcut (issue #666): a console in which `tether` works
+  # with no PATH edit. Read its target, arguments and folder back from the .lnk, then run
+  # the script it runs, in a console of its own as the shortcut does, and check three
+  # things in that console: the welcome line, `tether --version`, and a PATH whose only
+  # new folder is the launcher folder (never the bootstrap python, pip and conda).
+  prompt_lnk="$sm_dir/Tether Command Prompt.lnk"
+  test -f "$prompt_lnk" || {
+    echo "missing Start Menu shortcut: $prompt_lnk"; exit 1; }
+  prompt_fields="$(TETHER_LNK_W="$(cygpath -w "$prompt_lnk")" powershell -NoProfile -NonInteractive -Command \
+    '$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK_W); "$($s.TargetPath)|$($s.Arguments)|$($s.WorkingDirectory)"' \
+    | tr -d '\r')"
+  echo "Tether Command Prompt target|arguments|folder: $prompt_fields"
+  prompt_bat="$prefix\\tether-prompt.bat"
+  # Compared by the installed python, case-blind as Windows paths are: the .lnk may hand
+  # the target back in another case than %SystemRoot% spells it.
+  "$prefix\\envs\\tether\\python.exe" -c "import os, sys; norm = os.path.normcase; target, args, folder = sys.argv[1].split('|'); want_target = os.path.join(os.environ['SystemRoot'], 'System32', 'cmd.exe'); want_args = '/k ' + chr(34) * 2 + sys.argv[2] + chr(34) * 2; assert norm(target) == norm(want_target), target; assert norm(args) == norm(want_args), args; assert norm(folder) == norm(os.environ['USERPROFILE']), folder; print('Tether Command Prompt shortcut OK')" \
+    "$prompt_fields" "$prompt_bat"
+  tether_version="$("$prefix\\envs\\tether\\python.exe" -m tether --version | tr -d '\r')"
+  prompt_welcome="$(cmd /c "call $prompt_bat" | tr -d '\r')"
+  echo "Tether Command Prompt says: $prompt_welcome"
+  test "$prompt_welcome" = "$tether_version - type \"tether --help\" to see the commands." || {
+    echo "the Tether Command Prompt must print the version and how to list the commands"; exit 1; }
+  prompt_version="$(cmd /c "call $prompt_bat >nul && tether --version" | tr -d '\r')"
+  test "$prompt_version" = "$tether_version" || {
+    echo "tether --version in the Tether Command Prompt: $prompt_version, not $tether_version"; exit 1; }
+  # The console's PATH, read with delayed expansion so it is the one after the script ran,
+  # and compared with this script's own PATH by the installed python.
+  prompt_path="$(cmd /v:on /c "call $prompt_bat >nul && echo !PATH!" | tr -d '\r')"
+  "$prefix\\envs\\tether\\python.exe" -c "import os, sys; norm = lambda p: os.path.normcase(os.path.normpath(p)); session, before, prefix = (sys.argv[1].split(';'), sys.argv[2].split(';'), sys.argv[3]); assert norm(session[0]) == norm(os.path.join(prefix, 'launchers')), session[0]; added = {norm(p) for p in session if p} - {norm(p) for p in before if p}; assert added == {norm(os.path.join(prefix, 'launchers'))}, added; print('Tether Command Prompt PATH OK:', session[0])" \
+    "$prompt_path" "$(cmd /c "echo %PATH%" | tr -d '\r')" "$prefix"
   # Uninstall last, through the uninstaller a user would run, and prove the
   # pre_uninstall step removed the shortcut and its folder (issue #551). `_?=`
   # makes the NSIS uninstaller run in place, so this call waits for it instead

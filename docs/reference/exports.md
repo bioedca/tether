@@ -446,7 +446,7 @@ The thirteen renderers, and the plot each produces (Appendix-C ids as used in th
 |---|---|---|---|
 | `render_histogram1d` | `Histogram1D` or `HistogramBootstrapCI` (+ optional `ModelGaussianOverlay`) | A1 population histogram | Apparent FRET efficiency *E* (dimensionless) |
 | `render_histogram2d` | `Histogram2D` | A2 time-vs-signal heatmap | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
-| `render_transition_density` | `TransitionDensityPlot` | B1 transition-density plot | Initial *E* (dimensionless) |
+| `render_transition_density` | `TransitionDensityPlot` or `SmoothedTransitionDensity` | B1 transition-density plot | Initial *E* (dimensionless) |
 | `render_dwell_survival` | `DwellTimeAnalysis` | B2 survival curve (+ residual panel when a fit succeeded) | `Dwell time (s)` when `dt != 1.0`, otherwise `Dwell time (frames)` |
 | `render_transition_prob` | `TransitionProbHistogram` | B3 transition-probability histogram | Probability per molecule (dimensionless) |
 | `render_state_number` | `StateNumberCounts` | C1 state-number distribution | Number of occupied states (a count) |
@@ -467,6 +467,14 @@ to a frequent one. The scale is display-only: the drawn array is the stored hist
 `export_figure` writes the scale to the provenance file as `parameters.display.color_scale`. You do
 not have to pass it. If you pass a `display` entry that does not agree with the figure,
 `export_figure` raises `ValueError`.
+
+To draw the TDP as published figures show it, pass the smoothed view instead of the counts:
+`render_transition_density(smooth_transition_density(tdp))`. The view is the counts
+Gaussian-filtered, interpolated onto an 800 × 800 grid and normalized to their maximum, with the
+settings of the `checkTDP.py` published by Campos-Chavez et al. 2024 (see the
+[parameter reference](parameters.md)). It is drawn as an image on that grid. On the log scale its
+floor is 10⁻⁴ of the peak, the color floor of `checkTDP.py`. `export_figure` writes the smoothing
+settings to the provenance file as `parameters.display.smoothing`. The counts are not changed.
 
 > **A time axis says seconds only if you supplied a frame duration.** `dt` / `time_dt`
 > default to `1.0`, and at that default the renderer labels the axis in frames. The same

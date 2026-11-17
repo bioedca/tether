@@ -29,9 +29,9 @@ The format has **two layers**, and they carry different guarantees:
   page is a bug**.
 - Everything a pipeline stage writes *later* — `/traces/*`, `/patches/*`,
   `/settings/*`, `/idealization/{model}`, `/features/table`, `/conditions/categories`,
-  `/movies/layouts`, `/calibration/*` — is additive per-record data declared by the module that writes
-  it. None of it appears in the manifest, so the manifest cannot arbitrate it: the
-  writer named in each section below is the authority. Note the `/*`: the **container
+  `/movies/layouts`, `/calibration/*`, `/models/*` — is additive per-record data declared
+  by the module that writes it. None of it appears in the manifest, so the manifest
+  cannot arbitrate it: the writer named in each section below is the authority. Note the `/*`: the **container
   groups** these live in are themselves part of the frozen skeleton above, and only
   their contents are additive.
 
@@ -164,7 +164,7 @@ guaranteed to be there.
 | `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
 | `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
-| `/models/*` | no | nothing yet — see below |
+| `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
 `write_extraction` is not the only writer of `/molecules` rows and `/traces`. Four
 shipped provenances produce a populated store, and they differ in what they fill in.
@@ -807,16 +807,43 @@ Group attributes record the scalar provenance: `reference_channel`,
 geometry attributes written by [`_write_geometry_attrs`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/calibrate.py)
 (`src/tether/imaging/calibrate.py`).
 
-## `/models` — reserved, and empty today
+## `/models` — a reference to each condition's model file
 
-`/models` exists in every store because the schema freeze forward-declared it, but
-**nothing in Tether writes to it**. The quality ranker is persisted as a standalone
-portable model file instead, deliberately: it travels with a *condition* across many
-experiment files rather than being trapped inside one `.tether`
-(`src/tether/ml/persistence.py`, which states outright that nothing in it touches a
-`.tether`). Subset export copies the group verbatim
-(`src/tether/project/export.py`). Treat `/models` as reserved: expect it to be
-present and empty, and do not attach your own payload to it.
+`/models` exists in every store because the schema freeze forward-declared it. The
+quality ranker itself is **not** in the project. It is a standalone portable model
+file that travels with a *condition* across many experiment files
+(`src/tether/ml/persistence.py`, ADR-0035). The project only records **where that
+file is and which version of it the project last saw**. It keeps one group per
+condition, written by
+[`record_model_reference`](https://github.com/bioedca/tether/blob/main/src/tether/project/model_artifact.py)
+(`src/tether/project/model_artifact.py`, ADR-0119). The group is empty until a model
+is saved for a condition the project holds.
+
+`/models/<condition_id>` is a group with no datasets and these attributes:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `reference_version` | int | the layout version of this group (`MODEL_REFERENCE_VERSION`, currently `1`); independent of the store's `schema_version` |
+| `condition_id` | str | the condition, the same as the group name |
+| `artifact_path` | str | the model file, an absolute path on the machine that saved it |
+| `artifact_sha256` | str | the SHA-256 of the model file at that save: compare it with the file to see whether the model changed since |
+| `n_retrains` | int | the model's retrain count at that save |
+| `model_updated_utc` | str | the model's last fit time (ISO-8601 UTC) |
+| `recorded_utc` | str | when this reference was written (ISO-8601 UTC) |
+| `app_version` | str | the Tether version that wrote it |
+
+A later save replaces the attributes of that condition's group. A project keeps one
+reference per condition. The model file has its own single-writer lock: `<model>.lock`
+beside it, the same record as a project's `.lock`. The condition's owner-curator
+holds it while they retrain and save.
+
+The reference has no user or host field. Its `artifact_path` is an absolute path, and a
+path can still name a user or a host, such as a home folder or a network share. If you
+share a project or a subset of it, keep the model under a neutral folder.
+Subset export copies the group verbatim (`src/tether/project/export.py`). A missing
+`/models` child means "no model recorded". An `artifact_path` that does not exist on
+the reader's machine is normal: the file may live on another computer or in a synced
+folder.
 
 ## Where to look next
 
