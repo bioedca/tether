@@ -464,13 +464,16 @@ def _map_file_registration_map(map_path: str | os.PathLike[str]) -> Registration
     [`ExtractionError`][]. The map is used as saved: its coefficients, geometry,
     residual and over-gate verdict are not changed. Its provenance gains a
     ``map_file`` record (the file name and the sha256 of its bytes), so the
-    ``/calibration`` group says which file produced the map. A map without channel
+    ``/calibration`` group says which file produced the map. The file is read once
+    and the map decoded from those bytes, so a file replaced during the call cannot
+    pair one file's digest with another's coefficients. A map without channel
     geometry for both halves is refused, since the movie could not be split.
     """
     path = Path(map_path)
     try:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        reg_map = load_map(path)
+        content = path.read_bytes()  # one read: the digest names the bytes decoded
+        digest = hashlib.sha256(content).hexdigest()
+        reg_map = load_map(path, content=content)
     except Exception as exc:  # unreadable, not a map file, newer version, pickled data
         raise ExtractionError(f"could not use --map {path.name}: {exc}") from exc
     if reg_map.reference_geometry is None or reg_map.moving_geometry is None:

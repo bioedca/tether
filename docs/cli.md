@@ -379,7 +379,8 @@ exits `1` with one line on stderr. Bad arguments exit `2`.
 The map file has a `format_version` (now `1`). Tether reads a map file of its own
 version or older, and refuses one written by a newer version. The file holds only plain
 arrays and text and is read with pickling switched off, so no stored Python object can
-run when a map is loaded.
+run when a map is loaded. [ADR-0128](adr/0128-the-map-file-carries-a-format-version-and-a-reader-refuses-a-newer-one.md)
+records this version rule.
 
 ## `tether info`
 

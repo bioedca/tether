@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,7 @@ from tether.imaging.calibrate import (  # noqa: E402
     save_map,
 )
 from tether.imaging.extract import read_molecules, read_traces  # noqa: E402
+from tether.project import extract as project_extract  # noqa: E402
 from tether.project.extract import (  # noqa: E402
     ExtractionError,
     ExtractOptions,
@@ -243,6 +245,33 @@ def test_calibration_and_settings_record_the_map_file(tmp_path, fitted) -> None:
     assert profile["tmap_source"] is None
 
 
+def test_the_recorded_digest_names_the_map_actually_applied(monkeypatch, tmp_path, fitted) -> None:
+    """A map file replaced while extraction starts cannot pair two files (Codex P2)."""
+    reg_map, map_file = fitted
+    first_bytes = map_file.read_bytes()
+    real_load_map = project_extract.load_map
+
+    def replace_then_load(path, **kwargs):
+        # Another session's ``tether map create --overwrite`` lands here, after the read.
+        save_map(replace(reg_map, rms_residual=0.123), tmp_path / "other.npz")
+        (tmp_path / "other.npz").replace(map_file)
+        return real_load_map(path, **kwargs)
+
+    monkeypatch.setattr(project_extract, "load_map", replace_then_load)
+    out = tmp_path / "snapshot.tether"
+    summary = extract_movie(
+        _write_movie(tmp_path / "movie_009.tif"),
+        out,
+        options=ExtractOptions(window=_WINDOW),
+        map_path=map_file,
+    )
+
+    assert map_file.read_bytes() != first_bytes  # the file on disk did change
+    digest = _calibration_provenance(out, summary.calibration_id)["map_file"]["sha256"]
+    assert digest == hashlib.sha256(first_bytes).hexdigest()
+    assert read_calibration(out, summary.calibration_id).rms_residual == reg_map.rms_residual
+
+
 def test_a_native_fit_records_no_map_file(tmp_path) -> None:
     out = tmp_path / "native.tether"
     summary = extract_movie(
@@ -320,7 +349,8 @@ def test_load_map_reads_with_allow_pickle_false(monkeypatch, fitted) -> None:
 
     monkeypatch.setattr(calibrate.np, "load", spy)
     load_map(map_file)
-    assert seen == [False]
+    load_map(map_file, content=map_file.read_bytes())  # the bytes a caller already read
+    assert seen == [False, False]
 
 
 # --- tether map create: the service command the GUI action runs ----------------

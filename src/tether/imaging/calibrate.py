@@ -61,6 +61,7 @@ Coordinate convention follows the rest of [`tether.imaging`][]: points are
 
 from __future__ import annotations
 
+import io
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -104,7 +105,8 @@ LOW_CONFIDENCE_TAG = "low-confidence-registration"
 #: The version of the ``.npz`` map file that [`save_map`][] writes (#353). A file
 #: written before the field existed reads as version ``0``; it holds the same
 #: arrays. [`load_map`][] refuses a file whose version is newer than this one,
-#: because it may hold fields this Tether would silently drop.
+#: because it may hold fields this Tether would silently drop. ADR-0128 records
+#: this rule.
 MAP_FORMAT_VERSION = 1
 
 #: The arrays every map file holds, whatever its version (each geometry prefix
@@ -647,13 +649,17 @@ def save_map(reg_map: RegistrationMap, path: str | Path) -> Path:
     return path if path.suffix == ".npz" else path.with_suffix(path.suffix + ".npz")
 
 
-def load_map(path: str | Path) -> RegistrationMap:
+def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationMap:
     """Load a [`RegistrationMap`][] from a ``.npz`` map file ([`save_map`][]).
 
     The file is read with ``allow_pickle=False``, so no pickled object enters the
     map: an archive that holds one is refused. A file without ``format_version``
     (written before #353) reads as version ``0``; a version newer than
-    [`MAP_FORMAT_VERSION`][] is refused.
+    [`MAP_FORMAT_VERSION`][] is refused (ADR-0128).
+
+    ``content`` is the file's bytes when the caller has already read them, for
+    example to hash them: the map is then decoded from those bytes and ``path`` only
+    names the file in messages, so the digest and the map come from one snapshot.
 
     Raises
     ------
@@ -663,8 +669,9 @@ def load_map(path: str | Path) -> RegistrationMap:
         ``format_version``.
     """
     path = Path(path)
+    source: Path | io.BytesIO = path if content is None else io.BytesIO(content)
     try:
-        archive = np.load(path, allow_pickle=False)
+        archive = np.load(source, allow_pickle=False)
     except (OSError, ValueError) as exc:  # missing, unreadable, not an .npz / pickle
         raise MapFileError(f"{path.name} is not a readable .npz map file: {exc}") from exc
     if not isinstance(archive, np.lib.npyio.NpzFile):  # a bare .npy array
