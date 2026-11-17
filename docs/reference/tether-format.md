@@ -475,7 +475,7 @@ written before this log existed).
 | `molecule_key` | `str:utf-8` | scalar | Join key into `/molecules.molecule_key`. |
 | `event` | `str:utf-8` | scalar | `reject` or `restore`. |
 | `reason` | `str:utf-8` | scalar | A code from the list below; empty on a `restore` row. |
-| `note` | `str:utf-8` | scalar | Optional free text. |
+| `note` | `str:utf-8` | scalar | Optional free text (valid UTF-8, no NUL character; anything else is refused before the reject or restore is written). |
 | `value` | `f8` | scalar | The score threshold of a `threshold` reject; `NaN` on all other rows. |
 | `labeler` | `str:utf-8` | scalar | Who rejected or restored. The same value as the matching `/labels` row. |
 | `timestamp` | `str:utf-8` | scalar | When. The same value as the matching `/labels` row, so the two rows join on `molecule_key` + `labeler` + `timestamp`. |

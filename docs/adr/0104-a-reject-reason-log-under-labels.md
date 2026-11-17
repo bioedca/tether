@@ -45,10 +45,13 @@ the reason of the *current* reject?
    merge-back appends rows and would move indices.
 4. **Write order.** The `/labels` row and `curation_label` first (`set_curation_label`), then the
    reason row. A crash between the two leaves a reject with no reason, never a reason for a trace
-   that was not rejected.
+   that was not rejected. A note the log cannot store (not a string, an embedded NUL, or text that
+   is not valid UTF-8) is refused before the first write.
 5. **The current reason.** `reject_record_of` takes the molecule's latest **human** `/labels`
-   event. If it is a reject, the answer is the `reject` row that joins it; otherwise, or with no
-   joining row, it is `None`. An earlier reject's reason is never returned for a later decision.
+   event. If it is a reject, the answer is the `reject` row that joins it; otherwise, with no
+   joining row, or when two human rejects of the molecule share the same `labeler` and
+   `timestamp` (the join cannot tell them apart), it is `None`. An earlier reject's reason is
+   never returned for a later decision.
 6. **Scope of the log.** Only a human reject or restore writes a row; provisional sources stay
    `/labels`-only priors. An `unreject` appends a `restore` row with an optional note.
 

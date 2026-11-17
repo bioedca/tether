@@ -216,3 +216,37 @@ def test_project_methods_pass_reason_through(tmp_path: Path) -> None:
     proj.unreject("k1", note="fine after all")
     assert proj.reject_record("k1") is None
     assert L._to_str(L.read_reject_log(path)[-1]["event"]) == L.RESTORE_EVENT
+
+
+def test_a_reused_join_key_never_borrows_an_earlier_reason(tmp_path: Path) -> None:
+    # CodeRabbit finding on PR #1050: a later reject that reuses the same labeler and
+    # timestamp as an earlier reasoned reject must not read that earlier reason.
+    path = _seed(tmp_path, ["k1"])
+    L.reject(path, "k1", reason="artifact", labeler="ana", timestamp=_TS)
+    L.accept(path, "k1", labeler="ana", timestamp="2026-11-14T12:01:00+00:00")
+    L.set_curation_label(path, "k1", L.CurationLabel.REJECT, labeler="ana", timestamp=_TS)
+    assert L.reject_record_of(path, "k1") is None
+
+
+@pytest.mark.parametrize("note", ["artifact\x00detail", "bad \udcff surrogate"])
+def test_a_note_hdf5_cannot_store_is_refused_before_any_write(tmp_path: Path, note: str) -> None:
+    # CodeRabbit finding on PR #1050: the note is checked before the label changes, for a
+    # reject and for a restore, so a failed reason write never leaves a half-recorded event.
+    path = _seed(tmp_path, ["k1"])
+    with pytest.raises(ValueError, match="note"):
+        L.reject(path, "k1", note=note)
+    assert L.read_labels(path).shape == (0,)
+    L.reject(path, "k1", reason="artifact")
+    with pytest.raises(ValueError, match="note"):
+        L.unreject(path, "k1", note=note)
+    assert L.curation_label_of(path, "k1") == int(L.CurationLabel.REJECT)
+    assert L.read_labels(path).shape == (1,)
+    assert L.read_reject_log(path).shape == (1,)
+
+
+def test_an_ordinary_unicode_note_is_kept(tmp_path: Path) -> None:
+    path = _seed(tmp_path, ["k1"])
+    L.reject(path, "k1", reason="other", note="señal débil, ΔFRET ≈ 0")
+    record = L.reject_record_of(path, "k1")
+    assert record is not None
+    assert L._to_str(record["note"]) == "señal débil, ΔFRET ≈ 0"

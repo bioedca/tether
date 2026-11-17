@@ -361,12 +361,28 @@ def _reject_log_dtype() -> np.dtype:
     )
 
 
+def _check_note(note: object) -> None:
+    """Refuse a note that ``/labels/reject_log`` cannot store, before any write.
+
+    An HDF5 variable-length string holds UTF-8 text without an embedded NUL, so a note
+    with a NUL or a lone surrogate would fail only at the reason write, after the label
+    had already changed.
+    """
+    if not isinstance(note, str):
+        raise ValueError(f"note must be a string, got {type(note).__name__}")
+    if "\x00" in note:
+        raise ValueError("note must not contain a NUL character")
+    try:
+        note.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"note must be valid UTF-8 text: {exc.reason}") from None
+
+
 def _check_reject_reason(reason: str, note: str, value: float | None) -> None:
     """Refuse a reason outside [`REJECT_REASONS`][] or a reason missing its detail."""
     if reason not in REJECT_REASONS:
         raise ValueError(f"reason must be one of {sorted(REJECT_REASONS)}, got {reason!r}")
-    if not isinstance(note, str):
-        raise ValueError(f"note must be a string, got {type(note).__name__}")
+    _check_note(note)
     if reason == REJECT_REASON_THRESHOLD:
         if value is None or not math.isfinite(float(value)):
             raise ValueError("a 'threshold' reject must carry its finite threshold value")
@@ -447,8 +463,7 @@ def unreject(
     accept (§7.5 "never silently drop") and never pollutes the append-only ML log
     with spurious clear rows. Raises [`KeyError`][] if ``molecule_key`` is absent.
     """
-    if not isinstance(note, str):
-        raise ValueError(f"note must be a string, got {type(note).__name__}")
+    _check_note(note)
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None
     row = set_curation_label(path, molecule_key, CurationLabel.UNCURATED, **provenance)  # type: ignore[arg-type]
@@ -492,8 +507,9 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     ``labeler`` and ``timestamp``. ``None`` when the molecule is not currently rejected,
     or when its current reject has no reason row (a store written before #932, a reject
     written straight through [`set_curation_label`][], or a crash between the two
-    writes) — an earlier reject's reason is never returned for a later decision. Raises
-    [`KeyError`][] if ``molecule_key`` is absent.
+    writes, or two human rejects of the molecule that share the same ``labeler`` and
+    ``timestamp``, so the join cannot tell them apart) — an earlier reject's reason is
+    never returned for a later decision. Raises [`KeyError`][] if ``molecule_key`` is absent.
     """
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None
@@ -508,6 +524,17 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     if current is None or int(current["label_value"]) != CurationLabel.REJECT:
         return None
     who, when = _to_str(current["labeler"]), _to_str(current["timestamp"])
+    same_join = sum(
+        1
+        for i in range(events.shape[0])
+        if _to_str(events["molecule_key"][i]) == molecule_key
+        and _to_str(events["source"][i]) == LABEL_SOURCE_HUMAN
+        and int(events["label_value"][i]) == CurationLabel.REJECT
+        and _to_str(events["labeler"][i]) == who
+        and _to_str(events["timestamp"][i]) == when
+    )
+    if same_join > 1:
+        return None  # the join key names more than one reject: no reason can be attributed
     log = read_reject_log(path)
     for i in range(log.shape[0] - 1, -1, -1):
         row = log[i]
