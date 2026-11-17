@@ -85,6 +85,25 @@ same way before Tether closes.
 
 Each decision is written into the project as you make it; there is no save step.
 
+After an accept or a reject, Tether shows the next molecule in the list. One key decides and
+moves on. The status bar then reads `Accepted` or `Rejected` and the ID. After that it names the
+new molecule and its place in the list, for example `Molecule mol-4 (5/412)`. Some actions do
+not move the selection:
+
+- If the decision was not saved, the selection stays where it is and the status bar gives the
+  reason. This happens when the project is read-only or the write fails.
+- **Un-reject** and the number keys do not move the selection.
+- On the last molecule of the list, the selection stays and the status bar ends with
+  `end of the list reached`.
+- If some molecules are hidden from the list, Tether shows the next molecule that the list
+  shows. Moving on never changes the order of the list.
+
+This behavior is the preference **Advance after accept or reject**, which is on by default.
+**Curation → Keyboard shortcuts…** shows whether it is on. There is no settings window for it
+yet. A script that opens the window can turn it off with
+`TetherShell(advance_after_curation=False)`. Then Space and Backspace store the decision and
+keep the same molecule selected.
+
 When a button has the keyboard focus, **Space** and **Enter** push that button. They do not
 accept the molecule or jump to it. Click the molecule list to curate with the keys again.
 
@@ -94,7 +113,8 @@ accept the molecule or jump to it. Click the molecule list to curate with the ke
 
 ## 4. Change your mind
 
-- To accept a molecule you rejected, select it and press **Space**.
+- To accept a molecule you rejected, select it and press **Space**. Tether then shows the
+  next molecule, as after any accept.
 - To return a rejected molecule to *uncurated*, select it and click **Un-reject selected** in
   the panel on the left, or move the focus to it with **Tab** and press **Space** or **Enter**.
   The status bar reads `Un-rejected` and the ID. On a molecule that is

@@ -71,7 +71,7 @@ retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
-long_share = 28.3
+long_share = 25.4
 semicolons = 9
 long_paragraphs = 0
 retired = 6
@@ -99,14 +99,14 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 23.9
+long_share = 21.2
 semicolons = 8
 long_paragraphs = 0
 retired = 3
 
 [pages."docs/how-to/curate-traces.md"]
 kind = "procedure"
-long_share = 9.0
+long_share = 7.5
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -211,7 +211,7 @@ retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 32.1
+long_share = 27.2
 semicolons = 29
 long_paragraphs = 0
 retired = 0
