@@ -172,6 +172,10 @@ def create_shell(
     A file-open event (macOS, [`install_file_open_handler`][]) is caught from the moment the
     ``QApplication`` exists. It opens its project after the shell is built, and after the
     project on the command line, so the project the user opened last is the one shown.
+
+    The shell remembers the session in the per-user preferences file
+    ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
+    the molecule selected at close, the layout and the curator name.
     """
     args = build_parser().parse_args(argv)
 
@@ -193,9 +197,11 @@ def create_shell(
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
-        shell = TetherShell()
+        # The application remembers the session on this computer (#628, ADR-0122).
+        shell = TetherShell(preferences_file=preferences_path())
         if args.project is not None:
             shell.load_project(args.project)
     except BaseException:
