@@ -678,24 +678,133 @@ class Project:
     # --- movie metadata with its origin (#911; §7.1, §11.1 units) --------------
 
     def movie_metadata(self) -> dict[str, MovieMetadataRecord]:
-        """Each movie's frame time, pixel size and channel roles with their origins.
+        """Return each movie's frame time, pixel size and channel roles with their origins.
 
-        Read-only; delegates to
+        The call only reads; it delegates to
         [`movie_metadata.read_movie_metadata`][tether.project.movie_metadata.read_movie_metadata].
+
+        Returns
+        -------
+        dict of str to MovieMetadataRecord
+            One [`MovieMetadataRecord`][tether.project.movie_metadata.MovieMetadataRecord]
+            for each ``/movies`` row, keyed by ``movie_id``. Its ``frame_time`` is in
+            seconds per frame and its ``pixel_size_um`` in micrometers per pixel;
+            ``0.0`` means unknown.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
+        >>> project = Project.create(path)
+        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> project.movie_metadata()["mov-1"].frame_time_origin
+        'unknown'
         """
         from tether.project import movie_metadata
 
         return movie_metadata.read_movie_metadata(self.path)
 
     def set_frame_time(self, movie_id: str, seconds: float) -> MovieMetadataRecord:
-        """Give a movie's frame time (origin ``user``, not verified). Refuses a locked file."""
+        """Give a movie's frame time, with origin ``user`` and not verified.
+
+        Delegates to
+        [`movie_metadata.set_frame_time`][tether.project.movie_metadata.set_frame_time]
+        after the single-writer check.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+        seconds : float
+            The frame time, in seconds per frame. It must be finite and greater than
+            zero.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If another writer holds the file (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If ``seconds`` is not finite and positive.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
+        >>> project = Project.create(path)
+        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.set_frame_time("mov-1", 0.05)
+        >>> record.frame_time, record.frame_time_origin, record.frame_time_verified
+        (0.05, 'user', False)
+        """
         from tether.project import movie_metadata
 
         self._assert_writable()
         return movie_metadata.set_frame_time(self.path, movie_id, seconds)
 
     def confirm_frame_time(self, movie_id: str) -> MovieMetadataRecord:
-        """Verify a movie's frame time (the user's separate action). Refuses a locked file."""
+        """Verify a movie's frame time, the user's separate action.
+
+        Delegates to
+        [`movie_metadata.confirm_frame_time`][tether.project.movie_metadata.confirm_frame_time]
+        after the single-writer check.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written, with ``frame_time_verified`` set to ``True``.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If another writer holds the file (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If the movie has no frame time to confirm (its frame time is ``0.0``).
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
+        >>> project = Project.create(path)
+        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.set_frame_time("mov-1", 0.05)
+        >>> project.confirm_frame_time("mov-1").frame_time_verified
+        True
+        """
         from tether.project import movie_metadata
 
         self._assert_writable()
@@ -709,7 +818,59 @@ class Project:
         pixel_size_um: float | None = None,
         confirm_frame_time: bool = False,
     ) -> MovieMetadataRecord:
-        """Apply several metadata changes in one all-or-nothing write. Refuses a locked file."""
+        """Apply several metadata changes to one movie in one all-or-nothing write.
+
+        Delegates to
+        [`movie_metadata.update_movie_metadata`][tether.project.movie_metadata.update_movie_metadata]
+        after the single-writer check. A given value gets the origin ``user``, and a
+        given frame time is never verified; a refused call changes nothing.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+        frame_time : float or None, optional
+            The frame time to record, in seconds per frame. It must be finite and
+            greater than zero. The default, ``None``, leaves the frame time unchanged.
+        pixel_size_um : float or None, optional
+            The pixel size to record, in micrometers per pixel. It must be finite and
+            greater than zero. The default, ``None``, leaves the pixel size unchanged.
+        confirm_frame_time : bool, optional
+            Mark the stored frame time as verified. The default is ``False``.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written, with every requested change applied.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If another writer holds the file (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If ``frame_time`` or ``pixel_size_um`` is not finite and positive, if
+            ``confirm_frame_time`` is set and the movie has no frame time, or if
+            ``frame_time`` is given and ``confirm_frame_time`` is set in one call.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
+        >>> project = Project.create(path)
+        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.update_movie_metadata("mov-1", frame_time=0.05, pixel_size_um=0.16)
+        >>> record.frame_time, record.pixel_size_um, record.frame_time_verified
+        (0.05, 0.16, False)
+        """
         from tether.project import movie_metadata
 
         self._assert_writable()
@@ -722,7 +883,51 @@ class Project:
         )
 
     def set_pixel_size(self, movie_id: str, micrometres: float) -> MovieMetadataRecord:
-        """Give a movie's pixel size in µm (origin ``user``). Refuses a locked file."""
+        """Give a movie's pixel size, with origin ``user``.
+
+        Delegates to
+        [`movie_metadata.set_pixel_size`][tether.project.movie_metadata.set_pixel_size]
+        after the single-writer check.
+
+        Parameters
+        ----------
+        movie_id : str
+            The ``movie_id`` of the ``/movies`` row to change.
+        micrometres : float
+            The pixel size, in micrometers per pixel. It must be finite and greater
+            than zero.
+
+        Returns
+        -------
+        MovieMetadataRecord
+            The record as written.
+
+        Raises
+        ------
+        tether.project.lock.LockedError
+            If another writer holds the file (§5.4).
+        KeyError
+            If no ``/movies`` row has ``movie_id``.
+        ValueError
+            If ``micrometres`` is not finite and positive.
+
+        Examples
+        --------
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> import h5py
+        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
+        >>> project = Project.create(path)
+        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        ...     table = f["movies/table"]
+        ...     table.resize((1,))
+        ...     row = table[0]
+        ...     row["movie_id"] = "mov-1"
+        ...     table[0] = row
+        >>> record = project.set_pixel_size("mov-1", 0.16)
+        >>> record.pixel_size_um, record.pixel_size_origin
+        (0.16, 'user')
+        """
         from tether.project import movie_metadata
 
         self._assert_writable()
