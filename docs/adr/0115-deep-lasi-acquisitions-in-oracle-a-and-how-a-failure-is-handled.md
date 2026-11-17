@@ -161,14 +161,31 @@ median `g(1 + b)` of 0.62, a median difference of the molecule means of 0.084 (9
 0.25) and a Pearson correlation of the molecule means of 0.10. This is a finding, recorded and
 not gated.
 
-**Deep-LASI's own corrected FRET for one-laser data does not use γ.** In the pinned commit,
-the two-colour, no-ALEX branch of `calculateTracesFullyCorrected` multiplies the acceptor by
+**Why the two chains differ** (workstation check, 2026-11-17). The formulas are not the cause. On
+Deep-LASI's frames, Tether's γ formula with Deep-LASI's leakage gives Deep-LASI's `g(1 + b)`
+within 3 % (median ratios 1.013, 1.025 and 1.019 on `lab-03`, `lab-04` and `lab-05`). The
+level windows are the cause: Tether averages 3 frames on each side of the acceptor-bleach step
+(ADR-0028), and Deep-LASI averages each whole segment. On the same molecules this puts Tether's
+γ at 0.83 to 1.50 times Deep-LASI's (quartiles), and whole segments around Tether's own step
+give 1.01 to 1.02. The two tools place the step within 5 frames of each other for 89 to 100 % of
+the molecules.
+
+On video 010 the medians also rest on few molecules: 13 own values for Tether and 8 for
+Deep-LASI, out of 250, with 3 in common. Every other molecule takes its tool's median, so the
+FRET difference follows the two medians. No saved state holds Deep-LASI's per-frame network
+classes, so the check rebuilt Deep-LASI's frames from the export's selection range. That
+rebuild reproduces the exported `g` and `b` exactly on the three acquisitions above. Averaging
+whole segments in Tether is tracked in [#1206](https://github.com/bioedca/tether/issues/1206).
+
+**The corrected FRET saved in Deep-LASI's state does not use γ for one-laser data.** In the
+pinned commit, the two-colour, no-ALEX branch of `calculateTracesFullyCorrected` multiplies the acceptor by
 `g` before it forms the ratio, so `g` cancels:
 `E = g(A − bD) / (g(A − bD) + g(1 + b)D) = (A − bD) / (A + D)`. On video 010 the `.tdat`'s
 corrected FRET equals that expression to 2.2e-16 and differs from the γ-corrected formula by
-up to 0.14. The check therefore compares with the γ-corrected formula on Deep-LASI's factors,
-which is the quantity ADR-0028 relates to Tether's, and not with the value in Deep-LASI's
-window.
+up to 0.14. Deep-LASI does apply `g` in its state-averaged route
+(`calculateTracesFullyCorrected_StateAveraged`), with the γ-corrected formula above. The check
+compares with that formula on Deep-LASI's factors, the quantity ADR-0028 relates to Tether's,
+and not with the value saved in Deep-LASI's state.
 
 ### Consequences
 
@@ -182,8 +199,8 @@ window.
   repeatable origin waits for the classification step that #715 excludes.
 - Bad: a failure on a new acquisition shows as a failing weekly check until its cause is found.
   That is the intent: a known failure is tracked in its issue, not hidden.
-- Follow-up: #1114 (`lab-02`), #887 (`lab-10`, `lab-12`), and #546 for the corrected-FRET
-  disagreement.
+- Follow-up: #1114 (`lab-02`), #887 (`lab-10`, `lab-12`), #546 for the corrected-FRET
+  disagreement, and #1206 for Tether's γ level windows.
 
 ## More information
 

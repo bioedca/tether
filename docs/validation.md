@@ -141,8 +141,9 @@ the export of video 010: the same 250 molecules, positions and raw traces. It ca
 correction factors, which come from a later step in the window. The workstation run also
 compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
 on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
-means is 0.084. Deep-LASI's own corrected FRET for one-laser data does not depend on γ, so it
-is not the reference (ADR-0115).
+means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
+from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
 
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
 
