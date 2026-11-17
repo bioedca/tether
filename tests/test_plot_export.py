@@ -966,9 +966,10 @@ def test_every_public_function_documents_its_sections_in_order():
     assert len(names) == 14  # export_figure and the thirteen render_* functions
     for name in names:
         doc = inspect.getdoc(getattr(pe, name))
-        found = [s for s in _SECTIONS if f"\n{s}\n{'-' * len(s)}\n" in doc]
+        at = {s: doc.find(f"\n{s}\n{'-' * len(s)}\n") for s in _SECTIONS}
+        found = sorted((s for s in _SECTIONS if at[s] >= 0), key=at.__getitem__)
         assert {"Parameters", "Returns", "Examples"} <= set(found), (name, found)
-        assert found == sorted(found, key=_SECTIONS.index), (name, found)
+        assert found == [s for s in _SECTIONS if s in found], (name, found)
         assert "figsize" not in doc or "in inches" in doc, name
 
 

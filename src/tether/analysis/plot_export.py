@@ -315,8 +315,10 @@ def export_figure(
         Whether to draw the visible provenance footer on the figure. The default is
         ``True``.
     created_utc : str or None, optional
-        A fixed ISO-8601 UTC timestamp for the stamp, so that a repeated export gives
-        the same files. The default ``None`` uses the current time.
+        A fixed ISO-8601 UTC timestamp for the stamp. With it, the export of a freshly
+        rendered, equal figure gives the same files again. Export each figure once: with
+        ``stamp=True`` every call draws one more footer on the figure, so a second
+        export of the same figure differs. The default ``None`` uses the current time.
 
     Returns
     -------
