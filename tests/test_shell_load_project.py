@@ -1133,6 +1133,8 @@ def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     shell.molecule_list.setCurrentRow(1)
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
     assert project.curation_label(keys[1]) == -1
+    # The reject showed the next molecule (#631); go back to the rejected one.
+    shell.molecule_list.setCurrentRow(1)
 
     qtbot.mouseClick(shell.unreject_button, QtCore.Qt.MouseButton.LeftButton)
 

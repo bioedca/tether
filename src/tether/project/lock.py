@@ -1780,7 +1780,11 @@ def recover_lock(
     while the recovered lock is held.
 
     Each successful call is reported at WARNING on the ``tether.project.lock``
-    logger with the ousted holder, the new holder and the action.
+    logger with the ousted holder, the new holder and the action. The durable record
+    in the project is the caller's next step, once it has reopened the project
+    writable under the returned lock:
+    [`Project.record_lock_takeover`][tether.project.core.Project.record_lock_takeover]
+    (#1099, ADR-0121). This function never writes the ``.tether`` itself.
     """
     if expected.action is RecoveryAction.NONE:
         raise LockedError(expected.owner, corrupt=expected.corrupt, path=lock_path(project_path))
