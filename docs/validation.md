@@ -1024,6 +1024,7 @@ method, the limits and the measurements.
 | Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
 | Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
 | TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
+| Smoothed TDP of the same seven panels | the seven sheets, with the committed `checkTDP.py` run on their columns | `smooth_transition_density` | 800 x 800 values each, equal (0.0; limit 1e-12) |
 
 The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
 calculated from them can differ from a published one by the rounding of the two intensities. The
@@ -1045,18 +1046,22 @@ so each test finds the windows in the trace matrix when it runs.
    start at frame 0 or at frame 1.
 
 **Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
-time of a double exponential with its error, the TDP smoothing and spline, and the two-Gaussian
-fit of Fig. 5c. Tether has no function for the last three: #1028, #1029 and #1030.
+time of a double exponential with its error, and the two-Gaussian fit of Fig. 5c. #1028 and #1030
+add the functions; their comparisons are #1129 and #1131.
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
-`test_find_windows_finds_each_window_and_a_value_the_matrix_lost` and
-`test_dwells_from_survival_give_back_the_survival_curve`. Weekly (`reference_download`):
+`test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
+`test_dwells_from_survival_give_back_the_survival_curve`,
+`test_smoothed_transition_density_of_built_counts_equals_checktdp` and
+`test_a_deliberate_error_in_the_smoothing_fails_the_checktdp_comparison`. Weekly
+(`reference_download`):
 `test_representative_traces_have_tethers_efficiency`,
 `test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
 `test_intrafret_histogram_values_are_tethers_first_400_frames`,
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
-`test_double_exponential_parameters_and_errors` and
-`test_transition_density_counts_equal_checktdp`.
+`test_double_exponential_parameters_and_errors`,
+`test_transition_density_counts_equal_checktdp` and
+`test_smoothed_transition_density_equals_checktdp`.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
 
