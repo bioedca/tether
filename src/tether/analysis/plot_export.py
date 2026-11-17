@@ -286,38 +286,69 @@ def export_figure(
 
     Parameters
     ----------
-    figure
-        The rendered figure (typically from a ``render_*`` helper).
-    out_stem
-        The output path *without* an extension; each format appends its own
-        (``<stem>.pdf``/``.svg``/``.png``). The sidecar is ``<stem>.provenance.json``.
-    tether_export
-        The export kind (e.g. ``"plot:tdp"``), recorded in the stamp and metadata.
-    source
-        The source project / dataset identifier for the provenance sidecar.
-    parameters
-        The plot parameters to record (bins, ranges, model name, …) — the §7.9
-        *"stamped with provenance and parameters"* payload. How the ``render_*``
-        helper drew the data (for example the TDP ``color_scale``) is added under
-        ``"display"`` from the figure itself; a ``"display"`` entry here that
-        contradicts the figure raises [`ValueError`][].
-    title
-        Optional human title embedded in the document metadata; defaults to
+    figure : matplotlib.figure.Figure
+        The figure to write, usually from one of the ``render_*`` functions.
+    out_stem : str or os.PathLike
+        The output path with no extension. Each format adds its own extension
+        (``<stem>.pdf``, ``<stem>.svg``, ``<stem>.png``). The provenance file is
+        ``<stem>.provenance.json``.
+    tether_export : str
+        The export kind, for example ``"plot:tdp"``. The stamp and the file metadata
+        record it.
+    source : str
+        The name of the source project or data set, recorded in the provenance file.
+    parameters : dict of str to object
+        The plot parameters to record, such as the bins, the ranges and the model name.
+        This is the *"stamped with provenance and parameters"* record of PRD §7.9. The
+        function adds how the ``render_*`` function drew the data (for example the TDP
+        ``color_scale``) under ``"display"``, read from the figure itself.
+    title : str or None, optional
+        The title in the document metadata. The default ``None`` uses
         ``tether_export``.
-    formats
-        Which of ``{"pdf", "svg", "png"}`` to write (default all three).
-    dpi
-        Raster (PNG) resolution; ignored by the vector formats.
-    stamp
-        Whether to draw the visible on-figure footer (default ``True``).
-    created_utc
-        Optional fixed ISO-8601 UTC timestamp (for reproducible exports); defaults
-        to *now*.
+    formats : tuple of str, optional
+        The formats to write, a subset of ``("pdf", "svg", "png")``. The default
+        [`DEFAULT_PLOT_FORMATS`][] writes all three.
+    dpi : int, optional
+        The PNG resolution, in dots per inch. The vector formats ignore it. The default
+        is [`DEFAULT_EXPORT_DPI`][] (200 dots per inch).
+    stamp : bool, optional
+        Whether to draw the visible provenance footer on the figure. The default is
+        ``True``.
+    created_utc : str or None, optional
+        A fixed ISO-8601 UTC timestamp for the stamp, so that a repeated export gives
+        the same files. The default ``None`` uses the current time.
 
     Returns
     -------
     PlotExportResult
-        The stem, the ``{format: path}`` map, and the provenance sidecar path.
+        The stem, the map of each format to the path written, and the path of the
+        provenance file.
+
+    Raises
+    ------
+    ValueError
+        If ``formats`` is empty or names a format other than ``"pdf"``, ``"svg"`` or
+        ``"png"``, or if ``parameters["display"]`` contradicts how the figure was drawn.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import apparent_e_histogram
+    >>> from tether.analysis.plot_export import export_figure, render_histogram1d
+    >>> fig = render_histogram1d(apparent_e_histogram(np.array([0.2, 0.3, 0.7, 0.8])))
+    >>> with tempfile.TemporaryDirectory() as tmp:
+    ...     result = export_figure(
+    ...         fig,
+    ...         Path(tmp) / "a1",
+    ...         tether_export="plot:a1",
+    ...         source="demo",
+    ...         parameters={"bins": 50},
+    ...         created_utc="2026-01-01T00:00:00+00:00",
+    ...     )
+    ...     print(result.formats, result.provenance_path.name)
+    ('pdf', 'svg', 'png') a1.provenance.json
     """
     unknown = set(formats) - set(DEFAULT_PLOT_FORMATS)
     if unknown:
@@ -400,11 +431,39 @@ def render_histogram1d(
 ) -> Figure:
     """Render the A1 1-D population apparent-E histogram (Appendix C A1).
 
-    Accepts a bare [`Histogram1D`][tether.analysis.histogram.Histogram1D] or a
-    [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI] (whose per-bin
-    percentile band is drawn as a shaded region). An optional
-    [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] draws the idealized
-    model's per-state Gaussians and their sum.
+    Parameters
+    ----------
+    hist : Histogram1D or HistogramBootstrapCI
+        The histogram to draw: a bare
+        [`Histogram1D`][tether.analysis.histogram.Histogram1D], or a
+        [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI], whose
+        per-bin percentile band is drawn as a shaded region. Apparent FRET efficiency is
+        unitless.
+    overlay : ModelGaussianOverlay or None, optional
+        A [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] to draw
+        over the histogram: the Gaussian of each state of the idealized model, and their
+        sum. The default ``None`` draws no overlay.
+    title : str, optional
+        The axes title. The default is ``"FRET-efficiency histogram (A1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import apparent_e_histogram
+    >>> from tether.analysis.plot_export import render_histogram1d
+    >>> hist = apparent_e_histogram(np.array([0.2, 0.3, 0.3, 0.7, 0.8]))
+    >>> fig = render_histogram1d(hist)
+    >>> len(fig.axes)
+    1
     """
     if isinstance(hist, HistogramBootstrapCI):
         ci = hist
@@ -467,7 +526,39 @@ def render_histogram2d(
     title: str = "Time-vs-signal heatmap (A2)",
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the A2 2-D time-vs-signal occupancy heatmap (Appendix C A2)."""
+    """Render the A2 2-D time-vs-signal occupancy heatmap (Appendix C A2).
+
+    Parameters
+    ----------
+    hist : Histogram2D
+        The heatmap to draw, from
+        [`time_signal_histogram2d`][tether.analysis.histogram.time_signal_histogram2d] or
+        [`population_time_signal_histogram2d`][tether.analysis.histogram.population_time_signal_histogram2d].
+        The time axis is drawn in seconds when its ``time_dt`` (seconds per frame) is
+        not ``1.0``, and in frames otherwise. Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title. The default is ``"Time-vs-signal heatmap (A2)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it. The figure has two axes: the
+        heatmap and its color bar.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import time_signal_histogram2d
+    >>> from tether.analysis.plot_export import render_histogram2d
+    >>> hist = time_signal_histogram2d([np.array([0.2, 0.2, 0.8, 0.8])])
+    >>> fig = render_histogram2d(hist)
+    >>> len(fig.axes), fig.axes[0].get_xlabel()
+    (2, 'Frame')
+    """
     counts = np.asarray(hist.counts, dtype="float64")  # (time_bins, signal_bins)
     time_edges = np.asarray(hist.time_edges, dtype="float64")
     signal_edges = np.asarray(hist.signal_edges, dtype="float64")
@@ -525,19 +616,46 @@ def render_transition_density(
 
     Parameters
     ----------
-    tdp
-        The binned transition density to draw.
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
-    color_scale
-        ``"log"`` (default, [`DEFAULT_TDP_COLOR_SCALE`][]) or ``"linear"``. PRD
-        Appendix C B1 names the TDP log-normalized, so a rare transition stays visible
-        beside a dominant one. The log scale is zero-safe: an empty bin is drawn in the
-        colour map's floor colour, never as ``-inf`` or a hole. It is display only — the
-        drawn array is ``tdp.counts`` unchanged — and [`export_figure`][] records it
-        in the provenance sidecar under ``parameters["display"]["color_scale"]``.
+    tdp : TransitionDensityPlot
+        The binned transition density to draw, from
+        [`transition_density`][tether.analysis.tdp.transition_density] or
+        [`population_transition_density`][tether.analysis.tdp.population_transition_density].
+        Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title. The default is ``"Transition-density plot (B1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+    color_scale : str, optional
+        ``"log"`` or ``"linear"``. The default is [`DEFAULT_TDP_COLOR_SCALE`][]
+        (``"log"``). PRD Appendix C B1 names the TDP log-normalized, so a rare
+        transition stays visible beside a dominant one. The log scale is zero-safe: an
+        empty bin is drawn in the floor color of the color map, never as ``-inf`` or a
+        hole. The scale changes only the display: the drawn array is ``tdp.counts``
+        unchanged. [`export_figure`][] records the scale in the provenance file under
+        ``parameters["display"]["color_scale"]``.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it. The figure has two axes: the
+        plot and its color bar.
+
+    Raises
+    ------
+    ValueError
+        If ``color_scale`` is not one of [`TDP_COLOR_SCALES`][].
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.plot_export import render_transition_density
+    >>> from tether.analysis.tdp import transition_density
+    >>> tdp = transition_density([np.array([0.2, 0.2, 0.8, 0.8, 0.2])])
+    >>> fig = render_transition_density(tdp, color_scale="linear")
+    >>> len(fig.axes)
+    2
     """
     if color_scale not in TDP_COLOR_SCALES:
         raise ValueError(
@@ -589,8 +707,54 @@ def render_dwell_survival(
     title: str | None = None,
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the B2 dwell-time survival curve for one state, with its exponential fit
-    and (when fitted) a residuals subplot."""
+    """Render the B2 dwell-time survival curve of one state, with its exponential fit.
+
+    When the fit succeeded, a second axes below the curve shows the fit residuals.
+
+    Parameters
+    ----------
+    analysis : DwellTimeAnalysis
+        The dwell-time analysis of one state, from
+        [`population_dwell_times`][tether.analysis.dwell.population_dwell_times]. The time
+        axis is drawn in seconds when its ``dt`` (seconds per frame) is not ``1.0``, and
+        in frames otherwise. The survival is unitless, and each fitted rate ``k`` is in
+        ``1 / seconds`` or ``1 / frames`` to match.
+    title : str or None, optional
+        The axes title. The default ``None`` uses
+        ``"Dwell survival — state <state> (B2)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it. The figure has two axes when
+        the fit succeeded, and one otherwise.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.dwell import DwellTimeAnalysis, fit_survival, survival_curve
+    >>> from tether.analysis.plot_export import render_dwell_survival
+    >>> lengths = np.array([1, 2, 2, 3, 5])
+    >>> tau, survival = survival_curve(lengths)
+    >>> analysis = DwellTimeAnalysis(
+    ...     state=0,
+    ...     level=0.2,
+    ...     dt=1.0,
+    ...     dwell_lengths=lengths,
+    ...     n_dwells=5,
+    ...     n_molecules=2,
+    ...     tau=tau,
+    ...     survival=survival,
+    ...     fit=fit_survival(tau, survival),
+    ... )
+    >>> fig = render_dwell_survival(analysis)
+    >>> len(fig.axes), fig.axes[-1].get_xlabel()
+    (2, 'Dwell time (frames)')
+    """
     tau = np.asarray(analysis.tau, dtype="float64")
     survival = np.asarray(analysis.survival, dtype="float64")
     fit = analysis.fit
@@ -657,8 +821,43 @@ def render_transition_prob(
     title: str | None = None,
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the B3 transition-probability histogram for one ``init → final`` pair,
-    with the optional Gaussian-KDE overlay."""
+    """Render the B3 transition-probability histogram of one ``init → final`` pair.
+
+    When the histogram carries a Gaussian kernel density estimate (KDE), the estimate is
+    drawn over the bars.
+
+    Parameters
+    ----------
+    hist : TransitionProbHistogram
+        The per-molecule transition probabilities to draw, from
+        [`transition_prob_histogram`][tether.analysis.transition_prob.transition_prob_histogram]
+        or
+        [`population_transition_prob_histogram`][tether.analysis.transition_prob.population_transition_prob_histogram].
+        A probability is unitless.
+    title : str or None, optional
+        The axes title. The default ``None`` uses
+        ``"Transition-probability P(init → final) (B3)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.plot_export import render_transition_prob
+    >>> from tether.analysis.transition_prob import transition_prob_histogram
+    >>> paths = [np.array([0, 0, 1, 1, 0]), np.array([0, 1, 1, 0, 0])]
+    >>> hist = transition_prob_histogram(paths, init_state=0, final_state=1)
+    >>> fig = render_transition_prob(hist)
+    >>> len(fig.axes)
+    1
+    """
     counts = np.asarray(hist.counts, dtype="float64")
     edges = np.asarray(hist.edges, dtype="float64")
     heading = (
@@ -700,7 +899,36 @@ def render_state_number(
     title: str = "State-number distribution (C1)",
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the C1 state-number bar chart: molecules by number of occupied states."""
+    """Render the C1 state-number bar chart: molecules by number of occupied states.
+
+    Parameters
+    ----------
+    counts : StateNumberCounts
+        The molecule count of each number of occupied states, from
+        [`state_number_counts`][tether.analysis.state_number.state_number_counts] or
+        [`population_state_number`][tether.analysis.state_number.population_state_number].
+    title : str, optional
+        The axes title. The default is ``"State-number distribution (C1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.plot_export import render_state_number
+    >>> from tether.analysis.state_number import state_number_counts
+    >>> counts = state_number_counts([np.array([0, 1, 1]), np.array([0, 0, 0])])
+    >>> fig = render_state_number(counts)
+    >>> len(fig.axes)
+    1
+    """
     states = np.asarray(counts.states, dtype="int64")
     bar_counts = np.asarray(counts.counts, dtype="int64")
 
@@ -732,13 +960,48 @@ def render_raw_fret_cloud(
     max_points: int = 20000,
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the raw FRET cloud QC view: the pooled ``(time, apparent-E)`` scatter with
-    the KDE density surface and highest-density-region contours when present.
+    """Render the raw FRET cloud QC view: the pooled ``(time, apparent-E)`` scatter.
 
-    ``max_points`` caps the scatter overlay for a manageable vector file; the density
-    surface (when computed) is unaffected by that cap — but it was fit by
-    [`tether.analysis.cloud.raw_fret_cloud`][] on the in-range points only
-    (``n_out_of_range`` counts the rest).
+    When the cloud carries them, the kernel density estimate (KDE) surface and the
+    highest-density-region contours are drawn under the scatter.
+
+    Parameters
+    ----------
+    cloud : RawFretCloud
+        The pooled cloud to draw, from
+        [`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud] or
+        [`population_raw_fret_cloud`][tether.analysis.cloud.population_raw_fret_cloud].
+        The time axis is drawn in seconds when its ``time_dt`` (seconds per frame) is
+        not ``1.0``, and in frames otherwise. Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title. The default is ``"Raw FRET cloud (QC)"``.
+    max_points : int, optional
+        The most points the scatter draws, so that a vector file stays a manageable
+        size. Above it the scatter shows every n-th point. The cap does not change the
+        density surface, which [`raw_fret_cloud`][tether.analysis.cloud.raw_fret_cloud]
+        fit on the in-range points only (``n_out_of_range`` counts the rest). The
+        default is 20000.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it. The figure has two axes when
+        the cloud carries a density surface (the plot and its color bar), and one
+        otherwise.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.cloud import raw_fret_cloud
+    >>> from tether.analysis.plot_export import render_raw_fret_cloud
+    >>> traces = [np.array([0.2, 0.3, 0.7, 0.8]), np.array([0.25, 0.75, 0.7, 0.3])]
+    >>> fig = render_raw_fret_cloud(raw_fret_cloud(traces, kde=False))
+    >>> len(fig.axes)
+    1
     """
     points = np.asarray(cloud.points, dtype="float64")
     time_edges = np.asarray(cloud.time_edges, dtype="float64")
@@ -795,7 +1058,38 @@ def render_cross_correlation(
     title: str = "Donor–acceptor cross-correlation",
     figsize: tuple[float, float] | None = None,
 ) -> Figure:
-    """Render the donor–acceptor cross-correlation curve vs lag."""
+    """Render the donor–acceptor cross-correlation curve against the lag.
+
+    Parameters
+    ----------
+    xc : CrossCorrelation
+        The cross-correlation to draw, from
+        [`cross_correlation`][tether.analysis.crosscorr.cross_correlation] or
+        [`population_cross_correlation`][tether.analysis.crosscorr.population_cross_correlation].
+        The lag is in frames, and the Pearson-normalized correlation is unitless.
+    title : str, optional
+        The axes title. The default is ``"Donor–acceptor cross-correlation"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.crosscorr import cross_correlation
+    >>> from tether.analysis.plot_export import render_cross_correlation
+    >>> donor = np.array([1.0, 2.0, 3.0, 2.0, 1.0])
+    >>> acceptor = np.array([3.0, 2.0, 1.0, 2.0, 3.0])
+    >>> fig = render_cross_correlation(cross_correlation(donor, acceptor, max_lag=2))
+    >>> fig.axes[0].get_xlabel()
+    'Lag (frames)'
+    """
     lags = np.asarray(xc.lags, dtype="float64")
     values = np.asarray(xc.values, dtype="float64")
 
@@ -834,29 +1128,63 @@ def render_per_condition_histograms(
 ) -> Figure:
     """Render the §7.7 per-condition overlay: every condition's A1 histogram on one axis.
 
-    Each condition is drawn as an unfilled step outline on the overlay's shared
-    [`bin_edges`][tether.analysis.histogram.PerConditionHistograms.bin_edges] grid, in
-    the overlay's own (deterministic) order, and labelled with its condition id and its
-    molecule count ``N``. Colours follow the ``tab10`` palette, and past ten conditions
-    the line style changes too, so up to 40 conditions no two curves share both a colour
-    and a line style. Past 40 the pairs repeat (condition 41 is drawn like condition 1),
-    and only the legend labels tell those curves apart.
+    Each condition is drawn as an unfilled step outline on the shared
+    [`bin_edges`][tether.analysis.histogram.PerConditionHistograms.bin_edges] grid of the
+    overlay, in the overlay's own (deterministic) order. Its legend label gives its
+    condition id and its molecule count ``N``. Colors follow the ``tab10`` palette. Past
+    ten conditions the line style changes too, so that up to 40 conditions no two curves
+    share both a color and a line style. Past 40 the pairs repeat (condition 41 is drawn
+    like condition 1), and only the legend labels tell those curves apart.
 
     Parameters
     ----------
-    overlay
+    overlay : PerConditionHistograms
         The per-condition histograms to draw, from
         [`per_condition_apparent_e_histograms`][tether.analysis.histogram.per_condition_apparent_e_histograms].
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+        Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title. The default is
+        ``"Per-condition FRET-efficiency histograms (A1)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        A condition's histogram is not binned on the overlay's shared grid, so it
-        cannot be drawn on the same axis without misplacing its bins.
+        If the histogram of a condition is not binned on the shared grid of the
+        overlay, so that it cannot be drawn on the same axis without misplacing its
+        bins.
+
+    Examples
+    --------
+    >>> from dataclasses import replace
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import (
+    ...     ConditionHistogram,
+    ...     PerConditionHistograms,
+    ...     apparent_e_histogram,
+    ... )
+    >>> from tether.analysis.plot_export import render_per_condition_histograms
+    >>> low = replace(apparent_e_histogram(np.array([0.2, 0.3, 0.3])), n_molecules=2)
+    >>> high = replace(apparent_e_histogram(np.array([0.7, 0.7, 0.8])), n_molecules=3)
+    >>> overlay = PerConditionHistograms(
+    ...     histograms=(ConditionHistogram("low", low), ConditionHistogram("high", high)),
+    ...     bin_edges=low.bin_edges,
+    ...     value_range=low.value_range,
+    ...     density=True,
+    ...     per_molecule_equal_weight=False,
+    ...     intensity_quantity="corrected",
+    ... )
+    >>> fig = render_per_condition_histograms(overlay)
+    >>> [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+    ['low (N = 2)', 'high (N = 3)']
     """
     edges = np.asarray(overlay.bin_edges, dtype="float64")
     palette = colormaps["tab10"].colors
@@ -926,13 +1254,37 @@ def render_transition_sync_histogram2d(
 
     Parameters
     ----------
-    hist
+    hist : TransitionSyncHistogram2D
         The transition-aligned heatmap to draw, from
+        [`transition_sync_histogram2d`][tether.analysis.histogram.transition_sync_histogram2d]
+        or
         [`population_transition_sync_histogram2d`][tether.analysis.histogram.population_transition_sync_histogram2d].
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+        The time axis is drawn in seconds when its ``time_dt`` (seconds per frame) is
+        not ``1.0``, and in frames otherwise. Apparent FRET efficiency is unitless.
+    title : str, optional
+        The axes title. The default is ``"Transition-synchronized heatmap (A2b)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it. The figure has two axes: the
+        heatmap and its color bar.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.histogram import transition_sync_histogram2d
+    >>> from tether.analysis.plot_export import render_transition_sync_histogram2d
+    >>> path = np.array([0, 0, 0, 1, 1, 1])
+    >>> signal = np.where(path == 0, 0.2, 0.8)
+    >>> hist = transition_sync_histogram2d([(path, signal)], from_state=0, to_state=1)
+    >>> fig = render_transition_sync_histogram2d(hist)
+    >>> fig.axes[0].get_xlabel()
+    'Frames from transition'
     """
     counts = np.asarray(hist.counts, dtype="float64")  # (time_columns, signal_bins)
     time_edges = np.asarray(hist.time_edges, dtype="float64")
@@ -984,28 +1336,52 @@ def render_alpha_shape(
 
     Parameters
     ----------
-    shape
+    shape : AlphaShape
         The α-shape to draw, from
+        [`alpha_shape`][tether.analysis.cloud.alpha_shape] or
         [`population_fret_cloud_alpha_shape`][tether.analysis.cloud.population_fret_cloud_alpha_shape].
-    cloud
-        Optional [`RawFretCloud`][tether.analysis.cloud.RawFretCloud] the shape was
-        computed from. When given, its points are drawn underneath (decimated to
-        ``max_points``), its ranges set the axis limits and its ``time_dt`` the time unit.
-    time_dt
-        Frame duration of the shape's time coordinate, for the axis label when no
-        ``cloud`` is given: ``Time (s)`` when it is not ``1.0``, otherwise ``Frame``.
-        Defaults to the cloud's ``time_dt``, else ``1.0``.
-    title
-        The axes title.
-    max_points
-        Cap on the scatter overlay drawn from ``cloud``; the boundary is never thinned.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+        Apparent FRET efficiency is unitless.
+    cloud : RawFretCloud or None, optional
+        The [`RawFretCloud`][tether.analysis.cloud.RawFretCloud] that the shape was
+        computed from. When it is given, its points are drawn underneath (thinned to
+        ``max_points``), its ranges set the axis limits, and its ``time_dt`` sets the
+        time unit. The default ``None`` draws the boundary alone.
+    time_dt : float or None, optional
+        The frame duration of the time coordinate of the shape, in seconds per frame.
+        It sets the axis label when no ``cloud`` is given: ``Time (s)`` when it is not
+        ``1.0``, and ``Frame`` otherwise. The default ``None`` uses the ``time_dt`` of
+        ``cloud``, or ``1.0`` when there is no cloud.
+    title : str, optional
+        The axes title. The default is ``"FRET-cloud support (alpha shape)"``.
+    max_points : int, optional
+        The most points of ``cloud`` that the scatter draws. The boundary is never
+        thinned. The default is 20000.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it.
 
     Raises
     ------
     ValueError
-        ``time_dt`` contradicts the given ``cloud``'s ``time_dt``.
+        If both ``cloud`` and ``time_dt`` are given and ``time_dt`` is not the
+        ``time_dt`` of ``cloud``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.cloud import alpha_shape
+    >>> from tether.analysis.plot_export import render_alpha_shape
+    >>> t, e = np.meshgrid(np.linspace(0.0, 1.0, 5), np.linspace(0.0, 1.0, 5))
+    >>> shape = alpha_shape(np.column_stack([t.ravel(), e.ravel()]), alpha=1.0)
+    >>> fig = render_alpha_shape(shape, time_dt=0.1)
+    >>> fig.axes[0].get_xlabel()
+    'Time (s)'
     """
     if cloud is not None and time_dt is not None and float(time_dt) != float(cloud.time_dt):
         raise ValueError(f"time_dt={time_dt!r} contradicts the cloud's time_dt={cloud.time_dt!r}")
@@ -1065,13 +1441,33 @@ def render_state_number_elbow(
 
     Parameters
     ----------
-    elbow
+    elbow : StateNumberElbow
         The elbow curve to draw, from
+        [`k_rmse_elbow`][tether.analysis.cloud.k_rmse_elbow] or
         [`population_fret_cloud_state_number_elbow`][tether.analysis.cloud.population_fret_cloud_state_number_elbow].
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+        The RMSE is in apparent FRET efficiency, which is unitless.
+    title : str, optional
+        The axes title. The default is ``"State-number hint (k-vs-RMSE elbow)"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.cloud import k_rmse_elbow
+    >>> from tether.analysis.plot_export import render_state_number_elbow
+    >>> values = np.array([0.2, 0.21, 0.19, 0.5, 0.51, 0.49, 0.8, 0.81, 0.79])
+    >>> elbow = k_rmse_elbow(values, k_max=5)
+    >>> fig = render_state_number_elbow(elbow)
+    >>> len(fig.axes)
+    1
     """
     ks = np.asarray(elbow.k_values, dtype="int64")
     rmse = np.asarray(elbow.rmse, dtype="float64")
@@ -1130,21 +1526,56 @@ def render_population_anticorrelation(
 ) -> Figure:
     """Render the population's anticorrelation events as a per-molecule raster (§7.7).
 
-    One row per scanned molecule, in the population's store order (top to bottom), with
-    each event drawn as a bar over its ``[start, stop)`` frame span and coloured by its
-    peak strength ``|lag-0|``; a tick marks each event's peak frame. A molecule scanned
-    with no event keeps its empty row, so the raster shows how many molecules carried
-    none. Rows are labelled by ``molecule_key`` up to 30 molecules, by index above that.
+    The raster has one row for each scanned molecule, in the store order of the
+    population (top to bottom). Each event is drawn as a bar over its ``[start, stop)``
+    frame span, colored by its peak strength ``|lag-0|``, and a tick marks the peak frame
+    of each event. A molecule scanned with no event keeps its empty row, so the raster
+    shows how many molecules had none. Up to 30 molecules, each row is labeled by its
+    ``molecule_key``. Above 30, the rows are labeled by index.
 
     Parameters
     ----------
-    population
+    population : PopulationAnticorrelation
         The per-molecule scans to draw, from
         [`population_anticorrelation_events`][tether.analysis.anticorrelation.population_anticorrelation_events].
-    title
-        The axes title.
-    figsize
-        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+        The frame axis is in frames of the analysis window, and the correlation is
+        unitless.
+    title : str, optional
+        The axes title. The default is ``"Donor–acceptor anticorrelation events"``.
+    figsize : tuple of float or None, optional
+        The figure size ``(width, height)``, in inches. The default ``None`` uses
+        [`DEFAULT_FIGSIZE`][] (6.4 by 4.8 inches).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        A bare figure: it carries no provenance stamp, and no file is written. Pass it
+        to [`export_figure`][] to stamp it and write it. The figure has two axes: the
+        raster and its color bar.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from tether.analysis.anticorrelation import (
+    ...     MoleculeAnticorrelation,
+    ...     PopulationAnticorrelation,
+    ...     find_anticorrelation_events,
+    ... )
+    >>> from tether.analysis.plot_export import render_population_anticorrelation
+    >>> donor = 500.0 + np.arange(60.0)
+    >>> scan = find_anticorrelation_events(donor, 0.5 * donor)
+    >>> population = PopulationAnticorrelation(
+    ...     molecules=(MoleculeAnticorrelation("m0", scan),),
+    ...     window=scan.window,
+    ...     step=scan.step,
+    ...     min_magnitude=scan.min_magnitude,
+    ...     min_windows=scan.min_windows,
+    ...     n_molecules=1,
+    ...     n_events=scan.n_events,
+    ... )
+    >>> fig = render_population_anticorrelation(population)
+    >>> [label.get_text() for label in fig.axes[0].get_yticklabels()]
+    ['m0']
     """
     molecules = population.molecules
     cmap = colormaps["viridis"]

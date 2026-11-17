@@ -11,6 +11,8 @@ an install without it one skip and a green run with no plot-export test (#726).
 
 from __future__ import annotations
 
+import doctest
+import inspect
 import json
 from dataclasses import replace
 
@@ -947,3 +949,34 @@ def test_the_five_renderers_are_exported():
     ):
         assert name in pe.__all__
         assert callable(getattr(pe, name))
+
+
+# ------------------------------------------------- the docstring examples (#1172)
+
+_SECTIONS = ("Parameters", "Returns", "Raises", "Examples")
+
+
+def _public_functions() -> list[str]:
+    return [name for name in pe.__all__ if inspect.isfunction(getattr(pe, name))]
+
+
+def test_every_public_function_documents_its_sections_in_order():
+    """#1172: Rule 3 of the docstring standard, for each function a script calls."""
+    names = _public_functions()
+    assert len(names) == 14  # export_figure and the thirteen render_* functions
+    for name in names:
+        doc = inspect.getdoc(getattr(pe, name))
+        found = [s for s in _SECTIONS if f"\n{s}\n{'-' * len(s)}\n" in doc]
+        assert {"Parameters", "Returns", "Examples"} <= set(found), (name, found)
+        assert found == sorted(found, key=_SECTIONS.index), (name, found)
+        assert "figsize" not in doc or "in inches" in doc, name
+
+
+def test_every_docstring_example_runs():
+    """#1172: each Examples section runs and shows what the call returns."""
+    tests = {t.name.rsplit(".", 1)[-1]: t for t in doctest.DocTestFinder().find(pe) if t.examples}
+    assert set(_public_functions()) <= set(tests)
+    runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
+    for test in tests.values():
+        runner.run(test)
+    assert runner.summarize(verbose=False).failed == 0
