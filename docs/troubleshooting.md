@@ -554,6 +554,25 @@ loaded project stays in place.
 
 ## Setup and environment failures
 
+### The terminal does not find `tether`
+
+**Symptom.** You type `tether --version` after installing, and the terminal does not know the
+command. These messages come from the terminal, not from Tether: `tether: command not found`
+on Linux and macOS, *"is not recognized as the name of a cmdlet"* in Windows PowerShell, and
+*"is not recognized as an internal or external command"* in a Windows Command Prompt.
+
+**Cause.** The installer does not edit your `PATH` (ADR-0051), so a new terminal does not know
+the folder that holds Tether's launchers. The installer is not broken. The launchers are in
+the install folder, written by `packaging/scripts/post_install.sh` or `post_install.bat`.
+
+**Remedy.**
+
+- **Windows**, from the next release: open the Start menu, choose **Tether Command Prompt**,
+  and type the command there. That console finds `tether` for as long as it is open, and your
+  `PATH` does not change ([#666](https://github.com/bioedca/tether/issues/666)).
+- **Any system:** run the launcher by its full path, or put the launcher folder on your `PATH`
+  once. [Install Tether, step 4](install.md#4-open-a-terminal-where-tether-works) gives both.
+
 ### Idealization cannot find the sidecar interpreter
 
 **Symptom.**

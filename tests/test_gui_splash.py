@@ -177,7 +177,7 @@ def test_failed_start_closes_the_splash(qtbot, monkeypatch) -> None:
     from tether.gui import splash
     from tether.gui.app import create_shell
 
-    def broken() -> None:
+    def broken(**_kwargs: object) -> None:
         raise RuntimeError("shell failed to build")
 
     monkeypatch.setattr(shell_module, "TetherShell", broken)

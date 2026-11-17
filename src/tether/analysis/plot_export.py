@@ -78,7 +78,7 @@ from tether.analysis.histogram import (
     TransitionSyncHistogram2D,
 )
 from tether.analysis.state_number import StateNumberCounts
-from tether.analysis.tdp import TransitionDensityPlot
+from tether.analysis.tdp import SmoothedTransitionDensity, TransitionDensityPlot
 from tether.analysis.transition_prob import TransitionProbHistogram
 from tether.project.export import write_provenance_sidecar
 
@@ -140,6 +140,12 @@ DEFAULT_TDP_COLOR_SCALE = "log"
 #: which is the "low-count transitions vanish" failure #556 fixes; one decade lifts it
 #: clear of the floor while the scale still spans the data. Display only.
 _TDP_LOG_FLOOR_DECADES = 1.0
+
+#: The log colour floor of a *smoothed* TDP, as a fraction of its peak: ``checkTDP.py``'s
+#: and tMAVEN ``data_tdp.py``'s ``color_floor = 0.0001`` on their peak-normalized array.
+#: A spline view has no smallest non-empty bin to anchor the floor to — its tail decays
+#: smoothly toward 0 — so the floor is fixed below the peak instead. Display only.
+_TDP_SMOOTH_LOG_FLOOR = 1e-4
 
 #: Figure attribute a ``render_*`` helper sets to tell `export_figure` how it
 #: drew the data (for example the TDP colour scale), so the provenance sidecar records
@@ -1111,29 +1117,38 @@ def _one_histogram2d(
     return fig
 
 
-def _tdp_norm(counts: np.ndarray, color_scale: str) -> Normalize:
+def _tdp_norm(counts: np.ndarray, color_scale: str, *, smoothed: bool = False) -> Normalize:
     """The colour normalization for a TDP ``counts`` array.
 
     ``"log"`` is zero-safe: [`LogNorm`][matplotlib.colors.LogNorm] masks every bin
     ``<= 0`` instead of taking ``log(0) = -inf``, and its limits come from the positive
     finite bins only. The floor sits `_TDP_LOG_FLOOR_DECADES` below the smallest
     non-empty bin, so the weakest transition is drawn visibly above the floor colour
-    that marks an empty bin. With no positive bin at all (an empty TDP) there is no
-    magnitude to span, so the limits are a nominal ``[1, 10]`` and every bin is masked.
+    that marks an empty bin — or, for a ``smoothed`` view, `_TDP_SMOOTH_LOG_FLOOR` times
+    its peak. With no positive bin at all (an empty TDP) there is no magnitude to span,
+    so the limits are a nominal ``[1, 10]`` and every bin is masked.
     """
     positive = counts[np.isfinite(counts) & (counts > 0)]
     if color_scale == "log":
         if positive.size == 0:
             return LogNorm(vmin=1.0, vmax=10.0)
-        floor = float(positive.min()) / 10.0**_TDP_LOG_FLOOR_DECADES
-        return LogNorm(vmin=floor, vmax=float(positive.max()))
+        peak = float(positive.max())
+        if smoothed:
+            floor = peak * _TDP_SMOOTH_LOG_FLOOR
+        else:
+            floor = float(positive.min()) / 10.0**_TDP_LOG_FLOOR_DECADES
+        return LogNorm(vmin=floor, vmax=peak)
     finite = counts[np.isfinite(counts)]
     vmax = float(finite.max()) if finite.size else 1.0
     return Normalize(vmin=0.0, vmax=vmax if vmax > 0 else 1.0)
 
 
 def render_transition_density(
-    tdp: TransitionDensityPlot | Sequence[tuple[str, TransitionDensityPlot]],
+    tdp: (
+        TransitionDensityPlot
+        | SmoothedTransitionDensity
+        | Sequence[tuple[str, TransitionDensityPlot | SmoothedTransitionDensity]]
+    ),
     *,
     title: str = "Transition-density plot (B1)",
     figsize: tuple[float, float] | None = None,
@@ -1150,9 +1165,14 @@ def render_transition_density(
     Parameters
     ----------
     tdp
-        The binned transition density to draw, or an ordered sequence of
-        ``(label, density)`` series. A one-series sequence draws the same figure as the
-        bare density.
+        The binned transition density to draw, or its smoothed view from
+        [`smooth_transition_density`][tether.analysis.tdp.smooth_transition_density]. The
+        counts are drawn bin by bin; the smoothed view is drawn as an image on its
+        interpolation grid, as the published ``checkTDP.py`` draws it, and its smoothing
+        settings are recorded in the provenance sidecar under
+        ``parameters["display"]["smoothing"]``. Or an ordered sequence of
+        ``(label, density)`` series: a one-series sequence draws the same figure as the
+        bare density, and several series must all be binned densities.
     title
         The axes title; for several series, the figure title above the panels.
     figsize
@@ -1163,16 +1183,19 @@ def render_transition_density(
         Appendix C B1 names the TDP log-normalized, so a rare transition stays visible
         beside a dominant one. The log scale is zero-safe: an empty bin is drawn in the
         colour map's floor colour, never as ``-inf`` or a hole. It is display only — the
-        drawn array is ``tdp.counts`` unchanged — and [`export_figure`][] records it
-        in the provenance sidecar under ``parameters["display"]["color_scale"]``.
+        drawn array is ``tdp.counts`` (or the smoothed ``tdp.values``) unchanged — and
+        [`export_figure`][] records it in the provenance sidecar under
+        ``parameters["display"]["color_scale"]``.
 
     Raises
     ------
     ValueError
-        ``color_scale`` is unknown, or two series differ in their signal bin edges, signal
-        range or density normalization.
+        ``color_scale`` is unknown, two series differ in their signal bin edges, signal
+        range or density normalization, or one of several series is a smoothed view.
     """
-    series = _as_series(tdp, (TransitionDensityPlot,), "TransitionDensityPlot")
+    series = _as_series(
+        tdp, (TransitionDensityPlot, SmoothedTransitionDensity), "TransitionDensityPlot"
+    )
     if series is None or len(series) == 1:
         one = tdp if series is None else series[0][1]
         fig = _one_transition_density(one, title=title, figsize=figsize, color_scale=color_scale)  # type: ignore[arg-type]
@@ -1183,6 +1206,13 @@ def render_transition_density(
         raise ValueError(
             f"unknown TDP color_scale {color_scale!r}; expected one of {list(TDP_COLOR_SCALES)}"
         )
+    for label, d in series:
+        if isinstance(d, SmoothedTransitionDensity):
+            raise ValueError(
+                f"series {label!r} is a smoothed transition density. Several series are drawn "
+                "as binned densities on one shared colour scale, and a smoothed view is not "
+                "binned, so draw it on its own figure"
+            )
     _require_shared_grid(
         series,
         (
@@ -1233,7 +1263,7 @@ def render_transition_density(
 
 
 def _one_transition_density(
-    tdp: TransitionDensityPlot,
+    tdp: TransitionDensityPlot | SmoothedTransitionDensity,
     *,
     title: str = "Transition-density plot (B1)",
     figsize: tuple[float, float] | None = None,
@@ -1244,8 +1274,8 @@ def _one_transition_density(
         raise ValueError(
             f"unknown TDP color_scale {color_scale!r}; expected one of {list(TDP_COLOR_SCALES)}"
         )
-    counts = np.asarray(tdp.counts, dtype="float64")  # (signal_bins, signal_bins) [init, final]
-    edges = np.asarray(tdp.signal_edges, dtype="float64")
+    smoothed = isinstance(tdp, SmoothedTransitionDensity)
+    counts_tdp = tdp.source if smoothed else tdp
 
     fig = _new_figure(figsize)
     ax = fig.add_subplot()
@@ -1253,27 +1283,57 @@ def _one_transition_density(
     # linear scale, so the white annotation and diagonal stay readable on both.
     cmap = colormaps["viridis"]
     cmap = cmap.with_extremes(bad=cmap(0.0), under=cmap(0.0))
-    # counts is [initial, final]; x=initial, y=final → transpose so rows=final.
-    mesh = ax.pcolormesh(
-        edges,
-        edges,
-        counts.T,
-        cmap=cmap,
-        norm=_tdp_norm(counts, color_scale),
-        shading="flat",
-    )
-    setattr(fig, _DISPLAY_ATTR, {"color_scale": color_scale})
-    fig.colorbar(mesh, ax=ax, label="Density" if tdp.density else "Counts")
-    lo, hi = tdp.signal_range
+    display: dict[str, object] = {"color_scale": color_scale}
+    if smoothed:
+        values = np.asarray(tdp.values, dtype="float64")  # (n, n) [initial, final]
+        grid = np.asarray(tdp.grid, dtype="float64")
+        lo, hi = counts_tdp.signal_range
+        # Each grid point is a pixel centre; the image spans half a step past the ends. A
+        # one-point grid (one bin, not interpolated) is that bin, which spans the range.
+        half = 0.5 * (grid[-1] - grid[0]) / (grid.size - 1) if grid.size > 1 else 0.5 * (hi - lo)
+        # values is [initial, final]; x=initial, y=final → transpose so rows=final.
+        mesh = ax.imshow(
+            values.T,
+            cmap=cmap,
+            norm=_tdp_norm(values, color_scale, smoothed=True),
+            origin="lower",
+            interpolation="none",
+            extent=(grid[0] - half, grid[-1] + half, grid[0] - half, grid[-1] + half),
+        )
+        display["smoothing"] = {
+            "smooth": [float(tdp.smooth[0]), float(tdp.smooth[1])],
+            "interp_res": int(tdp.interp_res),
+            "normalized": bool(tdp.normalized),
+        }
+        if tdp.normalized:
+            label = "Normalized density"
+        else:
+            label = "Smoothed density" if counts_tdp.density else "Smoothed counts"
+    else:
+        counts = np.asarray(tdp.counts, dtype="float64")  # (bins, bins) [init, final]
+        edges = np.asarray(tdp.signal_edges, dtype="float64")
+        # counts is [initial, final]; x=initial, y=final → transpose so rows=final.
+        mesh = ax.pcolormesh(
+            edges,
+            edges,
+            counts.T,
+            cmap=cmap,
+            norm=_tdp_norm(counts, color_scale),
+            shading="flat",
+        )
+        label = "Density" if tdp.density else "Counts"
+    setattr(fig, _DISPLAY_ATTR, display)
+    fig.colorbar(mesh, ax=ax, label=label)
+    lo, hi = counts_tdp.signal_range
     ax.plot([lo, hi], [lo, hi], color="w", lw=0.8, ls=":", alpha=0.7)
-    ax.set_xlim(tdp.signal_range)
-    ax.set_ylim(tdp.signal_range)
+    ax.set_xlim(counts_tdp.signal_range)
+    ax.set_ylim(counts_tdp.signal_range)
     ax.set_xlabel("Initial $E$")
     ax.set_ylabel("Final $E$")
     ax.set_aspect("equal")
     ax.set_title(title)
     ax.annotate(
-        f"{tdp.n_transitions} transitions · N = {tdp.n_molecules}",
+        f"{counts_tdp.n_transitions} transitions · N = {counts_tdp.n_molecules}",
         xy=(0.03, 0.95),
         xycoords="axes fraction",
         ha="left",

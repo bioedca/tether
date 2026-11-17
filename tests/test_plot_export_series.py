@@ -59,7 +59,10 @@ from tether.analysis.histogram import (  # noqa: E402
     transition_sync_histogram2d,
 )
 from tether.analysis.state_number import population_state_number  # noqa: E402
-from tether.analysis.tdp import population_transition_density  # noqa: E402
+from tether.analysis.tdp import (  # noqa: E402
+    population_transition_density,
+    smooth_transition_density,
+)
 from tether.analysis.transition_prob import population_transition_prob_histogram  # noqa: E402
 from tether.gui import theme  # noqa: E402
 
@@ -220,6 +223,17 @@ def test_the_two_dimensional_panels_show_each_series_own_values(results):
     norm = _panels(fig)[0].collections[0].norm
     pooled = np.concatenate([np.ravel(wt.counts), np.ravel(mut.counts)])
     assert norm.vmax == pytest.approx(float(pooled.max()))
+
+
+def test_a_smoothed_tdp_is_one_series_but_never_one_of_several(results, tmp_path):
+    wt, mut = results["tdp"]
+    view = smooth_transition_density(wt)
+    bare = _export(pe.render_transition_density(view), tmp_path / "bare")
+    one = _export(pe.render_transition_density([("WT", view)]), tmp_path / "one")
+    for fmt in pe.DEFAULT_PLOT_FORMATS:
+        assert bare.paths[fmt].read_bytes() == one.paths[fmt].read_bytes(), fmt
+    with pytest.raises(ValueError, match="'WT' is a smoothed transition density"):
+        pe.render_transition_density([("WT", view), ("mutant", mut)])
 
 
 def test_a_condition_keeps_its_colour_in_every_panel():
