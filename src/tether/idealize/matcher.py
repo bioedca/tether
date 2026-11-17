@@ -7,7 +7,7 @@ reorder molecules by the GUI selection mask (Appendix D.1), so coordinates in a
 returning SMD are *not trusted*. Instead Tether re-resolves each returning trace
 to its molecule by **exact intensity-trace matching** of the SMD ``raw`` series
 against the retained store, using the molecule id / row order only as a hint
-(:func:`match_return_leg`). tMAVEN preserves ``raw`` byte-for-byte on a save
+([`match_return_leg`][]). tMAVEN preserves ``raw`` byte-for-byte on a save
 (corrections and idealization live in separate arrays), so an exact match is the
 correct identity test; unmatched returning molecules are reported, never guessed
 (§5.3).
@@ -70,7 +70,7 @@ def match_return_leg(
     which is the shared real-data region when tMAVEN has zero-padded traces to a
     common length (its ``concatenate_smds`` pads at the tail; PRD §5.2). A pair
     matches when ``|returned - store| <= atol + rtol*|store|`` everywhere in that
-    region (the :func:`numpy.allclose` predicate).
+    region (the [`numpy.allclose`][] predicate).
 
     Parameters
     ----------

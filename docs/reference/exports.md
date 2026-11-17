@@ -1,3 +1,7 @@
+---
+description: "The files that Tether writes out: each column, its order, its unit and what a blank cell means, for tables, trace files, subsets and figures."
+---
+
 # Exports — what Tether writes out
 
 **Who this page is for.** Anyone who has a file Tether produced — a molecule-table CSV
@@ -10,9 +14,9 @@ the prose.
 
 Two facts frame everything else:
 
-- **Every temporal number in the three *store* exports (CSV, `.txt`, subset `.tether`) is
+- **Every temporal number in the three *project* exports (CSV, `.txt`, subset `.tether`) is
   in *frames*, zero-based, never seconds**, and none of the three carries the frame
-  duration. The store keeps it (`/movies.frame_time`, `tether.io.schema.MOVIES_DTYPE`),
+  duration. The project file keeps it (`/movies.frame_time`, `tether.io.schema.MOVIES_DTYPE`),
   but the molecule-table CSV has no such column, the Deep-LASI `.txt` has no metadata at
   all, and a subset `.tether` carries **zero** `/movies` rows by construction. Converting
   to seconds is the reader's own job — see
@@ -36,31 +40,32 @@ Four export entry points are public. The first three live in `tether.project.exp
 |---|---|---|
 | `tether.project.export.export_molecule_table_csv` | `<name>.csv` + `<name>.csv.provenance.json` | You want one row per molecule for a spreadsheet, R/pandas, Prism or Origin — the per-molecule inventory and its apparent-E summary |
 | `tether.project.export.export_deeplasi_txt` | `<name>.txt` + `<name>.txt.provenance.json` | You want the per-frame intensity traces themselves, in the Deep-LASI `…-donc-accc-w.txt` matrix a downstream Deep-LASI-compatible tool reads |
-| `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, corrected traces, idealization models — without shipping the movie |
+| `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, background-subtracted traces, idealization models — without shipping the movie |
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
 > **There is no CLI or GUI export command, and this page will not invent one.**
-> `tether.cli` registers exactly two subcommands, `extract` and `batch`, and no module
+> `tether.cli` registers four subcommands, `extract`, `batch`, `info` and `metadata`, and
+> none of them exports; no module
 > under `src/tether/gui/` references any of the four functions above. They are a Python
 > API today. Every snippet on this page is therefore the call you actually run.
 
 The tMAVEN hand-off (`tether.project.handoff.hand_off_to_tmaven`, reachable from the GUI)
 also writes a file — an SMD-HDF5 — but it is an *interchange* leg with a return path, not
-an export, and it does **not** write a provenance sidecar. It is documented on
+an export, and it does **not** write a provenance file. It is documented on
 [Standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md).
 
-## What all three store exports share
+## What all three project exports share
 
 ### Selection
 
-All three take their rows from `_selected_rows` in `tether.project.export`, which means:
+All three take their rows from [`_selected_rows`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) in `tether.project.export`, which means:
 
 | Behavior | Detail |
 |---|---|
-| Order | **Store order** (ascending row index). A `molecule_keys` request does *not* reorder the output |
+| Order | **Project order** (ascending row index). A `molecule_keys` request does *not* reorder the output |
 | Curation filter | Rows whose `curation_label` is `CurationLabel.REJECT` (`-1`, `tether.project.labels`) are dropped unless `include_rejected=True` |
-| `molecule_keys` | A membership subselect, not a lookup. `molecule_key` is **not unique**, so one requested key matches *every* store row carrying it |
-| Unknown key | A requested key matching no store row raises `KeyError` — a typo fails loudly rather than silently under-exporting |
+| `molecule_keys` | A membership subselect, not a lookup. `molecule_key` is **not unique**, so one requested key matches *every* project row carrying it |
+| Unknown key | A requested key matching no project row raises `KeyError` — a typo fails loudly rather than silently under-exporting |
 | Empty selection | `export_deeplasi_txt` and `export_subset_tether` raise `ValueError` |
 
 The `include_rejected` default is **not** the same across the three, and the difference is
@@ -98,13 +103,13 @@ All three return a frozen `ExportResult` with three fields in this order: `path`
 Wherever an export carries an intensity (the `.txt` matrix, a subset's `/traces`), the
 number is **uncalibrated**: there is no gain, offset or quantum-efficiency conversion
 anywhere in `tether.imaging`, so nothing any export writes is in photons. What the number
-*is*, though, depends on how the store was built — and no export records that:
+*is*, though, depends on how the project file was built — and no export records that:
 
-| Store built by | What an exported intensity is |
+| Project file built by | What an exported intensity is |
 |---|---|
 | **Native extraction** — `tether.project.extract.extract_movie` → `tether.imaging.extract.write_extraction` | An **integrated camera value in the movie's own pixel units**, produced here by `tether.imaging.aperture.integrate_traces` over the aperture below: counts/ADU, tied to Tether's own extraction settings |
-| **Deep-LASI reconstruction** — `tether.project.reconstruct.reconstruct_project` | The **pre-integrated Deep-LASI `.mat` series, carried through without re-integration**. `_traces_from_export` maps `donc`/`accc` → the corrected layer, `don`/`acc` → raw, `bdon`/`bacc` → background; its docstring states that "the aperture integration `extract_molecules` would run is skipped". The units are whatever Deep-LASI's own integration produced |
-| **Analysis-only import** — `tether.project.analysis_import.import_analysis_only_project` | The **SMD / `.txt` intensity series, carried through without re-integration** as the corrected pair (`_write_corrected_traces`), the module's "apparent-E analysis substrate". No `raw` or `background` layers are synthesized — there is "no movie to decompose the intensities against" |
+| **Deep-LASI reconstruction** — `tether.project.reconstruct.reconstruct_project` | The **pre-integrated Deep-LASI `.mat` series, carried through without re-integration**. [`_traces_from_export`](https://github.com/bioedca/tether/blob/main/src/tether/project/reconstruct.py) maps `donc`/`accc` → the background-subtracted (`corrected`) layer, `don`/`acc` → raw, `bdon`/`bacc` → background; its docstring states that "the aperture integration `extract_molecules` would run is skipped". The units are whatever Deep-LASI's own integration produced |
+| **Analysis-only import** — `tether.project.analysis_import.import_analysis_only_project` | The **SMD / `.txt` intensity series, carried through without re-integration** as the background-subtracted (`corrected`) pair ([`_write_corrected_traces`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py)), the module's "apparent-E analysis substrate". No `raw` or `background` layers are synthesized — there is "no movie to decompose the intensities against" |
 
 Only the first row is a number Tether itself measured. For the other two the units are the
 upstream tool's, and the aperture parameters below describe the *provenance* of the
@@ -112,8 +117,8 @@ imported layers rather than an integration Tether performed. Carried through is 
 bit-preserved, though: every reader parses the upstream numbers as `float64`
 (`tether.io.deeplasi` for the `.mat` and the `.txt`, `tether.idealize.read_smd` for the
 SMD), while every `/traces` layer is stored as `float32`
-(`_TRACE_DTYPE = "<f4"`, in both `tether.imaging.extract._append_padded_2d` and
-`tether.project.analysis_import._write_corrected_traces`). An export compared back
+([`_TRACE_DTYPE = "<f4"`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py), in both [`tether.imaging.extract._append_padded_2d`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py) and
+[`tether.project.analysis_import._write_corrected_traces`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py)). An export compared back
 against a double-precision `.mat` or SMD input therefore differs by single-precision
 rounding.
 
@@ -125,7 +130,7 @@ Which of the three layers you get is not the same number:
 | `*_raw` (`total`) | The bare disk sum `tot` over the PSF disk, nothing subtracted | Non-negative for a non-negative movie |
 | `*_background` (`background`) | The subtracted term `bg` alone — carried only by a subset with `include_raw=True` | Non-negative for a non-negative movie |
 
-The mapping is the frozen `_QUANTITIES` tuple in `tether.imaging.extract`, annotated
+The mapping is the frozen [`_QUANTITIES`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py) tuple in `tether.imaging.extract`, annotated
 there as *"`raw` = uncorrected `total`, `corrected` = `intensity`"*. So an
 `intensity_quantity="raw"` export is **not** the top-hat, and the "may be negative"
 caveat does not apply to it.
@@ -141,7 +146,7 @@ disk's pixel count `n_psf = int(disk.sum())`.
 > `bg_window=10` — `tether.project.extract.ExtractOptions`, mirrored by
 > `tether.imaging.aperture.integrate_traces`) the disk is **29 px**, and that count is set
 > by **`disk_radius` alone**. `aperture_masks` builds the disk as `dist <= disk_radius`
-> about the window centre, so `n_psf` is 29 for *every* legal `window` — the window only
+> about the aperture-window center, so `n_psf` is 29 for *every* legal `window` — the aperture window only
 > has to be odd and wide enough for the ring (`2 * ring_outer <= window`). Changing
 > `disk_radius` is what re-scales an intensity: `3.0 → 29 px`, `4.0 → 49 px`, `5.0 → 81 px`.
 > The `tether extract --window` flag changes the crop-box side length and leaves `n_psf`
@@ -149,17 +154,17 @@ disk's pixel count `n_psf = int(disk.sum())`.
 > reachable only through the Python API (`ExtractOptions`,
 > `integrate_traces(disk_radius=…)`). The effective geometry is stamped into
 > `/settings/extraction` (`window`, `disk_radius`, `ring_inner`, `ring_outer`,
-> `bg_window`, `n_psf` — `tether.imaging.extract._write_settings_once`), which travels in
-> a subset `.tether` but is carried by **neither** the `.txt` nor its sidecar.
+> `bg_window`, `n_psf` — [`tether.imaging.extract._write_settings_once`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py)), which travels in
+> a subset `.tether` but is carried by **neither** the `.txt` nor its provenance file.
 
-> **An imported store's `/settings/extraction` is provenance, not a measurement.**
+> **An imported project file's `/settings/extraction` is provenance, not a measurement.**
 > `reconstruct_project` hands `write_extraction` the standard constants
-> (`_APERTURE_WINDOW = 21`, `_APERTURE_DISK_RADIUS = 3.0`, `_APERTURE_RING_INNER = 6.0`,
-> `_APERTURE_RING_OUTER = 8.0`, `_APERTURE_BG_WINDOW = 10`), annotated in the source as
+> ([`_APERTURE_WINDOW = 21`](https://github.com/bioedca/tether/blob/main/src/tether/project/reconstruct.py), [`_APERTURE_DISK_RADIUS = 3.0`](https://github.com/bioedca/tether/blob/main/src/tether/project/reconstruct.py), [`_APERTURE_RING_INNER = 6.0`](https://github.com/bioedca/tether/blob/main/src/tether/project/reconstruct.py),
+> [`_APERTURE_RING_OUTER = 8.0`](https://github.com/bioedca/tether/blob/main/src/tether/project/reconstruct.py), [`_APERTURE_BG_WINDOW = 10`](https://github.com/bioedca/tether/blob/main/src/tether/project/reconstruct.py)), annotated in the source as
 > describing "the *provenance* of the layers, not a fresh integration this module
 > performed". An analysis-only import writes **no** `/settings/extraction` at all — its
 > `/settings` children are `analysis_only` and `correction` — and, carrying neither
-> `raw`/`background` layers nor `/patches`, it can leave only as the CSV or the corrected
+> `raw`/`background` layers nor `/patches`, it can leave only as the CSV or the background-subtracted
 > `.txt`: `intensity_quantity="raw"` raises `KeyError: 'donor_raw'`, and `export_subset_tether`
 > refuses with `ValueError: source /patches is missing the 'donor' channel; cannot export
 > a curatable movie-less subset`.
@@ -188,17 +193,17 @@ print(result.path, result.provenance_path, result.n_molecules)
 | Quoting | `csv.QUOTE_MINIMAL` with `"` — a cell containing a comma (a multi-tag `tags`, a `category` like `dynamic, folded`) is quoted |
 | Line terminator | `\r\n` on **every** platform (the `csv` module default, not the OS) |
 | Header | Exactly one row, the 25 names below |
-| Rows | One per exported molecule, in store order — one `/molecules` row = one detected donor spot in one movie, or, in an analysis-only import, one imported SMD / `.txt` trace |
+| Rows | One per exported molecule, in project order — one `/molecules` row = one detected donor spot in one movie, or, in an analysis-only import, one imported SMD / `.txt` trace |
 
 **Numbers.** Integer columns go through `int()` and print with no decimal point. Float
-columns go through `_fmt_float`, which returns `""` for `None` or any non-finite value and
+columns go through [`_fmt_float`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py), which returns `""` for `None` or any non-finite value and
 otherwise `repr(float)` — Python's shortest round-tripping representation, full precision
 and no fixed decimal count. That is why a real exported cell carries all its significant
-digits: the row-0 `mean_apparent_e` of the three-molecule store used for the `.txt`
-sample below (`tests/_analysis_store.build_store_with_channels` over the `_asym_channels`
-values of `tests/test_export_tables.py`) reads `0.3715803781168891`, not `0.372`.
+digits: the row-0 `mean_apparent_e` of the three-molecule project file used for the `.txt`
+sample below ([`tests/_analysis_store.build_store_with_channels`](https://github.com/bioedca/tether/blob/main/tests/_analysis_store.py) over the [`_asym_channels`](https://github.com/bioedca/tether/blob/main/tests/test_export_tables.py)
+values of [`tests/test_export_tables.py`](https://github.com/bioedca/tether/blob/main/tests/test_export_tables.py)) reads `0.3715803781168891`, not `0.372`.
 
-> **A blank cell means "not finite / not set", never zero.** `_fmt_float` maps both `None`
+> **A blank cell means "not finite / not set", never zero.** [`_fmt_float`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) maps both `None`
 > and `NaN` to the empty string. Reading the CSV with a tool that coerces blanks to `0`
 > will silently turn "no γ was ever estimated" into "γ = 0".
 
@@ -206,38 +211,38 @@ values of `tests/test_export_tables.py`) reads `0.3715803781168891`, not `0.372`
 
 The order is frozen in `tether.project.export.MOLECULE_TABLE_COLUMNS`, annotated in the
 source as *"the per-molecule CSV column order (frozen; a reader may key on these names)"*.
-`tests/test_docs_export_columns.py` fails if this table and that tuple ever disagree. The
+[`tests/test_docs_export_columns.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_export_columns.py) fails if this table and that tuple ever disagree. The
 underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 
 | Column | CSV type | Unit / domain | Blank when |
 |---|---|---|---|
-| `molecule_id` | string | Unitless identity — a stable per-row UUID, `mol-` + 32 hex chars. Unique within a store | The stored string is empty |
-| `molecule_key` | string | Unitless identity — 64-char lowercase hex SHA-256. For a store built from a movie: of `"{movie_sha256}\|{qx}\|{qy}"` with `donor_xy` quantized (`tether.imaging.extract.molecule_key`). For an analysis-only import there is no movie and no coordinate, so `tether.project.analysis_import._analysis_only_molecule_key` hashes the source id, the row index and the trace bytes instead — same shape, different inputs (callout below). The cross-file join key; **not unique** (§7.10) | The stored string is empty |
+| `molecule_id` | string | Unitless identity — a stable per-row UUID, `mol-` + 32 hex chars. Unique within a project file | The stored string is empty |
+| `molecule_key` | string | Unitless identity — 64-char lowercase hex SHA-256. For a project file built from a movie: of `"{movie_sha256}\|{qx}\|{qy}"` with `donor_xy` quantized (`tether.imaging.extract.molecule_key`). For an analysis-only import there is no movie and no coordinate, so [`tether.project.analysis_import._analysis_only_molecule_key`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py) hashes the source id, the row index and the trace bytes instead — same shape, different inputs (callout below). The cross-file join key; **not unique** | The stored string is empty |
 | `movie_id` | string | Unitless identity of the source `/movies` row (e.g. `mov-1`). `""` in an analysis-only project, which has no linked movie — `tether.project.analysis_import` writes the empty string explicitly | No movie is linked |
 | `source_filename` | string | The filename the row's provenance was parsed from (`tether.io.filename.parse_filename`): the source **movie** for a native extraction or a Deep-LASI reconstruction, the imported **SMD / `.txt`** for an analysis-only import | The stored string is empty |
 | `condition_id` | string | Unitless condition key (e.g. `cond-353fd5a76531`) | The stored string is empty |
 | `condition_id_provisional` | string | Unitless — the provisional key parsed from the filename at extraction, retained verbatim across any later re-key | The stored string is empty |
-| `curation_label` | string | **Text, not the stored integer**: `accept`, `uncurated`, `reject` (`_CURATION_TEXT` over `tether.project.labels.CurationLabel` = `1 / 0 / -1`). An unrecognized integer falls through to its decimal string | Never — one of the values above is always written |
+| `curation_label` | string | **Text, not the stored integer**: `accept`, `uncurated`, `reject` ([`_CURATION_TEXT`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) over `tether.project.labels.CurationLabel` = `1 / 0 / -1`). An unrecognized integer falls through to its decimal string | Never — one of the values above is always written |
 | `category` | string | Free text, editable per condition. Emitted verbatim, so a comma inside it is CSV-quoted | The stored string is empty (the extraction default `""`) |
 | `quality_class` | float | The read-only ML quality score. Its numeric range is **not** defined by the export or the schema, which call it only a "read-only ML output" | The value is `NaN`. Extraction and analysis-only import both initialize it to `NaN` (`tether.imaging.extract`, `tether.project.analysis_import`) and no shipped code path writes anything else, so this column is blank in every export the current build can produce |
 | `aperture_id` | integer | Unitless index into the aperture registry. Extraction always writes `0` (`tether.imaging.extract`) — a **placeholder**, because there is no per-aperture registry yet. It does **not** encode the aperture geometry: `tether extract --window` is settable and still writes `0`; the effective geometry lives in `/settings/extraction`, which the CSV does not carry (see [Intensity units](#intensity-units)) | Never — an integer is always written |
-| `alpha` | float | **Dimensionless.** Donor→acceptor leakage α, applied as `I_A,corr = I_A − α·I_D` (`tether.fret.efficiency`) | α is unset. Extraction writes `NaN` until M3 estimates it |
+| `alpha` | float | **Dimensionless.** Donor→acceptor leakage α, applied as `I_A,corr = I_A − α·I_D` (`tether.fret.efficiency`) | α is unset. Extraction writes `NaN` until the correction step estimates it |
 | `gamma` | float | **Dimensionless.** Detection-correction factor γ, the denominator weight in `E = I_A,corr / (I_A,corr + γ·I_D,corr)` | γ is unset (`NaN` at extraction) |
-| `delta` | float | **Dimensionless.** Direct-excitation δ. Initialized to `0.0` and inert in 2-colour (no ALEX; ADR-0008), so it exports as `0.0`, not blank | The stored value is non-finite |
+| `delta` | float | **Dimensionless.** Direct-excitation δ. Initialized to `0.0` and inert in 2-color (no ALEX; ADR-0008), so it exports as `0.0`, not blank | The stored value is non-finite |
 | `correction_method` | string | Vocabulary from `tether.project.correct`: `""` (extraction default, nothing applied), `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)` | Nothing has been applied yet (the `""` default) |
-| `correction_confidence` | float | **Unitless provenance flag, not a statistical CI**: `1.0` when a real photophysical correction was applied, `0.0` when the molecule fell back to apparent E (`_CONFIDENCE_CORRECTED` / `_CONFIDENCE_APPARENT` in `tether.project.correct`) | No correction pass has run (`NaN` at extraction) |
-| `donor_bleach_frame` | integer | **Frames**, zero-based, absolute. `bleach_frames[0]`. Sentinel `-1` = not detected (`_UNDETECTED_FRAME`, `tether.imaging.extract`); a value equal to `frame_end` means the channel does not bleach within the trace (`tether.project.photobleach`) | Never — an integer is always written |
+| `correction_confidence` | float | **Unitless provenance flag, not a statistical CI**: `1.0` when a real photophysical correction was applied, `0.0` when the molecule fell back to apparent E ([`_CONFIDENCE_CORRECTED`](https://github.com/bioedca/tether/blob/main/src/tether/project/correct.py) / [`_CONFIDENCE_APPARENT`](https://github.com/bioedca/tether/blob/main/src/tether/project/correct.py) in `tether.project.correct`) | No correction pass has run (`NaN` at extraction) |
+| `donor_bleach_frame` | integer | **Frames**, zero-based, absolute. `bleach_frames[0]`. Sentinel `-1` = not detected ([`_UNDETECTED_FRAME`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py), `tether.imaging.extract`); a value equal to `frame_end` means the channel does not bleach within the trace (`tether.project.photobleach`) | Never — an integer is always written |
 | `acceptor_bleach_frame` | integer | **Frames**, zero-based, absolute. `bleach_frames[1]`; same `-1` and `== frame_end` conventions | Never |
-| `frame_start` | integer | **Frames**, zero-based, **inclusive** — `frame_range[0]`, the start of the molecule's valid native extent inside the store's zero-pad (ADR-0016). Extraction writes `0` | Never |
+| `frame_start` | integer | **Frames**, zero-based, **inclusive** — `frame_range[0]`, the start of the molecule's valid native extent inside the project file's zero-pad (ADR-0016). Extraction writes `0` | Never |
 | `frame_end` | integer | **Frames**, zero-based, **exclusive** (half-open) — `frame_range[1]`. Extraction writes `n_frames` | Never |
-| `window_start` | integer | **Frames**, zero-based, **inclusive** — the *resolved* analysis window actually used for `n_finite_frames`, `mean_apparent_e` and `median_apparent_e`: `analysis_window[0]`, falling back to `frame_range[0]` when the window is unset (`hi <= lo`), per `_window` | Never |
+| `window_start` | integer | **Frames**, zero-based, **inclusive** — the *resolved* analysis window actually used for `n_finite_frames`, `mean_apparent_e` and `median_apparent_e`: `analysis_window[0]`, falling back to `frame_range[0]` when the window is unset (`hi <= lo`), per [`_window`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) | Never |
 | `window_end` | integer | **Frames**, zero-based, **exclusive** — the resolved upper bound, with the same fallback | Never |
-| `tags` | string | Free text, **comma-joined** in the store (`tether.analysis.query` splits on `,`). Emitted verbatim, so a multi-tag cell is CSV-quoted. Analysis-only imports carry `round-trip-unavailable` | The molecule has no tags |
-| `n_finite_frames` | integer | **Frames** — how many frames inside the resolved window have a finite apparent E. `0` when every frame in the window has `D + A == 0` exactly | Never |
-| `mean_apparent_e` | float | **Dimensionless — apparent E** (the proximity ratio `A/(D+A)`), arithmetic mean over the finite frames of the resolved window. **Not** γ-corrected. **Not** clipped to `[0, 1]`: `apparent_fret` deliberately leaves a noisy out-of-range value alone | `n_finite_frames == 0` |
+| `tags` | string | Free text, **comma-joined** in the project file (`tether.analysis.query` splits on `,`). Emitted verbatim, so a multi-tag cell is CSV-quoted. Analysis-only imports carry `round-trip-unavailable` | The molecule has no tags |
+| `n_finite_frames` | integer | **Frames** — how many frames inside the resolved analysis window have a finite apparent E. `0` when every frame in the analysis window has `D + A == 0` exactly | Never |
+| `mean_apparent_e` | float | **Dimensionless — apparent E** (the proximity ratio `A/(D+A)`), arithmetic mean over the finite frames of the resolved analysis window. **Not** γ-corrected. **Not** clipped to `[0, 1]`: `apparent_fret` deliberately leaves a noisy out-of-range value alone | `n_finite_frames == 0` |
 | `median_apparent_e` | float | **Dimensionless — apparent E**, `numpy.median` of the same finite values. Same no-clipping rule | `n_finite_frames == 0` |
 
-> **Three kinds of store write these columns, and only one of them came from a movie.**
+> **Three kinds of project file write these columns, and only one of them came from a movie.**
 > A native extraction and a Deep-LASI reconstruction (`tether.project.reconstruct`, which
 > calls the same `tether.imaging.extract.write_extraction`) both link a `/movies` row:
 > `movie_id` is that row's id, `molecule_key` is the movie `sha256` + quantized
@@ -245,21 +250,21 @@ underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
 > (`tether.project.analysis_import.import_analysis_only_project`, the coordinate-less
 > SMD / `.txt` branch) writes `movie_id = ""`, `donor_xy`/`acceptor_xy` = `NaN`,
 > `source_filename` = the SMD/`.txt` name, `tags = "round-trip-unavailable"`
-> (`ANALYSIS_ONLY_TAG`), and a `molecule_key` from `_analysis_only_molecule_key` — the
+> (`ANALYSIS_ONLY_TAG`), and a `molecule_key` from [`_analysis_only_molecule_key`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py) — the
 > SHA-256 of the constant `"tether-analysis-only"`, the source id, the molecule's **row
 > index**, and that molecule's raw donor and acceptor **trace bytes** (little-endian
 > `float64`). The source calls it "an identity, not fabricated coordinate data". It is
 > unique per row and stable across a re-import of the same source, but **nothing in it is
 > movie-derived**: it cannot be re-derived from a movie hash or from coordinates, and it
-> will not match the key the same molecule would carry in a movie-linked store. A blank
+> will not match the key the same molecule would carry in a movie-linked project file. A blank
 > `movie_id` is the flag that says so; `tether.project.analysis_import.read_analysis_only_marker`
-> is the O(1) check on the store itself.
+> is the O(1) check on the project file itself.
 
 > **`window_start`/`window_end` may equal `frame_start`/`frame_end` by *fallback*, not by
-> curation.** `_window` substitutes the frame range whenever `analysis_window` is unset
+> curation.** [`_window`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) substitutes the frame range whenever `analysis_window` is unset
 > (`hi <= lo`), and extraction also *initializes* `analysis_window` to `[0, n_frames]`. So
-> "window == frame range" tells you nothing about whether a curator ever looked at the
-> molecule. The columns exist so the reported window always matches the range the
+> "analysis window == frame range" tells you nothing about whether a curator ever looked at the
+> molecule. The columns exist so the reported analysis window always matches the range the
 > three trailing summary columns actually cover.
 
 **How the E summary is computed.** For each row, `apparent_fret(donor[i, lo:hi],
@@ -289,26 +294,26 @@ The serializer is `tether.io.deeplasi.write_deeplasi_txt`; its read-side mirror 
 | Header | **None.** No header line, no index column, no molecule ids — the file must stay Deep-LASI-faithful |
 | Shape | `T` rows × `2N` columns: one row per **frame**, one column *pair* per **molecule** |
 | Column order | **Interleaved, donor first**: `donor₀ acceptor₀ donor₁ acceptor₁ …` (`interleaved[:, 0::2] = donor.T`) |
-| Number format | `numpy.savetxt(..., fmt="%.5f")` — fixed-point, exactly 5 decimals (`_TXT_DECIMALS = 5`). A round trip is therefore lossy to that rounding |
+| Number format | `numpy.savetxt(..., fmt="%.5f")` — fixed-point, exactly 5 decimals ([`_TXT_DECIMALS = 5`](https://github.com/bioedca/tether/blob/main/src/tether/io/deeplasi.py)). A round trip is therefore lossy to that rounding |
 | Delimiter | A single space |
 | Line ending | OS-translated (`savetxt` opens in text mode; no `newline=` is passed) — CRLF on Windows, LF elsewhere. Unlike the CSV, this is *not* fixed |
-| Values | Uncalibrated intensities — never photons, and **not necessarily movie pixel units**: what the number is depends on how the *source store* was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, not re-integrated, for a Deep-LASI reconstruction or an analysis-only import). See [Intensity units](#intensity-units). Signed either way, so background-subtracted values may be negative |
+| Values | Uncalibrated intensities — never photons, and **not necessarily movie pixel units**: what the number is depends on how the *source project file* was built (integrated camera counts for a native extraction; the upstream tool's pre-integrated series, not re-integrated, for a Deep-LASI reconstruction or an analysis-only import). See [Intensity units](#intensity-units). Signed either way, so background-subtracted values may be negative |
 
-A real first line, from a three-molecule store:
+A real first line, from a three-molecule project file:
 
 ```text
 100.00000 53.00000 200.00000 56.00000 300.00000 59.00000
 ```
 
-**Frame trimming — the one place a row index is not an absolute frame.** The store's
+**Frame trimming — the one place a row index is not an absolute frame.** The project file's
 `/traces` arrays are zero-padded to the experiment-max frame count as movies of differing
 length are appended (ADR-0016), so `export_deeplasi_txt` trims to the selection's shared
 `frame_range`: the written matrix is `donor_all[rows][:, lo:hi]`. Row 0 of the file is
 therefore absolute frame **`lo`**, which need not be 0, and `lo` is recorded **only** in
-the provenance sidecar (`frame_range`). A selection spanning more than one `frame_range`
+the provenance file (`frame_range`). A selection spanning more than one `frame_range`
 has no honest common axis and raises `ValueError` rather than padding or truncating.
 
-Sidecar `parameters` for this export: `intensity_quantity`, `include_rejected`,
+Provenance-file `parameters` for this export: `intensity_quantity`, `include_rejected`,
 `n_molecules`, `n_frames` (`= hi - lo`), `frame_range` (`[lo, hi]`, half-open),
 `molecule_keys` (`null` or a list).
 
@@ -328,10 +333,10 @@ result = export_subset_tether(
 ```
 
 A new, self-contained HDF5 project built by `tether.io.schema.create_project` and then
-populated with additive data only — it adds no structure to the M0-frozen skeleton
+populated with additive data only — it adds no structure to the frozen skeleton
 (ADR-0005). It is written **atomically**: staged to a `tempfile.mkstemp` sibling in the
 destination directory and moved into place with `os.replace`, and the staged file is
-unlinked on any failure. `_preflight_source` validates the source (layers present,
+unlinked on any failure. [`_preflight_source`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) validates the source (layers present,
 row counts consistent, both patch channels present) **before** anything is written.
 
 **What travels:**
@@ -340,7 +345,7 @@ row counts consistent, both patch channels present) **before** anything is writt
 |---|---|
 | `/molecules` | The selected rows only |
 | `/traces` | `donor_corrected`, `acceptor_corrected` always; `donor_raw`, `acceptor_raw`, `donor_background`, `acceptor_background` only when `include_raw=True` |
-| `/patches` | Every channel (`donor`, `acceptor`), row-subset, patch window unchanged |
+| `/patches` | Every channel (`donor`, `acceptor`), row-subset, aperture window unchanged |
 | `/idealization/{model}` | Per-model, filtered on **`molecule_id`** (the unique UUID, not the non-unique `molecule_key`). The row-aligned members `idealized`, `state_path`, `molecule_key`, `molecule_id`, `input_hash` are subset; every other member (`mean`, `var`, `frac`, `tmatrix`, `norm_tmatrix`, `rates`, `pi`, the `priors` group) is a global consensus array and is copied verbatim. The group's `n_molecules` attribute is rewritten to the kept count |
 | `/labels` | Rows whose `molecule_key` is in the selection |
 | `/conditions`, `/settings`, `/calibration`, `/models` | Copied verbatim |
@@ -349,18 +354,18 @@ row counts consistent, both patch channels present) **before** anything is writt
 
 | Dropped | Why |
 |---|---|
-| `/movies` **rows** | The subset is definitionally movie-less. The group exists (the skeleton is frozen) but has **zero rows**, so nothing the row itself held comes with it: `uri`, `sha256`, `file_size`, `mtime`, `n_frames` / `height` / `width`, `pixel_dtype`, `frame_time`, `head_tail_hash`, the per-channel crop/rotation/flip, and the row's `calibration_id` cell (`tether.io.schema.MOVIES_DTYPE`). **The calibration itself does travel** — `/calibration` is in `_SUBSET_VERBATIM_GROUPS` and is copied whole, so `/calibration/<calibration_id>` keeps the id (it *is* the group name), the two polynomial transforms and the registration geometry attrs; only the movie row is gone |
-| `/features` | Present but empty — per-molecule ML features are outside the subset embed set (`_SUBSET_VERBATIM_GROUPS` deliberately omits it) |
+| `/movies` **rows** | The subset is definitionally movie-less. The group exists (the skeleton is frozen) but has **zero rows**, so nothing the row itself held comes with it: `uri`, `sha256`, `file_size`, `mtime`, `n_frames` / `height` / `width`, `pixel_dtype`, `frame_time`, `head_tail_hash`, the per-channel crop/rotation/flip, and the row's `calibration_id` cell (`tether.io.schema.MOVIES_DTYPE`). **The calibration itself does travel** — `/calibration` is in [`_SUBSET_VERBATIM_GROUPS`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) and is copied whole, so `/calibration/<calibration_id>` keeps the id (it *is* the group name), the two polynomial transforms and the registration geometry attrs; only the movie row is gone |
+| `/features` | Present but empty — per-molecule ML features are outside the subset embed set ([`_SUBSET_VERBATIM_GROUPS`](https://github.com/bioedca/tether/blob/main/src/tether/project/export.py) deliberately omits it) |
 | Raw **and** background traces, when `include_raw=False` | They ride as a set of four. Because `corrected = raw − background` exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too |
-| Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the sidecar's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
+| Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the provenance file's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
-**Embedded provenance.** Besides the sidecar, the subset stamps four root attributes
+**Embedded provenance.** Besides the provenance file, the subset stamps four root attributes
 (readable with `h5py`):
 
 | Attribute | Value |
 |---|---|
 | `tether_subset_of` | The **source filename only** (`path.name`), never a full path |
-| `tether_subset_created_utc` | Offset-aware ISO-8601 UTC — byte-identical to the sidecar's `created_utc` |
+| `tether_subset_created_utc` | Offset-aware ISO-8601 UTC — byte-identical to the provenance file's `created_utc` |
 | `tether_subset_include_raw` | `0` or `1` — an integer, not a bool |
 | `tether_subset_n_molecules` | The exported count |
 
@@ -372,7 +377,7 @@ the source's.
 when the output resolves to (or is a hard link of) the source, when the selection is
 empty, or when the preflight fails.
 
-Sidecar `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
+Provenance-file `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
 `n_idealization_models`, `skipped_idealization_models`, `n_label_rows`.
 
@@ -382,8 +387,11 @@ Sidecar `parameters` for this export: `include_raw`, `include_rejected`, `molecu
 a bare `matplotlib.figure.Figure` and writes nothing; `export_figure` is the only function
 that touches disk. Figures are built with the object-oriented `Figure` API rather than
 `pyplot`, so no GUI backend is selected and the base environment stays `matplotlib-base`
-(ADR-0044). The module is deliberately **not** re-exported from `tether.analysis`, so
-importing the package does not pull in Matplotlib.
+(ADR-0044). `tether.analysis` re-exports the module and its public names **lazily**: a
+module-level `__getattr__` ([PEP 562](https://peps.python.org/pep-0562/)) imports
+`plot_export` on the first access to one of them. `from tether.analysis import export_figure`
+therefore works, and `import tether.analysis` alone still does not pull in Matplotlib. The
+names are not in `tether.analysis.__all__`, so a star import does not pull it in either.
 
 ```python
 from tether.analysis.histogram import population_apparent_e_histogram
@@ -414,10 +422,10 @@ print(result.paths)              # {'pdf': ..., 'svg': ..., 'png': ...}
 
 A plot export is stamped **three** ways:
 
-1. **The sidecar** `<stem>.provenance.json`, written by the same
+1. **The provenance file** `<stem>.provenance.json`, written by the same
    `write_provenance_sidecar`. `export_figure` merges three keys of its own into your
    `parameters`: `formats` (canonical order), `dpi`, and `outputs` (`{format: basename}` —
-   basenames, not paths). The sidecar is written even when `stamp=False`.
+   basenames, not paths). The provenance file is written even when `stamp=False`.
 2. **A visible on-figure footer**, when `stamp=True` (the default): two 6-point,
    55 %-opacity texts at the bottom of the figure — `Tether <version> · <kind>` on the
    left and the ISO timestamp on the right.
@@ -431,7 +439,7 @@ A plot export is stamped **three** ways:
 > object, so exporting the *same* figure twice with `stamp=True` leaves two overlapping
 > footers with two different timestamps. Re-render before re-exporting.
 
-The eight renderers, and the plot each produces (Appendix-C ids as used in the
+The thirteen renderers, and the plot each produces (Appendix-C ids as used in the
 [seven-plot parity gallery](../analysis/parity-gallery.md)):
 
 | Renderer | Input dataclass | Plot | x-axis unit |
@@ -444,11 +452,50 @@ The eight renderers, and the plot each produces (Appendix-C ids as used in the
 | `render_state_number` | `StateNumberCounts` | C1 state-number distribution | Number of occupied states (a count) |
 | `render_raw_fret_cloud` | `RawFretCloud` | QC raw FRET cloud | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
 | `render_cross_correlation` | `CrossCorrelation` | Donor–acceptor cross-correlation | `Lag (frames)` — always frames; there is no seconds variant |
+| `render_per_condition_histograms` | `PerConditionHistograms` | Per-condition overlay: each condition's A1 histogram on one shared axis | Apparent FRET efficiency *E* (dimensionless) |
+| `render_transition_sync_histogram2d` | `TransitionSyncHistogram2D` | A2b post-synchronized heatmap | `Time from transition (s)` when `time_dt != 1.0`, otherwise `Frames from transition` |
+| `render_alpha_shape` | `AlphaShape` (+ optional `RawFretCloud`) | Alpha-shape support boundary of the raw FRET cloud | `Time (s)` when the frame duration is not `1.0`, otherwise `Frame` |
+| `render_state_number_elbow` | `StateNumberElbow` | k-vs-RMSE elbow state-count hint | Number of clusters *k* (a count) |
+| `render_population_anticorrelation` | `PopulationAnticorrelation` | Anticorrelation events, one row per molecule | `Frame (analysis window)` — always frames |
+
+`render_transition_density` draws the B1 color scale as `color_scale="log"` by default, the
+log-normalized TDP that the product specification names. Use `color_scale="linear"` for a
+linear scale.
+The log scale is zero-safe: an empty bin gets the floor color of the color map. The floor
+is one decade below the smallest non-empty bin, so a rare transition does not disappear next
+to a frequent one. The scale is display-only: the drawn array is the stored histogram.
+`export_figure` writes the scale to the provenance file as `parameters.display.color_scale`. You do
+not have to pass it. If you pass a `display` entry that does not agree with the figure,
+`export_figure` raises `ValueError`.
 
 > **A time axis says seconds only if you supplied a frame duration.** `dt` / `time_dt`
 > default to `1.0`, and at that default the renderer labels the axis in frames. The same
 > applies to rates read off a B2 survival fit: `tether.analysis.dwell` reports them in
 > `1 / (frames · dt)`, i.e. **per frame** at the default.
+
+`render_per_condition_histograms` draws every condition as an unfilled outline on the
+overlay's one shared bin grid, in the overlay's own order, and labels each curve with its
+condition id and molecule count. A condition binned on another grid raises `ValueError`
+rather than being drawn with its bins in the wrong place.
+
+`render_transition_sync_histogram2d` draws time relative to the selected transition: the
+axis runs negative before it, and a dotted line marks relative time zero. The note names
+the selected states, with `any` for `-1`.
+
+`render_alpha_shape` draws the boundary segments and nothing else of the shape. When there
+is no boundary, it draws no line and the note tells you why: the cloud spans no 2-D region,
+or the alpha was too small to keep a triangle. Pass `cloud=` to draw the points underneath
+and take the axis limits and time unit from the cloud. Without a cloud, pass `time_dt=` for
+a time axis in seconds.
+
+`render_state_number_elbow` draws the RMSE curve, the chord from its first to its last
+point, and the elbow when there is one. The elbow is a hint and the figure says so: the
+state count of record is the model's.
+
+`render_population_anticorrelation` gives each scanned molecule one row, in store order. An
+event is a bar over its frames, colored by its peak `|lag-0|`, with a tick at its peak
+frame. A molecule with no event keeps its empty row. The rows carry the `molecule_key` up
+to 30 molecules and an index above that.
 
 `render_raw_fret_cloud` decimates its scatter overlay when the population exceeds
 `max_points` (default 20 000) to keep the vector file manageable; the density surface
@@ -459,7 +506,9 @@ un-clipped apparent-E outliers cannot inflate the bandwidth. The excluded count 
 `n_out_of_range`; the on-figure annotation reports only `n_samples` and `n_molecules`,
 so read it off the dataclass.
 
-## Provenance sidecar
+<a id="provenance-sidecar"></a>
+
+## Provenance file
 
 Every one of the four exports writes `<file>.provenance.json` beside its output, via
 `tether.project.export.write_provenance_sidecar`. The name is formed by *appending* to the
@@ -473,16 +522,16 @@ why the keys read alphabetically:
 | Field | Content |
 |---|---|
 | `app_version` | The git-derived `tether.__version__`, falling back to `"0.0.0+unknown"`. A provenance stamp never raises |
-| `created_utc` | Offset-aware ISO-8601 UTC with microseconds (`datetime.now(UTC).isoformat()`), e.g. `2026-07-20T22:14:26.314669+00:00`. A caller may pin it, which is how a subset's in-file attribute and its sidecar agree exactly |
+| `created_utc` | Offset-aware ISO-8601 UTC with microseconds (`datetime.now(UTC).isoformat()`), e.g. `2026-07-20T22:14:26.314669+00:00`. A caller may pin it, which is how a subset's in-file attribute and its provenance file agree exactly |
 | `parameters` | The export's own parameters — different per export; the per-export lists are given above |
-| `source_project` | For the three store exports, the source `.tether` **basename only** — they call `write_provenance_sidecar(source=path.name)`. For `export_figure` it is **caller-supplied and unnormalized**: the `source=` argument is forwarded verbatim, and `write_provenance_sidecar` does no `.name` reduction of its own, so an absolute path you pass is an absolute path in the JSON. Pass a basename yourself |
+| `source_project` | For the three project exports, the source `.tether` **basename only** — they call `write_provenance_sidecar(source=path.name)`. For `export_figure` it is **caller-supplied and unnormalized**: the `source=` argument is forwarded verbatim, and `write_provenance_sidecar` does no `.name` reduction of its own, so an absolute path you pass is an absolute path in the JSON. Pass a basename yourself |
 | `tether_export` | The export-kind discriminator |
 
-`tether_export` takes exactly three fixed values from the store exports —
+`tether_export` takes exactly three fixed values from the project exports —
 `"deeplasi-txt"`, `"molecule-table-csv"`, `"subset-tether"`. For plots it is **caller-supplied
 and unvalidated**: nothing in `src/` defines or checks a plot kind vocabulary.
 
-A real sidecar, verbatim:
+A real provenance file, verbatim:
 
 ```json
 {
@@ -498,16 +547,15 @@ A real sidecar, verbatim:
 }
 ```
 
-The sidecar exists because flat text has no metadata slot and the Deep-LASI `.txt` must
-stay header-free — so the stamp travels beside the file rather than inside it (PRD §8
-NFR-REPRO; ADR-0001). Keep it with the data file when you move or share the export. For
+The provenance file exists because flat text has no metadata slot and the Deep-LASI `.txt` must
+stay header-free — so the stamp travels beside the file rather than inside it (ADR-0001). Keep it with the data file when you move or share the export. For
 the CSV and the `.txt` it is the **only** record of which build, which project and which
 parameters produced those numbers. A subset `.tether` and a plot export also carry a stamp
 *inside* the file — the subset's four `tether_subset_*` root attributes plus
 `create_project`'s `app_version`, and a plot's on-figure footer plus its embedded document
-metadata (both above) — but only the sidecar carries the full parameter set.
+metadata (both above) — but only the provenance file carries the full parameter set.
 
-To read a sidecar back next to the stamps inside the project, and to turn both into a
+To read a provenance file back next to the stamps inside the project, and to turn both into a
 Methods paragraph, see [Reproducibility and reporting](../reproducibility.md).
 
 ## Reading the exports elsewhere
@@ -554,7 +602,7 @@ needs no equivalent flag. Counting molecules from zero, molecule *k*'s donor is
 
 ### Frames to seconds
 
-No *store* export carries the frame duration — only a plot export can, and only as a
+No *project* export carries the frame duration — only a plot export can, and only as a
 rendered seconds axis you cannot read a number back out of. The duration lives in the
 source project, **per movie** (`/movies.frame_time`, `tether.io.schema.MOVIES_DTYPE`), and
 every CSV row names its movie in `movie_id`. So the conversion is a per-row join, not one
@@ -602,12 +650,12 @@ wrong number:
 - **A project may hold more than one movie, each with its own `frame_time`.** Extraction
   appends one `/movies` row per movie, so reading `movies["frame_time"][0]` and applying
   it to every exported row silently mis-scales every molecule that came from a later
-  movie. Key by `movie_id`, as above. On a two-movie store at `0.1` and `0.25` s/frame,
+  movie. Key by `movie_id`, as above. On a two-movie project file at `0.1` and `0.25` s/frame,
   frame 8 is `0.8 s` and `2.0 s` respectively; the first-row shortcut reports `0.8 s` for
   both.
 - **A stored `0.0` means *unknown*, not "instantaneous".** The GUI treats a non-positive
   `frame_time` as absent and falls back to a frame axis (`tether.gui.shell`), and
-  `frames_to_seconds` above refuses rather than handing back a column of zeros labelled
+  `frames_to_seconds` above refuses rather than handing back a column of zeros labeled
   seconds.
 - **Some rows have no movie to key on at all.** A **subset `.tether` has zero `/movies`
   rows** by construction, and an **analysis-only import** has none either and writes
@@ -627,7 +675,7 @@ extra state. Tether's own analyses do exactly that (`tether.analysis.tdp`,
 
 ### Why a subset `.tether` is readable at all
 
-The `.tether` store is a **superset of the tMAVEN SMD layout**, not a private format
+The `.tether` project file is a **superset of the tMAVEN SMD layout**, not a private format
 (ADR-0002, [The `.tether` store is an SMD superset](../adr/0002-smd-superset-round-trip.md)).
 It is HDF5: `h5py`, MATLAB `h5read` and `rhdf5` all open it without Tether installed. The
 same property is what makes the tMAVEN round trip a data-model consequence rather than a
@@ -635,12 +683,13 @@ conversion step.
 
 ## References
 
-- **PRD §7.9 FR-EXPORT** — the export surface; **§8 NFR-REPRO** — "all exports are stamped
-  with provenance and parameters"; **§5.4** — the subset invariant; **§7.5** — the curation
-  filter; **§7.10** — `molecule_key` non-uniqueness.
+- The [product specification](https://github.com/bioedca/tether/blob/main/docs/PRD.md) in the
+  repository — the export surface; the requirement that "all exports are stamped with
+  provenance and parameters"; the subset invariant; the curation filter; `molecule_key`
+  non-uniqueness.
 - **ADR-0001** — provenance-first project store.
 - **ADR-0002** — the `.tether` store is an SMD superset; round-trip is a data-model property.
-- **ADR-0005** — the M0 schema freeze (additive-only), which the subset export honours.
+- **ADR-0005** — the schema freeze (additive-only), which the subset export honors.
 - **ADR-0008** — the Deep-LASI → Tether correction-factor remap (β→α, α→δ, γ→γ).
 - **ADR-0016** — the extraction trace-store layout: zero-pad-to-max-`T` traces and the
   `molecule_key` content hash.
