@@ -387,7 +387,7 @@ proximity ratio `A/(D+A)`), switching to corrected E at M3
 > axis/label **conventions**. Its parity has two parts. The **values** it plots (time axis,
 > intensities, apparent E and idealized level) are compared numerically with live tMAVEN for
 > all 281 fixture molecules (see **Parity evidence** below). The **rendered figure** is
-> **structural and conventional** — the shared 2×2 layout, the donor/acceptor/FRET channel
+> **structural and conventional** — the shared 2×2 block of time series and marginals, the donor/acceptor/FRET channel
 > and color conventions, and the idealization-path overlay — **not** pixel-identical: the
 > **Deliberate MVP divergences** listed below (apparent-vs-corrected E, marginal binning,
 > the alpha-graded photobleach segments, the signal-mode switch) are tracked and converge in
@@ -404,7 +404,7 @@ color convention.
 matplotlib/PyQt5 → pyqtgraph):
 
 - `TraceView(donor, acceptor, frame_time=None, name=None, molecule_key=None)` — a Qt-free immutable value object that derives `.total` (`D+A`), `.apparent_e` (`A/(D+A)` via `tether.fret.efficiency.apparent_fret`, NaN where `total == 0`), and `.time_axis(mode)` (frames or seconds).
-- `TraceDock(*, seconds_by_default=True)` — the pyqtgraph 2×2 viewer widget: intensity time-series (top-left) over apparent-E FRET (bottom-left, x-linked), each with its marginal histogram in the y-linked right column, plus the idealization step overlay; driven by `set_trace` / `set_idealization` / `set_time_mode` / `clear`.
+- `TraceDock(*, seconds_by_default=True, crosscorr_max_lag=50)` — the pyqtgraph viewer widget: intensity time-series (top-left) over apparent-E FRET (middle-left, x-linked), each with its marginal histogram in the y-linked right column, plus the idealization step overlay; driven by `set_trace` / `set_idealization` / `set_time_mode` / `clear`. Since #363 a third row holds the trace's donor–acceptor cross-correlation from `tether.analysis.crosscorr.cross_correlation` (±`crosscorr_max_lag` frames, in the dock's seconds or frames, not x-linked to the time series); a trace too short for that axis shows a note instead. This panel is Tether's own, with no counterpart in tMAVEN's 2×2 `multi_canvas`.
 - `set_idealization(idealized)` draws the per-frame Viterbi level as a `stepMode="center"` overlay (the analog of tMAVEN `draw_model`), reset to `None` on every `set_trace` so a stale path never bleeds to the next molecule.
 - `trace_from_smd(raw, index, …) -> TraceView` — the project file/hand-off → dock bridge.
 
@@ -412,11 +412,11 @@ matplotlib/PyQt5 → pyqtgraph):
 `calc_relative`; marginals use a fixed 40-bin count instead of `int(√(pbtime−pretime))`;
 tMAVEN's three alpha-graded pre/analysis-window/post segments and its Relative/Normalized/ND-Raw mode
 switch are **not yet** in the M2 dock (photobleach segmentation lands at M3). Tether adds a
-total-intensity curve and a seconds/frames x-axis toggle.
+total-intensity curve, a seconds/frames x-axis toggle and the cross-correlation panel.
 
 **Parity evidence.** [`tests/test_trace_dock.py`](https://github.com/bioedca/tether/blob/main/tests/test_trace_dock.py) — the D1 display **contract** that mirrors
-`multi_plot` conventions (not a numeric oracle): 2×2 grid with intensity + FRET time-series
-left and marginals right; donor green, acceptor red, FRET blue, total neutral gray; the FRET
+`multi_plot` conventions (not a numeric oracle): a 2×2 block with intensity + FRET time-series
+left and marginals right, above the cross-correlation panel; donor green, acceptor red, FRET blue, total neutral gray; the FRET
 axis labeled "apparent E" and pinned to 0–1; the FRET curve `== A/(D+A)` on finite frames
 with a `connect="finite"` gap at zero-total frames; the idealization overlay is
 `stepMode="center"`, drawn only over the finite frames of the analysis window, re-laid on the seconds/frames toggle,

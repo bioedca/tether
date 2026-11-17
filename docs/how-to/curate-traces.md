@@ -49,7 +49,12 @@ nothing you mark will be saved. Close the other writer and open the project agai
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
 (green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
-underneath.
+underneath, and the donor–acceptor cross-correlation of the trace at the bottom. A
+molecule whose donor and acceptor move in opposite directions, as FRET makes them, has a
+cross-correlation below zero at lag 0. The lag axis is in seconds or frames, the same as
+the time axis, and spans 50 frames either side of 0. A trace shorter than 51 frames, a
+trace with a missing frame or a trace with a constant channel shows a note in that panel
+instead of a curve.
 
 1. Press **Right arrow** or **Down arrow** for the next molecule.
 2. Press **Left arrow** or **Up arrow** for the previous one.
