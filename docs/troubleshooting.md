@@ -300,8 +300,10 @@ over-determined. Get more pairs: raise `--pair-tol` so genuine pairs are not dis
 Importing a Deep-LASI map with `--tmap` does **not** help here: the imported path skips pairing
 entirely, so the residual is left NaN and the gate is not merely vacuous but absent (see
 [registration was flagged low-confidence](#registration-was-flagged-low-confidence)). Tether
-also has no `.tmap` **writer** — `tether.imaging.register.read_tmap` is the only entry point —
-so there is no way to extract a bead movie in Tether and export a calibration map from it.
+also has no `.tmap` **writer** — `tether.imaging.register.read_tmap` is the only entry point.
+From Python, `tether.imaging.beadmap.bead_map_from_file` makes a map from a bead video or
+image, and `tether.imaging.calibrate.save_map` writes it as a Tether `.npz` map file, but
+`tether extract` cannot read that file yet, so it does not help a `tether extract` run.
 
 ### Extraction found no molecules
 
@@ -728,6 +730,26 @@ someone else took it first, Tether refuses, shows the new state and writes nothi
 takeover is logged at WARNING on the `tether.project.lock` logger with the ousted and the new
 holder. From a script, `tether.project.lock.lock_recovery` reports the case and
 `tether.project.lock.recover_lock` acts on it.
+
+**Finding out later whether a lock was taken.** Once the project is open writable again, Tether
+also keeps one row per takeover inside the project file, in `/settings/lock_takeovers`. It names
+the time (UTC), the action (`recover` or `take_over`), the new holder, the ousted holder with the
+time of its last refresh, or a corrupt lock, and the Tether version. Read it with
+`Project.read_lock_takeovers()`.
+
+A project that was never taken over has no rows, and that includes every project written before
+this record existed. A refused or failed takeover adds no row. If the row cannot be written, the takeover still stands, and the status line says
+`the takeover record was not written`.
+
+```python
+from tether.project.core import Project
+
+for row in Project.open("exp.tether").read_lock_takeovers():
+    print(row["timestamp"], row["action"], row["ousted_user"], row["ousted_host"])
+```
+
+A script that calls `recover_lock` itself records the takeover with
+`Project.record_lock_takeover(action, taken, ousted)` after it has the lock.
 
 **Shared projects.** Every lock operation also takes an OS lock on `<path>.tether.lock.guard`.
 Tether gives that file read and write access for each group of users who can write the project

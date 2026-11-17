@@ -157,6 +157,8 @@ else would make it a worse historical record in exchange for a working link.
 | [0112](0112-every-publishing-writer-holds-its-destination-lock.md) | Every publishing writer holds its destination lock, and one helper names a file | accepted; amends [ADR-0055](0055-gui-session-writer-ownership.md) on the GUI write | §5.4 (single writer), §7.10 FR-CONCURRENCY |
 | [0113](0113-one-movie-reader-interface-an-adapter-registry-and-a-rule-for-reader-packages.md) | One movie reader interface, an adapter registry, and a rule for reader packages | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0116](0116-the-shell-hosts-its-sections-in-one-stack.md) | The shell hosts its sections in one stack, and each dock belongs to one section | accepted | §4.2 (`tether.gui`), §7.3 (the curation shell), §7.10 FR-CONCURRENCY, FR-WORKFLOW |
+| [0117](0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md) | A movie is appended to a project once, under its writer lock, and keeps its own settings | accepted | §5.1 (data model), §5.4 (single writer), §7.11 FR-EXTRACT / FR-BATCH, §7.8 (the |
+| [0121](0121-each-lock-takeover-leaves-a-record-in-the-project.md) | Each lock takeover leaves a record in the project | accepted | §7.10 FR-CONCURRENCY, §5.4 (single writer), §5 (schema) |
 | [0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md) | The plot builder's composition unit, its one renderer, and its staleness and frame-time policies | accepted | §7.7 FR-PLOT (composed plots), §7.9 FR-EXPORT, §4.1 (no PyQt in the base stack) |
 
 <!-- gen:adr-index end -->
