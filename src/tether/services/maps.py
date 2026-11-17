@@ -127,7 +127,8 @@ def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
     link is made instead, which fails with [`FileExistsError`][] if *output* exists,
     also when it appeared after the first check. Where the file system has no hard
     links, the bytes are copied to a file opened with ``"xb"``, which refuses an
-    existing file the same way.
+    existing file the same way. A failed copy removes that file only while the name
+    still points to it, so a map another session published meanwhile stays.
     """
     if overwrite:
         os.replace(written, output)
@@ -140,9 +141,23 @@ def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
     except OSError:  # no hard links here (a FAT drive, some network shares)
         pass
     f = open(output, "xb")  # noqa: SIM115 - FileExistsError if another session made it
+    made = os.fstat(f.fileno())  # which file is this call's, for the cleanup below
     try:
         with f:  # the close flushes, and a failed flush is a failed write
             f.write(written.read_bytes())
     except BaseException:
-        output.unlink(missing_ok=True)  # the file this call made, never another's
+        _unlink_if_made(output, made)
         raise
+
+
+def _unlink_if_made(output: Path, made: os.stat_result) -> None:
+    """Remove *output* only while it is still the file this call created.
+
+    Another session may have replaced it meanwhile (``--overwrite`` is one
+    ``os.replace``); that map is complete and stays.
+    """
+    try:
+        if os.path.samestat(os.stat(output), made):
+            output.unlink()
+    except FileNotFoundError:
+        pass

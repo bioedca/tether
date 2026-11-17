@@ -291,6 +291,19 @@ def test_the_profile_records_the_saved_maps_own_rms_gate(tmp_path, fitted) -> No
     assert profile["registration_rms_px"] > profile["rms_gate"]
 
 
+def test_the_cli_warning_names_the_saved_maps_own_gate(tmp_path, fitted, capsys) -> None:
+    """The over-gate warning prints the gate the map was judged against (Greptile P2)."""
+    reg_map, _map_file = fitted
+    strict_gate = reg_map.rms_residual / 2
+    strict = save_map(replace(reg_map, gate_px=strict_gate), tmp_path / "strict.npz")
+    movie = _write_movie(tmp_path / "cli_011.tif")
+    out = tmp_path / "strict_cli.tether"
+    assert main(["extract", str(movie), "-o", str(out), "--map", str(strict)]) == 0
+    err = capsys.readouterr().err
+    assert f"exceeds the {strict_gate:g} px gate" in err
+    assert "exceeds the 0.5 px gate" not in err
+
+
 def test_a_native_fit_records_no_map_file(tmp_path) -> None:
     out = tmp_path / "native.tether"
     summary = extract_movie(
@@ -337,6 +350,16 @@ def test_a_newer_map_file_version_is_refused(tmp_path, fitted) -> None:
     )
     with pytest.raises(MapFileError, match="newer than this Tether reads"):
         load_map(newer)
+
+
+def test_an_object_valued_format_version_is_refused(tmp_path, fitted) -> None:
+    """A pickled format_version is a MapFileError naming the file (Greptile P2)."""
+    _reg_map, map_file = fitted
+    pickled = _rewrite(
+        map_file, tmp_path / "pickled_version.npz", format_version=np.array([1], dtype=object)
+    )
+    with pytest.raises(MapFileError, match="pickled_version.npz: format_version"):
+        load_map(pickled)
 
 
 def test_a_map_file_that_lacks_an_array_is_refused(tmp_path, fitted) -> None:
@@ -471,6 +494,49 @@ def test_a_failed_copy_without_hard_links_leaves_no_file(monkeypatch, tmp_path, 
     assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
 
 
+def test_a_failed_copy_keeps_a_map_another_writer_published(monkeypatch, tmp_path, capsys) -> None:
+    """Cleanup removes only the file this call made, never a map replaced over it (Greptile P1)."""
+    import os
+
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    output = tmp_path / "shared.npz"
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    real_read_bytes = Path.read_bytes
+
+    def another_writer_then_disk_full(self):
+        if self.name.endswith(".tmp.npz"):  # the temporary sibling this call is copying
+            other = tmp_path / "other.npz"
+            other.write_bytes(b"the other session's map")
+            os.replace(other, output)  # another session publishes with --overwrite
+            raise OSError(28, "No space left on device", str(self))
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", another_writer_then_disk_full)
+    assert main(["map", "create", str(beads), "-o", str(output)]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert real_read_bytes(output) == b"the other session's map"
+
+
+def test_a_failed_copy_whose_file_is_gone_still_reports(monkeypatch, tmp_path, capsys) -> None:
+    """Cleanup of a file another session already removed is not a second error."""
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    output = tmp_path / "gone.npz"
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+
+    def removed_then_disk_full(self):
+        output.unlink()
+        raise OSError(28, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", removed_then_disk_full)
+    assert main(["map", "create", str(beads), "-o", str(output)]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
+
+
 def test_a_failed_flush_without_hard_links_leaves_no_file(monkeypatch, tmp_path, capsys) -> None:
     """A disk-full error at close, after the write returned, is a failed write (Codex P2)."""
     import builtins
@@ -489,6 +555,9 @@ def test_a_failed_flush_without_hard_links_leaves_no_file(monkeypatch, tmp_path,
 
         def write(self, data):
             return self._f.write(data)
+
+        def fileno(self):
+            return self._f.fileno()
 
         def close(self):
             self._f.close()

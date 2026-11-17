@@ -280,6 +280,9 @@ class ExtractionSummary:
     detection_mode: str  # the ParticleDetectionMode actually run (post .tdat apply)
     #: The advisory donor-side check (#646, ADR-0070); also stored in /settings/extraction.
     donor_side_check: DonorSideCheck | None = None
+    #: The RMS gate the registration was judged against (px): the run's ``rms_gate``, or a
+    #: map file's own ``gate_px`` (#353). ``None`` only for a summary built without it.
+    rms_gate: float | None = None
 
 
 def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
@@ -856,6 +859,7 @@ def _summary(
         registration_source=_registration_source(reg_map, map_path),
         detection_mode=extracted.options.detection_mode,
         donor_side_check=extracted.side_check,
+        rms_gate=float(reg_map.gate_px),
     )
 
 

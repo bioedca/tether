@@ -721,8 +721,13 @@ def _map_format_version(data: Any) -> int:
     """Return the map file's ``format_version`` (``0`` when absent), refusing a newer one."""
     if "format_version" not in data.files:
         return 0
-    raw = np.asarray(data["format_version"])
-    if raw.shape != () or raw.dtype.kind not in "iu":  # an object array raised already
+    try:
+        raw = np.asarray(data["format_version"])
+    except ValueError as exc:  # an object array: allow_pickle=False refuses to read it
+        raise MapFileError(
+            f"format_version must be one integer, not a pickled object: {exc}"
+        ) from exc
+    if raw.shape != () or raw.dtype.kind not in "iu":
         raise MapFileError(f"format_version must be one integer, got {raw!r}")
     version = int(raw)
     if version > MAP_FORMAT_VERSION:

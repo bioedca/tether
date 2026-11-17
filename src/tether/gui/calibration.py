@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tether.services import (
     CommandFailed,
@@ -35,6 +35,9 @@ from tether.services import (
     MapCreateResult,
 )
 from tether.services import run as run_service
+
+if TYPE_CHECKING:
+    from tether.project.extract import ExtractionSummary
 
 __all__ = ["ChannelMapActions"]
 
@@ -114,7 +117,14 @@ class ChannelMapActions:
 
         The extraction reloads the saved map file (``map_path``), so the movie is split
         and registered as the map says. On success the new project is opened in the
-        shell. An existing ``output`` is refused, never replaced.
+        shell; when the shell cannot open it now (an idealization is running, say), the
+        status line says the project is saved but not opened. An existing ``output`` is
+        refused, never replaced.
+
+        The status line carries the extraction's warnings: a map over its RMS gate
+        (the molecules are tagged ``low-confidence-registration``) and halves that look
+        swapped (the advisory donor-side check, ADR-0070). The blocking over-gate dialog
+        of PRD §7.1 is #351.
         """
         if self._map_path is None:
             self._status("Extract: make or choose a channel map first")
@@ -126,10 +136,13 @@ class ChannelMapActions:
             self._status(f"Extraction failed: {exc}")
             return None
         summary = result.summary
-        self._open_project(summary.output_path)
+        opened = self._open_project(summary.output_path)
+        where = summary.output_path.name
+        if opened is None:  # the shell refused or failed the open; the movie is saved
+            where += " (saved, not opened: use File > Open project once the shell is free)"
         self._status(
             f"Extracted {summary.n_molecules} molecule(s) with channel map "
-            f"{self._map_path.name} -> {summary.output_path.name}"
+            f"{self._map_path.name} -> {where}{_extraction_warnings(summary)}"
         )
         return result
 
@@ -189,3 +202,21 @@ class ChannelMapActions:
         if not output.lower().endswith(".tether"):
             output += ".tether"
         self.extract_with_map(movie, output)
+
+
+def _extraction_warnings(summary: ExtractionSummary) -> str:
+    """Return the status-line warnings of one extraction, ``""`` when it has none."""
+    notes = []
+    if summary.low_confidence_registration:
+        gate = "its" if summary.rms_gate is None else f"the {summary.rms_gate:g} px"
+        notes.append(
+            f"low confidence: RMS {summary.rms_residual:.3f} px is over {gate} gate, "
+            "molecules tagged 'low-confidence-registration'"
+        )
+    check = summary.donor_side_check
+    if check is not None and check.swapped:
+        notes.append(
+            f"donor and acceptor halves look swapped ({check.n_swapped} of "
+            f"{check.n_events} bleach events); check the channel order of the map"
+        )
+    return "".join(f"; warning: {note}" for note in notes)

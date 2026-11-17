@@ -143,3 +143,62 @@ def test_a_bad_map_file_fails_the_extraction_with_its_reason(shell, tmp_path) ->
     message = shell.window.statusBar().currentMessage()
     assert message.startswith("Extraction failed: could not use --map junk.npz")
     assert not (tmp_path / "o.tether").exists()
+
+
+def _made_map(tmp_path: Path) -> Path:
+    from tether.gui.calibration import ChannelMapActions
+
+    actions = ChannelMapActions(status=lambda _m: None, open_project=lambda _p: None)
+    made = actions.make_map(_write(tmp_path / "beads.tif", _frame(_BEADS)), tmp_path / "s.npz")
+    assert made is not None
+    return made.path
+
+
+def test_an_over_gate_map_is_a_warning_not_a_plain_success(shell, tmp_path) -> None:
+    """The status line names the over-gate map and its gate (Greptile P1; dialog is #351)."""
+    from dataclasses import replace
+
+    from tether.imaging.calibrate import load_map, save_map
+
+    saved = load_map(_made_map(tmp_path))
+    # A map whose residual is over its own gate (and the gate is not the default 0.5).
+    strict = save_map(replace(saved, rms_residual=0.8, gate_px=0.25), tmp_path / "strict.npz")
+    shell.channel_map.choose_map(strict)
+    movie = _write(tmp_path / "strict_001.tif", np.stack([_frame(_MOLECULES)] * 10))
+    result = shell.channel_map.extract_with_map(movie, tmp_path / "strict.tether")
+    assert result is not None and result.summary.low_confidence_registration
+    message = shell.window.statusBar().currentMessage()
+    assert "warning: low confidence" in message
+    assert "RMS 0.800 px is over the 0.25 px gate" in message
+    assert "low-confidence-registration" in message
+
+
+def test_swapped_halves_are_a_warning_and_a_refused_open_is_said(monkeypatch, tmp_path) -> None:
+    """Swapped halves warn (Greptile P1); a project the shell did not open says so (P2)."""
+    from dataclasses import replace
+
+    from tether.gui import calibration
+    from tether.imaging.side_check import VERDICT_SWAPPED, DonorSideCheck
+
+    map_file = _made_map(tmp_path)
+    real_run = calibration.run_service
+
+    def swapped_run(request):
+        result = real_run(request)
+        check = DonorSideCheck(verdict=VERDICT_SWAPPED, n_swapped=9, n_consistent=1)
+        return replace(result, summary=replace(result.summary, donor_side_check=check))
+
+    monkeypatch.setattr(calibration, "run_service", swapped_run)
+    messages: list[str] = []
+    actions = calibration.ChannelMapActions(
+        status=messages.append,
+        open_project=lambda _path: None,  # e.g. an idealization is running
+    )
+    actions.choose_map(map_file)
+    movie = _write(tmp_path / "swap_001.tif", np.stack([_frame(_MOLECULES)] * 10))
+    out = tmp_path / "swap.tether"
+    assert actions.extract_with_map(movie, out) is not None
+    assert out.is_file()
+    assert "swap.tether (saved, not opened" in messages[-1]
+    assert "warning: donor and acceptor halves look swapped (9 of 10" in messages[-1]
+    assert "low confidence" not in messages[-1]

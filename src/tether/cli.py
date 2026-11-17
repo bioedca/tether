@@ -243,9 +243,11 @@ def _run_extract(args: argparse.Namespace) -> int:
     if request.tdat is not None:
         print(f"  detection: mode '{summary.detection_mode}' from {request.tdat}")
     if summary.low_confidence_registration:
+        # A map file is judged against its own gate, not --rms-gate (#353).
+        gate = request.rms_gate if summary.rms_gate is None else summary.rms_gate
         print(
             f"  warning: registration RMS {summary.rms_residual:.3f} px exceeds the "
-            f"{request.rms_gate} px gate ({summary.n_control_points} control points); "
+            f"{gate:g} px gate ({summary.n_control_points} control points); "
             "molecules tagged 'low-confidence-registration'.",
             file=sys.stderr,
         )
