@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0127 — An extraction profile is a file in the request text form, and `--tdat` sets two fields
+# 0129 — An extraction profile is a file in the request text form, and `--tdat` sets two fields
 
 - **Status:** accepted
 - **Date:** 2026-11-17
@@ -104,5 +104,5 @@ Chosen option: **1**.
 
 - ADR-0100 (service commands and the request text form), ADR-0095 (the settings store), ADR-0056
   (batch checkpoints), ADR-0022 (per-mode minimum separation), ADR-0070 (the donor-side check).
-- Number 0127 was taken as one above the highest record on any branch (0126), because
+- Number 0129 was taken as one above the highest record on any branch (0128), because
   `claim.py reserve-adr` cannot create its ref from a cloud container.

@@ -242,7 +242,7 @@ command name:
 
 A profile is a file you name, not a setting of the application, so it can be kept with the
 data and used on another computer
-([ADR-0127](adr/0127-an-extraction-profile-is-a-file-in-the-request-text-form.md)). From
+([ADR-0129](adr/0129-an-extraction-profile-is-a-file-in-the-request-text-form.md)). From
 Python, `tether.services.write_profile` writes one and
 `tether.services.ExtractionProfile.from_options` makes one from an `ExtractOptions`.
 

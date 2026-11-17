@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The extraction profile and its command-line routes (#349, ADR-0127).
+"""The extraction profile and its command-line routes (#349, ADR-0129).
 
 The field checks enumerate ``dataclasses.fields(ExtractOptions)``, so an eighteenth field
 fails here until it is in the profile, in both requests and in PRD §11.2. The end-to-end

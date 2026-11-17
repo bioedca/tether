@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The extraction profile: every extraction option, saved as one file (#349, ADR-0127).
+"""The extraction profile: every extraction option, saved as one file (#349, ADR-0129).
 
 An *extraction profile* holds the eighteen fields of
 [`ExtractOptions`][tether.project.extract.ExtractOptions], so a run that names one is fully
@@ -13,7 +13,7 @@ a request (and a recipe, #899) carries every value the profile gave.
 
 A profile is a file the user names, not an entry in the application settings store
 (ADR-0095): it is an input of an analysis, so it travels with the data and the recipe
-instead of with one computer's preferences (ADR-0127).
+instead of with one computer's preferences (ADR-0129).
 
 Its text form is the request text form of ADR-0100 (``command`` is
 ``"extraction-profile"``)::
