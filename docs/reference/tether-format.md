@@ -632,8 +632,8 @@ when not reached), `error` and `app_version`. The `state` is one of:
 | `cancelled` | Stopped by the user; the complete parts are kept. A retry continues from `completed`. |
 | `interrupted` | It was running when its owner stopped. A retry continues from `completed`. |
 
-A stored `running` row whose writer is gone, because the lock no longer carries its `nonce`
-or its process on this computer is not running, is **read** as `interrupted`, and the next
+A stored `running` row can outlive its writer: the lock no longer carries its `nonce`, or its
+process on this computer is not running. Such a row is **read** as `interrupted`, and the next
 writer stores it so. A reader needs no lock and the file is closed between parts, so a reader
 never waits on a job.
 
