@@ -204,7 +204,7 @@ retired = 1
 
 [pages."docs/reference/parameters.md"]
 kind = "descriptive"
-long_share = 36.9
+long_share = 34.5
 semicolons = 14
 long_paragraphs = 2
 retired = 0

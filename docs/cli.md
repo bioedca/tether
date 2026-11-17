@@ -106,8 +106,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--coloc-distance COLOC_DISTANCE` | `3` | acceptor colocalization distance in px |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
-| `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option; it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
-| `--profile PATH` | none | read all seventeen extraction options from an [extraction profile](#extraction-profiles); an option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
+| `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
+| `--profile PATH` | none | read all seventeen extraction options from an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
 
 ### Get `--donor-side` right, and read the donor-side check
 
@@ -220,7 +220,7 @@ command name:
   file. `--tdat` may be combined with a profile whose `detection_mode` and
   `detection_threshold` are `null` ([the rule above](#detection-settings-pick-one-source)).
 - **The values that ran are recorded.** Every option is written into `/settings/extraction`
-  as before; the profile's filename is not.
+  as before. The profile's filename is not.
 
 A profile is a file you name, not a setting of the application, so it can be kept with the
 data and used on another computer
@@ -267,8 +267,8 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--profile PATH]
 | `movies` | *(required, one or more)* | one or more dual-channel TIFF movies |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
-| `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option; it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
-| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles); an option the file leaves out keeps its default, and without a profile every option is at its default |
+| `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
+| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option is at its default |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
 | `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
