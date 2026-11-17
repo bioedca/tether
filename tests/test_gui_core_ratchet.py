@@ -31,7 +31,7 @@ _NOT_CORE = ("tether.gui", "tether.services", "tether._version", "tether.__versi
 
 # Made by this module's scan on main at f8bec93 (#892), plus the imports that #1096 and #1095
 # added on main before this test merged. Only ever remove entries.
-# One exception, held for the maintainer's decision on #363's PR: the trace dock's
+# One exception, approved by the maintainer on 2026-11-17 for #363: the trace dock's
 # cross-correlation panel calls the per-trace display function the issue names, the same kind
 # of Qt-free value call as apparent_fret beside it, not a workflow action.
 ALLOWED: dict[str, int] = {
