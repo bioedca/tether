@@ -39,6 +39,7 @@ subclass one) so importing this module costs no Qt, matching the rest of
 
 from __future__ import annotations
 
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -1685,6 +1686,15 @@ class TetherShell:
             else f"{ousted.user}@{ousted.host} (pid {ousted.pid})"
         )
         warning = "" if action is RecoveryAction.RECOVER else "; their unsaved work is not merged"
+        # The durable record goes in under the new lock, through the writable reopen,
+        # so a refused, failed or read-only takeover never writes one (#1099, ADR-0121).
+        try:
+            self._curation_project.record_lock_takeover(action, taken, ousted)
+        except Exception as exc:  # noqa: BLE001 - the takeover stands; say the record failed
+            logging.getLogger("tether.project.lock").warning(
+                "lock %s on %s: the takeover record was not written: %s", action.value, path, exc
+            )
+            warning += f"; the takeover record was not written ({exc})"
         self._status(f"{label}: took the lock from {holder}; {path.name} is writable{warning}")
         return opened
 

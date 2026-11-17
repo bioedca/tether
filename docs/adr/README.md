@@ -157,6 +157,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0112](0112-every-publishing-writer-holds-its-destination-lock.md) | Every publishing writer holds its destination lock, and one helper names a file | accepted; amends [ADR-0055](0055-gui-session-writer-ownership.md) on the GUI write | §5.4 (single writer), §7.10 FR-CONCURRENCY |
 | [0113](0113-one-movie-reader-interface-an-adapter-registry-and-a-rule-for-reader-packages.md) | One movie reader interface, an adapter registry, and a rule for reader packages | accepted | §7.1 FR-EXTRACT, Appendix A (input formats) |
 | [0116](0116-the-shell-hosts-its-sections-in-one-stack.md) | The shell hosts its sections in one stack, and each dock belongs to one section | accepted | §4.2 (`tether.gui`), §7.3 (the curation shell), §7.10 FR-CONCURRENCY, FR-WORKFLOW |
+| [0121](0121-each-lock-takeover-leaves-a-record-in-the-project.md) | Each lock takeover leaves a record in the project | accepted | §7.10 FR-CONCURRENCY, §5.4 (single writer), §5 (schema) |
 | [0123](0123-the-settings-store-also-keeps-the-trace-colors.md) | The settings store also keeps the trace colors | accepted; amends [ADR-0095](0095-application-settings-live-outside-the-install-folder.md) on what the settings file stores | §7.3 (familiar conventions); §4.1 (application shell) |
 
 <!-- gen:adr-index end -->
