@@ -1518,6 +1518,12 @@ _CONSTANT_BACKED_SURFACES = [
         "ship_bar_pts",
         "DEFAULT_SHIP_BAR_PTS",
     ),
+    (
+        "tether.project.prequential",
+        "ranker_leave_one_video_out_uplift",
+        "ship_bar_pts",
+        "DEFAULT_SHIP_BAR_PTS",
+    ),
 ]
 
 
@@ -1677,6 +1683,7 @@ tether.ml.deep.model
 tether.ml.drift
     condition_drift alpha DEFAULT_DRIFT_ALPHA
 tether.ml.prequential
+    leave_one_video_out_uplift ship_bar_pts DEFAULT_SHIP_BAR_PTS
     prequential_uplift ship_bar_pts DEFAULT_SHIP_BAR_PTS
 tether.project.core
     Project.idealize timeout DEFAULT_SIDECAR_TIMEOUT
