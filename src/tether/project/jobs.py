@@ -755,11 +755,20 @@ def set_stale_marks(
     * the edge numbers whose guard holds for every record they reach (the form before
       #1170, which still works).
 
-    A record already marked is not marked again, and its guard is not asked. Returns the
-    new marks.
+    A record already marked is not marked again, and its guard is not asked. The writer
+    check is made again before the marks are stored, and a lock taken or released while
+    the guards were asked refuses the write with ``LockedError``. Returns the new marks.
     """
+    from tether.project import lock  # noqa: PLC0415
+
     project._assert_writable()
     _input_key(node_key, instance)
+
+    def lock_nonce() -> str | None:
+        current = lock.read_lock(project.path)
+        return None if current is None else current.nonce
+
+    epoch = lock_nonce()
     if callable(guards_hold):
         judge = guards_hold
 
@@ -815,5 +824,9 @@ def set_stale_marks(
         }
         for m in new
     ]
+    if rows:  # the guards are the owners' code: the lock may have moved while they ran
+        project._assert_writable()
+        if lock_nonce() != epoch:
+            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
     _append(project.path, _MARKS, _MARK_FIELDS, rows)
     return new

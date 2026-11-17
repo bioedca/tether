@@ -714,6 +714,27 @@ def test_a_guard_is_judged_for_each_downstream_record(project: Project) -> None:
     ]
 
 
+@pytest.mark.parametrize("release", [False, True], ids=["stolen", "stolen-and-released"])
+def test_a_lock_that_moves_while_the_guards_are_asked_stores_no_mark(
+    project: Project, release: bool
+) -> None:
+    jobs.record_inputs(project, "factor_version", "f1", {("trace_generation", "t"): "v1"})
+    thief = Project(project.path, identity=LockIdentity("other-host", "someone", 4242))
+
+    def holds(_edge: int, _node: str, _instance: str) -> bool:
+        thief.steal_lock()
+        if release:
+            thief.release_lock()
+        return True
+
+    with pytest.raises(LockedError):
+        jobs.set_stale_marks(project, "trace_generation", "t", "v2", guards_hold=holds)
+    assert jobs.read_stale_marks(project.path) == []
+    if not release:
+        thief.release_lock()
+    project.acquire_lock()
+
+
 def test_recorded_inputs_need_an_edge_and_are_recorded_once(project: Project) -> None:
     with pytest.raises(ValueError, match="no edge"):
         jobs.record_inputs(project, "fit", "f", {("map", "m"): "x"})
