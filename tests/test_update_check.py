@@ -161,8 +161,10 @@ def test_no_url_from_the_answer_is_used() -> None:
         _release(9),
         _release("main"),
         _release("v" + "9" * 100),
-        b"[" * 100_000 + b"]" * 100_000,
-        b" " * (600 * 1024) + _release("v9.0.0"),
+        # Explicit ids: a node id built from these bytes would exceed Windows' 32767-
+        # character limit on the PYTEST_CURRENT_TEST environment variable.
+        pytest.param(b"[" * 100_000 + b"]" * 100_000, id="nested-too-deep"),
+        pytest.param(b" " * (600 * 1024) + _release("v9.0.0"), id="oversized"),
     ],
 )
 def test_a_malformed_answer_is_silent(payload: bytes | None) -> None:
