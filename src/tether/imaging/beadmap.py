@@ -455,8 +455,10 @@ def bead_map(
         The spot detector, as in ``tether extract`` (PRD §11.2; default
         ``"wavelet"``).
     detection_threshold : float or None, optional
-        The detection threshold, unitless, on the detection image normalized to
-        ``[0, 1]`` (PRD §11.2). ``None`` (the default) uses the mode's own value.
+        The detection threshold, unitless (PRD §11.2). Only the
+        ``"intensity"`` and ``"bandpass"`` modes use it; the default
+        ``"wavelet"`` mode ignores it. ``None`` (the default) uses the mode's own
+        value.
     min_separation : float or None, optional
         The least distance between two spots, in pixels (PRD §11.2). ``None``
         (the default) uses the mode's own value.
@@ -473,8 +475,9 @@ def bead_map(
         The high Gaussian sigma of the similarity prealign's band-pass, in pixels
         (default 20.0).
     pair_tol : float, optional
-        The largest distance between a prealigned donor spot and its acceptor
-        partner, in pixels (default 2.0).
+        The largest distance between an acceptor spot, moved into the donor
+        frame by the prealign, and its donor partner, in pixels of the donor
+        half (default 2.0).
     min_bead_spots : int, optional
         The least number of bead spots each half must have (PRD §11.2, default
         [`DEFAULT_MIN_BEAD_SPOTS`][]). Under it the source is refused.
