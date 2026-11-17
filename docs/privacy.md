@@ -33,26 +33,27 @@ you allow it** (below).
   network connection** as part of normal analysis; it neither sends your data to us or to
   any third party, nor "phones home". The one exception is the optional check for a newer
   release described next, and it is off until you allow it.
-- **Optional check for a newer release (off by default).** The first time the application
-  starts, it asks in a bar at the top of the window whether it may check GitHub for a newer
-  release. **Until you answer yes, it makes no network request at all**, and if you never
-  answer, it never makes one. If you answer yes, then each time the application starts it
-  sends **one** unauthenticated HTTPS request to GitHub:
-  `GET https://api.github.com/repos/bioedca/tether/releases/latest`. GitHub necessarily
-  sees your computer's **IP address**, the time of the request, and the user-agent
-  `Tether`; the GitHub General Privacy Statement linked below applies to that request, and
-  the Tether project does not receive its data. Tether adds **nothing** to the request: no
-  account, no installation id, no version number, no usage data, no telemetry, and nothing
-  about your computer, your projects or your data. It reads only the version number of the
-  newest release from the answer and, if that is newer than the copy you run, shows a
-  notice with a link to the Releases page. It **downloads nothing and installs nothing**;
-  you download a new release yourself. If the request fails (no network, a proxy, a
-  timeout), nothing is shown. The request uses your proxy settings (`HTTPS_PROXY`).
-- **Turning the check off.** Untick **Help → Check for new releases at startup**, or
-  answer **Don't check** to the first question. Your answer is kept in a small settings
-  file outside the install folder, so a newer release you install keeps it. An
-  administrator can turn the check off for every user of a computer; [Install Tether](install.md#settings-tether-keeps-outside-the-install-folder)
-  says where that file and the settings file are.
+- **Optional check for a newer release (off by default).** At its first start, the
+  application asks in a bar at the top of the window whether it may check for a newer
+  release. **Until you answer yes, it makes no network request at all.** If you never
+  answer, it never makes one. If you answer yes, it sends **one** request to GitHub each
+  time it starts:
+  `GET https://api.github.com/repos/bioedca/tether/releases/latest`. The request is
+  unauthenticated HTTPS. GitHub necessarily sees your computer's **IP address**, the time
+  and the user-agent `Tether`. The GitHub General Privacy Statement linked below applies to
+  it, and the Tether project does not receive its data. Tether adds **nothing** to the
+  request: no account, no installation id, no version number, no usage data and no
+  telemetry. It sends nothing about your computer, your projects or your data. From the
+  answer it reads only the version number of the newest release. If that is newer than your
+  copy, a notice links to the Releases page. It **downloads nothing and installs nothing**.
+  You download a new release yourself. If the request fails, for example with no network or
+  a timeout, nothing is shown. The request uses your proxy settings (`HTTPS_PROXY`).
+- **Turning the check off.** Untick **Help → Check for new releases at startup**, or answer
+  **Don't check** to the first question. Your answer is kept in a small settings file
+  outside the install folder, so a newer release you install keeps it. An administrator can
+  turn the check off for every user of a computer.
+  [Install Tether](install.md#settings-tether-keeps-outside-the-install-folder) says where
+  that file and the settings file are.
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
   files**. The `.tether` project file records the application version, your analysis

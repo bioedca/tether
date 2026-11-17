@@ -291,13 +291,16 @@ not been measured yet.
 ## Settings Tether keeps outside the install folder
 
 Tether keeps one application setting outside any `.tether` project: your answer to the
-question whether Tether may check for a newer release. The first time the application starts,
-it asks in a bar at the top of the window: **Check for new releases** or **Don't check**.
-Until you answer yes, Tether makes no network connection. If you answer yes, Tether asks
-GitHub once at each start whether a newer release exists and, if one does, shows a notice
-with a link to the [Releases page](https://github.com/bioedca/tether/releases); it downloads
-nothing. You can change the answer at any time with **Help → Check for new releases at
-startup**. The [privacy policy](privacy.md) says exactly what the request sends.
+question whether Tether may check for a newer release.
+
+The first time the application starts, it asks in a bar at the top of the window: **Check
+for new releases** or **Don't check**. Until you answer yes, Tether makes no network
+connection. If you answer yes, Tether asks GitHub once at each start whether a newer release
+exists. If one does, a notice links to the
+[Releases page](https://github.com/bioedca/tether/releases). Tether downloads nothing.
+
+To change the answer, use **Help → Check for new releases at startup**. The
+[privacy policy](privacy.md) says exactly what the request sends.
 
 The answer is kept outside the install folder so that it is not lost when you install a newer
 release over the old one.
@@ -328,8 +331,8 @@ computer, whatever each user answers. Create an empty file with this name:
 | Linux | `/etc/tether/disable-update-check` |
 
 The file can be empty; Tether does not read what is in it. While it is there, Tether makes no
-update request, does not ask the question, and greys out **Help → Check for new releases at
-startup**. If Tether cannot examine the file, for example
+update request and does not ask the question. **Help → Check for new releases at startup**
+is greyed out. If Tether cannot examine the file, for example
 because a folder permission stops it, Tether also turns the check off. This file can only turn
 the check off. Nothing lets an administrator turn the check on for a user who did not agree.
 
