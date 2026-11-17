@@ -1023,6 +1023,8 @@ method, the limits and the measurements.
 | Survival curves, 13 panels of Figs. 2e-7f | `Fig2e` ... `Fig7f` | `survival_curve` | equal to 1.0e-15 |
 | Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
 | Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
+| Mean dwell time, the six parameter files (Supplementary Table 6) | `Double-*.txt` and `Double-*.out` | `mean_dwell_time` | `tau` and its error equal to the two decimals of each `.out` |
+| Mean dwell time of the fitted panels, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `DwellFit.mean_dwell_time` | `tau` 9.3e-6 relative, within the `.out`'s two decimals; error 1.8e-3 relative to the re-paired error (below) |
 | TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
 
 The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
@@ -1037,25 +1039,31 @@ so each test finds the windows in the trace matrix when it runs.
 
 1. tMAVEN's `optimize_double_surv` sorts the two rates and amplitudes of a double-exponential fit
    but not their errors: in the three panels that can be checked, each published error belongs to
-   the other parameter. Tether's errors are paired correctly.
+   the other parameter. Tether's errors are paired correctly. The published error of the mean dwell
+   time (the `.out` files) inherits the swap: with each error paired with its own parameter the
+   same formula gives 0.08 s, 0.09 s and 0.05 s, not 3.08 s, 1.37 s and 2.33 s. Its `tau` is
+   unaffected.
 2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
    Fig. 5b has no trace data.
 3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
 4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
    start at frame 0 or at frame 1.
 
-**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
-time of a double exponential with its error, the TDP smoothing and spline, and the two-Gaussian
-fit of Fig. 5c. Tether has no function for the last three: #1028, #1029 and #1030.
+**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the TDP
+smoothing and spline, and the two-Gaussian fit of Fig. 5c. Tether has no function for the last
+two: #1029 and #1030.
 
 **Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
-`test_find_windows_finds_each_window_and_a_value_the_matrix_lost` and
-`test_dwells_from_survival_give_back_the_survival_curve`. Weekly (`reference_download`):
+`test_find_windows_finds_each_window_and_a_value_the_matrix_lost`,
+`test_dwells_from_survival_give_back_the_survival_curve` and
+`tests/test_analysis_dwell.py::test_mean_dwell_time_reproduces_the_campos_chavez_out_file`. Weekly
+(`reference_download`):
 `test_representative_traces_have_tethers_efficiency`,
 `test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
 `test_intrafret_histogram_values_are_tethers_first_400_frames`,
 `test_survival_curve_and_exponential_fit_reproduce_the_panel`,
-`test_double_exponential_parameters_and_errors` and
+`test_double_exponential_parameters_and_errors`,
+`test_mean_dwell_time_of_the_fitted_panel_is_the_published_tau` and
 `test_transition_density_counts_equal_checktdp`.
 
 ## Campos-Chavez et al. 2024: the tMAVEN fits
