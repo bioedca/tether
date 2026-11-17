@@ -42,7 +42,8 @@ tether extract: error: argument --donor-side: invalid choice: 'middle' (choose f
 ```
 
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
-crop tuple is returned by [`_half_split_geometry`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) in `tether.project.extract`, and detection
+half the default side-by-side layout names donor (`resolve_channel_layout` in
+`tether.project.extract`), and detection
 is [donor-anchored](glossary.md#donor-anchored-colocalization) — so the swapped run still
 colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the two channels
 gives exactly `1 − E`.
