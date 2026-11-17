@@ -132,8 +132,7 @@ the dwell inversion and the column reader.
 | Rates and their Dirichlet bounds (Supplementary Table 5) | #758 |
 | Mean dwell time `tau` of a double exponential and its error (the six `.out` files) | Tether has no function for it: #1028 |
 | TDP smoothing, spline and normalization (`checkTDP.py` after `histogram2d`) | Tether's TDP keeps the raw counts and the GUI has no smoothing: #1029 |
-| Two-Gaussian fit and closed-state fraction (Fig. 5c) | Tether has no histogram Gaussian fit: #1030 |
-| Fig. 5b, 5 uM WT tRNA column | no trace matrix in the archive |
+| Fig. 5b, 5 uM WT tRNA column, its efficiencies | no trace matrix in the archive (its Fig. 5c fraction is compared, below) |
 | Transition-synchronized histograms (Supp. Figs. S3-S6) | they need the Viterbi paths, which the archive does not hold (#757) |
 | Representative traces of Supp. Figs. S5a and S6a | same check as Figs. 2b-4e; reading the 30 MB second workbook adds time and no new case |
 | BLI and SEC data (Supp. Figs. S1, S2) | not smFRET; Tether has no function for them |
@@ -147,3 +146,32 @@ the dwell inversion and the column reader.
   merge or a release.
 - The tMAVEN error pairing is reported to the maintainer, who is the paper's author. Tether does
   not change; a correction of the published errors is a decision outside this repository.
+
+## Amendments
+
+### 2026-11-17 — Fig. 5c, the closed-state fraction, is compared (#1030, #1131)
+
+The two-Gaussian fit of Fig. 5c had no test because Tether had no fit. #1030 added it
+([ADR-0120](0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md)
+records the fit, the bin-sum area that the published fractions use, and the two Fig. 5c fractions
+that are not the notebook's). #1131 completes the comparison; the method above is unchanged.
+
+| Test | What it holds |
+| --- | --- |
+| `test_two_gaussian_fit_gives_the_closed_state_fraction` (weekly, 4 columns) | No tRNA, 13 uM WT tRNA, 5 uM and 13 uM tRNA-ΔNCCA, from Tether's efficiencies of their 400-frame windows: fraction and the notebook's error within 5e-5 of the notebook's printed values |
+| `test_5um_wt_trna_fraction_is_fitted_from_the_published_values_with_no_trace_data` (weekly) | 5 uM WT tRNA has no trace matrix, so the published Fig. 5b efficiencies are fitted, to the same limit |
+| `test_the_fig5c_fit_gives_back_the_fractions_of_two_built_gaussians` (required matrix) | Efficiencies at the quantiles of two Gaussians (0.1 and 0.4, widths 0.09 and 0.11, closed fractions 0.2, 0.35 and 0.5) through the same bins and starting point: the closed fraction within 5e-4 with the bin-sum area (measured 9.9e-5) and 5e-5 with the integral (8.6e-6) |
+| `test_a_198_bin_histogram_fails_the_fig5c_comparison` (weekly) | A deliberate error: one bin fewer than the notebook's 199 takes columns 0, 2 and 6 past the limit |
+
+**The limit.** 5e-5 is half a unit in the fourth decimal that Fig. 5c and the notebook print, so it
+is derived and not chosen. Measured on Linux, macOS and Windows (run 44165391097 of a temporary
+workflow on the #1131 branch; Python 3.12.13, NumPy 2.1.3, SciPy 1.18.0 of the base lock), the
+largest deviation is 4.5e-5 for a fraction (5 uM WT tRNA) and 4.7e-5 for an error (No tRNA)
+on each of the three: the three systems agree to 1.2e-9 in every fraction and error.
+
+**The deliberate error.** With 198 bins the fraction moves by 3.1e-4 (No tRNA) and 5.8e-4
+(5 uM tRNA-ΔNCCA) from the printed values and the error of 5 uM WT tRNA by 3.4e-4, so those three
+fail; 13 uM WT tRNA and 13 uM tRNA-ΔNCCA stay inside (6.1e-6 and 2.6e-5), which is why the test asks
+that some column fail and not each. Setting the module's bin count to 198 fails the weekly tests of
+columns 0 and 6 and the 5 uM WT tRNA test (Linux, 2026-11-17), and the deliberate-error test with
+them, since it checks that the count is the notebook's.
