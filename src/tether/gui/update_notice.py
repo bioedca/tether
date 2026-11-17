@@ -109,6 +109,9 @@ def _make_notice_class() -> type:
             self._started = False
             # What the bar carries: None, "question" or "notice".
             self._mode: str | None = None
+            # The answer given in this session, which holds even when it could not be
+            # saved. The administrator override still wins over it.
+            self._session_answer: bool | None = None
             self._shown_version: Version | None = None
             self._thread: threading.Thread | None = None
             self._result.connect(self._on_result)
@@ -162,8 +165,21 @@ def _make_notice_class() -> type:
         # --- state -------------------------------------------------------------
 
         def state(self) -> app_settings.UpdateCheckState:
-            """Return the effective consent, read from the store now."""
-            return app_settings.update_check_state(self._settings_file, self._override_file)
+            """Return the effective consent: the store, then this session's answer.
+
+            The store is read now. The administrator override wins over everything; an
+            answer given in this session wins over the stored one, so it holds even when
+            saving it failed.
+            """
+            stored = app_settings.update_check_state(self._settings_file, self._override_file)
+            if (
+                self._session_answer is None
+                or stored is app_settings.UpdateCheckState.DISABLED_BY_ADMINISTRATOR
+            ):
+                return stored
+            if self._session_answer:
+                return app_settings.UpdateCheckState.ALLOWED
+            return app_settings.UpdateCheckState.DECLINED
 
         @property
         def bar(self) -> Any:
@@ -212,8 +228,9 @@ def _make_notice_class() -> type:
                 self._start_check()
 
         def answer(self, allowed: bool) -> None:
-            """Store the user's answer to the question and act on it."""
-            self._store(allowed)
+            """Store the user's answer to the question and act on it for this session."""
+            self._session_answer = bool(allowed)
+            self._store(self._session_answer)
             if self._mode == "question":
                 self._mode = None
                 self._bar.hide()
@@ -236,10 +253,11 @@ def _make_notice_class() -> type:
             try:
                 app_settings.record_update_consent(allowed, self._settings_file)
             except OSError as exc:
-                # The session still follows the answer; only remembering it failed.
+                # The session still follows the answer (self._session_answer); only
+                # remembering it failed.
                 _LOG.info("could not store the update-check answer: %s", exc)
                 self._window.statusBar().showMessage(
-                    "Could not save the answer; Tether will ask again next time."
+                    "Could not save the answer. It applies until Tether closes."
                 )
 
         def _sync_action(self, state: app_settings.UpdateCheckState | None = None) -> None:

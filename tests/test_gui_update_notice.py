@@ -388,6 +388,83 @@ def test_the_menu_item_sits_before_about(window, store) -> None:
     assert notice.action.text() == "Check for new releases at startup"
 
 
+@pytest.mark.parametrize("stored", [None, False])
+def test_accepting_runs_the_check_even_when_the_answer_cannot_be_saved(
+    qtbot, window, store, monkeypatch: pytest.MonkeyPatch, stored: bool | None
+) -> None:
+    # Codex review on PR #1186: a failed save used to re-read the old answer, so
+    # accepting the question hid it and then never ran the check.
+    from tether.gui import app_settings
+
+    if stored is not None:
+        app_settings.record_update_consent(stored, settings_file=store[0])
+
+    def no_disk(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError("read-only home")
+
+    monkeypatch.setattr(app_settings, "record_update_consent", no_disk)
+    notice = _notice(window, store, check=lambda: _version("v99.0.0"))
+    notice.start()
+    notice.answer(True)
+    _settle(qtbot, notice)
+    qtbot.waitUntil(lambda: notice.notice_shown, timeout=2000)
+    assert notice.action.isChecked()
+
+
+def test_declining_wins_for_the_session_even_when_it_cannot_be_saved(
+    qtbot, window, store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The other half of the same finding: with *allowed* stored, a decline that cannot
+    # be saved must still untick the item and keep an in-flight result off the screen.
+    from tether.gui import app_settings
+
+    _allow(store)
+    release = threading.Event()
+
+    def slow():
+        release.wait(5)
+        return _version("v99.0.0")
+
+    def no_disk(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError("read-only home")
+
+    notice = _notice(window, store, check=slow)
+    notice.start()
+    monkeypatch.setattr(app_settings, "record_update_consent", no_disk)
+    notice.action.trigger()  # untick
+    release.set()
+    _settle(qtbot, notice)
+    assert not notice.action.isChecked()
+    assert not notice.bar.isVisible()
+
+
+def test_the_override_still_wins_over_an_answer_given_this_session(qtbot, window, store) -> None:
+    from tether.gui import app_settings
+
+    settings, override = store
+    notice = _notice(window, store, check=lambda: _version("v99.0.0"))
+    notice.start()
+    override.parent.mkdir(parents=True)
+    override.touch()
+    notice.answer(True)
+    _settle(qtbot, notice)
+    assert notice.state() is app_settings.UpdateCheckState.DISABLED_BY_ADMINISTRATOR
+    assert notice.check_thread is None
+    assert not notice.action.isEnabled()
+
+
+def test_the_test_suite_never_touches_the_real_consent_store() -> None:
+    # Codex review on PR #1186: on macOS the store lives under the home folder, which
+    # XDG_CONFIG_HOME and LOCALAPPDATA do not move. tests/conftest.py must isolate it on
+    # every system, or a test that records an answer overwrites the user's own.
+    import os
+
+    from tether.gui import app_settings
+
+    private = Path(os.environ["XDG_STATE_HOME"]).resolve()
+    assert app_settings.settings_path().resolve().is_relative_to(private)
+
+
 def test_a_failed_save_says_so_and_the_session_still_follows_the_answer(
     qtbot, window, store, monkeypatch: pytest.MonkeyPatch
 ) -> None:
