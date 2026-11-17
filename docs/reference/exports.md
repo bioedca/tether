@@ -510,9 +510,9 @@ so read it off the dataclass.
 
 ### Several series on one figure
 
-Every renderer also takes an ordered sequence of `(label, result)` pairs, the series of one
-composed plot (FR-PLOT). Each label must be a distinct, non-empty string. A sequence of one series
-draws exactly the figure of the bare result, byte for byte; its label is written only to the
+Every renderer also takes an ordered sequence of `(label, result)` pairs. These are the series of
+one composed plot (FR-PLOT). Each label must be a distinct, non-empty string. A sequence of one
+series draws exactly the figure of the bare result, byte for byte. Its label goes only to the
 provenance file.
 
 ```python
@@ -531,34 +531,37 @@ export_figure(
 )
 ```
 
-- **Overlay.** The 1-D histogram, the dwell survival, the transition probability, the state-number
-  chart (as grouped bars), the cross-correlation, the alpha shape and the elbow draw all series on
-  one axis, with a legend entry for each. Series take their colors from one cycle,
-  `SERIES_COLOR_CYCLE = "okabe-ito-4"`: blue, vermilion, bluish green and reddish purple of the
-  Okabe–Ito set, then the same four with the next line style (`--`, `-.`, `:`), 16 series in all.
-  `series_style(k)` returns the style of series `k`. Each of the four colors reaches 3 : 1 against
-  the white background, and every two of them stay apart under simulated protanopia, deuteranopia
-  and tritanopia, the check the [trace colors](gui-theme.md) pass.
+- **Overlay.** Seven renderers draw all series on one axis, with a legend entry for each: the 1-D
+  histogram, the dwell survival, the transition probability, the state-number chart (as grouped
+  bars), the cross-correlation, the alpha shape and the elbow. The series take their colors from
+  one cycle, `SERIES_COLOR_CYCLE = "okabe-ito-4"`. It has four colors of the Okabe–Ito set: blue,
+  vermilion, bluish green and reddish purple. After them come the same four with the next line
+  style (`--`, `-.`, `:`), so 16 series differ. `series_style(k)` returns the style of series `k`.
+  Each color reaches 3 : 1 against the white background. Every two colors also stay apart under
+  simulated protanopia, deuteranopia and tritanopia, the check the [trace colors](gui-theme.md)
+  pass.
 - **Small multiples.** Where one series would hide another, each series gets its own panel, titled
-  with its label: the time-vs-signal heatmap, the transition-density plot, the raw FRET cloud, the
-  transition-synchronized heatmap, the per-condition overlay and the anticorrelation raster. The
-  panels share their axes. The heatmaps and the raster share one color scale and one color bar, so
-  a color means the same value in every panel. In the per-condition panels, a condition keeps one
-  color in every panel.
-- **One grid.** Two series that are not on one grid are refused with a `ValueError` that names the
+  with its label. This applies to the time-vs-signal heatmap, the transition-density plot, the raw
+  FRET cloud, the transition-synchronized heatmap, the per-condition overlay and the
+  anticorrelation raster. The panels share their axes. The heatmaps and the raster share one color
+  scale and one color bar, so a color means the same value in every panel. In the per-condition
+  panels, a condition keeps its color in every panel.
+- **One grid.** Two series that are not on one grid are refused with a `ValueError`. It names the
   series, what differs and both values. Tether never resamples one series onto another. What must
-  agree depends on the plot: the bin edges, the value range and the density normalization of a
-  histogram, the frame time of anything with a time axis, the `init → final` pair of a
-  transition-probability histogram, the lags of a cross-correlation. A lever of the series (per-molecule
-  equal weight, for example) may differ.
+  agree depends on the plot. Examples are the bin edges, value range and density normalization of
+  a histogram, the frame time of anything with a time axis, the `init → final` pair of a
+  transition-probability histogram and the lags of a cross-correlation. A lever of the series, such
+  as per-molecule equal weight, may differ.
 
-`export_figure` writes one record per series to `parameters.series`, in figure order: its `label`,
-its `result` type, the `parameters` that result carries (its scalars, ranges and grid, never its
-data) and its `display` (color and line style, or its panel). It writes the layout to
-`parameters.display` (`series_layout`, and `series_cycle` or `series_color_scale`). To add your own
-keys to a series, such as the selection and its version, pass `parameters["series"]` as a list of
-one dict per series; a key that contradicts what was drawn raises `ValueError`. ADR-0127 records the
-choices.
+`export_figure` writes one record per series to `parameters.series`, in figure order. A record
+holds the `label`, the `result` type, the `parameters` that result carries and its `display`. The
+parameters are the scalars, ranges and grid of the result, never its data. The display is the color
+and line style, or the panel. The layout goes to `parameters.display` (`series_layout`, and
+`series_cycle` or `series_color_scale`).
+
+To add your own keys to a series, such as the selection
+and its version, pass `parameters["series"]` as a list of one dict per series. A key that
+contradicts what was drawn raises `ValueError`. ADR-0127 records these choices.
 
 <a id="provenance-sidecar"></a>
 
