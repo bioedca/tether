@@ -352,11 +352,11 @@ aperture would fall outside the frame in either channel are dropped rather than 
 
 Remember which colocalization rule ran. The default,
 [partner-in-both](glossary.md#partner-in-both-colocalization), keeps only the donor spots with
-an acceptor spot detected at the mapped position, so a movie with many dark or weak acceptors
+an acceptor spot at the mapped position. A movie with many dark or weak acceptors then
 gives far fewer molecules. [Donor-anchored](glossary.md#donor-anchored-colocalization) keeps
 *every* in-frame donor spot, so the count tracks donor detections alone. The
-`colocalization:` line of `tether extract` gives the count of both, and `--count-only` prints
-them without writing a project.
+`colocalization:` line of `tether extract` gives both counts. `--count-only` prints them
+without writing a project.
 
 > **Signature.** `/settings/extraction.attrs["profile_json"]` records every tunable verbatim
 > (`detection_mode`, `detection_threshold`, `min_separation`, `window`, `pair_tol`,
