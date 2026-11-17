@@ -400,6 +400,54 @@ def test_from_file_refuses_a_file_changed_while_read(
             bead_map_from_file(path)
 
 
+def test_from_file_refuses_a_file_replaced_with_same_size_and_mtime(
+    bead_image: np.ndarray, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file replaced between the hash and the read by another file of the same
+    size and modification time is refused: size and time alone cannot tell them
+    apart, the file identity (device and inode) can (#1174)."""
+    import os
+
+    import tether.imaging.beadmap as beadmap
+
+    path = tmp_path / "beads.tif"
+    tifffile.imwrite(path, np.stack([bead_image] * 2), photometric="minisblack")
+    other = np.stack([bead_image] * 2)
+    other[0, 0, 0] += 1  # other bytes, the same layout and so the same size
+    replacement = tmp_path / "other.tif"
+    tifffile.imwrite(replacement, other, photometric="minisblack")
+    assert replacement.stat().st_size == path.stat().st_size
+    assert beadmap._sha256_file(replacement) != beadmap._sha256_file(path)
+    real_hash = beadmap._sha256_file
+
+    def hash_then_replace(target: Path) -> str:
+        digest = real_hash(target)
+        stat = target.stat()
+        os.utime(replacement, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        os.replace(replacement, target)
+        after = target.stat()
+        assert (after.st_size, after.st_mtime_ns) == (stat.st_size, stat.st_mtime_ns)
+        return digest
+
+    monkeypatch.setattr(beadmap, "_sha256_file", hash_then_replace)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OverGateRegistrationWarning)
+        with pytest.raises(BeadMapError, match="changed while it was read"):
+            bead_map_from_file(path)
+
+
+def test_from_file_accepts_an_unchanged_file_twice_with_one_source_id(
+    bead_image: np.ndarray, tmp_path: Path
+) -> None:
+    """The identity check refuses nothing that did not change: two reads of one
+    file give one source id."""
+    path = tmp_path / "beads.tif"
+    tifffile.imwrite(path, np.stack([bead_image] * 2), photometric="minisblack")
+    first = _quiet_from_file(path)
+    second = _quiet_from_file(path)
+    assert first.source.source_id == second.source.source_id
+
+
 def test_from_file_refuses_an_rgb_image(tmp_path: Path) -> None:
     rgb = tmp_path / "rgb.tif"
     tifffile.imwrite(rgb, np.zeros((32, 64, 3), dtype=np.uint8), photometric="rgb")

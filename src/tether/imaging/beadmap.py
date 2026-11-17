@@ -229,10 +229,40 @@ def project_frames(
 ) -> np.ndarray:
     """Reduce a bead video ``(T, H, W)`` to one ``float64`` image ``(H, W)``.
 
-    ``frames`` is the 0-based half-open range ``(start, stop)`` (PRD §11.1);
-    ``None`` uses every frame. ``projection`` is ``"max"`` (the per-pixel maximum,
-    G02's default) or ``"mean"`` (the per-pixel mean). Raises [`BeadMapError`][]
-    for a range outside the video or an unknown projection.
+    The video is reduced one block of frames at a time, so a long or
+    memory-mapped video is never copied whole.
+
+    Parameters
+    ----------
+    video : numpy.ndarray
+        The bead video, shape ``(T, H, W)``, in camera counts. A memory map is
+        accepted and is read one block at a time.
+    frames : tuple of (int, int) or None, optional
+        The 0-based half-open frame range ``(start, stop)``, in frames
+        (PRD §11.1). ``stop`` is excluded. ``None`` (the default) uses every
+        frame.
+    projection : {"max", "mean"}, optional
+        ``"max"`` (the default, G02's choice) takes the per-pixel maximum over the
+        frames; ``"mean"`` takes the per-pixel mean.
+
+    Returns
+    -------
+    numpy.ndarray of float64
+        The projected image, shape ``(H, W)``, in camera counts.
+
+    Raises
+    ------
+    BeadMapError
+        If ``video`` is not 3-D, ``frames`` is not a pair of integers inside the
+        video, or ``projection`` is not ``"max"`` or ``"mean"``.
+
+    Examples
+    --------
+    >>> video = np.array([[[1, 5]], [[3, 2]], [[8, 0]]], dtype=np.uint16)
+    >>> project_frames(video)
+    array([[8., 5.]])
+    >>> project_frames(video, frames=(0, 2), projection="mean")
+    array([[2. , 3.5]])
     """
     if not isinstance(video, _TiffFrames):
         video = np.asarray(video)
@@ -305,9 +335,43 @@ def map_quality(
 ) -> MapQuality:
     """Compute the [`MapQuality`][] of a map from its matched pairs.
 
-    ``reference_points`` / ``moving_points`` are the matched donor / acceptor
-    ``(N, 2)`` ``[x, y]`` pairs the map was fitted on; ``field_shape`` is the
-    donor half's ``(H, W)``, the field the coverage is a fraction of.
+    Parameters
+    ----------
+    reg_map : RegistrationMap
+        The donor-to-acceptor map that was fitted on the pairs.
+    reference_points : numpy.ndarray
+        The matched donor positions, shape ``(N, 2)``, as ``[x, y]`` in pixels of
+        the donor half.
+    moving_points : numpy.ndarray
+        The matched acceptor positions, shape ``(N, 2)``, as ``[x, y]`` in pixels
+        of the acceptor half, in the same order as ``reference_points``.
+    field_shape : tuple of (int, int)
+        The donor half's ``(H, W)``, in pixels: the field that the coverage is a
+        fraction of.
+
+    Returns
+    -------
+    MapQuality
+        The RMS residual and the residual of each pair (in pixels), the number of
+        pairs, and the coverage (unitless, from 0 to 1).
+
+    Raises
+    ------
+    ValueError
+        If the two point arrays are not matching ``(N, 2)`` arrays, or
+        ``field_shape`` is not positive.
+
+    Examples
+    --------
+    A 3 x 3 grid of pairs, each moved by one pixel, spans a 50 x 50 pixel square
+    of a 100 x 100 pixel field:
+
+    >>> from tether.imaging.calibrate import fit_registration_map
+    >>> grid = np.array([[x, y] for x in (10, 35, 60) for y in (10, 35, 60)], dtype=float)
+    >>> reg_map = fit_registration_map(grid, grid + 1.0, reference_channel=0, moving_channel=1)
+    >>> quality = map_quality(reg_map, grid, grid + 1.0, field_shape=(100, 100))
+    >>> quality.n_pairs, round(quality.coverage, 6), round(quality.rms_residual, 6)
+    (9, 0.25, 0.0)
     """
     ref = np.atleast_2d(np.asarray(reference_points, dtype=np.float64))
     mov = np.atleast_2d(np.asarray(moving_points, dtype=np.float64))
@@ -367,30 +431,60 @@ def bead_map(
 
     Parameters
     ----------
-    data:
+    data : numpy.ndarray
         One image ``(H, W)`` (used as supplied) or a bead video ``(T, H, W)``
-        (reduced by [`project_frames`][] with ``frames`` and ``projection``).
-        The full camera frame: it is split left/right into the two channels.
-    source_id:
+        (reduced by [`project_frames`][] with ``frames`` and ``projection``), in
+        camera counts. The full camera frame: it is split left/right into the
+        two channels.
+    source_id : str
         The identity of the source, stored with the map (for a file,
         [`bead_map_from_file`][] uses ``"sha256:<hex>"`` of its bytes).
-    frames, projection:
-        For a video only: the 0-based half-open frame range (``None`` = all) and
-        ``"max"`` or ``"mean"``. Passing either with an image is an error.
-    donor_side:
-        ``"left"`` or ``"right"`` -- which half of the frame is the donor.
-    detection_mode, detection_threshold, min_separation:
-        Spot detection, as in ``tether extract`` (PRD §11.2).
-    prealign, prealign_upsample, prealign_low_sigma, prealign_high_sigma, pair_tol:
-        The prealign and the pairing tolerance, as in ``tether extract``.
-    min_bead_spots:
-        The least number of bead spots each half must have (PRD §11.2,
+    frames : tuple of (int, int) or None, optional
+        For a video only: the 0-based half-open frame range, in frames
+        (``None``, the default, uses every frame). Passing it with an image is
+        an error.
+    projection : {"max", "mean"}, optional
+        For a video only: the projection (default ``"max"``). Passing
+        ``"mean"`` with an image is an error.
+    donor_side : {"left", "right"}, optional
+        Which half of the frame is the donor (default ``"left"``).
+    detection_mode : str, optional
+        The spot detector, as in ``tether extract`` (PRD §11.2; default
+        ``"wavelet"``).
+    detection_threshold : float or None, optional
+        The detection threshold, unitless, on the detection image normalized to
+        ``[0, 1]`` (PRD §11.2). ``None`` (the default) uses the mode's own value.
+    min_separation : float or None, optional
+        The least distance between two spots, in pixels (PRD §11.2). ``None``
+        (the default) uses the mode's own value.
+    prealign : {"translation", "similarity"}, optional
+        The prealign that seeds the pairing, as in ``tether extract`` (default
+        ``"translation"``).
+    prealign_upsample : int, optional
+        The phase-correlation upsampling factor (default 10): the prealign is
+        resolved to ``1 / prealign_upsample`` pixels.
+    prealign_low_sigma : float, optional
+        The low Gaussian sigma of the similarity prealign's band-pass, in pixels
+        (default 1.0).
+    prealign_high_sigma : float, optional
+        The high Gaussian sigma of the similarity prealign's band-pass, in pixels
+        (default 20.0).
+    pair_tol : float, optional
+        The largest distance between a prealigned donor spot and its acceptor
+        partner, in pixels (default 2.0).
+    min_bead_spots : int, optional
+        The least number of bead spots each half must have (PRD §11.2, default
         [`DEFAULT_MIN_BEAD_SPOTS`][]). Under it the source is refused.
-    gate_px, on_over_gate:
-        The RMS gate and its batch policy
-        ([`tether.imaging.calibrate.fit_registration_map`][]).
-    app_version, bead_file:
-        Provenance stamps.
+    gate_px : float, optional
+        The RMS gate on the fit residual, in pixels (default
+        [`DEFAULT_RMS_GATE_PX`][tether.imaging.calibrate.DEFAULT_RMS_GATE_PX];
+        [`tether.imaging.calibrate.fit_registration_map`][]).
+    on_over_gate : {"warn", "fail"}, optional
+        What a map over the gate does (default ``"warn"``).
+    app_version : str or None, optional
+        The Tether version stamped in the map's provenance.
+    bead_file : str or None, optional
+        The bead file name stamped in the map's provenance.
 
     Returns
     -------
@@ -405,6 +499,16 @@ def bead_map(
         A bad shape, frame range or projection; fewer than ``min_bead_spots``
         spots in either half (the message gives both counts and the limit); or
         fewer than two matched pairs.
+
+    Examples
+    --------
+    With ``image`` one bead frame ``(H, W)``, donor half on the left:
+
+    >>> result = bead_map(image, source_id="beads-2026-11-17")
+    >>> result.source.kind
+    'image'
+    >>> result.quality.n_pairs == result.registration_map.n_control_points
+    True
     """
     if int(min_bead_spots) != min_bead_spots or min_bead_spots < 1:
         raise BeadMapError(f"min_bead_spots must be a positive integer, got {min_bead_spots}")
@@ -546,14 +650,52 @@ def bead_map_from_file(
     from other files (a multi-file OME-TIFF) is refused, because the source id
     names this one file only. A TIFF of another layout (an RGB image, a multichannel
     or a focus stack: any series axes but ``YX``, ``IYX``, ``TYX`` or ``QYX``) is
-    refused. Other keyword arguments go to [`bead_map`][].
+    refused. The file is checked again after it is read: if its identity (device
+    and inode), its size or its modification time differ from those before the
+    hash, it is refused, because the source id would name other bytes.
+
+    Parameters
+    ----------
+    path : str or os.PathLike
+        The bead TIFF.
+    frames : tuple of (int, int) or None, optional
+        For a video only: the 0-based half-open frame range, in frames
+        (``None``, the default, uses every frame).
+    projection : {"max", "mean"}, optional
+        For a video only: the projection (default ``"max"``).
+    **kwargs
+        Other keyword arguments of [`bead_map`][], such as ``donor_side`` or
+        ``pair_tol``.
+
+    Returns
+    -------
+    BeadMapResult
+        As [`bead_map`][] returns it, with the source id ``"sha256:<hex>"`` and
+        ``bead_file`` set to the file name.
+
+    Raises
+    ------
+    BeadMapError
+        If the file is missing, is not a readable TIFF, has another layout, has
+        pages in other files, or changed while it was read; and for every error
+        of [`bead_map`][].
+
+    Examples
+    --------
+    With ``beads.tif`` a bead video of at least 50 frames:
+
+    >>> result = bead_map_from_file("beads.tif", frames=(0, 50))
+    >>> result.source.kind, result.source.frame_start, result.source.frame_stop
+    ('video', 0, 50)
+    >>> result.source.source_id.startswith("sha256:")
+    True
     """
     import tifffile  # noqa: PLC0415
 
     path = Path(path)
     if not path.is_file():
         raise BeadMapError(f"bead file not found: {path}")
-    before = path.stat()
+    before = _file_identity(path.stat())
     source_id = f"sha256:{_sha256_file(path)}"
     try:
         tif = tifffile.TiffFile(path)
@@ -606,7 +748,15 @@ def bead_map_from_file(
             )
     # The memory map is read lazily, so check after the projection: a file replaced
     # since it was hashed would make the source id name bytes that were not used.
-    after = path.stat()
-    if (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+    # Size and modification time alone miss a replacement that copies both, so the
+    # file identity (device and inode) is compared too.
+    if _file_identity(path.stat()) != before:
         raise BeadMapError(f"{path.name} changed while it was read; run it again")
     return result
+
+
+def _file_identity(stat: os.stat_result) -> tuple[int, int, int, int]:
+    """Return the fields that say a path still names the same unchanged file."""
+    # On a file system with no inode numbers both st_ino values are 0 and the
+    # comparison falls back to size and modification time.
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
