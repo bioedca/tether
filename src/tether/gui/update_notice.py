@@ -343,10 +343,11 @@ def install_update_notice(window: Any, *, help_menu: Any | None = None, **kwargs
     """Build the notice and start it once the event loop runs; return the notice.
 
     The start is queued with a zero-delay timer, so building the window and showing it are
-    never held up by the consent read, let alone by the network.
+    never held up by the consent read, let alone by the network. The timer is bound to the
+    notice, so a window deleted before the event loop runs takes the queued start with it.
     """
     from pyqtgraph.Qt import QtCore
 
     notice = UpdateNotice(window, help_menu=help_menu, **kwargs)
-    QtCore.QTimer.singleShot(0, notice.start)
+    QtCore.QTimer.singleShot(0, notice, notice.start)
     return notice

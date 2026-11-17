@@ -78,7 +78,7 @@ retired = 6
 
 [pages."docs/install.md"]
 kind = "procedure"
-long_share = 27.3
+long_share = 25.0
 semicolons = 17
 long_paragraphs = 0
 retired = 0

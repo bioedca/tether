@@ -186,6 +186,26 @@ def test_the_real_shell_makes_no_request_until_asked(qtbot, no_network) -> None:
         shell.close()
 
 
+def test_a_window_deleted_before_the_loop_runs_drops_the_queued_start(
+    qtbot, store, no_network
+) -> None:
+    """The queued start goes with the window, so it never runs on a deleted notice."""
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    from tether.gui.update_notice import install_update_notice
+
+    settings, override = store
+    win = QtWidgets.QMainWindow()
+    menu = win.menuBar().addMenu("&Help")
+    install_update_notice(win, help_menu=menu, settings_file=settings, override_file=override)
+    win.deleteLater()
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    # The zero-delay timer's moment passes. Had it outlived the notice, its start would
+    # raise on the deleted C++ object here, and pytest-qt would fail the test.
+    qtbot.wait(20)
+    assert no_network.attempts == []
+
+
 # --- allowed -----------------------------------------------------------------------
 
 
