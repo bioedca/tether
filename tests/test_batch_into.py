@@ -475,3 +475,120 @@ def test_a_movie_of_a_size_the_project_does_not_hold_is_not_read(
     assert movie_in_project(project, first) is not None
     assert hashed == [first]
     assert describe_append(tmp_path / "absent.tether", first, first=False) == "will be appended"
+
+
+# --- the rest of the runner's paths ----------------------------------------------
+
+
+def test_an_unknown_policy_is_refused(tmp_path: Path) -> None:
+    project = tmp_path / "P.tether"
+    with pytest.raises(ValueError, match="policy must be one of"):
+        run_batch_into(_into_jobs(project, tmp_path / "m.tif"), project, policy="maybe")
+
+
+def test_progress_hears_of_each_movie_and_the_project_stages(tmp_path: Path, capsys) -> None:
+    data = _folder(tmp_path, n=2)
+    project = tmp_path / "P.tether"
+
+    assert main(["batch", str(data), "--into", str(project), "--no-idealize"]) == 0
+
+    err = capsys.readouterr().err
+    assert f"tether batch: 2 movie(s) into {project}" in err
+    assert "[1/2] movie_000: ok" in err
+    assert "[2/2] movie_001: ok" in err
+    assert "tether batch: correct done" in err
+
+
+def test_a_low_confidence_movie_is_kept_with_a_flag_under_warn(tmp_path: Path) -> None:
+    warped = tmp_path / "warp.tif"
+    helpers._write_movie(warped, helpers._DONOR_CENTERS, helpers._OVER_GATE_ACCEPTOR)
+    project = tmp_path / "P.tether"
+
+    summary = run_batch_into(
+        _into_jobs(project, warped),
+        project,
+        extract_options=ExtractOptions(rms_gate=0.2),
+        idealize=False,
+    )
+
+    extract = summary.results[0].stages[STAGE_EXTRACT]
+    assert extract.status == STATUS_DONE
+    assert extract.detail.endswith("low-confidence registration (flagged)")
+
+
+def test_a_project_from_a_newer_tether_takes_no_movie(tmp_path: Path, capsys) -> None:
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    extract_movie(movie, project, options=ExtractOptions(window=helpers._WINDOW))
+    with h5py.File(project, "r+") as f:
+        f.attrs["schema_version"] = 999
+    later = _movie(tmp_path, "m1.tif", 360.0)
+    before = project.read_bytes()
+
+    summary = run_batch_into(_into_jobs(project, later), project, idealize=False)
+
+    stages = summary.results[0].stages
+    assert stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert project.read_bytes() == before
+    assert describe_append(project, later, first=True).startswith("will fail:")
+
+
+def test_a_project_pass_that_cannot_read_the_project_fails_its_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tether.project.batch as batch_module  # noqa: PLC0415
+
+    def unreadable(_project):
+        raise OSError("the project went away")
+
+    monkeypatch.setattr(batch_module, "_movies_digest", unreadable)
+    project = tmp_path / "P.tether"
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+
+    summary = run_batch_into(_into_jobs(project, movie), project, idealize=False)
+
+    correct = summary.results[0].stages[STAGE_CORRECT]
+    assert correct.status == STATUS_FAILED
+    assert "the project went away" in str(correct.error)
+    assert summary.n_failed == 1
+
+
+def test_a_run_where_every_movie_fails_touches_no_project(tmp_path: Path) -> None:
+    bad = tmp_path / "m0.tif"
+    bad.write_bytes(b"not a movie")
+    project = tmp_path / "P.tether"
+
+    summary = run_batch_into(_into_jobs(project, bad), project, idealize=False)
+
+    assert summary.results[0].stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert not project.exists()
+
+
+@pytest.mark.parametrize(
+    ("idealize", "prepare", "expected"),
+    [
+        (False, None, "no movie to append; correct complete: will be skipped"),
+        (True, None, "no movie to append; idealize will run over the whole project"),
+        (
+            True,
+            "stale",
+            "no movie to append; correct and idealize will run over the whole project",
+        ),
+    ],
+)
+def test_a_dry_run_with_nothing_to_append_reads_the_project_checkpoint(
+    tmp_path: Path, idealize: bool, prepare: str | None, expected: str
+) -> None:
+    from tether.project.batch_inputs import describe_project_stages  # noqa: PLC0415
+
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    run(BatchRequest(movies=(str(movie),), into=str(project), idealize=False))
+    if prepare == "stale":
+        with h5py.File(project, "r+") as f:
+            f["settings/batch"].attrs["correct_movies"] = "another set of movies"
+
+    assert describe_project_stages(project, idealize=idealize, appending=False) == expected
+    absent = tmp_path / "absent.tether"
+    assert describe_project_stages(absent, idealize=False, appending=False).startswith("will fail:")
