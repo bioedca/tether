@@ -14,6 +14,9 @@ schema.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("numpy")
@@ -23,11 +26,16 @@ import numpy as np  # noqa: E402
 
 from _analysis_store import MEANS, build_store_with_model  # noqa: E402
 from tether.analysis import (  # noqa: E402
+    DEFAULT_TDP_INTERP_RES,
+    DEFAULT_TDP_NORMALIZE,
     DEFAULT_TDP_NSKIP,
     DEFAULT_TDP_SIGNAL_BINS,
     DEFAULT_TDP_SIGNAL_RANGE,
+    DEFAULT_TDP_SMOOTH,
+    SmoothedTransitionDensity,
     TransitionDensityPlot,
     population_transition_density,
+    smooth_transition_density,
     transition_density,
 )
 
@@ -448,3 +456,163 @@ def test_windowed_states_reads_state_only(tmp_path) -> None:
     only0 = windowed_states(proj, "vbconhmm", [keys[0]], include_rejected=True)
     assert len(only0) == 1
     np.testing.assert_array_equal(only0[0], s[0])
+
+
+# --- the smoothed view (#1029) ----------------------------------------------------------------
+
+_CHECKTDP = Path(__file__).parent / "fixtures" / "campos_chavez_2024" / "checkTDP.py"
+
+
+def _checktdp_constants() -> dict[str, object]:
+    """The module-level literal assignments of the published ``checkTDP.py`` (read, not run)."""
+    tree = ast.parse(_CHECKTDP.read_text(encoding="utf-8"))
+    out: dict[str, object] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name):
+                try:
+                    out[target.id] = ast.literal_eval(node.value)
+                except ValueError:
+                    continue
+    return out
+
+
+def _tmaven_gen_histogram_no_interp(d1, d2, *, nbins, lo, hi, smooth):
+    """tMAVEN ``data_tdp.py`` ``gen_histogram`` at its own default ``hist_interp_res = 0``.
+
+    Ported verbatim but for the interpolation branch, which that default skips.
+    """
+    from scipy.ndimage import gaussian_filter
+
+    x = np.linspace(lo, hi, nbins)
+    z, _hx, _hy = np.histogram2d(d1, d2, bins=[x.size, x.size], range=[[x.min(), x.max()]] * 2)
+    z = gaussian_filter(z, smooth)
+    z /= z.max()
+    return z
+
+
+def _random_tdp(seed: int = 7, nbins: int = 50) -> TransitionDensityPlot:
+    rng = np.random.default_rng(seed)
+    initial = rng.choice([0.2, 0.5, 0.8], size=300) + rng.normal(0, 0.05, size=300)
+    final = rng.choice([0.2, 0.5, 0.8], size=300) + rng.normal(0, 0.05, size=300)
+    chunks = [np.array([a, b]) for a, b in zip(initial, final, strict=True)]
+    return transition_density(chunks, nskip=1, signal_bins=nbins)
+
+
+def test_smoothing_defaults_are_the_published_checktdp_settings() -> None:
+    published = _checktdp_constants()
+    assert (published["hist_smoothx"], published["hist_smoothy"]) == DEFAULT_TDP_SMOOTH
+    assert published["hist_interp_res"] == DEFAULT_TDP_INTERP_RES
+    assert published["hist_normalize"] is DEFAULT_TDP_NORMALIZE
+    assert (published["fret_min"], published["fret_max"]) == DEFAULT_TDP_SIGNAL_RANGE
+
+
+def test_smoothed_view_shape_grid_and_peak() -> None:
+    tdp = _random_tdp()
+    view = smooth_transition_density(tdp)
+    assert isinstance(view, SmoothedTransitionDensity)
+    n = DEFAULT_TDP_INTERP_RES
+    assert view.values.shape == (n, n)
+    lo, hi = DEFAULT_TDP_SIGNAL_RANGE
+    np.testing.assert_array_equal(view.grid, np.linspace(lo, hi, n))
+    assert view.initial is view.grid and view.final is view.grid
+    assert view.signal_range == tdp.signal_range
+    assert view.values.max() == 1.0
+    assert view.values.min() >= 0.0  # negative spline overshoot is clipped
+    assert view.smooth == DEFAULT_TDP_SMOOTH
+    assert view.interp_res == n and view.normalized
+
+
+def test_smoothed_view_leaves_the_counts_unchanged() -> None:
+    # NFR-REPRO: the counts stay the stored result; the smoothing is a view of them.
+    tdp = _random_tdp()
+    before = tdp.counts.copy()
+    view = smooth_transition_density(tdp)
+    np.testing.assert_array_equal(tdp.counts, before)
+    assert view.source is tdp
+    assert not np.shares_memory(view.values, tdp.counts)
+
+
+def test_smoothed_view_keeps_the_initial_final_orientation() -> None:
+    # 0.2 -> 0.8 forty times, 0.8 -> 0.2 once: the view's peak is at (initial 0.2, final 0.8).
+    chunks = [np.array([0.2, 0.8])] * 40 + [np.array([0.8, 0.2])]
+    view = smooth_transition_density(transition_density(chunks, nskip=1))
+    i, j = np.unravel_index(np.argmax(view.values), view.values.shape)
+    assert abs(view.grid[i] - 0.2) < 0.02
+    assert abs(view.grid[j] - 0.8) < 0.02
+
+
+def test_no_interpolation_is_tmavens_default_view() -> None:
+    # interp_res = 0 keeps the bin-centre grid; on that grid the view is tMAVEN's own
+    # gen_histogram at its shipped default (hist_interp_res = 0, sigma 1, normalized).
+    rng = np.random.default_rng(3)
+    d1 = rng.uniform(-0.2, 1.2, 400)
+    d2 = rng.uniform(-0.2, 1.2, 400)
+    tdp = transition_density(
+        [np.array([a, b]) for a, b in zip(d1, d2, strict=True)],
+        nskip=1,
+        signal_bins=DEFAULT_TDP_SIGNAL_BINS,
+    )
+    view = smooth_transition_density(tdp, interp_res=0)
+    lo, hi = DEFAULT_TDP_SIGNAL_RANGE
+    ref = _tmaven_gen_histogram_no_interp(
+        d1, d2, nbins=DEFAULT_TDP_SIGNAL_BINS, lo=lo, hi=hi, smooth=DEFAULT_TDP_SMOOTH
+    )
+    np.testing.assert_array_equal(view.values, ref)
+    np.testing.assert_array_equal(view.grid, tdp.signal_centers)
+
+
+def test_every_step_off_returns_the_counts() -> None:
+    tdp = _random_tdp()
+    view = smooth_transition_density(tdp, smooth=(0.0, 0.0), interp_res=0, normalize=False)
+    np.testing.assert_array_equal(view.values, tdp.counts)
+
+
+def test_smoothed_view_of_an_empty_tdp_is_zero_not_nan() -> None:
+    tdp = transition_density([np.full(6, 0.5)])
+    assert tdp.n_transitions == 0
+    view = smooth_transition_density(tdp)
+    assert np.all(view.values == 0.0)
+
+
+def test_view_is_the_clipped_spline_through_the_filtered_counts() -> None:
+    # Step 2: an interpolating bicubic spline through the filtered counts at the bin
+    # centres, evaluated end to end on the signal range, negative values set to 0.
+    from scipy.interpolate import RectBivariateSpline
+    from scipy.ndimage import gaussian_filter
+
+    tdp = _random_tdp()
+    filtered = gaussian_filter(tdp.counts, DEFAULT_TDP_SMOOTH)
+    spline = RectBivariateSpline(tdp.signal_centers, tdp.signal_centers, filtered)
+    # Interpolating (s = 0): the spline passes through every filtered count.
+    np.testing.assert_allclose(
+        spline(tdp.signal_centers, tdp.signal_centers), filtered, rtol=0, atol=1e-9
+    )
+    view = smooth_transition_density(tdp, normalize=False, interp_res=101)
+    lo, hi = tdp.signal_range
+    assert view.grid[0] == lo and view.grid[-1] == hi
+    expected = np.clip(spline(view.grid, view.grid), 0.0, None)
+    np.testing.assert_array_equal(view.values, expected)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"smooth": (-1.0, 1.0)}, "smooth"),
+        ({"smooth": (1.0, float("nan"))}, "smooth"),
+        ({"interp_res": 1}, "interp_res"),
+        ({"interp_res": -5}, "interp_res"),
+    ],
+)
+def test_smoothed_view_rejects_bad_settings(kwargs, match) -> None:
+    with pytest.raises(ValueError, match=match):
+        smooth_transition_density(_random_tdp(), **kwargs)
+
+
+def test_spline_needs_four_bins() -> None:
+    tdp = transition_density([np.array([0.2, 0.8])], nskip=1, signal_bins=3)
+    with pytest.raises(ValueError, match="signal_bins >= 4"):
+        smooth_transition_density(tdp)
+    # Without interpolation three bins are fine.
+    assert smooth_transition_density(tdp, interp_res=0).values.shape == (3, 3)

@@ -1,6 +1,8 @@
 # 0015 — Donor-anchored colocalization: keep dark/low-FRET acceptors, apply the map in the coordinate domain
 
-- **Status:** accepted
+- **Status:** accepted; molecule anchor superseded by [ADR-0127](0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)
+  (partner in both is the default of a new extraction, donor-anchored an option; the
+  coordinate-domain map, the crop box and the strict gate stand)
 - **Date:** 2026-06-28
 - **Deciders:** bioedca
 - **PRD anchor:** §7.1 (FR-EXTRACT; "Colocalization **shall** be donor-anchored"), Appendix E Stages 11–13, §9 M1, §11.2 (colocalization-distance row)
