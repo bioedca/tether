@@ -9,8 +9,9 @@ defaults, and the extraction options of an extraction profile
 [`tether.project.batch.run_batch`][] with the
 [`ExtractOptions`][tether.project.extract.ExtractOptions] those options name. [`plan`][] builds
 the same jobs and says what a run would do with each, writing nothing and reading no movie
-except to hash one under ``into`` (``tether batch --dry-run``). A movie argument may be a file, a folder or a pattern, and each
-movie's output name follows the rule of [`tether.project.batch_inputs.output_stems`][] (#653).
+except to hash one under ``into`` (``tether batch --dry-run``). A movie argument may be a
+file, a folder or a pattern, and each movie's output name follows the rule of
+[`tether.project.batch_inputs.output_stems`][] (#653).
 With ``into``, every movie goes into that one project instead
 ([`tether.project.batch.run_batch_into`][], #1151).
 The core is imported when the command runs, not when this module is imported (ADR-0100).
