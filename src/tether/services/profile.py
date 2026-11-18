@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The extraction profile: every extraction option, saved as one file (#349, ADR-0129).
 
-An *extraction profile* holds the eighteen fields of
+An *extraction profile* holds the nineteen fields of
 [`ExtractOptions`][tether.project.extract.ExtractOptions], so a run that names one is fully
-described by it. Seventeen are one value each; the channel layout (#908) is four fields,
+described by it. Eighteen are one value each; the channel layout (#908) is four fields,
 ``channel_layout`` (the kind) and ``channel_layout_donor``, ``channel_layout_donor_rect`` and
 ``channel_layout_acceptor_rect``, because a request field holds one plain value.
 ``tether extract --profile`` and ``tether batch --profile`` read one, and
@@ -112,6 +112,7 @@ class ExtractionFields:
     rms_gate: float = 0.5
     window: int = 21
     coloc_distance: float = 3.0
+    colocalization: str = "partner-in-both"  # = DEFAULT_COLOCALIZATION_POLICY (tested)
     disk_radius: float = 3.0
     ring_inner: float = 6.0
     ring_outer: float = 8.0

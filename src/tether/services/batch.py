@@ -41,10 +41,12 @@ class BatchRequest(ExtractionFields, Request):
     The fields are the options of ``tether batch`` (``docs/cli.md``) with the same
     defaults, and the
     [`ExtractionFields`][tether.services.profile.ExtractionFields] applied to every movie,
-    which ``tether batch --profile`` sets (none of them has a flag of its own). Each of
-    ``movies`` is a file, a folder or a pattern; ``recursive`` makes a folder include its
-    sub-folders. Exactly one of ``out_dir`` (a project for each movie) and ``into`` (every
-    movie appended to that one project, #1151) is given. Two flags are stated positively:
+    which ``tether batch --profile`` sets. Only ``colocalization``, the colocalization rule
+    of every movie's extraction (ADR-0127), also has a flag of its own,
+    ``--colocalization``. Each of ``movies`` is a file, a folder or a pattern;
+    ``recursive`` makes a folder include its sub-folders. Exactly one of ``out_dir`` (a
+    project for each movie) and ``into`` (every movie appended to that one project, #1151)
+    is given. Two flags are stated positively:
     ``--no-idealize`` is ``idealize=False`` and ``--no-defer`` is
     ``defer_if_unavailable=False``. ``None`` in a supervision field means the
     [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
