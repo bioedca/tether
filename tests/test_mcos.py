@@ -6,7 +6,8 @@ Locks :func:`tether.io.mcos._decode_matlab_value` and ``_decode_matlab_chars`` â
 recovery path for the ``TIRFdata`` ``Channel.FilePath = {dir, {movie}}`` embedded
 movie reference â€” against a synthetic HDF5 file (no MCOS ``FileWrapper__`` metadata
 needed: the decoder is pure over ``(file, node)``), plus :meth:`McosDecoder.property_value`
-on the committed real-data fixture.
+on the committed real-data fixture, and the name-table offset of MCOS metadata versions 3
+and 4 (#874).
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ import pytest
 
 pytest.importorskip("h5py")
 pytest.importorskip("numpy")
+
+import hashlib  # noqa: E402
 
 import h5py  # noqa: E402  (guarded by importorskip above)
 import numpy as np  # noqa: E402
@@ -181,3 +184,74 @@ def test_property_value_absent_property_is_none(fixture_channels) -> None:
     # FilePath is dropped when the fixture is slimmed, and a bogus name is unknown.
     assert all(decoder.property_value(oid, "FilePath") is None for oid in oids)
     assert all(decoder.property_value(oid, "NoSuchField") is None for oid in oids)
+
+
+# --- the name table starts at byte 40 in metadata versions 3 and 4 (#874) ------
+
+#: The field-name table of the committed version 4 fixture, as ``id:name`` lines in id order.
+#: Pinned so that a change to where the decoder reads the table cannot change the ids.
+_FIXTURE_NAME_COUNT = 202
+_FIXTURE_NAME_TABLE_SHA256 = "1bc949dc83651d0c34dcb8ff771efc989ab1afa5a585440cfbe255b2c32bb2a6"
+
+
+def _fixture_metadata(f: h5py.File) -> tuple[np.ndarray, np.ndarray]:
+    cells = np.asarray(f["#subsystem#"]["MCOS"][()]).reshape(-1)
+    return cells, np.asarray(f[cells[0]][()]).reshape(-1).astype(np.uint8)
+
+
+def _as_version_3(meta: np.ndarray) -> np.ndarray:
+    """A copy of version 4 metadata with the version 3 header: version word 3, bytes 32-39 zero.
+
+    That is how the public Deep-LASI files of Zenodo record 7561162 differ from the fixture
+    in the part the decoder reads.
+    """
+    v3 = meta.copy()
+    v3[:4] = np.array([3, 0, 0, 0], dtype=np.uint8)
+    v3[32:40] = 0
+    return v3
+
+
+def _name_table_digest(decoder: McosDecoder) -> str:
+    lines = (f"{i}:{name}" for name, i in sorted(decoder._field_id.items(), key=lambda kv: kv[1]))
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def _channel_values(f: h5py.File, decoder: McosDecoder) -> list[tuple[object, ...]]:
+    values = []
+    for ref in np.asarray(f["temp"]["Channel"][()]).reshape(-1):
+        if ref:
+            oid = object_reference_id(np.asarray(f[ref][()]).reshape(-1))
+            values.append(
+                (
+                    decoder.property_scalar(oid, "ChannelID"),
+                    decoder.property_value(oid, "ChannelColor"),
+                    decoder.property_scalar(oid, "DetectionThreshold"),
+                )
+            )
+    return values
+
+
+def test_version_4_fixture_keeps_its_field_ids() -> None:
+    with h5py.File(FIXTURE, "r") as f:
+        cells, meta = _fixture_metadata(f)
+        assert int(meta[:4].view("<u4")[0]) == 4, "the committed fixture is version 4"
+        decoder = McosDecoder(f, cells, meta)
+    assert len(decoder._field_id) == _FIXTURE_NAME_COUNT
+    assert decoder._field_id["ChannelID"] == 1
+    assert decoder._field_id["ChannelColor"] == 2
+    assert _name_table_digest(decoder) == _FIXTURE_NAME_TABLE_SHA256
+
+
+def test_version_3_header_reads_the_same_name_table() -> None:
+    # Regression for #874: in version 3 the two header words at bytes 32-39 are zero. The
+    # decoder used to skip two NUL-separated "tokens" after byte 32, so on a version 3 file
+    # it skipped the first two real names and refused the table ("has 200 names, header
+    # declares 202").
+    with h5py.File(FIXTURE, "r") as f:
+        cells, meta = _fixture_metadata(f)
+        expected = _channel_values(f, McosDecoder(f, cells, meta))
+        decoder = McosDecoder(f, cells, _as_version_3(meta))
+        assert _channel_values(f, decoder) == expected
+    assert {colour for _, colour, _ in expected} == {"G", "R"}
+    assert len(decoder._field_id) == _FIXTURE_NAME_COUNT
+    assert _name_table_digest(decoder) == _FIXTURE_NAME_TABLE_SHA256

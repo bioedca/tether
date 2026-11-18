@@ -63,6 +63,10 @@ underneath.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
 
+The curation keys act only in the **Curate and correct** section. In **Prepare** and
+**Analyze** they change no molecule. There, **Help → Keyboard shortcuts…** lists no key. To
+curate again, choose **View → Section → Curate and correct**.
+
 The menu commands use your operating system's standard keys. Each key includes a modifier
 key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
 where this list shows Ctrl:
