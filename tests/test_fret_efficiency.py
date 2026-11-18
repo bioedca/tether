@@ -118,14 +118,17 @@ def test_corrected_fret_returns_float64_matching_shape() -> None:
 
 
 _REPO = Path(__file__).resolve().parents[1]
-#: The three places #686 corrected. Each once promised that E is never NaN.
+#: The places #686 and #834 corrected. Each once promised that E is never NaN.
 _NAN_CLAIM_PAGES = (
     _REPO / "README.md",
     _REPO / "docs" / "glossary.md",
     _REPO / "src" / "tether" / "project" / "correct.py",
+    _REPO / "docs" / "PRD.md",
+    _REPO / "docs" / "validation.md",
 )
 _NEVER_NAN = re.compile(
-    r"never\s+emits?\s+a\s+NaN(?!\s+factor)|NaN\s+corrected[- ]E|E\s+is\s+never\s+NaN",
+    r"never\s+emits?\s+a\s+NaN(?!\s+factor)|NaN\s+corrected[- ]E|E\s+is\s+never\s+NaN"
+    r"|apparent\s+E,?\s+never\s+NaN|never\s+a\s+NaN\s+E\b",
     re.IGNORECASE,
 )
 
