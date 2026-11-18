@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ import pytest
 
 from tether import __version__
 from tether.cli import build_parser, main
+from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 
 
 def test_version_flag_reports_git_version(capsys) -> None:
@@ -94,7 +96,7 @@ def _capture_run_batch(monkeypatch):
         captured["jobs"] = list(jobs)
         captured["kwargs"] = kwargs
         kwargs["log"].event(movie="capture", stage="batch", status="done")
-        return SimpleNamespace(format_report=lambda: "(report)", n_failed=0)
+        return SimpleNamespace(format_report=lambda: "(report)", n_failed=0, n_deferred=0)
 
     monkeypatch.setattr(batch_mod, "run_batch", _fake)
     return captured
@@ -266,3 +268,163 @@ def test_batch_rejects_negative_max_restarts(tmp_path, capsys) -> None:
     rc = main(["batch", str(m), "--out-dir", str(tmp_path / "out"), "--max-restarts", "-1"])
     assert rc == 2
     assert "max_restarts must be >= 0" in capsys.readouterr().err
+
+
+# --- choice options of ``tether extract`` (#654) -------------------------------------
+
+_CHOICE_FLAGS = [
+    ("--donor-side", "donor_side", DONOR_SIDES),
+    ("--detection-mode", "detection_mode", DETECTION_MODES),
+    ("--prealign", "prealign", PREALIGN_MODES),
+]
+
+
+def _extract_action(dest: str) -> argparse.Action:
+    parser = build_parser()
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))  # noqa: SLF001
+    extract = sub.choices["extract"]
+    return next(a for a in extract._actions if a.dest == dest)  # noqa: SLF001
+
+
+@pytest.mark.parametrize(("flag", "dest", "allowed"), _CHOICE_FLAGS)
+def test_extract_choice_flag_uses_the_library_constants(flag, dest, allowed) -> None:
+    # The parser's choices are the very tuples ExtractOptions validates against.
+    assert _extract_action(dest).choices is allowed
+
+
+@pytest.mark.parametrize(("flag", "dest", "allowed"), _CHOICE_FLAGS)
+def test_extract_rejects_a_wrong_choice_at_parse_time(
+    tmp_path, monkeypatch, capsys, flag, dest, allowed
+) -> None:
+    # A wrong value is a usage error: exit 2 and the usage line, before the extract
+    # handler (and with it any file access) runs.
+    import tether.cli as cli  # noqa: PLC0415
+
+    def _no_extract(args):  # pragma: no cover - reached only if parsing let it through
+        raise AssertionError("the extract handler ran for a wrong choice value")
+
+    monkeypatch.setattr(cli, "_run_extract", _no_extract)
+    out = tmp_path / "out.tether"
+    with pytest.raises(SystemExit) as exc:
+        main(["extract", str(tmp_path / "movie.tif"), "-o", str(out), flag, "sideways"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("usage: tether extract")
+    assert f"argument {flag}: invalid choice: 'sideways'" in err
+    for value in allowed:
+        assert value in err
+    assert not out.exists()
+
+
+def test_extract_detection_mode_default_still_means_not_given() -> None:
+    # None tells "no flag" apart from an explicit --detection-mode for the --tdat check.
+    args = build_parser().parse_args(["extract", "m.tif", "-o", "o.tether"])
+    assert args.detection_mode is None
+    assert args.donor_side == "left"
+    assert args.prealign == "translation"
+
+
+def test_extract_help_lists_the_choices(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["extract", "--help"])
+    out = capsys.readouterr().out
+    for allowed in (DONOR_SIDES, DETECTION_MODES, PREALIGN_MODES):
+        assert "{" + ",".join(allowed) + "}" in out
+
+
+# --- Exit codes (#647) -------------------------------------------------------
+
+
+def _summary(*movies: dict[str, str], idealize: bool = True):
+    """A real ``BatchSummary`` whose movies carry the given ``{stage: status}`` maps."""
+    from tether.project.batch import (  # noqa: PLC0415 - keep the batch stack lazy
+        BatchSummary,
+        MovieJob,
+        MovieResult,
+        StageResult,
+    )
+
+    results = [
+        MovieResult(
+            job=MovieJob(movie_path=f"movie_{i:03d}.tif", output_path=f"movie_{i:03d}.tether"),
+            stages={
+                name: StageResult(
+                    stage=name,
+                    status=status,
+                    error="boom" if status == "failed" else None,
+                )
+                for name, status in stages.items()
+            },
+        )
+        for i, stages in enumerate(movies)
+    ]
+    return BatchSummary(results=results, policy="warn", idealize_requested=idealize)
+
+
+_DONE = {"extract": "done", "correct": "done", "idealize": "done"}
+_DEFERRED = {"extract": "done", "correct": "done", "idealize": "deferred"}
+_FAILED = {"extract": "failed", "correct": "blocked", "idealize": "blocked"}
+_NOT_REQUESTED = {"extract": "done", "correct": "done", "idealize": "not-requested"}
+
+
+def _run_cli_with(monkeypatch, tmp_path, summary, *extra: str) -> int:
+    import tether.project.batch as batch_mod  # noqa: PLC0415
+
+    monkeypatch.setattr(batch_mod, "run_batch", lambda jobs, **kwargs: summary)
+    movie = tmp_path / "movie_000.tif"
+    movie.write_bytes(b"x")
+    return main(["batch", str(movie), "--out-dir", str(tmp_path / "out"), *extra])
+
+
+@pytest.mark.parametrize(
+    ("movies", "extra", "expected"),
+    [
+        pytest.param((_DONE, _DONE), (), 0, id="every-stage-ran"),
+        pytest.param((_DONE, _DEFERRED), (), 3, id="one-movie-deferred"),
+        pytest.param((_DEFERRED, _DEFERRED), (), 3, id="all-deferred"),
+        pytest.param((_FAILED, _DONE), (), 1, id="failed"),
+        pytest.param((_FAILED, _DEFERRED), (), 1, id="failed-takes-precedence-over-deferred"),
+        pytest.param((_NOT_REQUESTED,), ("--no-idealize",), 0, id="idealize-not-requested"),
+    ],
+)
+def test_batch_exit_code(monkeypatch, tmp_path, capsys, movies, extra, expected) -> None:
+    """0 every requested stage ran, 1 a movie failed (wins over 3), 3 a stage deferred."""
+    from tether.cli import BATCH_EXIT_MEANINGS  # noqa: PLC0415
+
+    summary = _summary(*movies, idealize="--no-idealize" not in extra)
+    rc = _run_cli_with(monkeypatch, tmp_path, summary, *extra)
+    assert rc == expected
+    out = capsys.readouterr().out.rstrip("\n").splitlines()
+    # The final line of the report names the code and what it means.
+    assert out[-1] == f"Exit code {expected}: {BATCH_EXIT_MEANINGS[expected]}."
+
+
+def test_batch_report_states_deferred_stages_on_their_own_line(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    summary = _summary(_DONE, _DEFERRED, _DEFERRED)
+    assert summary.n_deferred == 2
+    assert _run_cli_with(monkeypatch, tmp_path, summary) == 3
+    lines = capsys.readouterr().out.splitlines()
+    deferred = [line for line in lines if line.startswith("Deferred:")]
+    assert deferred == ["Deferred: idealize in 2 of 3 movie(s); re-run the same command to resume."]
+
+
+def test_batch_report_has_no_deferred_line_when_nothing_was_deferred(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    assert _run_cli_with(monkeypatch, tmp_path, _summary(_DONE)) == 0
+    assert "Deferred:" not in capsys.readouterr().out
+
+
+def test_batch_help_states_the_four_exit_codes() -> None:
+    """``tether batch --help`` lists 0, 1, 2 and 3, one per line, and the precedence."""
+    from tether.cli import BATCH_EXIT_MEANINGS  # noqa: PLC0415
+
+    parser = build_parser()
+    batch = parser._subparsers._group_actions[0].choices["batch"]  # noqa: SLF001
+    text = batch.format_help()
+    assert sorted(BATCH_EXIT_MEANINGS) == [0, 1, 2, 3]
+    for code, meaning in BATCH_EXIT_MEANINGS.items():
+        assert f"  {code}  {meaning}" in text.splitlines()
+    assert "1 takes precedence over 3." in text
