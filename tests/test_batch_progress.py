@@ -269,7 +269,9 @@ def test_cli_two_movie_batch_at_each_level(tmp_path, capsys) -> None:
     import test_extract_cli as helpers  # noqa: PLC0415
 
     good = helpers._make_movie(tmp_path, name="good_001.tif")
-    bad = tmp_path / "bad_002.tif"
+    # A batch processes its movies in path order (#653), so the failing movie is named
+    # to sort after the good one.
+    bad = tmp_path / "worse_002.tif"
     bad.write_bytes(b"not a tiff at all")
     movies = [good, bad]
 
@@ -299,15 +301,15 @@ def test_cli_two_movie_batch_at_each_level(tmp_path, capsys) -> None:
         r"idealize=not-requested\)",
         default[2],
     )
-    assert default[3] == "[2/2] bad_002: started"
+    assert default[3] == "[2/2] worse_002: started"
     assert re.fullmatch(
-        r"\[2/2\] bad_002: FAIL in \d+\.\ds \(extract=failed\(.+\) .+\)", default[4]
+        r"\[2/2\] worse_002: FAIL in \d+\.\ds \(extract=failed\(.+\) .+\)", default[4]
     )
     assert len(default) == 5
 
     verbose = progress(err_v)
     assert "[1/2] good_001 extract: done - " in "\n".join(verbose)
-    assert "[2/2] bad_002 correct: blocked - extract did not complete" in verbose
+    assert "[2/2] worse_002 correct: blocked - extract did not complete" in verbose
 
     # Verbose is the default plus the stage events: drop those and the rest is the same.
     def same(lines: list[str]) -> list[str]:
@@ -379,13 +381,17 @@ def test_the_batch_service_hands_its_progress_to_the_log_and_the_runner(
 
     monkeypatch.setattr(batch_mod, "run_batch", _fake)
     out = tmp_path / "o"
-    request = BatchRequest(movies=("m_001.tif",), out_dir=str(out), policy="fail", idealize=False)
+    movie = tmp_path / "m_001.tif"
+    movie.write_bytes(b"")
+    request = BatchRequest(movies=(str(movie),), out_dir=str(out), policy="fail", idealize=False)
 
     run_service(request, progress=recorder)
 
     assert seen["progress"] is recorder
+    # The movie -> output mapping is the first log event (#653), so the observer sees it too.
     assert recorder.calls == [
         ("run_started", {"n_movies": 1, "out_dir": out, "policy": "fail", "idealize": False}),
+        ("event", "input"),
         ("event", "extract"),
     ]
 
