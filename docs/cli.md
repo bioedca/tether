@@ -359,7 +359,8 @@ The folders are those of the movie's full path, so the names do not depend on th
 you run the command from. The folders are read as you typed them, with one exception:
 after a link, `..` goes to the parent of the link's target. Say `work/link` is a link to
 `archive/sub`. Then `work/link/../m.tif` is the file `archive/m.tif`. Its folders are read
-from where it really is, so its name is `archive__m`.
+from where it really is, so its name is `archive__m`. Windows reads `..` before it follows
+a link, so there the path is `work/m.tif` and the batch holds that movie once.
 
 If no folder tells two movies apart — `A.tif` and `a.tif` in one folder — the run stops before anything is written. `--dry-run` shows each name before
 the run, and the structured log records each movie and its output as an `input` event
