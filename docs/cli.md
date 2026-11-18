@@ -858,6 +858,26 @@ tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
 tether export subset movie.tether -o accepted.tether
 ```
 
+## Sync-conflict copies beside a project
+
+OneDrive and SharePoint can leave a second copy of a file when two machines save it at the
+same time. Tether does not prevent these copies. It finds them and tells you.
+After `tether extract` writes its project, after `tether batch` finishes, and when
+`tether info`, `tether metadata` or `tether export` reads a project, each project the command
+opened is checked for siblings in the two documented naming forms:
+`<stem>-<COMPUTERNAME>.tether` and `<stem> (<...>).tether`. A hit adds one warning line to
+stderr:
+
+```text
+  warning: 1 possible OneDrive/SharePoint conflict copy beside movie.tether: movie-DESKTOP-AB12.tether. Tether does not merge or delete it; compare and reconcile by hand.
+```
+
+The warning is advisory. It does not change the exit code, and Tether does not open, merge,
+rename or delete the copy. It goes to stderr, so the `tether info --json` document on stdout
+does not change. The match is by file name only, so a project you named
+`movie-donoronly.tether` on purpose is also listed, and you can ignore the line for it. The GUI
+shows the same text in the Browser when you open the project.
+
 ## Service commands
 
 `tether extract` and `tether batch` are each the command-line route of one *service command*

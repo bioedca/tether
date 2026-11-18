@@ -33,6 +33,17 @@ Two design tensions:
    growing, binary-labeled** curation set (tens–hundreds of accept/reject labels), and the
    result must be a **reproducible** ranking.
 
+## Considered options
+
+- **`P(good)` from a binary `HistGradientBoostingClassifier` with curation-regime
+  hyperparameters** (chosen).
+- **Learning to rank: XGBoost `rank:pairwise` or LambdaMART.**
+- **Impute `NaN`, then use any classifier.**
+- **Drop molecules with undefined features from the ranking** (the `similarity` exclusion).
+- **scikit-learn's stock hyperparameters.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 **Rank by `P(good)` from a binary gradient-boosting classifier.** The score fed to
