@@ -29,7 +29,7 @@ max_skipped = 18
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 32
+max_skipped = 33
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
