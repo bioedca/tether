@@ -120,7 +120,7 @@ retired = 0
 
 [pages."docs/how-to/idealize.md"]
 kind = "procedure"
-long_share = 19.6
+long_share = 14.9
 semicolons = 0
 long_paragraphs = 0
 retired = 1
@@ -190,7 +190,7 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 17.4
+long_share = 18.1
 semicolons = 19
 long_paragraphs = 0
 retired = 6
