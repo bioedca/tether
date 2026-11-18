@@ -8,9 +8,10 @@ Usage::
 
 Three panels, one point per record of ``main``: the time of each stage (summed over the
 acquisitions), the largest peak memory of each stage, and the projection for a condition of
-100 movies with the overnight window of ADR-0032. A stage that a record did not measure on every
-acquisition has no point in that record: the line has a gap there, not a zero. Run it with the
-Tether environment, which has ``matplotlib-base``.
+100 movies with the overnight window of ADR-0032. The time and the peak-memory lines of a stage are
+separate: each has a gap (NaN, no marker), not a zero, at a record that lacks its value on any
+acquisition or has no acquisition. Run it with the Tether environment, which has
+``matplotlib-base``.
 """
 
 from __future__ import annotations

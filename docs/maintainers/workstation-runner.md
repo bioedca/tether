@@ -427,8 +427,8 @@ python <state>/clone/scripts/workstation/plot_perf_history.py <state>/perf-histo
 ```
 
 The first prints the newest record's projection and its slowdowns. The second draws the stage
-times, the stage peaks and the projection for each record of `main`. A stage that a record did not
-measure on all acquisitions shows as a gap, not as a zero.
+times, the stage peaks and the projection for each record of `main`. Each line has a gap, not a
+zero, where a record lacks that value on any acquisition.
 
 **Show that the rule works.** The runner runs only commits of `main`. To show a slowdown, make a
 throw-away branch in a scratch clone of the repository, not in the runner's clone, and make one
