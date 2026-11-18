@@ -130,8 +130,10 @@ The other files carry neither field:
 
 If the names must not be public, export the subset with a curator alias. Add
 `curator_alias="curator"` to the `export_subset_tether` call in step 2. Each name then becomes
-`curator-1`, `curator-2`, and so on, also in the condition change log; one person keeps one
-alias. Run the check again: it prints only the aliases. Your project file does not change, so do
+`curator-1`, `curator-2`, and so on, also in the condition change log. One person keeps one
+alias. Run the check again: it prints only the aliases.
+
+Your project file does not change, so do
 not deposit it. [Export results](export-results.md#share-a-subset-without-your-user-name) gives
 the details. The
 [privacy policy](../privacy.md#the-desktop-application) says what else Tether records on your

@@ -407,7 +407,7 @@ Provenance-file `parameters` for this export: `include_raw`, `include_rejected`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
 `n_idealization_models`, `skipped_idealization_models`, `n_label_rows`. With
 `curator_alias` also `curator_alias` (the prefix), `names_aliased` (`true`) and
-`n_aliased_names`; never the names.
+`n_aliased_names`. It never records the names.
 
 ## 4. Plot export (PDF + SVG + PNG)
 
