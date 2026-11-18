@@ -1601,7 +1601,11 @@ def run_batch_into(
     dataset α and γ then include the new molecules, and the idealization model is fitted
     again over the stored one. A movie in the project shares the project's correct and
     idealize results in the summary; a movie that is not in it has them ``blocked``.
-    Those two stages are logged once, under the run's own label.
+    Those two stages are logged once, under the run's own label. They run, and the
+    project is stamped, under the project's writer lock: a project that another writer
+    holds (an open app session) is not touched, and both stages report the lock. Each
+    append first marks both stages unfinished in ``/settings/batch``, so a run cut off
+    before its stamp leaves the next run knowing they no longer cover every movie.
 
     Under ``policy="fail"`` a movie whose registration is over the gate is not written at
     all, so it never enters the project. ``overwrite`` has no meaning here: a movie
@@ -1717,43 +1721,19 @@ def run_batch_into(
                         MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side),
                     )
 
-        outcome = None
-        try:
-            outcome = _project_stages(
-                project,
-                recorders,
-                log=log,
-                idealize=idealize,
-                idealize_kwargs=idealize_kwargs,
-                supervision=supervision,
-                deferred=idealize_deferred,
-                correct=_correct,
-                run_idealize=_idealize,
-            )
-        except Exception as exc:  # an unreadable project or a failing log sink
-            failed = StageResult(stage=STAGE_CORRECT, status=STATUS_FAILED, error=str(exc))
-            for rec in recorders:
-                rec.stages.setdefault(STAGE_CORRECT, failed)
-            _safe_event(log, movie=_RUN_LABEL, stage="batch", status=STATUS_FAILED, error=str(exc))
-        if outcome is not None and stamp_provenance and stamp_safe and project.exists():
-            project_stages, covered = outcome
-            try:
-                _stamp_under_writer_lock(
-                    project,
-                    ownership_guard=None,
-                    policy=policy,
-                    idealize_requested=idealize,
-                    stages=project_stages,
-                    covered=covered,
-                )
-            except Exception as exc:  # provenance must never fail a movie
-                _safe_event(
-                    log,
-                    movie=_RUN_LABEL,
-                    stage="provenance",
-                    status=STATUS_WARNING,
-                    error=str(exc),
-                )
+        _finish_project(
+            project,
+            recorders,
+            log=log,
+            policy=policy,
+            idealize=idealize,
+            idealize_kwargs=idealize_kwargs,
+            supervision=supervision,
+            deferred=idealize_deferred,
+            correct=_correct,
+            run_idealize=_idealize,
+            stamp=stamp_provenance and stamp_safe,
+        )
         results = [
             MovieResult(job=rec.job, stages=dict(rec.stages), donor_side=donor_side)
             for rec, donor_side in zip(recorders, donor_sides, strict=True)
@@ -1762,6 +1742,85 @@ def run_batch_into(
         if own_log:
             log.close()
     return BatchSummary(results=results, policy=policy, idealize_requested=idealize)
+
+
+def _finish_project(
+    project: Path,
+    recorders: list[_Recorder],
+    *,
+    log: BatchLog,
+    policy: str,
+    idealize: bool,
+    idealize_kwargs: dict[str, Any],
+    supervision: SidecarSupervision | None,
+    deferred: bool,
+    correct: Callable[..., str],
+    run_idealize: Callable[..., Any],
+    stamp: bool,
+) -> None:
+    """Run the project's correct and idealize stages and stamp it, under its writer lock.
+
+    The lock is held from the first checkpoint read to the stamp (ADR-0112), so a
+    project that another writer (an open app session, another append) owns is never
+    corrected, idealized or stamped: those stages fail, naming the owner, and the
+    movies already appended stay in the project for a later run to finish.
+    """
+    from tether.project.lock import publish_lock  # noqa: PLC0415
+
+    scope: contextlib.AbstractContextManager[Callable[[], None] | None]
+    scope = publish_lock(project) if os.path.lexists(project) else contextlib.nullcontext()
+    try:
+        with scope as guard:
+            if guard is not None:
+                guard()
+            outcome = _project_stages(
+                project,
+                recorders,
+                log=log,
+                idealize=idealize,
+                idealize_kwargs=idealize_kwargs,
+                supervision=supervision,
+                deferred=deferred,
+                correct=correct,
+                run_idealize=run_idealize,
+                ownership_guard=guard,
+            )
+            if outcome is not None and stamp and guard is not None:
+                project_stages, covered = outcome
+                try:
+                    _stamp_under_writer_lock(
+                        project,
+                        ownership_guard=guard,
+                        policy=policy,
+                        idealize_requested=idealize,
+                        stages=project_stages,
+                        covered=covered,
+                    )
+                except Exception as exc:  # provenance must never fail a movie
+                    _safe_event(
+                        log,
+                        movie=_RUN_LABEL,
+                        stage="provenance",
+                        status=STATUS_WARNING,
+                        error=str(exc),
+                    )
+    except Exception as exc:  # a project owned by another writer, unreadable, a log sink
+        failed = StageResult(stage=STAGE_CORRECT, status=STATUS_FAILED, error=str(exc))
+        after = (
+            StageResult(
+                stage=STAGE_IDEALIZE, status=STATUS_BLOCKED, detail="correct did not complete"
+            )
+            if idealize
+            else StageResult(
+                stage=STAGE_IDEALIZE,
+                status=STATUS_NOT_REQUESTED,
+                detail="idealization not requested",
+            )
+        )
+        for rec in recorders:
+            rec.stages.setdefault(STAGE_CORRECT, failed)
+            rec.stages.setdefault(STAGE_IDEALIZE, after)
+        _safe_event(log, movie=_RUN_LABEL, stage="batch", status=STATUS_FAILED, error=str(exc))
 
 
 def _do_append(
@@ -1814,15 +1873,24 @@ def _do_append(
             from tether.project.lock import publish_lock  # noqa: PLC0415
 
             with publish_lock(project) as guard:
-                summary = append(
-                    project,
-                    job.movie_path,
-                    options=options,
-                    tmap=job.tmap,
-                    tdat=job.tdat,
-                    publish_guard=guard,
-                    refuse_over_gate=refuse,
-                )
+                # Mark the project stages unfinished before the append, so a run cut off
+                # after it still knows they no longer cover every movie; a refused
+                # append puts the marks back as they were.
+                earlier = _mark_stages_pending(project, guard)
+                try:
+                    summary = append(
+                        project,
+                        job.movie_path,
+                        options=options,
+                        tmap=job.tmap,
+                        tdat=job.tdat,
+                        publish_guard=guard,
+                        refuse_over_gate=refuse,
+                    )
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        _restore_stage_marks(project, earlier, guard)
+                    raise
     except Exception as exc:  # ExtractionError, a lost lock, any lower-level failure
         if creating and os.path.lexists(project):
             # An unguarded creation may have lost a race to another writer whose project
@@ -1838,6 +1906,54 @@ def _do_append(
         detail += f"; low-confidence registration {_FLAG_MARK}"
     rec.record(STAGE_EXTRACT, STATUS_DONE, detail=detail)
     return str(getattr(summary, "movie_id", "")) or None
+
+
+_MARKED_STAGES = (STAGE_CORRECT, STAGE_IDEALIZE)
+
+
+def _mark_stages_pending(project: Path, guard: Callable[[], None]) -> dict[str, str | None]:
+    """Stamp the project stages as covering no movie set yet; return the earlier marks.
+
+    Written to ``/settings/batch`` as an empty ``{stage}_movies`` (the unfinished mark
+    ``_covered_movies`` reads), which the run's final stamp replaces (#1151).
+    """
+    import h5py  # noqa: PLC0415
+
+    guard()
+    with h5py.File(project, "r+") as f:
+        guard()
+        grp = f[_SETTINGS_GROUP].require_group(_BATCH_SETTINGS)
+        earlier: dict[str, str | None] = {}
+        for stage in _MARKED_STAGES:
+            name = f"{stage}{_COVERED_SUFFIX}"
+            raw = grp.attrs.get(name)
+            earlier[name] = None if raw is None else _as_text(raw)
+            grp.attrs[name] = ""
+    return earlier
+
+
+def _restore_stage_marks(
+    project: Path, earlier: dict[str, str | None], guard: Callable[[], None]
+) -> None:
+    """Put back the marks ``_mark_stages_pending`` replaced (an append was refused)."""
+    import h5py  # noqa: PLC0415
+
+    guard()
+    with h5py.File(project, "r+") as f:
+        guard()
+        grp = f[_SETTINGS_GROUP][_BATCH_SETTINGS]
+        for name, value in earlier.items():
+            if value is None:
+                if name in grp.attrs:
+                    del grp.attrs[name]
+            else:
+                grp.attrs[name] = value
+        if not len(grp.attrs) and not len(grp):
+            del f[_SETTINGS_GROUP][_BATCH_SETTINGS]
+
+
+def _as_text(raw: Any) -> str:
+    return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
 
 
 def _movies_digest(project: Path) -> str:
@@ -1887,6 +2003,7 @@ def _project_stages(
     deferred: bool,
     correct: Callable[..., str],
     run_idealize: Callable[..., Any],
+    ownership_guard: Callable[[], None] | None = None,
 ) -> tuple[dict[str, StageResult], dict[str, str]] | None:
     """Correct and idealize ``project`` once, and give each movie's recorder the outcome.
 
@@ -1895,6 +2012,9 @@ def _project_stages(
     another set of movies or as unfinished. A project that no ``--into`` run has stamped
     keeps the plain checkpoint, so a curated project that gains no movie is not
     recomputed. A correction that ran makes the stored model stale too.
+
+    ``ownership_guard`` checks the project's writer lock, which the caller holds for
+    the whole call; both runners carry it to their writes.
 
     Returns the project's stages and, for each of correct and idealize, the movies
     digest to stamp: the current one when the stage is satisfied, an empty string when it
@@ -1930,6 +2050,7 @@ def _project_stages(
         project_rec,
         upstream_ok=True,
         runner=correct,
+        ownership_guard=ownership_guard,
         rerun=stale(STAGE_CORRECT),
     )
     corrected_now = project_rec.stages[STAGE_CORRECT].status == STATUS_DONE
@@ -1942,6 +2063,7 @@ def _project_stages(
         runner=run_idealize,
         supervision=supervision,
         deferred=deferred,
+        ownership_guard=ownership_guard,
         rerun=corrected_now or stale(STAGE_IDEALIZE),
     )
     for rec in in_project:

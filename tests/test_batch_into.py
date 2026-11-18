@@ -44,6 +44,7 @@ from tether.project.batch import (  # noqa: E402
     STATUS_DEFERRED,
     STATUS_DONE,
     STATUS_FAILED,
+    STATUS_NOT_REQUESTED,
     STATUS_SKIPPED,
     MovieJob,
     run_batch_into,
@@ -552,6 +553,124 @@ def test_a_project_pass_that_cannot_read_the_project_fails_its_stage(
     assert correct.status == STATUS_FAILED
     assert "the project went away" in str(correct.error)
     assert summary.n_failed == 1
+
+
+def test_a_project_another_writer_owns_is_not_corrected_or_stamped(tmp_path: Path) -> None:
+    # Codex P1 on #1223: the project stages hold the project's writer lock, so a project
+    # an app session (or another append) owns is never written by them.
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    run_batch_into(_into_jobs(project, movie), project, idealize=False)
+    stamp = _batch_attrs(project)
+    calls: list[Path] = []
+
+    def correct(path, **_kwargs):
+        calls.append(Path(path))
+        return "stub"
+
+    with lock.publish_lock(project):
+        summary = run_batch_into(
+            _into_jobs(project, movie), project, _correct=correct, _idealize=_idealize_recorder([])
+        )
+
+    assert calls == []
+    stages = summary.results[0].stages
+    assert stages[STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert stages[STAGE_CORRECT].status == STATUS_FAILED
+    assert "lock" in str(stages[STAGE_CORRECT].error).lower()
+    assert stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
+    assert _batch_attrs(project) == stamp
+
+    with lock.publish_lock(project):
+        summary = run_batch_into(_into_jobs(project, movie), project, idealize=False)
+    assert summary.results[0].stages[STAGE_CORRECT].status == STATUS_FAILED
+    assert summary.results[0].stages[STAGE_IDEALIZE].status == STATUS_NOT_REQUESTED
+
+
+def test_the_project_stages_carry_the_writer_lock_check(tmp_path: Path) -> None:
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    guards: list[object] = []
+
+    def correct(path, **kwargs):
+        guards.append(kwargs.get("write_guard"))
+        kwargs["write_guard"]()
+        return "stub"
+
+    run_batch_into(_into_jobs(project, movie), project, idealize=False, _correct=correct)
+
+    assert len(guards) == 1
+    assert callable(guards[0])
+    assert lock.read_lock(project) is None
+
+
+class _Cut(BaseException):
+    """Stands in for the run being killed partway (it escapes every ``except Exception``)."""
+
+
+def test_a_run_cut_off_after_an_append_corrects_the_project_on_the_next_run(
+    tmp_path: Path,
+) -> None:
+    # Codex P2 on #1223: a project no --into run has stamped, corrected elsewhere, gains a
+    # movie and the run is cut off before its stamp. The next run appends nothing, but
+    # must still correct and idealize again, since the stored results predate the movie.
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    second = _movie(tmp_path, "m1.tif", 340.0)
+    project = tmp_path / "P.tether"
+    extract_movie(first, project, options=ExtractOptions(window=helpers._WINDOW))
+    with h5py.File(project, "r+") as f:
+        f.require_group("settings/correction")
+        f.require_group("idealization/vbconhmm")
+
+    def cut(*_args, **_kwargs):
+        raise _Cut
+
+    with pytest.raises(_Cut):
+        run_batch_into(_into_jobs(project, first, second), project, _correct=cut)
+    assert len(_movies(project)) == 2
+    assert _batch_attrs(project)[f"{STAGE_CORRECT}_movies"] == ""
+
+    corrected: list[Path] = []
+    idealized: list[dict[str, object]] = []
+
+    def correct(path, **_kwargs):
+        corrected.append(Path(path))
+        return "stub"
+
+    summary = run_batch_into(
+        _into_jobs(project, first, second),
+        project,
+        _correct=correct,
+        _idealize=_idealize_recorder(idealized),
+    )
+
+    assert [r.stages[STAGE_EXTRACT].status for r in summary.results] == [STATUS_SKIPPED] * 2
+    assert corrected == [project]
+    assert len(idealized) == 1
+    assert idealized[0].get("overwrite") is True
+    attrs = _batch_attrs(project)
+    assert attrs[f"{STAGE_CORRECT}_movies"] == attrs[f"{STAGE_IDEALIZE}_movies"] != ""
+
+
+def test_a_refused_append_puts_the_stage_marks_back(tmp_path: Path) -> None:
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    second = _movie(tmp_path, "m1.tif", 340.0)
+    project = tmp_path / "P.tether"
+    extract_movie(first, project, options=ExtractOptions(window=helpers._WINDOW))
+
+    def refused(*_args, **_kwargs):
+        raise ExtractionError("refused")
+
+    summary = run_batch_into(_into_jobs(project, second), project, idealize=False, _append=refused)
+
+    assert summary.results[0].stages[STAGE_EXTRACT].status == STATUS_FAILED
+    with h5py.File(project, "r") as f:
+        assert "batch" not in f["settings"]
+
+    run_batch_into(_into_jobs(project, first), project, idealize=False)
+    stamped = _batch_attrs(project)[f"{STAGE_CORRECT}_movies"]
+    run_batch_into(_into_jobs(project, second), project, idealize=False, _append=refused)
+    assert _batch_attrs(project)[f"{STAGE_CORRECT}_movies"] == stamped
 
 
 def test_a_run_where_every_movie_fails_touches_no_project(tmp_path: Path) -> None:
