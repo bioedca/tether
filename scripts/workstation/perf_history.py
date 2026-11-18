@@ -300,7 +300,9 @@ def append(
     """Append *record* to the history at *path*; return its slowdowns against the earlier records.
 
     Refuses a record that does not match the format or that contains a private name. *opener*
-    opens *path* for appending text; the runner gives its owner-only ``open_private``.
+    opens *path* for appending text; the runner gives its owner-only ``open_private``. A valid
+    last record with no newline (a hand edit, or a write that stopped before its newline) first
+    gets its newline, so the new record starts a line of its own.
     """
     problems = validate_record(record)
     if problems:
@@ -309,9 +311,11 @@ def append(
     if any(token in text for token in tokens):
         raise ValueError("the history record names a private file; it is not written")
     found = slowdowns(read_history(path), record)
+    last = Path(path).read_bytes()[-1:] if Path(path).is_file() else b""
+    unterminated = last not in (b"", b"\n")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with opener(path) if opener else open(path, "a", encoding="utf-8") as fh:
-        fh.write(text + "\n")
+        fh.write(("\n" if unterminated else "") + text + "\n")
     return found
 
 
