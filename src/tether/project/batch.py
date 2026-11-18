@@ -1718,7 +1718,9 @@ def run_batch_into(
                     progress.movie_finished(
                         index,
                         total,
-                        MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side),
+                        copy.deepcopy(
+                            MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side)
+                        ),
                     )
 
         _finish_project(

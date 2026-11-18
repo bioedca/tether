@@ -500,6 +500,33 @@ def test_progress_hears_of_each_movie_and_the_project_stages(tmp_path: Path, cap
     assert "tether batch: correct done" in err
 
 
+def test_progress_cannot_change_what_the_run_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tether.project.batch as batch_module  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        batch_module,
+        "_stored_movie_donor_side_check",
+        lambda _project, _movie_id: {"verdict": "ok", "ratio": 1.0},
+    )
+
+    class Meddler:
+        def movie_started(self, *_args) -> None:
+            pass
+
+        def movie_finished(self, _index, _total, result) -> None:
+            result.donor_side["verdict"] = "swapped"
+
+    project = tmp_path / "P.tether"
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    summary = run_batch_into(
+        _into_jobs(project, movie), project, idealize=False, progress=Meddler()
+    )
+
+    assert summary.results[0].donor_side == {"verdict": "ok", "ratio": 1.0}
+
+
 def test_a_low_confidence_movie_is_kept_with_a_flag_under_warn(tmp_path: Path) -> None:
     warped = tmp_path / "warp.tif"
     helpers._write_movie(warped, helpers._DONOR_CENTERS, helpers._OVER_GATE_ACCEPTOR)
