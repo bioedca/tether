@@ -505,10 +505,13 @@ def test_extraction_meets_m1_acceptance_on_uckopsb(private_data, tmp_path) -> No
         oracle_a_file(private_data, role) for role in ("movie", "tmap", "tdat", "mat")
     )
 
-    from tether.project.extract import extract_movie
+    from tether.project.extract import ExtractOptions, extract_movie
 
     out = tmp_path / "uckopsb.tether"
-    summary = extract_movie(movie, out, tmap=tmap, tdat=tdat)
+    # The oracle's frozen numbers were made with the donor-anchored rule; this names it,
+    # so the new partner-in-both default cannot move them (#920, ADR-0127).
+    options = ExtractOptions(colocalization="donor-anchored")
+    summary = extract_movie(movie, out, options=options, tmap=tmap, tdat=tdat)
     assert out.is_file(), f"{ORACLE_A}: extraction wrote no project"
     assert summary.registration_source == "imported", ORACLE_A
     assert summary.detection_mode == "intensity", ORACLE_A  # decoded from the .tdat
