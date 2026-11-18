@@ -50,8 +50,9 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
 _EXPECTED_OPTION_COUNTS = {
-    "extract": 17,
+    "extract": 18,
     "batch": 17,
+    "map create": 6,
     "info": 2,
     "metadata": 5,
     "export table": 4,
@@ -104,9 +105,9 @@ def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentP
 
     argparse exposes no public accessor for this, so reach through the
     ``_SubParsersAction`` the way the stdlib's own tests do. A subcommand that only
-    groups forms of its own (``export``, #658) is replaced by those forms, named
-    ``"export table"`` and so on: the forms carry the options, and each has its own
-    ``## `tether export table` `` section on the page.
+    groups forms of its own (``export``, #658; ``map``, #353) is replaced by those forms,
+    named ``"export table"``, ``"map create"`` and so on: the forms carry the options, and
+    each has its own ``## `tether export table` `` section on the page.
     """
     for action in parser._actions:  # noqa: SLF001 - no public API for subparser lookup
         if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
@@ -219,8 +220,8 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """`extract`, `batch`, `info` (#655), `metadata` (#911) and the three `export` forms (#658)
-    get a section each.
+    """`extract`, `batch`, `map create` (#353), `info` (#655), `metadata` (#911) and the three
+    `export` forms (#658) get a section each.
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
@@ -230,6 +231,7 @@ def test_every_subcommand_is_documented() -> None:
     expected = {
         "extract",
         "batch",
+        "map create",
         "info",
         "metadata",
         "export table",

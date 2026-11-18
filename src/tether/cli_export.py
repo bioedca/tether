@@ -329,6 +329,8 @@ def run_export(args: argparse.Namespace) -> int:
             print(f"{prog}: {exc}", file=sys.stderr)
             return 1
 
+    from tether.services.notices import conflict_copy_warning
+
     failed = 0
     for source, out in targets:
         try:
@@ -341,4 +343,9 @@ def run_export(args: argparse.Namespace) -> int:
             failed += 1
             continue
         print(f"Exported {result.n_molecules} molecule(s) -> {result.path}")
+        # The same advisory stderr line as tether info: a sync-conflict copy beside the
+        # source is named, never read or changed (PRD §5.4).
+        warning = conflict_copy_warning(source)
+        if warning is not None:
+            print(f"  warning: {warning}.", file=sys.stderr)
     return 1 if failed else 0

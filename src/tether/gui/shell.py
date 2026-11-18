@@ -27,6 +27,13 @@ section is current.
 [`TetherShell.set_section`][tether.gui.shell.TetherShell.set_section] switches; a
 switch never touches the session lock of ADR-0055.
 
+The menu bar and the curation keymap follow the section too (#342). The menus of each
+section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
+the section is current, between the window's own File menu and its View and Help menus.
+The curation keys act only in a section whose ``keymap_scope`` is
+[`CURATION_SCOPE`][tether.gui.curation.CURATION_SCOPE] (Curate and correct): elsewhere the
+event filter lets them through to the native widgets, and the cheat-sheet lists no key.
+
 The shell also carries the desktop basics (#629): File → Close project and Quit
 with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
 log folder, and the About box of [`tether.gui.about`][]), opening a dropped
@@ -49,6 +56,7 @@ from typing import TYPE_CHECKING, Any
 from tether.gui import preferences
 from tether.gui.curation import (
     CATEGORY_SLOTS,
+    CURATION_SCOPE,
     Command,
     CurationAction,
     CurationController,
@@ -56,7 +64,7 @@ from tether.gui.curation import (
     CurationHandlers,
     Keymap,
 )
-from tether.gui.sections import DockArea, DockSpec, SectionRegistry, SectionSpec
+from tether.gui.sections import DockArea, DockSpec, MenuSpec, SectionRegistry, SectionSpec
 from tether.gui.task_service import TaskService
 
 if TYPE_CHECKING:
@@ -369,6 +377,11 @@ class CheatSheetOverlay:
     keymap so a rebinding is reflected the next time it is shown. Each action in
     ``unavailable`` (the shell passes [`DEFERRED_ACTIONS`][tether.gui.shell.DEFERRED_ACTIONS]) is
     marked ``(unavailable)``, so the sheet never advertises a key the shell cannot honour.
+
+    ``live`` scopes the sheet to a section (#342): while it returns ``False`` the
+    keymap is not active, so the table has no rows and ``inactive_text`` shows in their
+    place. The shell passes the same predicate as its event filter, so the sheet lists
+    exactly the keys that act in the current section. ``None`` keeps every row.
     """
 
     def __init__(
@@ -378,6 +391,8 @@ class CheatSheetOverlay:
         parent: QtWidgets.QWidget | None = None,
         unavailable: frozenset[CurationAction] = frozenset(),
         note: str | None = None,
+        live: Callable[[], bool] | None = None,
+        inactive_text: str = "No keyboard shortcuts act in this section.",
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
@@ -385,6 +400,8 @@ class CheatSheetOverlay:
         self._unavailable = frozenset(unavailable)
         self._rows: list[tuple[str, str]] = []
         self._note = note
+        self._live = live
+        self._note_label: Any | None = None
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("Keyboard shortcuts")
         layout = QtWidgets.QVBoxLayout(self._dialog)
@@ -393,12 +410,16 @@ class CheatSheetOverlay:
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
+        # Shown in place of the rows while the keymap is not active (#342).
+        self._inactive_label = QtWidgets.QLabel(inactive_text)
+        self._inactive_label.setWordWrap(True)
+        layout.addWidget(self._inactive_label)
         if note:
             # A behavior the key rows cannot carry, such as the advance-after-curation
             # preference (#631): shown under the table, never as a key row.
-            label = QtWidgets.QLabel(note)
-            label.setWordWrap(True)
-            layout.addWidget(label)
+            self._note_label = QtWidgets.QLabel(note)
+            self._note_label.setWordWrap(True)
+            layout.addWidget(self._note_label)
         self.refresh()
 
     @property
@@ -416,11 +437,26 @@ class CheatSheetOverlay:
         """The text shown under the key table, or ``None`` when there is none."""
         return self._note
 
+    @property
+    def live(self) -> bool:
+        """Whether the keymap is active now, so the table lists its bindings (#342)."""
+        return self._live is None or bool(self._live())
+
+    @property
+    def inactive_label(self) -> QtWidgets.QLabel:
+        """The text shown in place of the rows while the keymap is not active."""
+        return self._inactive_label
+
     def refresh(self) -> None:
-        """Re-read the keymap and repopulate the table (reflects rebindings)."""
+        """Re-read the keymap and repopulate the table (reflects rebindings and the section)."""
         from pyqtgraph.Qt import QtWidgets
 
-        self._rows = self._keymap.cheatsheet(unavailable=self._unavailable)
+        live = self.live
+        self._rows = self._keymap.cheatsheet(unavailable=self._unavailable) if live else []
+        # The advance note (#631) is about curation, so it shows only with the rows.
+        self._inactive_label.setHidden(live)
+        if self._note_label is not None:
+            self._note_label.setHidden(not live)
         self._table.setRowCount(len(self._rows))
         for row, (key_label, description) in enumerate(self._rows):
             self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(key_label))
@@ -494,7 +530,8 @@ class TetherShell:
     ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
     (§7.3). The trace dock and the Browser belong to the Curate and correct section,
-    one of the sections [`set_section`][] switches between (#341). After a stored
+    one of the sections [`set_section`][] switches between (#341); the curation keys and
+    the Curation, Hand-off and Conditions menus act only there (#342). After a stored
     accept or reject the next listed molecule is selected, so one key both decides
     and moves on; ``advance_after_curation=False`` keeps the selection in place
     instead. Use as a context manager or call [`close`][].
@@ -677,6 +714,15 @@ class TetherShell:
         # The theme's style sheet draws it in the "caution" state token.
         self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
+        # OneDrive/SharePoint sync-conflict siblings of the open project (PRD §5.4,
+        # detect-and-surface): a non-blocking warning, never a dialog or a refusal.
+        self._conflict_copy_banner = QtWidgets.QLabel()
+        self._conflict_copy_banner.setAccessibleName("Sync-conflict copy warning")
+        self._conflict_copy_banner.setWordWrap(True)
+        # File names are shown as written: a name holding "<b>" must not become markup.
+        self._conflict_copy_banner.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self._conflict_copy_banner.setProperty("tetherRole", "caution")
+        self._conflict_copy_banner.hide()
         # The banner's lock actions (#626), shown only when the lock allows one.
         self._recover_button = QtWidgets.QPushButton("Recover")
         self._recover_button.setAccessibleName("Recover the project lock")
@@ -709,6 +755,7 @@ class TetherShell:
         lock_actions.addWidget(self._take_over_button)
         lock_actions.addStretch(1)
         vbox.addLayout(lock_actions)
+        vbox.addWidget(self._conflict_copy_banner)
         vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
@@ -734,6 +781,8 @@ class TetherShell:
         # after the restore reads it too (#628).
         self._stored_section_hidden: set[str] = set()
         self._section: str = _DEFAULT_SECTION
+        # The menus of each section (#342), filled when the menu bar is built below.
+        self._section_menus: dict[str, list[Any]] = {spec.id: [] for spec in self._sections}
         dock_widgets: dict[tuple[str, str], Any] = {}
         for spec in self._sections:
             page = spec.central(self)
@@ -767,6 +816,8 @@ class TetherShell:
             focus_dock=self._trace_dock.widget,
             scope_window=self._window,
             scope_widgets=(self._browser_dock,),
+            # The curation keys act only in a section with the curation scope (#342).
+            scope_active=self._curation_keys_active,
         )
         self._event_filter.install()
         self._closed = False
@@ -835,48 +886,32 @@ class TetherShell:
         self._act_quit.setMenuRole(QtGui.QAction.MenuRole.QuitRole)
         self._act_quit.triggered.connect(self.quit)
 
-        # Help / overflow actions (menu + the shipped cheat-sheet).
+        # The shipped cheat-sheet: it lists the keys that act in the current section (#342).
         self._cheatsheet = CheatSheetOverlay(
             self._keymap,
             parent=self._window,
             unavailable=DEFERRED_ACTIONS,
             note=self._advance_note(),
+            live=self._curation_keys_active,
+            inactive_text=(
+                "The curation keys act only in the "
+                f"{self._sections.get(CURATE_SECTION).title} section. To use them, choose "
+                f"View → Section → {self._sections.get(CURATE_SECTION).title}."
+            ),
         )
-        menu = self._window.menuBar().addMenu("&Curation")
-        act_help = menu.addAction("Keyboard &shortcuts…")
-        act_help.triggered.connect(self.show_cheatsheet)
-        act_pick = menu.addAction("Assign category (&overflow)…")
-        self._act_assign_category = act_pick
-        act_pick.triggered.connect(self.show_overflow_picker)
 
-        # Hand-off menu: the standalone-tMAVEN round trip (§7.4) — export the
-        # selection as an SMD, and re-import a returning SMD (+ optional model)
-        # through the per-trace reconcile prompt.
-        self._handoff_menu = self._window.menuBar().addMenu("&Hand-off")
-        self._act_hand_off = self._handoff_menu.addAction("Hand to &tMAVEN…")
-        self._act_hand_off.triggered.connect(self._hand_off_dialog)
-        self._act_import = self._handoff_menu.addAction("&Import return leg…")
-        self._act_import.triggered.connect(self._import_dialog)
-
-        # Analysis menu: the population apparent-E histogram (§7.7, Appendix C A1).
-        self._analysis_menu = self._window.menuBar().addMenu("&Analysis")
-        self._act_histogram = self._analysis_menu.addAction("Population &histogram…")
-        self._act_histogram.triggered.connect(self.show_histogram)
-
-        # Conditions menu: the M4 annotation step — confirm/correct the provisional
-        # per-molecule condition_id, with the transactional re-key + human-confirmed
-        # merge (§5.1/§7.6).
-        self._conditions_menu = self._window.menuBar().addMenu("&Conditions")
-        self._act_validate_conditions = self._conditions_menu.addAction("Validate &conditions…")
-        self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
-
-        # Import menu (FR-LEGACY in the PRD and the code): the M7 Deep-LASI
-        # re-analysis entry point — import a folder of Deep-LASI acquisition files
-        # (movie + .tdat/.mat/.txt/SMD) into round-trip or analysis-only .tether
-        # projects through the wizard (§7.8). Named for what it does (#629).
-        self._legacy_menu = self._window.menuBar().addMenu("&Import")
-        self._act_import_deeplasi = self._legacy_menu.addAction("&Deep-LASI bundle…")
-        self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+        # The menus of the sections (#342): built from each section's MenuSpec, in the
+        # order of the registry, between the window's own File menu and its View and Help
+        # menus. A section's menus show only while that section is current.
+        menu_bar = self._window.menuBar()
+        for spec in self._sections:
+            for menu_spec in spec.menus:
+                section_menu = menu_bar.addMenu(menu_spec.title)
+                section_menu.setObjectName(f"{spec.id}-{menu_spec.id}-menu")
+                if menu_spec.populate is not None:
+                    menu_spec.populate(self, section_menu)
+                self._section_menus[spec.id].append(section_menu)
+        self._sync_section_menus()
 
         # View menu: View -> Theme -> System / Light / Dark (#675). The choice lasts
         # for the session until the settings store (#330) can keep it.
@@ -919,8 +954,7 @@ class TetherShell:
         self._act_documentation = self._help_menu.addAction("&Documentation")
         _set_standard_shortcuts(self._act_documentation, std.HelpContents, "F1")
         self._act_documentation.triggered.connect(self.open_documentation)
-        self._act_shortcuts = act_help
-        self._help_menu.addAction(act_help)
+        self._help_menu.addAction(self._act_shortcuts)
         self._act_log_folder = self._help_menu.addAction("Open &log folder")
         self._act_log_folder.triggered.connect(self.open_log_folder)
         self._help_menu.aboutToShow.connect(self._sync_help_menu)
@@ -977,6 +1011,14 @@ class TetherShell:
         return self._window
 
     @property
+    def channel_map(self) -> Any:
+        """The Calibration menu's actions.
+
+        A [`ChannelMapActions`][tether.gui.calibration.ChannelMapActions] (#353).
+        """
+        return self._channel_map
+
+    @property
     def trace_dock(self) -> Any:
         """The `TraceDock` on the page of the Curate and correct section."""
         return self._trace_dock
@@ -1025,6 +1067,36 @@ class TetherShell:
             return
         self._show_section(section_id)
         self._section_actions[section_id].setChecked(True)
+        # An open cheat-sheet follows the section, so it never lists keys that do not act.
+        self._cheatsheet.refresh()
+
+    def section_menus(self, section_id: str) -> list[QtWidgets.QMenu]:
+        """The menu-bar menus of ``section_id``, in the order of its `MenuSpec`s (#342).
+
+        They show on the menu bar only while ``section_id`` is current; File, View and Help
+        are the window's own menus and are in no section's list. Raise `KeyError` if unknown.
+        """
+        self._sections.get(section_id)
+        return list(self._section_menus[section_id])
+
+    @property
+    def keymap_active(self) -> bool:
+        """Whether the curation keys act now: the current section has the curation scope (#342).
+
+        While it is ``False`` a curation key keeps its native meaning and never reaches the
+        [`controller`][], and the cheat-sheet lists no key.
+        """
+        return self._curation_keys_active()
+
+    def _curation_keys_active(self) -> bool:
+        """The section predicate of the event filter and the cheat-sheet (#342)."""
+        return self._sections.get(self._section).keymap_scope == CURATION_SCOPE
+
+    def _sync_section_menus(self) -> None:
+        """Show the menus of the current section on the menu bar and hide every other one."""
+        for section_id, menus in self._section_menus.items():
+            for menu in menus:
+                menu.menuAction().setVisible(section_id == self._section)
 
     def _show_section(self, section_id: str) -> None:
         """Make ``section_id`` current: its page in the stack, its docks shown, others hidden.
@@ -1046,6 +1118,7 @@ class TetherShell:
                 dock_widget.show()
         self._section_stack.setCurrentWidget(self._section_pages[section_id])
         self._section = section_id
+        self._sync_section_menus()
 
     def _attach_section_dock(
         self, section_id: str, title: str, widget: Any, area: DockArea
@@ -1100,6 +1173,11 @@ class TetherShell:
         registry adds no second owner of any widget. Prepare and Analyze write to the open
         project in later work (#352 publishes an extraction into it; analysis results are
         stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
+
+        Each section also declares its menus (#342): Import and Calibration (#353) in
+        Prepare; Curation, Hand-off and Conditions in Curate and correct; Analysis in
+        Analyze. Only Curate and correct declares the curation keymap scope, so the
+        curation keys act only there.
         """
         browser_panel = self._browser_panel
         return SectionRegistry(
@@ -1114,6 +1192,18 @@ class TetherShell:
                         "Import → Deep-LASI bundle…. The project opens in this window.",
                     ),
                     writes_project=True,
+                    menus=(
+                        MenuSpec(
+                            id="import",
+                            title="&Import",
+                            populate=lambda _host, menu: self._populate_import_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="calibration",
+                            title="Ca&libration",
+                            populate=lambda _host, menu: self._populate_calibration_menu(menu),
+                        ),
+                    ),
                 ),
                 SectionSpec(
                     id=CURATE_SECTION,
@@ -1129,7 +1219,24 @@ class TetherShell:
                             factory=lambda _host: browser_panel,
                         ),
                     ),
-                    keymap_scope="curation",
+                    menus=(
+                        MenuSpec(
+                            id="curation",
+                            title="&Curation",
+                            populate=lambda _host, menu: self._populate_curation_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="hand-off",
+                            title="&Hand-off",
+                            populate=lambda _host, menu: self._populate_handoff_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="conditions",
+                            title="&Conditions",
+                            populate=lambda _host, menu: self._populate_conditions_menu(menu),
+                        ),
+                    ),
+                    keymap_scope=CURATION_SCOPE,
                 ),
                 SectionSpec(
                     id=ANALYZE_SECTION,
@@ -1141,9 +1248,85 @@ class TetherShell:
                         "Analysis → Population histogram…. It shows below this text.",
                     ),
                     writes_project=True,
+                    menus=(
+                        MenuSpec(
+                            id="analysis",
+                            title="&Analysis",
+                            populate=lambda _host, menu: self._populate_analysis_menu(menu),
+                        ),
+                    ),
                 ),
             ]
         )
+
+    # --- the menus of the sections (#342) --------------------------------------
+
+    def _populate_import_menu(self, menu: Any) -> None:
+        """Prepare's Import menu (FR-LEGACY): the M7 Deep-LASI re-analysis entry point.
+
+        It imports a folder of Deep-LASI acquisition files (movie + .tdat/.mat/.txt/SMD)
+        into round-trip or analysis-only .tether projects through the wizard (§7.8). It is
+        named for what it does (#629).
+        """
+        self._legacy_menu = menu
+        self._act_import_deeplasi = menu.addAction("&Deep-LASI bundle…")
+        self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+
+    def _populate_calibration_menu(self, menu: Any) -> None:
+        """Prepare's Calibration menu (#353): make, choose and apply a channel map file.
+
+        Make a channel map from a bead video or image, or choose a saved one, and extract
+        a later movie with it. Each action is a service command (map, extract), run on a
+        background worker of its own so the window stays live; the mapping page itself is
+        #917.
+        """
+        from tether.gui.calibration import ChannelMapActions
+
+        self._channel_map = ChannelMapActions(
+            status=self._status, open_project=self.load_project, window=self._window
+        )
+        self._calibration_menu = menu
+        self._act_make_map = menu.addAction("&Make channel map…")
+        self._act_make_map.triggered.connect(self._channel_map.make_map_dialog)
+        self._act_choose_map = menu.addAction("&Choose channel map…")
+        self._act_choose_map.triggered.connect(self._channel_map.choose_map_dialog)
+        self._act_extract_with_map = menu.addAction("&Extract a movie with the channel map…")
+        self._act_extract_with_map.triggered.connect(self._channel_map.extract_with_map_dialog)
+
+    def _populate_curation_menu(self, menu: Any) -> None:
+        """Curate and correct's Curation menu: the cheat-sheet and the overflow picker."""
+        self._act_shortcuts = menu.addAction("Keyboard &shortcuts…")
+        self._act_shortcuts.triggered.connect(self.show_cheatsheet)
+        self._act_assign_category = menu.addAction("Assign category (&overflow)…")
+        self._act_assign_category.triggered.connect(self.show_overflow_picker)
+
+    def _populate_handoff_menu(self, menu: Any) -> None:
+        """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
+
+        It exports the selection as an SMD, and re-imports a returning SMD (+ optional
+        model) through the per-trace reconcile prompt.
+        """
+        self._handoff_menu = menu
+        self._act_hand_off = menu.addAction("Hand to &tMAVEN…")
+        self._act_hand_off.triggered.connect(self._hand_off_dialog)
+        self._act_import = menu.addAction("&Import return leg…")
+        self._act_import.triggered.connect(self._import_dialog)
+
+    def _populate_conditions_menu(self, menu: Any) -> None:
+        """Curate and correct's Conditions menu: the M4 annotation step (§5.1/§7.6).
+
+        It confirms or corrects the provisional per-molecule condition_id, with the
+        transactional re-key and the human-confirmed merge.
+        """
+        self._conditions_menu = menu
+        self._act_validate_conditions = menu.addAction("Validate &conditions…")
+        self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
+
+    def _populate_analysis_menu(self, menu: Any) -> None:
+        """Analyze's Analysis menu: the population apparent-E histogram (§7.7, Appendix C A1)."""
+        self._analysis_menu = menu
+        self._act_histogram = menu.addAction("Population &histogram…")
+        self._act_histogram.triggered.connect(self.show_histogram)
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -1214,6 +1397,17 @@ class TetherShell:
     def read_only_banner(self) -> QtWidgets.QLabel:
         """The persistent Browser warning shown while the loaded project is browse-only."""
         return self._read_only_banner
+
+    @property
+    def conflict_copy_banner(self) -> QtWidgets.QLabel:
+        """The Browser warning naming possible sync-conflict copies of the open project.
+
+        [`load_project`][] fills it from
+        [`conflict_copy_warning`][tether.services.notices.conflict_copy_warning] and hides
+        it when the project's directory holds none; closing the project clears it. It only
+        reports: Tether never reconciles, deletes or merges a conflict copy (§5.4).
+        """
+        return self._conflict_copy_banner
 
     @property
     def recover_button(self) -> QtWidgets.QPushButton:
@@ -1564,6 +1758,15 @@ class TetherShell:
             self._read_only_banner.show()
         self._sync_project_write_controls()
 
+    def _set_conflict_copy_warning(self, warning: str | None) -> None:
+        """Show ``warning`` in the sync-conflict banner, or clear and hide it for ``None``."""
+        if warning is None:
+            self._conflict_copy_banner.clear()
+            self._conflict_copy_banner.hide()
+        else:
+            self._conflict_copy_banner.setText(f"Warning: {warning}.")
+            self._conflict_copy_banner.show()
+
     def _sync_project_write_controls(self) -> None:
         """Enable source-project writers only for an idle writable GUI session.
 
@@ -1615,6 +1818,12 @@ class TetherShell:
         never crashes on an open. Returns the opened [`Project`][tether.project.core.Project]
         (``None`` on failure).
 
+        A successful open also looks for OneDrive/SharePoint sync-conflict siblings of
+        the file ([`conflict_copy_warning`][tether.services.notices.conflict_copy_warning],
+        PRD §5.4 detect-and-surface) and names any in the non-blocking
+        [`conflict_copy_banner`][]; with none, the banner is hidden. The open never
+        waits on, refuses over, or changes a conflict copy.
+
         The curation category vocabulary, the movie switcher, and the napari movie panel
         / round-trip navigation are **not** re-wired here (the movie panel lands in #356
         and the round-trip in #357, and the per-condition category list is edited through the
@@ -1624,6 +1833,7 @@ class TetherShell:
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
         from tether.project.lock import LockedError
+        from tether.services.notices import conflict_copy_warning
 
         if self._idealize_future is not None:
             self._status("Open project unavailable: wait for idealization to finish")
@@ -1832,6 +2042,10 @@ class TetherShell:
         detail = marker.banner if analysis_only else f"{len(traces)} molecule(s)"
         if read_only_reason is not None:
             detail = f"{detail}; {read_only_reason}"
+        # Detect-and-surface (§5.4): look for OneDrive/SharePoint conflict siblings on
+        # every successful open, writable or browse-only. Advisory only — the helper
+        # swallows a directory-listing failure, so this can never fail the open.
+        self._set_conflict_copy_warning(conflict_copy_warning(proj_path))
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
 
@@ -2238,6 +2452,7 @@ class TetherShell:
         self._lock_refresh_timer.stop()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         self._idealizer = None
         self._handoff = None
         self._histogram_seam = None
@@ -3003,9 +3218,13 @@ class TetherShell:
                 writable_project.refresh_lock()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         # A running fit is abandoned (its result is discarded): the service stops its
         # poll timer and restores the wait cursor it set, so it never leaks past close.
         self._tasks.abandon()
+        # The same for a running channel-map command (#353): its outcome is not applied
+        # to a closed shell, and its worker stops once the command ends.
+        self._channel_map.close()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
