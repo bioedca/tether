@@ -34,7 +34,7 @@ required at install time.
 - Two **launchers**, `tether` and `tether-gui` (`tether.bat` and `tether-gui.bat` on Windows),
   in a `launchers` folder in the install root. That folder holds nothing else, so it is the one
   folder you add to your `PATH`
-  ([Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)).
+  ([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)).
   Installers up to and including 1.0.0-rc3 put the launchers in the install root's `bin`
   folder instead. On Linux and macOS that folder also holds the bootstrap's own `python`, `pip`
   and `conda`
