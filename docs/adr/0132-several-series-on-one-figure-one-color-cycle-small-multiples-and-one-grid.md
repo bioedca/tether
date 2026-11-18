@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# 0127 — Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid
+# 0132 — Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid
 
 - **Status:** accepted
 - **Date:** 2026-11-17

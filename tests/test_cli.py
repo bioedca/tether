@@ -42,10 +42,11 @@ def test_batch_requires_out_dir(tmp_path) -> None:
     assert exc.value.code == 2
 
 
-def test_batch_rejects_duplicate_movie_basenames(tmp_path, capsys) -> None:
+def test_batch_gives_movies_with_one_basename_their_own_outputs(tmp_path, monkeypatch) -> None:
     # Two movies with the same basename in different folders would map to the same
-    # <out-dir>/<stem>.tether and silently collide on the checkpoint; the CLI must
-    # reject them (exit 2) rather than process one as the other.
+    # <out-dir>/<stem>.tether and collide on the checkpoint. Since #653 each output name
+    # takes its parent folder instead of the run being refused.
+    captured = _capture_run_batch(monkeypatch)
     (tmp_path / "condA").mkdir()
     (tmp_path / "condB").mkdir()
     m1 = tmp_path / "condA" / "movie_010.tif"
@@ -54,12 +55,13 @@ def test_batch_rejects_duplicate_movie_basenames(tmp_path, capsys) -> None:
     m2.write_bytes(b"y")
     out = tmp_path / "out"
 
-    rc = main(["batch", str(m1), str(m2), "--out-dir", str(out), "--no-idealize"])
+    rc = main(["batch", str(m2), str(m1), "--out-dir", str(out), "--no-idealize"])
 
-    assert rc == 2
-    err = capsys.readouterr().err
-    assert "movie_010.tether" in err
-    assert "rename one" in err
+    assert rc == 0
+    assert [(j.movie_path, j.output_path) for j in captured["jobs"]] == [
+        (m1, out / "condA__movie_010.tether"),
+        (m2, out / "condB__movie_010.tether"),
+    ]
 
 
 def test_batch_isolates_failure_and_exits_nonzero(tmp_path, capsys) -> None:
@@ -96,7 +98,12 @@ def _capture_run_batch(monkeypatch):
         captured["jobs"] = list(jobs)
         captured["kwargs"] = kwargs
         kwargs["log"].event(movie="capture", stage="batch", status="done")
-        return SimpleNamespace(format_report=lambda: "(report)", n_failed=0, n_deferred=0)
+        return SimpleNamespace(
+            format_report=lambda: "(report)",
+            n_failed=0,
+            n_deferred=0,
+            results=[SimpleNamespace(job=job) for job in captured["jobs"]],
+        )
 
     monkeypatch.setattr(batch_mod, "run_batch", _fake)
     return captured
@@ -150,11 +157,74 @@ def test_batch_no_idealize_disables_supervision(tmp_path, monkeypatch) -> None:
     assert captured["kwargs"]["idealize"] is False
 
 
+def test_batch_warns_about_conflict_copies_of_each_output(tmp_path, monkeypatch, capsys) -> None:
+    # #560 / PRD §5.4: every per-movie project the batch opens is checked for
+    # OneDrive/SharePoint conflict siblings, and only a flagged one is named.
+    _capture_run_batch(monkeypatch)
+    movies = [tmp_path / "movie_001.tif", tmp_path / "movie_002.tif"]
+    for movie in movies:
+        movie.write_bytes(b"x")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "movie_002.tether").write_bytes(b"project")
+    (out / "movie_002-DESKTOP-AB12.tether").write_bytes(b"copy")
+
+    rc = main(["batch", *map(str, movies), "--out-dir", str(out), "--no-idealize"])
+
+    assert rc == 0  # advisory: never changes the exit code
+    err = capsys.readouterr().err
+    assert (
+        "  warning: 1 possible OneDrive/SharePoint conflict copy beside movie_002.tether: "
+        "movie_002-DESKTOP-AB12.tether." in err
+    )
+    assert "beside movie_001.tether" not in err
+    assert (out / "movie_002-DESKTOP-AB12.tether").read_bytes() == b"copy"
+
+
+def test_batch_checks_the_projects_it_made_from_a_folder_and_colliding_names(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    # #560: a folder argument and two movies with one file name give output names that
+    # the raw arguments do not spell, so the check reads each job's own output path.
+    captured = _capture_run_batch(monkeypatch)
+    for folder in ("a", "b"):
+        (tmp_path / "data" / folder).mkdir(parents=True)
+        (tmp_path / "data" / folder / "movie.tif").write_bytes(b"x")
+    out = tmp_path / "out"
+    out.mkdir()
+
+    assert (
+        main(
+            ["batch", str(tmp_path / "data"), "--recursive", "--out-dir", str(out), "--no-idealize"]
+        )
+        == 0
+    )
+    outputs = [job.output_path for job in captured["jobs"]]
+    assert len(set(outputs)) == 2 and out / "movie.tether" not in outputs
+    capsys.readouterr()
+
+    flagged = outputs[1]
+    copy = flagged.with_name(f"{flagged.stem}-DESKTOP-AB12{flagged.suffix}")
+    copy.write_bytes(b"copy")
+    assert (
+        main(
+            ["batch", str(tmp_path / "data"), "--recursive", "--out-dir", str(out), "--no-idealize"]
+        )
+        == 0
+    )
+
+    err = capsys.readouterr().err
+    assert f"conflict copy beside {flagged.name}: {copy.name}." in err
+    assert f"beside {outputs[0].name}" not in err
+
+
 # --- Flags that reach the batch run (#730) ----------------------------------
 
 
 def _log_movies(path) -> list[str]:
-    return [json.loads(line)["movie"] for line in path.read_text(encoding="utf-8").splitlines()]
+    """The movies of the run's own records: the ``input`` mapping records (#653) left out."""
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    return [r["movie"] for r in records if r["stage"] != "input"]
 
 
 def test_batch_forwards_tmap_tdat_policy_overwrite_and_log(tmp_path, monkeypatch, capsys) -> None:

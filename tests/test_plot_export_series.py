@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Several named series on one figure, for all thirteen plot renderers (#371, ADR-0127).
+"""Several named series on one figure, for all thirteen plot renderers (#371, ADR-0132).
 
 Each acceptance criterion of #371 has its tests here:
 

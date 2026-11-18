@@ -103,6 +103,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
 | (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 | MASH-FRET analyses: histogram, states, rates | required matrix (exact histogram) and `sidecar` (state limits), on a committed extract | the 37 stored histograms of the archive are checked by the workstation run |
+| Histogram bootstrap vs MASH-FRET | required matrix, on a committed extract | yes |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
 | Campos-Chavez et al. 2024: the tMAVEN fits | `reference_download` — weekly, with the sidecar env; **advisory** | the settings, the windows, the comparison and the limit rule; the stored models are checked by the workstation run |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
@@ -172,10 +173,14 @@ the specification's original extraction gate asked for 1 px recall and r ≥ 0.9
 
 ADR-0022 records the reasons each reframed bar is science rather than a lowered
 standard: 1 px recall is a localizer-*identity* test between two independent sub-pixel
-localizers on human-curated picks; Tether is donor-anchored
+localizers on human-curated picks; the oracle extraction is donor-anchored
 ([ADR-0015](adr/0015-donor-anchored-colocalization.md)), so the acceptor is read at the
 mapped donor position and its Pearson carries the map's molecule-domain scatter; and a
-bidirectional colocalization filter was measured to collapse recall to ≈0.66.
+bidirectional colocalization filter was measured to collapse recall to ≈0.66. A new
+extraction defaults to that filter, the partner-in-both rule
+([ADR-0127](adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)),
+so the oracle test and `scripts/run_m1_oracle.py` select `donor-anchored` by name and keep
+the frozen numbers.
 
 **Enforcing tests.** `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`
 — `@pytest.mark.workstation`, so no CI job collects it
@@ -697,8 +702,13 @@ withholding below the minimum qualifying count rather than emitting a factor fro
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
 
-**Total failure → apparent E, never NaN.** `tests/test_project_correct.py` covers the path
-that the specification singles out: `test_total_failure_falls_to_apparent_never_nan`,
+**Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
+non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is
+still NaN in apparent E, because the ratio is not defined there. That is not a correction
+failure.
+
+`tests/test_project_correct.py` covers the path that the specification singles out:
+`test_total_failure_falls_to_apparent_never_nan`,
 `test_fresh_store_nan_factors_is_total_failure`, `test_zero_gamma_boundary_is_total_failure`,
 `test_negative_gamma_is_total_failure`, `test_manual_override_rescues_total_failure`,
 `test_partial_alpha_override_without_gamma_stays_apparent`, and
@@ -952,6 +962,35 @@ comparison can prove. A second committed extract holds the 17 molecules of one t
 **What it does not check.** The state limits hold for the pinned sidecar build and seed; a new
 measurement and the maintainer's acceptance are needed to move them. No MASH-FRET rate is compared,
 because none is stored.
+
+## Histogram bootstrap vs MASH-FRET
+
+**What it checks.** Tether's bootstrap of the FRET histogram, which resamples molecules as
+BOBA-FRET does (König et al., *PLoS ONE* 8:e84157, 2013, doi `10.1371/journal.pone.0084157`),
+against the BOBA-FRET bootstrap that MASH-FRET itself ran on the same traces ([#713](https://github.com/bioedca/tether/issues/713),
+[ADR-0108](adr/0108-mash-fret-s-stored-bootstrap-is-the-reference-for-tether-s-bootstrap.md)). The
+Path A extract of the previous section keeps that bootstrap: 100 samples of 17 molecules drawn from
+the tag's 17, each molecule weighted to sum 1, with each sample's histogram and its fit of three
+Gaussians. These stored values are the reference, so no MATLAB run is needed.
+
+**How.** `tests/test_mashfret_bootstrap.py` runs Tether's bootstrap on the same FRET values, with
+the same weights and 100 samples, for ten fixed seeds. Each compared value is a z-score: the
+difference from MASH-FRET divided by the seed-to-seed SD of the ten seeds, times
+`sqrt(1 + 1/10)`. The limit, in `schema/mashfret_bootstrap_limits.json`, is |z| ≤ 3 for every
+value.
+
+| Compared value | Largest measured \|z\| | Limit |
+|---|---|---|
+| SD of each histogram bin over the samples (26 bins) | 1.11 | 3 |
+| Mean of each Gaussian population (0.410, 0.237, 0.352 against 0.415, 0.246, 0.340) | 1.17 | 3 |
+| SD of each Gaussian population (0.111, 0.110, 0.098 against 0.106, 0.111, 0.107) | 2.20 | 3 |
+
+Six other sets of ten seeds gave a largest |z| of at most 2.69. A bootstrap that resamples frames in
+place of molecules gives |z| = 130 on the bin SD, and a test keeps that case.
+
+**What it does not check.** One tag of one project file. The population fit is test code with
+SciPy. On MASH-FRET's own samples it moves the population means by up to 0.010 from MASH-FRET's
+MATLAB fit, and that difference is inside each population z-score.
 
 ## RF2-ArfA data set of the tMAVEN authors
 
@@ -1288,6 +1327,12 @@ fault injections each break a limit: an aperture moved by 2 px lowers the donor 
 to 0.689, and an acceptor position moved by 2 px after the channel mapping raises its largest
 acceptor error to 2.390 px.
 
+The test also counts duplicates: Tether molecules that match a true molecule which an earlier
+Tether molecule already matched (#1006,
+[ADR-0107](adr/0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md)). The count is 0
+in each scenario, and the limit is that count, so a molecule written twice breaks it. A test
+repeats each molecule and trace row of `easy` and requires the duplicate limit to break.
+
 ## External benchmark
 
 Tether's rate constants were compared against the ground truth and the reported inter-tool
@@ -1561,8 +1606,8 @@ documented gaps rather than fabricated values):
   patches from the import wizard (which opens the movie), and otherwise zero-fills; the
   movie link keeps crops re-cacheable.
 - **γ may be absent.** Remapped α/γ are injected only when γ is finite and positive;
-  otherwise the project degrades to the explicit apparent-E substrate — never a NaN E
-  (ADR-0003). The committed Cy3-only fixture exercises that path.
+  otherwise the project degrades to the explicit apparent-E substrate, so a missing γ never
+  gives a NaN E (ADR-0003). The committed Cy3-only fixture exercises that path.
 - δ (direct excitation) is inert 0 for single-laser Deep-LASI data, which has no ALEX
   channel to estimate it from.
 - A raw-`.txt`-sourced SMD has no coordinates and no patches, so it is imported as an
@@ -1578,3 +1623,8 @@ without a CUDA device, and `.github/workflows/deep-gpu.yml` is `workflow_dispatc
 by construction it never reports a pull-request status and can never become a required
 check. Treat deep-classifier output as an assistive ranking signal, not a validated
 measurement.
+
+The nightly CPU job also trains the default model on the public PySMACKS tutorial labels and
+checks frozen training numbers and a floor on the area under the ROC curve of a held-out part
+([ADR-0098](adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md)). That floor is a
+regression check on one labeled set. It does not make the add-on part of the validated core.
