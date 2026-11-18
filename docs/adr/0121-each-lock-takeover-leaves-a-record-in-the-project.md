@@ -15,7 +15,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Context and problem statement
 
-#626 gave the read-only banner **Recover** (a crashed session of this user on this computer) and
+\#626 gave the read-only banner **Recover** (a crashed session of this user on this computer) and
 **Take over…** (a stale lock of another computer or user, or a corrupt lock). Each successful
 takeover is logged at WARNING on the `tether.project.lock` logger. A log line ends with the session
 that wrote it, so a later reader of the `.tether` cannot tell that a takeover happened, or whose
