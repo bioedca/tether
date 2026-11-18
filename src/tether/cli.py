@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import os
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
@@ -113,6 +114,20 @@ def build_parser() -> argparse.ArgumentParser:
     _add_metadata_parser(subparsers)
     add_export_parser(subparsers)
     return parser
+
+
+def _warn_conflict_copies(project_path: str | os.PathLike[str]) -> None:
+    """Print one stderr warning when ``project_path`` has sync-conflict siblings (§5.4).
+
+    The CLI's half of detect-and-surface: the same text the GUI's open-project banner
+    shows ([`tether.services.notices.conflict_copy_warning`][]). Advisory only — it never
+    changes the exit code and never touches the conflict copies.
+    """
+    from tether.services.notices import conflict_copy_warning
+
+    warning = conflict_copy_warning(project_path)
+    if warning is not None:
+        print(f"  warning: {warning}.", file=sys.stderr)
 
 
 def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
@@ -382,6 +397,7 @@ def _run_extract(args: argparse.Namespace) -> int:
             print(f"  warning: {note}.", file=sys.stderr)
         else:
             print(f"  donor side: {note}.")
+    _warn_conflict_copies(summary.output_path)
     return 0
 
 
@@ -647,6 +663,11 @@ def _run_batch(args: argparse.Namespace) -> int:
     code = batch_exit_code(result.summary)
     print(result.summary.format_report())
     print(f"Exit code {code}: {BATCH_EXIT_MEANINGS[code]}.")
+    # Check the projects the run actually used: folders and patterns are expanded, and
+    # colliding movie names get longer output names (output_stems), so the raw arguments
+    # do not name them.
+    for movie_result in result.summary.results:
+        _warn_conflict_copies(movie_result.job.output_path)
     print(f"  structured log: {result.log_path}", file=sys.stderr)
     return code
 
@@ -781,6 +802,8 @@ def _run_info(args: argparse.Namespace) -> int:
             continue
         documents.append(summary.to_dict())
         texts.append(_format_summary(summary))
+        # Detect-and-surface (§5.4, #560): stderr, so a --json document stays clean.
+        _warn_conflict_copies(project)
     if args.json:
         print(
             json.dumps(
@@ -869,6 +892,7 @@ def _run_metadata(args: argparse.Namespace) -> int:
     except (KeyError, ValueError, OSError, LockedError) as exc:
         print(f"tether metadata: {exc}", file=sys.stderr)
         return 1
+    _warn_conflict_copies(args.project)
     if args.json:
         print(json.dumps([r.to_dict() for r in records.values()], indent=2))
         return 0

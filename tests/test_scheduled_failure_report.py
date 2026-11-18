@@ -553,6 +553,16 @@ def test_every_scheduled_workflow_calls_the_report_with_the_documented_shape() -
             assert job["with"]["result"] == f"${{{{ needs.{watched_id}.result }}}}", name
             expected_name = workflow["jobs"][watched_id].get("name", watched_id)
             assert job["with"]["job-name"] == expected_name, name
+        else:
+            # Several watched jobs fold into one result. A timed-out job ends `cancelled`, so the
+            # fold must carry it as well as `failure`, or a timeout would report the first job's
+            # pass (#759, review of PR #1026).
+            first = watched[0]
+            combined = " ".join(str(job["with"]["result"]).split())
+            assert combined == (
+                "${{ contains(needs.*.result, 'failure') && 'failure' || "
+                f"contains(needs.*.result, 'cancelled') && 'cancelled' || needs.{first}.result }}}}"
+            ), name
         covered.add(name)
     assert covered >= NAMED, f"not wired: {sorted(NAMED - covered)}"
 
