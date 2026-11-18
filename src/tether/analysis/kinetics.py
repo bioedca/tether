@@ -7,7 +7,7 @@ rate constants from FRET trajectories and check them against the reported
 inter-tool spread of the **kinSoftChallenge** blind benchmark [Götz2022].
 
 Unlike the rest of Tether's idealization — which routes through the isolated
-tMAVEN sidecar (:mod:`tether.idealize.driver`, ``run_vbfret``/``run_vbconhmm``) —
+tMAVEN sidecar ([`tether.idealize.driver`][], ``run_vbfret``/``run_vbconhmm``) —
 this module carries a **self-contained Gaussian HMM** that runs in the base
 environment (numpy only). That keeps the advisory oracle in the gated large-tier
 matrix without a sidecar interpreter, and matches the benchmark's own analysis
@@ -16,17 +16,17 @@ are compiled and rate constants inferred [Götz2022, Rabiner1989, Bilmes1998].
 
 Three pieces:
 
-* :func:`fit_gaussian_hmm` / :func:`viterbi_paths` — a shared-parameter Gaussian
+* [`fit_gaussian_hmm`][] / [`viterbi_paths`][] — a shared-parameter Gaussian
   HMM fit by scaled Baum-Welch (EM) with a deterministic quantile initialization,
   plus the Viterbi most-likely state path. No third-party HMM dependency.
-* :func:`pooled_exit_rates` / :func:`two_state_rate_constants` — the per-state
+* [`pooled_exit_rates`][] / [`two_state_rate_constants`][] — the per-state
   **exit rate** from the pooled dwell times, ``k = 1/⟨τ⟩`` (the maximum-likelihood
   estimator the benchmark uses [Götz2022]), reusing
-  :func:`tether.analysis.dwell.state_dwells`, which drops each molecule's last dwell
+  [`tether.analysis.dwell.state_dwells`][], which drops each molecule's last dwell
   and, unless ``include_first``, its first, so the estimator is consistent with the
   M6 dwell analysis.
-* :class:`KinsoftReference` / :func:`load_kinsoft_reference` /
-  :func:`evaluate_kinsoft_level` — load the frozen ground-truth + reported
+* [`KinsoftReference`][] / [`load_kinsoft_reference`][] /
+  [`evaluate_kinsoft_level`][] — load the frozen ground-truth + reported
   inter-tool spread (``schema/kinsoft_reference.json``) and check a fitted level
   against the **advisory** band. Only the archetypal 2-state level (Fig. 2) has an
   active, band-checked oracle: its well-separated FRET states are what a FRET-only
@@ -279,7 +279,7 @@ def viterbi_paths(traces: Iterable[np.ndarray], hmm: GaussianHMM) -> list[np.nda
 
     Log-space Viterbi with the fitted emission/transition parameters; states are the
     ascending-mean-sorted indices of ``hmm``. Empty traces are dropped (mirroring
-    :func:`fit_gaussian_hmm`), so the returned list aligns with the non-empty inputs.
+    [`fit_gaussian_hmm`][]), so the returned list aligns with the non-empty inputs.
     """
     data = _as_trace_list(traces)
     ns = hmm.nstates
@@ -318,9 +318,9 @@ def pooled_exit_rates(
     The maximum-likelihood exit-rate estimator for a continuous-time Markov process
     the benchmark uses [Götz2022]: pool every fully-observed dwell of a state across
     all molecules and take the reciprocal of the mean dwell **time** (frames × ``dt``).
-    Dwell extraction reuses :func:`tether.analysis.dwell.state_dwells` (a sentinel
+    Dwell extraction reuses [`tether.analysis.dwell.state_dwells`][] (a sentinel
     ``no_state = -1`` never present in a Viterbi path), so the first and last dwell
-    of each molecule are dropped exactly as in :func:`~tether.analysis.dwell.state_dwells`
+    of each molecule are dropped exactly as in [`state_dwells`][tether.analysis.dwell.state_dwells]
     — the last because its exit was not observed, the first (unless ``include_first``)
     because its start was not.
 
@@ -366,8 +366,8 @@ def two_state_rate_constants(
 ) -> TwoStateKinetics:
     """Fit a 2-state Gaussian HMM to ``traces`` and infer both exit rates.
 
-    Pipeline: :func:`fit_gaussian_hmm` (nstates=2) → :func:`viterbi_paths` →
-    :func:`pooled_exit_rates`. ``dt`` is seconds per frame (rates come out in
+    Pipeline: [`fit_gaussian_hmm`][] (nstates=2) → [`viterbi_paths`][] →
+    [`pooled_exit_rates`][]. ``dt`` is seconds per frame (rates come out in
     ``1/s``). Convenience for the archetypal 2-state kinSoft level.
     """
     data = _as_trace_list(traces)
@@ -428,7 +428,7 @@ class KinsoftKineticsResult:
 
     ``rates`` and ``ground_truth`` are ``{"k12_low_high", "k21_high_low"}`` in
     ``1/s``; ``rel_deviation`` the per-rate ``|k − GT|/GT``. ``within_band`` is True
-    when every rate is within :attr:`band` — an **advisory** check (§9 M8). ``failures``
+    when every rate is within [`band`][] — an **advisory** check (§9 M8). ``failures``
     names any rate outside the band.
     """
 
@@ -453,7 +453,7 @@ def evaluate_kinsoft_level(
     ``active`` oracle (currently ``level1``/Fig. 2). Each trace's FRET-efficiency
     series is idealized by the base-env 2-state HMM, the two exit rates inferred by
     pooled dwell-time MLE, and each checked against the ground truth to within the
-    reported inter-tool spread (:attr:`KinsoftReference.band`).
+    reported inter-tool spread (`KinsoftReference.band`).
 
     Raises
     ------
