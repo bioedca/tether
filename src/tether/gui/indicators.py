@@ -17,8 +17,9 @@ change it sends to every widget.
   beam-profile row of dots at the top of the mark; the dots fill from left to right,
   and the text percentage stays beside them.
 
-The shell connects the busy indicator to the one-click idealize. The task service
-(#343) and the progress indicator (#627) put both parts in front of the other tasks.
+The task service ([`TaskService`][tether.gui.task_service.TaskService], #343) starts and
+stops the busy indicator for each background task, the one-click idealize first. The progress
+indicator (#627) puts `ProgressRow` in front of the other tasks.
 
 Qt is imported when one of the three widget classes is first used, so importing this
 module costs no Qt, matching the rest of [`tether.gui`][].

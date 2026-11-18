@@ -3,33 +3,41 @@
 """The ``batch`` service command: extract, correct and idealize many movies.
 
 [`BatchRequest`][] holds what ``tether batch`` takes on its command line, with the same
-defaults; [`run`][] builds one [`MovieJob`][tether.project.batch.MovieJob] for each movie and
-calls [`tether.project.batch.run_batch`][]. The core is imported when the command runs,
-not when this module is imported (ADR-0100).
+defaults, and the extraction options of an extraction profile
+([`tether.services.profile`][], #349); [`run`][] builds one
+[`MovieJob`][tether.project.batch.MovieJob] for each movie and calls
+[`tether.project.batch.run_batch`][] with the
+[`ExtractOptions`][tether.project.extract.ExtractOptions] those options name. The core is
+imported when the command runs, not when this module is imported (ADR-0100).
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 from tether.services.base import CommandFailed, Request, RequestRefused
+from tether.services.profile import ExtractionFields
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from tether.project.batch import BatchSummary
+    from tether.project.batch import BatchSummary, MovieJob, MovieResult
 
 __all__ = ["BatchRequest", "BatchResult", "run"]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class BatchRequest(Request):
+class BatchRequest(ExtractionFields, Request):
     """Run the extract -> correct -> idealize pipeline over many movies.
 
     The fields are the options of ``tether batch`` (``docs/cli.md``) with the same
-    defaults. Two flags are stated positively: ``--no-idealize`` is ``idealize=False``
-    and ``--no-defer`` is ``defer_if_unavailable=False``. ``None`` in a supervision field
-    means the [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
+    defaults, and the
+    [`ExtractionFields`][tether.services.profile.ExtractionFields] applied to every movie,
+    which ``tether batch --profile`` sets (none of them has a flag of its own). Two flags
+    are stated positively: ``--no-idealize`` is ``idealize=False`` and ``--no-defer`` is
+    ``defer_if_unavailable=False``. ``None`` in a supervision field means the
+    [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
     """
 
     COMMAND: ClassVar[str] = "batch"
@@ -57,21 +65,57 @@ class BatchResult:
     log_path: Path
 
 
-def run(request: BatchRequest) -> BatchResult:
+class _Progress(Protocol):
+    """What ``run`` needs of a progress observer.
+
+    [`BatchProgress`][tether.project.batch.BatchProgress] provides it. It is written out
+    here so that this module imports no part of the core (ADR-0100).
+    """
+
+    def run_started(
+        self, *, n_movies: int, out_dir: str | Path, policy: str, idealize: bool
+    ) -> None: ...
+
+    def event(self, record: dict[str, Any]) -> None: ...
+
+    def movie_started(self, index: int, total: int, job: MovieJob) -> None: ...
+
+    def movie_finished(self, index: int, total: int, result: MovieResult) -> None: ...
+
+
+def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchResult:
     """Run *request*.
 
+    *progress*, when given, watches the run (#648): it is told the run's setup before the
+    first movie is read, gets each structured-log event and is told when each movie starts
+    and ends. It is a display, not part of the request, so it has no text form; an
+    exception it raises is swallowed and costs no movie a stage.
+
     Raises [`RequestRefused`][tether.services.base.RequestRefused] before any movie is read when
-    the policy or the supervision settings are invalid, when there is no movie, or when
-    two movies would write the same project. Raises
+    the policy, the supervision settings or the extraction options are invalid, when a
+    ``tdat`` comes with a ``detection_mode`` or ``detection_threshold``, when there is no
+    movie, or when two movies would write the same project. Raises
     [`CommandFailed`][tether.services.base.CommandFailed] when the output directory or the log
     cannot be written. A failed stage is not an error: it is in the summary.
     """
     from tether.project.batch import POLICIES, BatchLog, MovieJob, run_batch
+    from tether.project.extract import ExtractionError
 
     if not request.movies:
         raise RequestRefused("a batch needs at least one movie")
     if request.policy not in POLICIES:
         raise RequestRefused(f"policy must be one of {POLICIES}, got {request.policy!r}")
+    # A .tdat supplies the detection mode and threshold; a choice of either beside it is
+    # ambiguous, so it is refused, as tether extract refuses it (#349).
+    if request.tdat is not None and request.sets_detection():
+        raise RequestRefused(
+            "detection_mode/detection_threshold cannot be combined with --tdat (the .tdat "
+            "supplies them); leave them null in the profile or drop --tdat"
+        )
+    try:
+        extract_options = request.extract_options()
+    except ExtractionError as exc:
+        raise RequestRefused(str(exc)) from exc
     # The overnight batch tool supervises the idealization sidecar by default (PR7-B):
     # a startup liveness probe -> idealization-deferred mode when the sidecar env is
     # absent/corrupt, plus per-movie auto-restart on transient failures. Unset overrides
@@ -121,15 +165,26 @@ def run(request: BatchRequest) -> BatchResult:
             )
         )
     log_path = Path(request.log) if request.log else out_dir / "batch-log.jsonl"
+    if progress is not None:
+        with contextlib.suppress(Exception):
+            progress.run_started(
+                n_movies=len(jobs),
+                out_dir=out_dir,
+                policy=request.policy,
+                idealize=request.idealize,
+            )
+    on_event = progress.event if progress is not None else None
     try:
-        with BatchLog(path=log_path) as log:
+        with BatchLog(path=log_path, on_event=on_event) as log:
             summary = run_batch(
                 jobs,
                 policy=request.policy,
+                extract_options=extract_options,
                 idealize=request.idealize,
                 supervision=supervision,
                 overwrite=request.overwrite,
                 log=log,
+                progress=progress,
             )
     except OSError as exc:
         raise CommandFailed(f"cannot write the batch output or log {log_path}: {exc}") from exc
