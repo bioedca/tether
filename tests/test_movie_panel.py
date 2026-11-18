@@ -20,13 +20,13 @@ Two layers:
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from _gui_harness import needs_gl as _needs_gl
 from tether.gui.movie_panel import (
     MovieOverlay,
     NapariMoviePanel,
@@ -49,15 +49,10 @@ _HAS_NAPARI_QT = all(importlib.util.find_spec(m) is not None for m in ("napari",
 _needs_napari = pytest.mark.skipif(not _HAS_NAPARI_QT, reason="napari/qtpy not installed")
 
 # Instantiating a real napari Viewer also needs an OpenGL context for its vispy
-# canvas. macOS CI provides none under ``QT_QPA_PLATFORM=offscreen`` (the cocoa GL
-# backend segfaults), so the Viewer-instantiating smokes are skipped on that exact
-# combo — they still run headless on Linux (xvfb) and Windows, and the panel is
-# live-verified on a real display. A macOS dev with a real display is unaffected.
-_NO_HEADLESS_GL = sys.platform == "darwin" and os.environ.get("QT_QPA_PLATFORM") == "offscreen"
-_needs_gl = pytest.mark.skipif(
-    _NO_HEADLESS_GL,
-    reason="napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)",
-)
+# canvas, which macOS offscreen Qt does not provide (it segfaults). ``_needs_gl`` is the
+# guard of the offscreen GUI harness (#344), so every Viewer test skips on the same
+# condition: still headless on Linux (xvfb) and Windows, and live-verified on a real
+# display.
 
 
 def _is_native(dtype: np.dtype) -> bool:

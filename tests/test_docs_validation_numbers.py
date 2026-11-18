@@ -881,10 +881,11 @@ def live_tmaven_commit(sidecar_workflow: str, release_workflow: str) -> str:
 def live_sidecar_python(lock: str, spec: str) -> str:
     """The CPython ``sidecar/conda-lock.yml`` resolves on every platform it declares.
 
-    Fails rather than choosing when the platforms disagree, when one lacks ``python``, or
-    when the resolved version is not one ``spec`` — ``sidecar/environment.yml``'s
-    ``python=`` — admits: a lock that no longer answers its own environment file states
-    no live interpreter.
+    Fails, naming the lockfile and showing what it parsed, when a ``python`` entry lacks
+    a ``version:`` or ``platform:`` line (#525). Fails rather than choosing when the
+    platforms disagree, when one lacks ``python``, or when the resolved version is not one
+    ``spec`` — ``sidecar/environment.yml``'s ``python=`` — admits: a lock that no longer
+    answers its own environment file states no live interpreter.
     """
     declared = _LOCK_PLATFORMS_RE.findall(lock)
     assert len(declared) == 1, "sidecar/conda-lock.yml must declare one metadata platforms list"
@@ -894,6 +895,10 @@ def live_sidecar_python(lock: str, spec: str) -> str:
         if name != "python":
             continue
         fields = dict(re.findall(r"^  (version|platform): (\S+)$", entry, re.MULTILINE))
+        assert {"version", "platform"} <= fields.keys(), (
+            "sidecar/conda-lock.yml has a python entry without a plain `version:` and "
+            f"`platform:` line; parsed {fields}"
+        )
         versions[fields["platform"]] = fields["version"].strip("'\"")
     assert sorted(versions) == sorted(platforms), (
         f"sidecar/conda-lock.yml resolves python on {sorted(versions)}, not on every "
@@ -3198,6 +3203,22 @@ def test_the_live_interpreter_is_the_one_the_lock_resolves_everywhere() -> None:
     with pytest.raises(AssertionError, match="not on every"):
         live_sidecar_python(missing, "3.12.*")
     assert live_sidecar_python_spec("dependencies:\n  - python=3.12.*\n") == "3.12.*"
+
+
+@pytest.mark.parametrize(
+    ("line", "kept"),
+    [("  version: 3.12.13\n", "platform"), ("  platform: win-64\n", "version")],
+    ids=["no-version", "no-platform"],
+)
+def test_a_python_lock_entry_without_version_or_platform_names_the_lockfile(
+    line: str, kept: str
+) -> None:
+    """A lost ``version:`` or ``platform:`` line names the lock, not a bare ``KeyError`` (#525)."""
+    entry = "- name: python\n  version: 3.12.13\n  manager: conda\n  platform: win-64\n"
+    assert _LOCK_SAMPLE.count(entry) == 1
+    broken = _LOCK_SAMPLE.replace(entry, entry.replace(line, ""))
+    with pytest.raises(AssertionError, match=r"sidecar/conda-lock\.yml .*parsed \{'" + kept):
+        live_sidecar_python(broken, "3.12.*")
 
 
 def test_the_ebfret_block_was_measured_on_the_live_build() -> None:

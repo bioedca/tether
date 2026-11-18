@@ -35,6 +35,17 @@ merge that folds ~100 videos into one condition must **never** happen silently (
 must hold under the M0 schema freeze (additive data only) and behind the headless
 `tether.project` core (the GUI is a thin layer, §7.11).
 
+## Considered options
+
+- **Identity as a content hash of the exact key, kept separate by default; a correction as a
+  transactional re-key with a human-confirmed merge** (chosen).
+- **Fuzzy or automatic merge of near-miss keys.**
+- **A per-row read-modify-write for the re-key** (the `/labels` pattern).
+- **A frozen `/audit` table declared at M0**, in place of the lazily created audit log.
+- **Writing the audit event before the molecule re-key** (the `/labels` ordering).
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 **Identity = a content hash of the exact key (keep-separate by default).** A condition's id

@@ -1667,6 +1667,61 @@ def test_another_process_cannot_claim_a_project_through_a_hard_link(tmp_path: Pa
     assert lock.read_lock(first) is None
 
 
+_ALIAS_CLAIMER = """
+import sys
+import time
+from tether.project import lock
+
+print("ready", flush=True)
+held = lock.acquire(sys.argv[1])
+print(time.time(), flush=True)
+lock.release(sys.argv[1], held)
+"""
+
+
+def test_writing_holds_off_a_claim_through_a_hard_link_made_with_the_lock_dir(
+    tmp_path: Path,
+) -> None:
+    """A claim through another name waits for the write, also when it makes the lock dir (#561).
+
+    The per-user directory does not exist yet. Before ``writing`` created it, the
+    write took no identity guard, so a claim through the hard link made the directory,
+    took the guard and overtook the write under its own ``<file>.lock`` guard.
+    """
+    first, second = _hard_link_pair(tmp_path)
+    assert not lock.user_lock_dir().exists()
+    with lock.writing(first):
+        claimer = subprocess.Popen(
+            [sys.executable, "-c", _ALIAS_CLAIMER, str(second)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert claimer.stdout is not None
+        assert claimer.stdout.readline().strip() == "ready", claimer.stderr.read()
+        time.sleep(1.0)  # the claim has had time to land, were it not held off
+        write_ended = time.time()
+    out, err = claimer.communicate(timeout=60)
+    assert claimer.returncode == 0, err
+    assert float(out.strip()) >= write_ended
+    assert lock.read_lock(first) is None
+
+
+def test_writing_fails_closed_when_the_lock_dir_cannot_be_made(tmp_path: Path, monkeypatch) -> None:
+    """No identity guard, no write: a claim through a hard link could overtake it (#561)."""
+    project = tmp_path / "p.tether"
+    create_project(project)
+    if lock.file_identity(project) is None:  # pragma: no cover - no inode numbers
+        pytest.skip("this filesystem reports no file identity")
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("")
+    monkeypatch.setattr(lock, "user_lock_dir", lambda: blocker / "locks")
+    ran: list[bool] = []
+    with pytest.raises(OSError), lock.writing(project):
+        ran.append(True)
+    assert ran == []
+
+
 def test_strict_and_same_process_claims_through_an_alias_are_refused(tmp_path: Path) -> None:
     first, second = _hard_link_pair(tmp_path)
     held = lock.acquire(first)

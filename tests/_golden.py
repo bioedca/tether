@@ -399,7 +399,11 @@ def run_synthetic_movie(workdir: Path) -> dict[str, Any]:
     )
     out_dir = workdir / "batch"
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        q["cli.batch.exit_code"] = main(["batch", str(movie), "-d", str(out_dir), "--no-idealize"])
+        # The golden numbers were made with the donor-anchored rule; this names it, so
+        # the new partner-in-both default cannot move them (#920, ADR-0127).
+        argv = ["batch", str(movie), "-d", str(out_dir), "--no-idealize"]
+        argv += ["--colocalization", "donor-anchored"]
+        q["cli.batch.exit_code"] = main(argv)
     projects = sorted(out_dir.glob("*.tether"))
     q["cli.batch.projects"] = len(projects)
     path = projects[0]

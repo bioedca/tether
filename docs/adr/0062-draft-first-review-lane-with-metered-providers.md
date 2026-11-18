@@ -43,6 +43,16 @@ There is a second, older problem the same change fixes. CodeRabbit's adaptive ra
 suppress a review **silently while its status check still goes green** — a failure that reads as
 success. Nothing in the routing distinguished "reviewed and found nothing" from "never reviewed".
 
+## Considered options
+
+- **One fixed lane, cheapest provider first: draft, Codex, an optional Greptile credit, ready,
+  then CodeRabbit** (chosen).
+- **Keep risk routing and swap CodeRabbit for Greptile on `high`.**
+- **Budget by milestone allowance.**
+- **A workflow that arms auto-merge and reports green-unarmed PRs** (deferred).
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 **Providers are spent cheapest-first along one fixed lane, not routed by risk.** Each step begins
