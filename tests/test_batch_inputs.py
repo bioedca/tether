@@ -338,11 +338,12 @@ def test_a_link_followed_by_dotdot_takes_the_real_parent_folders(tmp_path: Path)
     (tmp_path / "archive" / "sub").mkdir()
     _link_to(tmp_path / "work" / "link", tmp_path / "archive" / "sub")
     through_link = os.path.join(str(tmp_path / "work" / "link"), "..", "m.tif")
+    movies = expand_movie_arguments([str(beside_link), through_link])
     if os.path.samefile(through_link, beside_link):
         # Windows removes ``..`` as text before it follows a link, so there the path is
-        # the movie beside the link and the batch holds it once.
-        pytest.skip("this OS reads '..' before it follows a link")
-    movies = expand_movie_arguments([str(beside_link), through_link])
+        # the movie beside the link: one movie, with its own name.
+        assert output_stems(movies) == ("m",)
+        return
     assert len(movies) == 2
     by_movie = dict(zip((os.path.realpath(m) for m in movies), output_stems(movies), strict=True))
     assert by_movie[os.path.realpath(tmp_path / "archive" / "m.tif")] == "archive__m"
