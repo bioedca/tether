@@ -273,6 +273,28 @@ def test_close_project_releases_the_lock_and_shows_the_start_page(shell, tmp_pat
     assert "Closed basics.tether" in shell.status_message
 
 
+def test_the_empty_browser_panel_shows_no_stub_text(shell, tmp_path) -> None:
+    # #1031: with no project open the movie box holds no invented movie id and is
+    # disabled, and the category hint uses user words, not focus-contract terms.
+    switcher = shell.movie_switcher
+    assert switcher.count() == 0
+    assert not switcher.isEnabled()
+    hint = shell.category_field.placeholderText()
+    assert hint
+    for term in ("keymap", "exempt", "text-entry"):
+        assert term not in hint.lower()
+    assert bool(shell.category_field.property("tetherTextEntry")) is True
+
+    # Opening a project enables the box (still without a fake item, #356 fills it);
+    # closing the project disables it again.
+    shell.load_project(_store(tmp_path).path)
+    assert switcher.isEnabled()
+    assert switcher.findText("movie-0") == -1
+    assert shell.close_project()
+    assert not switcher.isEnabled()
+    assert switcher.count() == 0
+
+
 def test_a_closed_project_opens_writable_in_another_shell(qapp, qtbot, shell, tmp_path) -> None:
     from tether.gui.shell import TetherShell
 

@@ -635,6 +635,11 @@ def _registry() -> list[_Entry]:
         # Batch over-gate policy (the row names no constant, only its module).
         (("tether.project.batch",), module_constant("tether.project.batch", "POLICY_WARN")),
         # Photobleaching priors.
+        # Bead-map minimum spots per channel half (#915).
+        (
+            ("DEFAULT_MIN_BEAD_SPOTS",),
+            module_constant("tether.imaging.beadmap", "DEFAULT_MIN_BEAD_SPOTS"),
+        ),
         (("PB_PRIOR_A",), module_constant("tether.fret.photobleach", "PB_PRIOR_A")),
         (("PB_PRIOR_B",), module_constant("tether.fret.photobleach", "PB_PRIOR_B")),
         (("PB_PRIOR_BETA",), module_constant("tether.fret.photobleach", "PB_PRIOR_BETA")),
@@ -878,6 +883,15 @@ def _registry() -> list[_Entry]:
         (
             ("DEFAULT_TDP_SIGNAL_RANGE",),
             module_constant("tether.analysis.tdp", "DEFAULT_TDP_SIGNAL_RANGE"),
+        ),
+        (("DEFAULT_TDP_SMOOTH",), module_constant("tether.analysis.tdp", "DEFAULT_TDP_SMOOTH")),
+        (
+            ("DEFAULT_TDP_INTERP_RES",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_INTERP_RES"),
+        ),
+        (
+            ("DEFAULT_TDP_NORMALIZE",),
+            module_constant("tether.analysis.tdp", "DEFAULT_TDP_NORMALIZE"),
         ),
         (("DEFAULT_DWELL_NBINS",), module_constant("tether.analysis.dwell", "DEFAULT_DWELL_NBINS")),
         (
@@ -1263,7 +1277,7 @@ def test_documented_default_matches_the_code(claim: Claim) -> None:
         )
 
 
-# The ten ExtractOptions fields that `tether extract` exposes as flags. The page says
+# The eleven ExtractOptions fields that `tether extract` exposes as flags. The page says
 # that for these "the command line is the **only** surface".
 _EXTRACT_FLAG_FIELDS = {
     "--donor-side": "donor_side",
@@ -1276,13 +1290,14 @@ _EXTRACT_FLAG_FIELDS = {
     "--pair-tol": "pair_tol",
     "--rms-gate": "rms_gate",
     "--coloc-distance": "coloc_distance",
+    "--colocalization": "colocalization",
 }
 
 
 def test_each_extract_flag_default_is_the_dataclass_default() -> None:
     """The default a CLI run applies is the ``ExtractOptions`` default this page prints.
 
-    The registry above reads these ten defaults from the dataclass, but on the only
+    The registry above reads these eleven defaults from the dataclass, but on the only
     surface that sets them the dataclass default is never used: ``tether.cli`` repeats
     each one as an argparse literal, and ``_run_extract`` always passes the argparse
     value into ``ExtractOptions(...)``. A changed literal therefore changed every CLI
@@ -1430,6 +1445,7 @@ def test_every_constant_the_page_prints_a_value_for_is_registered() -> None:
 #: ``tether.fret.photobleach``) -- so it is written here, and verified by the resolvers.
 _CONSTANT_BACKED_SURFACES = [
     ("tether.analysis.histogram", "model_gaussian_overlay", "n_points", "DEFAULT_OVERLAY_POINTS"),
+    ("tether.imaging.beadmap", "bead_map", "min_bead_spots", "DEFAULT_MIN_BEAD_SPOTS"),
     (
         "tether.analysis.histogram",
         "population_model_gaussian_overlay",
@@ -1592,6 +1608,12 @@ _CONSTANT_BACKED_SURFACES = [
         "ship_bar_pts",
         "DEFAULT_SHIP_BAR_PTS",
     ),
+    (
+        "tether.project.prequential",
+        "ranker_leave_one_video_out_uplift",
+        "ship_bar_pts",
+        "DEFAULT_SHIP_BAR_PTS",
+    ),
 ]
 
 
@@ -1686,6 +1708,9 @@ tether.analysis.tdp
     population_transition_density nskip DEFAULT_TDP_NSKIP
     population_transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
     population_transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE
+    smooth_transition_density interp_res DEFAULT_TDP_INTERP_RES
+    smooth_transition_density normalize DEFAULT_TDP_NORMALIZE
+    smooth_transition_density smooth DEFAULT_TDP_SMOOTH
     transition_density nskip DEFAULT_TDP_NSKIP
     transition_density signal_bins DEFAULT_TDP_SIGNAL_BINS
     transition_density signal_range DEFAULT_TDP_SIGNAL_RANGE
@@ -1760,6 +1785,7 @@ tether.ml.deep.model
 tether.ml.drift
     condition_drift alpha DEFAULT_DRIFT_ALPHA
 tether.ml.prequential
+    leave_one_video_out_uplift ship_bar_pts DEFAULT_SHIP_BAR_PTS
     prequential_uplift ship_bar_pts DEFAULT_SHIP_BAR_PTS
 tether.project.core
     Project.idealize timeout DEFAULT_SIDECAR_TIMEOUT

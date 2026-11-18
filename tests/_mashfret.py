@@ -61,7 +61,12 @@ the page and the source disagree, the source wins, because the source wrote the 
     first and the last bin, which collect the overflow, removed when ``overflow`` is 0.
     ``thm_res{2,1}`` is the Gaussian fit (``gauss_ana.m``): one row ``[A, σ(A), μ, σ(μ), FWHM,
     σ(FWHM), population, σ(population)]`` for each Gaussian, the mean and SD over the bootstrap
-    samples.
+    samples. ``thm_res{2,2}`` holds the ``[A, μ, FWHM, population]`` of each Gaussian for each
+    sample, and ``thm_res{2,3}`` the centres and the histogram of each sample (each sums to 1)
+    (#713). ``thm_start{1}`` is ``[method, bootstrap, molecules per sample, samples, weighted]``;
+    "weighted" makes each molecule's histogram sum to 1 before the molecules are added
+    (``getHist.m``). ``thm_start{3}`` holds, for each Gaussian, the lower bound, the start and the
+    upper bound of ``A``, ``μ`` and the FWHM, in that order.
 ``prmTDP{t+1, k}`` — the Transition-analysis results (#712)
     ``clst_res{3}`` is the number of clusters chosen and ``clst_res{1}.clusters{J}`` the dwell
     table of that choice (``clustTrans.m``): one row ``[dwell time in s, value before, value after,
@@ -84,6 +89,7 @@ import numpy as np
 import scipy.io as sio
 
 __all__ = [
+    "Bootstrap",
     "MashProject",
     "TagAnalysis",
     "UnsupportedProject",
@@ -248,6 +254,23 @@ def read_project(path: Path | str) -> MashProject:
 
 
 @dataclass(frozen=True)
+class Bootstrap:
+    """MASH-FRET's bootstrap of one tag's Gaussian fit (``gauss_ana.m``, #713)."""
+
+    enabled: bool
+    molecules_per_sample: int  # drawn with replacement for each sample
+    weighted: bool  # each molecule's histogram sums to 1 before the molecules are added
+    fit_start: np.ndarray  # (J, 9): [A low, start, high, μ low, start, high, FWHM low, start, high]
+    samples: np.ndarray  # (S, 4*J): [A, μ, FWHM, population] of each Gaussian, μ ascending
+    histograms: np.ndarray  # (bins, S): each sample's histogram, each column sums to 1
+
+    @property
+    def populations(self) -> np.ndarray:
+        """``(S, J)``: the population of each Gaussian in each sample."""
+        return self.samples[:, 3::4]
+
+
+@dataclass(frozen=True)
 class TagAnalysis:
     """MASH-FRET's analysis of one molecule tag, and the traces it was made from (#712)."""
 
@@ -263,6 +286,7 @@ class TagAnalysis:
     counts: np.ndarray  # MASH-FRET's histogram counts
     gaussians: np.ndarray | None  # thm_res{2,1}: (J, 8), or None if no fit is stored
     dwells: np.ndarray | None  # clst_res{1}.clusters{J}: (n, 8), or None
+    bootstrap: Bootstrap | None = None  # thm_start and thm_res{2,2:3}, or None if no fit
 
 
 def _load(path: Path | str) -> dict:
@@ -302,8 +326,22 @@ def read_tag_analysis(path: Path | str, tag: int) -> TagAnalysis:
     if overflow:
         raise UnsupportedProject("a histogram that keeps its overflow bins")
     table = np.atleast_2d(np.asarray(cell.plot[1], dtype=np.float64))
-    fit = np.asarray(cell.thm_res, dtype=object)[1, 0]
+    results = np.asarray(cell.thm_res, dtype=object)
+    fit = results[1, 0]
     gaussians = np.atleast_2d(np.asarray(fit, dtype=np.float64)) if np.size(fit) else None
+    bootstrap = None
+    if gaussians is not None:
+        settings = np.asarray(cell.thm_start[0], dtype=np.float64).ravel()
+        n_gauss = gaussians.shape[0]
+        histograms = np.atleast_2d(np.asarray(results[1, 2], dtype=np.float64))
+        bootstrap = Bootstrap(
+            enabled=bool(settings[1]),
+            molecules_per_sample=int(settings[2]),
+            weighted=bool(settings[4]),
+            fit_start=np.atleast_2d(np.asarray(cell.thm_start[2], dtype=np.float64))[:, :9],
+            samples=np.asarray(results[1, 1], dtype=np.float64).reshape(-1, 4 * n_gauss),
+            histograms=histograms[:, 1:],
+        )
 
     dwells = None
     # prmTDP is absent where no Transition analysis was saved, and short of rows for tags made
@@ -358,4 +396,5 @@ def read_tag_analysis(path: Path | str, tag: int) -> TagAnalysis:
         counts=table[:, 1],
         gaussians=gaussians,
         dwells=dwells,
+        bootstrap=bootstrap,
     )
