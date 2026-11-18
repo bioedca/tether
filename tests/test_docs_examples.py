@@ -501,6 +501,42 @@ def test_a_call_that_cannot_run_is_reported(code: str, expected: str) -> None:
     assert any(expected in p for p in problems), problems
 
 
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (
+            "from tether.analysis.histogram import population_apparent_e_histogram as hist_e\n"
+            'hist = hist_e("x.tether")\n',
+            [],
+        ),
+        (
+            "from tether.analysis.histogram import population_apparent_e_histogram as hist_e\n"
+            'hist = hist_e("x.tether", nbins=1)\n',
+            ["hist_e(...) — no parameter 'nbins'"],
+        ),
+        ("from tether.project.core import Project as P\nP.open(path)\n", []),
+        (
+            "from tether.project.core import Project as P\nP.open(path, mode=1)\n",
+            ["P.open(...) — no parameter 'mode'"],
+        ),
+        # The alias is also another top-level def of the module, which takes ``weights``:
+        # the call is still checked against the original, which does not (#853).
+        (
+            "from tether.analysis.histogram import (\n"
+            "    population_apparent_e_histogram as apparent_e_histogram,\n"
+            ")\n"
+            'hist = apparent_e_histogram("x.tether", weights=None)\n',
+            ["apparent_e_histogram(...) — no parameter 'weights'"],
+        ),
+    ],
+    ids=["alias-ok", "alias-bad-keyword", "class-alias-ok", "class-alias-bad", "alias-shadows-def"],
+)
+def test_an_aliased_import_is_checked_against_its_original(code: str, expected: list[str]) -> None:
+    """``import a as b`` keys the call by ``b`` and finds the signature by ``a`` (#853)."""
+    problems = _call_problems("docs/x.md", [(1, ast.parse(code))])
+    assert [p.split(": ", 1)[1] for p in problems] == expected, problems
+
+
 def test_a_name_bound_in_an_earlier_fence_of_the_page_is_not_reported() -> None:
     first = ast.parse("from tether.analysis.plot_export import render_histogram1d\n")
     second = ast.parse("figure = render_histogram1d(hist)\nhist = None\n")
