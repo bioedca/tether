@@ -501,7 +501,7 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         action="store_true",
         help=(
             "print each movie, its output and what the run would do, then exit 0; "
-            "no movie is read and nothing is written"
+            "nothing is written, and no movie is read except to hash it under --into"
         ),
     )
     destination = batch.add_mutually_exclusive_group(required=True)

@@ -90,7 +90,11 @@ class PlannedMovie:
 
 @dataclasses.dataclass(frozen=True)
 class BatchPlan:
-    """What a ``batch`` request would do, found without reading a movie or writing a file."""
+    """What a ``batch`` request would do, found without writing a file.
+
+    No movie is read, except that with ``into`` a movie is hashed when the project holds
+    a movie of the same size.
+    """
 
     movies: tuple[PlannedMovie, ...]
     out_dir: Path
@@ -273,7 +277,7 @@ def _sidecar_status(supervision: SidecarSupervision | None) -> str:
 
 
 def plan(request: BatchRequest) -> BatchPlan:
-    """Say what [`run`][] would do with *request*, reading no movie and writing nothing.
+    """Say what [`run`][] would do with *request*, writing nothing.
 
     Raises [`RequestRefused`][tether.services.base.RequestRefused] for the same requests
     that [`run`][] refuses. An existing output project is opened read-only to read its

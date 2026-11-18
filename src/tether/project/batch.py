@@ -1769,12 +1769,18 @@ def _finish_project(
     """
     from tether.project.lock import publish_lock  # noqa: PLC0415
 
+    # Claim the project whenever a movie of the run went into it, whether or not the
+    # path is there now: a project that another writer creates or replaces in the
+    # meantime is then never read or written by the stages without the lock.
+    in_project = any((sr := r.stages.get(STAGE_EXTRACT)) and sr.ok for r in recorders)
     scope: contextlib.AbstractContextManager[Callable[[], None] | None]
-    scope = publish_lock(project) if os.path.lexists(project) else contextlib.nullcontext()
+    scope = publish_lock(project) if in_project else contextlib.nullcontext()
     try:
         with scope as guard:
             if guard is not None:
                 guard()
+                if not os.path.lexists(project):
+                    raise FileNotFoundError(f"the project {project} is no longer there")
             outcome = _project_stages(
                 project,
                 recorders,
@@ -2021,7 +2027,9 @@ def _project_stages(
     Returns the project's stages and, for each of correct and idealize, the movies
     digest to stamp: the current one when the stage is satisfied, an empty string when it
     is not, and the earlier stamp's when idealization was not asked for and nothing it
-    covered changed. ``None`` when no movie of the run is in the project (nothing ran).
+    covered changed. A stage skipped on a checkpoint no ``--into`` run stamped gets no
+    digest, since that checkpoint may not cover every movie now in the project.
+    ``None`` when no movie of the run is in the project (nothing ran).
     """
     in_project = [r for r in recorders if (sr := r.stages.get(STAGE_EXTRACT)) and sr.ok]
     for rec in recorders:
@@ -2081,10 +2089,15 @@ def _project_stages(
     }
     covered: dict[str, str] = {}
     for name in (STAGE_CORRECT, STAGE_IDEALIZE):
+        previous = _covered_movies(project, name)
+        if stages[name].status == STATUS_SKIPPED and previous is None:
+            # Skipped on a checkpoint no ``--into`` run stamped: it may predate a movie
+            # added since by another route, so the stamp claims no movies for it.
+            continue
         if stages[name].ok:
             covered[name] = current
         elif stages[name].status != STATUS_NOT_REQUESTED or appended or corrected_now:
             covered[name] = ""  # unfinished, or a model the project has outgrown
-        elif (previous := _covered_movies(project, name)) is not None:
+        elif previous is not None:
             covered[name] = previous  # not asked for this time: what it covered stands
     return stages, covered

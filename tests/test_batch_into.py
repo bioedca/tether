@@ -738,3 +738,76 @@ def test_a_dry_run_with_nothing_to_append_reads_the_project_checkpoint(
     assert describe_project_stages(project, idealize=idealize, appending=False) == expected
     absent = tmp_path / "absent.tether"
     assert describe_project_stages(absent, idealize=False, appending=False).startswith("will fail:")
+
+
+def test_a_project_gone_before_its_stages_is_claimed_and_not_corrected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CodeRabbit (Major) on #1223: the stages claim the project whenever a movie of the
+    # run went in, so a path that is absent when they start is never read without the
+    # writer lock; a project that is no longer there fails the stages and runs nothing.
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    claimed: list[Path] = []
+    real_lock = lock.publish_lock
+
+    def recording_lock(path, **kwargs):
+        claimed.append(Path(path))
+        return real_lock(path, **kwargs)
+
+    monkeypatch.setattr(lock, "publish_lock", recording_lock)
+    calls: list[Path] = []
+
+    def correct(path, **_kwargs):
+        calls.append(Path(path))
+        return "stub"
+
+    def extract_elsewhere(*_args, **_kwargs):
+        return SimpleNamespace(n_molecules=1, movie_id="m0")
+
+    summary = run_batch_into(
+        _into_jobs(project, movie),
+        project,
+        idealize=False,
+        _extract=extract_elsewhere,
+        _correct=correct,
+    )
+
+    assert claimed == [project]
+    assert calls == []
+    stages = summary.results[0].stages
+    assert stages[STAGE_EXTRACT].status == STATUS_DONE
+    assert stages[STAGE_CORRECT].status == STATUS_FAILED
+    assert "no longer there" in str(stages[STAGE_CORRECT].error)
+    assert not project.exists()
+
+
+def test_a_checkpoint_no_into_run_stamped_is_not_stamped_as_covering_the_movies(
+    tmp_path: Path,
+) -> None:
+    # CodeRabbit (Major) on #1223: a movie appended by another route after the project
+    # was corrected is not in what that correction saw, so a run that skips the stage on
+    # that checkpoint must not stamp it as covering the project's movies.
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    second = _movie(tmp_path, "m1.tif", 360.0)
+    project = tmp_path / "P.tether"
+    options = ExtractOptions(window=helpers._WINDOW)
+    extract_movie(first, project, options=options)
+    with h5py.File(project, "r+") as f:
+        f.require_group("settings/correction")
+    with lock.publish_lock(project) as guard:
+        add_movie_to_project(project, second, options=options, publish_guard=guard)
+
+    summary = run_batch_into(
+        _into_jobs(project, first, second),
+        project,
+        extract_options=options,
+        idealize=False,
+        _correct=lambda *_a, **_k: pytest.fail("the curated project was recomputed"),
+    )
+
+    assert {r.stages[STAGE_EXTRACT].status for r in summary.results} == {STATUS_SKIPPED}
+    assert {r.stages[STAGE_CORRECT].status for r in summary.results} == {STATUS_SKIPPED}
+    attrs = _batch_attrs(project)
+    assert "correct_movies" not in attrs
+    assert "idealize_movies" not in attrs
