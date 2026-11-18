@@ -21,13 +21,12 @@ Three layers, mirroring the module split:
 from __future__ import annotations
 
 import importlib.util
-import os
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from _gui_harness import needs_gl as _needs_gl
 from tether.gui.movie_panel import MovieOverlay, NapariMoviePanel
 from tether.gui.roundtrip import MoleculeSite, RoundTripIndex, RoundTripNavigator
 from tether.io.movie import open_movie
@@ -36,14 +35,10 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
 
 # Collection-time GUI guards (identical rationale to test_movie_panel): gate before
 # pytest resolves ``qtbot`` so a missing Qt binding skips cleanly, and skip the
-# Viewer smoke on macOS-offscreen whose Qt gives vispy no GL context (segfaults).
+# Viewer smoke on macOS-offscreen whose Qt gives vispy no GL context (segfaults). The
+# GL guard is the one the offscreen GUI harness carries (#344).
 _HAS_NAPARI_QT = all(importlib.util.find_spec(m) is not None for m in ("napari", "qtpy"))
 _needs_napari = pytest.mark.skipif(not _HAS_NAPARI_QT, reason="napari/qtpy not installed")
-_NO_HEADLESS_GL = sys.platform == "darwin" and os.environ.get("QT_QPA_PLATFORM") == "offscreen"
-_needs_gl = pytest.mark.skipif(
-    _NO_HEADLESS_GL,
-    reason="napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)",
-)
 
 
 def _sites() -> list[MoleculeSite]:
