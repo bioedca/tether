@@ -24,6 +24,11 @@ linked work maps to one. The checklist, not CI, enforces those fields.
 
 <!-- One concern per PR. What does this change do, and why? -->
 
+## AI assistance
+
+<!-- Not a footer: the squash commit does not take this line, and commit messages stay as they are. -->
+- AI assistance: none | the tool that drafted the change, and its model where the tool reports it (the tool name alone is a valid value)
+
 ## Linked tracking
 
 <!-- Fill the footers; the squash commit inherits them. -->
