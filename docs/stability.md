@@ -38,12 +38,12 @@ launcher (`[project.gui-scripts]` → `tether.gui.app:main`).
 
 | Covered | Detail |
 |---|---|
-| Subcommand names | `tether extract` and `tether batch` — the only two (`tether.cli`). No others exist to promise. |
+| Subcommand names | `tether extract`, `tether batch` and `tether export` with its three forms `table`, `traces` and `subset` (`tether.cli`). |
 | `tether --version` | Prints the version and exits `0`. |
 | `tether-gui` | Exists as a launcher and starts the application. Nothing about the window layout or its behavior is covered. |
-| Flag names and meanings | Every option listed by `tether extract --help` and `tether batch --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
+| Flag names and meanings | Every option listed by `tether extract --help`, `tether batch --help` and `tether export <form> --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
 | Documented defaults | The default values printed in `--help` — e.g. `--donor-side left`, `--window 21`, `--coloc-distance 3`, `--rms-gate 0.5` — do not change within `1.x`. A default that changes silently changes a scientific result, so it is treated as a breaking change, not a tweak. |
-| Exit status | `0` on success, non-zero otherwise. The exit codes are part of this contract: `1` the work failed (an `ExtractionError`, or at least one movie failed in a batch), `2` a usage or configuration error, and — `tether batch` only — `3` no movie failed but at least one requested stage was deferred. `1` takes precedence over `3`. See [Exit codes](cli.md#exit-codes). |
+| Exit status | `0` on success, non-zero otherwise. The exit codes are part of this contract: `1` the work failed (an `ExtractionError`, at least one movie failed in a batch, or at least one export failed), `2` a usage or configuration error, and — `tether batch` only — `3` no movie failed but at least one requested stage was deferred. `1` takes precedence over `3`. See [Exit codes](cli.md#exit-codes). |
 
 **Sidecar carve-out.** Four `tether batch` options — `--sidecar-python`, `--sidecar-timeout`,
 `--max-restarts` and `--no-defer` — describe the [sidecar interface](#not-covered), which is

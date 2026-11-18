@@ -64,8 +64,8 @@ retired = 0
 
 [pages."docs/pipeline.md"]
 kind = "descriptive"
-long_share = 37.3
-semicolons = 36
+long_share = 35.2
+semicolons = 35
 long_paragraphs = 2
 retired = 4
 
@@ -99,7 +99,7 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 18.3
+long_share = 16.8
 semicolons = 8
 long_paragraphs = 0
 retired = 3
@@ -134,8 +134,8 @@ retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
-long_share = 30.4
-semicolons = 4
+long_share = 27.0
+semicolons = 3
 long_paragraphs = 0
 retired = 0
 
@@ -190,7 +190,7 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 19.3
+long_share = 17.1
 semicolons = 19
 long_paragraphs = 0
 retired = 6
@@ -198,7 +198,7 @@ retired = 6
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
 long_share = 21.8
-semicolons = 23
+semicolons = 22
 long_paragraphs = 1
 retired = 1
 
@@ -211,7 +211,7 @@ retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 27.2
+long_share = 24.1
 semicolons = 29
 long_paragraphs = 0
 retired = 0

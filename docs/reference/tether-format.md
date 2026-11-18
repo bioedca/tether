@@ -309,7 +309,7 @@ rewrites `condition_id`, and the per-molecule setters in
 | `molecule_key` | `str:utf-8` | scalar | Cross-file content identity, 64-char hex SHA-256. Deterministic across runs and platforms. Two derivations exist (see below); the extraction one is **not** guaranteed unique. |
 | `movie_id` | `str:utf-8` | scalar | Foreign key into `/movies/table`. `""` in an analysis-only import, and **dangling** in a subset export (which carries no `/movies` rows) — resolve it defensively. |
 | `donor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` donor (reference-channel) centroid, in **movie pixels** of the donor sub-image. |
-| `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
+| `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, the donor position mapped through the registration map, in **movie pixels**. |
 | `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard aperture window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
 | `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. A curator sets it with `set_analysis_window`, which clamps the request into `frame_range` (bounded by `[0, n_frames]`) by the SMD-import rule ([`_resolve_windows`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py), `src/tether/project/analysis_import.py`), and restores it with `reset_analysis_window`. There is no "manual" flag: an analysis window set to the whole `frame_range` is again under the auto-default. Either setter deletes `/features/table` when it changes a row that table holds, because those features were computed from the old frames. |
@@ -341,6 +341,29 @@ rewrites `condition_id`, and the per-molecule setters in
 > `[0, 40]`, and `compute_photobleach` reported `n_windows_autoset=1` — it refined only
 > the second row. To tell the cases apart, read `/settings/analysis_only` or the
 > `round-trip-unavailable` tag, not the analysis window.
+
+### `/molecules/acceptor_detected` — the colocalization flag
+
+An `int8` dataset beside the table, one value per row of `/molecules/table`, in the same
+order ([ADR-0127](../adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)).
+`1` means an acceptor spot was detected within `coloc_distance` of the mapped position.
+`0` means none was. `-1` means the extraction did not record it.
+
+A project extracted before the flag existed has no dataset. A project that later gained
+rows can have a dataset shorter than the table. Both read as `-1` for the rows the dataset
+does not cover
+([`read_acceptor_detected`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py)).
+A dataset longer than the table is refused on the next append. A Deep-LASI reconstruction
+writes `-1`, because its molecules are not detected. A subset export carries the flag of
+each molecule it copies.
+
+The rule of each movie is the `colocalization` key of its profile on
+`/settings/extraction/movies` (below). It is `partner-in-both`, under which every kept
+molecule has flag `1`, or `donor-anchored`. A profile without the key reads as
+`donor-anchored`
+([`read_colocalization_policies`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py)).
+Such a profile was written before the rule could be chosen, or by a Deep-LASI
+reconstruction.
 
 ### Two sentinels and two derivations worth reading twice
 
@@ -625,7 +648,7 @@ Deep-LASI, not by Tether:
 | `n_psf` | int | Number of pixels in the disk mask (derived from the radii). |
 | `molecule_key_quantum_px` | float | The `molecule_key` coordinate quantum, pixels (`0.1`). |
 | `app_version` | str | Writing Tether version. |
-| `profile_json` | str | The caller's settings profile as JSON — present only when one was supplied. |
+| `profile_json` | str | The caller's settings profile as JSON, with the `colocalization` rule the writer stamps from a detected molecule list (ADR-0127) — present only when there is a profile or a rule to record. |
 
 The stamp describes only the first extraction. So each movie's own settings profile is also
 kept on the child group **`/settings/extraction/movies`**. It holds one string attribute per
