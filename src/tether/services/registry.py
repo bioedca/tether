@@ -84,12 +84,16 @@ def command(name: str) -> ServiceCommand:
     raise KeyError(name)
 
 
-def run(request: Request) -> Any:
-    """Run *request* through its registered command and return the command's result."""
+def run(request: Request, **observers: Any) -> Any:
+    """Run *request* through its registered command and return the command's result.
+
+    Keyword arguments go to the command unchanged. They watch the run, such as the
+    ``progress`` of the ``batch`` command, and are not part of the request.
+    """
     entry = command(request.COMMAND)
     if type(request) is not entry.request_type:
         raise TypeError(f"expected {entry.request_type.__name__}, got {type(request).__name__}")
-    return entry.run(request)
+    return entry.run(request, **observers)
 
 
 def request_from_text(text: str) -> Request:

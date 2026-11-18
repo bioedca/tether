@@ -163,6 +163,7 @@ guaranteed to be there.
 | `/settings/lock_takeovers` | absent | `record_takeover` (`src/tether/project/lock_takeovers.py`), called by the application after a Recover or Take over |
 | `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
+| `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
 | `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
 `write_extraction` is not the only writer of `/molecules` rows and `/traces`. Four
@@ -308,7 +309,7 @@ rewrites `condition_id`, and the per-molecule setters in
 | `molecule_key` | `str:utf-8` | scalar | Cross-file content identity, 64-char hex SHA-256. Deterministic across runs and platforms. Two derivations exist (see below); the extraction one is **not** guaranteed unique. |
 | `movie_id` | `str:utf-8` | scalar | Foreign key into `/movies/table`. `""` in an analysis-only import, and **dangling** in a subset export (which carries no `/movies` rows) — resolve it defensively. |
 | `donor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` donor (reference-channel) centroid, in **movie pixels** of the donor sub-image. |
-| `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
+| `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, the donor position mapped through the registration map, in **movie pixels**. |
 | `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard aperture window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
 | `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. A curator sets it with `set_analysis_window`, which clamps the request into `frame_range` (bounded by `[0, n_frames]`) by the SMD-import rule ([`_resolve_windows`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py), `src/tether/project/analysis_import.py`), and restores it with `reset_analysis_window`. There is no "manual" flag: an analysis window set to the whole `frame_range` is again under the auto-default. Either setter deletes `/features/table` when it changes a row that table holds, because those features were computed from the old frames. |
@@ -340,6 +341,29 @@ rewrites `condition_id`, and the per-molecule setters in
 > `[0, 40]`, and `compute_photobleach` reported `n_windows_autoset=1` — it refined only
 > the second row. To tell the cases apart, read `/settings/analysis_only` or the
 > `round-trip-unavailable` tag, not the analysis window.
+
+### `/molecules/acceptor_detected` — the colocalization flag
+
+An `int8` dataset beside the table, one value per row of `/molecules/table`, in the same
+order ([ADR-0127](../adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)).
+`1` means an acceptor spot was detected within `coloc_distance` of the mapped position.
+`0` means none was. `-1` means the extraction did not record it.
+
+A project extracted before the flag existed has no dataset. A project that later gained
+rows can have a dataset shorter than the table. Both read as `-1` for the rows the dataset
+does not cover
+([`read_acceptor_detected`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py)).
+A dataset longer than the table is refused on the next append. A Deep-LASI reconstruction
+writes `-1`, because its molecules are not detected. A subset export carries the flag of
+each molecule it copies.
+
+The rule of each movie is the `colocalization` key of its profile on
+`/settings/extraction/movies` (below). It is `partner-in-both`, under which every kept
+molecule has flag `1`, or `donor-anchored`. A profile without the key reads as
+`donor-anchored`
+([`read_colocalization_policies`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py)).
+Such a profile was written before the rule could be chosen, or by a Deep-LASI
+reconstruction.
 
 ### Two sentinels and two derivations worth reading twice
 
@@ -590,7 +614,8 @@ leave `/patches` empty**, because they have no coordinates.
 ## `/settings` — provenance of each pipeline stage
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
-datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, which are datasets.
+datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
+`recorded_inputs` and `stale_marks`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
@@ -603,6 +628,9 @@ datasets**, except `condition_audit`, `molecule_audit` and `lock_takeovers`, whi
 | `condition_audit` | `tether.project.conditions` | A **dataset**: append-only re-key/merge log, created lazily. |
 | `molecule_audit` | `tether.project.molecule_edits` | A **dataset**: append-only log of per-molecule category and analysis-window edits, created lazily. |
 | `lock_takeovers` | `tether.project.lock_takeovers` | A **dataset**: append-only log of each successful lock Recover or Take over, created lazily (ADR-0121). |
+| `jobs` | `tether.project.jobs` | A **dataset**: one row per job, created lazily; a row changes as its job runs. |
+| `recorded_inputs` | `tether.project.jobs` | A **dataset**: append-only identities of the inputs of each record, created lazily. |
+| `stale_marks` | `tether.project.jobs` | A **dataset**: append-only stale marks, created lazily; a mark is never removed. |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -620,7 +648,7 @@ Deep-LASI, not by Tether:
 | `n_psf` | int | Number of pixels in the disk mask (derived from the radii). |
 | `molecule_key_quantum_px` | float | The `molecule_key` coordinate quantum, pixels (`0.1`). |
 | `app_version` | str | Writing Tether version. |
-| `profile_json` | str | The caller's settings profile as JSON — present only when one was supplied. |
+| `profile_json` | str | The caller's settings profile as JSON, with the `colocalization` rule the writer stamps from a detected molecule list (ADR-0127) — present only when there is a profile or a rule to record. |
 
 The stamp describes only the first extraction. So each movie's own settings profile is also
 kept on the child group **`/settings/extraction/movies`**. It holds one string attribute per
@@ -662,6 +690,39 @@ lock could not be parsed), `ousted_user`, `ousted_host`, `ousted_pid` (`i8`),
 the four `ousted_*` holder fields. The row is written after the project has been reopened
 writable under the new lock, so a refused or failed takeover writes none. It is append-only and
 never rewritten.
+
+### Jobs, recorded inputs and stale marks
+
+`/settings/jobs` holds one row for each job of the job and dependency coordinator
+([ADR-0126](../adr/0126-jobs-and-stale-marks-are-stored-in-the-project.md)). Every field is a
+UTF-8 string: `job_id` (32 hex characters), `command` and `request` (the service request in
+its text form, ADR-0100), `state`, `parts` and `completed` (JSON arrays of part names, and
+the second is the checkpoint), `inputs` (a JSON object from `"<node key>:<instance id>"` to the
+identity of that input), `owner` (JSON: `host`, `user`, `pid` and the lock `nonce` of the
+writer that last ran the job), `created_utc`, `started_utc`, `ended_utc` (ISO-8601 UTC, `""`
+when not reached), `error` and `app_version`. The `state` is one of:
+
+| State | Meaning |
+|---|---|
+| `queued` | Stored and not started. |
+| `running` | A writer session is doing the parts now. |
+| `done` | Every part is complete. |
+| `failed` | A part raised an error; `error` says which and why. A retry continues from `completed`. |
+| `cancelled` | Stopped by the user; the complete parts are kept. A retry continues from `completed`. |
+| `interrupted` | It was running when its owner stopped. A retry continues from `completed`. |
+
+A stored `running` row can outlive its writer: the lock no longer carries its `nonce`, or its
+process on this computer is not running. Such a row is **read** as `interrupted`, and the next
+writer stores it so. A reader needs no lock and the file is closed between parts, so a reader
+never waits on a job.
+
+`/settings/recorded_inputs` has the string fields `node`, `instance`, `upstream_node`,
+`upstream_instance` and `identity`: one row for each direct input of a record of the
+dependency graph ([ADR-0103](../adr/0103-the-project-dependency-graph-and-the-stale-rules.md)),
+written once when the record is made. `/settings/stale_marks` has the string fields `node`,
+`instance`, `edge` (the edge number of ADR-0103), `upstream_node`, `upstream_instance`,
+`edited_node`, `edited_instance`, `event`, `timestamp` and `app_version`. A record with a mark
+is stale: it stays readable and never supplies a current result. Both are append-only.
 
 ## `/idealization` — one subgroup per fitted model
 

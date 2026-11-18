@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from threading import Lock
@@ -58,6 +57,7 @@ from tether.gui.curation import (
     Keymap,
 )
 from tether.gui.sections import DockArea, DockSpec, SectionRegistry, SectionSpec
+from tether.gui.task_service import TaskService
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -70,6 +70,7 @@ if TYPE_CHECKING:
     from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
     from tether.gui.reconcile import ReconcileDecision
+    from tether.gui.tasks import TaskOutcome
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
@@ -593,17 +594,10 @@ class TetherShell:
         # The currently open modal wrapper, retained so timer-detected lock loss can
         # reject it before its stale Project handle reaches another write action.
         self._active_conditions_dialog: Any | None = None
-        # The fit runs on a background worker (the sidecar can block for a cold-JIT
-        # first run); a main-thread QTimer polls the future so the GUI stays live and
-        # the overlay draw + status update always happen on the main thread.
-        self._idealize_executor = ThreadPoolExecutor(max_workers=1)
-        self._idealize_future: Any | None = None
         # A fit abandoned by shell close remains a writer until its Future settles.
         # Keep that Future separate from the visible idealization state so the
         # nonce-safe release timer waits for the writer and retries teardown errors.
         self._session_release_future: Any | None = None
-        self._idealize_timer: Any | None = None
-        self._idealize_key: str | None = None
         # What this computer remembers between launches (#628, ADR-0122): recent
         # projects, the molecule selected at close, the layout and the curator name.
         # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
@@ -664,12 +658,14 @@ class TetherShell:
         # field. The category field is the text-entry exempt from the keymap.
         panel = QtWidgets.QWidget()
         vbox = QtWidgets.QVBoxLayout(panel)
+        # No invented movie id: the box stays empty, and it is disabled while no
+        # project is open (#1031). Filling it from /movies is #356.
         self._movie_switcher = QtWidgets.QComboBox()
-        self._movie_switcher.addItems(["movie-0"])
+        self._movie_switcher.setEnabled(False)
         self._molecule_list = QtWidgets.QListWidget()
         self._molecule_list.currentRowChanged.connect(self._on_list_row_changed)
         self._category_field = QtWidgets.QLineEdit()
-        self._category_field.setPlaceholderText("category name (text-entry — keymap exempt)")
+        self._category_field.setPlaceholderText("Type a category name")
         self._category_field.setProperty("tetherTextEntry", True)
         self._unreject_button = QtWidgets.QPushButton("Un-reject selected")
         self._unreject_button.setToolTip(
@@ -681,6 +677,15 @@ class TetherShell:
         # The theme's style sheet draws it in the "caution" state token.
         self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
+        # OneDrive/SharePoint sync-conflict siblings of the open project (PRD §5.4,
+        # detect-and-surface): a non-blocking warning, never a dialog or a refusal.
+        self._conflict_copy_banner = QtWidgets.QLabel()
+        self._conflict_copy_banner.setAccessibleName("Sync-conflict copy warning")
+        self._conflict_copy_banner.setWordWrap(True)
+        # File names are shown as written: a name holding "<b>" must not become markup.
+        self._conflict_copy_banner.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self._conflict_copy_banner.setProperty("tetherRole", "caution")
+        self._conflict_copy_banner.hide()
         # The banner's lock actions (#626), shown only when the lock allows one.
         self._recover_button = QtWidgets.QPushButton("Recover")
         self._recover_button.setAccessibleName("Recover the project lock")
@@ -713,6 +718,7 @@ class TetherShell:
         lock_actions.addWidget(self._take_over_button)
         lock_actions.addStretch(1)
         vbox.addLayout(lock_actions)
+        vbox.addWidget(self._conflict_copy_banner)
         vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
@@ -957,6 +963,11 @@ class TetherShell:
 
         self._busy_indicator = BusyIndicator()
         self._window.statusBar().addPermanentWidget(self._busy_indicator)
+        # The fit runs on the background-task service (#343): one worker thread (the
+        # sidecar can block for a cold-JIT first run), polled by a main-thread QTimer so
+        # the GUI stays live and the overlay draw + status update happen on the main
+        # thread. The service sets the wait cursor and drives the busy indicator.
+        self._tasks = TaskService(poll_ms=_IDEALIZE_POLL_MS, indicator=self._busy_indicator)
         self._curator_label = QtWidgets.QLabel()
         self._curator_label.setAccessibleName("Curator name")
         self._window.statusBar().addPermanentWidget(self._curator_label)
@@ -1213,6 +1224,17 @@ class TetherShell:
     def read_only_banner(self) -> QtWidgets.QLabel:
         """The persistent Browser warning shown while the loaded project is browse-only."""
         return self._read_only_banner
+
+    @property
+    def conflict_copy_banner(self) -> QtWidgets.QLabel:
+        """The Browser warning naming possible sync-conflict copies of the open project.
+
+        [`load_project`][] fills it from
+        [`conflict_copy_warning`][tether.services.notices.conflict_copy_warning] and hides
+        it when the project's directory holds none; closing the project clears it. It only
+        reports: Tether never reconciles, deletes or merges a conflict copy (§5.4).
+        """
+        return self._conflict_copy_banner
 
     @property
     def recover_button(self) -> QtWidgets.QPushButton:
@@ -1563,6 +1585,15 @@ class TetherShell:
             self._read_only_banner.show()
         self._sync_project_write_controls()
 
+    def _set_conflict_copy_warning(self, warning: str | None) -> None:
+        """Show ``warning`` in the sync-conflict banner, or clear and hide it for ``None``."""
+        if warning is None:
+            self._conflict_copy_banner.clear()
+            self._conflict_copy_banner.hide()
+        else:
+            self._conflict_copy_banner.setText(f"Warning: {warning}.")
+            self._conflict_copy_banner.show()
+
     def _sync_project_write_controls(self) -> None:
         """Enable source-project writers only for an idle writable GUI session.
 
@@ -1614,6 +1645,12 @@ class TetherShell:
         never crashes on an open. Returns the opened [`Project`][tether.project.core.Project]
         (``None`` on failure).
 
+        A successful open also looks for OneDrive/SharePoint sync-conflict siblings of
+        the file ([`conflict_copy_warning`][tether.services.notices.conflict_copy_warning],
+        PRD §5.4 detect-and-surface) and names any in the non-blocking
+        [`conflict_copy_banner`][]; with none, the banner is hidden. The open never
+        waits on, refuses over, or changes a conflict copy.
+
         The curation category vocabulary, the movie switcher, and the napari movie panel
         / round-trip navigation are **not** re-wired here (the movie panel lands in #356
         and the round-trip in #357, and the per-condition category list is edited through the
@@ -1623,6 +1660,7 @@ class TetherShell:
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
         from tether.project.lock import LockedError
+        from tether.services.notices import conflict_copy_warning
 
         if self._idealize_future is not None:
             self._status("Open project unavailable: wait for idealization to finish")
@@ -1807,6 +1845,7 @@ class TetherShell:
         self._remember_position()
         self._project_path = Path(proj_path)
         self._act_close_project.setEnabled(True)
+        self._movie_switcher.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
@@ -1830,6 +1869,10 @@ class TetherShell:
         detail = marker.banner if analysis_only else f"{len(traces)} molecule(s)"
         if read_only_reason is not None:
             detail = f"{detail}; {read_only_reason}"
+        # Detect-and-surface (§5.4): look for OneDrive/SharePoint conflict siblings on
+        # every successful open, writable or browse-only. Advisory only — the helper
+        # swallows a directory-listing failure, so this can never fail the open.
+        self._set_conflict_copy_warning(conflict_copy_warning(proj_path))
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
 
@@ -2236,6 +2279,7 @@ class TetherShell:
         self._lock_refresh_timer.stop()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         self._idealizer = None
         self._handoff = None
         self._histogram_seam = None
@@ -2244,6 +2288,7 @@ class TetherShell:
         self._reset_store_docks()
         self._project_path = None
         self._act_close_project.setEnabled(False)
+        self._movie_switcher.setEnabled(False)
         self.set_molecules([])
         # The start page is the page of Curate and correct, so show that section.
         self.set_section(CURATE_SECTION)
@@ -2654,7 +2699,7 @@ class TetherShell:
         try:
             dock.set_histogram(hist)
         except Exception as exc:  # noqa: BLE001 - a malformed result must not crash
-            # Mirrors _poll_idealize: an injected seam returning a shape-invalid
+            # Mirrors _finish_idealize: an injected seam returning a shape-invalid
             # Histogram1D surfaces as a status message, never an uncaught exception
             # out of the &Analysis menu action. A dock that fails its very first draw
             # is discarded, so no blank dock is ever adopted/attached to the window
@@ -2844,7 +2889,13 @@ class TetherShell:
     @property
     def is_idealizing(self) -> bool:
         """Whether a background one-click-idealize fit is currently running."""
-        return self._idealize_future is not None
+        return self._tasks.busy
+
+    @property
+    def _idealize_future(self) -> Any | None:
+        # The Future of the in-flight fit, held by the background-task service. Every
+        # source-project writer gate reads it: None means idealization owns no HDF5.
+        return self._tasks.future
 
     def _idealize_current(self) -> None:
         """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
@@ -2859,8 +2910,6 @@ class TetherShell:
         selection, no wired idealizer, an already-running fit, an empty result, or a
         failing/length-mismatched fit each surface as a status message, never a crash.
         """
-        from pyqtgraph.Qt import QtCore, QtWidgets
-
         if self._idealize_future is not None:
             self._status("Idealize: a fit is already running")
             return
@@ -2890,31 +2939,33 @@ class TetherShell:
                     "Idealize unavailable: selected molecule is rejected; un-reject it first"
                 )
                 return
-        self._idealize_key = key
         self._status(f"Idealizing {key} (one-click vbFRET)…")
         # The indicator names the molecule as the list shows it (``trace.name`` or
-        # ``mol-<i>``); the key stays for the idealizer and the status message.
-        self._busy_indicator.start(f"Idealizing {self._molecule_list.item(row).text()}")
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-        self._idealize_future = self._idealize_executor.submit(self._idealizer, key)
+        # ``mol-<i>``); the key stays for the idealizer and the status message. The fit
+        # is not cancellable (#343): its sidecar may still commit HDF5 data.
+        self._tasks.start(
+            self._idealizer,
+            key,
+            context=key,
+            label=f"Idealizing {self._molecule_list.item(row).text()}",
+            on_finished=self._finish_idealize,
+        )
         self._sync_project_write_controls()
-        self._idealize_timer = QtCore.QTimer()
-        self._idealize_timer.setInterval(_IDEALIZE_POLL_MS)
-        self._idealize_timer.timeout.connect(self._poll_idealize)
-        self._idealize_timer.start()
 
-    def _poll_idealize(self) -> None:
-        """Main-thread poll: when the background fit is done, draw it or report why."""
-        future = self._idealize_future
-        if future is None or not future.done():
+    def _finish_idealize(self, outcome: TaskOutcome) -> None:
+        """Apply a finished fit on the main thread: draw it, or report why not."""
+        from tether.gui.tasks import TaskState
+
+        # The service has already stopped the timer, restored the cursor and stopped the
+        # indicator, and holds no task: the write gates below see an idle shell.
+        key = outcome.context
+        self._sync_project_write_controls()
+        if self._curation_project is None:
+            self._retry_session_release()
+        if outcome.state is not TaskState.DONE:
+            self._status(f"Idealize failed for {key}: {outcome.error}")
             return
-        key = self._idealize_key
-        self._finish_idealize()  # stop the timer, clear state, restore the cursor
-        try:
-            idealized = future.result()
-        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
-            self._status(f"Idealize failed for {key}: {exc}")
-            return
+        idealized = outcome.value
         if idealized is None:
             self._status(f"Idealize: no idealization produced for {key}")
             return
@@ -2931,21 +2982,6 @@ class TetherShell:
             self._status(f"Idealize failed for {key}: {exc}")
             return
         self._status(f"Idealized {key} (one-click vbFRET)")
-
-    def _finish_idealize(self) -> None:
-        """Tear down the poll timer + fit state and restore the wait cursor."""
-        from pyqtgraph.Qt import QtWidgets
-
-        if self._idealize_timer is not None:
-            self._idealize_timer.stop()
-            self._idealize_timer = None
-        self._idealize_future = None
-        self._idealize_key = None
-        self._busy_indicator.stop()
-        self._sync_project_write_controls()
-        QtWidgets.QApplication.restoreOverrideCursor()
-        if self._curation_project is None:
-            self._retry_session_release()
 
     def _step(self, delta: int) -> None:
         if not self._traces:
@@ -2977,8 +3013,6 @@ class TetherShell:
         lock is retained until that future completes and releases it from its done
         callback. With no active writer, the lock is released immediately.
         """
-        from pyqtgraph.Qt import QtWidgets
-
         from tether.gui import theme
 
         if self._closed:
@@ -3011,14 +3045,10 @@ class TetherShell:
                 writable_project.refresh_lock()
         self._curation_project = None
         self._set_read_only_reason(None)
-        if self._idealize_timer is not None:
-            self._idealize_timer.stop()
-            self._idealize_timer = None
-        if future is not None:
-            # A running fit is abandoned (its result is discarded), and the wait
-            # cursor it set is restored so it never leaks past close.
-            self._idealize_future = None
-            QtWidgets.QApplication.restoreOverrideCursor()
+        self._set_conflict_copy_warning(None)
+        # A running fit is abandoned (its result is discarded): the service stops its
+        # poll timer and restores the wait cursor it set, so it never leaks past close.
+        self._tasks.abandon()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
@@ -3040,7 +3070,7 @@ class TetherShell:
             # nonce is released. A transient unlink failure is retried by the timer
             # even though the visible shell has already closed.
             self._retry_session_release()
-        self._idealize_executor.shutdown(wait=False)
+        self._tasks.shutdown()
         if self._histogram_dock is not None:
             self._histogram_dock.close()
         if self._overlap_dock is not None:
