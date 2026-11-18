@@ -256,7 +256,8 @@ def test_stamps_settings_gamma_provenance(tmp_path: Path) -> None:
         assert bool(grp.attrs["withheld"]) is False
         assert grp.attrs["n_qualifying"] == 12
         assert grp.attrs["n_fallback"] == 0
-        assert grp.attrs["half_window"] == 3
+        assert grp.attrs["level_window"] == "whole-segment"
+        assert grp.attrs["half_window"] == 0  # 0 = not used; the whole segments were
         assert grp.attrs["min_window_frames"] == 20
         assert float(grp.attrs["ceiling"]) == 5.0
         assert grp.attrs["min_qualifying_traces"] == 10
@@ -421,6 +422,17 @@ def test_recompute_overwrites_settings(tmp_path: Path) -> None:
     compute_gamma(path, half_window=2)
     with h5py.File(path, "r") as f:
         assert f["settings/gamma"].attrs["half_window"] == 2
+        assert f["settings/gamma"].attrs["level_window"] == "half-window"
+
+
+@pytest.mark.parametrize("bad", [0, -3])
+def test_non_positive_half_window_is_refused_before_writing(tmp_path: Path, bad: int) -> None:
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=12, gamma_true=1.2, alpha=0.1)
+    with pytest.raises(ValueError, match="half_window"):
+        compute_gamma(path, half_window=bad)
+    with h5py.File(path, "r") as f:
+        assert "gamma" not in f["settings"]
 
 
 def test_skips_invalid_frame_range_and_writes_correct_rows(tmp_path: Path) -> None:

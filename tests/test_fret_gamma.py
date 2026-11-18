@@ -3,16 +3,18 @@
 """Detection-correction factor γ across the acceptor-bleach step (M3, FR-CORRECT).
 
 Locks :mod:`tether.fret.gamma`: the per-trace ``γ = ΔI_A/ΔI_D`` estimator on
-leakage-corrected intensities (3-frame half-window levels, both step segments
+leakage-corrected intensities (levels averaged over the whole pre- and post-step
+segments by default, or over an optional half-window; both step segments
 ``> min_window_frames``, ``0 < γ ≤ 5``), the population-median aggregate with
 per-molecule retention + median fallback, and the withhold-not-fabricate gate.
 
 Validated against **synthetic known-γ recovery** (a designed acceptor-bleach step
 with a baked-in true γ) and a **reference-formula parity** check (the documented
-``deep_autocorrect_2color.m`` ΔI_A/ΔI_D with δ = 0, bare ``I_D``, on the same 3-frame
-windows). The strict "±10 % of the Deep-LASI median on Deep-LASI's own per-frame
-classification" oracle is deferred (ADR-0028): the vendored export carries no
-per-frame classification. Headless; runs in the base CI matrix.
+``deep_autocorrect_2color.m`` ΔI_A/ΔI_D with δ = 0, bare ``I_D``, on the same
+frames — the whole segments by default, ADR-0130). The strict "±10 % of the
+Deep-LASI median on Deep-LASI's own per-frame classification" oracle is deferred
+(ADR-0028): the vendored export carries no per-frame classification. Headless;
+runs in the base CI matrix.
 """
 
 from __future__ import annotations
@@ -78,20 +80,28 @@ def _reference_gamma(
     *,
     alpha: float,
     acceptor_pb: int,
-    half_window: int,
+    donor_pb: int,
+    half_window: int | None,
 ) -> float:
     """Independent transcription of the documented γ formula (ADR-0028 / Appendix B.2).
 
     ``γ = (I_A,spFRET − I_A,after)/(I_D,after − I_D,spFRET)`` on leakage-corrected
-    acceptor and **bare** donor, levels averaged over the 3-frame windows each side of
-    the step — the δ = 0, bare-``I_D`` simplification of
-    ``deep_autocorrect_2color.m:118-130``. Deliberately computed a different way from
-    :func:`trace_gamma` (explicit slices, no shared helper) so parity is meaningful.
+    acceptor and **bare** donor — the δ = 0, bare-``I_D`` simplification of
+    ``deep_autocorrect_2color.m:118-130``. With ``half_window=None`` the levels are the
+    means of every frame of the FRET segment ``[0, acceptor_pb)`` and of the donor-only
+    segment ``[acceptor_pb, donor_pb)``, as Deep-LASI averages them (ADR-0130);
+    otherwise of ``half_window`` frames each side of the step. Deliberately computed a
+    different way from :func:`trace_gamma` (explicit slices, no shared helper) so
+    parity is meaningful.
     """
     ia = np.asarray(acceptor, float) - alpha * np.asarray(donor, float)
     id_ = np.asarray(donor, float)
-    pre = slice(acceptor_pb - half_window, acceptor_pb)
-    post = slice(acceptor_pb, acceptor_pb + half_window)
+    if half_window is None:
+        pre = slice(0, acceptor_pb)
+        post = slice(acceptor_pb, donor_pb)
+    else:
+        pre = slice(acceptor_pb - half_window, acceptor_pb)
+        post = slice(acceptor_pb, acceptor_pb + half_window)
     da_delta = ia[pre].mean() - ia[post].mean()
     dd_delta = id_[post].mean() - id_[pre].mean()
     return float(da_delta / dd_delta)
@@ -115,16 +125,74 @@ def test_recovers_known_gamma_with_noise() -> None:
     assert est.gamma == pytest.approx(1.5, abs=0.1)
 
 
-def test_reference_formula_parity() -> None:
+@pytest.mark.parametrize("half_window", [DEFAULT_GAMMA_HALF_WINDOW, 3])
+def test_reference_formula_parity(half_window: int | None) -> None:
     # trace_gamma must equal an independent transcription of the documented formula on
-    # the same frames — the estimator-isolated durable oracle (ADR-0028).
+    # the same frames — the estimator-isolated durable oracle (ADR-0028) — both on the
+    # default whole segments and on the 3-frame half-window option (ADR-0130).
     for gt in (0.4, 0.9, 1.7, 3.2):
         donor, acceptor = _step_trace(gamma_true=gt, alpha=0.12, noise=2.0, seed=int(gt * 10))
-        est = trace_gamma(donor, acceptor, alpha=0.12, acceptor_pb=40, donor_pb=100)
+        est = trace_gamma(
+            donor, acceptor, alpha=0.12, acceptor_pb=40, donor_pb=100, half_window=half_window
+        )
         ref = _reference_gamma(
-            donor, acceptor, alpha=0.12, acceptor_pb=40, half_window=DEFAULT_GAMMA_HALF_WINDOW
+            donor, acceptor, alpha=0.12, acceptor_pb=40, donor_pb=100, half_window=half_window
         )
         assert est.gamma == pytest.approx(ref, abs=1e-12)
+
+
+def test_default_is_whole_segments() -> None:
+    # ADR-0130: with no half_window the levels average the whole FRET segment
+    # [0, step) and the whole donor-only segment [step, donor_bleach), as Deep-LASI does.
+    assert DEFAULT_GAMMA_HALF_WINDOW is None
+    donor, acceptor = _step_trace(gamma_true=1.0, alpha=0.1, noise=3.0, seed=11)
+    est = trace_gamma(donor, acceptor, alpha=0.1, acceptor_pb=40, donor_pb=100)
+    assert est.reason == "ok"
+    assert est.pre_window == (0, 40)
+    assert est.post_window == (40, 100)  # stops at the donor bleach, not at n = 120
+
+
+def test_whole_segment_uses_every_frame_and_scatters_less() -> None:
+    # #1206 acceptance 1: on noisy plateaus the default estimate is the γ of the
+    # segment means — perturbing any single frame of either segment moves it — and its
+    # scatter over many noise draws is well below the 3-frame estimate's.
+    acceptor_pb, donor_pb, alpha = 40, 100, 0.1
+    donor, acceptor = _step_trace(gamma_true=1.5, alpha=alpha, noise=30.0, seed=3)
+    base = trace_gamma(donor, acceptor, alpha=alpha, acceptor_pb=acceptor_pb, donor_pb=donor_pb)
+    assert base.reason == "ok"
+    for frame in (0, 17, acceptor_pb - 1, acceptor_pb, 71, donor_pb - 1):
+        bumped = donor.copy()
+        bumped[frame] += 50.0
+        moved = trace_gamma(
+            bumped, acceptor, alpha=alpha, acceptor_pb=acceptor_pb, donor_pb=donor_pb
+        )
+        assert moved.gamma != pytest.approx(base.gamma, abs=1e-9), frame
+    # Frames past the donor bleach are not part of either level.
+    dark = donor.copy()
+    dark[donor_pb:] += 500.0
+    same = trace_gamma(dark, acceptor, alpha=alpha, acceptor_pb=acceptor_pb, donor_pb=donor_pb)
+    assert same.gamma == pytest.approx(base.gamma, abs=1e-12)
+
+    whole, short = [], []
+    for seed in range(200):
+        d, a = _step_trace(gamma_true=1.5, alpha=alpha, noise=30.0, seed=seed)
+        kw = {"alpha": alpha, "acceptor_pb": acceptor_pb, "donor_pb": donor_pb}
+        w = trace_gamma(d, a, **kw)
+        s = trace_gamma(d, a, half_window=3, **kw)
+        assert w.reason == "ok"
+        whole.append(w.gamma)
+        if s.gamma is not None:
+            short.append(s.gamma)
+    # σ_level ∝ 1/√frames: 40 and 60 frames against 3 and 3 shrink the spread ~4x.
+    assert np.std(whole) < 0.5 * np.std(short)
+    assert np.median(whole) == pytest.approx(1.5, abs=0.02)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 2.5, True, "3"])
+def test_non_positive_or_fractional_half_window_is_refused(bad: object) -> None:
+    donor, acceptor = _step_trace(gamma_true=1.0, alpha=0.1)
+    with pytest.raises(ValueError, match="half_window"):
+        trace_gamma(donor, acceptor, alpha=0.1, acceptor_pb=40, donor_pb=100, half_window=bad)
 
 
 def test_leakage_correction_is_applied() -> None:
@@ -241,6 +309,12 @@ def test_shape_mismatch_raises() -> None:
 def test_non_1d_raises() -> None:
     with pytest.raises(ValueError, match="1-D"):
         trace_gamma(np.ones((4, 4)), np.ones((4, 4)), alpha=0.1, acceptor_pb=1, donor_pb=3)
+
+
+def test_gamma_windows_whole_segments() -> None:
+    assert gamma_windows(40, None, 120) == ((0, 40), (40, 120))
+    assert gamma_windows(0, None, 120) == ((0, 0), (0, 120))
+    assert gamma_windows(130, None, 120) == ((0, 120), (120, 120))
 
 
 def test_gamma_windows_ranges_and_clamp() -> None:

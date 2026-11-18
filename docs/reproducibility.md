@@ -83,8 +83,13 @@ nothing in Tether applies γ to a displayed or exported value (see the note unde
 Methods paragraph). The `gamma`
 attribute here is the population median of those values, which the `n_fallback` molecules
 that failed the gates receive instead; it follows the same `withheld` rule. The rest are
-`n_qualifying`, `n_fallback`, `n_molecules`, `half_window`, `min_window_frames`, `ceiling`,
-`min_qualifying_traces`, `intensity_quantity`, `app_version` and `created_utc`.
+`n_qualifying`, `n_fallback`, `n_molecules`, `level_window`, `half_window`,
+`min_window_frames`, `ceiling`, `min_qualifying_traces`, `intensity_quantity`, `app_version`
+and `created_utc`. `level_window` says which frames the two levels each side of the step were
+averaged over: `whole-segment` (the default since
+[ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md), with
+`half_window` stored as `0`) or `half-window` (`half_window` frames each side). A project
+written before ADR-0130 has no `level_window` and used `half_window` frames.
 
 **`/settings/correction`** — `src/tether/project/correct.py`. Rewritten on every correction
 pass (`source` = `accurate-fret`). The pass decides, per molecule, whether its α and γ are
@@ -301,9 +306,10 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   app_version = <your version>
   ceiling = 5.0
   created_utc = <time of the run>
-  gamma = 0.9980667956196859
-  half_window = 3
+  gamma = 1.0016864115501487
+  half_window = 0
   intensity_quantity = corrected
+  level_window = whole-segment
   min_qualifying_traces = 10
   min_window_frames = 20
   n_fallback = 1

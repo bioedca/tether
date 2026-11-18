@@ -17,7 +17,7 @@ ratio of those two jumps across that one step,
 
     γ = (I_A,spFRET − I_A,after) / (I_D,after − I_D,spFRET) = ΔI_A / ΔI_D,
 
-measured on **leakage-corrected** intensities over a short tolerance window each
+measured on **leakage-corrected** intensities averaged over the whole segment each
 side of the step (PRD Appendix B.2 step 4;
 ``deeplasi/functions/deeplearning/deep_autocorrect_2color.m:118-130``). Tether drops
 Deep-LASI's ALEX ``de·(da+dd)`` direct-excitation term (δ = 0, no ALEX).
@@ -40,10 +40,14 @@ selection (ADR-0028).
 Definitions and gates (PRD §11.2)
 ---------------------------------
 * **Per-trace γ** = ``ΔI_A / ΔI_D`` with the intensity **levels** each side of the
-  step averaged over a **3-frame half-window** (``half_window``, §11.2 row 814):
-  the pre-step level over ``[step − half_window, step)`` and the post-step level over
-  ``[step, step + half_window)``. Averaging localises the estimate to the step, where
-  the donor/acceptor jumps are cleanest [McCann2010].
+  step averaged over the **whole segment** by default (``half_window = None``,
+  §11.2 row 814; ADR-0130): the pre-step level over the FRET segment ``[0, step)``
+  and the post-step level over the donor-only segment ``[step, donor_bleach)`` —
+  every frame Deep-LASI averages (``deep_autocorrect_2color.m:118-127``). A positive
+  integer ``half_window`` keeps the earlier option of a short window straddling the
+  step, ``[step − half_window, step)`` and ``[step, step + half_window)`` (3 frames
+  each side was the default before ADR-0130 [McCann2010]); the post window never
+  reaches past the donor bleach.
 * **Segment gate** ``min_window_frames`` (default 20, §11.2 row 819): **both** the
   pre-step FRET segment ``[0, step)`` and the post-step donor-only segment
   ``[step, donor_bleach)`` must be **strictly longer** than ``min_window_frames`` —
@@ -104,9 +108,11 @@ __all__ = [
 #: is non-physical and rejected (Deep-LASI ``γ_lim`` from ``createTracesPlotLayout.m:172``).
 GAMMA_CEILING: float = 5.0
 
-#: Correction tolerance half-window (PRD §11.2 row 814): the intensity level each side
-#: of the acceptor-bleach step is the mean over this many frames (3 each side, McCann2010).
-DEFAULT_GAMMA_HALF_WINDOW: int = 3
+#: Correction tolerance half-window (PRD §11.2 row 814). ``None`` (the default since
+#: ADR-0130) averages each level over its whole segment, ``[0, step)`` before the
+#: acceptor-bleach step and ``[step, donor_bleach)`` after it, as Deep-LASI does; a
+#: positive integer averages only that many frames each side of the step instead.
+DEFAULT_GAMMA_HALF_WINDOW: int | None = None
 
 
 @dataclass(frozen=True)
@@ -123,12 +129,12 @@ class TraceGamma:
         step γ is measured across.
     pre_window, post_window
         The half-open ``[start, stop)`` frame ranges the pre-step (FRET) and
-        post-step (donor-only) intensity **levels** are averaged over — the 3-frame
-        tolerance windows straddling ``step``.
+        post-step (donor-only) intensity **levels** are averaged over — the whole
+        segments by default, or the ``half_window`` frames straddling ``step``.
     n_pre, n_post
         Lengths of the pre-step FRET segment ``[0, step)`` and the post-step
         donor-only segment ``[step, donor_bleach)`` — the segments the
-        ``min_window_frames`` gate is applied to (not the 3-frame level windows).
+        ``min_window_frames`` gate is applied to.
     reason
         Why the estimate is/ isn't valid: ``"ok"``; ``"no-step"`` (acceptor does not
         bleach before the donor); ``"short-pre"`` / ``"short-post"`` (a segment is
@@ -196,17 +202,38 @@ class GammaEstimate:
         return self.gamma is not None and self.per_trace[index].gamma is None
 
 
-def gamma_windows(
-    step: int, half_window: int, n_frames: int
-) -> tuple[tuple[int, int], tuple[int, int]]:
-    """Half-open 3-frame level windows straddling the acceptor-bleach ``step``.
+def _check_half_window(half_window: int | None) -> int | None:
+    """Return ``half_window`` as an ``int`` (or ``None``), refusing a non-positive one.
 
-    Returns ``((pre_start, pre_stop), (post_start, post_stop))`` — the pre-step level
-    over ``[step − half_window, step)`` and the post-step level over
-    ``[step, step + half_window)``, each clamped to ``[0, n_frames]``.
+    ``None`` selects the whole segments. A zero or negative half-window would average
+    an empty window into a ``nan`` level, so it is refused rather than read as either.
     """
+    if half_window is None:
+        return None
+    if isinstance(half_window, bool) or int(half_window) != half_window or half_window < 1:
+        raise ValueError(
+            f"half_window must be a positive whole number of frames or None, got {half_window!r}"
+        )
+    return int(half_window)
+
+
+def gamma_windows(
+    step: int, half_window: int | None, n_frames: int
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Half-open level windows each side of the acceptor-bleach ``step``.
+
+    Returns ``((pre_start, pre_stop), (post_start, post_stop))``. With
+    ``half_window=None`` these are the whole segments, ``[0, step)`` and
+    ``[step, n_frames)``; with a positive integer they are ``[step − half_window,
+    step)`` and ``[step, step + half_window)``. Each is clamped to ``[0, n_frames]``.
+    [`trace_gamma`][] further stops the post window at the donor bleach.
+    """
+    hw = _check_half_window(half_window)
     step = int(step)
-    hw = int(half_window)
+    if hw is None:
+        pre = (0, max(min(step, n_frames), 0))
+        post = (min(max(step, 0), n_frames), n_frames)
+        return pre, post
     pre = (max(step - hw, 0), max(min(step, n_frames), 0))
     post = (min(step, n_frames), min(step + hw, n_frames))
     return pre, post
@@ -219,7 +246,7 @@ def trace_gamma(
     alpha: float,
     acceptor_pb: int,
     donor_pb: int,
-    half_window: int = DEFAULT_GAMMA_HALF_WINDOW,
+    half_window: int | None = DEFAULT_GAMMA_HALF_WINDOW,
     min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
     ceiling: float = GAMMA_CEILING,
 ) -> TraceGamma:
@@ -238,7 +265,10 @@ def trace_gamma(
         [`tether.fret.photobleach.detect_photobleach`][]. γ needs the acceptor to
         bleach **before** the donor.
     half_window
-        Level tolerance half-window each side of the step (PRD §11.2, default 3).
+        Frames averaged each side of the step for the two levels (PRD §11.2).
+        ``None`` (the default) averages the whole pre-step FRET segment and the whole
+        post-step donor-only segment; a positive integer averages only that many
+        frames each side.
     min_window_frames
         Reject unless both the pre-step FRET segment and the post-step donor-only
         segment are longer than this (PRD §11.2, default 20).
@@ -261,9 +291,9 @@ def trace_gamma(
     step = int(acceptor_pb)
     donor_stop = min(int(donor_pb), n)
     pre, post = gamma_windows(step, half_window, n)
-    # Keep the post-level window inside the donor-active region [step, donor_stop): a
-    # large (configurable, §11.2) half_window must never average post-donor-bleach
-    # frames — where the donor is dark — into the level and corrupt γ. (The max guard
+    # Keep the post-level window inside the donor-active region [step, donor_stop): the
+    # whole segment, or a large (configurable, §11.2) half_window, must never average
+    # post-donor-bleach frames — where the donor is dark — into the level. (The max guard
     # keeps start <= stop for the gate-failure diagnostic returns where donor_stop <= step.)
     post = (post[0], max(post[0], min(post[1], donor_stop)))
     n_pre = step  # length of the pre-step FRET segment [0, step)
@@ -306,7 +336,7 @@ def estimate_gamma(
     acceptor_pbs: list[int],
     donor_pbs: list[int],
     *,
-    half_window: int = DEFAULT_GAMMA_HALF_WINDOW,
+    half_window: int | None = DEFAULT_GAMMA_HALF_WINDOW,
     min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
     ceiling: float = GAMMA_CEILING,
     min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,

@@ -141,8 +141,11 @@ the export of video 010: the same 250 molecules, positions and raw traces. It ca
 correction factors, which come from a later step in the window. The workstation run also
 compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
 on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
-means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
-from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+means is 0.084. The formulas agree: the gap came from the 3-frame γ level windows Tether
+used then and from few molecules with their own γ (ADR-0115). Since
+[ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md)
+([#1206](https://github.com/bioedca/tether/issues/1206)) the levels average the whole
+segments each side of the step, as Deep-LASI's do.
 The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
 
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
@@ -676,7 +679,7 @@ a single-movie project raises rather than inventing a held-out video.
 | `DEFAULT_MIN_WINDOW_FRAMES` | 20 | `src/tether/fret/leakage.py` |
 | `DEFAULT_MIN_QUALIFYING_TRACES` | 10 | `src/tether/fret/leakage.py` |
 | `GAMMA_CEILING` | 5.0 | `src/tether/fret/gamma.py` |
-| `DEFAULT_GAMMA_HALF_WINDOW` | 3 | `src/tether/fret/gamma.py` |
+| `DEFAULT_GAMMA_HALF_WINDOW` | None | `src/tether/fret/gamma.py` |
 
 The first three are locked by `tests/test_fret_leakage.py::test_defaults_match_prd_11_2`.
 
@@ -689,7 +692,13 @@ different way — explicit slices, no shared helper). That transcription is of t
 *Tether's own* convention, so the check proves self-consistency, not agreement with
 Deep-LASI: ADR-0028 deliberately chose bare `I_D` over Deep-LASI's `(1+α)`-scaled donor and
 records that "Tether's γ is systematically ≈ `(1 + α)` times Deep-LASI's on the same step"
-— ≈ 9 % at α ≈ 0.09. The actual Deep-LASI-median comparison is deferred (below). The edge
+— ≈ 9 % at α ≈ 0.09. Since [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md)
+the two levels average the whole FRET segment before the step and the whole donor-only
+segment after it, as Deep-LASI does; the parity check runs on that default and on the
+3-frame half-window option, and `test_whole_segment_uses_every_frame_and_scatters_less`
+shows that every frame of both segments enters the estimate and that, over 200 noise draws,
+its spread is under half the 3-frame estimate's. The actual Deep-LASI-median comparison is
+deferred (below). The edge
 cases the specification names are
 each a test: too-short tail, no tail when the acceptor outlives the donor, above-ceiling
 and negative rejection, degenerate donor, median over qualifying traces only, and

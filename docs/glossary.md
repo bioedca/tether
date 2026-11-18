@@ -92,7 +92,9 @@ behavior.
 
 The detection-efficiency / quantum-yield ratio between the channels
 (`tether.fret.gamma`). Estimated across the **acceptor-bleach step** as `ΔI_A / ΔI_D` on
-leakage-corrected intensities, with levels averaged over a 3-frame half-window each side.
+leakage-corrected intensities, with each level averaged over its whole segment: every FRET
+frame before the step and every donor-only frame after it, up to the donor bleach (a
+3-frame half-window each side remains an option, [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md)).
 Same `DEFAULT_MIN_WINDOW_FRAMES = 20` / 10-trace parameters as α, but the frame gate is
 **stricter and two-sided**: both the pre-step FRET segment `[0, step)` and the post-step
 donor-only segment `[step, donor_bleach)` must be **strictly longer than** 20 frames (`> 20`,
@@ -190,7 +192,8 @@ These pages never write a bare "window". Each use names one of these kinds:
 2. **aperture window**: the `21 × 21` **pixel** crop side length (`tether.imaging.aperture`,
    `tether.project.extract`). It must be a positive **odd** integer. The CLI flag and the
    stored setting keep the name `window`.
-3. **estimator windows**: the leakage tail window and γ's 3-frame half-window, in frames.
+3. **estimator windows**: the leakage tail window and γ's level windows (the whole segments
+   by default, or an optional half-window), in frames.
 4. **model window**: the deep model's `window_length`, 500 frames, the input length of the ML
    classifier ([Deep trace classifier](ml/deep-classifier.md)).
 5. **application window**: the Tether desktop window, or tMAVEN's own application window. Its parts

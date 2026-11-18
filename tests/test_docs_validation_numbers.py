@@ -383,6 +383,11 @@ def _states(cell: str, value: object) -> bool:
     in the cell — which is what lets ``≤ 0.12`` state ``0.12`` — with the parsed type
     required to match, so ``0`` never satisfies ``0.0``.
     """
+    if value is None:
+        # ``None`` is a value too -- `DEFAULT_GAMMA_HALF_WINDOW` (ADR-0130) -- and the
+        # page states it as the bare word or its code span, never as a number.
+        tokens = set(_BACKTICKED_RE.findall(cell))
+        return (tokens or {cell.strip()}) == {"None"}
     if isinstance(value, str):
         # Explicit transcriptions first -- code spans and quoted strings -- and the bare
         # cell only when it carries neither, because the page writes `2026-06-26` bare in
