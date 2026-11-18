@@ -78,7 +78,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0025](0025-tmaven-handoff-and-return-leg-reconcile.md) | Bidirectional tMAVEN hand-off + non-destructive return-leg re-import with a per-trace reconcile | accepted | §7.4, §5.3, App D.1 |
 | [0026](0026-photobleach-detection-and-window-default.md) | Native single-step photobleach detection, summed-intensity analysis-window default, and the `pacc`/`pdon` oracle reframe | accepted | §7.2, §11.2, App B step 6, App E Stage 16, §9 M3 |
 | [0027](0027-leakage-alpha-tail-estimator.md) | Leakage α from the post-acceptor-bleach tail; donor-only-sample cross-check deferred | accepted | §7.2, §7.4, §11.2, App B.2 step 2, App E Stages 17–18, §9 M3 |
-| [0028](0028-gamma-acceptor-bleach-step-estimator.md) | γ from the acceptor-bleach step (bare-`I_D` convention); Deep-LASI-median oracle deferred | accepted; amended by [ADR-0130](0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md) on the frames each level is averaged over | §7.2, §7.4, §11.2, App B.2 step 4, App E Stages 17–18, §9 M3 |
+| [0028](0028-gamma-acceptor-bleach-step-estimator.md) | γ from the acceptor-bleach step (bare-`I_D` convention); Deep-LASI-median oracle deferred | accepted | §7.2, §7.4, §11.2, App B.2 step 4, App E Stages 17–18, §9 M3 |
 | [0029](0029-idealization-correction-provenance-hash-and-per-factor-staleness.md) | Composite corrected-FRET provenance hash + per-factor idealization staleness scope | accepted | §5.1, §7.2, §7.4, §9 M3 |
 | [0030](0030-headless-batch-runner-isolation-and-checkpoint.md) | Headless batch runner: per-movie isolation + provenance-derived per-stage checkpoint | accepted | §6, §7.11, §7.2, §11.2, §9 M3 |
 | [0031](0031-batch-sidecar-supervision.md) | Batch sidecar supervision: liveness-deferred startup + transient auto-restart | accepted | §7.11, §11.2, §4.3, §9 M3 |
@@ -174,6 +174,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0127](0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md) | The colocalization policy: a partner in both channels by default, or donor-anchored | accepted | §7.1, App E §11, §11.2, §5 |
 | [0129](0129-an-extraction-profile-is-a-file-in-the-request-text-form.md) | An extraction profile is a file in the request text form, and `--tdat` sets two fields | accepted | §7.11 (FR-EXTRACT, FR-BATCH), §11.2, §8 NFR-REPRO |
 | [0130](0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md) | The γ levels are averaged over 20 frames each side of the acceptor-bleach step | accepted; amends [ADR-0028](0028-gamma-acceptor-bleach-step-estimator.md) on the frames each γ level is averaged over, whose other decisions govern unchanged | §7.2 (γ), §11.2 (the correction tolerance window row), Appendix B.2 step 4 |
+| [0132](0132-several-series-on-one-figure-one-color-cycle-small-multiples-and-one-grid.md) | Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid | accepted | §7.7 FR-PLOT (a plot is a layer list), §7.9 FR-EXPORT (per-series provenance) |
 
 <!-- gen:adr-index end -->
 
