@@ -166,9 +166,12 @@ def deep_dataset(samples: Sequence[Sample], *, window_length: int | None = None)
 def ranker_features(samples: Sequence[Sample], window_length: int) -> np.ndarray:
     """The trace features of the gradient-boosting ranker over the frames the deep model reads.
 
-    Both models see the same frames: the leading ``window_length`` frames of each range, which is
-    the crop of ``assemble_dataset``. The spatial features need positions in a movie, which the
-    file does not hold, so only ``TRACE_FEATURE_NAMES`` are used.
+    Both models take their inputs from the leading ``window_length`` frames of each range, the
+    crop of ``assemble_dataset``, but they do not see the same information: ``assemble_dataset``
+    scales each pair by the largest donor-plus-acceptor total of the whole range before it crops,
+    so a frame past the window can change the deep model's input, while these features read the
+    cropped frames only. The spatial features need positions in a movie, which the file does not
+    hold, so only ``TRACE_FEATURE_NAMES`` are used.
     """
     from tether.ml.features import compute_trace_features
 

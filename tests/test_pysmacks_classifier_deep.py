@@ -29,6 +29,7 @@ fails the job.
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -140,8 +141,14 @@ def test_the_floor_was_derived_from_the_recorded_seeds(reference) -> None:
     assert reference["training"]["seed"] in measured["seeds"]
     margin = float(measured["margin"])
     assert margin == pytest.approx(3.0 * float(np.std(scores, ddof=1)), abs=5e-5)
-    assert float(accuracy["floor"]) <= float(scores.min()) - margin + 1e-12
+    # The rules the file states, applied exactly: a looser floor or limit than the measurement
+    # gives fails here, not only one that is too tight.
+    assert float(accuracy["floor"]) == math.floor(round((scores.min() - margin) * 100, 9)) / 100
     assert float(accuracy["floor"]) > 0.5, "a floor at or below 0.5 admits a constant score"
     drift = reference["self_drift"]["measured"]
     assert drift["runs"] == 10
-    assert float(reference["self_drift"]["rtol"]) >= float(drift["largest_relative_difference"])
+    tenfold = 10.0 * float(drift["largest_relative_difference"])
+    step = 10.0 ** math.floor(math.log10(tenfold))
+    assert float(reference["self_drift"]["rtol"]) == pytest.approx(
+        math.ceil(round(tenfold / step, 9)) * step, rel=1e-12
+    )

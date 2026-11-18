@@ -61,7 +61,8 @@ For the metric:
 background-subtracted donor and acceptor under donor excitation (rule 1 of PRD §2.2: no ALEX
 frames). `FRET` is accept; `DO` and `AO` are reject. 123 traces carry 149 ranges, 52 of them
 accept. The model reads the leading 500 frames of each range (the default window) at the default
-normalization.
+normalization, which scales each pair by the largest donor-plus-acceptor total of the whole range
+before the crop, so frames past the window can still change the scale.
 
 **The split.** By trace, never by range: 26 traces carry a `FRET` range and then a `DO` or `AO`
 range of the same molecule, and a split by range would put one molecule on both sides.
@@ -94,7 +95,8 @@ gives a constant score and an area of 0.5, and a test shows that it fails the fl
 
 **The ranker.** `deep / ranker` trains the gradient-boosting quality ranker (`tether.ml.gbranker`,
 default hyperparameters) on the same train part, with the trace features of the same leading 500
-frames, and writes both models' ROC AUC, balanced accuracy and precision@k (k = 16, the number of
+frames. The two models do not see quite the same information: the ranker's features ignore the
+frames past the window, which the deep model's scale can depend on. The job writes both models' ROC AUC, balanced accuracy and precision@k (k = 16, the number of
 accept ranges in the test part) to the job summary. It runs in the base env because the ranker
 needs scikit-learn, which the isolated deep stack does not carry (ADR-0047). No limit.
 
