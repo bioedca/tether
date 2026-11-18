@@ -11,19 +11,19 @@ a **vector SVG**, and a **raster PNG**, each carrying a provenance stamp.
 Design
 ------
 - **Headless, Qt-free.** Rendering uses Matplotlib's object-oriented
-  :class:`matplotlib.figure.Figure` API directly (never ``pyplot``), so no GUI
+  [`matplotlib.figure.Figure`][] API directly (never ``pyplot``), so no GUI
   backend is ever selected — this keeps the base environment free of PyQt5/Tk
   (the §4.1 no-PyQt5 base invariant that motivated shipping ``matplotlib-base``,
   ADR-0044). ``Figure.savefig`` attaches the format-appropriate canvas (Agg for
   PNG, ``backend_pdf`` for PDF, ``backend_svg`` for SVG) on demand.
 - **Rendering is separate from IO.** Each ``render_*`` returns a bare
-  :class:`~matplotlib.figure.Figure` (no stamp, no file); :func:`export_figure`
+  [`Figure`][matplotlib.figure.Figure] (no stamp, no file); [`export_figure`][]
   adds the visible provenance footer and writes the three files + the sidecar.
   A caller can therefore embed the same figure in the GUI and export it
   identically.
 - **Provenance travels three ways** (§8 NFR-REPRO, invariant §1.3(4)): a
   ``<stem>.provenance.json`` sidecar (reusing
-  :func:`tether.project.export.write_provenance_sidecar`, the single stamping
+  [`tether.project.export.write_provenance_sidecar`][], the single stamping
   convention shared with the table/subset exports); a **visible on-figure footer**
   (``Tether <version> · <utc> · <kind>``) so the stamp travels *on the plot* a
   reader sees; and **embedded file metadata** (PDF/SVG/PNG document metadata).
@@ -33,11 +33,19 @@ Design
   stamp time, so a re-export of the same figure at the same ``created_utc`` is
   reproducible.
 
-This module is intentionally **not** eagerly imported by ``tether.analysis``'s
-package ``__init__`` — importing it pulls in Matplotlib, which the lightweight
-headless test paths do not always have. Import it explicitly::
+This module is **lazily re-exported** by the ``tether.analysis`` package: its
+``__init__`` resolves ``plot_export`` and every name in this module's ``__all__`` on
+first attribute access through a module ``__getattr__``
+([PEP 562](https://peps.python.org/pep-0562/)), and
+``dir(tether.analysis)`` lists them. A plain ``import tether.analysis`` therefore
+still does not import Matplotlib, which the lightweight headless paths do not need.
+Either spelling works, and both import Matplotlib at that point::
 
+    from tether.analysis import export_figure, render_histogram1d
     from tether.analysis.plot_export import export_figure, render_histogram1d
+
+The names are not in ``tether.analysis.__all__``, so ``from tether.analysis import *``
+stays Matplotlib-free.
 """
 
 from __future__ import annotations
@@ -48,10 +56,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-from matplotlib import rc_context
+from matplotlib import colormaps, rc_context
+from matplotlib.cm import ScalarMappable
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LogNorm, Normalize
 from matplotlib.figure import Figure
 
-from tether.analysis.cloud import RawFretCloud
+from tether.analysis.anticorrelation import PopulationAnticorrelation
+from tether.analysis.cloud import AlphaShape, RawFretCloud, StateNumberElbow
 from tether.analysis.crosscorr import CrossCorrelation
 from tether.analysis.dwell import DwellTimeAnalysis
 from tether.analysis.histogram import (
@@ -59,9 +71,11 @@ from tether.analysis.histogram import (
     Histogram2D,
     HistogramBootstrapCI,
     ModelGaussianOverlay,
+    PerConditionHistograms,
+    TransitionSyncHistogram2D,
 )
 from tether.analysis.state_number import StateNumberCounts
-from tether.analysis.tdp import TransitionDensityPlot
+from tether.analysis.tdp import SmoothedTransitionDensity, TransitionDensityPlot
 from tether.analysis.transition_prob import TransitionProbHistogram
 from tether.project.export import write_provenance_sidecar
 
@@ -69,16 +83,23 @@ __all__ = [
     "DEFAULT_EXPORT_DPI",
     "DEFAULT_FIGSIZE",
     "DEFAULT_PLOT_FORMATS",
+    "DEFAULT_TDP_COLOR_SCALE",
+    "TDP_COLOR_SCALES",
     "PlotExportResult",
     "export_figure",
+    "render_alpha_shape",
     "render_cross_correlation",
     "render_dwell_survival",
     "render_histogram1d",
     "render_histogram2d",
+    "render_per_condition_histograms",
+    "render_population_anticorrelation",
     "render_raw_fret_cloud",
     "render_state_number",
+    "render_state_number_elbow",
     "render_transition_density",
     "render_transition_prob",
+    "render_transition_sync_histogram2d",
 ]
 
 #: Raster (PNG) resolution in dots-per-inch. Vector formats are resolution-independent;
@@ -97,7 +118,42 @@ DEFAULT_PLOT_FORMATS: tuple[str, ...] = ("pdf", "svg", "png")
 #: salts element ids per process).
 _SVG_HASHSALT = "tether.analysis.plot_export"
 
+#: The colour scales `render_transition_density` can draw the B1 TDP with.
+TDP_COLOR_SCALES: tuple[str, ...] = ("log", "linear")
+
+#: PRD Appendix C B1 names the TDP *log-normalized* [McKinney2006], as tMAVEN draws it
+#: (``data_tdp.py`` ``hist_log = True``), so the export defaults to a log colour scale
+#: (#556). Display only: the stored histogram is never transformed, and the scale is
+#: recorded in the plot provenance. A cosmetic output knob, not a §11.2 tunable.
+DEFAULT_TDP_COLOR_SCALE = "log"
+
+#: How many decades the TDP log colour scale's floor sits below the smallest non-empty
+#: bin. At zero the weakest transition would share the floor colour with an empty bin,
+#: which is the "low-count transitions vanish" failure #556 fixes; one decade lifts it
+#: clear of the floor while the scale still spans the data. Display only.
+_TDP_LOG_FLOOR_DECADES = 1.0
+
+#: The log colour floor of a *smoothed* TDP, as a fraction of its peak: ``checkTDP.py``'s
+#: and tMAVEN ``data_tdp.py``'s ``color_floor = 0.0001`` on their peak-normalized array.
+#: A spline view has no smallest non-empty bin to anchor the floor to — its tail decays
+#: smoothly toward 0 — so the floor is fixed below the peak instead. Display only.
+_TDP_SMOOTH_LOG_FLOOR = 1e-4
+
+#: Figure attribute a ``render_*`` helper sets to tell `export_figure` how it
+#: drew the data (for example the TDP colour scale), so the provenance sidecar records
+#: what the reader actually sees without the caller having to repeat it.
+_DISPLAY_ATTR = "_tether_display_parameters"
+
 _STATE_COLORS = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
+
+#: Line styles the per-condition overlay steps through once it has used every colour of
+#: the ``tab10`` palette, so condition 11 is never drawn identical to condition 1. Ten
+#: colours by four styles give 40 distinct curves; condition 41 repeats condition 1.
+_CONDITION_LINESTYLES = ("-", "--", "-.", ":")
+
+#: The most molecule rows the anticorrelation event raster labels by ``molecule_key``;
+#: above it the rows are labelled by store-order index, so the tick labels stay legible.
+_ANTICORR_MAX_KEY_LABELS = 30
 
 
 def _app_version() -> str:
@@ -199,6 +255,26 @@ def _add_footer(figure: Figure, *, version: str, created_iso: str, kind: str) ->
     )
 
 
+def _merged_display_parameters(figure: Figure, parameters: dict[str, object]) -> dict[str, object]:
+    """The figure's own display record, checked against any the caller passed.
+
+    A ``render_*`` helper records how it drew the data on the figure; the caller may
+    repeat it under ``parameters["display"]`` but may not contradict it, or the
+    provenance would describe a picture other than the one written.
+    """
+    drawn = dict(getattr(figure, _DISPLAY_ATTR, None) or {})
+    given = parameters.get("display")
+    if given is None:
+        return drawn
+    if not isinstance(given, dict):
+        raise ValueError(f"parameters['display'] must be a dict, got {type(given).__name__}")
+    clashes = sorted(k for k in given.keys() & drawn.keys() if given[k] != drawn[k])
+    if clashes:
+        detail = ", ".join(f"{k}: given {given[k]!r}, drawn {drawn[k]!r}" for k in clashes)
+        raise ValueError(f"parameters['display'] contradicts how the figure was drawn ({detail})")
+    return {**given, **drawn}
+
+
 def export_figure(
     figure: Figure,
     out_stem: str | os.PathLike[str],
@@ -227,7 +303,10 @@ def export_figure(
         The source project / dataset identifier for the provenance sidecar.
     parameters
         The plot parameters to record (bins, ranges, model name, …) — the §7.9
-        *"stamped with provenance and parameters"* payload.
+        *"stamped with provenance and parameters"* payload. How the ``render_*``
+        helper drew the data (for example the TDP ``color_scale``) is added under
+        ``"display"`` from the figure itself; a ``"display"`` entry here that
+        contradicts the figure raises [`ValueError`][].
     title
         Optional human title embedded in the document metadata; defaults to
         ``tether_export``.
@@ -254,6 +333,8 @@ def export_figure(
         )
     if not formats:
         raise ValueError("at least one export format is required")
+
+    display = _merged_display_parameters(figure, parameters)
 
     stem = Path(out_stem)
     version = _app_version()
@@ -291,6 +372,7 @@ def export_figure(
         source=source,
         parameters={
             **parameters,
+            **({"display": display} if display else {}),
             "formats": [f for f in DEFAULT_PLOT_FORMATS if f in formats],
             "dpi": int(dpi),
             "outputs": {f: p.name for f, p in paths.items()},
@@ -306,7 +388,7 @@ def export_figure(
 
 
 def _new_figure(figsize: tuple[float, float] | None) -> Figure:
-    """A constrained-layout :class:`Figure` (no pyplot, so no GUI backend)."""
+    """A constrained-layout [`Figure`][] (no pyplot, so no GUI backend)."""
     return Figure(figsize=figsize or DEFAULT_FIGSIZE, layout="constrained")
 
 
@@ -324,10 +406,10 @@ def render_histogram1d(
 ) -> Figure:
     """Render the A1 1-D population apparent-E histogram (Appendix C A1).
 
-    Accepts a bare :class:`~tether.analysis.histogram.Histogram1D` or a
-    :class:`~tether.analysis.histogram.HistogramBootstrapCI` (whose per-bin
+    Accepts a bare [`Histogram1D`][tether.analysis.histogram.Histogram1D] or a
+    [`HistogramBootstrapCI`][tether.analysis.histogram.HistogramBootstrapCI] (whose per-bin
     percentile band is drawn as a shaded region). An optional
-    :class:`~tether.analysis.histogram.ModelGaussianOverlay` draws the idealized
+    [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] draws the idealized
     model's per-state Gaussians and their sum.
     """
     if isinstance(hist, HistogramBootstrapCI):
@@ -417,31 +499,127 @@ def render_histogram2d(
     return fig
 
 
+def _tdp_norm(counts: np.ndarray, color_scale: str, *, smoothed: bool = False) -> Normalize:
+    """The colour normalization for a TDP ``counts`` array.
+
+    ``"log"`` is zero-safe: [`LogNorm`][matplotlib.colors.LogNorm] masks every bin
+    ``<= 0`` instead of taking ``log(0) = -inf``, and its limits come from the positive
+    finite bins only. The floor sits `_TDP_LOG_FLOOR_DECADES` below the smallest
+    non-empty bin, so the weakest transition is drawn visibly above the floor colour
+    that marks an empty bin — or, for a ``smoothed`` view, `_TDP_SMOOTH_LOG_FLOOR` times
+    its peak. With no positive bin at all (an empty TDP) there is no magnitude to span,
+    so the limits are a nominal ``[1, 10]`` and every bin is masked.
+    """
+    positive = counts[np.isfinite(counts) & (counts > 0)]
+    if color_scale == "log":
+        if positive.size == 0:
+            return LogNorm(vmin=1.0, vmax=10.0)
+        peak = float(positive.max())
+        if smoothed:
+            floor = peak * _TDP_SMOOTH_LOG_FLOOR
+        else:
+            floor = float(positive.min()) / 10.0**_TDP_LOG_FLOOR_DECADES
+        return LogNorm(vmin=floor, vmax=peak)
+    finite = counts[np.isfinite(counts)]
+    vmax = float(finite.max()) if finite.size else 1.0
+    return Normalize(vmin=0.0, vmax=vmax if vmax > 0 else 1.0)
+
+
 def render_transition_density(
-    tdp: TransitionDensityPlot,
+    tdp: TransitionDensityPlot | SmoothedTransitionDensity,
     *,
     title: str = "Transition-density plot (B1)",
     figsize: tuple[float, float] | None = None,
+    color_scale: str = DEFAULT_TDP_COLOR_SCALE,
 ) -> Figure:
-    """Render the B1 real transition-density plot: initial vs final idealized E."""
-    counts = np.asarray(tdp.counts, dtype="float64")  # (signal_bins, signal_bins) [init, final]
-    edges = np.asarray(tdp.signal_edges, dtype="float64")
+    """Render the B1 real transition-density plot: initial vs final idealized E.
+
+    Parameters
+    ----------
+    tdp
+        The binned transition density to draw, or its smoothed view from
+        [`smooth_transition_density`][tether.analysis.tdp.smooth_transition_density]. The
+        counts are drawn bin by bin; the smoothed view is drawn as an image on its
+        interpolation grid, as the published ``checkTDP.py`` draws it, and its smoothing
+        settings are recorded in the provenance sidecar under
+        ``parameters["display"]["smoothing"]``.
+    title
+        The axes title.
+    figsize
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    color_scale
+        ``"log"`` (default, [`DEFAULT_TDP_COLOR_SCALE`][]) or ``"linear"``. PRD
+        Appendix C B1 names the TDP log-normalized, so a rare transition stays visible
+        beside a dominant one. The log scale is zero-safe: an empty bin is drawn in the
+        colour map's floor colour, never as ``-inf`` or a hole. It is display only — the
+        drawn array is ``tdp.counts`` (or the smoothed ``tdp.values``) unchanged — and
+        [`export_figure`][] records it in the provenance sidecar under
+        ``parameters["display"]["color_scale"]``.
+    """
+    if color_scale not in TDP_COLOR_SCALES:
+        raise ValueError(
+            f"unknown TDP color_scale {color_scale!r}; expected one of {list(TDP_COLOR_SCALES)}"
+        )
+    smoothed = isinstance(tdp, SmoothedTransitionDensity)
+    counts_tdp = tdp.source if smoothed else tdp
 
     fig = _new_figure(figsize)
     ax = fig.add_subplot()
-    # counts is [initial, final]; x=initial, y=final → transpose so rows=final.
-    mesh = ax.pcolormesh(edges, edges, counts.T, cmap="viridis", shading="flat")
-    fig.colorbar(mesh, ax=ax, label="Density" if tdp.density else "Counts")
-    lo, hi = tdp.signal_range
+    # Empty (masked) bins take the colour map's floor colour, as a zero does on the
+    # linear scale, so the white annotation and diagonal stay readable on both.
+    cmap = colormaps["viridis"]
+    cmap = cmap.with_extremes(bad=cmap(0.0), under=cmap(0.0))
+    display: dict[str, object] = {"color_scale": color_scale}
+    if smoothed:
+        values = np.asarray(tdp.values, dtype="float64")  # (n, n) [initial, final]
+        grid = np.asarray(tdp.grid, dtype="float64")
+        lo, hi = counts_tdp.signal_range
+        # Each grid point is a pixel centre; the image spans half a step past the ends. A
+        # one-point grid (one bin, not interpolated) is that bin, which spans the range.
+        half = 0.5 * (grid[-1] - grid[0]) / (grid.size - 1) if grid.size > 1 else 0.5 * (hi - lo)
+        # values is [initial, final]; x=initial, y=final → transpose so rows=final.
+        mesh = ax.imshow(
+            values.T,
+            cmap=cmap,
+            norm=_tdp_norm(values, color_scale, smoothed=True),
+            origin="lower",
+            interpolation="none",
+            extent=(grid[0] - half, grid[-1] + half, grid[0] - half, grid[-1] + half),
+        )
+        display["smoothing"] = {
+            "smooth": [float(tdp.smooth[0]), float(tdp.smooth[1])],
+            "interp_res": int(tdp.interp_res),
+            "normalized": bool(tdp.normalized),
+        }
+        if tdp.normalized:
+            label = "Normalized density"
+        else:
+            label = "Smoothed density" if counts_tdp.density else "Smoothed counts"
+    else:
+        counts = np.asarray(tdp.counts, dtype="float64")  # (bins, bins) [init, final]
+        edges = np.asarray(tdp.signal_edges, dtype="float64")
+        # counts is [initial, final]; x=initial, y=final → transpose so rows=final.
+        mesh = ax.pcolormesh(
+            edges,
+            edges,
+            counts.T,
+            cmap=cmap,
+            norm=_tdp_norm(counts, color_scale),
+            shading="flat",
+        )
+        label = "Density" if tdp.density else "Counts"
+    setattr(fig, _DISPLAY_ATTR, display)
+    fig.colorbar(mesh, ax=ax, label=label)
+    lo, hi = counts_tdp.signal_range
     ax.plot([lo, hi], [lo, hi], color="w", lw=0.8, ls=":", alpha=0.7)
-    ax.set_xlim(tdp.signal_range)
-    ax.set_ylim(tdp.signal_range)
+    ax.set_xlim(counts_tdp.signal_range)
+    ax.set_ylim(counts_tdp.signal_range)
     ax.set_xlabel("Initial $E$")
     ax.set_ylabel("Final $E$")
     ax.set_aspect("equal")
     ax.set_title(title)
     ax.annotate(
-        f"{tdp.n_transitions} transitions · N = {tdp.n_molecules}",
+        f"{counts_tdp.n_transitions} transitions · N = {counts_tdp.n_molecules}",
         xy=(0.03, 0.95),
         xycoords="axes fraction",
         ha="left",
@@ -606,7 +784,7 @@ def render_raw_fret_cloud(
 
     ``max_points`` caps the scatter overlay for a manageable vector file; the density
     surface (when computed) is unaffected by that cap — but it was fit by
-    :func:`tether.analysis.cloud.raw_fret_cloud` on the in-range points only
+    [`tether.analysis.cloud.raw_fret_cloud`][] on the in-range points only
     (``n_out_of_range`` counts the rest).
     """
     points = np.asarray(cloud.points, dtype="float64")
@@ -685,6 +863,386 @@ def render_cross_correlation(
         xycoords="axes fraction",
         ha="right",
         va="top",
+        fontsize=8,
+    )
+    return fig
+
+
+def _count(n: int, noun: str) -> str:
+    """``n`` and ``noun``, plural unless ``n`` is one (``"1 event"``, ``"3 events"``)."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def render_per_condition_histograms(
+    overlay: PerConditionHistograms,
+    *,
+    title: str = "Per-condition FRET-efficiency histograms (A1)",
+    figsize: tuple[float, float] | None = None,
+) -> Figure:
+    """Render the §7.7 per-condition overlay: every condition's A1 histogram on one axis.
+
+    Each condition is drawn as an unfilled step outline on the overlay's shared
+    [`bin_edges`][tether.analysis.histogram.PerConditionHistograms.bin_edges] grid, in
+    the overlay's own (deterministic) order, and labelled with its condition id and its
+    molecule count ``N``. Colours follow the ``tab10`` palette, and past ten conditions
+    the line style changes too, so up to 40 conditions no two curves share both a colour
+    and a line style. Past 40 the pairs repeat (condition 41 is drawn like condition 1),
+    and only the legend labels tell those curves apart.
+
+    Parameters
+    ----------
+    overlay
+        The per-condition histograms to draw, from
+        [`per_condition_apparent_e_histograms`][tether.analysis.histogram.per_condition_apparent_e_histograms].
+    title
+        The axes title.
+    figsize
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+
+    Raises
+    ------
+    ValueError
+        A condition's histogram is not binned on the overlay's shared grid, so it
+        cannot be drawn on the same axis without misplacing its bins.
+    """
+    edges = np.asarray(overlay.bin_edges, dtype="float64")
+    palette = colormaps["tab10"].colors
+
+    fig = _new_figure(figsize)
+    ax = fig.add_subplot()
+    for k, ch in enumerate(overlay.histograms):
+        own = np.asarray(ch.histogram.bin_edges, dtype="float64")
+        if own.shape != edges.shape or not np.array_equal(own, edges):
+            raise ValueError(
+                f"condition {ch.condition_id!r} is not binned on the overlay's shared grid"
+            )
+        ax.stairs(
+            np.asarray(ch.histogram.counts, dtype="float64"),
+            edges,
+            fill=False,
+            color=palette[k % len(palette)],
+            linestyle=_CONDITION_LINESTYLES[(k // len(palette)) % len(_CONDITION_LINESTYLES)],
+            lw=1.5,
+            label=f"{ch.condition_id} (N = {ch.n_molecules})",
+        )
+    ax.set_xlim(overlay.value_range)
+    ax.set_xlabel("Apparent FRET efficiency $E$")
+    ax.set_ylabel("Density" if overlay.density else "Counts")
+    ax.set_title(title)
+    if overlay.n_conditions:
+        ax.legend(loc="upper left", fontsize=8, frameon=False)
+    else:
+        ax.annotate(
+            "No condition has a queried molecule",
+            xy=(0.5, 0.5),
+            xycoords="axes fraction",
+            ha="center",
+            va="center",
+            fontsize=9,
+        )
+    ax.annotate(
+        f"{_count(overlay.n_conditions, 'condition')} · N = {overlay.total_molecules}",
+        xy=(0.97, 0.95),
+        xycoords="axes fraction",
+        ha="right",
+        va="top",
+        fontsize=9,
+    )
+    return fig
+
+
+def _sync_state_label(state: int) -> str:
+    """A post-sync state selector as a reader sees it: ``-1`` selects any state."""
+    return "any" if int(state) < 0 else str(int(state))
+
+
+def render_transition_sync_histogram2d(
+    hist: TransitionSyncHistogram2D,
+    *,
+    title: str = "Transition-synchronized heatmap (A2b)",
+    figsize: tuple[float, float] | None = None,
+) -> Figure:
+    """Render the A2 post-synchronized heatmap: occupancy around the selected transitions.
+
+    The time axis is **relative to the transition**: the heatmap's
+    [`time_edges`][tether.analysis.histogram.TransitionSyncHistogram2D.time_edges] run
+    negative before it, and a dotted vertical line marks relative time zero, the
+    [`sync_preframe`][tether.analysis.histogram.TransitionSyncHistogram2D.sync_preframe]
+    column. The annotation names the selected ``from → to`` states (``any`` for ``-1``)
+    and the transition and molecule counts.
+
+    Parameters
+    ----------
+    hist
+        The transition-aligned heatmap to draw, from
+        [`population_transition_sync_histogram2d`][tether.analysis.histogram.population_transition_sync_histogram2d].
+    title
+        The axes title.
+    figsize
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    """
+    counts = np.asarray(hist.counts, dtype="float64")  # (time_columns, signal_bins)
+    time_edges = np.asarray(hist.time_edges, dtype="float64")
+    signal_edges = np.asarray(hist.signal_edges, dtype="float64")
+
+    fig = _new_figure(figsize)
+    ax = fig.add_subplot()
+    # counts is [time, signal]; show time on x, signal on y → transpose so rows=signal.
+    mesh = ax.pcolormesh(time_edges, signal_edges, counts.T, cmap="magma", shading="flat")
+    fig.colorbar(mesh, ax=ax, label="Density" if hist.density else "Counts")
+    ax.axvline(0.0, color="w", lw=0.8, ls=":", alpha=0.8)
+    seconds = hist.time_dt != 1.0
+    ax.set_xlabel("Time from transition (s)" if seconds else "Frames from transition")
+    ax.set_ylabel("Apparent FRET efficiency $E$")
+    ax.set_xlim(float(time_edges[0]), float(time_edges[-1]))
+    ax.set_ylim(hist.signal_range)
+    ax.set_title(title)
+    window = "single dwell" if hist.single_dwell else "fixed window"
+    ax.annotate(
+        f"{_sync_state_label(hist.from_state)} → {_sync_state_label(hist.to_state)} ({window})"
+        f" · {_count(hist.n_transitions, 'transition')} · N = {hist.n_molecules}",
+        xy=(0.03, 0.95),
+        xycoords="axes fraction",
+        ha="left",
+        va="top",
+        color="white",
+        fontsize=8,
+    )
+    return fig
+
+
+def render_alpha_shape(
+    shape: AlphaShape,
+    *,
+    cloud: RawFretCloud | None = None,
+    time_dt: float | None = None,
+    title: str = "FRET-cloud support (alpha shape)",
+    max_points: int = 20000,
+    figsize: tuple[float, float] | None = None,
+) -> Figure:
+    """Render the α-shape support boundary of the raw FRET cloud (§7.7).
+
+    Draws [`boundary_edges`][tether.analysis.cloud.AlphaShape.boundary_edges] as line
+    segments in the original ``(time, E)`` coordinates, optionally over the cloud's
+    scatter. A shape with nothing to bound is drawn **empty** — no segment at all — and
+    the annotation says which of the two empty states it is: the cloud spans no 2-D
+    region ([`no_region`][tether.analysis.cloud.AlphaShape.no_region]), or ``alpha``
+    was too small to keep any triangle. A boundary is never fabricated.
+
+    Parameters
+    ----------
+    shape
+        The α-shape to draw, from
+        [`population_fret_cloud_alpha_shape`][tether.analysis.cloud.population_fret_cloud_alpha_shape].
+    cloud
+        Optional [`RawFretCloud`][tether.analysis.cloud.RawFretCloud] the shape was
+        computed from. When given, its points are drawn underneath (decimated to
+        ``max_points``), its ranges set the axis limits and its ``time_dt`` the time unit.
+    time_dt
+        Frame duration of the shape's time coordinate, for the axis label when no
+        ``cloud`` is given: ``Time (s)`` when it is not ``1.0``, otherwise ``Frame``.
+        Defaults to the cloud's ``time_dt``, else ``1.0``.
+    title
+        The axes title.
+    max_points
+        Cap on the scatter overlay drawn from ``cloud``; the boundary is never thinned.
+    figsize
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+
+    Raises
+    ------
+    ValueError
+        ``time_dt`` contradicts the given ``cloud``'s ``time_dt``.
+    """
+    if cloud is not None and time_dt is not None and float(time_dt) != float(cloud.time_dt):
+        raise ValueError(f"time_dt={time_dt!r} contradicts the cloud's time_dt={cloud.time_dt!r}")
+    dt = float(cloud.time_dt) if cloud is not None else float(time_dt or 1.0)
+
+    fig = _new_figure(figsize)
+    ax = fig.add_subplot()
+    if cloud is not None:
+        points = np.asarray(cloud.points, dtype="float64")
+        n = points.shape[0]
+        if n:
+            shown = points[:: int(np.ceil(n / max_points))] if n > max_points else points
+            ax.scatter(shown[:, 0], shown[:, 1], s=2, color="#c44e52", alpha=0.25, linewidths=0)
+        ax.set_xlim(cloud.time_range)
+        ax.set_ylim(cloud.signal_range)
+    if not shape.is_empty:
+        segments = np.asarray(shape.boundary_edges, dtype="float64")
+        ax.add_collection(LineCollection(segments, colors="k", linewidths=1.0))
+        if cloud is None:
+            ax.autoscale_view()
+    if not shape.spans_region:
+        note = f"No 2-D region: {shape.n_points} points cannot be triangulated"
+    elif shape.n_kept == 0:
+        note = f"No support at α = {shape.alpha:.3g}: no triangle kept"
+    else:
+        note = (
+            f"α = {shape.alpha:.3g} · {shape.n_kept} of {shape.n_triangles} triangles"
+            f" · area {shape.area:.3g}"
+        )
+    ax.set_xlabel("Time (s)" if dt != 1.0 else "Frame")
+    ax.set_ylabel("Apparent FRET efficiency $E$")
+    ax.set_title(title)
+    ax.annotate(
+        f"{note} · {shape.n_points} points",
+        xy=(0.03, 0.95),
+        xycoords="axes fraction",
+        ha="left",
+        va="top",
+        fontsize=8,
+    )
+    return fig
+
+
+def render_state_number_elbow(
+    elbow: StateNumberElbow,
+    *,
+    title: str = "State-number hint (k-vs-RMSE elbow)",
+    figsize: tuple[float, float] | None = None,
+) -> Figure:
+    """Render the k-vs-RMSE elbow curve and the state count it suggests (§7.7).
+
+    Draws the within-cluster RMSE at each probed ``k``, the first-to-last chord that the
+    knee criterion measures from, and — when there is one — the elbow point with a
+    vertical guide at ``elbow_k``. The elbow is a heuristic **hint**, not a state count
+    of record (the HMM model view is that), and the annotation says so. A curve with no
+    interior elbow is drawn without a marker and annotated "no elbow".
+
+    Parameters
+    ----------
+    elbow
+        The elbow curve to draw, from
+        [`population_fret_cloud_state_number_elbow`][tether.analysis.cloud.population_fret_cloud_state_number_elbow].
+    title
+        The axes title.
+    figsize
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    """
+    ks = np.asarray(elbow.k_values, dtype="int64")
+    rmse = np.asarray(elbow.rmse, dtype="float64")
+
+    fig = _new_figure(figsize)
+    ax = fig.add_subplot()
+    if ks.size:
+        ax.plot(ks, rmse, "o-", color="#4c72b0", ms=4, lw=1.2, label="RMSE")
+        ax.set_xticks(ks)
+    if ks.size >= 2:
+        ax.plot(
+            [ks[0], ks[-1]],
+            [rmse[0], rmse[-1]],
+            color="0.5",
+            lw=0.8,
+            ls="--",
+            label="chord",
+        )
+    if elbow.elbow_k is not None:
+        (at,) = np.flatnonzero(ks == int(elbow.elbow_k))
+        ax.axvline(float(elbow.elbow_k), color="#c44e52", lw=0.8, ls=":")
+        ax.plot(
+            [ks[at]],
+            [rmse[at]],
+            "o",
+            ms=9,
+            mfc="none",
+            mec="#c44e52",
+            mew=1.5,
+            label=f"elbow k = {elbow.elbow_k}",
+        )
+        note = f"Suggested k = {elbow.elbow_k} (hint; the HMM state count is of record)"
+    else:
+        note = "No elbow (fewer than three k, or a flat curve)"
+    ax.set_xlabel("Number of clusters $k$")
+    ax.set_ylabel("Within-cluster RMSE of $E$")
+    ax.set_title(title)
+    if ks.size:
+        ax.legend(loc="upper right", fontsize=8, frameon=False)
+    ax.annotate(
+        f"{note}\n{elbow.n_samples} samples · seed {elbow.seed}",
+        xy=(0.97, 0.70),
+        xycoords="axes fraction",
+        ha="right",
+        va="top",
+        fontsize=8,
+    )
+    return fig
+
+
+def render_population_anticorrelation(
+    population: PopulationAnticorrelation,
+    *,
+    title: str = "Donor–acceptor anticorrelation events",
+    figsize: tuple[float, float] | None = None,
+) -> Figure:
+    """Render the population's anticorrelation events as a per-molecule raster (§7.7).
+
+    One row per scanned molecule, in the population's store order (top to bottom), with
+    each event drawn as a bar over its ``[start, stop)`` frame span and coloured by its
+    peak strength ``|lag-0|``; a tick marks each event's peak frame. A molecule scanned
+    with no event keeps its empty row, so the raster shows how many molecules carried
+    none. Rows are labelled by ``molecule_key`` up to 30 molecules, by index above that.
+
+    Parameters
+    ----------
+    population
+        The per-molecule scans to draw, from
+        [`population_anticorrelation_events`][tether.analysis.anticorrelation.population_anticorrelation_events].
+    title
+        The axes title.
+    figsize
+        Figure size in inches; defaults to [`DEFAULT_FIGSIZE`][].
+    """
+    molecules = population.molecules
+    cmap = colormaps["viridis"]
+    norm = Normalize(vmin=0.0, vmax=1.0)
+
+    fig = _new_figure(figsize)
+    ax = fig.add_subplot()
+    peaks_x: list[float] = []
+    peaks_y: list[float] = []
+    for row, mol in enumerate(molecules):
+        events = mol.scan.events
+        if not events:
+            continue
+        ax.broken_barh(
+            [(float(e.start), float(e.n_frames)) for e in events],
+            (row - 0.35, 0.7),
+            facecolors=[cmap(norm(e.peak_magnitude)) for e in events],
+            edgecolors="none",
+        )
+        peaks_x.extend(float(e.peak_frame) for e in events)
+        peaks_y.extend(float(row) for _ in events)
+    if peaks_x:
+        ax.plot(peaks_x, peaks_y, "|", color="k", ms=8, mew=1.0, ls="none", label="peak")
+    fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=ax, label="Peak |lag-0| correlation")
+
+    n_rows = len(molecules)
+    longest = max((mol.scan.n_frames for mol in molecules), default=0)
+    ax.set_xlim(0.0, float(max(longest, 1)))
+    ax.set_ylim(n_rows - 0.5 if n_rows else 0.5, -0.5)
+    if n_rows <= _ANTICORR_MAX_KEY_LABELS:
+        ax.set_yticks(range(n_rows))
+        ax.set_yticklabels([mol.molecule_key for mol in molecules], fontsize=6)
+    ax.set_xlabel("Frame (analysis window)")
+    ax.set_ylabel("Molecule")
+    ax.set_title(title)
+    if not n_rows:
+        ax.annotate(
+            "No molecule was long enough to scan",
+            xy=(0.5, 0.5),
+            xycoords="axes fraction",
+            ha="center",
+            va="center",
+            fontsize=9,
+        )
+    ax.annotate(
+        f"{_count(population.n_events, 'event')} · N = {population.n_molecules}"
+        f" · window {population.window}",
+        xy=(0.97, 0.02),
+        xycoords="axes fraction",
+        ha="right",
+        va="bottom",
         fontsize=8,
     )
     return fig
