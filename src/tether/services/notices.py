@@ -24,7 +24,8 @@ def conflict_copy_warning(project_path: str | Path) -> str | None:
     """Return the one-line warning for possible conflict copies of a project, or ``None``.
 
     The application (when it opens a project) and the command line (``tether extract``,
-    ``tether batch`` and ``tether info``) show this same text. It names every sibling that
+    ``tether batch``, ``tether info``, ``tether metadata`` and ``tether export``) show this
+    same text. It names every sibling that
     [`tether.project.lock.conflict_copies`][] matches, by file name, calls them only
     *possible* conflict copies (the match is by name alone), and says that Tether leaves them
     alone: detection only, never reconciliation, deletion or merge (PRD §5.4).

@@ -1188,6 +1188,8 @@ def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     shell.molecule_list.setCurrentRow(1)
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
     assert project.curation_label(keys[1]) == -1
+    # The reject showed the next molecule (#631); go back to the rejected one.
+    shell.molecule_list.setCurrentRow(1)
 
     qtbot.mouseClick(shell.unreject_button, QtCore.Qt.MouseButton.LeftButton)
 
@@ -1689,7 +1691,13 @@ def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
 
 def test_file_menu_exposes_open_close_and_quit(shell) -> None:
     labels = [a.text() for a in shell.file_menu.actions() if not a.isSeparator()]
-    assert labels == ["&Open project…", "&Close project", "&Quit"]
+    assert labels == [
+        "&Open project…",
+        "Open &recent",
+        "&Close project",
+        "Curator &name…",
+        "&Quit",
+    ]
 
 
 def test_file_menu_open_action_opens_the_picked_project(shell, tmp_path, monkeypatch) -> None:

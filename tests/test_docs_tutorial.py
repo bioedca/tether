@@ -48,6 +48,8 @@ _HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("pyqtgraph", "Py
 _needs_qt = pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not installed")
 
 EXTRACT_LINE = "Extracted 3 molecule(s) -> tutorial.tether"
+#: The colocalization rule (#920): every tutorial donor spot has its acceptor spot.
+COLOC_LINE = "  colocalization: partner-in-both kept 3 (donor-anchored would keep 3)"
 #: The donor-side check (#646): three molecules are too few for it to judge.
 SIDE_CHECK_LINE = (
     "  donor side: not enough bleach events to check the donor side (0 found, 15 needed)."
@@ -58,6 +60,12 @@ REJECTED_ID = "b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d"
 ACCEPTED_IDS = (
     "463104a0a9ee0dca67d4eb2981655e11d79ac500d70fbb3cdc5c388de7a77392",
     "7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057",
+)
+#: Step 6's lines: each decision is followed by the molecule shown next (#631).
+REJECT_LINE = f"Rejected {REJECTED_ID}; Molecule mol-1 (2/3)"
+ACCEPT_LINES = (
+    f"Accepted {ACCEPTED_IDS[0]}; Molecule mol-2 (3/3)",
+    f"Accepted {ACCEPTED_IDS[1]}; end of the list reached",
 )
 HISTOGRAM_LINE = "Population histogram — 2 molecule(s), 48 frame(s)"
 #: Frames in each molecule's trace: the histogram's 48 frames are two molecules of 24.
@@ -106,8 +114,8 @@ def test_page_builds_the_project_from_the_movie() -> None:
 
 def test_extract_prints_the_line_the_page_quotes(tmp_path, monkeypatch, capsys) -> None:
     out = _extract(tmp_path, monkeypatch, capsys)
-    assert out.splitlines() == [EXTRACT_LINE, SIDE_CHECK_LINE]
-    assert f"```text\n{EXTRACT_LINE}\n{SIDE_CHECK_LINE}\n```" in _page()
+    assert out.splitlines() == [EXTRACT_LINE, COLOC_LINE, SIDE_CHECK_LINE]
+    assert f"```text\n{EXTRACT_LINE}\n{COLOC_LINE}\n{SIDE_CHECK_LINE}\n```" in _page()
     assert (tmp_path / "tutorial.tether").is_file()
 
 
@@ -154,12 +162,17 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
             qtbot.keyClick(lst, key)
             return status.currentMessage()
 
-        # Step 6, in the page's order: reject mol-0, then accept mol-1 and mol-2.
-        assert press(QtCore.Qt.Key.Key_Backspace) == f"Rejected {REJECTED_ID}"
-        assert press(QtCore.Qt.Key.Key_Right) == BROWSE_LINE  # step 5's quoted line
-        assert press(QtCore.Qt.Key.Key_Space) == f"Accepted {ACCEPTED_IDS[0]}"
-        press(QtCore.Qt.Key.Key_Right)
-        assert press(QtCore.Qt.Key.Key_Space) == f"Accepted {ACCEPTED_IDS[1]}"
+        # Step 5's quoted line, then back to mol-0 as step 6 says.
+        assert press(QtCore.Qt.Key.Key_Right) == BROWSE_LINE
+        press(QtCore.Qt.Key.Key_Left)
+        assert lst.currentRow() == 0
+
+        # Step 6, in the page's order: reject mol-0, then accept mol-1 and mol-2. Each
+        # decision shows the next molecule by itself (#631), so no arrow key is pressed.
+        assert press(QtCore.Qt.Key.Key_Backspace) == REJECT_LINE
+        assert press(QtCore.Qt.Key.Key_Space) == ACCEPT_LINES[0]
+        assert press(QtCore.Qt.Key.Key_Space) == ACCEPT_LINES[1]
+        assert lst.currentRow() == 2
 
         # Step 7: idealize mol-2, the second accepted molecule, still selected.
         assert press(QtCore.Qt.Key.Key_I) == IDEALIZING_LINE
@@ -176,10 +189,8 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
     finally:
         shell.close()
 
-    for line in (OPEN_LINE, BROWSE_LINE, HISTOGRAM_LINE, f"Rejected {REJECTED_ID}"):
+    for line in (OPEN_LINE, BROWSE_LINE, HISTOGRAM_LINE, REJECT_LINE, *ACCEPT_LINES):
         assert f"```text\n{line}\n```" in page, line
-    for molecule_id in ACCEPTED_IDS:
-        assert f"```text\nAccepted {molecule_id}\n```" in page, molecule_id
     for line in (IDEALIZING_LINE, IDEALIZED_LINE):
         assert f"```text\n{line}\n```" in page, line
 
