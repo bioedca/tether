@@ -356,11 +356,12 @@ the first one's data. So the output name follows one rule:
   `Movie_010.tether` and `movie_010.tether` are one file on Windows and macOS.
 
 The folders are those of the movie's full path, so the names do not depend on the folder
-you run the command from. A path is read as you typed it, links included, except where
-that would name another file: after a link, `..` goes to the parent of the link's target,
-so `work/link/../m.tif` with `work/link` a link to `archive/sub` is `archive/m.tif`, and
-its folders are read from there (`archive__m`). If no folder tells two movies apart — `A.tif` and `a.tif` in one
-folder — the run stops before anything is written. `--dry-run` shows each name before
+you run the command from. The folders are read as you typed them, with one exception:
+after a link, `..` goes to the parent of the link's target. Say `work/link` is a link to
+`archive/sub`. Then `work/link/../m.tif` is the file `archive/m.tif`. Its folders are read
+from where it really is, so its name is `archive__m`.
+
+If no folder tells two movies apart — `A.tif` and `a.tif` in one folder — the run stops before anything is written. `--dry-run` shows each name before
 the run, and the structured log records each movie and its output as an `input` event
 with status `mapped`.
 
