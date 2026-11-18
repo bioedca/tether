@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0088 — An extraction test on videos with known truth from the MASH-FRET simulator
 
-- **Status:** accepted
+- **Status:** accepted; amended by [ADR-0107](0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md) on the frozen limits (a duplicate count)
 - **Date:** 2026-11-13
 - **Deciders:** bioedca
 - **PRD anchor:** §9.5 (the validation suite), §8 NFR-VALID, §8 NFR-FIXTURES

@@ -141,8 +141,9 @@ conclusion_text: "Tether is installed. To start Tether, obey the instructions in
 post_install: scripts/post_install.sh    # [unix]
 post_install: scripts/post_install.bat   # [win]
 
-# Windows only: remove the Start Menu shortcut post_install created, which the
-# uninstaller would otherwise leave behind (issue #551, ADR-0051).
+# Windows only: remove the Start Menu shortcut and the .tether file type that post_install
+# created, which the uninstaller would otherwise leave behind (issue #551, ADR-0051;
+# issue #664, ADR-0118).
 pre_uninstall: scripts/pre_uninstall.bat   # [win]
 
 # Per-OS installer format. exe (NSIS) on Windows, pkg on macOS, sh on Linux.
@@ -159,7 +160,10 @@ installer_type: sh     # [linux]
 #
 # These four keys are why nothing lands on PATH, which is what ADR-0051 addresses:
 # post_install writes `<prefix>/launchers/{tether,tether-gui}` shims plus a Start Menu
-# shortcut (Windows) / .desktop entry (Linux). The installer still does NOT edit the
+# shortcut (Windows) / .desktop entry (Linux) / Tether.app launcher bundle (macOS,
+# ADR-0091). The macOS bundle has no pre_uninstall counterpart: constructor runs
+# pre_uninstall on Windows only, so docs/install.md names the bundle in the uninstall
+# command. The installer still does NOT edit the
 # user's PATH — `setx` truncates PATH past 1024 chars and rewriting a shell rc is
 # equally invasive — so adding `<prefix>/launchers` stays a documented one-line step.
 # That folder holds the two shims only; `<prefix>/bin`, their folder until rc3, is the

@@ -111,7 +111,10 @@ def test_locates_the_unique_tdat_and_passes_it_to_extraction(tmp_path, fake_run)
 
     assert script.main(["--data-dir", str(data)]) == 0
     (kwargs,) = fake_run["extract"]
+    options = kwargs.pop("options")
     assert kwargs == {"tmap": found["tmap"], "tdat": found["tdat"]}
+    # The oracle's frozen numbers were made with the donor-anchored rule (ADR-0127).
+    assert options.colocalization == "donor-anchored"
 
 
 @pytest.mark.parametrize(("n_tmap", "n_tdat"), [(1, 0), (1, 2), (2, 1)])

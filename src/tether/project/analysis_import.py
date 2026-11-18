@@ -53,16 +53,16 @@ under the M0-frozen skeleton (``schema-guard`` stays green — no ``schema.py`` 
 * **``/conditions``** materialized (+ an optional seeded category vocabulary) so
   condition-scoped analysis works.
 
-The build is atomic — a sibling temp file → [`os.replace`][] — and re-asserts the
-single-writer lock when ``overwrite`` replaces an existing project (§5.4), mirroring
+The build is atomic — a sibling temp file → [`os.replace`][] — and replacing an
+existing project requires the caller to hold its single-writer lock and pass the
+check as ``publish_guard`` (§5.4, ADR-0112), mirroring
 [`tether.project.reconstruct.reconstruct_project`][].
 """
 
 from __future__ import annotations
 
 import hashlib
-import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,6 +74,7 @@ from tether.idealize.smd import SMDData
 from tether.io.deeplasi import DeepLasiTraces
 from tether.io.filename import ParsedFilename, parse_filename
 from tether.io.schema import TABLE
+from tether.project._guarded_publish import publish_staged_project, require_publish_guard
 from tether.project.conditions import set_category_list, sync_conditions
 from tether.project.core import Project
 from tether.project.correct import compute_corrected_fret
@@ -412,6 +413,7 @@ def import_analysis_only_project(
     parsed: ParsedFilename | None = None,
     categories: Sequence[str] = (),
     overwrite: bool = False,
+    publish_guard: Callable[[], None] | None = None,
 ) -> AnalysisOnlyImportSummary:
     """Import a coordinate-less SMD/``.txt`` source as an analysis-only ``.tether`` (§7.8).
 
@@ -446,6 +448,11 @@ def import_analysis_only_project(
         Editable-category-list seeds for the condition's vocabulary (optional).
     overwrite:
         Replace an existing ``output_path`` (default ``False`` refuses to clobber).
+    publish_guard:
+        Ownership check called immediately before the atomic publish; **required**
+        to replace an existing ``output_path`` (#346, ADR-0112). Hold
+        [`publish_lock`][tether.project.lock.publish_lock] on ``output_path`` and pass
+        the check it yields.
 
     Returns
     -------
@@ -456,9 +463,9 @@ def import_analysis_only_project(
     ------
     FileExistsError
         If ``output_path`` exists and ``overwrite`` is ``False``.
-    tether.project.lock.LockedError
-        If ``overwrite`` replaces an existing project a **foreign** ``.lock`` holds
-        (an open session), so the atomic publish cannot bypass the single-writer
+    tether.project.lock.PublishGuardRequiredError
+        If ``overwrite`` would replace an existing project without a
+        ``publish_guard``, so the atomic publish cannot bypass the single-writer
         invariant (§5.4).
     TypeError
         If ``source`` is not an ``SMDData`` or ``DeepLasiTraces``.
@@ -470,15 +477,10 @@ def import_analysis_only_project(
     output_path = Path(output_path)
     if output_path.exists() and not overwrite:
         raise FileExistsError(f"{output_path} exists (pass overwrite=True to replace)")
-    if output_path.exists():
-        # The atomic publish (os.replace below) is destructive, but the store is built
-        # at a fresh tmp_path so Project.create never sees output_path and its
-        # overwrite=True foreign-lock guard is skipped. Re-assert it here, matching
-        # every other overwrite path, so a project held open by another writer is not
-        # silently clobbered (§5.4).
-        from tether.project import lock  # noqa: PLC0415
-
-        lock.assert_writable(output_path)
+    # The atomic publish below is destructive, and the store is built at a fresh
+    # tmp_path, so Project.create never sees output_path. Replacing an existing project
+    # therefore needs the caller to hold its writer lock (#346, ADR-0112, §5.4).
+    require_publish_guard(output_path, publish_guard)
 
     donor, acceptor, windows, source_kind = _normalize_source(source)
     _validate_traces(donor, acceptor)
@@ -507,7 +509,7 @@ def import_analysis_only_project(
         # explicit apparent-E substrate (ADR-0003), stamped for idealization staleness.
         compute_corrected_fret(tmp_path)
         _seed_categories(tmp_path, parsed.condition_id, categories)
-        os.replace(tmp_path, output_path)
+        publish_staged_project(tmp_path, output_path, publish_guard=publish_guard)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
