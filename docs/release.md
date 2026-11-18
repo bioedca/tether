@@ -1,3 +1,7 @@
+---
+description: "For maintainers: how a version tag builds and publishes the Tether installers and this site, and how Zenodo archives each release."
+---
+
 # Releasing Tether (tag-driven pipeline)
 
 **Who this page is for.** Tether maintainers with write access to `bioedca/tether`; users do
@@ -46,7 +50,7 @@ release**, not the binaries, and it is unaffected by any of the above.
    consequences follow. A tag cut seconds after a merge is refused until the post-merge run
    finishes on that commit. And because the producing workflows cancel an in-flight run
    when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
-   were cancelled by a following merge can never be released — release from a later commit
+   were canceled by a following merge can never be released — release from a later commit
    whose checks ran to completion instead.
 2. **Read every user page before the tag, and record the read.** A named person does this
    step. An AI tool cannot do this step. AI tools draft the user pages, and the review lane of a
@@ -105,7 +109,11 @@ release**, not the binaries, and it is unaffected by any of the above.
     The tag must have the form `vMAJOR.MINOR.PATCH` (PRD §12.7): three numeric components
     with no leading zeros, optionally followed by a `-<prerelease>` component such as
     `-rc1`, and nothing else — no build metadata (`+…`), and no fourth component, so
-    `v1.0.0.0` is rejected. A tag with a `-<prerelease>` component publishes as a GitHub
+    `v1.0.0.0` is rejected. The `-<prerelease>` component follows SemVer 2.0.0 §9: one or
+    more identifiers separated by dots, none of them empty, each either a number with no
+    leading zero or a run of letters, digits and hyphens that holds at least one letter or
+    hyphen. So `-rc1`, `-rc.1`, `-0` and `-alpha-1` are accepted, and `-01`, `-rc.01`,
+    `-rc..1`, `-.rc1` and `-rc1.` are rejected. A tag with a `-<prerelease>` component publishes as a GitHub
     **prerelease** and does not repoint the documentation site; that verdict is read from
     the parsed tag's prerelease component, not from a search for a hyphen. The tag must also
     be **annotated** and its signature **verified by GitHub** (your SSH signing key
@@ -341,7 +349,7 @@ DOI, and they go in different places:
 
 | DOI | Resolves to | Where it is written |
 |---|---|---|
-| **Concept DOI** `10.5281/zenodo.23306397` | the newest archived version, whichever that is | `CITATION.cff` `doi:`, `README.md`, [Citing Tether](citing.md). It never changes. |
+| **Concept DOI** `10.5281/zenodo.23306397` | the newest archived version, whichever that is | `CITATION.cff` `doi:`, `codemeta.json` `identifier`, the `DOI` entry of `pyproject.toml` `[project.urls]`, `README.md`, [Citing Tether](citing.md), the [home page](index.md#cite-tether), and the head of each docs page (copied from `CITATION.cff` at build time). It never changes. |
 | **Version DOI** | one release | only its own Zenodo record (linked from the concept record). Never hand-copied into the repository. |
 
 The ordering below is load-bearing and cannot be repaired by editing files afterwards. Follow
@@ -357,7 +365,9 @@ it for every release:
    no tagged commit can contain its own version DOI. That is why `CITATION.cff` carries the
    concept DOI instead.
 3. **In the release commit**, set `CITATION.cff` `version:` to the tag without its leading
-   `v` and `date-released:` to the release date (ISO 8601). Leave `doi:` alone.
+   `v` and `date-released:` to the release date (ISO 8601). Leave `doi:` alone. Change
+   `version` and `datePublished` in `codemeta.json` to the same two values in the same
+   commit; a test fails while the two files differ.
 4. **After the Release is published**, open the concept DOI and check that the new version
    appears in the record's version list. Zenodo reads the archive's metadata from
    `CITATION.cff` in the tagged tree.
@@ -412,6 +422,10 @@ The site is built **from the release tag**, not from whatever `main` happens to 
 dispatch passes `--ref "$TAG"`; without it `gh workflow run` targets the default branch,
 and a tag cut a few commits back — or `main` advancing during the ~15-minute build matrix
 — would publish unreleased docs under the released version.
+
+The source links follow the tag too: `docs.yml` sets `TETHER_DOCS_SOURCE_TAG` to the tag it
+builds from, and the build hook in `scripts/mkdocs_hooks.py` points each `blob/main` and
+`tree/main` link at it, while a run from `main`, such as `dev`, keeps them on `main`.
 
 Each version's canonical URLs are handled by `mike`, not by `mkdocs.yml`. `mike deploy`
 injects its own plugin and rewrites `site_url` to `<site_url>/<version>` at build time, so
@@ -481,7 +495,7 @@ and users get a SmartScreen or Gatekeeper warning on Windows and macOS.
 [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records
 the decision and the priced alternatives so they are not re-researched. In short:
 
-- **SignPath Foundation declined** `bioedca/tether` on 2026-07-26 — the programme wants
+- **SignPath Foundation declined** `bioedca/tether` on 2026-07-26 — the program wants
   public-visibility signals (stars, forks, contributors, external references, institutional
   backing) a pre-1.0 project by one maintainer does not have. A paid subscription was offered.
 - **Apple Developer ID** is out of budget at $99/yr, and enabling it was never one setting

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "issue": 713,
+  "description": "The limit for Tether's molecule bootstrap of the FRET histogram (bootstrap_histogram_ci) against MASH-FRET's BOBA-FRET bootstrap that the committed extract tests/fixtures/mashfret_ed135e_30mm_path_a.mat stores (tag 12 'Path A 0.2 +- 0.3' of the smallest project of Zenodo 10.5281/zenodo.24104528: 100 samples of 17 molecules, weighted; prmThm thm_start and thm_res{2,1:3}). tests/test_mashfret_bootstrap.py runs Tether's bootstrap for each seed below with the same values, weights and number of samples, and asserts every z-score (ADR-0108).",
+  "z_score": "(mean over the seeds of Tether's value - MASH-FRET's value) / (SD over the seeds of Tether's value * sqrt(1 + 1/number of seeds)). MASH-FRET's value is one bootstrap run, so it has the same seed-to-seed spread as one Tether run.",
+  "compared": {
+    "bin_sd": "The SD over the samples of each bin of the histogram normalized to sum 1, on the bins whose MASH-FRET SD is at least 0.1 of the largest (26 of 49). Tether's value is its std output times the bin width.",
+    "population_mean": "The mean over the samples of each of the three Gaussian populations of gauss_ana.m, Tether's samples fitted with MASH-FRET's model, start and bounds (scipy.optimize.curve_fit, bounded least squares).",
+    "population_sd": "The SD over the samples of each of the same populations."
+  },
+  "seeds": [
+    713,
+    714,
+    715,
+    716,
+    717,
+    718,
+    719,
+    720,
+    721,
+    722
+  ],
+  "samples": 100,
+  "z_limit": 3.0,
+  "measured": {
+    "utc": "2026-11-15",
+    "mashfret": "RNA-FRETools/MASH-FRET 1a1f465983c59cb513459b10c19474fded317af5 (its version text: 1.1.2 (prev. commit: 1a1f465)); source/mod_histogram_analysis/gauss_ana.m and getHist.m",
+    "environment": "CPython 3.12, NumPy 2.1, SciPy 1.18.0; Linux x86-64",
+    "fixture_sha256": "8efa0e919c36f0503e300c17385fd4c36fa19be5a206bda5594fd113ac905c79",
+    "max_abs_z": {
+      "bin_sd": 1.11,
+      "population_mean": 1.17,
+      "population_sd": 2.2
+    },
+    "other_seed_sets": "Six other sets of ten seeds (0-9, 1000-1009, ..., 5000-5009) gave a largest |z| of 1.12 to 2.69 for bin_sd, 0.83 to 2.24 for population_mean and 0.55 to 1.44 for population_sd.",
+    "fit_model_check": "The same fit applied to MASH-FRET's own 100 stored sample histograms gives population means 0.422, 0.236, 0.343 and SDs 0.113, 0.118, 0.107, against MASH-FRET's stored 0.415, 0.246, 0.340 and 0.106, 0.111, 0.107: the difference of the two fitting codes is part of each population z-score.",
+    "frame_bootstrap": "Tether's bootstrap changed to resample the pooled frames gives |z| = 130 for bin_sd and 3.2 for population_mean; tests/test_mashfret_bootstrap.py::test_a_frame_bootstrap_fails_the_comparison keeps the bin_sd case.",
+    "accepted": "bioedca, 2026-11-15, on #713: |z| <= 3 for every compared value is a gate."
+  }
+}

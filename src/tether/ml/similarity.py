@@ -5,14 +5,14 @@
 The distinct FR-ML retrieval capability PRD §4.2 (L212 "similarity search") and §7.5
 (L519 ``"find traces like these"``) name alongside the per-condition quality ranker:
 given one (or several) reference molecules, return the *other* molecules whose
-engineered :mod:`tether.ml.features` vectors sit nearest in feature space, ranked by
+engineered [`tether.ml.features`][] vectors sit nearest in feature space, ranked by
 distance. It is a **ranking/sorting** aid for curation — it never removes a molecule
 from the population (PRD §7.5 "sort/rank only, never auto-drop").
 
-Method. Each molecule's stored feature vector (:func:`tether.project.features.feature_matrix`)
+Method. Each molecule's stored feature vector ([`tether.project.features.feature_matrix`][])
 is **z-score standardized** per feature — ``z = (x - mean) / std`` over the searchable
 population — and neighbours are the nearest points under the ordinary Euclidean
-(``p=2``) metric via a :class:`scipy.spatial.cKDTree`. Standardization is load-bearing,
+(``p=2``) metric via a [`scipy.spatial.cKDTree`][]. Standardization is load-bearing,
 not cosmetic: the raw features span wildly different scales (``total_intensity`` is
 hundreds–thousands; ``fret_mean`` is in ``[0, 1]``), so an un-standardized Euclidean
 distance would be dominated by whichever feature happens to carry the largest
@@ -21,10 +21,10 @@ Feature normalization is the field-standard, empirically-validated preprocessing
 for distance-based (k-NN / nearest-neighbour) methods, and z-score standardization is
 among the most robust choices across datasets [Vikri2026][Singh2020][Yusran2025].
 
-Never-fabricate discipline (shared with :mod:`tether.ml.features`). A molecule whose
+Never-fabricate discipline (shared with [`tether.ml.features`][]). A molecule whose
 feature vector is not fully finite (an undefined feature is ``NaN``, never a fabricated
 ``0``) cannot be embedded in the metric space, so it is **excluded from the searchable
-index and reported** (:attr:`SimilarityIndex.unindexed_ids`) rather than silently
+index and reported** ([`SimilarityIndex.unindexed_ids`][]) rather than silently
 dropped or given a fabricated coordinate — the caller/GUI can surface it as
 "not rankable (undefined features)". This includes the **spatial-absence** case: a
 molecule that is the sole spot in its movie has a genuinely undefined
@@ -90,10 +90,10 @@ class Neighbor:
 class SimilarityIndex:
     """A standardized feature-space nearest-neighbour index over a molecule set.
 
-    Built by :func:`build_similarity_index`. Query it with :meth:`query` (one reference
-    molecule), :meth:`query_many` ("find traces like *these*"), or :meth:`query_vector`
+    Built by [`build_similarity_index`][]. Query it with [`query`][] (one reference
+    molecule), [`query_many`][] ("find traces like *these*"), or [`query_vector`][]
     (an arbitrary feature vector). Every query returns a distance-ranked
-    :class:`Neighbor` list and never mutates the project.
+    [`Neighbor`][] list and never mutates the project.
 
     Attributes
     ----------
@@ -212,7 +212,7 @@ class SimilarityIndex:
     ) -> list[Neighbor]:
         """Rank molecules by similarity to an arbitrary (unstandardized) feature vector.
 
-        ``vector`` is in :attr:`feature_names` order and is standardized with this
+        ``vector`` is in [`feature_names`][] order and is standardized with this
         index's fitted ``mean``/``scale`` before searching. ``exclude_ids`` drops named
         molecules from the result (e.g. the reference the vector came from).
 
@@ -278,13 +278,13 @@ class SimilarityIndex:
 
 
 def build_similarity_index(features: StoredFeatures) -> SimilarityIndex:
-    """Build a standardized feature-space :class:`SimilarityIndex` from stored features.
+    """Build a standardized feature-space [`SimilarityIndex`][] from stored features.
 
     Parameters
     ----------
     features:
-        A :class:`~tether.project.features.StoredFeatures` (e.g. from
-        :func:`tether.project.features.feature_matrix`). Its ``molecule_ids`` must be the
+        A [`StoredFeatures`][tether.project.features.StoredFeatures] (e.g. from
+        [`tether.project.features.feature_matrix`][]). Its ``molecule_ids`` must be the
         unique per-row identity (the §7.10 join key).
 
     Returns

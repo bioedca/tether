@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# THE single source of truth for the `gh` CLI the installer bundles as the update verifier
+# (issue #332, ADR-0060 §"Amending decision 2's mechanism"). The recipe, both packaging
+# workflows and the install-smoke all read this file, through packaging/scripts/stage_gh.py;
+# nothing may restate the version or a digest anywhere else.
+#
+# WHY IT SHIPS. The in-app updater verifies a downloaded installer against its GitHub
+# build-provenance attestation before it runs it, with `gh attestation verify --bundle`. With no
+# OS code signature behind the installer (ADR-0059) that check is the whole trust boundary, so the
+# verifier has to be in the install. A tool the user may or may not have would turn
+# refuse-and-report into never-updates.
+#
+# WHY NOT conda-lock. ADR-0060 records `extra_files` as the delivery mechanism, the pattern #306
+# set for the bundled setuptools wheel (packaging/setuptools-compatibility.txt). Adding `gh` to
+# the lock would re-solve the pin-and-hold base lock for one tool, and it would tie a SECURITY
+# tool to a conda-forge feedstock that does not follow upstream promptly. This file pins upstream
+# directly, by hash. conda-lock.yml is unchanged by this bundle, and a test asserts it.
+#
+# THE FLOOR. stage_gh.py refuses any version below 2.67.0 and any version at or below 2.92.0:
+#   - CVE-2025-25204 (GHSA-fgw4-v983-mgp8): in 2.49.0 through 2.66.x `gh attestation verify`
+#     failed OPEN (exit 0 on a predicate-type mismatch) - the exact command Tether depends on.
+#   - CVE-2026-48501 (GHSA-8xvp-7hj6-mcj9): gh <= 2.92.0 sent auth tokens to TUF mirrors. Tether
+#     calls `gh` unauthenticated only, so it is not exposed, but the pin clears it anyway.
+#
+# THE DIGESTS are the SHA-256 of each upstream release ARCHIVE, exactly as cli/cli publishes it
+# at https://github.com/cli/cli/releases/download/v<version>/<archive>. They were copied from the
+# release's own gh_<version>_checksums.txt (retrieved 2026-11-14; that file's SHA-256 was
+# 180df77fb931591d5d65e33f02a76c9ade314d1c335569af73cc6c8fcb365d2c). stage_gh.py downloads the
+# archive, refuses it unless its digest equals the one here, and only then extracts the binary.
+#
+# FOUR PLATFORMS, the four the installer is built for. The key is the conda platform name the
+# packaging matrix uses ($PLATFORM); `asset` is the suffix of the upstream archive name
+# gh_<version>_<asset>. The linux and macOS archives wrap their contents in a gh_<version>_<os>
+# folder; the Windows archive does not. stage_gh.py finds `bin/gh` (`bin\gh.exe`) and `LICENSE`
+# in either shape.
+#
+# TO UPDATE: take the four lines for linux_amd64.tar.gz, macOS_amd64.zip, macOS_arm64.zip and
+# windows_amd64.zip from the new release's gh_<version>_checksums.txt, and replace `version` and
+# all four `sha256` values in one change. Then run the advisory packaging workflow: its staging
+# step fails on any digest that does not match.
+
+version = "2.104.0"
+
+[platforms.linux-64]
+asset = "linux_amd64.tar.gz"
+sha256 = "98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e"
+
+[platforms.osx-64]
+asset = "macOS_amd64.zip"
+sha256 = "a8c2a708dbae89dc7c05ba7b0beafc95bd8d09ab4a3505467b77d32ebf364dc6"
+
+[platforms.osx-arm64]
+asset = "macOS_arm64.zip"
+sha256 = "23b12706219b9892e44236f988444a24adcf29284e16b35e03ba5b863fb6eb8e"
+
+[platforms.win-64]
+asset = "windows_amd64.zip"
+sha256 = "08c06d10482f12c478018cd259f64acbd5f625712cadf331aad19ba973c879e5"

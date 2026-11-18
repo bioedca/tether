@@ -13,9 +13,9 @@ so the plot reproduces its tMAVEN counterpart (the §9 M6 parity clause), with t
 Tether invariants tMAVEN has no analogue for layered on at the store path: **fresh
 idealizations only** (STALE molecules excluded, PRD §5.1) and the §7.5 curation filter.
 
-Three pieces, mirroring :mod:`tether.analysis.tdp`:
+Three pieces, mirroring [`tether.analysis.tdp`][]:
 
-* :func:`state_dwells` — the pure extraction core (iterable of per-molecule state
+* [`state_dwells`][] — the pure extraction core (iterable of per-molecule state
   paths → per-state dwell-length samples). Faithful to tMAVEN ``generate_dwells``:
   the **first** and **last** dwell of every molecule are dropped, so only interior
   dwells contribute — the last always, the first unless ``include_first`` (tMAVEN's
@@ -27,12 +27,12 @@ Three pieces, mirroring :mod:`tether.analysis.tdp`:
   was already in that state when the window opened — while its exit is a recorded
   transition, observed only when no interior ``NO_STATE`` gap separates it from the
   next state.
-* :func:`survival_curve` / :func:`fit_survival` — the empirical survival function
+* [`survival_curve`][] / [`fit_survival`][] — the empirical survival function
   (tMAVEN ``survival``) and its non-linear-least-squares exponential fit (tMAVEN
   ``optimize_*_surv``), with covariance-derived standard errors + Student-``t``
   confidence intervals + fit residuals.
-* :func:`population_dwell_times` — the ``.tether`` store entry point that assembles a
-  :class:`DwellTimeAnalysis` per state from a model's fresh, accepted Viterbi paths.
+* [`population_dwell_times`][] — the ``.tether`` store entry point that assembles a
+  [`DwellTimeAnalysis`][] per state from a model's fresh, accepted Viterbi paths.
 
 All headless (no Qt) → runs in the base CI matrix. ``dt`` (seconds per frame),
 ``nbins``, the fit model, and the CI level are analysis/render parameters, **not**
@@ -51,6 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -65,6 +66,7 @@ __all__ = [
     "StateDwells",
     "double_exp_survival",
     "fit_survival",
+    "mean_dwell_time",
     "population_dwell_times",
     "single_exp_survival",
     "state_dwells",
@@ -166,7 +168,7 @@ def state_dwells(
         Iterable of 1-D per-molecule integer state-path arrays.
     no_state
         Sentinel for out-of-window / gap frames. ``None`` uses
-        :data:`tether.idealize.NO_STATE`.
+        [`tether.idealize.NO_STATE`][].
     include_first
         Keep each molecule's first (start not observed) dwell (default drops it).
 
@@ -229,8 +231,8 @@ def survival_curve(dwell_lengths: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
     Dwell lengths are frame counts and must be ``>= 1``; a non-positive value (which
     would make ``np.bincount`` raise or ``raw[0]`` index out of bounds) is rejected
-    with a clear :class:`ValueError` rather than crashing — this is a re-exported
-    public helper, not only reached via :func:`state_dwells`.
+    with a clear [`ValueError`][] rather than crashing — this is a re-exported
+    public helper, not only reached via [`state_dwells`][].
     """
     d = np.asarray(dwell_lengths, dtype=np.int64).ravel()
     if d.size == 0:
@@ -259,7 +261,7 @@ class DwellFit:
     rates. ``rate_stderr`` / ``amplitude_stderr`` are the 1-σ standard errors from the
     fit covariance (tMAVEN's ``error``); ``rate_ci`` / ``amplitude_ci`` are two-sided
     ``ci_level`` half-widths (Student-``t`` on the residual degrees of freedom).
-    ``model_survival`` is the fitted curve sampled at :attr:`tau` and ``residuals`` is
+    ``model_survival`` is the fitted curve sampled at [`tau`][] and ``residuals`` is
     ``survival - model_survival`` (the residual subplot). ``success`` is ``False`` when
     the fit did not converge or the covariance was not estimable — the parameters are
     then ``NaN`` and the plot should fall back to the bare survival curve.
@@ -302,6 +304,112 @@ class DwellFit:
         if np.isfinite(self.r_squared):
             lines.append(f"R² = {round(self.r_squared, 3)}")
         return "\n".join(lines)
+
+    def mean_dwell_time(self) -> tuple[float, float]:
+        """Return the amplitude-weighted mean dwell time of this fit and its propagated error.
+
+        The module function `mean_dwell_time` applied to this fit's ``amplitudes``, ``rates``
+        and their ``*_stderr``, so it comes in the reciprocal of the rate unit (seconds when the
+        fit was done in seconds). The four arrays of a `DwellFit` are already paired: each error
+        belongs to the parameter at the same index, after the sort by rate. A fit that did not
+        succeed gives ``(nan, nan)``.
+
+        Returns
+        -------
+        tuple[float, float]
+            ``(tau, tau_stderr)``.
+
+        Raises
+        ------
+        ValueError
+            For the ``"stretched"`` model, whose mean is not a weighted sum of ``1 / k``.
+        """
+        if self.model == "stretched":
+            raise ValueError(
+                "mean_dwell_time is defined for the sums of exponentials, not 'stretched'"
+            )
+        return mean_dwell_time(
+            self.amplitudes,
+            self.rates,
+            amplitude_stderr=self.amplitude_stderr,
+            rate_stderr=self.rate_stderr,
+        )
+
+
+def mean_dwell_time(
+    amplitudes: np.ndarray,
+    rates: np.ndarray,
+    *,
+    amplitude_stderr: np.ndarray | None = None,
+    rate_stderr: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """Mean dwell time of a sum of exponentials, with its first-order propagated error.
+
+    ``tau = sum(A_i / k_i) / sum(A_i)``, the amplitude-weighted mean of the lifetimes
+    ``1 / k_i``; for one exponential it is ``1 / k``. The error is first-order propagation of
+    the parameter errors, ``sqrt(sum((d tau / d p)^2 * err_p^2))`` over every amplitude and
+    rate, with
+
+    * ``d tau / d A_j = (1 / k_j - tau) / sum(A_i)``
+    * ``d tau / d k_j = -A_j / (k_j^2 * sum(A_i))``.
+
+    This is the formula of ``CalculateDoubleExponentialErrors.py`` in the Source Data of
+    Campos-Chavez et al. 2024 (doi:10.1038/s41467-024-50885-x, Supplementary Table 6). Like
+    that script it takes the errors as independent: the covariances between the fitted
+    parameters are not used, so the result is the error of that formula and not a full
+    covariance propagation.
+
+    **Pair each error with its own parameter first.** tMAVEN's ``optimize_double_surv`` (and the
+    triple form) sorts the rates and the amplitudes but not their errors (#756, ADR-0097), so a
+    table of tMAVEN errors, such as the published ``.txt`` files of that archive, is in tMAVEN's
+    order and not in the order of the sorted rates. This function uses the errors in the order
+    it is given them, at the index of the parameter it multiplies, and cannot detect a wrong
+    pairing. [`DwellFit.mean_dwell_time`][] needs no re-pairing, because Tether keeps each error
+    with its parameter.
+
+    Parameters
+    ----------
+    amplitudes, rates
+        ``A_i`` and ``k_i``, the same length (one, two or three for the ``single``, ``double``
+        and ``triple`` models). ``tau`` is in the reciprocal of the unit of ``rates``.
+    amplitude_stderr, rate_stderr
+        The 1-sigma error of each ``A_i`` and each ``k_i``, aligned to them. ``None`` counts
+        that group as exact (an error of zero).
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(tau, tau_stderr)``; ``NaN`` wherever an input is ``NaN``.
+
+    Raises
+    ------
+    ValueError
+        If the arrays are empty or their lengths differ.
+    """
+    a = np.atleast_1d(np.asarray(amplitudes, dtype="float64"))
+    k = np.atleast_1d(np.asarray(rates, dtype="float64"))
+    a_err = (
+        np.zeros_like(a)
+        if amplitude_stderr is None
+        else np.atleast_1d(np.asarray(amplitude_stderr, dtype="float64"))
+    )
+    k_err = (
+        np.zeros_like(k)
+        if rate_stderr is None
+        else np.atleast_1d(np.asarray(rate_stderr, dtype="float64"))
+    )
+    if a.ndim != 1 or a.size == 0 or not (a.shape == k.shape == a_err.shape == k_err.shape):
+        raise ValueError(
+            "amplitudes, rates and their errors must be non-empty 1-D arrays of one length, got "
+            f"{a.shape}, {k.shape}, {a_err.shape}, {k_err.shape}"
+        )
+    with np.errstate(divide="ignore", invalid="ignore"):  # a zero rate or total gives inf/NaN
+        total = np.sum(a)
+        tau = np.sum(a / k) / total
+        d_a = (1.0 / k - tau) / total
+        d_k = -a / (k**2 * total)
+        err = np.sqrt(np.sum((d_a * a_err) ** 2) + np.sum((d_k * k_err) ** 2))
+    return float(tau), float(err)
 
 
 def _t_multiplier(ci_level: float, dof: int) -> float:
@@ -365,13 +473,13 @@ def fit_survival(
     ``1/second``). Standard errors are ``sqrt(diag(pcov))`` and confidence intervals
     use the two-sided Student-``t`` multiplier on ``n_points - n_params`` degrees of
     freedom. A non-converging fit or an unestimable covariance yields a
-    :class:`DwellFit` with ``success = False`` and ``NaN`` parameters rather than
+    [`DwellFit`][] with ``success = False`` and ``NaN`` parameters rather than
     raising — the analysis view then shows the bare survival curve.
 
     Parameters
     ----------
     tau, survival
-        The empirical survival curve from :func:`survival_curve` (``tau`` optionally
+        The empirical survival curve from [`survival_curve`][] (``tau`` optionally
         scaled to physical time).
     model
         ``"single"``, ``"double"``, ``"triple"``, or ``"stretched"``.
@@ -461,9 +569,9 @@ class DwellTimeAnalysis:
     """A single state's dwell-time distribution, survival curve, and exponential fit.
 
     ``dwell_lengths`` are the state's fully-observed interior dwells **in frames**;
-    :attr:`tau` and the fit work in physical time (``frames · dt``). ``fit`` is
+    [`tau`][] and the fit work in physical time (``frames · dt``). ``fit`` is
     ``None`` only when the state had no dwell at all; otherwise it is a
-    :class:`DwellFit` (possibly ``success = False``).
+    [`DwellFit`][] (possibly ``success = False``).
     """
 
     state: int
@@ -500,35 +608,40 @@ def population_dwell_times(
     *,
     state: int | None = None,
     dt: float = DEFAULT_DWELL_DT,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     include_first: bool = False,
     model: str = "single",
     ci_level: float = DEFAULT_DWELL_CI_LEVEL,
     include_rejected: bool = False,
     include_stale: bool = False,
-) -> dict[int, DwellTimeAnalysis] | DwellTimeAnalysis:
+) -> dict[int, DwellTimeAnalysis]:
     """Dwell-time analyses from a ``.tether`` store (§10 B2; Appendix C B2; PRD §7.7).
 
     Extracts each accepted, **fresh** molecule's dwells from the
-    ``/idealization/{model_name}`` Viterbi state paths (:func:`state_dwells`), builds
-    each state's empirical survival curve (:func:`survival_curve`), and fits it
-    (:func:`fit_survival`). STALE molecules are excluded (PRD §5.1) unless
+    ``/idealization/{model_name}`` Viterbi state paths ([`state_dwells`][]), builds
+    each state's empirical survival curve ([`survival_curve`][]), and fits it
+    ([`fit_survival`][]). STALE molecules are excluded (PRD §5.1) unless
     ``include_stale``; rejected molecules are excluded unless ``include_rejected``
-    (§7.5) — the same fresh + curation contract as :func:`population_transition_density`.
+    (§7.5) — the same fresh + curation contract as
+    [`population_transition_density`][tether.analysis.tdp.population_transition_density].
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths + means.
     state
-        A single state index to analyse; ``None`` returns every state that has dwells.
+        A single state index to analyse: the mapping then holds that one state (an
+        empty analysis — no dwells, ``fit = None`` — if it never dwells). ``None``
+        returns every state that has dwells. The return shape is the mapping either way
+        (ADR-0109), so a caller that reads one state indexes it: ``result[state]``.
     dt
         Seconds per frame (rates come out in ``1/second``); default per-frame.
     molecule_keys
-        Restrict to these ``molecule_key`` values (``None`` = all), intersected with
-        the fresh + curation filters.
+        The selection (``None`` = all): ``molecule_key`` values or a
+        [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection] (ADR-0109), intersected
+        with the fresh + curation filters.
     include_first
         Keep each molecule's first (start not observed) dwell (default drops it).
     model
@@ -540,31 +653,23 @@ def population_dwell_times(
 
     Returns
     -------
-    dict[int, DwellTimeAnalysis] or DwellTimeAnalysis
-        A mapping ``state -> analysis`` (ascending states), or the single
-        :class:`DwellTimeAnalysis` when ``state`` is given (an empty analysis — no
-        dwells, ``fit = None`` — if that state never dwells).
+    dict[int, DwellTimeAnalysis]
+        A mapping ``state -> analysis``: every state that dwells, ascending, or the one
+        key ``state`` when it is given.
 
     Raises
     ------
     KeyError
         No ``/idealization/{model_name}`` in the store.
     """
-    from tether.analysis._store import windowed_states
+    from tether.analysis._store import fresh_selection, windowed_states
     from tether.idealize import NO_STATE
-    from tether.project.idealize import live_molecule_keys, read_idealization
+    from tether.project.idealize import read_idealization
 
     stored = read_idealization(project, model_name)
     means = np.asarray(stored.means, dtype="float64")
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     dwells = state_dwells(states, no_state=NO_STATE, include_first=include_first)
@@ -590,5 +695,5 @@ def population_dwell_times(
         )
 
     if state is not None:
-        return _analysis(int(state))
+        return {int(state): _analysis(int(state))}
     return {st: _analysis(st) for st in sorted(dwells.lengths)}

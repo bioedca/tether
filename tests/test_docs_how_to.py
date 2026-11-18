@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The six task guides under ``docs/how-to/`` keep the shape and the commands #177 set.
+"""The seven task guides under ``docs/how-to/`` keep the shape and the commands #177 set.
 
 The how-to layer is one page per user goal, so a reader who knows what they want lands on
 instructions rather than reference. These tests pin what makes those pages usable and true:
 
-* ``docs/how-to/`` holds exactly the six pages, each in the nav under ``Using Tether``;
+* ``docs/how-to/`` holds exactly the seven pages, each in the nav under ``Using Tether``;
 * each opens with a task H1, then ``## Who this page is for``, then ``## Before you start``;
 * none carries a Markdown table, so no flag enumeration creeps in (reference pages own those);
 * every ``tether …`` command in a shell fence parses with the real argparse parser, and no
@@ -15,7 +15,7 @@ instructions rather than reference. These tests pin what makes those pages usabl
   the keys of a ``dict(...)`` it spreads with ``**``.
 
 Imports are already checked by ``tests/test_docs_examples.py``, and so are the calls of every
-other docs page (#749); this module pins the six pages, their commands and the calls they make.
+other docs page (#749); this module pins the seven pages, their commands and the calls they make.
 The call reader is shared, in ``tests/_docs_source.py``.
 Nothing under ``tether`` is imported except :mod:`tether.cli`, whose ``build_parser`` needs only
 ``argparse``. Signatures are read from source with :mod:`ast`, so the default matrix runs this
@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from _docs_source import check_call, dict_literals, tether_calls
+from _docs_source import check_call, dict_literals, split_front_matter, tether_calls
 from tether.cli import build_parser
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +48,7 @@ PAGES = (
     "idealize.md",
     "analyze.md",
     "export-results.md",
+    "share-a-dataset.md",
 )
 
 # Python-Markdown's fenced_code matches fences at column zero only, so this is what renders.
@@ -60,7 +61,8 @@ _PYTHON_LANGS = {"python", "py", "pycon"}
 
 
 def _text(name: str) -> str:
-    return (HOW_TO / name).read_text(encoding="utf-8")
+    """The page's Markdown, without the YAML front matter that carries its description."""
+    return split_front_matter((HOW_TO / name).read_text(encoding="utf-8"))[1]
 
 
 def _fences(name: str, langs: set[str]) -> list[str]:
@@ -75,7 +77,7 @@ def _nav_pages(entries: object) -> list[str]:
     return [entries] if isinstance(entries, str) else []
 
 
-def test_the_folder_holds_exactly_the_six_pages() -> None:
+def test_the_folder_holds_exactly_the_seven_pages() -> None:
     assert sorted(p.name for p in HOW_TO.iterdir()) == sorted(PAGES)
 
 
@@ -116,7 +118,23 @@ def test_the_pages_show_tether_commands() -> None:
     assert {argv[1] for _, argv in _tether_commands() if argv[0] == "tether"} == {
         "extract",
         "batch",
+        "export",
     }
+
+
+def _command_parser(argv: list[str]) -> tuple[argparse.ArgumentParser, int]:
+    """The parser that owns ``argv``'s options, and the index of its first argument.
+
+    ``tether export`` has forms of its own (#658), so ``tether export table …`` takes its
+    options from the ``table`` parser under ``export``; the others are one level deep.
+    """
+    parser, depth = build_parser(), 1
+    while depth < len(argv):
+        subs = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+        if not subs or argv[depth] not in subs[0].choices:
+            break
+        parser, depth = subs[0].choices[argv[depth]], depth + 1
+    return parser, depth
 
 
 @pytest.mark.parametrize(("name", "argv"), _tether_commands())
@@ -124,12 +142,13 @@ def test_every_tether_command_parses(name: str, argv: list[str]) -> None:
     if argv[0] == "tether-gui":
         assert len(argv) == 2 and argv[1].endswith(".tether"), (name, argv)
         return
-    assert argv[1] in {"extract", "batch"}, (name, argv)
+    assert argv[1] in {"extract", "batch", "export"}, (name, argv)
     parser = build_parser()
-    (sub,) = (a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
-    options = set(sub.choices[argv[1]]._option_string_actions)
+    command, first = _command_parser(argv)
+    assert command is not parser, (name, argv)
+    options = set(command._option_string_actions)
     # Exact spellings only: argparse would also accept an abbreviation a reader cannot grep.
-    for token in argv[2:]:
+    for token in argv[first:]:
         if token.startswith("-"):
             assert token.split("=", 1)[0] in options, (name, token)
     try:

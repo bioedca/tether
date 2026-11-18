@@ -46,6 +46,7 @@ from tether.analysis._store import windowed_channels
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.analysis._store import ProjectRef
+    from tether.analysis.selection import Selection
 
 __all__ = ["CrossCorrelation", "cross_correlation", "population_cross_correlation"]
 
@@ -155,7 +156,7 @@ def cross_correlation(
 def population_cross_correlation(
     project: ProjectRef,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     intensity_quantity: str = "corrected",
     max_lag: int | None = None,
     normalize: str = "pearson",
@@ -169,8 +170,10 @@ def population_cross_correlation(
     (``< 2`` frames), non-finite, or constant (undefined correlation) are skipped —
     ``n_molecules`` reports how many actually contributed.
 
-    Parameters mirror :func:`population_apparent_e_histogram`; ``max_lag``,
-    ``normalize`` mirror :func:`cross_correlation`.
+    Parameters mirror
+    [`population_apparent_e_histogram`][tether.analysis.histogram.population_apparent_e_histogram];
+    ``max_lag``,
+    ``normalize`` mirror [`cross_correlation`][].
 
     Raises
     ------

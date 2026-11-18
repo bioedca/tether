@@ -49,7 +49,19 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11}
+_EXPECTED_OPTION_COUNTS = {
+    "extract": 17,
+    "batch": 17,
+    "info": 2,
+    "metadata": 5,
+    "export table": 4,
+    "export traces": 5,
+    "export subset": 5,
+}
+
+# The top-level subcommands, each a column of the exit-code table. `export` is one column:
+# its three forms (#658) share one set of exit codes.
+_TOP_LEVEL = ("extract", "batch", "info", "metadata", "export")
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -88,14 +100,27 @@ def _documented_flags(text: str) -> set[str]:
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
-    """The registered subcommands, by name.
+    """The registered subcommands, by name, with nested forms flattened.
 
     argparse exposes no public accessor for this, so reach through the
-    ``_SubParsersAction`` the way the stdlib's own tests do.
+    ``_SubParsersAction`` the way the stdlib's own tests do. A subcommand that only
+    groups forms of its own (``export``, #658) is replaced by those forms, named
+    ``"export table"`` and so on: the forms carry the options, and each has its own
+    ``## `tether export table` `` section on the page.
     """
     for action in parser._actions:  # noqa: SLF001 - no public API for subparser lookup
         if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
-            return dict(action.choices)
+            found: dict[str, argparse.ArgumentParser] = {}
+            for name, sub in action.choices.items():
+                nested = any(
+                    isinstance(a, argparse._SubParsersAction)  # noqa: SLF001
+                    for a in sub._actions  # noqa: SLF001
+                )
+                if nested:
+                    found.update({f"{name} {form}": p for form, p in _subparsers(sub).items()})
+                else:
+                    found[name] = sub
+            return found
     raise AssertionError("tether's top-level parser registers no subcommands")
 
 
@@ -193,15 +218,25 @@ def test_the_reference_page_exists() -> None:
     assert PAGE.is_file(), f"the CLI reference is missing from {PAGE}"
 
 
-def test_both_subcommands_are_documented() -> None:
-    """`extract` and `batch` each get their own section.
+def test_every_subcommand_is_documented() -> None:
+    """`extract`, `batch`, `info` (#655), `metadata` (#911) and the three `export` forms (#658)
+    get a section each.
 
-    They are the entire headless product surface; a third subcommand added later must
+    They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    assert names == {"extract", "batch"}, f"unexpected subcommand set: {sorted(names)}"
+    expected = {
+        "extract",
+        "batch",
+        "info",
+        "metadata",
+        "export table",
+        "export traces",
+        "export subset",
+    }
+    assert names == expected, f"unexpected subcommand set: {sorted(names)}"
     for name in sorted(names):
         assert f"`tether {name}`" in text, (
             f"docs/cli.md has no `tether {name}` section for the {name!r} subcommand"
@@ -391,14 +426,20 @@ def _exit_code_section() -> str:
 
 
 def test_argparse_rejects_bad_arguments_with_code_2() -> None:
-    """Both subcommands really do exit 2 on a usage error.
+    """Every subcommand really does exit 2 on a usage error.
 
     This is exercised rather than asserted about, because the page originally claimed
     ``tether extract`` never returns 2 — argparse's own ``parser.error()`` exits 2 long
     before ``main()`` runs, which made that row simply false.
     """
     parser = build_parser()
-    for argv in (["extract", "movie.tif"], ["batch", "movie.tif"]):
+    for argv in (
+        ["extract", "movie.tif"],
+        ["batch", "movie.tif"],
+        ["info"],
+        ["export"],
+        ["export", "table", "movie.tether"],
+    ):
         with pytest.raises(SystemExit) as excinfo:
             parser.parse_args(argv)
         assert excinfo.value.code == 2, (
@@ -406,34 +447,25 @@ def test_argparse_rejects_bad_arguments_with_code_2() -> None:
         )
 
 
-def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
-    """The documented ``batch`` startup refusal returns 2 — and still creates ``--out-dir``.
+def test_batch_refuses_a_movie_argument_that_names_nothing_with_code_2(tmp_path: Path) -> None:
+    """A ``batch`` startup refusal returns 2 and writes nothing, not even ``--out-dir``.
 
-    Two movies sharing a basename map to one output project; the checkpoint would treat
-    the second as already done using the first's data. No movie is read on this path, so it
-    is cheap to exercise directly — but ``out_dir.mkdir()`` runs *before* the collision
-    loop, so "exit 2 means nothing was written" is not quite true here. The page carries
-    that caveat, and both halves are pinned together: move the ``mkdir`` after the check
-    and this fails, telling whoever did it that the caveat now has to come off the page.
+    Before #653 the basename-collision refusal ran after ``out_dir.mkdir()`` and the page
+    carried a caveat about the empty directory it left. The movie arguments are now expanded
+    and named before anything is written, so the caveat is gone and this pins both halves:
+    move the ``mkdir`` back before the check and this fails.
     """
     out_dir = tmp_path / "nested" / "out"
-    code = main(["batch", "a/movie_010.tif", "b/movie_010.tif", "-d", str(out_dir)])
-    assert code == 2, f"expected a basename collision to return 2, got {code}"
-    assert out_dir.is_dir(), (
-        "`tether batch` no longer creates --out-dir before refusing a basename collision; "
-        "docs/cli.md's empty-output-directory caveat is now wrong"
-    )
-    assert not list(out_dir.iterdir()), (
-        f"the collision refusal wrote something into {out_dir}: {sorted(out_dir.iterdir())}"
-    )
-    assert "empty output directory" in _exit_code_section(), (
-        "docs/cli.md no longer warns that the basename-collision refusal can leave an "
-        "empty --out-dir behind"
+    code = main(["batch", str(tmp_path / "no-such-folder"), "-d", str(out_dir)])
+    assert code == 2, f"expected a movie argument that names nothing to return 2, got {code}"
+    assert not out_dir.exists(), "`tether batch` created --out-dir before refusing to start"
+    assert "empty output directory" not in _exit_code_section(), (
+        "docs/cli.md still warns that a startup refusal can leave an empty --out-dir behind"
     )
 
 
 def test_the_exit_code_table_documents_every_code() -> None:
-    """The table names 0, 1 and 2 for both subcommands.
+    """The table names 0, 1, 2 and 3 (``batch`` only, #647) for every subcommand.
 
     Presence of the row is the weak half; the exercised tests above are what pin the
     behaviour. What this adds is that the page cannot quietly drop a code.
@@ -441,7 +473,8 @@ def test_the_exit_code_table_documents_every_code() -> None:
     The rows themselves are parsed: the prose after the table also spells `` `0` ``,
     `` `1` `` and `` `2` ``, so a search of the section text passed with the whole table
     deleted (#744, GUI-F19). Each code needs exactly one ``| `N` | … | … |`` row with a
-    non-empty cell for ``tether extract`` and one for ``tether batch``.
+    non-empty cell for each of ``tether extract``, ``tether batch``, ``tether info``,
+    ``tether metadata`` and ``tether export``.
     """
     rows: dict[str, list[list[str]]] = {}
     for line in _exit_code_section().splitlines():
@@ -449,14 +482,14 @@ def test_the_exit_code_table_documents_every_code() -> None:
         if match:
             cells = [cell.strip() for cell in match.group(2).split("|")]
             rows.setdefault(match.group(1), []).append(cells)
-    assert sorted(rows) == ["0", "1", "2"], (
-        f"the exit-code table documents the codes {sorted(rows)}, not 0, 1 and 2"
+    assert sorted(rows) == ["0", "1", "2", "3"], (
+        f"the exit-code table documents the codes {sorted(rows)}, not 0, 1, 2 and 3"
     )
     for code, found in sorted(rows.items()):
         assert len(found) == 1, f"the exit-code table has {len(found)} rows for `{code}`"
-        assert len(found[0]) == 2 and all(found[0]), (
-            f"the `{code}` row must state the code's meaning for both `tether extract` "
-            f"and `tether batch`, found {found[0]}"
+        assert len(found[0]) == len(_TOP_LEVEL) and all(found[0]), (
+            f"the `{code}` row must state the code's meaning for each of "
+            f"{', '.join(f'`tether {n}`' for n in _TOP_LEVEL)}, found {found[0]}"
         )
 
 
@@ -474,17 +507,20 @@ def test_the_page_does_not_claim_extract_never_exits_2() -> None:
 
 
 def test_the_deferred_idealization_caveat_survives() -> None:
-    """Exit 0 from ``batch`` does not imply idealization ran, and the page must say so.
+    """A deferred stage exits 3, and the page says so rather than warning about 0 (#647).
 
     ``run_batch`` records an unavailable-at-startup sidecar as ``deferred``, which is not
-    ``failed``, so ``n_failed`` stays 0 and the run exits 0 having done extraction and
-    correction only. A script consuming those projects as fully idealized is the failure
-    this paragraph exists to prevent.
+    ``failed``; the run has done extraction and correction only, and ``tether batch``
+    exits 3 so that a script cannot take those projects as complete. The page used to warn
+    that such a run exits 0; that warning must not come back.
     """
     section = _exit_code_section()
     assert "defer" in section.lower(), (
-        "the exit-code section no longer warns that `tether batch` can exit 0 with "
-        "idealization deferred"
+        "the exit-code section no longer explains the deferred-stage exit code"
+    )
+    assert "exits `3`" in section, "the exit-code section no longer says a deferral exits 3"
+    assert "exits `0` having done" not in section, (
+        "the exit-code section again warns that a deferred run exits 0"
     )
 
 

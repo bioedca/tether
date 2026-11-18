@@ -1,3 +1,7 @@
+---
+description: "How to show the Tether name and mark on a slide, a poster, a paper or a web page, and where to get the files."
+---
+
 # Brand
 
 **Who this page is for.** Anyone who shows the Tether name or mark: on a slide, a poster, a
@@ -76,7 +80,7 @@ The brand is monochrome. It has no accent color.
 
 The colors of data in plots are not brand colors. The application keeps them separate. For
 the light and dark themes of the window and the trace colors, see
-[Window themes and trace colors](reference/gui-theme.md).
+[Application window themes and trace colors](reference/gui-theme.md).
 
 ## Type
 
