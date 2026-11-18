@@ -787,6 +787,7 @@ def extract_movie(
     tdat: str | os.PathLike[str] | None = None,
     overwrite: bool = False,
     publish_guard: Callable[[], None] | None = None,
+    refuse_over_gate: bool = False,
 ) -> ExtractionSummary:
     """Extract traces from a dual-channel ``movie_path`` into a new ``.tether``.
 
@@ -827,6 +828,11 @@ def extract_movie(
         [`publish_lock`][tether.project.lock.publish_lock] on ``output_path`` and pass
         the check it yields. Without one, a new path is published only if it is
         still absent, and an existing one is refused.
+    refuse_over_gate:
+        Write nothing when the registration residual is over ``options.rms_gate``
+        (a low-confidence registration), and raise instead. ``tether batch --policy
+        fail --into`` uses it so that a rejected movie never enters the project
+        (#1151). By default such a movie is written and flagged.
 
     Returns
     -------
@@ -846,8 +852,9 @@ def extract_movie(
         an un-splittable frame (a channel layout whose rectangles are outside the
         frame, or a frame too small to cut in two), a channel layout given together
         with a ``.tmap``, too few
-        matched control points to register (native path), or a write failure. Never
-        a raw primitive traceback.
+        matched control points to register (native path), a registration over the
+        gate under ``refuse_over_gate``, or a write failure. Never a raw primitive
+        traceback.
     """
     options = options or ExtractOptions()
     movie_path = Path(movie_path)
@@ -863,6 +870,7 @@ def extract_movie(
 
     options, imported_map = _resolve_sources(options, tmap, tdat)
     extracted = _run_pipeline(movie_path, options, imported_map)
+    _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     # --- Persist atomically (movie memmap is now closed) -----------------------
     # Build at a sibling temp path, then atomically replace the destination only
@@ -924,6 +932,17 @@ def _refuse_duplicate_movie(project_path: Path, sha256: str, movie_path: Path) -
         )
 
 
+#: The error of a movie refused by ``refuse_over_gate``; ``tether batch`` records the
+#: same words for a movie its ``fail`` policy rejects.
+OVER_GATE_ERROR = "registration residual exceeds the gate (policy=fail)"
+
+
+def _check_gate(extracted: _Extracted, *, refuse_over_gate: bool) -> None:
+    """Raise before anything is written when the registration is over its gate (#1151)."""
+    if refuse_over_gate and extracted.reg_map.low_confidence:
+        raise ExtractionError(OVER_GATE_ERROR)
+
+
 def add_movie_to_project(
     project_path: str | os.PathLike[str],
     movie_path: str | os.PathLike[str],
@@ -932,6 +951,7 @@ def add_movie_to_project(
     tmap: str | os.PathLike[str] | None = None,
     tdat: str | os.PathLike[str] | None = None,
     publish_guard: Callable[[], None] | None,
+    refuse_over_gate: bool = False,
 ) -> ExtractionSummary:
     """Extract ``movie_path`` and append it to the existing project ``project_path``.
 
@@ -963,6 +983,9 @@ def add_movie_to_project(
         **Required.** The check yielded by
         [`publish_lock`][tether.project.lock.publish_lock] held on ``project_path``
         (#346, ADR-0112).
+    refuse_over_gate:
+        As for [`extract_movie`][]: a movie whose registration is over the gate is
+        not appended, and the project is left as it was (#1151).
 
     Returns
     -------
@@ -977,7 +1000,8 @@ def add_movie_to_project(
         arrays do not cover every molecule (an analysis-only import, a subset exported
         without its raw layers), no ``publish_guard``, a movie whose content
         is already in the project, aperture parameters that differ from the
-        project's, or a guard that fails (the writer lock was lost).
+        project's, a registration over the gate under ``refuse_over_gate``, or a
+        guard that fails (the writer lock was lost).
     """
     options = options or ExtractOptions()
     project_path = Path(project_path)
@@ -1006,6 +1030,7 @@ def add_movie_to_project(
     _refuse_duplicate_movie(project_path, identity[0], movie_path)
 
     extracted = _run_pipeline(movie_path, options, imported_map, identity=identity)
+    _check_gate(extracted, refuse_over_gate=refuse_over_gate)
 
     try:
         with guarded_project_write(
