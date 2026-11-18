@@ -29,6 +29,11 @@ already running; [`create_shell`][] gives each such event to
 [`load_project`][tether.gui.shell.TetherShell.load_project], the path of
 ``&File -> &Open project...``. An event that arrives before the shell exists waits for it,
 and an event that arrives while a dialog is open waits until the dialog has closed.
+
+Once the shell exists, [`create_shell`][] installs the opt-in update notice
+([`tether.gui.update_notice`][], #248). It asks its first-run question, or starts one
+check on a background thread when the user allowed it, after the event loop starts; it
+makes no network request without that stored consent.
 """
 
 from __future__ import annotations
@@ -175,7 +180,9 @@ def create_shell(
 
     The shell remembers the session in the per-user preferences file
     ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
-    the molecule selected at close, the layout and the curator name.
+    the molecule selected at close, the layout and the curator name. Last, the update
+    notice is installed ([`tether.gui.update_notice.install_update_notice`][]); its start
+    is queued for the event loop.
     """
     args = build_parser().parse_args(argv)
 
@@ -204,6 +211,12 @@ def create_shell(
         shell = TetherShell(preferences_file=preferences_path())
         if args.project is not None:
             shell.load_project(args.project)
+        # The opt-in update notice (#248): the first-run question, or one check on a
+        # background thread once the user allowed it. Queued for the event loop, so it
+        # never delays the window, and it makes no request without the stored consent.
+        from tether.gui.update_notice import install_update_notice
+
+        install_update_notice(shell.window, help_menu=shell.help_menu)
     except BaseException:
         app.removeEventFilter(file_open)
         if screen is not None:
