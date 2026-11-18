@@ -169,6 +169,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0124](0124-the-plot-builder-s-composition-unit-renderer-and-staleness-and-frame-time-policies.md) | The plot builder's composition unit, its one renderer, and its staleness and frame-time policies | accepted | §7.7 FR-PLOT (composed plots), §7.9 FR-EXPORT, §4.1 (no PyQt in the base stack) |
 | [0126](0126-jobs-and-stale-marks-are-stored-in-the-project.md) | Jobs, their checkpoints and the stale marks are stored in the project | accepted | §7.13 (FR-WORKFLOW), §7.10 (FR-CONCURRENCY), §5 (data model) |
 | [0127](0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md) | The colocalization policy: a partner in both channels by default, or donor-anchored | accepted | §7.1, App E §11, §11.2, §5 |
+| [0129](0129-an-extraction-profile-is-a-file-in-the-request-text-form.md) | An extraction profile is a file in the request text form, and `--tdat` sets two fields | accepted | §7.11 (FR-EXTRACT, FR-BATCH), §11.2, §8 NFR-REPRO |
 
 <!-- gen:adr-index end -->
 

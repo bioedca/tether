@@ -3,7 +3,9 @@
 """The ``extract`` service command: one movie to a new ``.tether`` project.
 
 [`ExtractRequest`][] holds what ``tether extract`` takes on its command line, with the
-same defaults; [`run`][] passes it to [`tether.project.extract.extract_movie`][].
+same defaults, and every extraction option of an extraction profile
+([`tether.services.profile`][], #349); [`run`][] passes it to
+[`tether.project.extract.extract_movie`][].
 The imaging and HDF5 stack is imported when the command runs, not when this module is
 imported (ADR-0100).
 """
@@ -15,6 +17,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, ClassVar
 
 from tether.services.base import CommandFailed, Request
+from tether.services.profile import ExtractionFields
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.project.extract import ExtractionSummary
@@ -23,14 +26,18 @@ __all__ = ["ExtractRequest", "ExtractResult", "run"]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class ExtractRequest(Request):
+class ExtractRequest(ExtractionFields, Request):
     """Extract traces from one dual-channel movie into a new ``.tether`` project.
 
-    The fields are the options of ``tether extract`` (``docs/cli.md``) under their
-    ``argparse`` destination names, with the same defaults. ``detection_mode=None`` means
-    "no explicit choice": the library default applies, or the mode decoded from ``tdat``.
-    ``count_only`` runs the stages up to colocalization, writes nothing and returns the
-    molecule count of each colocalization rule (#920).
+    The fields are the options of ``tether extract`` (``docs/cli.md``) under their ``argparse``
+    destination names, with the same defaults, and the
+    [`ExtractionFields`][tether.services.profile.ExtractionFields]. The channel layout fields
+    and seven others have no flag of their own (``prealign_upsample``, ``prealign_low_sigma``,
+    ``prealign_high_sigma``, ``disk_radius``, ``ring_inner``, ``ring_outer``, ``bg_window``):
+    ``tether extract --profile`` sets them. ``detection_mode=None`` means "no explicit choice":
+    the library default applies, or the mode decoded from ``tdat``. ``count_only`` runs the
+    stages up to colocalization, writes nothing and returns the molecule count of each
+    colocalization rule (#920).
     """
 
     COMMAND: ClassVar[str] = "extract"
@@ -39,17 +46,6 @@ class ExtractRequest(Request):
     movie: str
     output: str
     overwrite: bool = False
-    donor_side: str = "left"
-    detection_mode: str | None = None
-    detection_threshold: float | None = None
-    window: int = 21
-    min_separation: float | None = None
-    detection_block: int = 50
-    prealign: str = "translation"
-    pair_tol: float = 2.0
-    coloc_distance: float = 3.0
-    colocalization: str = "partner-in-both"  # = DEFAULT_COLOCALIZATION_POLICY (tested)
-    rms_gate: float = 0.5
     tmap: str | None = None
     tdat: str | None = None
     count_only: bool = False
@@ -77,40 +73,21 @@ def run(request: ExtractRequest) -> ExtractResult:
     """
     from contextlib import nullcontext
 
-    from tether.project.extract import (
-        ExtractionError,
-        ExtractOptions,
-        count_molecules_by_rule,
-        extract_movie,
-    )
+    from tether.project.extract import ExtractionError, count_molecules_by_rule, extract_movie
     from tether.project.lock import LockError, publish_lock
 
     try:
         # The detection mode and threshold, and a .tdat, are two ways to set the same
         # detection settings; combining them is ambiguous (which wins?), so refuse it
         # rather than silently letting one override the other.
-        if request.tdat is not None and (
-            request.detection_mode is not None or request.detection_threshold is not None
-        ):
+        if request.tdat is not None and request.sets_detection():
             raise ExtractionError(
                 "--detection-mode/--detection-threshold cannot be combined with --tdat "
                 "(the .tdat supplies the detection mode); pass one or the other"
             )
-        options = ExtractOptions(
-            donor_side=request.donor_side,
-            # None tells "no explicit choice" from a choice; resolve it to the library
-            # default here. With a .tdat, extract_movie overrides it with the decoded mode.
-            detection_mode="wavelet" if request.detection_mode is None else request.detection_mode,
-            detection_threshold=request.detection_threshold,
-            window=request.window,
-            min_separation=request.min_separation,
-            detection_block=request.detection_block,
-            prealign=request.prealign,
-            pair_tol=request.pair_tol,
-            coloc_distance=request.coloc_distance,
-            colocalization=request.colocalization,
-            rms_gate=request.rms_gate,
-        )
+        # None tells "no explicit choice" from a choice; extract_options resolves it to
+        # the library default. With a .tdat, extract_movie overrides it with the decoded mode.
+        options = request.extract_options()
         if request.count_only:
             counts = count_molecules_by_rule(
                 request.movie, options=options, tmap=request.tmap, tdat=request.tdat

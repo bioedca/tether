@@ -289,3 +289,17 @@ def test_cli_batch_passes_the_rule_to_every_extraction(tmp_path, capsys) -> None
     (project,) = out_dir.glob("*.tether")
     assert set(read_colocalization_policies(project).values()) == {DONOR_ANCHORED}
     assert len(read_molecules(project)) == 4
+
+
+@pytest.mark.parametrize(
+    ("argv", "code"),
+    [(["extract", "m.tif", "-o", "o.tether"], 1), (["batch", "a.tif", "-d", "out"], 2)],
+)
+def test_cli_refuses_the_rule_flag_beside_a_profile(tmp_path, capsys, argv, code) -> None:
+    # A profile carries the rule (#349), so the flag beside it is refused like the other
+    # option flags, even at its default; the rule is then changed in the profile.
+    profile = tmp_path / "profile.json"
+    services.write_profile(services.ExtractionProfile(colocalization=DONOR_ANCHORED), profile)
+    flags = ["--profile", str(profile), "--colocalization", "partner-in-both"]
+    assert main([*argv, *flags]) == code
+    assert "--profile cannot be combined with --colocalization" in capsys.readouterr().err
