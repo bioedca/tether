@@ -57,6 +57,9 @@ The modelled forms:
   ``HtmlBlockPreprocessor``. Raw HTML blocks as its ``HTMLExtractor`` cuts them, whose
   Markdown is not parsed;
 * blockquotes, lazy continuation lines included;
+* indented code blocks that open after a blank line at the root, where the block before
+  them is certainly not a list (``_code_blocks``): their lines are code, read as a fenced
+  block is, and the first line after them opens a paragraph that is read (#1013);
 * the block boundaries that hold in every context: blank lines, ATX headings
   (``HashHeaderProcessor.RE``, at column zero inside any blockquotes), horizontal rules
   (``HRProcessor.SEARCH_RE``), and the first line of a blockquote;
@@ -87,15 +90,16 @@ model does not track:
   an indented block;
 * a heading, rule or definition line inside a table-like block, which is a row if the
   block is a table and structure if it is not;
-* an HTML ``id`` or ``name`` on a line of an indented block, which is code after a
-  paragraph and prose inside a list;
+* an HTML ``id`` or ``name`` on a line of an indented block that is not certainly code,
+  which is code after a paragraph and prose inside a list;
 * an ``<a>`` tag that ``html.parser`` cannot read as one start tag.
 
 Some forms are read *short* on purpose. A heading or definition that the model cannot
 place is not counted, for example one in a list item's indented continuation or a
 definition inside a blockquote. Leaving one out can only make a link to it fail. For the
-same reason the lines of an indented block are read as prose, so a ``[a][b]`` inside a
-real indented code block is reported. None exists in ``docs/`` today.
+same reason an indented block the model cannot place as code, for example one inside a
+blockquote or one after a fence, is read as prose, because reading list text as code
+would hide a broken link. A ``[a][b]`` in such a block is reported.
 """
 
 from __future__ import annotations
@@ -160,6 +164,8 @@ _LIST_ITEM_RE = re.compile(r"[ ]*(?:\d+\.|[*+-])[ ]+")
 # A definition four or more spaces in: `ReferenceProcessor.RE` accepts it only once a list
 # item's indentation has been stripped, which the model does not do.
 _DEF_INDENTED_RE = re.compile(r"[ ]{4,}\[[^\[\]]*\]:")
+# A line that may open a definition at any indentation.
+_DEF_LINE_RE = re.compile(r"[ ]*\[[^\[\]]*\]:")
 # blockprocessors.ReferenceProcessor.RE
 _REF_DEF_RE = re.compile(
     r"^[ ]{0,3}\[([^\[\]]*)\]:[ ]*(?:\n[ ]*)?([^\s]+)[ ]*(?:\n[ ]*)?"
@@ -461,7 +467,70 @@ def _mark_code(lines: list[_Line], units: list[_Unit]) -> None:
                 unit.soft.add(k)
 
 
-def _definitions(lines: list[_Line], units: list[_Unit], tables: set[int], problem) -> list[_Def]:
+def _code_blocks(lines: list[_Line], units: list[_Unit], source: list[str]) -> set[int]:
+    """The lines that are certainly an indented code block, read as code and not as prose.
+
+    ``CodeBlockProcessor`` takes a block that opens four spaces in, unless
+    ``ListIndentProcessor`` takes it first, which it does when the block before it at the
+    same level is a list. So an indented block is code when the model can see that the
+    block before it is not a list. It decides that only where it is sure, at the root and
+    across real blank lines, and walks back over indented blocks, which are code or list
+    text as the block before them is. The block it stops at rules out a list when it opens
+    no list item anywhere and holds no definition, which the renderer removes, leaving the
+    block before it as the last one. The top of the page rules one out too. Anywhere else,
+    after a blank line that held a fence, a comment or raw HTML, or inside a blockquote,
+    the lines stay prose, which can only report something, never hide it.
+
+    ``source`` is the normalised page, so a line blanked here but not there is a fence,
+    comment or raw HTML block the model cannot place as a block of its own.
+    """
+
+    def plain(k: int) -> bool:  # an unaltered line at the root
+        return lines[k].depth == 0 and lines[k].body == source[k]
+
+    def after_no_list(first: int) -> bool:
+        k = first - 1
+        if k >= 0 and source[k]:
+            return False  # no blank line: a lazy line, or a block the model split itself
+        while True:
+            while k >= 0 and not lines[k].body.strip():
+                if source[k]:
+                    return False
+                k -= 1
+            if k < 0:
+                return True
+            start = k
+            while start > 0 and lines[start - 1].body.strip():
+                start -= 1
+            block = range(start, k + 1)
+            if not all(plain(j) for j in block):
+                return False
+            if not lines[start].body.startswith(" " * _TAB):
+                return not any(
+                    _LIST_ITEM_RE.match(lines[j].body) or _DEF_LINE_RE.match(lines[j].body)
+                    for j in block
+                )
+            if not all(lines[j].body.startswith(" " * _TAB) for j in block):
+                return False
+            k = start - 1
+
+    out: set[int] = set()
+    for unit in units:
+        first = unit.first
+        if unit.heading is not None or not lines[first].body.startswith(" " * _TAB):
+            continue
+        if not plain(first) or not after_no_list(first):
+            continue
+        k = first
+        while k <= unit.last and lines[k].body.startswith(" " * _TAB) and plain(k):
+            out.add(k)
+            k += 1
+    return out
+
+
+def _definitions(
+    lines: list[_Line], units: list[_Unit], tables: set[int], code: set[int], problem
+) -> list[_Def]:
     """The reference definitions the renderer certainly registers, read inside blockquotes.
 
     ``ReferenceProcessor`` reads each block, so this reads each unit, whose lines lie in one
@@ -476,7 +545,7 @@ def _definitions(lines: list[_Line], units: list[_Unit], tables: set[int], probl
         if unit.heading is not None:
             continue
         rows = range(unit.first, unit.last + 1)
-        text = "\n".join(lines[k].body for k in rows)
+        text = "\n".join("" if k in code else lines[k].body for k in rows)
         starts = _line_starts(text.split("\n"))
         placed: set[int] = set()
         for m in _REF_DEF_RE.finditer(text):
@@ -510,7 +579,7 @@ def _definitions(lines: list[_Line], units: list[_Unit], tables: set[int], probl
                     )
                 )
         for k in rows:
-            if k not in placed and _DEF_INDENTED_RE.match(lines[k].body):
+            if k not in placed and k not in code and _DEF_INDENTED_RE.match(lines[k].body):
                 problem(
                     lines[k].start,
                     "a reference definition indented four spaces or more, "
@@ -800,7 +869,8 @@ def _doc(path: Path) -> _Doc:
     lines = _lines(md)
     tables = _table_lines(lines)
     units = _units(lines, tables, problem)
-    defs = _definitions(lines, units, tables, problem)
+    code = _code_blocks(lines, units, lines_)
+    defs = _definitions(lines, units, tables, code, problem)
     _mark_code(lines, units)
     definitions = frozenset(d.key for d in defs)
 
@@ -833,6 +903,10 @@ def _doc(path: Path) -> _Doc:
                 problem(a + start, f"{what} that runs onto a line which may start a new block")
 
         chunk = blocks[a:b]
+        for k in sorted(code):
+            if unit.first <= k <= unit.last:  # code is not inline text: blank it as a fence
+                s_ = lines[k].start - a
+                chunk = chunk[:s_] + " " * len(lines_[k]) + chunk[s_ + len(lines_[k]) :]
         for d in defs:
             if unit.first <= d.first <= unit.last:  # a definition is not inline text
                 s_, e_ = lines[d.first].start - a, lines[d.last].start + len(lines_[d.last]) - a
@@ -1389,7 +1463,7 @@ def test_an_undefined_reference_stays_in_its_heading_slug(
     [
         ("Text `code\n- item` more\n", 3, "a code span that runs onto a line"),
         ("| a | b |\n|---|---|\n# c\n", 5, "a heading or rule line inside a table-like"),
-        ('Para\n\n    <a id="x"></a>\n', 5, "an HTML anchor on a line of an indented block"),
+        ('- item\n\n    <a id="x"></a>\n', 5, "an HTML anchor on a line of an indented block"),
         ("See <a href='x.md>y</a> here.\n", 3, "an <a> tag html.parser cannot read"),
         ("- item\n\n        [k]: #a\n", 5, "a reference definition indented four spaces"),
     ],
@@ -1401,6 +1475,118 @@ def test_a_form_outside_the_model_fails_loudly(
     """A form whose rendering turns on context the model does not track is refused by name."""
     out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
     assert out[0].startswith(f"docs/a.md:{line}: {_UNSUPPORTED}: {what}"), out
+
+
+# Each page below was rendered with Python-Markdown 3.11.3 and mkdocs' default extensions
+# (`toc`, `tables`, `fenced_code`); the comment on each row is the part of the render the
+# row turns on.
+@pytest.mark.parametrize(
+    "body",
+    [
+        # <p>Text.</p> <pre><code>x[a][b] = 1
+        "Text.\n\n    x[a][b] = 1\n",
+        # <hr /> <pre><code>x[a][b]
+        "***\n\n    x[a][b]\n",
+        # <h1 id="title">Title</h1> <pre><code>x[a][b]
+        "Title\n=====\n\n    x[a][b]\n",
+        # <table>…</table> <pre><code>x[a][b]
+        "a | b\n--|--\n1 | 2\n\n    x[a][b]\n",
+        # <p>Para</p> <pre><code>a\n\nb[a][b]: the second block joins the first
+        "Para\n\n    a\n\n    b[a][b]\n",
+    ],
+    ids=["after-paragraph", "after-rule", "after-setext", "after-table", "after-code"],
+)
+def test_an_indented_code_block_after_a_blank_line_is_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    """Four spaces in after a blank line, at the root and not after a list, is code (#1013)."""
+    assert _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body}) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # <blockquote>…</blockquote> <pre><code>x[a][b]: the block before is no list,
+        # but the model reads blockquotes only as deep as it needs to
+        "> q\n\n    x[a][b]\n",
+        # <p>Text\n* item</p> <pre><code>x[a][b]: a list item line in the block before
+        # is not a list here, but after a heading it would be
+        "Text\n* item\n\n    x[a][b]\n",
+        # <p>Text</p> <pre><code>c</code></pre> <pre><code>x[a][b]: a fence, not a
+        # blank line, sits before the block
+        "Text\n\n```\nc\n```\n    x[a][b]\n",
+    ],
+    ids=["after-quote", "after-item-line", "after-fence"],
+)
+def test_an_indented_code_block_the_model_cannot_place_is_prose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    """Where the model is not sure the block before is no list, the code is read short.
+
+    These are code to the renderer, so the report is a false red. It is the safe error:
+    reading list text as code would hide a broken link instead.
+    """
+    out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
+    assert len(out) == 1 and "reference-style link [a][b] has no [b]:" in out[0], out
+
+
+def test_an_indented_code_block_may_open_the_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``    x[a][b]`` alone renders ``<pre><code>x[a][b]``: no block before it, no list."""
+    assert _check(tmp_path, monkeypatch, {"a.md": "    x[a][b]\n"}) == []
+
+
+def test_an_indented_code_block_holds_no_anchors_or_definitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Code is not Markdown: an ``id`` there serves nothing, and ``[k]:`` defines nothing.
+
+    Python-Markdown 3.11.3 renders the two code lines as ``<pre><code>&lt;a id="x"&gt;…``
+    and ``<pre><code>[k]: #a``, so ``#x`` has no target and ``[t][k]`` stays literal.
+    """
+    body = '# A\n\nPara.\n\n    <a id="x"></a>\n\nPara.\n\n    [k]: #a\n\nSee [x](#x) and [t][k].\n'
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 2, out
+    assert out[0].startswith("docs/a.md:11: reference-style link [t][k] has no [k]:"), out
+    assert out[1].startswith("docs/a.md:11: link to '#x': no heading or HTML anchor"), out
+
+
+def test_text_after_an_indented_code_block_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first line out of the code opens a paragraph, which is checked.
+
+    Python-Markdown 3.11.3: ``<pre><code>a[a][b]`` then ``<p>next [t][nokey]</p>``.
+    """
+    body = "# A\n\nPara\n\n    a[a][b]\nnext [t][nokey]\n"
+    out = _check(tmp_path, monkeypatch, {"a.md": body})
+    assert len(out) == 1 and out[0].startswith("docs/a.md:6: reference-style link [t][nokey]"), out
+
+
+@pytest.mark.parametrize(
+    ("body", "line"),
+    [
+        # <ul><li><p>item</p><p>cont [t][nokey]</p></li></ul>
+        ("- item\n\n    cont [t][nokey]\n", 5),
+        # <ol><li><p>item</p><p>cont [t][nokey]</p></li></ol>
+        ("1. item\n\n    cont [t][nokey]\n", 5),
+        # <ul><li>…<p>cont</p><p>more [t][nokey]</p></li></ul>: still the same item
+        ("- item\n\n    cont\n\n    more [t][nokey]\n", 7),
+        # <h1>H</h1><ul><li><p>item</p><p>x[t][nokey]</p></li></ul>: the heading splits
+        ("## H\n- item\n\n    x[t][nokey]\n", 6),
+        # <ul><li><p>item</p><p>x[t][nokey]</p></li></ul>: a definition leaves no block
+        ("- item\n\n[k]: #a\n\n    x[t][nokey]\n", 7),
+    ],
+    ids=["bullet", "ordered", "second-paragraph", "list-after-heading", "after-definition"],
+)
+def test_an_indented_list_continuation_is_still_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, line: int
+) -> None:
+    """An indented block whose list the model cannot rule out is read as prose (#1013)."""
+    out = _check(tmp_path, monkeypatch, {"a.md": "# A\n\n" + body})
+    assert len(out) == 1, out
+    assert out[0].startswith(f"docs/a.md:{line}: reference-style link [t][nokey]"), out
 
 
 def test_a_heading_slug_reads_links_as_the_renderer_does(
