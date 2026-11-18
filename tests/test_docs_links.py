@@ -164,8 +164,9 @@ _LIST_ITEM_RE = re.compile(r"[ ]*(?:\d+\.|[*+-])[ ]+")
 # A definition four or more spaces in: `ReferenceProcessor.RE` accepts it only once a list
 # item's indentation has been stripped, which the model does not do.
 _DEF_INDENTED_RE = re.compile(r"[ ]{4,}\[[^\[\]]*\]:")
-# A line that may open a definition at any indentation.
-_DEF_LINE_RE = re.compile(r"[ ]*\[[^\[\]]*\]:")
+# Anything that may be a definition, at any indentation and with a label over several
+# lines, as `ReferenceProcessor.RE`'s label allows.
+_DEF_ANY_RE = re.compile(r"\[[^\[\]]*\]:")
 # blockprocessors.ReferenceProcessor.RE
 _REF_DEF_RE = re.compile(
     r"^[ ]{0,3}\[([^\[\]]*)\]:[ ]*(?:\n[ ]*)?([^\s]+)[ ]*(?:\n[ ]*)?"
@@ -506,9 +507,8 @@ def _code_blocks(lines: list[_Line], units: list[_Unit], source: list[str]) -> s
             if not all(plain(j) for j in block):
                 return False
             if not lines[start].body.startswith(" " * _TAB):
-                return not any(
-                    _LIST_ITEM_RE.match(lines[j].body) or _DEF_LINE_RE.match(lines[j].body)
-                    for j in block
+                return not any(_LIST_ITEM_RE.match(lines[j].body) for j in block) and not (
+                    _DEF_ANY_RE.search("\n".join(lines[j].body for j in block))
                 )
             if not all(lines[j].body.startswith(" " * _TAB) for j in block):
                 return False
@@ -1577,8 +1577,11 @@ def test_text_after_an_indented_code_block_is_read(
         ("## H\n- item\n\n    x[t][nokey]\n", 6),
         # <ul><li><p>item</p><p>x[t][nokey]</p></li></ul>: a definition leaves no block
         ("- item\n\n[k]: #a\n\n    x[t][nokey]\n", 7),
+        # the same, with a label that runs over two lines, which the renderer allows
+        ("- item\n\n[k\n]: #a\n\n    x[t][nokey]\n", 8),
     ],
-    ids=["bullet", "ordered", "second-paragraph", "list-after-heading", "after-definition"],
+    ids=["bullet", "ordered", "second-paragraph", "list-after-heading", "after-definition"]
+    + ["after-two-line-definition"],
 )
 def test_an_indented_list_continuation_is_still_checked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, line: int
