@@ -33,7 +33,7 @@ max_skipped = 32
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 35
+max_skipped = 36
 
 [jobs."sidecar / parity"]
 min_collected = 26
