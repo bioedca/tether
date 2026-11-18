@@ -256,8 +256,8 @@ def test_stamps_settings_gamma_provenance(tmp_path: Path) -> None:
         assert bool(grp.attrs["withheld"]) is False
         assert grp.attrs["n_qualifying"] == 12
         assert grp.attrs["n_fallback"] == 0
-        assert grp.attrs["level_window"] == "whole-segment"
-        assert grp.attrs["half_window"] == 0  # 0 = not used; the whole segments were
+        assert grp.attrs["level_window"] == "half-window"
+        assert grp.attrs["half_window"] == 20
         assert grp.attrs["min_window_frames"] == 20
         assert float(grp.attrs["ceiling"]) == 5.0
         assert grp.attrs["min_qualifying_traces"] == 10
@@ -423,6 +423,10 @@ def test_recompute_overwrites_settings(tmp_path: Path) -> None:
     with h5py.File(path, "r") as f:
         assert f["settings/gamma"].attrs["half_window"] == 2
         assert f["settings/gamma"].attrs["level_window"] == "half-window"
+    compute_gamma(path, half_window=None)
+    with h5py.File(path, "r") as f:
+        assert f["settings/gamma"].attrs["level_window"] == "whole-segment"
+        assert f["settings/gamma"].attrs["half_window"] == 0  # 0 = not used
 
 
 @pytest.mark.parametrize("bad", [0, -3])

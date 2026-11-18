@@ -146,10 +146,10 @@ def compute_gamma(
         Which ``/traces`` layer to estimate on — ``"corrected"`` (default,
         background-subtracted) or ``"raw"``.
     half_window
-        Frames averaged each side of the step for the γ levels (PRD §11.2).
-        ``None`` (the default, ADR-0130) averages the whole pre-step FRET segment and
-        the whole post-step donor-only segment; a positive integer averages only that
-        many frames each side. A zero or negative value raises ``ValueError``.
+        Frames averaged each side of the step for the γ levels (PRD §11.2, default
+        20 since ADR-0130). ``None`` averages the whole pre-step FRET segment and the
+        whole post-step donor-only segment instead. A zero or negative value raises
+        ``ValueError``.
     min_window_frames
         Reject unless both step segments are longer than this (PRD §11.2, default 20).
     ceiling

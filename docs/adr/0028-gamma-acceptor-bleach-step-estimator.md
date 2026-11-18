@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # 0028 — γ from the acceptor-bleach step (bare-`I_D` convention); Deep-LASI-median oracle deferred
 
-- **Status:** accepted; amended by [ADR-0130](0130-the-gamma-levels-are-averaged-over-the-whole-segments.md) on the frames each level is averaged over (whole segments by default since 2026-11-18)
+- **Status:** accepted; amended by [ADR-0130](0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md) on the frames each level is averaged over (20 frames each side by default since 2026-11-18)
 - **Date:** 2026-07-02
 - **Deciders:** bioedca (maintainer)
 - **PRD anchor:** §7.2, §7.4, §11.2 (γ half-width row 814 / γ-agreement row 815 / γ ceiling row 818 / `min_window_frames` row 819 / `min_qualifying_traces` row 820), Appendix B.2 step 4, Appendix E Stages 17–18, §9 M3 (FR-CORRECT)

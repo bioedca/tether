@@ -677,7 +677,7 @@ a single-movie project raises rather than inventing a held-out video.
 | `DEFAULT_MIN_WINDOW_FRAMES` | 20 | `src/tether/fret/leakage.py` |
 | `DEFAULT_MIN_QUALIFYING_TRACES` | 10 | `src/tether/fret/leakage.py` |
 | `GAMMA_CEILING` | 5.0 | `src/tether/fret/gamma.py` |
-| `DEFAULT_GAMMA_HALF_WINDOW` | None | `src/tether/fret/gamma.py` |
+| `DEFAULT_GAMMA_HALF_WINDOW` | 20 | `src/tether/fret/gamma.py` |
 
 The first three are locked by `tests/test_fret_leakage.py::test_defaults_match_prd_11_2`.
 
@@ -698,11 +698,10 @@ withholding below the minimum qualifying count rather than emitting a factor fro
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
 
-**The γ level windows.** Since [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md)
-each level averages its whole segment, as Deep-LASI does. The parity check runs on that
-default and on the 3-frame option. `test_whole_segment_uses_every_frame_and_scatters_less`
-shows that every frame of both segments enters the estimate. Over 200 noise draws its spread
-is under half the 3-frame estimate's.
+**The γ level windows.** Since [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)
+each level averages 20 frames each side of the step. The parity check runs on that default,
+on the whole segments and on 3 frames. `test_wider_windows_scatter_less_than_three_frames`
+shows that over 200 noise draws the default's spread is under half the 3-frame estimate's.
 
 **Total failure → apparent E, never NaN.** `tests/test_project_correct.py` covers the path
 that the specification singles out: `test_total_failure_falls_to_apparent_never_nan`,
