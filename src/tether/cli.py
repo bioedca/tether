@@ -14,7 +14,8 @@ from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names 
 registered command that has no route here. ``tether info`` prints a read-only summary of
 what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
 gives a project's movie metadata with its origin — see
-[`tether.project.movie_metadata`][].
+[`tether.project.movie_metadata`][]. ``tether export`` writes the molecule table, the
+trace text file or a subset project — see [`tether.cli_export`][].
 
 The CLI deliberately uses the standard-library [`argparse`][] rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -32,6 +33,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from tether import __version__
+from tether.cli_export import add_export_parser, run_export
 from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 from tether.services import (
     COMMANDS,
@@ -103,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
         _ROUTES[entry.name].add_parser(subparsers, entry.summary)
     _add_info_parser(subparsers)
     _add_metadata_parser(subparsers)
+    add_export_parser(subparsers)
     return parser
 
 
@@ -396,7 +399,27 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         ),
         epilog=_batch_exit_code_epilog(),
     )
-    batch.add_argument("movies", nargs="+", help="one or more dual-channel TIFF movies")
+    batch.add_argument(
+        "movies",
+        nargs="+",
+        help=(
+            "dual-channel TIFF movies: files, folders (the movies directly inside) or "
+            "quoted patterns such as 'data/*.tif', which Tether expands in every shell"
+        ),
+    )
+    batch.add_argument(
+        "--recursive",
+        action="store_true",
+        help="a folder argument also includes the movies in its sub-folders",
+    )
+    batch.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "print each movie, its output and what the run would do, then exit 0; "
+            "no movie is read and nothing is written"
+        ),
+    )
     batch.add_argument(
         "-d",
         "--out-dir",
@@ -518,6 +541,7 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
         sidecar_timeout=args.sidecar_timeout,
         sidecar_python=args.sidecar_python,
         defer_if_unavailable=not args.no_defer,
+        recursive=args.recursive,
         **values,  # type: ignore[arg-type]
     )
 
@@ -528,6 +552,15 @@ def _run_batch(args: argparse.Namespace) -> int:
     A finished run's code is [`batch_exit_code`][]'s, so it is ``3`` when no movie failed and
     a requested stage was deferred (#647).
     """
+    if args.dry_run:
+        from tether.services.batch import plan  # noqa: PLC0415
+
+        try:
+            print(plan(_batch_request(args)).format_plan())
+        except (RequestRefused, _ProfileRefused) as exc:
+            print(f"tether batch: {exc}", file=sys.stderr)
+            return 2
+        return 0
     from tether.project.batch import TextProgress
 
     # Progress goes to stderr so that stdout keeps only the summary (#648).
@@ -796,6 +829,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_info(args)
     if command == "metadata":
         return _run_metadata(args)
+    if command == "export":
+        return run_export(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 

@@ -78,7 +78,7 @@ retired = 6
 
 [pages."docs/install.md"]
 kind = "procedure"
-long_share = 27.3
+long_share = 25.0
 semicolons = 17
 long_paragraphs = 0
 retired = 0
@@ -99,7 +99,7 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 21.2
+long_share = 18.3
 semicolons = 8
 long_paragraphs = 0
 retired = 3
@@ -134,8 +134,8 @@ retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
-long_share = 30.4
-semicolons = 4
+long_share = 27.0
+semicolons = 3
 long_paragraphs = 0
 retired = 0
 
@@ -190,15 +190,15 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 22.4
+long_share = 19.8
 semicolons = 19
 long_paragraphs = 0
-retired = 7
+retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
 long_share = 21.8
-semicolons = 23
+semicolons = 22
 long_paragraphs = 1
 retired = 1
 
@@ -240,7 +240,7 @@ retired = 2
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
 long_share = 21.4
-semicolons = 26
+semicolons = 25
 long_paragraphs = 2
 retired = 6
 
@@ -267,7 +267,7 @@ retired = 0
 
 [pages."docs/privacy.md"]
 kind = "descriptive"
-long_share = 12.8
+long_share = 9.7
 semicolons = 6
 long_paragraphs = 0
 retired = 0
