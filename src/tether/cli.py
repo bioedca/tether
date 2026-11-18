@@ -14,7 +14,8 @@ from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names 
 registered command that has no route here. ``tether info`` prints a read-only summary of
 what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
 gives a project's movie metadata with its origin — see
-[`tether.project.movie_metadata`][].
+[`tether.project.movie_metadata`][]. ``tether export`` writes the molecule table, the
+trace text file or a subset project — see [`tether.cli_export`][].
 
 The CLI deliberately uses the standard-library [`argparse`][] rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -32,6 +33,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from tether import __version__
+from tether.cli_export import add_export_parser, run_export
 from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
 from tether.services import (
     COMMANDS,
@@ -103,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
         _ROUTES[entry.name].add_parser(subparsers, entry.summary)
     _add_info_parser(subparsers)
     _add_metadata_parser(subparsers)
+    add_export_parser(subparsers)
     return parser
 
 
@@ -842,6 +845,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_info(args)
     if command == "metadata":
         return _run_metadata(args)
+    if command == "export":
+        return run_export(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 
