@@ -9,7 +9,9 @@ version (NFR-REPRO: "the app version is derived from git"). ``tether extract`` a
 builds the command's request from its options, runs the command, and prints the result.
 ``tether extract`` runs the M1 native extraction pipeline (movie -> ``.tether``) — see
 [`tether.services.extract`][]; ``tether batch`` runs the extract -> correct -> idealize
-pipeline over many movies — see [`tether.services.batch`][]. Their subcommands are made
+pipeline over many movies — see [`tether.services.batch`][]; ``tether map create`` makes
+a channel map file from a bead video or image for ``tether extract --map`` — see
+[`tether.services.maps`][]. Their subcommands are made
 from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names any
 registered command that has no route here. ``tether info`` prints a read-only summary of
 what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
@@ -49,6 +51,8 @@ from tether.services import (
     CommandFailed,
     ExtractRequest,
     ExtractResult,
+    MapCreateRequest,
+    MapCreateResult,
     Request,
     RequestError,
     RequestRefused,
@@ -258,7 +262,21 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         metavar="PATH",
         help=(
             "apply an imported Deep-LASI .tmap instead of a native fit; splits at "
-            "the .tmap's own channel geometry (--donor-side is then ignored)"
+            "the .tmap's own channel geometry (--donor-side is then ignored); "
+            "cannot be combined with --map"
+        ),
+    )
+    extract.add_argument(
+        "--map",
+        dest="map_path",
+        default=None,
+        metavar="PATH",
+        help=(
+            "apply a saved Tether .npz map file (from 'tether map create') instead "
+            "of a native fit; splits at the map's own channel geometry (--donor-side is "
+            "then ignored). Precedence: the native fit runs only when neither --tmap nor "
+            "--map is given, and the two cannot be combined; --tdat sets detection only "
+            "and composes with any of them"
         ),
     )
     extract.add_argument(
@@ -341,6 +359,7 @@ def _extract_request(args: argparse.Namespace) -> ExtractRequest:
         overwrite=args.overwrite,
         tmap=args.tmap,
         tdat=args.tdat,
+        map_path=args.map_path,
         count_only=args.count_only,
         **values,  # type: ignore[arg-type]
     )
@@ -376,12 +395,16 @@ def _run_extract(args: argparse.Namespace) -> int:
     print(f"  colocalization: {_describe_rule_counts(summary.colocalization, result.rule_counts)}")
     if summary.registration_source == "imported":
         print(f"  registration: imported from {request.tmap}")
+    elif summary.registration_source == "map-file":
+        print(f"  registration: map file {request.map_path}")
     if request.tdat is not None:
         print(f"  detection: mode '{summary.detection_mode}' from {request.tdat}")
     if summary.low_confidence_registration:
+        # A map file is judged against its own gate, not --rms-gate (#353).
+        gate = request.rms_gate if summary.rms_gate is None else summary.rms_gate
         print(
             f"  warning: registration RMS {summary.rms_residual:.3f} px exceeds the "
-            f"{request.rms_gate} px gate ({summary.n_control_points} control points); "
+            f"{gate:g} px gate ({summary.n_control_points} control points); "
             "molecules tagged 'low-confidence-registration'.",
             file=sys.stderr,
         )
@@ -391,7 +414,10 @@ def _run_extract(args: argparse.Namespace) -> int:
     if check is not None:
         note = check.describe(
             donor_side=request.donor_side,
-            imported_map=summary.registration_source == "imported",
+            # A .tmap or a map file sets the channel split, not --donor-side.
+            imported_map=summary.registration_source != "native",
+            # A --map run names its map file, never the .tmap it did not use.
+            map_file=None if request.map_path is None else os.path.basename(request.map_path),
         )
         if check.swapped:
             print(f"  warning: {note}.", file=sys.stderr)
@@ -656,6 +682,97 @@ def _run_batch(args: argparse.Namespace) -> int:
     return code
 
 
+def _add_map_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
+    """Register the ``map`` subcommand and its one action, ``map create`` (#353)."""
+    map_parser = subparsers.add_parser(
+        "map",
+        help=summary,
+        description=(
+            "Channel map files: the saved donor<->acceptor registration that "
+            "'tether extract --map' applies to a later movie."
+        ),
+    )
+    actions = map_parser.add_subparsers(dest="map_action", metavar="<action>", required=True)
+    create = actions.add_parser(
+        "create",
+        help="make a map file from a bead video or one bead image",
+        description=(
+            "Detect the beads of both halves, pair them and fit the degree-2 map "
+            "(Stages 6-9), then save it as a .npz map file with its source id, its "
+            "projection settings and its quality record. A map over --rms-gate is still "
+            "saved, flagged low-confidence; the command then exits 0 and warns."
+        ),
+    )
+    create.add_argument("source", help="a bead TIFF: one image, or a video of frames")
+    create.add_argument(
+        "-o", "--output", required=True, help="the .npz map file to write (must end in .npz)"
+    )
+    create.add_argument("--overwrite", action="store_true", help="replace an existing map file")
+    create.add_argument(
+        "--frames",
+        nargs=2,
+        type=int,
+        default=None,
+        metavar=("START", "STOP"),
+        help="for a video: the 0-based half-open frame range to project (default: all)",
+    )
+    create.add_argument(
+        "--projection",
+        default="max",
+        choices=("max", "mean"),
+        help="for a video: how the frames are reduced to one image (default: max)",
+    )
+    create.add_argument(
+        "--donor-side",
+        default="left",
+        choices=DONOR_SIDES,
+        help="which half of the frame is the donor channel (default: left)",
+    )
+    create.add_argument(
+        "--rms-gate",
+        type=float,
+        default=0.5,
+        help="registration RMS-residual gate in px (default: 0.5)",
+    )
+
+
+def _map_request(args: argparse.Namespace) -> MapCreateRequest:
+    """Build the ``map`` request from the parsed options."""
+    start, stop = args.frames if args.frames is not None else (None, None)
+    return MapCreateRequest(
+        source=args.source,
+        output=args.output,
+        overwrite=args.overwrite,
+        frame_start=start,
+        frame_stop=stop,
+        projection=args.projection,
+        donor_side=args.donor_side,
+        rms_gate=args.rms_gate,
+    )
+
+
+def _run_map(args: argparse.Namespace) -> int:
+    """Handle ``tether map create``; a failed map is exit code 1."""
+    request = _map_request(args)
+    try:
+        result: MapCreateResult = run_service(request)
+    except CommandFailed as exc:
+        print(f"tether map create: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"Map -> {result.path}: RMS {result.rms_residual:.3f} px over {result.n_pairs} "
+        f"bead pair(s), {result.coverage:.0%} of the field covered"
+    )
+    if result.low_confidence:
+        print(
+            f"  warning: the RMS residual exceeds the {request.rms_gate} px gate; the map is "
+            "flagged low-confidence and its molecules will be tagged "
+            "'low-confidence-registration'.",
+            file=sys.stderr,
+        )
+    return 0
+
+
 @dataclasses.dataclass(frozen=True)
 class _Route:
     """The command-line route of one service command."""
@@ -668,6 +785,7 @@ class _Route:
 _ROUTES: dict[str, _Route] = {
     "extract": _Route(_add_extract_parser, _extract_request, _run_extract),
     "batch": _Route(_add_batch_parser, _batch_request, _run_batch),
+    "map": _Route(_add_map_parser, _map_request, _run_map),
 }
 
 

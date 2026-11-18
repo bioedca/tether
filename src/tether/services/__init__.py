@@ -29,6 +29,7 @@ from tether.services.base import (
 )
 from tether.services.batch import BatchRequest, BatchResult
 from tether.services.extract import ExtractRequest, ExtractResult
+from tether.services.maps import MapCreateRequest, MapCreateResult
 from tether.services.profile import (
     ExtractionFields,
     ExtractionProfile,
@@ -54,6 +55,8 @@ __all__ = [
     "ExtractResult",
     "ExtractionFields",
     "ExtractionProfile",
+    "MapCreateRequest",
+    "MapCreateResult",
     "Request",
     "RequestError",
     "RequestRefused",

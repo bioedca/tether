@@ -37,7 +37,8 @@ class ExtractRequest(ExtractionFields, Request):
     ``tether extract --profile`` sets them. ``detection_mode=None`` means "no explicit choice":
     the library default applies, or the mode decoded from ``tdat``. ``count_only`` runs the
     stages up to colocalization, writes nothing and returns the molecule count of each
-    colocalization rule (#920).
+    colocalization rule (#920). ``map_path`` is a Tether ``.npz`` map file (``--map``); it and
+    ``tmap`` are the two ways to replace the native fit, and passing both is refused (#353).
 
     The extraction fields ``donor_side``, ``channel_layout``, ``channel_layout_donor``,
     ``channel_layout_donor_rect``, ``channel_layout_acceptor_rect``, ``detection_mode``,
@@ -62,6 +63,8 @@ class ExtractRequest(ExtractionFields, Request):
         ``None``.
     tdat
         Path to a Deep-LASI ``.tdat`` whose particle-detection mode is applied, or ``None``.
+    map_path
+        Path to a saved Tether ``.npz`` map file to apply instead of a native fit, or ``None``.
     count_only
         Count the molecules of each colocalization rule and write nothing.
     """
@@ -74,6 +77,7 @@ class ExtractRequest(ExtractionFields, Request):
     overwrite: bool = False
     tmap: str | None = None
     tdat: str | None = None
+    map_path: str | None = None
     count_only: bool = False
 
 
@@ -116,7 +120,11 @@ def run(request: ExtractRequest) -> ExtractResult:
         options = request.extract_options()
         if request.count_only:
             counts = count_molecules_by_rule(
-                request.movie, options=options, tmap=request.tmap, tdat=request.tdat
+                request.movie,
+                options=options,
+                tmap=request.tmap,
+                tdat=request.tdat,
+                map_path=request.map_path,
             )
             return ExtractResult(summary=None, rule_counts=counts)
         # An overwrite replaces a project another writer may hold open, so it holds the
@@ -128,6 +136,7 @@ def run(request: ExtractRequest) -> ExtractResult:
                 options=options,
                 tmap=request.tmap,
                 tdat=request.tdat,
+                map_path=request.map_path,
                 overwrite=request.overwrite,
                 publish_guard=guard,
             )
