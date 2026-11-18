@@ -416,6 +416,8 @@ def _run_extract(args: argparse.Namespace) -> int:
             donor_side=request.donor_side,
             # A .tmap or a map file sets the channel split, not --donor-side.
             imported_map=summary.registration_source != "native",
+            # A --map run names its map file, never the .tmap it did not use.
+            map_file=None if request.map_path is None else os.path.basename(request.map_path),
         )
         if check.swapped:
             print(f"  warning: {note}.", file=sys.stderr)

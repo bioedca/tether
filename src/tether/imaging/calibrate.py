@@ -62,6 +62,8 @@ from __future__ import annotations
 
 import io
 import warnings
+import zipfile
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -684,7 +686,8 @@ def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationM
     source: Path | io.BytesIO = path if content is None else io.BytesIO(content)
     try:
         archive = np.load(source, allow_pickle=False)
-    except (OSError, ValueError) as exc:  # missing, unreadable, not an .npz / pickle
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:  # missing, unreadable, truncated,
+        # not an .npz, or a pickle
         raise MapFileError(f"{path.name} is not a readable .npz map file: {exc}") from exc
     if not isinstance(archive, np.lib.npyio.NpzFile):  # a bare .npy array
         raise MapFileError(f"{path.name} is not a .npz map file (it holds one bare array)")
@@ -697,6 +700,11 @@ def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationM
         if missing:
             raise MapFileError(f"{path.name} is not a Tether map file: it lacks {missing}")
         try:
+            provenance = _provenance_from_json(str(data["provenance_json"]))
+            if not isinstance(provenance, dict):
+                raise TypeError(
+                    f"provenance_json must hold one JSON object, not {type(provenance).__name__}"
+                )
             return RegistrationMap(
                 reference_channel=int(data["reference_channel"]),
                 moving_channel=int(data["moving_channel"]),
@@ -709,7 +717,7 @@ def load_map(path: str | Path, *, content: bytes | None = None) -> RegistrationM
                 source=str(data["source"]),
                 reference_geometry=_geometry_from_arrays("reference_geometry", data),
                 moving_geometry=_geometry_from_arrays("moving_geometry", data),
-                provenance=_provenance_from_json(str(data["provenance_json"])),
+                provenance=provenance,
             )
         except Exception as exc:  # a pickled array, a bad value, a missing geometry part
             raise MapFileError(
@@ -726,6 +734,10 @@ def _map_format_version(data: Any) -> int:
     except ValueError as exc:  # an object array: allow_pickle=False refuses to read it
         raise MapFileError(
             f"format_version must be one integer, not a pickled object: {exc}"
+        ) from exc
+    except (OSError, EOFError, zipfile.BadZipFile, zlib.error) as exc:  # a damaged member
+        raise MapFileError(
+            f"format_version could not be read, the archive is damaged: {exc}"
         ) from exc
     if raw.shape != () or raw.dtype.kind not in "iu":
         raise MapFileError(f"format_version must be one integer, got {raw!r}")

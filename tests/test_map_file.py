@@ -386,6 +386,62 @@ def test_an_object_valued_format_version_is_refused(tmp_path, fitted) -> None:
         load_map(pickled)
 
 
+def test_a_truncated_archive_is_refused(tmp_path, fitted) -> None:
+    """A cut-off .npz is a MapFileError, not a raw zipfile error (CodeRabbit)."""
+    _reg_map, map_file = fitted
+    whole = map_file.read_bytes()
+    cut = tmp_path / "cut.npz"
+    cut.write_bytes(whole[: len(whole) // 2])
+    with pytest.raises(MapFileError, match="cut.npz is not a readable .npz map file"):
+        load_map(cut)
+
+
+def test_a_damaged_format_version_member_is_refused(tmp_path, fitted) -> None:
+    """A member whose bytes fail the archive's CRC is a MapFileError (CodeRabbit)."""
+    _reg_map, map_file = fitted
+    data = bytearray(map_file.read_bytes())
+    member = data.index(b"format_version.npy")  # the member's local header
+    descr = data.index(b"'descr'", member)  # inside the member's stored bytes
+    data[descr + 1] ^= 0x20  # 'd' -> 'D': same length, wrong CRC
+    damaged = tmp_path / "damaged.npz"
+    damaged.write_bytes(bytes(data))
+    with pytest.raises(MapFileError, match="damaged.npz: format_version could not be read"):
+        load_map(damaged)
+
+
+def test_a_provenance_that_is_not_an_object_is_refused(tmp_path, fitted) -> None:
+    """``provenance_json`` holding a bare JSON value is a MapFileError (CodeRabbit)."""
+    _reg_map, map_file = fitted
+    bare = _rewrite(map_file, tmp_path / "bare.npz", provenance_json=np.array("5"))
+    with pytest.raises(MapFileError, match="provenance_json must hold one JSON object, not int"):
+        load_map(bare)
+
+
+def test_the_cli_names_the_map_file_when_the_halves_look_swapped(
+    tmp_path, fitted, capsys, monkeypatch
+) -> None:
+    """A --map run's swapped-halves remedy names the map, never --tmap (CodeRabbit)."""
+    from tether import cli
+    from tether.imaging.side_check import VERDICT_SWAPPED, DonorSideCheck
+
+    _reg_map, map_file = fitted
+    real_run = cli.run_service
+
+    def swapped_run(request):
+        result = real_run(request)
+        check = DonorSideCheck(verdict=VERDICT_SWAPPED, n_swapped=9, n_consistent=1)
+        return replace(result, summary=replace(result.summary, donor_side_check=check))
+
+    monkeypatch.setattr(cli, "run_service", swapped_run)
+    movie = _write_movie(tmp_path / "cli_012.tif")
+    out = tmp_path / "swapped.tether"
+    assert main(["extract", str(movie), "-o", str(out), "--map", str(map_file)]) == 0
+    err = capsys.readouterr().err
+    assert f"check the channel order of the map file {map_file.name}" in err
+    assert "without --map" in err
+    assert "--tmap" not in err
+
+
 def test_a_map_file_that_lacks_an_array_is_refused(tmp_path, fitted) -> None:
     _reg_map, map_file = fitted
     broken = _rewrite(map_file, tmp_path / "broken.npz", gate_px=None)

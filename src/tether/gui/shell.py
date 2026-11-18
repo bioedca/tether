@@ -890,7 +890,8 @@ class TetherShell:
 
         # Calibration menu (#353): make a channel map from a bead video or image, or
         # choose a saved one, and extract a later movie with it. Each action is a
-        # service command (map, extract); the mapping page itself is #917.
+        # service command (map, extract), run on a background worker of its own so the
+        # window stays live; the mapping page itself is #917.
         from tether.gui.calibration import ChannelMapActions
 
         self._channel_map = ChannelMapActions(
@@ -3075,6 +3076,9 @@ class TetherShell:
         # A running fit is abandoned (its result is discarded): the service stops its
         # poll timer and restores the wait cursor it set, so it never leaks past close.
         self._tasks.abandon()
+        # The same for a running channel-map command (#353): its outcome is not applied
+        # to a closed shell, and its worker stops once the command ends.
+        self._channel_map.close()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
