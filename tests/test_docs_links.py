@@ -1490,15 +1490,17 @@ def test_raw_html_ids_do_not_seed_heading_deduplication(
 def test_mkdocs_yml_names_no_markdown_extension() -> None:
     """The model above assumes mkdocs' default extensions; adding one must re-check it.
 
-    The key is looked for in every line's text before ``#``, not only at the start of a
-    line, so every YAML spelling of it fails: plain, quoted, an explicit ``? key`` or a
-    flow mapping. A stray use of the word in a value fails too, which errs loud. The
-    module stays stdlib only, so the file is not parsed as YAML.
+    The literal word ``markdown_extensions`` fails anywhere in the file, comments included,
+    so the plain, quoted, explicit ``? key`` and flow-mapping spellings of the key all
+    fail, wherever a ``#`` sits on the line. A key spelled with an escape sequence, such
+    as ``"markdown_\\x65xtensions"``, is not caught: the module stays stdlib only, so the
+    file is not parsed as YAML. A stray use of the word in a value or comment fails too,
+    which errs loud.
     """
     named = [
         line
         for line in _MKDOCS_YML.read_text(encoding="utf-8").splitlines()
-        if "markdown_extensions" in line.split("#", 1)[0]
+        if "markdown_extensions" in line
     ]
     assert not named, (
         "mkdocs.yml now sets markdown_extensions. An extension such as attr_list or "
