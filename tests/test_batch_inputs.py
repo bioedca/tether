@@ -468,7 +468,16 @@ def test_dry_run_settings_name_the_extraction_options(tmp_path: Path) -> None:
     bandpass = settings(detection_mode="bandpass", detection_threshold=0.9)
     assert "detection-mode=bandpass, detection-threshold=0.9" in bandpass
     layout = settings(channel_layout="top-bottom")
-    assert "channel-layout=top-bottom" in layout and "donor-side" not in layout
+    assert "channel-layout=top-bottom, donor=top," in layout and "donor-side" not in layout
+    assert "donor=bottom," in settings(channel_layout="top-bottom", channel_layout_donor="bottom")
+    rects = settings(
+        channel_layout="rectangles",
+        channel_layout_donor_rect=(1, 1, 10, 20),
+        channel_layout_acceptor_rect=(11, 1, 20, 20),
+    )
+    assert "donor-rect=[1 1 10 20], acceptor-rect=[11 1 20 20]," in rects
+    tmap = settings(tmap="m.tmap", donor_side="right")
+    assert "channel-layout=from .tmap, detection-mode=" in tmap and "donor" not in tmap
     assert settings(tdat="run.tdat").endswith(
         "detection-mode=from .tdat, detection-threshold=from .tdat"
     )

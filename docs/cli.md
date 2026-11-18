@@ -383,9 +383,12 @@ Sidecar: found at /opt/tether/envs/sidecar/bin/python (the run checks that it st
 ```
 
 The settings also name how each movie would be extracted. `channel-layout` gives the
-split, and `donor-side` follows it when there is no layout. Then come `detection-mode` and
-`detection-threshold`. The threshold reads `mode default` when the profile leaves it
-`null`. Both read `from .tdat` when `--tdat` supplies them.
+split. Without a layout, `donor-side` follows it. A half layout adds its `donor` half, and a
+`rectangles` layout adds `donor-rect` and `acceptor-rect`. With `--tmap` the split reads
+`from .tmap`, since the `.tmap` holds its own crops.
+
+Then come `detection-mode` and `detection-threshold`. The threshold reads `mode default`
+when the profile leaves it `null`. Both read `from .tdat` when `--tdat` supplies them.
 
 What a line says comes from the output project's checkpoint, which is opened read-only:
 

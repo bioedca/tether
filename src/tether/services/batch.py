@@ -225,14 +225,25 @@ def _sidecar_status(supervision: SidecarSupervision | None) -> str:
     return f"found at {found} (the run checks that it starts before the first movie)"
 
 
-def _extraction_settings(options: ExtractOptions, *, tdat: bool) -> tuple[str, ...]:
+def _rect_text(rect: tuple[int, ...] | None) -> str:
+    return "[" + " ".join(str(v) for v in rect or ()) + "]"
+
+
+def _extraction_settings(options: ExtractOptions, *, tmap: bool, tdat: bool) -> tuple[str, ...]:
     """Name the channel split and the detection the run would extract each movie with."""
     layout = options.channel_layout
-    split = (
-        ("channel-layout=none", f"donor-side={options.donor_side}")
-        if layout is None
-        else (f"channel-layout={layout.kind}",)
-    )
+    if tmap:  # the .tmap splits at its own crops, so donor_side is not used
+        split: tuple[str, ...] = ("channel-layout=from .tmap",)
+    elif layout is None:
+        split = ("channel-layout=none", f"donor-side={options.donor_side}")
+    elif layout.donor is None:  # a rectangles layout names its channels by rectangle
+        split = (
+            f"channel-layout={layout.kind}",
+            f"donor-rect={_rect_text(layout.donor_rect)}",
+            f"acceptor-rect={_rect_text(layout.acceptor_rect)}",
+        )
+    else:
+        split = (f"channel-layout={layout.kind}", f"donor={layout.donor}")
     if tdat:  # the .tdat supplies both, and a choice beside it was refused
         return (*split, "detection-mode=from .tdat", "detection-threshold=from .tdat")
     threshold = options.detection_threshold
@@ -276,7 +287,9 @@ def plan(request: BatchRequest) -> BatchPlan:
             f"recursive={'on' if request.recursive else 'off'}",
             f"tmap={request.tmap or 'none'}",
             f"tdat={request.tdat or 'none'}",
-            *_extraction_settings(extract_options, tdat=request.tdat is not None),
+            *_extraction_settings(
+                extract_options, tmap=request.tmap is not None, tdat=request.tdat is not None
+            ),
         )
     )
     if supervision is not None:
