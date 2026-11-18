@@ -28,6 +28,29 @@ set -euo pipefail
 export PIP_NO_INDEX=1
 export CONDA_OFFLINE=1
 
+# The bundled update verifier (issue #332, ADR-0060), checked the same way on every platform.
+# $1 is the INSTALLED app env's python. The binary is located by the installed package's own
+# tether._verifier.bundled_gh(), which derives it from sys.prefix, so this proves the app can
+# reach it by the prefix-relative path and not merely that a file landed somewhere. Then it must
+# run from the installed prefix and report the version packaging/gh-verifier.toml pins (read
+# through stage_gh.py, so the smoke restates nothing), with its MIT license and the third-party
+# notices beside it. `--version` makes no network call, and GH_NO_UPDATE_NOTIFIER stops gh
+# looking for a newer release of itself.
+check_gh_verifier() {
+  gh_path="$("$1" -c 'from tether._verifier import bundled_gh; p = bundled_gh(); assert p, "no bundled gh"; print(p)' | tr -d '\r')"
+  echo "bundled gh: $gh_path"
+  gh_want="$(python packaging/scripts/stage_gh.py print-version | tr -d '\r')"
+  gh_got="$(GH_NO_UPDATE_NOTIFIER=1 "$gh_path" --version | head -1 | tr -d '\r')"
+  echo "bundled gh reports: $gh_got"
+  case "$gh_got" in
+    "gh version $gh_want "*) ;;
+    *) echo "the bundled gh is not the pinned $gh_want: $gh_got"; exit 1 ;;
+  esac
+  # The notices, read by the installed python: on Windows the path is a native one, which
+  # git-bash's dirname cannot split.
+  "$1" -c 'import sys; from tether._verifier import bundled_gh; d = bundled_gh().parent; m = [n for n in ("LICENSE", "THIRD-PARTY-LICENSES.txt") if not (d / n).is_file() or not (d / n).stat().st_size]; sys.exit(f"the bundled gh has no {m} in {d}" if m else 0)'
+}
+
 if [ "$RUNNER_OS" = "Windows" ]; then
   # Stop git-bash from mangling the NSIS /S and /D switches. Exported here for the
   # same single-source reason as the offline pair above: the msys runtime reads it
@@ -47,6 +70,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # cmd.exe running tether-gui.bat with `/c` arguments, minimized. post_install opens an
   # existing .lnk rather than replacing it, so the shortcut checks after the install
   # prove that every field is overwritten, the arguments included (issue #579, PR #827).
+  # rc3 wrote its launchers into bin\, so the seed names that folder (ADR-0094).
   old_sm_dir="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/Tether"
   mkdir -p "$old_sm_dir"
   TETHER_LNK_W="$(cygpath -w "$old_sm_dir/Tether.lnk")" OLD_BAT_W="$prefix\\bin\\tether-gui.bat" \
@@ -76,16 +100,22 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # The interface icons are SVG files (#677), and they draw only when the bundle carries
   # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
   QT_QPA_PLATFORM=offscreen "$prefix\\envs\\tether\\python.exe" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
+  check_gh_verifier "$prefix\\envs\\tether\\python.exe"
   # The USER-FACING launch surface (ADR-0051). The absolute env path above
   # proves the env was built; these prove the app can actually be STARTED.
   prefix_u="$(cygpath -u "$prefix")"
-  test -f "$prefix_u/bin/tether.bat" || { echo "missing shim: bin\\tether.bat"; exit 1; }
-  test -f "$prefix_u/bin/tether-gui.bat" || { echo "missing shim: bin\\tether-gui.bat"; exit 1; }
+  test -f "$prefix_u/launchers/tether.bat" || { echo "missing shim: launchers\\tether.bat"; exit 1; }
+  test -f "$prefix_u/launchers/tether-gui.bat" || { echo "missing shim: launchers\\tether-gui.bat"; exit 1; }
+  # The folder the install guide puts on PATH holds the two launchers and nothing else
+  # (issue #492, ADR-0094), so adding it, first or last, changes nothing else a shell finds.
+  launchers="$(ls -A "$prefix_u/launchers" | LC_ALL=C sort | tr '\n' ' ')"
+  test "$launchers" = "tether-gui.bat tether.bat " || {
+    echo "the launcher folder must hold only tether.bat and tether-gui.bat: $launchers"; exit 1; }
   # [project.gui-scripts] must produce the console-less launcher; without it a
   # shortcut flashes a terminal on every start.
   test -f "$prefix_u/envs/tether/Scripts/tether-gui.exe" || {
     echo "missing tether-gui.exe — is [project.gui-scripts] declared?"; exit 1; }
-  cmd /c "$prefix\\bin\\tether.bat" --version
+  cmd /c "$prefix\\launchers\\tether.bat" --version
   # `--version` imports nothing that touches BLAS, so it passed on rc2 while every
   # real extraction crashed in MKL on a user's PC (issue #553). Run a real one
   # through the launcher: the committed tutorial movie's native registration calls
@@ -94,7 +124,7 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   # the user's crash; it keeps the launch route, not just the env, under test.
   # No path here contains a space, so git-bash adds no quotes for cmd to mangle.
   smoke_project="$RUNNER_TEMP\\smoke-launcher.tether"
-  cmd /c "$prefix\\bin\\tether.bat" extract docs\\tutorial\\data\\tutorial_movie.tif -o "$smoke_project"
+  cmd /c "$prefix\\launchers\\tether.bat" extract docs\\tutorial\\data\\tutorial_movie.tif -o "$smoke_project"
   test -f "$(cygpath -u "$smoke_project")" || {
     echo "tether.bat extract wrote no project: $smoke_project"; exit 1; }
   # Start Menu shortcut (created directly; menuinst cannot own a pip-installed
@@ -144,6 +174,52 @@ if [ "$RUNNER_OS" = "Windows" ]; then
   echo "Start Menu shortcut AppUserModelID: $lnk_app_id"
   test "$lnk_app_id" = "MondragonLab.Tether" || {
     echo "the Start Menu shortcut does not carry the Tether AppUserModelID: $lnk_app_id"; exit 1; }
+  # The "Tether Command Prompt" shortcut (issue #666): a console in which `tether` works
+  # with no PATH edit. Read its target, arguments and folder back from the .lnk, then run
+  # the script it runs, in a console of its own as the shortcut does, and check three
+  # things in that console: the welcome line, `tether --version`, and a PATH whose only
+  # new folder is the launcher folder (never the bootstrap python, pip and conda).
+  prompt_lnk="$sm_dir/Tether Command Prompt.lnk"
+  test -f "$prompt_lnk" || {
+    echo "missing Start Menu shortcut: $prompt_lnk"; exit 1; }
+  prompt_fields="$(TETHER_LNK_W="$(cygpath -w "$prompt_lnk")" powershell -NoProfile -NonInteractive -Command \
+    '$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:TETHER_LNK_W); "$($s.TargetPath)|$($s.Arguments)|$($s.WorkingDirectory)"' \
+    | tr -d '\r')"
+  echo "Tether Command Prompt target|arguments|folder: $prompt_fields"
+  prompt_bat="$prefix\\tether-prompt.bat"
+  # Compared by the installed python, case-blind as Windows paths are: the .lnk may hand
+  # the target back in another case than %SystemRoot% spells it.
+  "$prefix\\envs\\tether\\python.exe" -c "import os, sys; norm = os.path.normcase; target, args, folder = sys.argv[1].split('|'); want_target = os.path.join(os.environ['SystemRoot'], 'System32', 'cmd.exe'); want_args = '/k ' + chr(34) * 2 + sys.argv[2] + chr(34) * 2; assert norm(target) == norm(want_target), target; assert norm(args) == norm(want_args), args; assert norm(folder) == norm(os.environ['USERPROFILE']), folder; print('Tether Command Prompt shortcut OK')" \
+    "$prompt_fields" "$prompt_bat"
+  tether_version="$("$prefix\\envs\\tether\\python.exe" -m tether --version | tr -d '\r')"
+  prompt_welcome="$(cmd /c "call $prompt_bat" | tr -d '\r')"
+  echo "Tether Command Prompt says: $prompt_welcome"
+  test "$prompt_welcome" = "$tether_version - type \"tether --help\" to see the commands." || {
+    echo "the Tether Command Prompt must print the version and how to list the commands"; exit 1; }
+  prompt_version="$(cmd /c "call $prompt_bat >nul && tether --version" | tr -d '\r')"
+  test "$prompt_version" = "$tether_version" || {
+    echo "tether --version in the Tether Command Prompt: $prompt_version, not $tether_version"; exit 1; }
+  # The console's PATH, read with delayed expansion so it is the one after the script ran,
+  # and compared with this script's own PATH by the installed python.
+  prompt_path="$(cmd /v:on /c "call $prompt_bat >nul && echo !PATH!" | tr -d '\r')"
+  "$prefix\\envs\\tether\\python.exe" -c "import os, sys; norm = lambda p: os.path.normcase(os.path.normpath(p)); session, before, prefix = (sys.argv[1].split(';'), sys.argv[2].split(';'), sys.argv[3]); assert norm(session[0]) == norm(os.path.join(prefix, 'launchers')), session[0]; added = {norm(p) for p in session if p} - {norm(p) for p in before if p}; assert added == {norm(os.path.join(prefix, 'launchers'))}, added; print('Tether Command Prompt PATH OK:', session[0])" \
+    "$prompt_path" "$(cmd /c "echo %PATH%" | tr -d '\r')" "$prefix"
+  # The .tether file type (issue #664, ADR-0118). The installed module reads its own keys
+  # back first (the scope it chose, the open command, the icon file). Then cmd's own assoc
+  # and ftype read the registration through HKEY_CLASSES_ROOT, the merged view Explorer
+  # uses for a double-click, so a key written into the wrong root fails here too. On the
+  # runner nothing else claims .tether, so Tether must own it.
+  "$prefix\\envs\\tether\\python.exe" -m tether.gui.file_type check --prefix "$prefix"
+  ext_assoc="$(cmd /c assoc .tether | tr -d '\r')"
+  echo "assoc: $ext_assoc"
+  test "$ext_assoc" = ".tether=Tether.Project" || {
+    echo "the .tether extension does not name Tether.Project: $ext_assoc"; exit 1; }
+  ext_ftype="$(cmd /c ftype Tether.Project | tr -d '\r')"
+  echo "ftype: $ext_ftype"
+  case "$ext_ftype" in
+    'Tether.Project="'*'\envs\tether\Scripts\tether-gui.exe" "%1"') ;;
+    *) echo "Tether.Project does not open files with tether-gui.exe: $ext_ftype"; exit 1 ;;
+  esac
   # Uninstall last, through the uninstaller a user would run, and prove the
   # pre_uninstall step removed the shortcut and its folder (issue #551). `_?=`
   # makes the NSIS uninstaller run in place, so this call waits for it instead
@@ -161,6 +237,16 @@ if [ "$RUNNER_OS" = "Windows" ]; then
     echo "uninstall left the Start Menu shortcut behind: $sm_dir/Tether.lnk"; exit 1; }
   test ! -e "$sm_dir" || {
     echo "uninstall left the Start Menu folder behind: $sm_dir"; exit 1; }
+  # pre_uninstall also removed the .tether file type (issue #664). assoc and ftype print an
+  # error, not a NAME=VALUE line, for a name that is not registered.
+  ext_left="$(cmd /c assoc .tether 2>&1 | tr -d '\r' || true)"
+  case "$ext_left" in
+    .tether=*) echo "uninstall left the .tether extension behind: $ext_left"; exit 1 ;;
+  esac
+  prog_left="$(cmd /c ftype Tether.Project 2>&1 | tr -d '\r' || true)"
+  case "$prog_left" in
+    Tether.Project=*) echo "uninstall left Tether.Project behind: $prog_left"; exit 1 ;;
+  esac
 else
   prefix="$RUNNER_TEMP/tether-smoke"
   if [ "$RUNNER_OS" = "macOS" ]; then
@@ -204,16 +290,40 @@ else
   # The interface icons are SVG files (#677), and they draw only when the bundle carries
   # Qt's SVG plugins. Render each one in both themes, headless, in the INSTALLED app env.
   QT_QPA_PLATFORM=offscreen "$prefix/envs/tether/bin/python" -c "from pyqtgraph.Qt import QtWidgets; app = QtWidgets.QApplication([]); from tether.gui.theme import missing_icons; m = missing_icons(); assert not m, m; print('icons OK')"
+  check_gh_verifier "$prefix/envs/tether/bin/python"
   # The USER-FACING launch surface (ADR-0051). The absolute env paths above
   # prove the envs were built; these prove the app can actually be STARTED,
   # which is the thing an install guide has to document. Exercised through
-  # the prefix shims, exactly as a user with <prefix>/bin on PATH would.
-  test -x "$prefix/bin/tether" || { echo "missing shim: $prefix/bin/tether"; exit 1; }
-  test -x "$prefix/bin/tether-gui" || { echo "missing shim: $prefix/bin/tether-gui"; exit 1; }
-  PATH="$prefix/bin:$PATH" tether --version
+  # the prefix shims, exactly as a user with <prefix>/launchers on PATH would.
+  test -x "$prefix/launchers/tether" || { echo "missing shim: $prefix/launchers/tether"; exit 1; }
+  test -x "$prefix/launchers/tether-gui" || { echo "missing shim: $prefix/launchers/tether-gui"; exit 1; }
+  # The folder the install guide puts on PATH holds the two launchers and nothing else
+  # (issue #492, ADR-0094). <prefix>/bin, their folder until rc3, is the bootstrap env's
+  # bin: on PATH it also gave the user that env's python, pip and conda.
+  launchers="$(ls -A "$prefix/launchers" | LC_ALL=C sort | tr '\n' ' ')"
+  test "$launchers" = "tether tether-gui " || {
+    echo "the launcher folder must hold only tether and tether-gui: $launchers"; exit 1; }
+  PATH="$prefix/launchers:$PATH" tether --version
   # The GUI entry point must import and answer --version WITHOUT a display;
   # `gui-scripts` on Unix is a normal console script, so this is safe headless.
-  PATH="$prefix/bin:$PATH" tether-gui --version
+  PATH="$prefix/launchers:$PATH" tether-gui --version
+  if [ "$RUNNER_OS" = "macOS" ]; then
+    # The launcher bundle (issue #663, ADR-0091). This install is "for me only", into
+    # the home folder, so post_install put the bundle in ~/Applications. plutil is
+    # Apple's own Info.plist check; the module's `check` reads the keys, the icon and
+    # the launcher's target; the last line starts the bundle's own executable, which
+    # proves that it resolves to the installed entry point.
+    app="$HOME/Applications/Tether.app"
+    test -d "$app" || { echo "missing launcher bundle: $app"; exit 1; }
+    plutil -lint "$app/Contents/Info.plist"
+    "$prefix/envs/tether/bin/python" -m tether.gui.macos_app check "$app" --prefix "$prefix"
+    app_exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+    "$app/Contents/MacOS/$app_exe" --version
+    # The .tether file type (issue #664, ADR-0118). `check` above compared the document
+    # type in the Info.plist; this asks LaunchServices, which Finder reads for a
+    # double-click, that .tether files are the Tether type and open with this bundle.
+    "$prefix/envs/tether/bin/python" -m tether.gui.file_type check --prefix "$prefix"
+  fi
   if [ "$RUNNER_OS" = "Linux" ]; then
     desktop="$HOME/.local/share/applications/tether.desktop"
     test -f "$desktop" || {
@@ -234,5 +344,40 @@ else
     cmp -s "$icon_src/scalable/apps/tether.svg" \
       "$HOME/.local/share/icons/hicolor/scalable/apps/tether.svg" || {
       echo "icon not installed: ~/.local/share/icons/hicolor/scalable/apps/tether.svg"; exit 1; }
+    # The .tether file type (issue #664, ADR-0118): the entry names the MIME type and takes
+    # the file as %f, the user's MIME folder holds the package byte for byte as the installed
+    # module writes it, and update-mime-database, where the runner has it, built the type
+    # from it. GIO, where the runner has it, then reads the type of a .tether file from that
+    # database, as a file manager does for a double-click, and update-desktop-database,
+    # where the runner has it, lists tether.desktop as a program for the type.
+    grep -qx 'MimeType=application/x-tether;' "$desktop" || {
+      echo "desktop entry has no MimeType=application/x-tether; line"; exit 1; }
+    grep -q '^Exec=.* %f$' "$desktop" || {
+      echo "desktop entry does not pass the file to tether-gui (%f)"; exit 1; }
+    mime_pkg="$HOME/.local/share/mime/packages/tether.xml"
+    "$prefix/envs/tether/bin/python" -c 'import sys; from tether.gui.file_type import mime_package_xml; sys.exit(0 if open(sys.argv[1], encoding="utf-8").read() == mime_package_xml() else f"{sys.argv[1]} is not the installed MIME package")' "$mime_pkg"
+    if command -v update-mime-database >/dev/null 2>&1; then
+      test -f "$HOME/.local/share/mime/application/x-tether.xml" || {
+        echo "update-mime-database did not add application/x-tether"; exit 1; }
+    else
+      echo "no update-mime-database on this runner; MIME database check skipped"
+    fi
+    if command -v gio >/dev/null 2>&1; then
+      smoke_doc="$RUNNER_TEMP/smoke project.tether"
+      # The 8-byte HDF5 signature, so that a sniff of the content agrees with the name.
+      printf '\211HDF\r\n\032\n' > "$smoke_doc"
+      doc_type="$(gio info -a standard::content-type "$smoke_doc" | sed -n 's/^ *standard::content-type: //p')"
+      echo "gio content type of a .tether file: $doc_type"
+      test "$doc_type" = "application/x-tether" || {
+        echo "the desktop does not see a .tether file as application/x-tether: $doc_type"; exit 1; }
+    else
+      echo "no gio on this runner; content-type check skipped"
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      grep -q '^application/x-tether=.*tether\.desktop;' "$HOME/.local/share/applications/mimeinfo.cache" || {
+        echo "the desktop database does not list tether.desktop for application/x-tether"; exit 1; }
+    else
+      echo "no update-desktop-database on this runner; desktop database check skipped"
+    fi
   fi
 fi
