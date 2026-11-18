@@ -379,8 +379,8 @@ def _synthetic_tmap_channels(
     halves of ``_SHAPE`` ([[y1, x1], [y2, x2]] as Deep-LASI stores them).
 
     ``acceptor_rotation`` / ``acceptor_flip`` default to identity (empty, as the
-    real UCKOPSB .tmap stores them); pass a non-identity value to exercise the
-    refuse-non-identity-geometry guard.
+    real UCKOPSB .tmap stores them); pass another stored value to exercise the
+    rotation/flip decode (#559).
     """
     eye = np.eye(3)
     identity = PolyTransform2D(
@@ -556,28 +556,202 @@ def test_extract_undecodable_tmap_errors(tmp_path, monkeypatch, capsys) -> None:
     assert not out.exists()
 
 
+# --- imported .tmap rotation/flip (#559) ---------------------------------------
+#
+# Deep-LASI splits each channel with processImage: rotate (imrotate(I, -Rotation),
+# a clockwise turn), then flip ([v, h]), then crop in the rotated/flipped frame. The
+# .tmap polynomials live in that processed frame. So a raw movie whose channel is
+# stored turned or mirrored, with a .tmap that names the turn, must split back to
+# the identity-case halves and give the identity-case molecules.
+
+
+def _clockwise(image: np.ndarray, rotation_deg: int) -> np.ndarray:
+    return np.rot90(image, k=-(rotation_deg // 90))
+
+
+def _flip(image: np.ndarray, flip: tuple[int, int]) -> np.ndarray:
+    if flip[0]:
+        image = image[::-1, :]
+    if flip[1]:
+        image = image[:, ::-1]
+    return image
+
+
+def _stored_region(half: np.ndarray, rotation_deg: int, flip: tuple[int, int]) -> np.ndarray:
+    """The raw-frame pixels that rotate-then-flip into ``half`` (the inverse, by hand)."""
+    return np.rot90(_flip(half, flip), k=rotation_deg // 90)
+
+
+def _crop_after(
+    raw_shape: tuple[int, int],
+    rows: slice,
+    cols: slice,
+    rotation_deg: int,
+    flip: tuple[int, int],
+) -> list[int]:
+    """1-based inclusive ``[y1, x1, y2, x2]`` of a raw region after rotate-then-flip."""
+    wanted = np.zeros(raw_shape, dtype=bool)
+    wanted[rows, cols] = True
+    moved = _flip(_clockwise(wanted, rotation_deg), flip)
+    r, c = np.nonzero(moved)
+    return [int(r.min()) + 1, int(c.min()) + 1, int(r.max()) + 1, int(c.max()) + 1]
+
+
+def _turned_movie_and_channels(
+    tmp_path, *, donor: tuple[int, tuple[int, int]], acceptor: tuple[int, tuple[int, int]]
+) -> tuple[object, dict[int, TmapChannel]]:
+    """A raw movie whose halves are stored turned/mirrored, and the matching .tmap.
+
+    The identity-case frame is the one :func:`_make_movie` writes (acceptor spots at
+    half the donor amplitude). Each half is stored in the raw frame as the pixels
+    that ``rotate -> flip`` turns back into that half, side by side (donor first),
+    on the flat background. The .tmap channels keep the identity-case polynomials
+    and carry the rotation, flip and the crop in the rotated/flipped frame.
+    """
+    amplitudes = np.concatenate(
+        [np.full(len(_DONOR_CENTERS), _AMP), np.full(len(_ACCEPTOR_CENTERS), _AMP / 2)]
+    )
+    frame = _gaussian_frame(np.vstack([_DONOR_CENTERS, _ACCEPTOR_CENTERS]), amplitudes)
+    half = _SHAPE[1] // 2
+    halves = (frame[:, :half], frame[:, half:])
+    stored = [
+        _stored_region(h, rot, flip)
+        for h, (rot, flip) in zip(halves, (donor, acceptor), strict=True)
+    ]
+    raw_shape = (max(r.shape[0] for r in stored), sum(r.shape[1] for r in stored))
+    raw = np.full(raw_shape, _BG)
+    crops = []
+    col = 0
+    for region, (rot, flip) in zip(stored, (donor, acceptor), strict=True):
+        rows, cols = slice(0, region.shape[0]), slice(col, col + region.shape[1])
+        raw[rows, cols] = region
+        crops.append(_crop_after(raw_shape, rows, cols, rot, flip))
+        col += region.shape[1]
+
+    movie = tmp_path / "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif"
+    stack = np.broadcast_to(raw, (_N_FRAMES, *raw_shape))
+    tifffile.imwrite(
+        movie, np.ascontiguousarray(stack, dtype=">u2"), photometric="minisblack", byteorder=">"
+    )
+
+    base = _synthetic_tmap_channels()
+    channels = {
+        cid: replace(
+            base[cid],
+            crop=np.array([[y1, x1], [y2, x2]]),
+            rotation=np.array([[float(rot)]]),
+            flip=np.array([list(flip)], dtype=np.uint8),
+        )
+        for cid, (rot, flip), (y1, x1, y2, x2) in zip((0, 1), (donor, acceptor), crops, strict=True)
+    }
+    return movie, channels
+
+
+_IDENTITY = (0, (0, 0))
+_TURNS = [
+    pytest.param(_IDENTITY, (90, (0, 0)), id="acceptor-rot90"),
+    pytest.param(_IDENTITY, (180, (0, 0)), id="acceptor-rot180"),
+    pytest.param(_IDENTITY, (270, (0, 0)), id="acceptor-rot270"),
+    pytest.param(_IDENTITY, (0, (1, 0)), id="acceptor-flip-v"),
+    pytest.param(_IDENTITY, (0, (0, 1)), id="acceptor-flip-h"),
+    pytest.param(_IDENTITY, (0, (1, 1)), id="acceptor-flip-vh"),
+    pytest.param(_IDENTITY, (90, (1, 0)), id="acceptor-rot90-flip-v"),
+    pytest.param((270, (0, 1)), _IDENTITY, id="donor-rot270-flip-h"),
+    pytest.param((180, (0, 0)), (90, (0, 1)), id="both-turned"),
+]
+
+
+@pytest.mark.parametrize(("donor", "acceptor"), _TURNS)
+def test_extract_imported_tmap_applies_rotation_and_flip(
+    tmp_path, monkeypatch, donor, acceptor
+) -> None:
+    # #559: a .tmap channel with a rotation and/or a flip is applied, not refused,
+    # and the extraction recovers the identity-case molecules.
+    import tether.project.extract as ext
+    from tether.imaging.split import process_image
+    from tether.project.oracle import MATCH_TOL_PX, match_coordinates
+
+    identity_channels = _synthetic_tmap_channels()
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: identity_channels)
+    identity_dir = tmp_path / "identity"
+    identity_dir.mkdir()
+    identity_out = identity_dir / "identity.tether"
+    ext.extract_movie(
+        _make_movie(identity_dir, acceptor_amp=_AMP / 2),
+        identity_out,
+        tmap=_stub_tmap(identity_dir),
+        options=ExtractOptions(window=_WINDOW),
+    )
+
+    turned_dir = tmp_path / "turned"
+    turned_dir.mkdir()
+    movie, channels = _turned_movie_and_channels(turned_dir, donor=donor, acceptor=acceptor)
+    # The construction is right: each stored channel splits back to its identity half.
+    raw = tifffile.imread(movie)[0].astype(np.float64)
+    identity_raw = tifffile.imread(identity_dir / movie.name)[0].astype(np.float64)
+    for cid, half in ((0, identity_raw[:, :48]), (1, identity_raw[:, 48:])):
+        ch = channels[cid]
+        got = process_image(
+            raw, rotation_deg=ch.rotation_deg, crop=np.asarray(ch.crop).ravel(), flip=ch.flip_vh
+        )
+        np.testing.assert_array_equal(got, half)
+
+    monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
+    out = turned_dir / "turned.tether"
+    summary = ext.extract_movie(
+        movie, out, tmap=_stub_tmap(turned_dir), options=ExtractOptions(window=_WINDOW)
+    )
+
+    assert summary.registration_source == "imported"
+    assert summary.n_molecules == 3
+    want, got = read_molecules(identity_out), read_molecules(out)
+    for key in ("donor_xy", "acceptor_xy"):
+        matches = match_coordinates(want[key], got[key], tol_px=MATCH_TOL_PX)
+        assert len(matches) == 3, key
+        np.testing.assert_allclose(
+            np.array(sorted(got[key].tolist())), np.array(sorted(want[key].tolist()))
+        )
+    traces = read_traces(out)
+    ratio = traces["acceptor_corrected"].mean(axis=1) / traces["donor_corrected"].mean(axis=1)
+    assert ratio.tolist() == pytest.approx([0.5] * 3, rel=0.02)
+
+    # /movies records each channel's rotation and flip next to its crop.
+    with h5py.File(out, "r") as f:
+        row = f["/movies/table"][0]
+        assert int(row["donor_rotation_deg"]) == donor[0]
+        assert row["donor_flip"].tolist() == list(donor[1])
+        assert int(row["acceptor_rotation_deg"]) == acceptor[0]
+        assert row["acceptor_flip"].tolist() == list(acceptor[1])
+        assert row["acceptor_crop"].tolist() == np.asarray(channels[1].crop).ravel().tolist()
+
+
 @pytest.mark.parametrize(
     "geometry",
-    [{"acceptor_rotation": np.array([90.0])}, {"acceptor_flip": np.array([1, 0])}],
-    ids=["rotation", "flip"],
+    [
+        {"acceptor_rotation": np.array([45.0])},
+        {"acceptor_rotation": np.array([90.0, 180.0])},
+        {"acceptor_flip": np.array([2, 0])},
+        {"acceptor_flip": np.array([1, 0, 1])},
+    ],
+    ids=["rotation-45", "rotation-two-values", "flip-value-2", "flip-three-values"],
 )
-def test_extract_imported_tmap_nonidentity_geometry_refused(
+def test_extract_imported_tmap_bad_rotation_or_flip_errors(
     tmp_path, monkeypatch, capsys, geometry
 ) -> None:
-    # A .tmap whose channel carries a non-identity rotation OR flip is refused
-    # loudly (the imported path applies only crop geometry so far), never silently
-    # mis-split. Both axes are covered so a flip regression can't slip through.
+    # A stored rotation or flip that processImage could not have applied leaves the
+    # split undefined: a clean .tmap-centric error (exit 1), nothing written.
     import tether.project.extract as ext
 
     channels = _synthetic_tmap_channels(**geometry)
     monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
     movie = _make_movie(tmp_path)
-    tmap = _stub_tmap(tmp_path)
     out = tmp_path / "out.tether"
 
-    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(tmap)])
+    rc = main(["extract", str(movie), "-o", str(out), "--tmap", str(_stub_tmap(tmp_path))])
     assert rc == 1
-    assert "rotation/flip" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "could not use --tmap" in err
+    assert "Rotation" in err or "Flip" in err
     assert not out.exists()
 
 

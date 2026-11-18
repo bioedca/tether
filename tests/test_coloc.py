@@ -1,8 +1,11 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Donor-anchored colocalization + apply-map-at-extraction (PRD App. E Stages 11-13; M1 S7).
+"""Colocalization under both rules + apply-map-at-extraction (PRD App. E Stages 11-13).
 
-Locks the coordinate-domain colocalization layer:
+Locks the coordinate-domain colocalization layer. Most tests here lock the
+``donor-anchored`` rule (ADR-0015's rule, an option since ADR-0127): their calls go
+through the module's ``colocalize`` wrapper, which names that policy. The
+``partner-in-both`` tests at the end call the primitive with its own default:
 
 * the acceptor read position is the donor warped through the registration map
   (Stage 12), sub-pixel, never resampled;
@@ -10,7 +13,9 @@ Locks the coordinate-domain colocalization layer:
   no independently-detected acceptor (the dark/low-FRET population findColoc's
   "partner in every channel" rule would drop);
 * the ``acceptor_detected`` flag is the strict ``< 3 px`` NN test in donor coords;
-* the 21x21 crop-box guardrail skips molecules whose window leaves *either* frame.
+* the 21x21 crop-box guardrail skips molecules whose window leaves *either* frame;
+* the default ``partner-in-both`` rule keeps only flagged molecules, reads them at the
+  same mapped position, and both rules' counts come with every result (#920).
 
 The transforms are synthetic (known translations/affines) so every warp is exactly
 predictable; the real-data extraction-vs-Deep-LASI oracle is M1 S9.
@@ -28,13 +33,22 @@ import numpy as np  # noqa: E402
 from tether.imaging.calibrate import RegistrationMap  # noqa: E402
 from tether.imaging.coloc import (  # noqa: E402
     DEFAULT_COLOC_DISTANCE_PX,
+    DEFAULT_COLOCALIZATION_POLICY,
+    DONOR_ANCHORED,
+    PARTNER_IN_BOTH,
     ColocalizedMolecules,
-    colocalize,
 )
+from tether.imaging.coloc import colocalize as _colocalize  # noqa: E402
 from tether.imaging.register import PolyTransform2D  # noqa: E402
 
 _IDENTITY_A = np.array([0.0, 1.0, 0.0, 0.0, 0.0, 0.0])  # x_out = x
 _IDENTITY_B = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0])  # y_out = y
+
+
+def colocalize(*args: object, **kwargs: object) -> ColocalizedMolecules:
+    """Call the primitive under the donor-anchored rule these tests lock (ADR-0015)."""
+    kwargs.setdefault("policy", DONOR_ANCHORED)
+    return _colocalize(*args, **kwargs)  # type: ignore[arg-type]
 
 
 def _poly(a: np.ndarray, b: np.ndarray) -> PolyTransform2D:
@@ -297,3 +311,132 @@ def test_read_and_detection_use_distinct_transform_directions() -> None:
     np.testing.assert_allclose(res.acceptor_xy, [[35.0, 27.0]])  # ref_to_moving, not the inverse
     np.testing.assert_array_equal(res.acceptor_detected, [True])  # moving_to_ref warp colocates
     np.testing.assert_array_equal(res.acceptor_index, [0])
+
+
+# --- Stage 11: the partner-in-both rule, the default (#920, ADR-0127) ----------
+
+
+def _mixed_field() -> tuple[np.ndarray, np.ndarray]:
+    """Three in-frame donors; only the first two have an acceptor spot within 3 px."""
+    donor = np.array([[20.0, 20.0], [40.0, 30.0], [30.0, 44.0]])
+    acceptor = np.array([[21.0, 20.5], [40.0, 31.5], [10.0, 10.0]])
+    return donor, acceptor
+
+
+def test_default_policy_is_partner_in_both() -> None:
+    assert DEFAULT_COLOCALIZATION_POLICY == PARTNER_IN_BOTH
+
+
+def test_partner_in_both_keeps_only_molecules_with_a_detected_acceptor() -> None:
+    reg = _make_map()
+    donor, acceptor = _mixed_field()
+    res = _colocalize(
+        donor, reg, donor_shape=(64, 64), acceptor_shape=(64, 64), acceptor_spots=acceptor
+    )
+    assert res.policy == PARTNER_IN_BOTH
+    assert res.donor_index.tolist() == [0, 1]
+    assert res.acceptor_detected.all()
+    assert res.acceptor_index.tolist() == [0, 1]
+
+
+def test_partner_in_both_reads_the_acceptor_at_the_mapped_donor_position() -> None:
+    # The kept molecule's acceptor is read where the map puts the donor, not at the
+    # detected acceptor spot (Stage 12): the partner decides only whether it is kept.
+    reg = _make_map(
+        ref_to_moving=_translation_poly(5.0, -3.0), moving_to_ref=_translation_poly(-5.0, 3.0)
+    )
+    donor = np.array([[30.0, 30.0]])
+    acceptor = np.array([[36.0, 28.0]])  # ~1.4 px from the mapped (35, 27), inside the gate
+    res = _colocalize(
+        donor, reg, donor_shape=(96, 96), acceptor_shape=(96, 96), acceptor_spots=acceptor
+    )
+    assert res.n_molecules == 1
+    np.testing.assert_allclose(res.acceptor_xy, [[35.0, 27.0]])
+
+
+def test_both_rules_report_both_counts_from_the_same_spots() -> None:
+    reg = _make_map()
+    donor, acceptor = _mixed_field()
+    kwargs = {"donor_shape": (64, 64), "acceptor_shape": (64, 64), "acceptor_spots": acceptor}
+    partner = _colocalize(donor, reg, policy=PARTNER_IN_BOTH, **kwargs)
+    anchored = _colocalize(donor, reg, policy=DONOR_ANCHORED, **kwargs)
+    expected = {PARTNER_IN_BOTH: 2, DONOR_ANCHORED: 3}
+    assert dict(partner.rule_counts) == expected
+    assert dict(anchored.rule_counts) == expected
+    assert partner.n_molecules == 2
+    assert anchored.n_molecules == 3
+    # The partner rule's molecules are exactly the flagged donor-anchored ones.
+    np.testing.assert_array_equal(partner.donor_xy, anchored.donor_xy[anchored.acceptor_detected])
+    np.testing.assert_array_equal(
+        partner.acceptor_xy, anchored.acceptor_xy[anchored.acceptor_detected]
+    )
+
+
+def test_counts_are_taken_after_the_crop_box_guardrail() -> None:
+    reg = _make_map()
+    donor = np.array([[5.0, 30.0], [30.0, 30.0]])  # the first window leaves the frame
+    acceptor = np.array([[5.0, 30.0], [30.0, 30.0]])
+    res = _colocalize(
+        donor, reg, donor_shape=(64, 64), acceptor_shape=(64, 64), acceptor_spots=acceptor
+    )
+    assert dict(res.rule_counts) == {PARTNER_IN_BOTH: 1, DONOR_ANCHORED: 1}
+    assert res.donor_index.tolist() == [1]
+
+
+def test_partner_in_both_requires_acceptor_spots() -> None:
+    reg = _make_map()
+    with pytest.raises(ValueError, match="partner-in-both rule needs acceptor_spots"):
+        _colocalize(np.array([[30.0, 30.0]]), reg, donor_shape=(64, 64), acceptor_shape=(64, 64))
+
+
+def test_partner_in_both_with_no_acceptor_spot_keeps_nothing() -> None:
+    reg = _make_map()
+    res = _colocalize(
+        np.array([[30.0, 30.0]]),
+        reg,
+        donor_shape=(64, 64),
+        acceptor_shape=(64, 64),
+        acceptor_spots=np.empty((0, 2)),
+    )
+    assert res.n_molecules == 0
+    assert dict(res.rule_counts) == {PARTNER_IN_BOTH: 0, DONOR_ANCHORED: 1}
+
+
+def test_rejects_unknown_policy() -> None:
+    reg = _make_map()
+    with pytest.raises(ValueError, match="policy must be one of"):
+        _colocalize(
+            np.array([[30.0, 30.0]]),
+            reg,
+            donor_shape=(64, 64),
+            acceptor_shape=(64, 64),
+            acceptor_spots=np.empty((0, 2)),
+            policy="any-channel",
+        )
+
+
+def test_detection_is_recorded_only_when_acceptor_spots_were_given() -> None:
+    reg = _make_map()
+    donor = np.array([[30.0, 30.0]])
+    given = colocalize(
+        donor, reg, donor_shape=(64, 64), acceptor_shape=(64, 64), acceptor_spots=np.empty((0, 2))
+    )
+    absent = colocalize(donor, reg, donor_shape=(64, 64), acceptor_shape=(64, 64))
+    assert given.detection_recorded
+    assert not absent.detection_recorded
+
+
+def test_a_hand_built_result_is_donor_anchored_and_unrecorded() -> None:
+    one = np.zeros((1, 2))
+    res = ColocalizedMolecules(
+        donor_xy=one,
+        acceptor_xy=one,
+        acceptor_detected=np.ones(1, dtype=bool),
+        donor_index=np.zeros(1, dtype=np.intp),
+        acceptor_index=np.zeros(1, dtype=np.intp),
+    )
+    assert res.policy == DONOR_ANCHORED
+    assert not res.detection_recorded
+    assert dict(res.rule_counts) == {}
+    with pytest.raises(TypeError):
+        res.rule_counts["x"] = 1  # type: ignore[index]

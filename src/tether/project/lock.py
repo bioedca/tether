@@ -110,6 +110,7 @@ __all__ = [
     "create_split_curation",
     "file_identity",
     "held_lock",
+    "holding",
     "local_identity",
     "lock_path",
     "lock_recovery",
@@ -1900,6 +1901,73 @@ def _release_sidecar(lp: Path, info: LockInfo) -> bool:
         except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
             return False
         return True
+
+
+@contextmanager
+def holding(project_path: str | Path, held: LockInfo) -> Iterator[LockInfo]:
+    """Run a block while ``held`` is proven to be the current lock (PRD §5.4; #561).
+
+    Takes the same per-path OS lifecycle guard as [`acquire`][], [`steal_lock`][],
+    [`refresh`][] and [`release`][], then checks that the sidecar still carries
+    ``held.nonce``. The block runs inside the guard, so no cooperating steal can land
+    between that check and the write the block makes: a steal waits for the block to
+    end, and a block that starts after a steal is refused. A vanished, corrupt or
+    replacement record raises [`LockedError`][] before the block runs.
+
+    Keep the block short. The guard waits for at most a few seconds, so another
+    process's lifecycle call that waits longer than that fails with
+    ``TimeoutError`` instead of blocking. A single file write fits; a model fit does
+    not, and belongs before the block.
+
+    Yields
+    ------
+    LockInfo
+        The current record, which carries ``held.nonce``.
+    """
+    lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        current, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if current is None or current.nonce != held.nonce:
+            raise LockedError(current, path=lp)
+        yield current
+
+
+@contextmanager
+def writing(
+    project_path: str | Path,
+    *,
+    identity: LockIdentity | None = None,
+    timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
+    now: datetime | None = None,
+) -> Iterator[None]:
+    """Run a short canonical write that no cooperating acquire or steal can overtake (#561).
+
+    [`assert_writable`][] only checks: a writer that takes the lock after the check and
+    before the write would find the file changed under its lock. This context manager
+    takes the per-user identity guard and the path's OS lifecycle guard, in the order
+    [`acquire`][] and [`steal_lock`][] take them, makes the same check inside them, and
+    runs the block there. An acquire or steal of this file, through this spelling or a
+    hard link that this user opens, waits for the block to end, and a block that starts
+    after one is refused with [`LockedError`][]. A hard link that *another user* opens is
+    not covered, as for [`acquire`][]: that user's identity record lives in their own
+    per-user directory (ADR-0112). It holds no lock of its own, so it neither needs nor
+    changes ownership: an unlocked file stays unlocked and a writer's own lock stays its
+    own.
+
+    The per-user directory is created first if it is missing, as a claim does, so that a
+    claim through a hard link that creates it meanwhile still waits for the identity guard.
+    If it cannot be created for a file that has an identity, the write fails closed with
+    [`OSError`][] before the block runs, as a claim does.
+
+    Keep the block short, as for [`holding`][]: another process's lifecycle call waits
+    for the guard for at most a few seconds before it fails with ``TimeoutError``.
+    """
+    lp = lock_path(project_path)
+    with _identity_guard(project_path, claim=True), _lifecycle_guard(lp):
+        assert_writable(project_path, identity=identity, timeout_s=timeout_s, now=now)
+        yield
 
 
 @contextmanager
