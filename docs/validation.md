@@ -702,8 +702,13 @@ withholding below the minimum qualifying count rather than emitting a factor fro
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
 
-**Total failure → apparent E, never NaN.** `tests/test_project_correct.py` covers the path
-that the specification singles out: `test_total_failure_falls_to_apparent_never_nan`,
+**Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
+non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is
+still NaN in apparent E, because the ratio is not defined there. That is not a correction
+failure.
+
+`tests/test_project_correct.py` covers the path that the specification singles out:
+`test_total_failure_falls_to_apparent_never_nan`,
 `test_fresh_store_nan_factors_is_total_failure`, `test_zero_gamma_boundary_is_total_failure`,
 `test_negative_gamma_is_total_failure`, `test_manual_override_rescues_total_failure`,
 `test_partial_alpha_override_without_gamma_stays_apparent`, and
@@ -1322,6 +1327,12 @@ fault injections each break a limit: an aperture moved by 2 px lowers the donor 
 to 0.689, and an acceptor position moved by 2 px after the channel mapping raises its largest
 acceptor error to 2.390 px.
 
+The test also counts duplicates: Tether molecules that match a true molecule which an earlier
+Tether molecule already matched (#1006,
+[ADR-0107](adr/0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md)). The count is 0
+in each scenario, and the limit is that count, so a molecule written twice breaks it. A test
+repeats each molecule and trace row of `easy` and requires the duplicate limit to break.
+
 ## External benchmark
 
 Tether's rate constants were compared against the ground truth and the reported inter-tool
@@ -1595,8 +1606,8 @@ documented gaps rather than fabricated values):
   patches from the import wizard (which opens the movie), and otherwise zero-fills; the
   movie link keeps crops re-cacheable.
 - **γ may be absent.** Remapped α/γ are injected only when γ is finite and positive;
-  otherwise the project degrades to the explicit apparent-E substrate — never a NaN E
-  (ADR-0003). The committed Cy3-only fixture exercises that path.
+  otherwise the project degrades to the explicit apparent-E substrate, so a missing γ never
+  gives a NaN E (ADR-0003). The committed Cy3-only fixture exercises that path.
 - δ (direct excitation) is inert 0 for single-laser Deep-LASI data, which has no ALEX
   channel to estimate it from.
 - A raw-`.txt`-sourced SMD has no coordinates and no patches, so it is imported as an
@@ -1612,3 +1623,8 @@ without a CUDA device, and `.github/workflows/deep-gpu.yml` is `workflow_dispatc
 by construction it never reports a pull-request status and can never become a required
 check. Treat deep-classifier output as an assistive ranking signal, not a validated
 measurement.
+
+The nightly CPU job also trains the default model on the public PySMACKS tutorial labels and
+checks frozen training numbers and a floor on the area under the ROC curve of a held-out part
+([ADR-0098](adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md)). That floor is a
+regression check on one labeled set. It does not make the add-on part of the validated core.
