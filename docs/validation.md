@@ -1325,7 +1325,7 @@ acceptor error to 2.390 px.
 The test also counts duplicates: Tether molecules that match a true molecule which an earlier
 Tether molecule already matched (#1006,
 [ADR-0107](adr/0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md)). The count is 0
-in each scenario, and the limit is that count, so a molecule written twice breaks it; a test
+in each scenario, and the limit is that count, so a molecule written twice breaks it. A test
 repeats each molecule and trace row of `easy` and requires the duplicate limit to break.
 
 ## External benchmark
