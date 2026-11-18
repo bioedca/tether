@@ -456,6 +456,23 @@ def test_subset_still_replaces_a_hard_linked_pair(source, tmp_path) -> None:
     assert not first.samefile(folder / "other-subset.tether")
 
 
+def test_subset_provenance_files_that_are_one_file_are_refused(source, tmp_path, capsys) -> None:
+    """``subset`` writes its provenance file in place, so a linked pair would lose one."""
+    path, _ = source
+    other = _second(tmp_path)
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    first = folder / ("exp-subset.tether" + _SIDECAR)
+    first.write_text("kept", encoding="utf-8")
+    _link_or_skip(first, folder / ("other-subset.tether" + _SIDECAR))
+
+    argv = ["export", "subset", str(path), str(other), "-o", str(folder), "--overwrite"]
+    assert main(argv) == 1
+    assert first.read_text(encoding="utf-8") == "kept"
+    assert not (folder / "exp-subset.tether").exists()
+    assert "are the same file" in capsys.readouterr().err
+
+
 # --------------------------------------------------------------------------- #
 # Several projects
 # --------------------------------------------------------------------------- #

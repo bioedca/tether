@@ -267,14 +267,15 @@ def _shared_destination(form: str, targets: list[tuple[Path, Path]]) -> str | No
     and replaces what the earlier one wrote, and the command still reports success.
     The names are distinct (``_targets`` refused case-folded clashes), so only the
     identity of the files behind them is compared, with ``Path.samefile`` as in
-    ``_is_source``. ``subset`` writes through a temporary file and a rename, which
-    breaks the link, so it is not checked.
+    ``_is_source``. ``subset`` writes its data file through a temporary file and a
+    rename, which breaks the link, so only its provenance files, which are written in
+    place like every other form's, are checked.
     """
-    if form == "subset":
-        return None
-    paths = [
-        path for _, out in targets for path in (out, out.with_name(out.name + _SIDECAR_SUFFIX))
-    ]
+    paths = []
+    for _, out in targets:
+        if form != "subset":
+            paths.append(out)
+        paths.append(out.with_name(out.name + _SIDECAR_SUFFIX))
     existing = [path for path in paths if path.exists()]
     for i, first in enumerate(existing):
         for second in existing[i + 1 :]:

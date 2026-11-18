@@ -709,10 +709,11 @@ These rules apply to all three forms:
   So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
   second project with the subset of the first, even with `--overwrite`. The `<file>.lock` file
   of a project you gave is refused in the same way.
-- **Two exports never share a file.** For `table` and `traces`, two outputs or provenance
-  files that are hard links to one existing file stop the command with exit code `1` before
-  the first export, even with `--overwrite`: otherwise the second export would replace the
-  first one's file. `subset` replaces its file with a new one, which breaks the link.
+- **Two exports never share a file.** Two outputs or provenance files that are hard links to
+  one existing file stop the command with exit code `1` before the first export, even with
+  `--overwrite`: otherwise the second export would replace the first one's file. `subset`
+  replaces its `.tether` file with a new one, which breaks the link, so for `subset` only the
+  provenance files are compared.
 - **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
   makes the folder if necessary and names each export after its project: `<project>.csv`,
   `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
