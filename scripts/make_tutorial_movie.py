@@ -32,7 +32,30 @@ Regenerate the committed file, or check it is byte-identical to a fresh derivati
     python scripts/make_tutorial_movie.py
     python scripts/make_tutorial_movie.py --check
 
-Needs ``numpy`` and ``tifffile`` (both in the base environment).
+**A second, larger movie (issue #596).** Three molecules and 24 frames are too few for the
+corrections: the leakage and gamma estimates each need at least 10 molecules whose acceptor
+bleaches with 20 or more frames left. ``docs/reproducibility.md`` therefore shows its sample
+output from a second movie, which this script writes only on request and which is not
+committed (about 3.6 MB)::
+
+    python scripts/make_tutorial_movie.py --reproducibility-movie reproducibility_movie.tif
+
+It never touches the tutorial movie above, and the tutorial's expected values do not depend
+on it. What it contains:
+
+* **Shape** ``(150, 78, 156)``: 150 frames of 78 x 156 px, big-endian ``uint16``, the donor
+  view in the left 78-px half. Background, sigma and total amplitude as above.
+* **Sixteen colocalized pairs** on a 4 x 4 grid, 18 px apart, the first at ``(12, 12)``;
+  each acceptor copy again sits at +1 px x in its own half.
+* **FRET.** Molecule ``k`` (0-based, row by row) switches between E = 0.3 and E = 0.7
+  with a dwell of ``8 + 3 * (k % 5)`` frames, starting high when ``k`` is odd.
+* **Leakage** α = 0.08: the acceptor view also receives 8 % of the donor emission. The
+  detection-efficiency ratio γ is 1, because the split is exactly ``(1 - E)`` and ``E``.
+* **Photobleaching.** The acceptor of molecule ``k`` bleaches at frame
+  ``40 + (7 * k) % 40``; from then on the donor emits the full amplitude and the acceptor
+  view holds only its leakage. The donor bleaches ``70 + (5 * k) % 20`` frames later, which
+  for some molecules is after the last frame.
+* **Noise.** Poisson, as above, from ``numpy.random.default_rng(596)``.
 """
 
 from __future__ import annotations
@@ -59,6 +82,27 @@ SHIFT_X = 1.0  # acceptor = donor + 1 px in x, within its own half
 
 #: Donor spot centers ``(x, y)`` within the donor half.
 DONOR_CENTERS = np.array([[12.0, 12.0], [27.0, 17.0], [14.0, 28.0]])
+
+# --- The reproducibility page's movie (#596) ---------------------------------------------
+REPRO_SEED = 596
+REPRO_GRID = 4
+REPRO_SPACING = 18
+REPRO_MARGIN = 12
+REPRO_HALF = 2 * REPRO_MARGIN + (REPRO_GRID - 1) * REPRO_SPACING  # 78 px per view
+REPRO_N_FRAMES = 150
+REPRO_LEAKAGE = 0.08
+REPRO_LOW_E = 0.3
+REPRO_HIGH_E = 0.7
+
+#: Donor spot centers ``(x, y)`` of the reproducibility movie, row by row.
+REPRO_DONOR_CENTERS = np.array(
+    [
+        [REPRO_MARGIN + REPRO_SPACING * col, REPRO_MARGIN + REPRO_SPACING * row]
+        for row in range(REPRO_GRID)
+        for col in range(REPRO_GRID)
+    ],
+    dtype=float,
+)
 
 
 def _efficiency_and_brightness() -> tuple[np.ndarray, np.ndarray]:
@@ -98,11 +142,67 @@ def make_stack() -> np.ndarray:
     return np.ascontiguousarray(stack, dtype=">u2")
 
 
+def _serialize(stack: np.ndarray) -> bytes:
+    buffer = io.BytesIO()
+    tifffile.imwrite(buffer, stack, photometric="minisblack", byteorder=">")
+    return buffer.getvalue()
+
+
 def movie_bytes() -> bytes:
     """Serialize :func:`make_stack` exactly as the committed file is written."""
-    buffer = io.BytesIO()
-    tifffile.imwrite(buffer, make_stack(), photometric="minisblack", byteorder=">")
-    return buffer.getvalue()
+    return _serialize(make_stack())
+
+
+def reproducibility_schedule() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-frame FRET efficiency ``(16, REPRO_N_FRAMES)`` and the two bleach frames.
+
+    Returns ``(efficiency, acceptor_bleach, donor_bleach)``; a bleach frame is the first
+    frame without that dye's emission and may lie past the last frame.
+    """
+    n = len(REPRO_DONOR_CENTERS)
+    frames = np.arange(REPRO_N_FRAMES)
+    efficiency = np.empty((n, REPRO_N_FRAMES))
+    acceptor_bleach = np.empty(n, dtype=int)
+    donor_bleach = np.empty(n, dtype=int)
+    for k in range(n):
+        dwell = 8 + 3 * (k % 5)
+        high = (frames // dwell + k) % 2 == 1
+        efficiency[k] = np.where(high, REPRO_HIGH_E, REPRO_LOW_E)
+        acceptor_bleach[k] = 40 + (7 * k) % 40
+        donor_bleach[k] = acceptor_bleach[k] + 70 + (5 * k) % 20
+    return efficiency, acceptor_bleach, donor_bleach
+
+
+def make_reproducibility_stack() -> np.ndarray:
+    """Return the reproducibility page's movie as a big-endian ``uint16`` array."""
+    efficiency, acceptor_bleach, donor_bleach = reproducibility_schedule()
+    height, width = REPRO_HALF, 2 * REPRO_HALF
+    rows, cols = np.mgrid[0:height, 0:width]
+
+    def spot(x: float, y: float) -> np.ndarray:
+        return np.exp(-((rows - y) ** 2 + (cols - x) ** 2) / (2.0 * SIGMA**2))
+
+    donor_spots = [spot(x, y) for x, y in REPRO_DONOR_CENTERS]
+    acceptor_spots = [spot(x + REPRO_HALF + SHIFT_X, y) for x, y in REPRO_DONOR_CENTERS]
+
+    rng = np.random.default_rng(REPRO_SEED)
+    stack = np.empty((REPRO_N_FRAMES, height, width), dtype=np.int64)
+    for frame in range(REPRO_N_FRAMES):
+        expected = np.full((height, width), BACKGROUND)
+        for k in range(len(REPRO_DONOR_CENTERS)):
+            if frame >= donor_bleach[k]:
+                continue
+            e = efficiency[k, frame] if frame < acceptor_bleach[k] else 0.0
+            donor = (1.0 - e) * TOTAL_AMPLITUDE
+            acceptor = e * TOTAL_AMPLITUDE + REPRO_LEAKAGE * donor
+            expected += donor * donor_spots[k] + acceptor * acceptor_spots[k]
+        stack[frame] = rng.poisson(np.rint(expected))
+    return np.ascontiguousarray(stack, dtype=">u2")
+
+
+def reproducibility_movie_bytes() -> bytes:
+    """Serialize :func:`make_reproducibility_stack` as ``--reproducibility-movie`` writes it."""
+    return _serialize(make_reproducibility_stack())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -112,7 +212,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="re-derive the movie and fail unless it matches the committed file byte for byte",
     )
+    parser.add_argument(
+        "--reproducibility-movie",
+        metavar="PATH",
+        type=Path,
+        help=(
+            "write the larger movie behind docs/reproducibility.md's sample output to PATH "
+            "instead (not committed; the tutorial movie is left alone)"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.reproducibility_movie is not None:
+        if args.check:
+            parser.error("--check verifies the committed tutorial movie only")
+        data = reproducibility_movie_bytes()
+        args.reproducibility_movie.write_bytes(data)
+        print(f"wrote {args.reproducibility_movie} ({len(data)} bytes)")
+        return 0
 
     data = movie_bytes()
     if args.check:

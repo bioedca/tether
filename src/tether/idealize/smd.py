@@ -8,14 +8,14 @@ The SMD container [Greenfeld2015] is tMAVEN's on-disk trace format: a root group
 a ``sources/`` group, and an optional ``tMAVEN/`` group (``classes`` +
 ``pre_list``/``post_list`` analysis windows).
 
-:func:`write_smd` reproduces the exact structure tMAVEN's own
+[`write_smd`][] reproduces the exact structure tMAVEN's own
 ``pysmd.save_smd_in_hdf5`` writes (so a Tether-authored SMD opens directly in the
 standalone tMAVEN GUI — PRD §7.4), and additionally rides Tether's native
 coordinates along in a ``dataset/tether/`` **superset** group. tMAVEN's loader
 reads only ``data``/``sources``/``tMAVEN`` and rewrites only those on a save, so
 the superset group is invisible to (and dropped by) a standalone tMAVEN
 round-trip — the documented gap (§5, Appendix D.1) that the return-leg
-intensity matcher (:mod:`tether.idealize.matcher`) closes. On a Tether→Tether
+intensity matcher ([`tether.idealize.matcher`][]) closes. On a Tether→Tether
 round-trip the superset group survives intact.
 """
 
@@ -32,8 +32,8 @@ import numpy as np
 if TYPE_CHECKING:
     from os import PathLike
 
-# ``h5py`` is imported lazily inside :func:`read_smd` / :func:`write_smd` so that
-# ``import tether.idealize`` (and :func:`tether.idealize.match_return_leg`, which
+# ``h5py`` is imported lazily inside `read_smd` / `write_smd` so that
+# ``import tether.idealize`` (and `tether.idealize.match_return_leg`, which
 # is pure NumPy) does not require h5py.
 
 #: Group attribute values tMAVEN recognises (``load_smd_in_hdf5`` accepts any case).
@@ -258,7 +258,7 @@ def _read_str_dataset(group, name: str, n: int, path) -> list[str] | None:
 
 
 def read_smd(path: str | PathLike[str], group: str = DEFAULT_GROUP) -> SMDData:
-    """Read an SMD-HDF5 file (Tether- or tMAVEN-authored) into :class:`SMDData`.
+    """Read an SMD-HDF5 file (Tether- or tMAVEN-authored) into [`SMDData`][].
 
     Loads the ``data``/``sources``/``tMAVEN`` groups the same way tMAVEN does,
     plus the Tether ``tether/`` superset group when present. Sources are

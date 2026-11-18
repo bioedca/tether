@@ -1,0 +1,32 @@
+{#-
+  SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+  SPDX-License-Identifier: GPL-3.0-or-later
+
+  The citation metadata in the HTML head (#599). scripts/docs_citation_hook.py reads
+  CITATION.cff when the site builds and puts the values in config.extra.citation:
+
+  * json_ld: a schema.org SoftwareSourceCode record, on every page;
+  * meta: the citation_* tags, on the pages that `pages` names (the landing page and the
+    citing page).
+
+  The page description itself needs no override: Material writes the `description` of a
+  page's front matter into its <meta name="description">.
+
+  Everything here is static text. Nothing loads from another host, so the "no third-party
+  asset requests" statement of docs/privacy.md stays true; tests/test_docs_site_brand.py
+  checks the built site for it.
+-#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% set citation = config.extra.citation %}
+  {% if citation %}
+    <script type="application/ld+json">{{ citation.json_ld }}</script>
+    {% if page and page.file and page.file.src_uri in citation.pages %}
+      {% for name, content in citation.meta %}
+        <meta name="{{ name }}" content="{{ content | e }}">
+      {% endfor %}
+    {% endif %}
+  {% endif %}
+{% endblock %}

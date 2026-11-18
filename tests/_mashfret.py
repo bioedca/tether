@@ -51,6 +51,29 @@ the page and the source disagree, the source wins, because the source wrote the 
 ``bool_intensities``
     ``L``-by-``M``: the frames that are included (``discrTraces.m`` uses only these).
 
+``prmThm{t+1, k}`` — the Histogram-analysis results (#712)
+    One cell for each molecule tag (row 1 is "all molecules", row ``t + 1`` the ``t``-th tag of
+    ``molTagNames``) and each data type. The data type of the first FRET pair is
+    ``k = 2*nC*nL + 2*nDE + 1``, after the intensities, their discretised copies and the total
+    intensities (``ud_thmPlot.m``). ``plot{1}`` is ``[bin, low, high, overflow]``; ``plot{2}`` is
+    ``getHist.m``'s ``[centres, counts, cumulative counts]``: MATLAB's ``hist`` of the γ-corrected
+    FRET of the ``denoise`` intensities over the included frames of the tag's molecules, with the
+    first and the last bin, which collect the overflow, removed when ``overflow`` is 0.
+    ``thm_res{2,1}`` is the Gaussian fit (``gauss_ana.m``): one row ``[A, σ(A), μ, σ(μ), FWHM,
+    σ(FWHM), population, σ(population)]`` for each Gaussian, the mean and SD over the bootstrap
+    samples. ``thm_res{2,2}`` holds the ``[A, μ, FWHM, population]`` of each Gaussian for each
+    sample, and ``thm_res{2,3}`` the centres and the histogram of each sample (each sums to 1)
+    (#713). ``thm_start{1}`` is ``[method, bootstrap, molecules per sample, samples, weighted]``;
+    "weighted" makes each molecule's histogram sum to 1 before the molecules are added
+    (``getHist.m``). ``thm_start{3}`` holds, for each Gaussian, the lower bound, the start and the
+    upper bound of ``A``, ``μ`` and the FWHM, in that order.
+``prmTDP{t+1, k}`` — the Transition-analysis results (#712)
+    ``clst_res{3}`` is the number of clusters chosen and ``clst_res{1}.clusters{J}`` the dwell
+    table of that choice (``clustTrans.m``): one row ``[dwell time in s, value before, value after,
+    molecule, x, y, j1, j2]`` for each dwell that ends in a transition, ``j1 → j2`` its cluster's
+    states (0 if no cluster took it). ``kin_res``, the fitted rates, is empty in every file of the
+    record, so the record holds no MASH-FRET rate.
+
 Only the layout of that generation of MASH-FRET is read: ``fix`` and ``prmTT`` at the top level.
 A later layout (a ``TP`` structure, as in the MASH-FRET 1.3.4 file of the same record) raises
 :class:`UnsupportedProject`, so a test never reads a field from the wrong place.
@@ -65,7 +88,15 @@ from pathlib import Path
 import numpy as np
 import scipy.io as sio
 
-__all__ = ["MashProject", "UnsupportedProject", "read_project"]
+__all__ = [
+    "Bootstrap",
+    "MashProject",
+    "TagAnalysis",
+    "UnsupportedProject",
+    "read_project",
+    "read_tag_analysis",
+    "stored_histogram_tags",
+]
 
 _COMMIT = re.compile(r"prev\. commit: ([0-9a-f]{7,40})")
 
@@ -219,4 +250,151 @@ def read_project(path: Path | str) -> MashProject:
         beta=beta,
         gamma_method=method,
         dta_settings=dta,
+    )
+
+
+@dataclass(frozen=True)
+class Bootstrap:
+    """MASH-FRET's bootstrap of one tag's Gaussian fit (``gauss_ana.m``, #713)."""
+
+    enabled: bool
+    molecules_per_sample: int  # drawn with replacement for each sample
+    weighted: bool  # each molecule's histogram sums to 1 before the molecules are added
+    fit_start: np.ndarray  # (J, 9): [A low, start, high, μ low, start, high, FWHM low, start, high]
+    samples: np.ndarray  # (S, 4*J): [A, μ, FWHM, population] of each Gaussian, μ ascending
+    histograms: np.ndarray  # (bins, S): each sample's histogram, each column sums to 1
+
+    @property
+    def populations(self) -> np.ndarray:
+        """``(S, J)``: the population of each Gaussian in each sample."""
+        return self.samples[:, 3::4]
+
+
+@dataclass(frozen=True)
+class TagAnalysis:
+    """MASH-FRET's analysis of one molecule tag, and the traces it was made from (#712)."""
+
+    tag: int  # 0 = all molecules, t = the t-th tag (1-based, as in molTagNames)
+    molecules: np.ndarray  # (n,) project indexes of the tag's included molecules
+    donor: list[np.ndarray]  # denoised donor at the donor's laser, included frames
+    acceptor: list[np.ndarray]  # the same for the acceptor
+    gamma: np.ndarray  # (n,) γ of the first FRET pair
+    states: list[np.ndarray]  # FRET_DTA over the same frames
+    frame_time: float  # s, MASH-FRET's frame_rate field
+    bin_width: float
+    centres: np.ndarray  # MASH-FRET's bin centres, overflow bins removed
+    counts: np.ndarray  # MASH-FRET's histogram counts
+    gaussians: np.ndarray | None  # thm_res{2,1}: (J, 8), or None if no fit is stored
+    dwells: np.ndarray | None  # clst_res{1}.clusters{J}: (n, 8), or None
+    bootstrap: Bootstrap | None = None  # thm_start and thm_res{2,2:3}, or None if no fit
+
+
+def _load(path: Path | str) -> dict:
+    raw = sio.loadmat(str(path), squeeze_me=True, struct_as_record=False)
+    if "prmThm" not in raw or "prmTT" not in raw:
+        layout = "a TP structure" if "TP" in raw else "no prmThm or prmTT"
+        raise UnsupportedProject(f"{Path(path).name}: {layout}")
+    return raw
+
+
+def _fret_type(raw: dict) -> int:
+    """0-based column of the first FRET pair in prmThm (``ud_thmPlot.m``'s list of types)."""
+    n_channels = int(raw["nb_channel"])
+    n_lasers = int(raw["nb_excitations"])
+    n_direct = int(np.count_nonzero(np.atleast_1d(raw["chanExc"])[:n_channels]))
+    return 2 * n_channels * n_lasers + 2 * n_direct
+
+
+def _filled(cell: object) -> bool:
+    return hasattr(cell, "plot") and len(cell.plot) > 1 and np.size(cell.plot[1]) > 0
+
+
+def stored_histogram_tags(path: Path | str) -> list[int]:
+    """The tags (0 = all molecules) for which the project stores a FRET histogram."""
+    raw = _load(path)
+    column = raw["prmThm"][:, _fret_type(raw)]
+    return [t for t, cell in enumerate(column) if _filled(cell)]
+
+
+def read_tag_analysis(path: Path | str, tag: int) -> TagAnalysis:
+    """MASH-FRET's FRET histogram, Gaussian fit and dwell table of *tag*, with its traces."""
+    raw = _load(path)
+    cell = raw["prmThm"][tag, _fret_type(raw)]
+    if not _filled(cell):
+        raise ValueError(f"{Path(path).name}: no FRET histogram is stored for tag {tag}")
+    bin_width, _, _, overflow = np.asarray(cell.plot[0], dtype=np.float64)
+    if overflow:
+        raise UnsupportedProject("a histogram that keeps its overflow bins")
+    table = np.atleast_2d(np.asarray(cell.plot[1], dtype=np.float64))
+    results = np.asarray(cell.thm_res, dtype=object)
+    fit = results[1, 0]
+    gaussians = np.atleast_2d(np.asarray(fit, dtype=np.float64)) if np.size(fit) else None
+    bootstrap = None
+    if gaussians is not None:
+        settings = np.asarray(cell.thm_start[0], dtype=np.float64).ravel()
+        n_gauss = gaussians.shape[0]
+        histograms = np.atleast_2d(np.asarray(results[1, 2], dtype=np.float64))
+        bootstrap = Bootstrap(
+            enabled=bool(settings[1]),
+            molecules_per_sample=int(settings[2]),
+            weighted=bool(settings[4]),
+            fit_start=np.atleast_2d(np.asarray(cell.thm_start[2], dtype=np.float64))[:, :9],
+            samples=np.asarray(results[1, 1], dtype=np.float64).reshape(-1, 4 * n_gauss),
+            histograms=histograms[:, 1:],
+        )
+
+    dwells = None
+    # prmTDP is absent where no Transition analysis was saved, and short of rows for tags made
+    # after it was.
+    transition = raw.get("prmTDP")
+    has_row = transition is not None and tag < transition.shape[0]
+    for tdp in np.atleast_1d(transition[tag] if has_row else []):
+        if hasattr(tdp, "clst_res"):
+            chosen = int(tdp.clst_res[2])
+            dwells = np.atleast_2d(np.asarray(tdp.clst_res[0].clusters[chosen - 1], float))
+
+    n_channels = int(raw["nb_channel"])
+    excitations = np.atleast_1d(raw["excitations"]).astype(np.float64)
+    chan_exc = np.atleast_1d(raw["chanExc"]).astype(np.float64)[:n_channels]
+    pairs = np.atleast_2d(raw["FRET"]).astype(int) - 1
+    donor, acceptor = pairs[0]
+    laser = int(np.flatnonzero(excitations == chan_exc[donor])[0])
+    denoised = np.asarray(raw["intensities_denoise"], dtype=np.float64)
+    if denoised.ndim == 2:
+        denoised = denoised[:, :, None]
+    n_frames, n_columns = denoised.shape[:2]
+    n_molecules = n_columns // n_channels
+    included = np.asarray(raw["bool_intensities"]).astype(bool).reshape(n_frames, n_molecules)
+    selected = np.atleast_1d(raw["coord_incl"]).astype(bool)
+    if tag:
+        tags = np.asarray(raw["molTag"]).astype(bool).reshape(n_molecules, -1)
+        selected = selected & tags[:, tag - 1]
+    molecules = np.flatnonzero(selected)
+    prm = np.atleast_1d(raw["prmTT"])
+    n_pairs = pairs.shape[0]
+    gamma = np.array(
+        [np.asarray(prm[m][5][0], dtype=np.float64).reshape(2, n_pairs)[0, 0] for m in molecules]
+    )
+    dta = np.asarray(raw["FRET_DTA"], dtype=np.float64).reshape(n_frames, -1)
+    frames = [included[:, m] for m in molecules]
+    return TagAnalysis(
+        tag=tag,
+        molecules=molecules,
+        donor=[
+            denoised[f, m * n_channels + donor, laser]
+            for m, f in zip(molecules, frames, strict=True)
+        ],
+        acceptor=[
+            denoised[f, m * n_channels + acceptor, laser]
+            for m, f in zip(molecules, frames, strict=True)
+        ],
+        gamma=gamma,
+        states=[dta[f, m * n_pairs] for m, f in zip(molecules, frames, strict=True)],
+        frame_time=float(raw["frame_rate"]),
+        bin_width=float(bin_width),
+        centres=table[:, 0],
+        counts=table[:, 1],
+        gaussians=gaussians,
+        dwells=dwells,
+        bootstrap=bootstrap,
     )

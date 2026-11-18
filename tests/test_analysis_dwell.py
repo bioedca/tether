@@ -13,6 +13,9 @@ base CI matrix; the store is seeded as post-idealization data under the M0-froze
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("numpy")
@@ -29,6 +32,7 @@ from tether.analysis import (  # noqa: E402
     DwellTimeAnalysis,
     StateDwells,
     fit_survival,
+    mean_dwell_time,
     population_dwell_times,
     state_dwells,
     survival_curve,
@@ -510,22 +514,22 @@ def test_population_matches_pure_core(tmp_path) -> None:
 def test_population_known_dwells(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS)
-    a2 = population_dwell_times(proj, "vbconhmm", state=2)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2)[2]
     assert isinstance(a2, DwellTimeAnalysis)
     assert sorted(a2.dwell_lengths.tolist()) == [3, 4]  # mol0 2x3, mol1 2x4
     assert a2.n_dwells == 2
     assert a2.n_molecules == 2
     assert a2.level == pytest.approx(0.85)  # means[2]
-    a1 = population_dwell_times(proj, "vbconhmm", state=1)
+    a1 = population_dwell_times(proj, "vbconhmm", state=1)[1]
     assert a1.dwell_lengths.tolist() == [2]
-    a0 = population_dwell_times(proj, "vbconhmm", state=0)
+    a0 = population_dwell_times(proj, "vbconhmm", state=0)[0]
     assert a0.dwell_lengths.tolist() == [3]
 
 
 def test_population_dt_applied_to_tau(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS)
-    a2 = population_dwell_times(proj, "vbconhmm", state=2, dt=0.1)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2, dt=0.1)[2]
     # tau is arange(max_dwell) * dt (frames -> seconds)
     assert a2.dt == 0.1
     np.testing.assert_allclose(a2.tau, np.arange(a2.tau.size) * 0.1)
@@ -535,30 +539,30 @@ def test_population_stale_excluded_by_default(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS, stale=[False, True])
     # only mol0 contributes: interior 1x2, 2x3 ; state0 (mol1-only) now absent
-    a2 = population_dwell_times(proj, "vbconhmm", state=2)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2)[2]
     assert a2.dwell_lengths.tolist() == [3]
     assert a2.n_molecules == 1
-    a0 = population_dwell_times(proj, "vbconhmm", state=0)
+    a0 = population_dwell_times(proj, "vbconhmm", state=0)[0]
     assert a0.n_dwells == 0
     assert a0.fit is None
     # include_stale restores mol1
-    a2_all = population_dwell_times(proj, "vbconhmm", state=2, include_stale=True)
+    a2_all = population_dwell_times(proj, "vbconhmm", state=2, include_stale=True)[2]
     assert sorted(a2_all.dwell_lengths.tolist()) == [3, 4]
 
 
 def test_population_rejected_excluded_by_default(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS, rejected=[False, True])
-    a2 = population_dwell_times(proj, "vbconhmm", state=2)
+    a2 = population_dwell_times(proj, "vbconhmm", state=2)[2]
     assert a2.dwell_lengths.tolist() == [3]  # only mol0
-    a2_inc = population_dwell_times(proj, "vbconhmm", state=2, include_rejected=True)
+    a2_inc = population_dwell_times(proj, "vbconhmm", state=2, include_rejected=True)[2]
     assert sorted(a2_inc.dwell_lengths.tolist()) == [3, 4]
 
 
 def test_population_missing_state_is_empty_never_raises(tmp_path) -> None:
     s = _known_states()
     proj, _keys = build_store_with_model(tmp_path, s, MEANS)
-    a = population_dwell_times(proj, "vbconhmm", state=99)
+    a = population_dwell_times(proj, "vbconhmm", state=99)[99]
     assert a.n_dwells == 0
     assert a.n_molecules == 0  # no molecule contributes (#739 ANB-F10, dwell.py:586)
     assert a.dwell_lengths.size == 0
@@ -588,7 +592,7 @@ def test_analysis_histogram_density_and_dt_scaled_centres(tmp_path) -> None:
     s = np.array([frames], dtype="int64")
     means = np.array([0.3, 0.7])
     proj, _keys = build_store_with_model(tmp_path, s, means, name="hist.tether")
-    a = population_dwell_times(proj, "vbconhmm", state=1)  # dt = 1 (frames)
+    a = population_dwell_times(proj, "vbconhmm", state=1)[1]  # dt = 1 (frames)
     centres, density = a.histogram(nbins=10)
     assert centres.size == 10
     width = centres[1] - centres[0]
@@ -603,7 +607,7 @@ def test_analysis_histogram_density_and_dt_scaled_centres(tmp_path) -> None:
 
     # a 10x-smaller dt scales every bin centre by 10x (a dt bug on the histogram would
     # cancel out of the density check but shifts the centres).
-    a_dt = population_dwell_times(proj, "vbconhmm", state=1, dt=0.1)
+    a_dt = population_dwell_times(proj, "vbconhmm", state=1, dt=0.1)[1]
     centres_dt, _ = a_dt.histogram(nbins=10)
     np.testing.assert_allclose(centres_dt, centres * 0.1)
 
@@ -729,3 +733,142 @@ def test_population_plumbs_fit_model_kwarg(tmp_path, model: str) -> None:
         assert all(a.fit.success for a in result.values())
         if model == "stretched":
             assert all(a.fit.beta is not None for a in result.values())
+
+
+# --- mean dwell time of a sum of exponentials (#1028) -----------------------------
+
+#: The six input/output pairs of Campos-Chavez et al. 2024 (doi:10.1038/s41467-024-50885-x,
+#: Supplementary Table 6), committed at the git tier (ADR-0097, tests/fixtures/PROVENANCE.md).
+_DOUBLE_DIR = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "campos_chavez_2024"
+    / "ErrorCalculations_CodeAndSourceData"
+    / "ErrorsDoubleExponential"
+)
+_DOUBLE_PAIRS = sorted(p.stem for p in _DOUBLE_DIR.glob("Double-*.txt"))
+
+
+def test_the_six_campos_chavez_pairs_are_committed() -> None:
+    assert len(_DOUBLE_PAIRS) == 6, _DOUBLE_PAIRS
+    for name in _DOUBLE_PAIRS:
+        assert (_DOUBLE_DIR / f"{name}.out").is_file(), name
+
+
+@pytest.mark.parametrize("name", _DOUBLE_PAIRS)
+def test_mean_dwell_time_reproduces_the_campos_chavez_out_file(name: str) -> None:
+    # CalculateDoubleExponentialErrors.py reads A1, A1err, A2, A2err, K1, K1err, K2, K2err and
+    # pairs each error with the parameter beside it; the .out keeps two decimals. The files hold
+    # tMAVEN's error order (#756), so this checks the formula, not the pairing of the errors.
+    a1, a1e, a2, a2e, k1, k1e, k2, k2e = np.loadtxt(_DOUBLE_DIR / f"{name}.txt")
+    out = (_DOUBLE_DIR / f"{name}.out").read_text()
+    want_tau = re.search(r"^tau value: (\S+)$", out, re.M).group(1)
+    want_err = re.search(r"^Uncertainty in tau: (\S+)$", out, re.M).group(1)
+    tau, err = mean_dwell_time(
+        [a1, a2], [k1, k2], amplitude_stderr=[a1e, a2e], rate_stderr=[k1e, k2e]
+    )
+    assert f"{tau:.2f}" == want_tau, (name, tau)
+    assert f"{err:.2f}" == want_err, (name, err)
+
+
+def test_mean_dwell_time_of_one_exponential_is_the_lifetime() -> None:
+    tau, err = mean_dwell_time([0.7], [0.25], amplitude_stderr=[0.1], rate_stderr=[0.01])
+    assert tau == pytest.approx(4.0, rel=1e-15)
+    # d(1/k)/dk = -1/k^2; the amplitude cancels out of tau, so its error contributes nothing.
+    assert err == pytest.approx(0.01 / 0.25**2, rel=1e-15)
+
+
+def test_mean_dwell_time_without_errors_has_zero_error() -> None:
+    tau, err = mean_dwell_time([0.5, 0.5], [0.05, 0.8])
+    assert tau == pytest.approx((0.5 / 0.05 + 0.5 / 0.8) / 1.0, rel=1e-15)
+    assert err == 0.0
+
+
+def test_mean_dwell_time_error_matches_finite_differences_for_three_exponentials() -> None:
+    a = np.array([0.5, 0.3, 0.2])
+    k = np.array([0.02, 0.2, 2.0])
+    a_err = np.array([0.01, 0.02, 0.005])
+    k_err = np.array([0.001, 0.01, 0.1])
+
+    def f(p: np.ndarray) -> float:
+        return mean_dwell_time(p[:3], p[3:])[0]
+
+    p0 = np.r_[a, k]
+    grad = np.empty(6)
+    for i in range(6):
+        h = 1e-6 * p0[i]
+        up, dn = p0.copy(), p0.copy()
+        up[i] += h
+        dn[i] -= h
+        grad[i] = (f(up) - f(dn)) / (2 * h)
+    want = float(np.sqrt(np.sum((grad * np.r_[a_err, k_err]) ** 2)))
+    tau, err = mean_dwell_time(a, k, amplitude_stderr=a_err, rate_stderr=k_err)
+    assert tau == pytest.approx(float(np.sum(a / k) / np.sum(a)), rel=1e-15)
+    assert err == pytest.approx(want, rel=1e-6)
+
+
+def test_mean_dwell_time_uses_each_error_at_its_own_index() -> None:
+    # Swapping the two rate errors (tMAVEN's order, #756) changes the answer: the function
+    # cannot re-pair them and does not try to.
+    a, k = [0.48, 0.42], [0.077, 1.08]
+    _, paired = mean_dwell_time(a, k, rate_stderr=[5.83e-4, 3.38e-2])
+    _, swapped = mean_dwell_time(a, k, rate_stderr=[3.38e-2, 5.83e-4])
+    assert paired < 0.1 < 1.0 < swapped
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ([], [], None, None),
+        ([0.5, 0.5], [0.1], None, None),
+        ([0.5, 0.5], [0.1, 1.0], [0.01], None),
+        ([0.5, 0.5], [0.1, 1.0], None, [0.01, 0.02, 0.03]),
+    ],
+)
+def test_mean_dwell_time_rejects_mismatched_lengths(args) -> None:
+    a, k, a_err, k_err = args
+    with pytest.raises(ValueError, match="one length"):
+        mean_dwell_time(a, k, amplitude_stderr=a_err, rate_stderr=k_err)
+
+
+def test_mean_dwell_time_zero_rate_is_inf_not_an_exception() -> None:
+    tau, _ = mean_dwell_time([1.0], [0.0])
+    assert tau == np.inf
+
+
+@pytest.mark.parametrize("model", ["single", "double", "triple"])
+def test_dwell_fit_mean_dwell_time_uses_its_own_paired_errors(model: str) -> None:
+    tau = np.arange(200, dtype=float)
+    surv = {
+        "single": 0.9 * np.exp(-0.1 * tau),
+        "double": 0.5 * np.exp(-0.05 * tau) + 0.5 * np.exp(-0.8 * tau),
+        "triple": 0.5 * np.exp(-0.02 * tau) + 0.3 * np.exp(-0.2 * tau) + 0.2 * np.exp(-2.0 * tau),
+    }[model]
+    surv = surv + np.random.default_rng(7).normal(0.0, 1e-3, tau.size)
+    fit = fit_survival(tau, surv, model=model)
+    assert fit.success
+    got = fit.mean_dwell_time()
+    want = mean_dwell_time(
+        fit.amplitudes,
+        fit.rates,
+        amplitude_stderr=fit.amplitude_stderr,
+        rate_stderr=fit.rate_stderr,
+    )
+    assert got == want
+    true_tau = {"single": 10.0, "double": 0.5 / 0.05 + 0.5 / 0.8, "triple": 25 + 1.5 + 0.1}[model]
+    assert got[0] == pytest.approx(true_tau, rel=0.05)
+    assert 0.0 < got[1] < got[0]
+
+
+def test_failed_fit_mean_dwell_time_is_nan() -> None:
+    fit = fit_survival(np.arange(3.0), np.array([1.0, 0.5, 0.25]), model="double")
+    assert not fit.success
+    tau, err = fit.mean_dwell_time()
+    assert np.isnan(tau) and np.isnan(err)
+
+
+def test_stretched_fit_mean_dwell_time_raises() -> None:
+    tau = np.arange(80, dtype=float)
+    fit = fit_survival(tau, np.exp(-((0.1 * tau) ** 0.7)), model="stretched")
+    with pytest.raises(ValueError, match="stretched"):
+        fit.mean_dwell_time()
