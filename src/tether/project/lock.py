@@ -23,6 +23,11 @@ it steals. Comparing the login too keeps the guard safe against PID reuse — a
 recycled PID owned by a *different* user is treated as foreign, never silently
 granted write access.
 
+The one place a PID is probed is a lock whose host is *this* computer
+([`lock_recovery`][], #626): there the probe is local and reliable enough to tell a
+crashed session (offered a one-click recovery) from a running one (never taken).
+Every other holder is still judged by the wall clock alone.
+
 The ``.lock`` sidecar is a JSON file (``<file>.tether.lock``) carrying
 ``host`` / ``user`` / ``pid`` / ``timestamp`` (PRD §5.1) plus a per-acquisition
 ``nonce`` so a holder can prove ownership for release even after PID reuse. It is
@@ -63,6 +68,7 @@ import getpass
 import glob as _glob
 import hashlib
 import json
+import logging
 import os
 import socket
 import stat
@@ -71,7 +77,8 @@ import threading
 import time
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING
@@ -90,9 +97,11 @@ __all__ = [
     "LockError",
     "LockIdentity",
     "LockInfo",
+    "LockRecovery",
     "LockedError",
     "ProcessReservation",
     "PublishGuardRequiredError",
+    "RecoveryAction",
     "acquire",
     "acquire_process_reservation",
     "assert_writable",
@@ -101,10 +110,13 @@ __all__ = [
     "create_split_curation",
     "file_identity",
     "held_lock",
+    "holding",
     "local_identity",
     "lock_path",
+    "lock_recovery",
     "publish_lock",
     "read_lock",
+    "recover_lock",
     "refresh",
     "release",
     "release_process_reservation",
@@ -139,6 +151,9 @@ _GUARD_REGISTRY_LOCK = Lock()
 # A strict claim that repeatedly loses O_EXCL to a writer whose sidecar vanishes
 # must fail closed rather than busy-spin the whole batch queue forever.
 _STRICT_CLAIM_ATTEMPTS = 5
+
+#: Every recovery or takeover is reported on this logger at WARNING (#626).
+_LOG = logging.getLogger("tether.project.lock")
 
 
 class _ProcessReservationState:
@@ -1560,6 +1575,299 @@ def steal_lock(
         )
 
 
+# --- recovery of a lock the application cannot acquire (#626) ---------------
+
+
+class RecoveryAction(StrEnum):
+    """What the application may offer for a lock it could not acquire (#626)."""
+
+    #: The holder was a Tether process of this user on this computer, and that
+    #: process no longer runs (the crash case). One click takes the lock.
+    RECOVER = "recover"
+    #: The holder is on another computer, is another user, or is unknown (a corrupt
+    #: lock), and the lock is stale by the wall-clock timeout. A typed confirmation
+    #: takes the lock; the holder's unsaved work can be lost.
+    TAKE_OVER = "take_over"
+    #: Nothing may be offered now: the holder runs on this computer, or a foreign
+    #: lock is not yet stale ([`LockRecovery.available_at`][] says when it will be).
+    NONE = "none"
+
+
+@dataclass(frozen=True)
+class LockRecovery:
+    """The recovery verdict for one lock, from [`lock_recovery`][].
+
+    Attributes
+    ----------
+    action:
+        What may be offered now.
+    owner:
+        The holder's record, or ``None`` for a corrupt lock (unknown owner).
+    same_host:
+        Whether the holder's host is this computer. Always ``False`` when corrupt.
+    holder_running:
+        For a same-host holder, whether its recorded process still runs
+        (unknown is reported as running). ``None`` when the host differs or the
+        lock is corrupt, because a remote process cannot be probed (PRD §5.4).
+    available_at:
+        For a lock that is not yet stale, the UTC instant at which a takeover
+        becomes possible if the holder does not refresh first. ``None`` otherwise,
+        and ``None`` for a same-host holder that still runs, because that lock is
+        never taken.
+    """
+
+    action: RecoveryAction
+    owner: LockInfo | None
+    same_host: bool
+    holder_running: bool | None
+    available_at: datetime | None
+
+    @property
+    def corrupt(self) -> bool:
+        """Whether the lock file could not be parsed (unknown owner)."""
+        return self.owner is None
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether process ``pid`` runs on this computer; unknown is reported as running.
+
+    Used only to judge a lock whose host is this computer (#626). The answer fails
+    closed: when the probe itself fails, the process is reported as running so its
+    lock is never taken. A reused PID also reads as running, which is the same safe
+    side. Windows needs ``OpenProcess`` because ``os.kill`` there terminates the
+    target instead of probing it.
+    """
+    if pid <= 0:
+        return True  # 0 and negatives address process groups on POSIX, never one PID
+    if sys.platform == "win32":
+        return _pid_alive_windows(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # it exists, under another user
+    except OverflowError:
+        return False  # no process can carry this PID
+    except OSError:
+        return True
+    return True
+
+
+def _pid_alive_windows(pid: int) -> bool:  # pragma: no cover - exercised on Windows CI
+    """``OpenProcess`` + ``GetExitCodeProcess`` probe for [`_pid_alive`][]."""
+    import ctypes
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    error_invalid_parameter = 87
+    still_active = 259
+    if pid > 0xFFFFFFFF:
+        return False
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        # No such process -> ERROR_INVALID_PARAMETER; access denied means it exists.
+        return ctypes.get_last_error() != error_invalid_parameter
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _classify_recovery(
+    lp: Path,
+    info: LockInfo | None,
+    corrupt: bool,
+    *,
+    identity: LockIdentity,
+    timeout_s: float,
+    now: datetime,
+) -> LockRecovery | None:
+    """Judge one read of the sidecar; ``None`` when it is absent or ours."""
+    if not corrupt and (info is None or info.identity == identity):
+        return None
+    if info is None:
+        # Corrupt: no owner to judge, so the file's own age is the wall clock.
+        try:
+            written = datetime.fromtimestamp(lp.stat().st_mtime, UTC)
+        except OSError:
+            written = now
+        due = written + timedelta(seconds=timeout_s)
+        if now > due:
+            return LockRecovery(RecoveryAction.TAKE_OVER, None, False, None, None)
+        return LockRecovery(RecoveryAction.NONE, None, False, None, due)
+    if info.host == identity.host:
+        running = _pid_alive(info.pid)
+        if running:
+            return LockRecovery(RecoveryAction.NONE, info, True, True, None)
+        if info.user == identity.user:
+            return LockRecovery(RecoveryAction.RECOVER, info, True, False, None)
+        same_host, holder_running = True, False
+    else:
+        same_host, holder_running = False, None
+    if info.is_stale(timeout_s=timeout_s, now=now):
+        return LockRecovery(RecoveryAction.TAKE_OVER, info, same_host, holder_running, None)
+    due = info.acquired_at() + timedelta(seconds=timeout_s)
+    return LockRecovery(RecoveryAction.NONE, info, same_host, holder_running, due)
+
+
+def lock_recovery(
+    project_path: str | Path,
+    *,
+    identity: LockIdentity | None = None,
+    timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
+    now: datetime | None = None,
+) -> LockRecovery | None:
+    """What may be offered for a lock this identity does not hold (#626, PRD §7.10).
+
+    Returns ``None`` when the project is unlocked or the lock is already ours.
+    Otherwise:
+
+    * **Same computer, same user, recorded process gone** (a crash):
+      [`RecoveryAction.RECOVER`][], one click.
+    * **Same computer, recorded process running**: [`RecoveryAction.NONE`][], always.
+      A lock held by a live process on this computer is never taken.
+    * **Another computer, another user, or a corrupt lock**:
+      [`RecoveryAction.TAKE_OVER`][] once stale by the wall-clock ``timeout_s``
+      (PRD §11.2), else [`RecoveryAction.NONE`][] with the instant it becomes stale.
+      A corrupt lock is judged by its file's modification time.
+
+    A process-liveness probe is used only for a holder on this computer; across
+    computers liveness stays a wall-clock judgment (PRD §5.4). This function reads
+    and never writes; [`recover_lock`][] acts on its verdict.
+    """
+    identity = identity if identity is not None else local_identity()
+    lp = lock_path(project_path)
+    info, corrupt = _read_tolerant(lp)
+    return _classify_recovery(
+        lp,
+        info,
+        corrupt,
+        identity=identity,
+        timeout_s=timeout_s,
+        now=now if now is not None else _utc_now(),
+    )
+
+
+def recover_lock(
+    project_path: str | Path,
+    expected: LockRecovery,
+    *,
+    identity: LockIdentity | None = None,
+    timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
+    now: datetime | None = None,
+) -> tuple[LockInfo, LockInfo | None]:
+    """Take a lock that [`lock_recovery`][] judged recoverable, returning ``(new, ousted)``.
+
+    ``expected`` is the verdict the user acted on. Under the lifecycle guard the
+    sidecar is read and judged again, and the steal happens only when the verdict
+    still allows it, names the same action, and the sidecar still holds the same
+    record (the same nonce and timestamp, or still corrupt). A holder that refreshed,
+    released or was replaced since the user looked therefore raises
+    [`LockedError`][] and nothing is written. A process-local reservation held by
+    another execution context also raises it, and so does a live lock that another
+    hard-link name of the same file holds. The file's identity record moves to the
+    new lock, as for any claim (ADR-0112), so no other name can claim the file
+    while the recovered lock is held.
+
+    Each successful call is reported at WARNING on the ``tether.project.lock``
+    logger with the ousted holder, the new holder and the action. The durable record
+    in the project is the caller's next step, once it has reopened the project
+    writable under the returned lock:
+    [`Project.record_lock_takeover`][tether.project.core.Project.record_lock_takeover]
+    (#1099, ADR-0121). This function never writes the ``.tether`` itself.
+    """
+    if expected.action is RecoveryAction.NONE:
+        raise LockedError(expected.owner, corrupt=expected.corrupt, path=lock_path(project_path))
+    identity = identity if identity is not None else local_identity()
+    lp = lock_path(project_path)
+    # The identity guard comes before the sidecar guard, as in every claim (ADR-0112).
+    with (
+        _process_local_access(project_path),
+        _identity_guard(project_path, claim=True) as rp,
+    ):
+        record = _read_identity_record(rp) if rp is not None else None
+        if (
+            record is not None
+            and not _same_spelling(record.project, project_path)
+            and _identity_record_is_live(record)
+        ):
+            # Another name of this file holds it; the verdict judged only this name.
+            raise _identity_locked_error(record, timeout_s=timeout_s, now=now)
+        with _lifecycle_guard(lp):
+            current, corrupt = _read_tolerant(lp)
+            verdict = _classify_recovery(
+                lp,
+                current,
+                corrupt,
+                identity=identity,
+                timeout_s=timeout_s,
+                now=now if now is not None else _utc_now(),
+            )
+            if (
+                verdict is None
+                or verdict.action is not expected.action
+                or verdict.owner != expected.owner
+            ):
+                stale = current is not None and current.is_stale(timeout_s=timeout_s, now=now)
+                raise LockedError(current, stale=stale, corrupt=corrupt, path=lp)
+            info = _new_info(identity, now=now)
+            _atomic_write(lp, info)
+        # Carry the file's identity record over to the new nonce, as a claim does,
+        # so a hard-link alias cannot claim the file while this lock is held.
+        sources: list[_IdentityRecord] = []
+        if record is not None and _same_spelling(record.project, project_path):
+            sources = [record]
+        elif current is not None:
+            sources = _records_with_nonce(current.nonce)
+        taken_over = tuple(
+            spelling for source in sources for spelling in (source.project, *source.also)
+        )
+        try:
+            also = tuple(
+                dict.fromkeys(
+                    spelling
+                    for source in sources
+                    for spelling in _take_over_spellings(source, info)
+                    if not _same_spelling(spelling, project_path)
+                )
+            )
+            if rp is not None:
+                _write_identity_record(
+                    rp,
+                    _IdentityRecord(project=os.path.abspath(project_path), info=info, also=also),
+                )
+        except BaseException:
+            # The caller never gets ``info``, so it could never release this lock.
+            _release_sidecar(lp, info)
+            _release_spellings(taken_over, info.nonce)
+            raise
+    ousted = (
+        "an unknown holder (corrupt lock)"
+        if current is None
+        else f"{current.user}@{current.host} (pid {current.pid}, acquired {current.timestamp})"
+    )
+    _LOG.warning(
+        "lock %s on %s: took it from %s for %s@%s (pid %s)",
+        expected.action.value,
+        project_path,
+        ousted,
+        info.user,
+        info.host,
+        info.pid,
+    )
+    return info, current
+
+
 def release(project_path: str | Path, info: LockInfo) -> bool:
     """Release a lock we hold; a no-op (returns ``False``) if we no longer own it.
 
@@ -1593,6 +1901,73 @@ def _release_sidecar(lp: Path, info: LockInfo) -> bool:
         except FileNotFoundError:  # pragma: no cover - defensive; guard serializes peers
             return False
         return True
+
+
+@contextmanager
+def holding(project_path: str | Path, held: LockInfo) -> Iterator[LockInfo]:
+    """Run a block while ``held`` is proven to be the current lock (PRD §5.4; #561).
+
+    Takes the same per-path OS lifecycle guard as [`acquire`][], [`steal_lock`][],
+    [`refresh`][] and [`release`][], then checks that the sidecar still carries
+    ``held.nonce``. The block runs inside the guard, so no cooperating steal can land
+    between that check and the write the block makes: a steal waits for the block to
+    end, and a block that starts after a steal is refused. A vanished, corrupt or
+    replacement record raises [`LockedError`][] before the block runs.
+
+    Keep the block short. The guard waits for at most a few seconds, so another
+    process's lifecycle call that waits longer than that fails with
+    ``TimeoutError`` instead of blocking. A single file write fits; a model fit does
+    not, and belongs before the block.
+
+    Yields
+    ------
+    LockInfo
+        The current record, which carries ``held.nonce``.
+    """
+    lp = lock_path(project_path)
+    with _lifecycle_guard(lp):
+        current, corrupt = _read_tolerant(lp)
+        if corrupt:
+            raise LockedError(None, corrupt=True, path=lp)
+        if current is None or current.nonce != held.nonce:
+            raise LockedError(current, path=lp)
+        yield current
+
+
+@contextmanager
+def writing(
+    project_path: str | Path,
+    *,
+    identity: LockIdentity | None = None,
+    timeout_s: float = DEFAULT_STALENESS_TIMEOUT_S,
+    now: datetime | None = None,
+) -> Iterator[None]:
+    """Run a short canonical write that no cooperating acquire or steal can overtake (#561).
+
+    [`assert_writable`][] only checks: a writer that takes the lock after the check and
+    before the write would find the file changed under its lock. This context manager
+    takes the per-user identity guard and the path's OS lifecycle guard, in the order
+    [`acquire`][] and [`steal_lock`][] take them, makes the same check inside them, and
+    runs the block there. An acquire or steal of this file, through this spelling or a
+    hard link that this user opens, waits for the block to end, and a block that starts
+    after one is refused with [`LockedError`][]. A hard link that *another user* opens is
+    not covered, as for [`acquire`][]: that user's identity record lives in their own
+    per-user directory (ADR-0112). It holds no lock of its own, so it neither needs nor
+    changes ownership: an unlocked file stays unlocked and a writer's own lock stays its
+    own.
+
+    The per-user directory is created first if it is missing, as a claim does, so that a
+    claim through a hard link that creates it meanwhile still waits for the identity guard.
+    If it cannot be created for a file that has an identity, the write fails closed with
+    [`OSError`][] before the block runs, as a claim does.
+
+    Keep the block short, as for [`holding`][]: another process's lifecycle call waits
+    for the guard for at most a few seconds before it fails with ``TimeoutError``.
+    """
+    lp = lock_path(project_path)
+    with _identity_guard(project_path, claim=True), _lifecycle_guard(lp):
+        assert_writable(project_path, identity=identity, timeout_s=timeout_s, now=now)
+        yield
 
 
 @contextmanager

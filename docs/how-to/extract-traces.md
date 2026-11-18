@@ -95,7 +95,7 @@ tether extract movie.tif -o movie.tether --tmap beads.tmap
 
 Tether refuses to replace a project that already exists. To extract again into the same
 file, add `--overwrite`. Tether then takes the project's writer lock before it replaces the
-file. If another Tether window or process has the project open, the command stops with
+file. If another Tether application window or process has the project open, the command stops with
 `is locked` and does not change the file; close the project there first. (One exception: another
 user who opened the same file through a different hard-link name; see
 [Troubleshooting](../troubleshooting.md).)
@@ -143,23 +143,41 @@ starting `detection: mode`, naming what was applied. Then check three things:
 
 ## Many movies at once
 
-`tether batch` extracts a whole folder of movies into one project each, then corrects and
-idealizes them:
+`tether batch` extracts a whole folder of movies into one project each. Then it corrects and
+idealizes them. Give it the folder:
 
 ```bash
-tether batch data/*.tif -d projects
+tether batch data -d projects
 ```
 
-Windows PowerShell does not expand `*.tif` for a command like `tether`, so list the files
-for it:
+The command is the same in PowerShell, cmd and bash. A condition can be in several day
+folders. Then give the parent folder with `--recursive`. You can also give a pattern in
+quotes. Tether expands the pattern itself in every shell:
 
-```powershell
-tether batch (Get-ChildItem data\*.tif) -d projects
+```bash
+tether batch data --recursive -d projects
+tether batch "data/2026-11-*/*.tif" -d projects
 ```
+
+Check what the run will do first with `--dry-run`. It prints each movie and its output
+project. It tells you if a project is new, finished or to be resumed. It writes nothing.
+
+Two movies can have the same file name in different day folders. Each one then gets its
+own project, with the folder name in front, such as `day1__movie_010.tether`. [Command
+line](../cli.md#output-names-when-two-movies-have-the-same-file-name) states the rule.
 
 One project for each movie is how the command writes, not a limit of the project, which can
 hold several movies of one experiment ([`.tether` project](../glossary.md#tether-project)).
-No command adds a movie to an existing project.
+No command adds a movie to an existing project yet.
+
+From Python, `tether.project.extract.add_movie_to_project` adds one. It extracts the movie with the same
+steps as `tether extract`. Then it appends the movie to the project. Hold the project's writer
+lock with `tether.project.lock.publish_lock`, and give its check as `publish_guard`. The new
+movie must use the same window, radii and background window as the first movie. A movie that
+is already in the project is refused.
+
+A project without raw traces cannot take a movie. An analysis-only import is one example. A
+subset exported without its raw traces is another.
 
 It has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
 movie is extracted with the donor on the left and the default detector. A shared `--tdat`

@@ -23,8 +23,11 @@ tether --version
 
 It prints `tether` and a version number, as in
 [step 5 of the install guide](install.md#5-check-that-tether-runs). If it says the command is
-not found, finish [step 4 of the install guide](install.md#4-put-tethers-launcher-folder-on-your-path)
-first.
+not found, open a terminal as
+[step 4 of the install guide](install.md#4-open-a-terminal-where-tether-works) tells. On
+Windows, from the next release, that is the **Tether Command Prompt**. Otherwise, either do
+the optional `PATH` step there, or type the launcher's full path for `tether` and
+`tether-gui` in every command of this tutorial.
 
 ## 2. Download the sample movie
 
@@ -44,7 +47,8 @@ In the terminal, move into that folder:
 cd ~/tether-tutorial
 ```
 
-On Windows PowerShell the same folder is `cd $env:USERPROFILE\tether-tutorial`.
+On Windows PowerShell the same folder is `cd $env:USERPROFILE\tether-tutorial`. In the
+Tether Command Prompt it is `cd /d "%USERPROFILE%\tether-tutorial"`.
 
 ## 3. Extract the molecules
 
@@ -79,7 +83,7 @@ tether-gui tutorial.tether
 You can also start Tether from your Start menu or applications menu and choose
 **File → Open project…**, then pick `tutorial.tether`.
 
-The status bar at the bottom of the window reads:
+The status bar at the bottom of the application window reads:
 
 ```text
 Opened tutorial.tether — 3 molecule(s)
@@ -87,7 +91,7 @@ Opened tutorial.tether — 3 molecule(s)
 
 The list on the left holds three molecules, `mol-0`, `mol-1` and `mol-2`, with `mol-0`
 selected. The large panel shows the selected molecule's trace: on top, the donor intensity
-in green, the acceptor intensity in red and their total in grey; underneath, its apparent
+in green, the acceptor intensity in red and their total in gray; underneath, its apparent
 FRET efficiency in blue.
 
 ## 5. Look at each trace
@@ -117,22 +121,23 @@ you will set aside.
 ## 6. Reject one molecule and accept two
 
 Go back to `mol-0` and press **Backspace** to reject it. The status bar confirms it with the
-molecule's 64-character ID:
+molecule's 64-character ID. Tether then shows the next molecule by itself, so the same line
+also names `mol-1`, which is now selected:
 
 ```text
-Rejected b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d
+Rejected b4d11875527ee175c9c0e414d154db7a81a9bca669d3573f66cb1184a511a09d; Molecule mol-1 (2/3)
 ```
 
-Move to `mol-1` and press **Space** to accept it:
+Press **Space** to accept `mol-1`. Tether moves on to `mol-2`:
 
 ```text
-Accepted 463104a0a9ee0dca67d4eb2981655e11d79ac500d70fbb3cdc5c388de7a77392
+Accepted 463104a0a9ee0dca67d4eb2981655e11d79ac500d70fbb3cdc5c388de7a77392; Molecule mol-2 (3/3)
 ```
 
-Move to `mol-2` and press **Space** again:
+Press **Space** again to accept `mol-2`. It is the last molecule, so it stays selected:
 
 ```text
-Accepted 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057
+Accepted 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057; end of the list reached
 ```
 
 Each decision is saved into `tutorial.tether` as you make it; there is no separate save
@@ -147,7 +152,7 @@ Idealizing 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one
 ```
 
 The first fit after starting Tether takes longer than later ones while the fitting engine warms up;
-the window stays usable meanwhile. When it is done the status bar reads:
+the application window stays usable meanwhile. When it is done the status bar reads:
 
 ```text
 Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-click vbFRET)
@@ -155,7 +160,7 @@ Idealized 7336bcd251ba30a5eed2781067a1c4c3025f7d854f1ecf7c109b0859eadf4057 (one-
 
 and a stepped line is drawn over the blue trace, jumping between a low level near 0.25
 and a high level near 0.75 at the same places the blue trace does. The line is black in the
-light theme and white in the dark theme ([Window themes and trace colors](reference/gui-theme.md#trace-colors)).
+light theme and white in the dark theme ([Application window themes and trace colors](reference/gui-theme.md#trace-colors)).
 
 This step uses the separate tMAVEN environment the installer sets up for you. If you run
 Tether from a source checkout instead of an installer, set that environment up first as
@@ -164,8 +169,8 @@ describes.
 
 ## 8. Draw the population histogram
 
-Choose **Analysis → Population histogram…**. A **Population histogram** panel opens and the
-status bar reads:
+Choose **Analysis → Population histogram…**. The window goes to its **Analyze** section, a
+**Population histogram** panel opens, and the status bar reads:
 
 ```text
 Population histogram — 2 molecule(s), 48 frame(s)
@@ -173,11 +178,12 @@ Population histogram — 2 molecule(s), 48 frame(s)
 
 Two molecules, because the one you rejected is left out; 48 frames, because each of the two
 has 24. The histogram has two peaks, one near 0.25 and one near 0.75, the two FRET levels
-you saw in the traces.
+you saw in the traces. To go back to the traces, choose **View → Section → Curate and
+correct**.
 
 ## 9. Export the molecule table
 
-Close the Tether window. Then start the Python that came with Tether, from the same
+Close the Tether application window. Then start the Python that came with Tether, from the same
 `tether-tutorial` folder, with the line for your system:
 
 ```bash
@@ -187,6 +193,12 @@ Close the Tether window. Then start the Python that came with Tether, from the s
 
 ```powershell
 & "$env:USERPROFILE\Tether\envs\tether\python.exe"
+```
+
+In the Tether Command Prompt on Windows, the line is:
+
+```bat
+"%USERPROFILE%\Tether\envs\tether\python.exe"
 ```
 
 These are the default install folders; if you chose another one, use that instead. At the
