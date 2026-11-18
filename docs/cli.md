@@ -5,11 +5,12 @@ description: "Run tether extract and tether batch without the application window
 # Command line
 
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
-pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. Today the command line has four subcommands:
-`tether extract` and `tether batch` write projects, `tether info` only reads them and
-prints a summary, and `tether metadata` shows or gives the frame time, pixel size and
-channel roles of a project's movies.
+pipeline, processing a night's worth of movies unattended, reproducing an
+extraction from recorded settings, or exporting results from many projects. Today the
+command line has five subcommands: `tether extract` and `tether batch` write projects,
+`tether info` only reads them and prints a summary, `tether metadata` shows or gives the
+frame time, pixel size and channel roles of a project's movies, and `tether export` reads
+projects and writes the molecule table, the trace text file or a subset project.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -89,8 +90,10 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--min-separation MIN_SEPARATION]
                [--detection-block DETECTION_BLOCK]
                [--prealign {translation,similarity}] [--pair-tol PAIR_TOL]
-               [--coloc-distance COLOC_DISTANCE] [--rms-gate RMS_GATE]
-               [--tmap PATH] [--tdat PATH] [--profile PATH]
+               [--coloc-distance COLOC_DISTANCE]
+               [--colocalization {partner-in-both,donor-anchored}]
+               [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
+               [--tdat PATH] [--profile PATH]
                movie
 ```
 
@@ -108,6 +111,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--prealign {translation,similarity}` | `translation` | registration prealign degrees of freedom |
 | `--pair-tol PAIR_TOL` | `2` | control-point pairing tolerance in px |
 | `--coloc-distance COLOC_DISTANCE` | `3` | acceptor colocalization distance in px |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | which molecules to keep: `partner-in-both` keeps a donor spot only when an acceptor spot was detected at its mapped position (Deep-LASI's rule); `donor-anchored` keeps every donor spot, for weak-acceptor and low-FRET samples ([see below](#choose-the-colocalization-rule)) |
+| `--count-only` | off | run detection, registration and colocalization, print the molecule count of each colocalization rule, and write nothing |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
 | `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
@@ -173,7 +178,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 gives the usage line, an `invalid choice` message that names the allowed values, and exit
 code 2. The three flags take their allowed values from the same constants that
 `ExtractOptions` checks (`tether.extract_choices`), so the command line and the library
-accept the same values.
+accept the same values. `--policy` on `tether batch` and `--intensity-quantity` on
+`tether export` also have an argparse `choices` list.
 
 ### Detection settings: pick one source
 
@@ -246,6 +252,35 @@ data and used on another computer
 Python, `tether.services.write_profile` writes one and
 `tether.services.ExtractionProfile.from_options` makes one from an `ExtractOptions`.
 
+### Choose the colocalization rule
+
+A molecule starts as a donor spot. By default (`--colocalization partner-in-both`) Tether
+keeps it only when an acceptor spot was also detected within `--coloc-distance` of its
+mapped position, which is the rule Deep-LASI uses. That rule **drops the low-FRET and
+acceptor-dark molecules**: their acceptor is too weak to be detected as a spot of its own.
+If your sample has a weak acceptor, or you expect a low-FRET population, extract with
+`--colocalization donor-anchored`, which keeps every donor spot whose aperture fits in the
+frame. Under both rules the acceptor intensity is read at the mapped donor position.
+
+To see what each rule keeps before you commit to a run, add `--count-only`. It writes
+nothing (`-o` is still required):
+
+```console
+$ tether extract movie.tif -o movie.tether --count-only
+Molecules in movie.tif under each colocalization rule (nothing written):
+  partner-in-both: 412 (selected)
+  donor-anchored: 455
+```
+
+A large gap between the two counts means many donor spots have no detected acceptor. The
+rule is recorded with each movie in the project, and every molecule records whether an
+acceptor spot was detected for it (`/molecules/acceptor_detected`). A project extracted
+before the rule could be chosen used the donor-anchored rule, and it reads that way.
+Extracting the movie again uses the new default unless you name `donor-anchored`.
+`tether batch --colocalization` sets the rule for every movie in a batch. In an
+[extraction profile](#extraction-profiles) the rule is the `colocalization` field, and
+`--colocalization` is then refused beside `--profile` like the other option flags.
+
 ### Example — one movie to one project
 
 ```bash
@@ -254,10 +289,13 @@ tether extract movie.tif -o movie.tether
 
 ```console
 Extracted 412 molecule(s) -> movie.tether
+  colocalization: partner-in-both kept 412 (donor-anchored would keep 455)
   donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 
-The second line is the [donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
+The second line names the [colocalization rule](#choose-the-colocalization-rule) and what
+the other rule would have kept. The third is the
+[donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
 If the registration RMS residual exceeds `--rms-gate`, extraction still succeeds and
 still exits 0, but a warning goes to stderr and the affected molecules are tagged
 `low-confidence-registration` in the project — a flag you can filter on later rather
@@ -274,8 +312,9 @@ resumes only the incomplete stages instead of redoing finished work.
 
 ```text
 tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PATH]
-             [--profile PATH] [--policy {warn,fail}] [--no-idealize] [--overwrite]
-             [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
+             [--profile PATH] [--policy {warn,fail}]
+             [--colocalization {partner-in-both,donor-anchored}] [--no-idealize]
+             [--overwrite] [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
              [--sidecar-python PATH] [--no-defer] [--quiet | --verbose]
              movies [movies ...]
 ```
@@ -288,8 +327,9 @@ tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PAT
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
-| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option is at its default |
+| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option but `--colocalization` is at its default. It cannot be combined with `--colocalization` |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | the colocalization rule of every movie's extraction; see [`tether extract`](#choose-the-colocalization-rule) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
 | `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
 | `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
@@ -682,6 +722,142 @@ mov-…:
 $ tether metadata run.tether --confirm-frame-time
 ```
 
+## `tether export`
+
+Write the results of one or more `.tether` projects to files that another tool can read.
+The command has three forms. Each form calls one function of `tether.project.export`, so
+the file is the same file that the function writes for the same settings. The
+[Exports reference](reference/exports.md) tells what each file contains.
+
+| Form | Writes | Function |
+|---|---|---|
+| `tether export table` | one CSV row per molecule | `export_molecule_table_csv` |
+| `tether export traces` | the Deep-LASI donor and acceptor trace matrix | `export_deeplasi_txt` |
+| `tether export subset` | a smaller `.tether` without the movie | `export_subset_tether` |
+
+These rules apply to all three forms:
+
+- **The project is only read.** The export takes no lock and does not change the project or
+  its `<file>.lock` file. You can export a project that another user has open.
+- **Every export writes a provenance file.** It is named after the export with
+  `.provenance.json` added, and it records the Tether version, the source project and the
+  settings ([what the provenance file records](reference/exports.md#provenance-file)).
+- **An existing file is kept.** If the export or its provenance file exists, the export
+  stops with exit code `1` and tells you to give `--overwrite`.
+- **An input project is never a destination.** An output path that is the project
+  itself, or a hard link to it, stops the export with exit code `1`:
+  `subset out_path movie.tether is the source project; refusing to overwrite`. With several
+  projects, every export and provenance file is checked against every project you gave, before
+  the first export starts. A match stops the command with exit code `1` and nothing written.
+  So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
+  second project with the subset of the first, even with `--overwrite`. The `<file>.lock` file
+  of a project you gave is refused in the same way.
+- **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
+  makes the folder if necessary and names each export after its project: `<project>.csv`,
+  `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
+  name would write the same export (names that differ only in upper and lower case count as the
+  same), so that command stops with exit code `2` before it writes a file. A project that fails does not stop the others, and the command then exits `1`.
+- **Each export prints one line,** the number of molecules and the path:
+  `Exported 412 molecule(s) -> molecules.csv`.
+
+### Example — the molecule table of every project after a batch run
+
+Make the folder first: if the pattern matches only one project, `-o` names the file to
+write unless it is an existing folder.
+
+```bash
+mkdir tables
+tether export table projects/*.tether -o tables
+```
+
+```powershell
+# Windows PowerShell has no shell glob expansion for native commands
+mkdir tables
+tether export table (Get-ChildItem projects\*.tether) -o tables
+```
+
+## `tether export table`
+
+Write one CSV row per molecule: the stored per-molecule fields and the apparent-E summary
+([Molecule-table CSV](reference/exports.md#1-molecule-table-csv)). Rejected molecules are
+included, with `reject` in the `curation_label` column.
+
+```text
+tether export table [-h] -o OUTPUT [--overwrite]
+                    [--intensity-quantity {corrected,raw}]
+                    [--exclude-rejected]
+                    projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the `.csv` file to write; with several projects, or when it is an existing folder, the folder (created if absent) that gets one `<project>.csv` per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--intensity-quantity {corrected,raw}` | `corrected` | which trace layer to read (`intensity_quantity`) |
+| `--exclude-rejected` | off | leave rejected molecules out of the table (`include_rejected=False`) |
+
+```bash
+tether export table movie.tether -o molecules.csv
+```
+
+## `tether export traces`
+
+Write the per-frame donor and acceptor traces as a Deep-LASI trace matrix
+([Deep-LASI trace matrix](reference/exports.md#2-deep-lasi-trace-matrix-txt)). `-o` always
+names a folder, and the file in it is named `<project>-donc-accc-w.txt`. An `-o` that ends in
+`.txt` and does not exist yet is refused with exit code `2`, because it is almost certainly a
+file name. Rejected molecules are left out.
+
+```text
+tether export traces [-h] -o OUTPUT [--overwrite]
+                     [--intensity-quantity {corrected,raw}]
+                     [--include-rejected] [--molecule-key KEY]
+                     projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the folder (created if absent) to write one `<project>-donc-accc-w.txt` in per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--intensity-quantity {corrected,raw}` | `corrected` | which trace layer to read (`intensity_quantity`) |
+| `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
+| `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+
+All molecules in one file share one frame axis. For a project that combines movies of
+different lengths, export one movie at a time with its `--molecule-key` values. Otherwise the
+export stops with exit code `1` and names the frame ranges.
+
+```bash
+tether export traces movie.tether -o traces
+```
+
+## `tether export subset`
+
+Write a self-contained `.tether` of the selected molecules, without the movie
+([Subset `.tether`](reference/exports.md#3-subset-tether)). Rejected molecules and the raw
+traces are left out.
+
+```text
+tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
+                     [--include-raw] [--molecule-key KEY]
+                     projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the `.tether` file to write; with several projects, or when it is an existing folder, the folder (created if absent) that gets one `<project>-subset.tether` per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
+| `--include-raw` | off | also embed the raw and background traces (`include_raw=True`) |
+| `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+
+```bash
+tether export subset movie.tether -o accepted.tether
+```
+
 ## Service commands
 
 `tether extract` and `tether batch` are each the command-line route of one *service command*
@@ -710,8 +886,9 @@ the page, and a break between two parts of JSON does not change it:
 ```json
 {"command":"extract","fields":{"bg_window":10,"channel_layout":null,
 "channel_layout_acceptor_rect":null,"channel_layout_donor":null,
-"channel_layout_donor_rect":null,"coloc_distance":3.0,"detection_block":50,
-"detection_mode":null,"detection_threshold":null,"disk_radius":3.0,"donor_side":"left",
+"channel_layout_donor_rect":null,"coloc_distance":3.0,"colocalization":"partner-in-both",
+"count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
+"disk_radius":3.0,"donor_side":"left",
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
 "prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
@@ -727,20 +904,21 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` |
-|---|---|---|---|---|
-| `0` | extraction completed | every requested stage ran for every movie, or `--dry-run` printed its plan | every project was read | the records were printed, after any change |
-| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call |
-| `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned |
+| Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` | `tether export` |
+|---|---|---|---|---|---|
+| `0` | extraction completed | every requested stage ran for every movie, or `--dry-run` printed its plan | every project was read | the records were printed, after any change | every export was written |
+| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output path could not be checked or its folder made |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
+| `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned | never returned |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
-before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
-written on either path, so it is safe to fix the arguments and re-run.
+before any subcommand handler ran, or `tether batch` or `tether export` refused to start. Nothing is
+read and no project or export is written on either path, so it is safe to fix the arguments and re-run.
 
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
-on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
-worth reporting. From `tether batch` it means the run finished with at least one movie
+on stderr, never a traceback — an unhandled traceback from any subcommand is a bug
+worth reporting. From `tether export` it is one such line per failed project, and the other
+projects are still exported. From `tether batch` it means the run finished with at least one movie
 having a failed stage; fix those and re-run the same command to resume the rest. It also
 means `tether batch` could not create `--out-dir` or write the log. It then prints one line
 on stderr that names the path.

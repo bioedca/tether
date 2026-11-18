@@ -34,18 +34,19 @@ here**.
 | **Set via** | A real surface: a `tether` CLI flag, a GUI control, or a documented keyword argument. Where a value is *not* user-settable this is stated explicitly. |
 | **Recorded in `.tether`** | The path in the project file where the value you used is persisted, or **no** if it is not recoverable from the project file. |
 
-Tether has no settings dialog. All eighteen `ExtractOptions` fields can be set from an
+Tether has no settings dialog. All nineteen `ExtractOptions` fields can be set from an
 [extraction profile](../cli.md#extraction-profiles), a JSON file that `tether extract --profile`
 and `tether batch --profile` read. A field the file leaves out keeps the default tabled below.
-Ten of the eighteen are also `tether extract` flags — `--donor-side`, `--detection-mode`,
+Eleven of the nineteen are also `tether extract` flags — `--donor-side`, `--detection-mode`,
 `--detection-threshold`, `--detection-block`, `--min-separation`, `--window`, `--prealign`,
-`--pair-tol`, `--rms-gate` and `--coloc-distance` — which a profile replaces: the two cannot
+`--pair-tol`, `--rms-gate`, `--coloc-distance` and `--colocalization` — which a profile replaces: the two cannot
 be combined. The other eight have no flag and no GUI control, and are set by a profile or from
 Python: the channel layout (`channel_layout`), the aperture group (`disk_radius`, `ring_inner`, `ring_outer`, `bg_window`) and the
 prealign group (`prealign_upsample`, `prealign_low_sigma`, `prealign_high_sigma`). All
-eighteen are recorded alike, whether the value came from a flag, a profile or Python.
-`tether batch` has no flag for any of them: every movie in a batch is extracted with the
-profile's values, or at the `ExtractOptions` defaults without one — **with one exception**.
+nineteen are recorded alike, whether the value came from a flag, a profile or Python.
+`tether batch` has a flag for one of them, `--colocalization`, which a profile replaces in the
+same way: every movie in a batch is extracted with the profile's values, or at the
+`ExtractOptions` defaults and the rule you name without one — **with one exception**.
 `--tdat` (in both commands) applies a Deep-LASI detection config, and importing one *replaces*
 `detection_mode` and `detection_threshold` with the values decoded from the file before the
 extraction profile is written, and it is refused beside a flag or a profile that sets either
@@ -90,11 +91,11 @@ The two groups are tabled separately under [Analysis and histograms](#analysis-a
 ## Detection and extraction
 
 Defaults are the fields of `ExtractOptions` (`tether.project.extract`), which is the pinned
-CLI contract. Fifteen of the eighteen fields pin an explicit value rather than passing
+CLI contract. Sixteen of the nineteen fields pin an explicit value rather than passing
 through to whatever the underlying primitive happens to default to; `detection_threshold` and
 `min_separation` are deliberate `None` sentinels that defer to each detection mode's own
 faithful default (tabled below), and `channel_layout` is a `None` sentinel for the
-side-by-side split that `donor_side` describes. All eighteen fields are serialized verbatim into the
+side-by-side split that `donor_side` describes. All nineteen fields are serialized verbatim into the
 `profile_json` attribute of `/settings/extraction` on the **first** extraction into a project;
 later movies appended to the same project leave that record untouched, and their
 aperture/integration parameters are checked against it rather than re-recorded.
@@ -138,7 +139,8 @@ cross-file molecule identity.
 | `rms_gate`<br>`tether.imaging.calibrate` | `0.5` | px | Residual gate on the fitted channel map. A fit whose RMS residual is strictly above the gate is **not** rejected: the calibration is flagged low-confidence and every molecule it extracts is tagged, so a marginal registration is visible downstream instead of silently dropped. Raising it hides a bad map; lowering it flags more runs for review. | `tether extract --rms-gate` or a [profile](../cli.md#extraction-profiles) (`tether extract --profile`, `tether batch --profile`) | `/settings/extraction` |
 | `min_bead_spots`<br>`DEFAULT_MIN_BEAD_SPOTS` in `tether.imaging.beadmap` | `6` | bead spots in **each** channel half (a count) | The least number of bead spots each half of a bead video or bead image must have before a channel map is made from it. Under the limit the source is refused with both counts and the limit, and no map is fitted. Six is the number of coefficients of one output of the degree-2 map, so fewer spots cannot give the pairs that fit needs. Raising it refuses sparse bead slides earlier; lowering it lets a map be fitted from so few beads that the similarity fallback or a poorly constrained polynomial results. A video is first reduced to one image over the frame range you choose, with a `max` (default) or `mean` projection. | `bead_map(min_bead_spots=…)` — no CLI flag, no GUI control | `/calibration/<id>`, in the map's provenance (`bead_settings`), when the map is written into the project with `write_calibration`; the same provenance is in a map file from `save_map` |
 | over-gate policy<br>`tether.project.batch` | `warn` | enum `warn`/`fail` | What a batch run does with an over-gate movie. `warn` keeps it, flagged; `fail` fails that movie's stage so it does not enter the pooled analysis. `tether extract` on a single movie always warns — only the batch runner can fail. | `tether batch --policy` | `/settings/batch` (`policy`) |
-| `coloc_distance`<br>`tether.imaging.coloc` | `3.0` | px (strict `<`) | Nearest-neighbor radius for the informational `acceptor_detected` flag, and **nothing else**. Tether is donor-anchored: every in-frame donor spot becomes a molecule and its acceptor intensity is read at the *mapped* position whether or not an acceptor was independently detected there, so changing this value does not add, remove or re-pair a single molecule (`tether.imaging.coloc`). It is Deep-LASI's `findColoc` gate, kept as a diagnostic rather than a filter, because filtering on it discards the low-FRET and acceptor-dark population a FRET histogram must keep. A separation of exactly the threshold is **not** a match. No downstream stage currently consumes the flag. | `tether extract --coloc-distance` or a [profile](../cli.md#extraction-profiles) (`tether extract --profile`, `tether batch --profile`) | `/settings/extraction` |
+| `coloc_distance`<br>`tether.imaging.coloc` | `3.0` | px (strict `<`) | Nearest-neighbor radius of the `acceptor_detected` test: an acceptor spot within it of a donor's mapped position, warped into donor coordinates, is that donor's partner. It is Deep-LASI's `findColoc` gate. Under the default `partner-in-both` rule it decides which molecules exist, so raising it keeps more molecules (and more chance pairings with a neighbor's acceptor) and lowering it keeps fewer; under `donor-anchored` it only sets the stored flag and adds, removes or re-pairs no molecule. Either way the acceptor is read at the *mapped* position, never at the matched spot. A separation of exactly the threshold is **not** a match. | `tether extract --coloc-distance` or a [profile](../cli.md#extraction-profiles) (`tether extract --profile`, `tether batch --profile`) | `/settings/extraction` |
+| <a id="param-colocalization"></a>`colocalization`<br>`tether.project.extract` | `partner-in-both` | enum `partner-in-both`/`donor-anchored` | Which molecules an extraction keeps (ADR-0127). `partner-in-both` keeps a donor spot only when an acceptor spot was detected within `coloc_distance` of its mapped position — Deep-LASI's rule. It **drops the low-FRET and acceptor-dark molecules**, whose acceptor is too weak to be detected as a spot of its own, so a FRET histogram of such a sample is biased toward high E; choose `donor-anchored` for weak-acceptor and low-FRET samples, which keeps every in-frame donor spot. `tether extract --count-only` prints how many molecules each rule keeps before you run. Projects extracted before this option existed were donor-anchored and read as such. | `tether extract --colocalization`, `tether batch --colocalization` or a [profile](../cli.md#extraction-profiles) | `/settings/extraction` (`colocalization` in the profile of each movie); each molecule's flag in `/molecules/acceptor_detected` |
 
 Fixed, not settable: the polynomial map degree and the fallback ladder. Six or more control
 points fit a degree-2 polynomial; two to five fall back to a four-degree-of-freedom
