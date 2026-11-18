@@ -7,7 +7,7 @@ dual-channel TIFF movie into a populated ``.tether`` project::
 
     open_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
     -> estimate_*_prealign + pair_control_points -> fit_registration_map
-    -> colocalize (donor-anchored) -> extract_molecules -> write_extraction
+    -> colocalize (options.colocalization) -> extract_molecules -> write_extraction
 
 The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
 ``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
@@ -45,10 +45,15 @@ Tether used before #908. The layout is stored for each movie as
 ``/movies/layouts/<movie_id>``; the imported path takes its split from the ``.tmap``
 and stores no layout record.
 
-The imported ``.tmap``'s per-channel ``Rotation``/``Flip`` are decoded but their
-*apply* is deferred: a ``.tmap`` whose channels carry a non-identity rotation/flip
-is **refused** (a clean ``ExtractionError``) rather than silently split at the wrong
-frame; the UCKOPSB calibration map stores neither, so only the crop is needed.
+The imported ``.tmap``'s per-channel ``Rotation``/``Flip`` are **applied**: each
+channel of the movie is split in Deep-LASI's ``processImage`` order (rotate by a
+multiple of 90 degrees, then flip, then crop in the rotated/flipped frame), the same
+transform Deep-LASI applied to the calibration image the map was fitted on (#559,
+PRD Appendix E Stage 1). The rotation and flip are recorded per channel in
+``/movies``. A stored rotation or flip that does not decode (an angle that is not
+0, 90, 180 or 270, or a flip that is not ``[v, h]`` in ``{0, 1}``) is a clean
+``ExtractionError``. The UCKOPSB calibration map stores neither, so it is split by
+its crop alone, as before.
 
 After the traces are integrated, an advisory check reads the acceptor-bleach steps for
 the signature of swapped donor and acceptor halves ([`tether.imaging.side_check`][],
@@ -61,8 +66,9 @@ ADR-0117).
 
 Scope note (M1 S9 split): the extraction-vs-Deep-LASI acceptance oracle (recall /
 Pearson / RMS, PRD §8 NFR-VALID(a)) lands in the follow-up PR (S9 PR-C), with the
-gated full-movie fixture + full Deep-LASI export; that PR also lands the rotation/
-flip *apply* (validated against the real movie) -- ADR-0014/ADR-0019.
+gated full-movie fixture + full Deep-LASI export -- ADR-0014/ADR-0019. The rotation/
+flip apply landed later (#559) and is tested on synthetic movies only: no real
+rotated or flipped ``.tmap`` is in the reference data.
 """
 
 from __future__ import annotations
@@ -71,8 +77,8 @@ import hashlib
 import math
 import os
 import warnings
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -82,7 +88,12 @@ from uuid import uuid4
 # stack never loads for a bare ``tether --version`` (which imports only
 # ``tether.cli``). Keep it out of ``tether.project.__init__`` for the same reason.
 from tether import __version__
-from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
+from tether.extract_choices import (
+    COLOCALIZATION_POLICIES,
+    DETECTION_MODES,
+    DONOR_SIDES,
+    PREALIGN_MODES,
+)
 from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
     RegistrationMap,
@@ -165,6 +176,9 @@ class ExtractOptions:
     rms_gate: float = 0.5
     window: int = 21
     coloc_distance: float = 3.0
+    #: The colocalization rule (ADR-0127): ``partner-in-both`` keeps a molecule only
+    #: with a detected acceptor spot; ``donor-anchored`` keeps every in-frame donor.
+    colocalization: str = "partner-in-both"
     disk_radius: float = 3.0
     ring_inner: float = 6.0
     ring_outer: float = 8.0
@@ -215,6 +229,11 @@ class ExtractOptions:
         # positive.
         if self.min_separation is not None and not self.min_separation > 0:
             raise ExtractionError(f"min_separation must be > 0, got {self.min_separation}")
+        if self.colocalization not in COLOCALIZATION_POLICIES:
+            raise ExtractionError(
+                f"colocalization must be one of {COLOCALIZATION_POLICIES}, "
+                f"got {self.colocalization!r}"
+            )
         if self.prealign not in PREALIGN_MODES:
             raise ExtractionError(
                 f"prealign must be 'translation' or 'similarity', got {self.prealign!r}"
@@ -260,6 +279,10 @@ class ExtractionSummary:
     detection_mode: str  # the ParticleDetectionMode actually run (post .tdat apply)
     #: The advisory donor-side check (#646, ADR-0070); also stored in /settings/extraction.
     donor_side_check: DonorSideCheck | None = None
+    #: The colocalization rule this run used (ADR-0127).
+    colocalization: str = "partner-in-both"
+    #: ``{rule: n_molecules}`` -- the molecules each rule keeps from the same spots (#920).
+    rule_counts: Mapping[str, int] = field(default_factory=dict)
 
 
 def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
@@ -414,28 +437,19 @@ def _imported_registration_map(tmap_path: str | os.PathLike[str]) -> Registratio
     (the "never a raw traceback" contract). No sample-movie control points are
     supplied, so the imported map's residual stays unknown (NaN) and the bead-fitted
     calibration is trusted as-is -- it never trips the over-gate flag.
+
+    The map's channel geometry carries each channel's crop **and** its decoded
+    ``Rotation`` / ``Flip`` (#559), so the caller splits the movie in the same
+    rotate -> flip -> crop frame the map was fitted in. A rotation or flip that does
+    not decode becomes the same clean ``.tmap``-centric error as any bad map.
     """
     try:
-        channels = read_tmap(tmap_path)
-        unsupported = sorted(cid for cid, ch in channels.items() if not ch.has_simple_geometry)
-        if unsupported:
-            # The .tmap stores a per-channel rotation/flip that processImage applies
-            # before cropping; the imported path honors only the crop so far, so
-            # applying it would split at the wrong frame. Refuse loudly rather than
-            # silently mis-extract (the rotation/flip apply is deferred to a follow-up).
-            raise ExtractionError(
-                f".tmap channel(s) {unsupported} carry a non-identity rotation/flip, which "
-                "the imported registration path does not yet apply (only crop geometry is "
-                "honored); re-run without --tmap to use a native fit."
-            )
         return registration_map_from_tmap(
-            channels,
+            read_tmap(tmap_path),
             app_version=__version__,
             source_file=Path(tmap_path).name,
         )
-    except ExtractionError:
-        raise
-    except Exception as exc:  # bad/foreign .tmap, ambiguous channels, ...
+    except Exception as exc:  # bad/foreign .tmap, ambiguous channels, bad rotation/flip, ...
         raise ExtractionError(f"could not use --tmap {Path(tmap_path).name}: {exc}") from exc
 
 
@@ -578,7 +592,8 @@ def _run_pipeline(
             layout: ChannelLayout | None = None
             if imported_map is not None:
                 # Imported path: registration comes from the .tmap. Split + detect
-                # at its own stored channel crop geometry (donor = reference half,
+                # at its own stored channel geometry -- rotate, flip, then crop, as
+                # Deep-LASI's processImage did for the map (#559) (donor = reference half,
                 # acceptor = moving half), so donor_side / prealign / pairing are
                 # not used. A map without crop geometry leaves the split undefined.
                 reg_map = imported_map
@@ -650,6 +665,7 @@ def _run_pipeline(
                 acceptor_spots=acceptor_spots,
                 window=options.window,
                 coloc_distance_px=options.coloc_distance,
+                policy=options.colocalization,
             )
 
             traces = extract_molecules(
@@ -777,6 +793,8 @@ def _summary(
         registration_source=reg_map.source,
         detection_mode=extracted.options.detection_mode,
         donor_side_check=extracted.side_check,
+        colocalization=extracted.molecules.policy,
+        rule_counts=dict(extracted.molecules.rule_counts),
     )
 
 
@@ -806,8 +824,9 @@ def extract_movie(
     tmap:
         Optional path to a Deep-LASI ``.tmap``. When given, registration is
         **imported** from it (the native detect/prealign/pair/fit is skipped); the
-        two channels are split + read at the ``.tmap``'s own stored crop geometry,
-        so ``options.donor_side`` is ignored and an ``options.channel_layout`` is
+        two channels are split + read at the ``.tmap``'s own stored channel
+        geometry (rotation, flip and crop, in that order), so
+        ``options.donor_side`` is ignored and an ``options.channel_layout`` is
         refused. When ``None`` (default), a native fit is paired from the movie's
         own detections.
     tdat:
@@ -885,6 +904,56 @@ def extract_movie(
         raise ExtractionError(f"failed to write {output_path.name}: {exc}") from exc
 
     return _summary(output_path, extracted, movie_id, calibration_id, molecule_ids)
+
+
+def count_molecules_by_rule(
+    movie_path: str | os.PathLike[str],
+    *,
+    options: ExtractOptions | None = None,
+    tmap: str | os.PathLike[str] | None = None,
+    tdat: str | os.PathLike[str] | None = None,
+) -> dict[str, int]:
+    """Count the molecules each colocalization rule keeps, before any extraction (#920).
+
+    Runs the stages of [`extract_movie`][] up to colocalization -- through the stage
+    preview ([`tether.project.preview.iter_extraction_stages`][]), whose molecules are
+    those of a real run -- and stops there: no trace is integrated and nothing is
+    written. ``options``, ``tmap`` and ``tdat`` mean what they mean for
+    [`extract_movie`][].
+
+    Returns
+    -------
+    dict[str, int]
+        ``{rule: n_molecules}`` for both rules of
+        [`COLOCALIZATION_POLICIES`][tether.extract_choices.COLOCALIZATION_POLICIES].
+
+    Raises
+    ------
+    ExtractionError
+        A missing or unreadable input, or a stage before colocalization that fails
+        (for example too few control points to register).
+    """
+    from tether.project.preview import OUTCOME_FAILED, iter_extraction_stages  # noqa: PLC0415
+
+    movie_path = Path(movie_path)
+    _check_inputs(movie_path, tmap, tdat)
+    options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat)
+    try:
+        with open_movie(movie_path) as reader:
+            stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
+            for stage in stages:
+                if stage.outcome == OUTCOME_FAILED:
+                    raise ExtractionError(
+                        f"could not count the molecules of {movie_path.name}: the "
+                        f"{stage.name} stage failed: {stage.message}"
+                    )
+                if stage.name == "colocalize":
+                    return dict(stage.outputs["rule_counts"])
+    except ExtractionError:
+        raise
+    except Exception as exc:  # an unreadable movie -> a clean operator message
+        raise ExtractionError(f"could not count the molecules of {movie_path.name}: {exc}") from exc
+    raise ExtractionError(f"could not count the molecules of {movie_path.name}")  # pragma: no cover
 
 
 def _movie_ids_with_sha256(project_path: Path, sha256: str) -> list[str]:

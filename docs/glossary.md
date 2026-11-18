@@ -278,14 +278,25 @@ and write the stored value `corrected` in code formatting only.
 
 ### donor-anchored colocalization
 
-Tether **deliberately breaks** Deep-LASI's rule here. Deep-LASI's `findColoc` keeps a
+One of the two colocalization rules, and the option to the default
+[partner-in-both](#partner-in-both-colocalization) rule. Deep-LASI's `findColoc` keeps a
 molecule only if an independently-detected partner exists within 3 px in *every* channel,
-which silently discards the low-FRET and acceptor-dark population — exactly the molecules a
-FRET histogram must keep. Tether instead anchors on the donor: **every in-frame donor spot
-becomes a molecule**, and acceptor intensity is read at the *mapped* position whether or not
-an acceptor was independently detected. The independent-detection test survives only as the
-informational `ColocalizedMolecules.acceptor_detected` flag and **never drops a molecule**
-(`tether.imaging.coloc`; ADR-0015).
+which discards the low-FRET and acceptor-dark population, the molecules whose acceptor is too
+weak to be detected. The donor-anchored rule keeps them: **every in-frame donor spot becomes a
+molecule**, and acceptor intensity is read at the *mapped* position whether or not an acceptor
+was independently detected. Select it with `--colocalization donor-anchored`. The
+independent-detection result is still stored for each molecule, in
+`/molecules/acceptor_detected` (`tether.imaging.coloc`; ADR-0015, ADR-0127). A project
+extracted before the rule could be chosen reads as donor-anchored.
+
+### partner-in-both colocalization
+
+The default colocalization rule of a new extraction, and Deep-LASI's: a donor spot becomes a
+molecule only when an acceptor spot is detected within the colocalization distance (3 px) of
+its mapped position. The acceptor is still read at the mapped donor position, so a molecule
+kept by both rules has the same traces under both. The rule drops molecules with a dark or
+weak acceptor. Use [donor-anchored](#donor-anchored-colocalization) to keep them
+(ADR-0127).
 
 Two adjacent facts: **the movie is never resampled** — the map is applied to *coordinates*,
 never pixels, to avoid interpolation bias in integrated intensities; and a molecule is
@@ -707,8 +718,9 @@ The vocabulary `tether batch` prints per movie (`tether.project.batch`):
 | `not-requested` | `--no-idealize` | no |
 | `warning` | non-fatal, e.g. provenance stamping failed | no |
 
-Only `failed` makes the run exit non-zero — which is why
-[a deferred idealization exits 0](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
+makes it exit `3` — see
+[a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
 
 `blocked` is the one row that never shows up on an exit-`0` run in practice: a stage is
 blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels

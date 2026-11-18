@@ -281,7 +281,4 @@ def test_every_tether_command_in_prose_exists() -> None:
     commands = set(sub.choices)
     named = {groups[0] for _, groups in _names(_COMMAND_RE)}
     assert {"extract", "batch"} <= named
-    # export-results.md names `tether export` only to say that it does not exist.
-    assert "no `tether export` command" in " ".join(_prose("how-to/export-results.md").split())
-    assert "export" not in commands
-    assert named - {"export"} <= commands, named - commands
+    assert named <= commands, named - commands

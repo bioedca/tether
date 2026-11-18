@@ -174,10 +174,40 @@ the molecules. The resampling is seeded, so the band is the same every time the 
    dwells, still gets its plot, but no rate. For a two-exponential fit, set `model="double"` in `dwell_settings`; it
    then prints both rates, slower first
    ([dwell-fit `model`](../reference/parameters.md#param-dwell-model)).
+   `analysis.fit.mean_dwell_time()` gives one number for such a fit. It is the mean dwell
+   time `(A1/k1 + A2/k2) / (A1 + A2)` and its propagated error. For rates fitted by another
+   program, call `tether.analysis.mean_dwell_time`. First put each error beside its own
+   parameter. tMAVEN sorts the rates and amplitudes, but not their errors.
 
 The histogram here is of **apparent** efficiency, from the background-subtracted traces. To
 report a γ-corrected efficiency instead, see [Where the corrected efficiency
 appears](apply-corrections.md#where-the-corrected-efficiency-appears).
+
+## 4. Fit Gaussians to the histogram
+
+To report the population of each FRET state from the histogram, fit one Gaussian for each
+state. Give one starting mean for each state, and add these lines to the end of `plots.py`:
+
+```python
+from tether.analysis.gaussian_fit import fit_gaussians
+
+fit = fit_gaussians(hist.histogram, (0.0, 0.33))
+if fit.success:
+    for mean, fraction, error in zip(fit.means, fit.fractions, fit.fraction_stderr):
+        print(f"E = {mean:.3f}: fraction {fraction:.4f} ± {error:.4f}")
+```
+
+The Gaussians come back in order of mean, whatever the order of the starting means. Each
+fraction is the area of its Gaussian divided by the sum of the areas, and the `±` is one
+standard error of the fit. The area is `A·√(2π)·σ`, the area under the whole Gaussian. To use
+the area inside the histogram range instead (the sum of the Gaussian over the bin centres, as
+the analysis of Fig. 5c in Campos-Chavez et al. 2024 does), pass `area="bin_sum"`. The two
+differ when a Gaussian goes past an end of the range.
+
+The error is the precision of the least-squares fit to the bins. It does not include the
+differences between molecules, because the frames of one molecule are not independent of each
+other. [ADR-0120](../adr/0120-a-sum-of-gaussians-fit-of-a-fret-histogram-and-its-two-area-definitions.md)
+has the method and how it reproduces the published numbers.
 
 ## Next
 
