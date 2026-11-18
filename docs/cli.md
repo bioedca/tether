@@ -7,10 +7,11 @@ description: "Run tether extract and tether batch without the application window
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, reproducing an
 extraction from recorded settings, or exporting results from many projects. Today the
-command line has five subcommands: `tether extract` and `tether batch` write projects,
-`tether info` only reads them and prints a summary, `tether metadata` shows or gives the
-frame time, pixel size and channel roles of a project's movies, and `tether export` reads
-projects and writes the molecule table, the trace text file or a subset project.
+command line has six subcommands: `tether extract` and `tether batch` write projects,
+`tether map create` writes a channel map file for later extractions, `tether info` only
+reads projects and prints a summary, `tether metadata` shows or gives the frame time, pixel
+size and channel roles of a project's movies, and `tether export` reads projects and writes
+the molecule table, the trace text file or a subset project.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -93,7 +94,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--coloc-distance COLOC_DISTANCE]
                [--colocalization {partner-in-both,donor-anchored}]
                [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
-               [--tdat PATH] [--profile PATH]
+               [--map PATH] [--tdat PATH] [--profile PATH]
                movie
 ```
 
@@ -114,7 +115,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | which molecules to keep: `partner-in-both` keeps a donor spot only when an acceptor spot was detected at its mapped position (Deep-LASI's rule); `donor-anchored` keeps every donor spot, for weak-acceptor and low-FRET samples ([see below](#choose-the-colocalization-rule)) |
 | `--count-only` | off | run detection, registration and colocalization, print the molecule count of each colocalization rule, and write nothing |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
-| `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
+| `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored). Cannot be combined with `--map` |
+| `--map PATH` | none | apply a saved Tether `.npz` map file (from [`tether map create`](#tether-map-create)) instead of a native fit. It splits at the map's own channel geometry (`--donor-side` is then ignored). Cannot be combined with `--tmap`. See [Registration: one map source](#registration-one-map-source) |
 | `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
 | `--profile PATH` | none | read every extraction option from an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
 
@@ -204,6 +206,36 @@ The rule for `--tdat`, in `tether extract` and `tether batch` alike:
   `detection_mode` and `detection_threshold` that ran, and the `.tdat` filename as
   `tdat_source`.
 
+### Registration: one map source
+
+Each run takes its registration map from exactly one source, and this is the order in
+which they apply:
+
+1. **Native fit** — the default. Control points are paired from the movie's own
+   detections and a degree-2 map is fitted, with `--donor-side` naming the donor half.
+2. **`--tmap PATH`** — a Deep-LASI `.tmap` replaces the native fit.
+3. **`--map PATH`** — a saved Tether `.npz` map file replaces the native fit. It is
+   applied as it was saved: its coefficients, its channel geometry, its RMS residual and
+   its low-confidence verdict are not changed. The run records the map's own RMS gate,
+   and `--rms-gate` does not change it.
+
+A map file or a `.tmap` replaces the native fit, so `--donor-side` is ignored. The two
+files are never combined: neither can be said to win, so passing both is refused before
+any movie is read. `--tdat` is a separate rule: it sets **detection**, not registration,
+so it composes with any of the three, and it cannot be combined with
+`--detection-mode`/`--detection-threshold` (above).
+
+```console
+$ tether extract movie.tif -o movie.tether --tmap run.tmap --map beads.npz
+tether extract: --tmap and --map cannot be combined (each one supplies the registration map); pass one or the other
+```
+
+The project records which source produced the map. In `/settings/extraction`,
+`registration_source` is `native`, `imported` (a `.tmap`) or `map-file`, and
+`tmap_source` or `map_source` holds the file name. The `/calibration` group of a
+map-file run also stores a `map_file` record (the name and the sha256 of the file) in
+its provenance, beside the map's own origin.
+
 ### Extraction profiles
 
 An *extraction profile* is a JSON file that holds every extraction option, so one
@@ -228,7 +260,7 @@ command name:
   `bottom`, and `null` takes the first). `channel_layout_donor_rect` and
   `channel_layout_acceptor_rect` are the two rectangles of a `rectangles` layout, each
   `[y1, x1, y2, x2]` with 1-based inclusive bounds. A layout is refused beside a
-  `donor_side` other than `left` and beside `--tmap`. For example, a camera that puts the
+  `donor_side` other than `left` and beside `--tmap` or `--map`. For example, a camera that puts the
   donor in the bottom half:
 
   ```json
@@ -600,6 +632,49 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
 
+## `tether map create`
+
+Make a channel map file from a bead-slide video or from one bead image, so that later
+movies can be extracted with it (`tether extract --map`) instead of each fitting its own
+registration. The beads of both halves are detected, paired and fitted with the same
+stages a native extraction runs, and the map is saved as one `.npz` file with its source
+id (the sha256 of the bead file), its projection settings and its quality record. The
+application's **Calibration → Make channel map…** (a menu of the Prepare section) runs the same command.
+
+```text
+tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
+                  [--projection {max,mean}] [--donor-side {left,right}]
+                  [--rms-gate RMS_GATE] source
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `source` | required | a bead TIFF: one image, or a video of frames |
+| `-o`, `--output OUTPUT` | required | the `.npz` map file to write. The name must end in `.npz` |
+| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one) |
+| `--frames START STOP` | every frame | for a video: the 0-based half-open frame range to project |
+| `--projection {max,mean}` | `max` | for a video: how the frames are reduced to one image |
+| `--donor-side {left,right}` | `left` | which half of the frame is the donor channel |
+| `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
+
+```console
+$ tether map create beads.tif -o beads.npz
+Map -> beads.npz: RMS 0.214 px over 38 bead pair(s), 71% of the field covered
+$ tether extract movie.tif -o movie.tether --map beads.npz
+```
+
+A map over `--rms-gate` is still written and the command exits `0`, with a warning on
+stderr: the map is flagged low-confidence, and every molecule extracted with it is tagged
+`low-confidence-registration`. A bead file with too few beads in either half, a bad frame
+range, an output that exists without `--overwrite`, or an output name without `.npz`
+exits `1` with one line on stderr. Bad arguments exit `2`.
+
+The map file has a `format_version` (now `1`). Tether reads a map file of its own
+version or older, and refuses one written by a newer version. The file holds only plain
+arrays and text and is read with pickling switched off, so no stored Python object can
+run when a map is loaded. [ADR-0128](adr/0128-the-map-file-carries-a-format-version-and-a-reader-refuses-a-newer-one.md)
+records this version rule.
+
 ## `tether info`
 
 Print a summary of what one or more projects hold, without the application and without a
@@ -929,7 +1004,7 @@ shows the same text in the Browser when you open the project.
 
 ## Service commands
 
-`tether extract` and `tether batch` are each the command-line route of one *service command*
+`tether extract`, `tether batch` and `tether map create` are each the command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
 command is the one implementation of an action. The command line uses it now. The
 desktop application and recipe files will use the same commands as their sections are
@@ -945,6 +1020,7 @@ two differ:
 |---|---|---|---|
 | `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
 | `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
+| `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image |
 <!-- service-commands:end -->
 
 A request is plain data with one text form: a JSON object with the command name, the
@@ -957,7 +1033,7 @@ the page, and a break between two parts of JSON does not change it:
 "channel_layout_acceptor_rect":null,"channel_layout_donor":null,
 "channel_layout_donor_rect":null,"coloc_distance":3.0,"colocalization":"partner-in-both",
 "count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
-"disk_radius":3.0,"donor_side":"left",
+"disk_radius":3.0,"donor_side":"left","map_path":null,
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
 "prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
