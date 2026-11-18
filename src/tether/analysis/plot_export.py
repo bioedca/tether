@@ -189,12 +189,17 @@ SERIES_LINESTYLES: tuple[str, ...] = ("-", "--", "-.", ":")
 #: (the C1 state-number chart), one per line style.
 _SERIES_HATCHES: tuple[str, ...] = ("", "//", "..", "xx")
 
+#: The point markers that stand in for `SERIES_LINESTYLES` where a series may be drawn
+#: as points alone (the B2 survival markers of an unfitted series), one per line style.
+_SERIES_MARKERS: tuple[str, ...] = ("o", "s", "^", "D")
+
 #: Figure attribute a ``render_*`` helper sets when it was given a sequence of series:
 #: one record per series, which `export_figure` writes to ``parameters.series``.
 _SERIES_ATTR = "_tether_series"
 
-#: Array fields of a result that are parameters of the series (its grid, its probed
-#: values, and the parameters of a model drawn with it: the Gaussian overlay's means,
+#: Array fields of a result that are parameters of the series (its grid, a smoothed
+#: transition density's interpolation ``grid`` included, its probed values, and the
+#: parameters of a model drawn with it: the Gaussian overlay's means,
 #: variances and weights, a dwell fit's rates and amplitudes with their errors), and so
 #: travel into the provenance file. Every other array is data, including a model's
 #: sampled curve (``components``, ``total``, ``model_survival``).
@@ -204,6 +209,7 @@ _PARAMETER_ARRAYS = frozenset(
         "edges",
         "time_edges",
         "signal_edges",
+        "grid",
         "states",
         "lags",
         "k_values",
@@ -420,6 +426,7 @@ def _merged_series(figure: Figure, parameters: dict[str, object]) -> list[dict[s
             raise ValueError(
                 f"parameters['series'][{k}] must be a dict, got {type(extra).__name__}"
             )
+        extra = _finite_record(extra)  # a caller's NaN would otherwise reach the file as NaN
         clashes = sorted(key for key in extra.keys() & record.keys() if extra[key] != record[key])
         if clashes:
             raise ValueError(
@@ -497,6 +504,10 @@ def export_figure(
 
     display = _merged_display_parameters(figure, parameters)
     series = _merged_series(figure, parameters)
+    if series is None and "series" in parameters:
+        # A bare-result figure passes the caller's series entry through; it is held to
+        # the same strict-JSON rule as the records a figure makes.
+        parameters = {**parameters, "series": _finite(parameters["series"])}
 
     stem = Path(out_stem)
     version = _app_version()
@@ -642,6 +653,21 @@ def _shown(value: object) -> str:
     return repr(value)
 
 
+def _difference(name: str, ours: object, theirs: object) -> str:
+    """How one grid value differs from the first series', as the refusal states it.
+
+    Two arrays of one shape are told apart by their first unequal entry, since a summary
+    of their size and ends can read the same for both; anything else by its summary.
+    """
+    if isinstance(ours, np.ndarray) and isinstance(theirs, np.ndarray):
+        a, b = np.asarray(ours), np.asarray(theirs)
+        if a.shape == b.shape:
+            index = tuple(int(i) for i in np.argwhere(a != b)[0])
+            at = index[0] if len(index) == 1 else index
+            return f"{name} has {b[index]:g} at index {at}, not {a[index]:g}"
+    return f"{name} is {_shown(theirs)}, not {_shown(ours)}"
+
+
 #: A grid key: the name a refusal gives it, and how to read it off a result.
 _GridKey = tuple[str, Callable[[Any], object]]
 
@@ -659,7 +685,7 @@ def _require_shared_grid(series: Sequence[tuple[str, Any]], keys: Sequence[_Grid
             if not _same(ours, theirs):
                 raise ValueError(
                     f"series {label!r} is not on the grid of series {first_label!r}: its "
-                    f"{name} is {_shown(theirs)}, not {_shown(ours)}. Series on one figure "
+                    f"{_difference(name, ours, theirs)}. Series on one figure "
                     "must share their grid, and Tether does not resample one onto another"
                 )
 
@@ -675,17 +701,26 @@ _SKIP = object()
 
 
 def _finite(value: object) -> object:
-    """``value`` with every NaN or infinity, at any depth of a list, replaced by ``None``.
+    """``value`` with every NaN or infinity, at any depth of a list or dict, set to ``None``.
 
     A result may carry a non-finite parameter on purpose (the ``alpha`` of an empty alpha
     shape, the parameters of a failed fit). JSON has no token for it, and a provenance
     file must stay readable by a strict JSON reader, so it is recorded as ``null``.
     """
-    if isinstance(value, list):
+    if isinstance(value, dict):
+        return {key: _finite(v) for key, v in value.items()}
+    if isinstance(value, list | tuple):
         return [_finite(v) for v in value]
+    if isinstance(value, np.generic):
+        return _finite(value.item())
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def _finite_record(record: dict[Any, object]) -> dict[Any, object]:
+    """A caller's per-series dict with every non-finite value, at any depth, set to ``None``."""
+    return {key: _finite(value) for key, value in record.items()}
 
 
 def _parameter_value(name: str, value: object) -> object:
@@ -732,7 +767,12 @@ def _record_series(
     display: Sequence[dict[str, object]] | None = None,
     companions: Sequence[dict[str, object]] | None = None,
 ) -> None:
-    """Record each drawn series on ``figure`` for `export_figure` (``parameters.series``)."""
+    """Record each drawn series on ``figure`` for `export_figure` (``parameters.series``).
+
+    ``display`` gives each series' colour and line style, or its panel. Without it the
+    figure is a one-series sequence drawn as the bare result, in that result's own
+    colours, and its record says so (``{"as_bare_result": True}``).
+    """
     records: list[dict[str, object]] = []
     for k, (label, result) in enumerate(series):
         record: dict[str, object] = {
@@ -742,10 +782,19 @@ def _record_series(
         }
         if companions is not None and companions[k]:
             record.update(companions[k])
-        if display is not None:
-            record["display"] = dict(display[k])
+        record["display"] = {"as_bare_result": True} if display is None else dict(display[k])
         records.append(record)
     setattr(figure, _SERIES_ATTR, records)
+
+
+def _series_marker(index: int) -> str:
+    """The point marker of series ``index``: it steps with the line style, never the colour.
+
+    A series drawn as points alone has no line to show its style, so its marker carries
+    the style slot instead, and series 5 is never drawn like series 1.
+    """
+    n_colors = len(SERIES_COLORS)
+    return _SERIES_MARKERS[(index % (n_colors * len(SERIES_LINESTYLES))) // n_colors]
 
 
 def _set_display(figure: Figure, **entries: object) -> None:
@@ -759,9 +808,21 @@ def _overlay_style(k: int) -> dict[str, object]:
     return {"color": style.color, "linestyle": style.linestyle}
 
 
+def _drawn(label: str) -> str:
+    r"""A series label as it is drawn: literal text, never Matplotlib math text.
+
+    A label is the caller's name for a selection, so a ``$`` in it is a character, not
+    the start of math: ``$\unknown$`` would otherwise be parsed as math text and fail
+    when the figure is saved. Each ``$`` is escaped, which Matplotlib draws as a plain
+    dollar sign both in plain text and beside intended math such as a fit's ``$R^2$``.
+    The provenance keeps the label as given.
+    """
+    return label.replace("$", r"\$")
+
+
 def _labelled(label: str, n_molecules: int | None) -> str:
     """A legend entry: the series label and, when known, its molecule count."""
-    return label if n_molecules is None else f"{label} (N = {n_molecules})"
+    return _drawn(label) if n_molecules is None else f"{_drawn(label)} (N = {n_molecules})"
 
 
 def _series_legend(ax: Any, handles: list[Any], **kwargs: Any) -> None:
@@ -813,7 +874,8 @@ def _small_multiples_display(
     """Mark ``figure`` as small multiples and return each series' panel record.
 
     ``color_scale`` says the panels share one colour scale (every heatmap and raster
-    does); a panel without one, the per-condition overlay, records none.
+    does); panels without one, the per-condition overlay or clouds with no density
+    surface, record none.
     """
     entries: dict[str, object] = {"series_layout": "small_multiples"}
     if color_scale:
@@ -922,7 +984,7 @@ def render_histogram1d(
                 color=style.color,
                 alpha=0.2,
                 linewidth=0,
-                label=f"{label}: {h.ci_level:.0%} CI",
+                label=f"{_drawn(label)}: {h.ci_level:.0%} CI",
             )
             handles.append(band)
         if model is not None:
@@ -932,7 +994,7 @@ def render_histogram1d(
                 color=style.color,
                 lw=1.0,
                 ls=(0, (1, 1)),
-                label=f"{label}: model",
+                label=f"{_drawn(label)}: model",
             )
             handles.append(line)
     first = bases[0][1]
@@ -951,8 +1013,12 @@ def render_histogram1d(
 
 
 def _overlay_records(overlays: Sequence[ModelGaussianOverlay | None]) -> list[dict[str, object]]:
-    """The model overlay of each series, as its provenance record (empty when none)."""
-    return [{} if o is None else {"overlay": _result_parameters(o)} for o in overlays]
+    """The model overlay of each series, as its provenance record (``None`` when none).
+
+    A series drawn without a model still records ``overlay: None``, so a caller key
+    claiming a model that was never drawn contradicts the figure and is refused.
+    """
+    return [{"overlay": None if o is None else _result_parameters(o)} for o in overlays]
 
 
 def _one_histogram1d(
@@ -1083,7 +1149,7 @@ def render_histogram2d(
         ax.set_xlabel("Time (s)" if h.time_dt != 1.0 else "Frame")
         ax.set_ylabel("Apparent FRET efficiency $E$")
         ax.set_ylim(h.signal_range)
-        ax.set_title(label)
+        ax.set_title(_drawn(label))
         ax.annotate(
             f"N = {h.n_molecules}",
             xy=(0.97, 0.95),
@@ -1259,7 +1325,7 @@ def render_transition_density(
         ax.set_xlabel("Initial $E$")
         ax.set_ylabel("Final $E$")
         ax.set_aspect("equal")
-        ax.set_title(label)
+        ax.set_title(_drawn(label))
         ax.annotate(
             f"{d.n_transitions} transitions · N = {d.n_molecules}",
             xy=(0.03, 0.95),
@@ -1368,9 +1434,11 @@ def render_dwell_survival(
     and (when fitted) a residuals subplot.
 
     **Several series** are overlaid on one log axis: each series' survival markers and fit
-    curve take its colour, the fit its line style, and the residuals of every fitted series
-    share the residual panel. The legend names each series' state and ``N``; the note
-    lists each fit's rates and each series' dwell count and idealized FRET level.
+    curve take its colour, the fit its line style, and the markers (survival and residual)
+    a shape that steps with the line style, so an unfitted fifth series is not drawn like
+    the first. The residuals of every fitted series share the residual panel. The legend
+    names each series' state and ``N``; the note lists each fit's rates and each series'
+    dwell count and idealized FRET level.
 
     Parameters
     ----------
@@ -1408,19 +1476,20 @@ def render_dwell_survival(
         ax_res = None
     notes: list[str] = []
     handles: list[Any] = []
+    markers = [_series_marker(k) for k in range(len(series))]
     for k, ((label, a), ok) in enumerate(zip(series, fitted, strict=True)):
         style = series_style(k)
         (points,) = ax.semilogy(
             np.asarray(a.tau, dtype="float64"),
             np.clip(np.asarray(a.survival, dtype="float64"), 1e-6, None),
-            marker="o",
+            marker=markers[k],
             ls="none",
             ms=3,
             color=style.color,
-            label=f"{label} · state {a.state} (N = {a.n_molecules})",
+            label=f"{_drawn(label)} · state {a.state} (N = {a.n_molecules})",
         )
         handles.append(points)
-        note = f"{label}: {a.n_dwells} dwells · level {a.level:.2f}"
+        note = f"{_drawn(label)}: {a.n_dwells} dwells · level {a.level:.2f}"
         if ok and a.fit is not None:
             fit = a.fit
             (curve,) = ax.semilogy(
@@ -1429,7 +1498,7 @@ def render_dwell_survival(
                 color=style.color,
                 ls=style.linestyle,
                 lw=1.5,
-                label=f"{label}: {fit.model} exp fit ($R^2$={fit.r_squared:.3f})",
+                label=f"{_drawn(label)}: {fit.model} exp fit ($R^2$={fit.r_squared:.3f})",
             )
             handles.append(curve)
             rates = ", ".join(f"{r:.3g}" for r in np.asarray(fit.rates, dtype="float64"))
@@ -1438,8 +1507,9 @@ def render_dwell_survival(
                 ax_res.plot(
                     np.asarray(fit.tau, dtype="float64"),
                     np.asarray(fit.residuals, dtype="float64"),
-                    ".",
-                    ms=3,
+                    marker=markers[k],
+                    ls="none",
+                    ms=2,
                     color=style.color,
                 )
         notes.append(note)
@@ -1460,7 +1530,14 @@ def render_dwell_survival(
         ax_res.set_xlabel(unit)
     else:
         ax.set_xlabel(unit)
-    _record_series(fig, series, display=_overlay_display(fig, len(series)))
+    _record_series(
+        fig,
+        series,
+        display=[
+            {**style, "marker": marker}
+            for style, marker in zip(_overlay_display(fig, len(series)), markers, strict=True)
+        ],
+    )
     return fig
 
 
@@ -1846,7 +1923,7 @@ def render_raw_fret_cloud(
         ax.set_ylim(c.signal_range)
         ax.set_xlabel("Time (s)" if c.time_dt != 1.0 else "Frame")
         ax.set_ylabel("Apparent FRET efficiency $E$")
-        ax.set_title(label)
+        ax.set_title(_drawn(label))
         ax.annotate(
             f"{c.n_samples} points · N = {c.n_molecules}",
             xy=(0.03, 0.95),
@@ -1858,7 +1935,12 @@ def render_raw_fret_cloud(
     if mesh is not None:
         fig.colorbar(mesh, ax=axes, label="KDE density")
     fig.suptitle(title)
-    _record_series(fig, series, display=_small_multiples_display(fig, len(series)))
+    _record_series(
+        fig,
+        series,
+        # A shared scale is recorded only when a density surface drew one.
+        display=_small_multiples_display(fig, len(series), color_scale=mesh is not None),
+    )
     return fig
 
 
@@ -2083,7 +2165,7 @@ def render_per_condition_histograms(
     fig = _new_figure(_panels_figsize(figsize, len(series)))
     axes = _panels(fig, len(series))
     for ax, (label, o) in zip(axes, series, strict=True):
-        _condition_panel(ax, o, [slot[c] for c in o.condition_ids], title=label)
+        _condition_panel(ax, o, [slot[c] for c in o.condition_ids], title=_drawn(label))
     fig.suptitle(title)
     _record_series(
         fig, series, display=_small_multiples_display(fig, len(series), color_scale=False)
@@ -2235,7 +2317,7 @@ def render_transition_sync_histogram2d(
         ax.set_ylabel("Apparent FRET efficiency $E$")
         ax.set_xlim(float(time_edges[0]), float(time_edges[-1]))
         ax.set_ylim(h.signal_range)
-        ax.set_title(label)
+        ax.set_title(_drawn(label))
         window = "single dwell" if h.single_dwell else "fixed window"
         ax.annotate(
             f"{_sync_state_label(h.from_state)} → {_sync_state_label(h.to_state)} ({window})"
@@ -2401,14 +2483,25 @@ def render_alpha_shape(
                 colors=style.color,
                 linestyles=style.linestyle,
                 linewidths=1.2,
-                label=label,
+                label=_drawn(label),
             )
             ax.add_collection(boundary)
             handles.append(boundary)
-        notes.append(f"{label}: {_alpha_note(s)} · {s.n_points} points")
+        notes.append(f"{_drawn(label)}: {_alpha_note(s)} · {s.n_points} points")
     if with_cloud:
-        ax.set_xlim(with_cloud[0][1].time_range)
-        ax.set_ylim(with_cloud[0][1].signal_range)
+        (x_lo, x_hi), (y_lo, y_hi) = (
+            _range(with_cloud[0][1].time_range),
+            _range(with_cloud[0][1].signal_range),
+        )
+        for (_, s), c in zip(series, clouds, strict=True):
+            if c is None and not s.is_empty:
+                # A cloudless boundary has no range of its own to agree with, so the
+                # limits widen to hold it rather than cut it off.
+                ends = np.asarray(s.boundary_edges, dtype="float64").reshape(-1, 2)
+                x_lo, x_hi = min(x_lo, float(ends[:, 0].min())), max(x_hi, float(ends[:, 0].max()))
+                y_lo, y_hi = min(y_lo, float(ends[:, 1].min())), max(y_hi, float(ends[:, 1].max()))
+        ax.set_xlim(x_lo, x_hi)
+        ax.set_ylim(y_lo, y_hi)
     else:
         ax.autoscale_view()
     ax.set_xlabel("Time (s)" if dts[0] != 1.0 else "Frame")
@@ -2448,12 +2541,14 @@ def _alpha_note(shape: AlphaShape) -> str:
 def _cloud_records(
     clouds: Sequence[RawFretCloud | None], dts: Sequence[float | None]
 ) -> list[dict[str, object]]:
-    """Each series' cloud and frame time, as its provenance record."""
+    """Each series' cloud and frame time, as its provenance record.
+
+    A series drawn without a cloud still records ``cloud: None``, so a caller key
+    claiming a cloud that was never drawn contradicts the figure and is refused.
+    """
     records: list[dict[str, object]] = []
     for c, dt in zip(clouds, dts, strict=True):
-        record: dict[str, object] = {}
-        if c is not None:
-            record["cloud"] = _result_parameters(c)
+        record: dict[str, object] = {"cloud": None if c is None else _result_parameters(c)}
         if dt is not None:
             record["time_dt"] = float(dt)
         records.append(record)
@@ -2562,17 +2657,18 @@ def render_state_number_elbow(
                 ls=style.linestyle,
                 ms=4,
                 lw=1.2,
-                label=label,
+                label=_drawn(label),
             )
             handles.append(line)
         if e.elbow_k is not None:
             (at,) = np.flatnonzero(ks == int(e.elbow_k))
             ax.plot([ks[at]], [rmse[at]], "o", ms=9, mfc="none", mec=style.color, mew=1.5)
             notes.append(
-                f"{label}: suggested k = {e.elbow_k} · {e.n_samples} samples · seed {e.seed}"
+                f"{_drawn(label)}: suggested k = {e.elbow_k} · {e.n_samples} samples"
+                f" · seed {e.seed}"
             )
         else:
-            notes.append(f"{label}: no elbow · {e.n_samples} samples · seed {e.seed}")
+            notes.append(f"{_drawn(label)}: no elbow · {e.n_samples} samples · seed {e.seed}")
     if probed:
         ax.set_xticks(sorted(probed))
         _series_legend(ax, handles, loc="upper right", fontsize=8, frameon=False)
@@ -2697,7 +2793,7 @@ def render_population_anticorrelation(
         _anticorrelation_rows(ax, p, cmap, norm)
         ax.set_xlim(0.0, float(max(longest, 1)))
         ax.set_ylabel("Molecule")
-        ax.set_title(label)
+        ax.set_title(_drawn(label))
     axes[-1].set_xlabel("Frame (analysis window)")
     fig.colorbar(ScalarMappable(norm=norm, cmap=cmap), ax=axes, label="Peak |lag-0| correlation")
     fig.suptitle(title)

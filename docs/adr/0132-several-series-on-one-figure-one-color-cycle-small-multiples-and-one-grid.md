@@ -96,7 +96,8 @@ checks the bytes for all thirteen renderers.
 (`-`, `--`, `-.`, `:`) changes every four series; a bar chart uses a hatch per line style instead.
 `series_style(k)` gives both, so the builder can color its layer list with the same cycle. The cycle
 is deterministic: the same position always takes the same style. After 16 series it repeats, and the
-legend label is the only thing that tells series 17 from series 1. The colors are those of Wong
+legend label is the only thing that tells series 17 from series 1. Where a series may be points
+alone (the dwell survival of an unfitted series), its marker steps with the line style. The colors are those of Wong
 (2011), *Points of view: Color blindness*, Nature Methods 8, 441,
 [doi:10.1038/nmeth.1618](https://doi.org/10.1038/nmeth.1618), the source `tether.gui.theme`
 already cites for its dark `safe` palette; no new source is introduced. The four values agree with
@@ -128,8 +129,8 @@ A1 histogram, for example). That follows from "nothing changes for a caller of o
 
 The four 2-D results the issue names are small multiples. Two more are: the per-condition overlay,
 whose curves already use color for the condition, so a second overlay would need a second channel
-to tell the selection; and the event raster, whose rows are molecules of one series. Small
-multiples share their axes and **one color scale**, computed over every panel (for the TDP, the
+to tell the selection; and the event raster, whose rows are molecules of one series, so its panels
+share only the frame axis. Small multiples share their axes and **one color scale**, computed over every panel (for the TDP, the
 log or linear scale of the B1 plot over the bins of all panels), so a color means one value in
 every panel; one color bar serves them all.
 
@@ -147,8 +148,9 @@ type, the `parameters` that result carries (every scalar and range, and the arra
 or its probed values: bin edges, state numbers, lags, `k`, HDR coverages; and the parameters of a
 model drawn with it: a Gaussian overlay's means, variances and weights, a dwell fit's rates and
 amplitudes with their errors; never its data, a model's sampled curve included), and its
-`display` (color and line style, or its panel). A model overlay or a cloud passed with a series is
-recorded with it. `export_figure` writes the list to `parameters.series`, and the figure layout to
+`display` (color and line style, or its panel; `{"as_bare_result": true}` for a one-series
+figure). A model overlay or a cloud passed with a series is recorded with it, and as `null` when
+the series has none, so a caller cannot add one that was not drawn. `export_figure` writes the list to `parameters.series`, and the figure layout to
 `parameters.display` (`series_layout`, `series_cycle`, `series_color_scale`). The caller may add its
 own keys per series (the selection and its version, the levers, the frame time it chose) as
 `parameters["series"]`, one dict per series; a key that contradicts the figure's record is refused,

@@ -546,15 +546,18 @@ export_figure(
   bars), the cross-correlation, the alpha shape and the elbow. The series take their colors from
   one cycle, `SERIES_COLOR_CYCLE = "okabe-ito-4"`. It has four colors of the Okabe–Ito set: blue,
   vermilion, bluish green and reddish purple. After them come the same four with the next line
-  style (`--`, `-.`, `:`), so 16 series differ. `series_style(k)` returns the style of series `k`.
+  style (`--`, `-.`, `:`), so 16 series differ. Where a series can be drawn as points alone, its
+  marker (`o`, `s`, `^`, `D`) steps with the line style, as the dwell survival markers do. `series_style(k)` returns the style of series `k`.
   Each color reaches 3 : 1 against the white background. Every two colors also stay apart under
   simulated protanopia, deuteranopia and tritanopia, the check the [trace colors](gui-theme.md)
   pass.
 - **Small multiples.** Where one series would hide another, each series gets its own panel, titled
   with its label. This applies to the time-vs-signal heatmap, the transition-density plot, the raw
   FRET cloud, the transition-synchronized heatmap, the per-condition overlay and the
-  anticorrelation raster. The panels share their axes. The heatmaps and the raster share one color
-  scale and one color bar, so a color means the same value in every panel. In the per-condition
+  anticorrelation raster. The panels share their axes. The anticorrelation panels share only the
+  frame axis: each has its own molecule rows, so one row position is not one molecule across
+  panels. The heatmaps and the raster share one color scale and one color bar, so a color means
+  the same value in every panel. In the per-condition
   panels, a condition keeps its color in every panel.
 - **One grid.** Two series that are not on one grid are refused with a `ValueError`. It names the
   series, what differs and both values. Tether never resamples one series onto another. What must
@@ -566,13 +569,15 @@ export_figure(
 `export_figure` writes one record per series to `parameters.series`, in figure order. A record
 holds the `label`, the `result` type, the `parameters` that result carries and its `display`. The
 parameters are the scalars, ranges and grid of the result, never its data. The display is the color
-and line style, or the panel. The layout goes to `parameters.display` (`series_layout`, and
+and line style, or the panel. A one-series figure is the bare result's figure, so its record says
+`{"as_bare_result": true}`. The layout goes to `parameters.display` (`series_layout`, and
 `series_cycle` or `series_color_scale`).
 
 A model drawn with a series keeps its own parameters in the record. Examples are the Gaussian
-means, variances and weights, or the fitted rates. Its sampled curve is data and is left out.
+means, variances and weights, or the fitted rates. Its sampled curve is data and is left out. A
+series drawn without its model overlay or cloud records `null` for it.
 A parameter that is NaN or infinite, such as the `alpha` of an empty alpha shape, is recorded as
-`null`, so the file stays strict JSON.
+`null`, so the file stays strict JSON. So is one in a key you add.
 
 To add your own keys to a series, such as the selection
 and its version, pass `parameters["series"]` as a list of one dict per series. A key that

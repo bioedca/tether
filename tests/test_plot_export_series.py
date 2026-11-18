@@ -561,3 +561,116 @@ def test_the_alpha_boundaries_of_several_series_are_overlaid(results):
     assert [c.get_label() for c in boundaries] == ["WT", "mutant"]
     for c, s in zip(boundaries, (wt, mut), strict=True):
         assert len(c.get_segments()) == s.n_boundary_edges
+
+
+# ------------------------------------------ the CodeRabbit review of be20624 (#371)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_label_with_a_dollar_sign_is_drawn_as_literal_text(results, tmp_path, kind):
+    # A label is the caller's name for a selection. Matplotlib would parse "$\unknown$"
+    # as math text and fail on save; the label is drawn literally and recorded as given.
+    wt, mut = results[kind]
+    labels = [r"$\unknown$", "cost $5"]
+    fig = RENDER[kind]([(labels[0], wt), (labels[1], mut)])
+    result = pe.export_figure(
+        fig, tmp_path / "d", tether_export="plot:t", source="s", parameters={}, created_utc=PINNED
+    )
+    assert set(result.paths) == {"pdf", "svg", "png"}
+    assert [r["label"] for r in _sidecar(result)["parameters"]["series"]] == labels
+
+
+def test_a_caller_may_not_claim_a_model_or_cloud_that_was_not_drawn(results, tmp_path):
+    fig = pe.render_histogram1d(_two(results, "h1"))
+    with pytest.raises(ValueError, match="contradicts series 'WT'.*overlay"):
+        _export(fig, tmp_path / "h", parameters={"series": [{"overlay": {"means": [0.5]}}, {}]})
+    wt, mut = results["alpha"]
+    fig = pe.render_alpha_shape([("WT", wt), ("mutant", mut)])
+    with pytest.raises(ValueError, match="contradicts series 'mutant'.*cloud"):
+        _export(fig, tmp_path / "a", parameters={"series": [{}, {"cloud": {"n_samples": 9}}]})
+    records = _sidecar(_export(fig, tmp_path / "b"))["parameters"]["series"]
+    assert [r["cloud"] for r in records] == [None, None]
+
+
+def test_a_cloudless_boundary_beside_a_cloud_stays_inside_the_axis(results):
+    cloud, _ = results["cloud"]
+    beside, _ = results["alpha"]
+    lo, hi = cloud.time_range
+    outside = alpha_shape(_grid_points() * [5.0, 1.0] + [hi + 1.0, 0.0], alpha=10.0)
+    assert not outside.is_empty
+    ax = pe.render_alpha_shape([("WT", beside), ("outside", outside)], cloud=[cloud, None]).axes[0]
+    ends = np.asarray(outside.boundary_edges).reshape(-1, 2)
+    x_lo, x_hi = ax.get_xlim()
+    assert x_lo <= lo and x_hi >= float(ends[:, 0].max())
+    # With every series' cloud given, the limits stay the clouds' ranges.
+    ax = pe.render_alpha_shape([("WT", beside), ("again", beside)], cloud=[cloud, cloud]).axes[0]
+    assert ax.get_xlim() == pytest.approx(cloud.time_range)
+
+
+def test_a_grid_refusal_names_the_first_unequal_value(results):
+    wt, mut = results["h1"]
+    edges = np.asarray(wt.bin_edges, dtype="float64").copy()
+    edges[1] += 1e-3
+    moved = replace(mut, bin_edges=edges)
+    with pytest.raises(ValueError, match=r"bin edges has .* at index 1, not "):
+        pe.render_histogram1d([("WT", wt), ("mutant", moved)])
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_one_series_record_says_it_is_drawn_as_the_bare_result(results, tmp_path, kind):
+    wt, _ = results[kind]
+    records = _sidecar(_export(RENDER[kind]([("WT", wt)]), tmp_path / "o"))["parameters"]["series"]
+    assert records[0]["display"] == {"as_bare_result": True}
+
+
+def test_unfitted_dwell_series_past_four_differ_by_marker(results, tmp_path):
+    wt, mut = results["dwell"]
+    unfitted = [(f"s{k}", replace(wt if k % 2 else mut, fit=None)) for k in range(5)]
+    fig = pe.render_dwell_survival(unfitted)
+    markers = [line.get_marker() for line in fig.axes[0].get_lines()]
+    assert markers[0] == "o" and markers[4] == "s"
+    records = _sidecar(_export(fig, tmp_path / "d"))["parameters"]["series"]
+    assert [r["display"]["marker"] for r in records] == ["o", "o", "o", "o", "s"]
+
+
+def test_clouds_without_a_density_record_no_shared_colour_scale(results, tmp_path):
+    wt, mut = results["cloud"]
+    bare = [("WT", replace(wt, density=None)), ("mutant", replace(mut, density=None))]
+    display = _sidecar(_export(pe.render_raw_fret_cloud(bare), tmp_path / "c"))["parameters"][
+        "display"
+    ]
+    assert display == {"series_layout": "small_multiples"}
+    display = _sidecar(_export(pe.render_raw_fret_cloud(_two(results, "cloud")), tmp_path / "d"))[
+        "parameters"
+    ]["display"]
+    assert display["series_color_scale"] == "shared"
+
+
+def test_a_non_finite_value_the_caller_adds_is_recorded_as_null(results, tmp_path):
+    def refuse(token):
+        raise ValueError(f"non-standard JSON token {token}")
+
+    given = [{"rate": float("nan"), "levels": [1.0, float("inf")]}, {"t": (np.float64("nan"),)}]
+    fig = pe.render_cross_correlation(_two(results, "xcorr"))
+    result = _export(fig, tmp_path / "x", parameters={"series": given})
+    records = json.loads(result.provenance_path.read_text(encoding="utf-8"), parse_constant=refuse)
+    first, second = records["parameters"]["series"]
+    assert first["rate"] is None and first["levels"] == [1.0, None]
+    assert second["t"] == [None]
+    wt, _ = results["xcorr"]
+    result = _export(
+        pe.render_cross_correlation(wt),
+        tmp_path / "y",
+        parameters={"series": [{"r": float("nan")}]},
+    )
+    sidecar = json.loads(result.provenance_path.read_text(encoding="utf-8"), parse_constant=refuse)
+    assert sidecar["parameters"]["series"] == [{"r": None}]
+
+
+def test_a_named_smoothed_tdp_records_its_interpolation_grid(results, tmp_path):
+    tdp, _ = results["tdp"]
+    smoothed = smooth_transition_density(tdp)
+    fig = pe.render_transition_density([("WT", smoothed)])
+    params = _sidecar(_export(fig, tmp_path / "s"))["parameters"]["series"][0]["parameters"]
+    assert params["grid"] == np.asarray(smoothed.grid).tolist()
+    assert "values" not in params
