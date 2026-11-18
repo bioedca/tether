@@ -74,6 +74,12 @@ def test_the_calibration_menu_has_its_three_actions(shell) -> None:
     menu = next(
         m for m in shell.window.findChildren(QtWidgets.QMenu) if m.title() == "Ca&libration"
     )
+    # A menu of the Prepare section (#342): shown while that section is current.
+    assert menu in shell.section_menus("prepare")
+    shell.set_section("prepare")
+    assert menu.menuAction().isVisible()
+    shell.set_section("curate")
+    assert not menu.menuAction().isVisible()
     assert [a.text() for a in menu.actions()] == [
         "&Make channel map…",
         "&Choose channel map…",

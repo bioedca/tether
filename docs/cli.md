@@ -585,7 +585,7 @@ movies can be extracted with it (`tether extract --map`) instead of each fitting
 registration. The beads of both halves are detected, paired and fitted with the same
 stages a native extraction runs, and the map is saved as one `.npz` file with its source
 id (the sha256 of the bead file), its projection settings and its quality record. The
-application's **Calibration → Make channel map…** runs the same command.
+application's **Calibration → Make channel map…** (a menu of the Prepare section) runs the same command.
 
 ```text
 tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]

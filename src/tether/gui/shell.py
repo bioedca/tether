@@ -913,25 +913,6 @@ class TetherShell:
                 self._section_menus[spec.id].append(section_menu)
         self._sync_section_menus()
 
-        # Calibration menu (#353): make a channel map from a bead video or image, or
-        # choose a saved one, and extract a later movie with it. Each action is a
-        # service command (map, extract), run on a background worker of its own so the
-        # window stays live; the mapping page itself is #917.
-        from tether.gui.calibration import ChannelMapActions
-
-        self._channel_map = ChannelMapActions(
-            status=self._status, open_project=self.load_project, window=self._window
-        )
-        self._calibration_menu = self._window.menuBar().addMenu("Ca&libration")
-        self._act_make_map = self._calibration_menu.addAction("&Make channel map…")
-        self._act_make_map.triggered.connect(self._channel_map.make_map_dialog)
-        self._act_choose_map = self._calibration_menu.addAction("&Choose channel map…")
-        self._act_choose_map.triggered.connect(self._channel_map.choose_map_dialog)
-        self._act_extract_with_map = self._calibration_menu.addAction(
-            "&Extract a movie with the channel map…"
-        )
-        self._act_extract_with_map.triggered.connect(self._channel_map.extract_with_map_dialog)
-
         # View menu: View -> Theme -> System / Light / Dark (#675). The choice lasts
         # for the session until the settings store (#330) can keep it.
         self._view_menu = self._window.menuBar().addMenu("&View")
@@ -1193,9 +1174,10 @@ class TetherShell:
         project in later work (#352 publishes an extraction into it; analysis results are
         stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
 
-        Each section also declares its menus (#342): Import in Prepare; Curation, Hand-off
-        and Conditions in Curate and correct; Analysis in Analyze. Only Curate and correct
-        declares the curation keymap scope, so the curation keys act only there.
+        Each section also declares its menus (#342): Import and Calibration (#353) in
+        Prepare; Curation, Hand-off and Conditions in Curate and correct; Analysis in
+        Analyze. Only Curate and correct declares the curation keymap scope, so the
+        curation keys act only there.
         """
         browser_panel = self._browser_panel
         return SectionRegistry(
@@ -1215,6 +1197,11 @@ class TetherShell:
                             id="import",
                             title="&Import",
                             populate=lambda _host, menu: self._populate_import_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="calibration",
+                            title="Ca&libration",
+                            populate=lambda _host, menu: self._populate_calibration_menu(menu),
                         ),
                     ),
                 ),
@@ -1284,6 +1271,27 @@ class TetherShell:
         self._legacy_menu = menu
         self._act_import_deeplasi = menu.addAction("&Deep-LASI bundle…")
         self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+
+    def _populate_calibration_menu(self, menu: Any) -> None:
+        """Prepare's Calibration menu (#353): make, choose and apply a channel map file.
+
+        Make a channel map from a bead video or image, or choose a saved one, and extract
+        a later movie with it. Each action is a service command (map, extract), run on a
+        background worker of its own so the window stays live; the mapping page itself is
+        #917.
+        """
+        from tether.gui.calibration import ChannelMapActions
+
+        self._channel_map = ChannelMapActions(
+            status=self._status, open_project=self.load_project, window=self._window
+        )
+        self._calibration_menu = menu
+        self._act_make_map = menu.addAction("&Make channel map…")
+        self._act_make_map.triggered.connect(self._channel_map.make_map_dialog)
+        self._act_choose_map = menu.addAction("&Choose channel map…")
+        self._act_choose_map.triggered.connect(self._channel_map.choose_map_dialog)
+        self._act_extract_with_map = menu.addAction("&Extract a movie with the channel map…")
+        self._act_extract_with_map.triggered.connect(self._channel_map.extract_with_map_dialog)
 
     def _populate_curation_menu(self, menu: Any) -> None:
         """Curate and correct's Curation menu: the cheat-sheet and the overflow picker."""
