@@ -60,6 +60,17 @@ In practice it produced a second implementation that drifted from the first thre
 a window between in which the "second opinion" disagreed with `triage` for reasons that had nothing
 to do with the pull request being measured.
 
+## Considered options
+
+- **Read every lane predicate from the field that states the answer, and resolve ambiguity
+  where it is still resolvable** (chosen).
+- **Keep counting every finding and raise the cap.**
+- **Parse severity for Codex too.**
+- **Add `DISMISSED` to the denylist and stop there.**
+- **Keep the scope guard's mirror and teach it severity too.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 **1. Every lane predicate reads the field that states the answer, and each is asked exactly once.**
