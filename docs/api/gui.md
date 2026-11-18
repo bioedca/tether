@@ -66,3 +66,7 @@ It needs no write access to `bioedca/tether`.
 ::: tether.gui.theme
 
 ::: tether.gui.trace_dock
+
+::: tether.gui.update_check
+
+::: tether.gui.update_notice

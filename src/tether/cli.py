@@ -14,7 +14,8 @@ from [`tether.services.registry.COMMANDS`][], and [`unrouted_commands`][] names 
 registered command that has no route here. ``tether info`` prints a read-only summary of
 what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
 gives a project's movie metadata with its origin — see
-[`tether.project.movie_metadata`][].
+[`tether.project.movie_metadata`][]. ``tether export`` writes the molecule table, the
+trace text file or a subset project — see [`tether.cli_export`][].
 
 The CLI deliberately uses the standard-library `argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -27,12 +28,20 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import os
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from tether import __version__
-from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
+from tether.cli_export import add_export_parser, run_export
+from tether.extract_choices import (
+    COLOCALIZATION_POLICIES,
+    DEFAULT_COLOCALIZATION_POLICY,
+    DETECTION_MODES,
+    DONOR_SIDES,
+    PREALIGN_MODES,
+)
 from tether.services import (
     COMMANDS,
     BatchRequest,
@@ -103,7 +112,22 @@ def build_parser() -> argparse.ArgumentParser:
         _ROUTES[entry.name].add_parser(subparsers, entry.summary)
     _add_info_parser(subparsers)
     _add_metadata_parser(subparsers)
+    add_export_parser(subparsers)
     return parser
+
+
+def _warn_conflict_copies(project_path: str | os.PathLike[str]) -> None:
+    """Print one stderr warning when ``project_path`` has sync-conflict siblings (§5.4).
+
+    The CLI's half of detect-and-surface: the same text the GUI's open-project banner
+    shows ([`tether.services.notices.conflict_copy_warning`][]). Advisory only — it never
+    changes the exit code and never touches the conflict copies.
+    """
+    from tether.services.notices import conflict_copy_warning
+
+    warning = conflict_copy_warning(project_path)
+    if warning is not None:
+        print(f"  warning: {warning}.", file=sys.stderr)
 
 
 def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) -> None:
@@ -202,6 +226,26 @@ def _add_extract_parser(subparsers: argparse._SubParsersAction, summary: str) ->
         help="acceptor colocalization distance in px (default: 3)",
     )
     extract.add_argument(
+        "--colocalization",
+        action=_ExplicitStore,
+        default=DEFAULT_COLOCALIZATION_POLICY,
+        choices=COLOCALIZATION_POLICIES,
+        help=(
+            "which molecules to keep: 'partner-in-both' keeps a donor spot only when an "
+            "acceptor spot was detected at its mapped position (Deep-LASI's rule); "
+            "'donor-anchored' keeps every donor spot, for weak-acceptor and low-FRET "
+            "samples (default: partner-in-both)"
+        ),
+    )
+    extract.add_argument(
+        "--count-only",
+        action="store_true",
+        help=(
+            "run detection, registration and colocalization, print the molecule count "
+            "of each colocalization rule, and write nothing"
+        ),
+    )
+    extract.add_argument(
         "--rms-gate",
         action=_ExplicitStore,
         type=float,
@@ -288,6 +332,7 @@ def _extract_request(args: argparse.Namespace) -> ExtractRequest:
             "prealign": args.prealign,
             "pair_tol": args.pair_tol,
             "coloc_distance": args.coloc_distance,
+            "colocalization": args.colocalization,
             "rms_gate": args.rms_gate,
         }
     return ExtractRequest(
@@ -296,8 +341,15 @@ def _extract_request(args: argparse.Namespace) -> ExtractRequest:
         overwrite=args.overwrite,
         tmap=args.tmap,
         tdat=args.tdat,
+        count_only=args.count_only,
         **values,  # type: ignore[arg-type]
     )
+
+
+def _describe_rule_counts(chosen: str, counts: Mapping[str, int]) -> str:
+    """One line naming the rule that ran and what the other rule would have kept."""
+    others = ", ".join(f"{rule} would keep {n}" for rule, n in counts.items() if rule != chosen)
+    return f"{chosen} kept {counts.get(chosen, 0)}" + (f" ({others})" if others else "")
 
 
 def _run_extract(args: argparse.Namespace) -> int:
@@ -314,7 +366,14 @@ def _run_extract(args: argparse.Namespace) -> int:
         return 1
 
     summary = result.summary
+    if summary is None:  # --count-only: the counts before a run, nothing written
+        print(f"Molecules in {request.movie} under each colocalization rule (nothing written):")
+        for rule, count in result.rule_counts.items():
+            chosen = " (selected)" if rule == request.colocalization else ""
+            print(f"  {rule}: {count}{chosen}")
+        return 0
     print(f"Extracted {summary.n_molecules} molecule(s) -> {summary.output_path}")
+    print(f"  colocalization: {_describe_rule_counts(summary.colocalization, result.rule_counts)}")
     if summary.registration_source == "imported":
         print(f"  registration: imported from {request.tmap}")
     if request.tdat is not None:
@@ -338,6 +397,7 @@ def _run_extract(args: argparse.Namespace) -> int:
             print(f"  warning: {note}.", file=sys.stderr)
         else:
             print(f"  donor side: {note}.")
+    _warn_conflict_copies(summary.output_path)
     return 0
 
 
@@ -396,7 +456,27 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         ),
         epilog=_batch_exit_code_epilog(),
     )
-    batch.add_argument("movies", nargs="+", help="one or more dual-channel TIFF movies")
+    batch.add_argument(
+        "movies",
+        nargs="+",
+        help=(
+            "dual-channel TIFF movies: files, folders (the movies directly inside) or "
+            "quoted patterns such as 'data/*.tif', which Tether expands in every shell"
+        ),
+    )
+    batch.add_argument(
+        "--recursive",
+        action="store_true",
+        help="a folder argument also includes the movies in its sub-folders",
+    )
+    batch.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "print each movie, its output and what the run would do, then exit 0; "
+            "no movie is read and nothing is written"
+        ),
+    )
     batch.add_argument(
         "-d",
         "--out-dir",
@@ -422,7 +502,8 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         help=(
             "extract every movie with the extraction options of an extraction "
             "profile (a JSON file; see docs/cli.md); an option the file leaves out keeps "
-            "its default, and without a profile every option is at its default"
+            "its default, and without a profile every option but --colocalization is at "
+            "its default. It cannot be combined with --colocalization"
         ),
     )
     batch.add_argument(
@@ -432,6 +513,16 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         help=(
             "over-gate registration policy: 'warn' (default) keeps an over-gate "
             "movie with a flag; 'fail' fails it"
+        ),
+    )
+    batch.add_argument(
+        "--colocalization",
+        action=_ExplicitStore,
+        default=DEFAULT_COLOCALIZATION_POLICY,
+        choices=COLOCALIZATION_POLICIES,
+        help=(
+            "which molecules each extraction keeps: 'partner-in-both' (default) or "
+            "'donor-anchored'; see tether extract --colocalization"
         ),
     )
     batch.add_argument(
@@ -504,7 +595,10 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
 
     Raises [`_ProfileRefused`][] for a ``--profile`` that cannot be used.
     """
-    values = _profile_values(args) or {}
+    values = _profile_values(args)
+    if values is None:
+        # Without a profile, --colocalization is the one extraction field with a flag.
+        values = {"colocalization": args.colocalization}
     return BatchRequest(
         movies=tuple(args.movies),
         out_dir=args.out_dir,
@@ -518,6 +612,7 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
         sidecar_timeout=args.sidecar_timeout,
         sidecar_python=args.sidecar_python,
         defer_if_unavailable=not args.no_defer,
+        recursive=args.recursive,
         **values,  # type: ignore[arg-type]
     )
 
@@ -528,6 +623,15 @@ def _run_batch(args: argparse.Namespace) -> int:
     A finished run's code is [`batch_exit_code`][]'s, so it is ``3`` when no movie failed and
     a requested stage was deferred (#647).
     """
+    if args.dry_run:
+        from tether.services.batch import plan  # noqa: PLC0415
+
+        try:
+            print(plan(_batch_request(args)).format_plan())
+        except (RequestRefused, _ProfileRefused) as exc:
+            print(f"tether batch: {exc}", file=sys.stderr)
+            return 2
+        return 0
     from tether.project.batch import TextProgress
 
     # Progress goes to stderr so that stdout keeps only the summary (#648).
@@ -543,6 +647,11 @@ def _run_batch(args: argparse.Namespace) -> int:
     code = batch_exit_code(result.summary)
     print(result.summary.format_report())
     print(f"Exit code {code}: {BATCH_EXIT_MEANINGS[code]}.")
+    # Check the projects the run actually used: folders and patterns are expanded, and
+    # colliding movie names get longer output names (output_stems), so the raw arguments
+    # do not name them.
+    for movie_result in result.summary.results:
+        _warn_conflict_copies(movie_result.job.output_path)
     print(f"  structured log: {result.log_path}", file=sys.stderr)
     return code
 
@@ -677,6 +786,8 @@ def _run_info(args: argparse.Namespace) -> int:
             continue
         documents.append(summary.to_dict())
         texts.append(_format_summary(summary))
+        # Detect-and-surface (§5.4, #560): stderr, so a --json document stays clean.
+        _warn_conflict_copies(project)
     if args.json:
         print(
             json.dumps(
@@ -765,6 +876,7 @@ def _run_metadata(args: argparse.Namespace) -> int:
     except (KeyError, ValueError, OSError, LockedError) as exc:
         print(f"tether metadata: {exc}", file=sys.stderr)
         return 1
+    _warn_conflict_copies(args.project)
     if args.json:
         print(json.dumps([r.to_dict() for r in records.values()], indent=2))
         return 0
@@ -796,6 +908,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_info(args)
     if command == "metadata":
         return _run_metadata(args)
+    if command == "export":
+        return run_export(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 

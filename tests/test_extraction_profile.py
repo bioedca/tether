@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The extraction profile and its command-line routes (#349, ADR-0129).
 
-The field checks enumerate ``dataclasses.fields(ExtractOptions)``, so an eighteenth field
+The field checks enumerate ``dataclasses.fields(ExtractOptions)``, so a new field
 fails here until it is in the profile, in both requests and in PRD §11.2. The end-to-end
 tests run ``tether extract`` and ``tether batch`` on the synthetic movie of
 ``test_extract_cli`` and read ``/settings/extraction`` back.
@@ -70,6 +70,7 @@ _NON_DEFAULT: dict[str, Any] = {
     "rms_gate": 0.75,
     "window": 19,
     "coloc_distance": 2.5,
+    "colocalization": "donor-anchored",
     "disk_radius": 2.5,
     "ring_inner": 5.0,
     "ring_outer": 7.0,
@@ -104,6 +105,7 @@ _PRD_ROWS: dict[str, str] = {
     "rms_gate": "Registration RMS-residual gate",
     "window": "Aperture (PSF disk / BG ring)",
     "coloc_distance": "Colocalization distance",
+    "colocalization": "Colocalization policy (`colocalization`)",
     "disk_radius": "Aperture (PSF disk / BG ring)",
     "ring_inner": "Aperture (PSF disk / BG ring)",
     "ring_outer": "Aperture (PSF disk / BG ring)",

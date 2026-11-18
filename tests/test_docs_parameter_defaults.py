@@ -1245,7 +1245,7 @@ def test_documented_default_matches_the_code(claim: Claim) -> None:
         )
 
 
-# The ten ExtractOptions fields that `tether extract` exposes as flags. The page says
+# The eleven ExtractOptions fields that `tether extract` exposes as flags. The page says
 # that for these "the command line is the **only** surface".
 _EXTRACT_FLAG_FIELDS = {
     "--donor-side": "donor_side",
@@ -1258,13 +1258,14 @@ _EXTRACT_FLAG_FIELDS = {
     "--pair-tol": "pair_tol",
     "--rms-gate": "rms_gate",
     "--coloc-distance": "coloc_distance",
+    "--colocalization": "colocalization",
 }
 
 
 def test_each_extract_flag_default_is_the_dataclass_default() -> None:
     """The default a CLI run applies is the ``ExtractOptions`` default this page prints.
 
-    The registry above reads these ten defaults from the dataclass, but on the only
+    The registry above reads these eleven defaults from the dataclass, but on the only
     surface that sets them the dataclass default is never used: ``tether.cli`` repeats
     each one as an argparse literal, and ``_run_extract`` always passes the argparse
     value into ``ExtractOptions(...)``. A changed literal therefore changed every CLI

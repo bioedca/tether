@@ -486,6 +486,35 @@ def _copy_molecule_rows(src: object, dst: object, rows: list[int]) -> None:
     table = dst["molecules"][TABLE]
     table.resize((selected.shape[0],))
     table[:] = selected
+    _copy_acceptor_detected(src, dst, rows)
+
+
+def _copy_acceptor_detected(src: object, dst: object, rows: list[int]) -> None:
+    """Carry the per-molecule acceptor-detection flag into the subset (#920, ADR-0127).
+
+    The flag follows the rule of
+    [`read_acceptor_detected`][tether.imaging.extract.read_acceptor_detected]: rows past
+    the end of a shorter source column were never recorded. It is written only when the
+    source has the column, so a subset of a project extracted before #920 gains no
+    column, as its source has none.
+    """
+    from tether.imaging.extract import ACCEPTOR_DETECTED_NOT_RECORDED  # noqa: PLC0415
+
+    flags = src["molecules"].get("acceptor_detected")
+    if flags is None:
+        return
+    column = np.full(len(rows), ACCEPTOR_DETECTED_NOT_RECORDED, dtype=np.int8)
+    n_flags = int(flags.shape[0])
+    stored = [i for i, row in enumerate(rows) if row < n_flags]
+    if stored:
+        column[stored] = flags[[rows[i] for i in stored]]
+    dst["molecules"].create_dataset(
+        "acceptor_detected",
+        data=column,
+        maxshape=(None,),
+        chunks=(4096,),
+        fillvalue=ACCEPTOR_DETECTED_NOT_RECORDED,
+    )
 
 
 def _copy_trace_layers(src: object, dst: object, rows: list[int], include_raw: bool) -> list[str]:
