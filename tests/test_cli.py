@@ -42,10 +42,11 @@ def test_batch_requires_out_dir(tmp_path) -> None:
     assert exc.value.code == 2
 
 
-def test_batch_rejects_duplicate_movie_basenames(tmp_path, capsys) -> None:
+def test_batch_gives_movies_with_one_basename_their_own_outputs(tmp_path, monkeypatch) -> None:
     # Two movies with the same basename in different folders would map to the same
-    # <out-dir>/<stem>.tether and silently collide on the checkpoint; the CLI must
-    # reject them (exit 2) rather than process one as the other.
+    # <out-dir>/<stem>.tether and collide on the checkpoint. Since #653 each output name
+    # takes its parent folder instead of the run being refused.
+    captured = _capture_run_batch(monkeypatch)
     (tmp_path / "condA").mkdir()
     (tmp_path / "condB").mkdir()
     m1 = tmp_path / "condA" / "movie_010.tif"
@@ -54,12 +55,13 @@ def test_batch_rejects_duplicate_movie_basenames(tmp_path, capsys) -> None:
     m2.write_bytes(b"y")
     out = tmp_path / "out"
 
-    rc = main(["batch", str(m1), str(m2), "--out-dir", str(out), "--no-idealize"])
+    rc = main(["batch", str(m2), str(m1), "--out-dir", str(out), "--no-idealize"])
 
-    assert rc == 2
-    err = capsys.readouterr().err
-    assert "movie_010.tether" in err
-    assert "rename one" in err
+    assert rc == 0
+    assert [(j.movie_path, j.output_path) for j in captured["jobs"]] == [
+        (m1, out / "condA__movie_010.tether"),
+        (m2, out / "condB__movie_010.tether"),
+    ]
 
 
 def test_batch_isolates_failure_and_exits_nonzero(tmp_path, capsys) -> None:
@@ -96,7 +98,7 @@ def _capture_run_batch(monkeypatch):
         captured["jobs"] = list(jobs)
         captured["kwargs"] = kwargs
         kwargs["log"].event(movie="capture", stage="batch", status="done")
-        return SimpleNamespace(format_report=lambda: "(report)", n_failed=0)
+        return SimpleNamespace(format_report=lambda: "(report)", n_failed=0, n_deferred=0)
 
     monkeypatch.setattr(batch_mod, "run_batch", _fake)
     return captured
@@ -154,7 +156,9 @@ def test_batch_no_idealize_disables_supervision(tmp_path, monkeypatch) -> None:
 
 
 def _log_movies(path) -> list[str]:
-    return [json.loads(line)["movie"] for line in path.read_text(encoding="utf-8").splitlines()]
+    """The movies of the run's own records: the ``input`` mapping records (#653) left out."""
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    return [r["movie"] for r in records if r["stage"] != "input"]
 
 
 def test_batch_forwards_tmap_tdat_policy_overwrite_and_log(tmp_path, monkeypatch, capsys) -> None:
@@ -330,3 +334,101 @@ def test_extract_help_lists_the_choices(capsys) -> None:
     out = capsys.readouterr().out
     for allowed in (DONOR_SIDES, DETECTION_MODES, PREALIGN_MODES):
         assert "{" + ",".join(allowed) + "}" in out
+
+
+# --- Exit codes (#647) -------------------------------------------------------
+
+
+def _summary(*movies: dict[str, str], idealize: bool = True):
+    """A real ``BatchSummary`` whose movies carry the given ``{stage: status}`` maps."""
+    from tether.project.batch import (  # noqa: PLC0415 - keep the batch stack lazy
+        BatchSummary,
+        MovieJob,
+        MovieResult,
+        StageResult,
+    )
+
+    results = [
+        MovieResult(
+            job=MovieJob(movie_path=f"movie_{i:03d}.tif", output_path=f"movie_{i:03d}.tether"),
+            stages={
+                name: StageResult(
+                    stage=name,
+                    status=status,
+                    error="boom" if status == "failed" else None,
+                )
+                for name, status in stages.items()
+            },
+        )
+        for i, stages in enumerate(movies)
+    ]
+    return BatchSummary(results=results, policy="warn", idealize_requested=idealize)
+
+
+_DONE = {"extract": "done", "correct": "done", "idealize": "done"}
+_DEFERRED = {"extract": "done", "correct": "done", "idealize": "deferred"}
+_FAILED = {"extract": "failed", "correct": "blocked", "idealize": "blocked"}
+_NOT_REQUESTED = {"extract": "done", "correct": "done", "idealize": "not-requested"}
+
+
+def _run_cli_with(monkeypatch, tmp_path, summary, *extra: str) -> int:
+    import tether.project.batch as batch_mod  # noqa: PLC0415
+
+    monkeypatch.setattr(batch_mod, "run_batch", lambda jobs, **kwargs: summary)
+    movie = tmp_path / "movie_000.tif"
+    movie.write_bytes(b"x")
+    return main(["batch", str(movie), "--out-dir", str(tmp_path / "out"), *extra])
+
+
+@pytest.mark.parametrize(
+    ("movies", "extra", "expected"),
+    [
+        pytest.param((_DONE, _DONE), (), 0, id="every-stage-ran"),
+        pytest.param((_DONE, _DEFERRED), (), 3, id="one-movie-deferred"),
+        pytest.param((_DEFERRED, _DEFERRED), (), 3, id="all-deferred"),
+        pytest.param((_FAILED, _DONE), (), 1, id="failed"),
+        pytest.param((_FAILED, _DEFERRED), (), 1, id="failed-takes-precedence-over-deferred"),
+        pytest.param((_NOT_REQUESTED,), ("--no-idealize",), 0, id="idealize-not-requested"),
+    ],
+)
+def test_batch_exit_code(monkeypatch, tmp_path, capsys, movies, extra, expected) -> None:
+    """0 every requested stage ran, 1 a movie failed (wins over 3), 3 a stage deferred."""
+    from tether.cli import BATCH_EXIT_MEANINGS  # noqa: PLC0415
+
+    summary = _summary(*movies, idealize="--no-idealize" not in extra)
+    rc = _run_cli_with(monkeypatch, tmp_path, summary, *extra)
+    assert rc == expected
+    out = capsys.readouterr().out.rstrip("\n").splitlines()
+    # The final line of the report names the code and what it means.
+    assert out[-1] == f"Exit code {expected}: {BATCH_EXIT_MEANINGS[expected]}."
+
+
+def test_batch_report_states_deferred_stages_on_their_own_line(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    summary = _summary(_DONE, _DEFERRED, _DEFERRED)
+    assert summary.n_deferred == 2
+    assert _run_cli_with(monkeypatch, tmp_path, summary) == 3
+    lines = capsys.readouterr().out.splitlines()
+    deferred = [line for line in lines if line.startswith("Deferred:")]
+    assert deferred == ["Deferred: idealize in 2 of 3 movie(s); re-run the same command to resume."]
+
+
+def test_batch_report_has_no_deferred_line_when_nothing_was_deferred(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    assert _run_cli_with(monkeypatch, tmp_path, _summary(_DONE)) == 0
+    assert "Deferred:" not in capsys.readouterr().out
+
+
+def test_batch_help_states_the_four_exit_codes() -> None:
+    """``tether batch --help`` lists 0, 1, 2 and 3, one per line, and the precedence."""
+    from tether.cli import BATCH_EXIT_MEANINGS  # noqa: PLC0415
+
+    parser = build_parser()
+    batch = parser._subparsers._group_actions[0].choices["batch"]  # noqa: SLF001
+    text = batch.format_help()
+    assert sorted(BATCH_EXIT_MEANINGS) == [0, 1, 2, 3]
+    for code, meaning in BATCH_EXIT_MEANINGS.items():
+        assert f"  {code}  {meaning}" in text.splitlines()
+    assert "1 takes precedence over 3." in text
