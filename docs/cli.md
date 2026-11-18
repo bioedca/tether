@@ -381,33 +381,33 @@ tether batch data --recursive --into experiment.tether
 
 - **Each movie is appended.** The first movie creates the project when it does not exist.
   Each later one is appended under the project's writer lock, so a failed append leaves the
-  project as it was and the run goes on with the next movie. Every movie must be
-  extracted with the same window, radii and background window as the project's first
-  movie; a profile that changes them fails each movie it touches.
+  project as it was and the run goes on with the next movie. Every movie must use the
+  window, radii and background window of the project's first movie. A movie extracted
+  with other values fails.
 - **A movie already in the project is skipped.** A movie is known by its content, not its
-  name, so re-running the same command appends no movie twice, and two copies of one file
-  go in once. Tether hashes a movie to check this only when the project holds a movie of
+  name. So the same command run again appends no movie twice. Two copies of one file go in
+  once. Tether hashes a movie to check this only when the project holds a movie of
   the same file size.
 - **Correct and idealize run once, over the whole project,** after the last append. The
   dataset α and γ then come from every movie's molecules. A run that appends a movie runs
-  both again, over every movie in the project: the idealization model is fitted again in
-  place of the stored one. A run that appends nothing skips them, unless an earlier
-  `--into` run left them unfinished, for example with idealization deferred. A project
-  that no `--into` run has written keeps its own correction and model when it gains no
-  movie.
+  both again, over every movie in the project. The idealization model is then fitted
+  again in place of the stored one. A run that appends nothing skips them. The exception
+  is an earlier `--into` run that left them unfinished, for example with idealization
+  deferred. A project that no `--into` run has written keeps its correction and model
+  when it gains no movie.
 - **The summary still has one line for each movie.** A movie's name is the one
   [the output name rule](#output-names-when-two-movies-have-the-same-file-name) would give
-  its own project, so movies with one file name stay apart. Each movie in the project shows
+  its own project. So movies with one file name stay apart. Each movie in the project shows
   the project's correct and idealize results. A movie that is not in it has them `blocked`.
   The progress lines and the structured log give those two stages once, as `tether batch:`
   run lines and `(batch)` events.
 - **`--policy fail` keeps an over-gate movie out.** Its extract stage is `failed` and
   nothing of it is written, so it is not in the project. A later run tries it again.
-- `--into` with `--out-dir` is a usage error (exit `2`), and so is `--into` with
-  `--overwrite`: a movie in the project is skipped, never replaced.
+- `--into` with `--out-dir` is a usage error (exit `2`). So is `--into` with
+  `--overwrite`, because a movie in the project is skipped, never replaced.
 
-`--dry-run --into` prints one line for each movie with the project it goes into and
-whether it is new to the project, then a `Project:` line for correct and idealize:
+`--dry-run --into` prints one line for each movie. The line names the project and says
+whether the movie is new to it. A `Project:` line for correct and idealize comes last:
 
 ```text
 Batch plan (dry run): 3 movie(s) into the one project experiment.tether; nothing was written (a movie is read only to hash it, when the project holds a movie of its size)
