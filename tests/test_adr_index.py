@@ -105,6 +105,26 @@ def test_every_adr_is_indexed() -> None:
     )
 
 
+def test_every_adr_keeps_the_considered_options_heading() -> None:
+    """Every numbered ADR keeps the template's ``## Considered options`` heading (#876).
+
+    ``0000-template.md`` puts the section between the drivers and the outcome, so a reader
+    can see which alternatives were weighed. Fifteen records had lost it before this guard.
+    It checks presence only, and a heading that goes on (``## Considered options and
+    decision``, ADR-0019 and ADR-0020) counts: some older records list the options after
+    their decision sections, and moving them would rewrite records this guard does not own.
+    """
+    missing = [
+        p.name
+        for p in _numbered_adrs()
+        if not re.search(r"^## Considered options\b", p.read_text(encoding="utf-8"), re.MULTILINE)
+    ]
+    assert not missing, (
+        "these ADR records have no '## Considered options' heading; add one that lists "
+        f"the options the record weighed (docs/adr/0000-template.md): {missing}"
+    )
+
+
 def test_index_rows_render_as_table_rows() -> None:
     """No blank line splits a table block, so every ADR row renders as a row.
 

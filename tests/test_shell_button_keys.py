@@ -100,6 +100,8 @@ def test_a_focused_unreject_button_unrejects_instead_of_curating(
     shell.molecule_list.setCurrentRow(1)
     _press(qtbot, shell.molecule_list, "Key_Backspace")
     assert project.curation_label(keys[1]) == -1
+    # The reject showed the next molecule (#631); go back to the rejected one.
+    shell.molecule_list.setCurrentRow(1)
     assert shell.unreject_button.isEnabled()
 
     _press(qtbot, shell.unreject_button, key)
