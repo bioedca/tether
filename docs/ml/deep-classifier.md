@@ -94,12 +94,12 @@ scores = predict_proba(trained, dataset)       # per-molecule accept probability
 `build_deep_dataset` builds the framework-free substrate (base env); `train_classifier` and
 `predict_proba` are the torch consumers (deep env). The returned `TrainedDeepClassifier` is a
 frozen record carrying the trained model, the per-epoch weighted-loss `history`, the full
-hyperparameter set, and the **preprocessing provenance** (channels, channel count, window
+hyperparameter set, and the **preprocessing provenance** (channels, channel count, model window
 length, normalization, intensity quantity) — the reproducibility stamp (NFR-REPRO).
 
 That provenance is also a **safety contract**: `predict_proba` rejects an inference dataset
 whose preprocessing differs from what the model was trained on across **all five** recorded
-fields — channel order, channel count, window length, normalization, and intensity quantity —
+fields — channel order, channel count, model window length, normalization, and intensity quantity —
 because a mismatch keeps a compatible tensor *shape* yet would produce silently invalid scores.
 Pass a bare `nn.Module` to opt out and own the contract yourself.
 
@@ -118,7 +118,7 @@ trained model):
   the real observed frames. Padding is masked, **never zero-filled as real data**, and the
   LSTM consumes packed sequences so padded frames are excluded — never treated as observations.
 
-Labels are the shared-store **binary** accept(1)/reject(0) curation labels; the six-way
+Labels are the shared **binary** accept(1)/reject(0) curation labels; the six-way
 DeepFRET taxonomy awaits the category codec of ADR-0023 and is a later extension.
 
 ## Why a third isolated environment
@@ -157,7 +157,7 @@ cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
 - `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
   of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
   init, which pulls the ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
-  store bridge; scikit-learn / xgboost stay lazy and are not needed here)
+  project-file bridge; scikit-learn / xgboost stay lazy and are not needed here)
 
 ### Continuous integration
 
@@ -182,7 +182,7 @@ channel (`cu126` / `cu124` / `cu128`) that matches the runner's driver.
 ## Status and scope
 
 The classifier is optional, the base app is unaffected, the schema is untouched (the substrate
-is read-only over the store, whose layout is frozen), and every tunable is registered in the
+is read-only over the project file, whose layout is frozen), and every tunable is registered in the
 product specification's table of tunables — the single source of truth.
 
 ## References

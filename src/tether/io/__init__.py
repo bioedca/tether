@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """tether.io — readers, the HDF5 project store, and exporters (PRD §4.2).
 
-Readers for the lazy big-endian TIFF movie, the Deep-LASI ``.tdat`` / ``.tmap``
+The movie reader interface and its adapter registry (``tether.io.adapters``),
+readers for the lazy big-endian TIFF movie, the Deep-LASI ``.tdat`` / ``.tmap``
 / ``.txt`` / ``.mat`` artifacts, and the tMAVEN SMD-HDF5 container; the
 ``.tether`` HDF5 project store; the filename-to-metadata parser; and exporters
 (CSV, Deep-LASI-style ``.txt``, subset ``.tether``, SMD-HDF5). Applies the
@@ -11,6 +12,19 @@ Deep-LASI correction-triplet remap on import (PRD Appendix B).
 
 from __future__ import annotations
 
+from tether.io.adapters import (
+    InvalidPixelError,
+    LossyCodecError,
+    MetadataValue,
+    MovieAdapter,
+    MovieMetadata,
+    MovieSource,
+    UnsupportedContainerError,
+    open_movie_source,
+    register_adapter,
+    registered_adapters,
+    select_adapter,
+)
 from tether.io.deeplasi import (
     DeepLasiExport,
     DeepLasiTraces,
@@ -62,10 +76,16 @@ __all__ = [
     "DeepLasiTraces",
     "DiscoveryResult",
     "FileRole",
+    "InvalidPixelError",
     "KinsoftLevel",
     "KinsoftTrace",
+    "LossyCodecError",
+    "MetadataValue",
+    "MovieAdapter",
+    "MovieMetadata",
     "MovieRefCheck",
     "MovieReference",
+    "MovieSource",
     "ParsedFilename",
     "RecoveredCoordinates",
     "SmdCoordinateMatch",
@@ -74,9 +94,11 @@ __all__ = [
     "TdatCorrections",
     "TdatDetectionSettings",
     "TdatMovieReference",
+    "UnsupportedContainerError",
     "classify_file",
     "discover_acquisitions",
     "match_smd_to_coordinates",
+    "open_movie_source",
     "parse_filename",
     "read_deeplasi_mat",
     "read_deeplasi_txt",
@@ -88,7 +110,10 @@ __all__ = [
     "read_tdat",
     "read_tdat_movie_reference",
     "recover_coordinates",
+    "register_adapter",
+    "registered_adapters",
     "remap_correction_factors",
+    "select_adapter",
     "verify_movie_reference",
     "write_deeplasi_txt",
 ]

@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Readers for the Ha-laboratory SAM/SAH riboswitch files, for the tests only (#796, PRD N4).
+"""Readers for laboratory ``.traces`` and output files, for the tests only (#796, #798, PRD N4).
+
+Two variants of the binary ``.traces`` format are read: the Ha-laboratory one with no time row
+(#796) and the Weninger-laboratory one whose every frame starts with a frame index that the
+header does not count (#798).
 
 The product has no importer for the ``.traces`` format and gets none: PRD N4 keeps old laboratory
 formats out of Tether, and the "What the tests can use" rules (#705) let a test read one with a
@@ -17,38 +21,66 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 
-__all__ = ["CountsRecord", "Traces", "read_column_file", "read_counts", "read_traces"]
+__all__ = [
+    "ChannelOrder",
+    "CountsRecord",
+    "Traces",
+    "read_column_file",
+    "read_counts",
+    "read_traces",
+]
 
 #: Bytes before the intensities: an int32 frame count and an int16 channel count.
 HEADER_BYTES = 6
 
 
+#: Which channel of each molecule's pair comes first in the file.
+ChannelOrder = Literal["donor-first", "acceptor-first"]
+_ORDERS = ("donor-first", "acceptor-first")
+
+
 @dataclass(frozen=True)
 class Traces:
-    """One ``.traces`` file: ``donor`` and ``acceptor`` are ``(molecules, frames)`` float64."""
+    """One ``.traces`` file: ``donor`` and ``acceptor`` are ``(molecules, frames)`` float64.
+
+    ``frame_index`` is the frame-index value that starts each frame in the variant that has one
+    (int64, one per frame), and ``None`` in the variant that has none.
+    """
 
     frames: int
     donor: np.ndarray
     acceptor: np.ndarray
+    frame_index: np.ndarray | None = None
 
     @property
     def molecules(self) -> int:
         return int(self.donor.shape[0])
 
 
-def read_traces(path: Path) -> Traces:
-    """Read a binary ``.traces`` file of the variant with no time row.
+def read_traces(path: Path, *, order: ChannelOrder) -> Traces:
+    """Read a binary ``.traces`` file of either variant, with the channel order stated.
 
-    The layout is the one that ``p_nxgn1_ap.pro`` writes (Zenodo 10.5281/zenodo.4925617): a
-    little-endian int32 number of frames, an int16 number of channels, then int16 intensities
-    frame by frame, with every channel of one frame before the next frame. The channels come in
-    pairs, donor first: ``p_nxgn1_ffp.pro`` stores each donor peak of the left half and then its
-    mapped acceptor peak of the right half. The file size must equal the size that the header
-    names, so a truncated file or a file of the other variant is refused.
+    Both variants start with a little-endian int32 number of frames and an int16 number of
+    channels, then hold int16 values frame by frame, every value of one frame before the next
+    frame. The channels come in pairs, one pair per molecule.
+
+    * **No frame index** (Ha laboratory, #796): each frame holds the channels only, as
+      ``p_nxgn1_ap.pro`` writes them (Zenodo 10.5281/zenodo.4925617), donor first.
+    * **Frame index** (Weninger laboratory, #798): each frame starts with one more value, the
+      frame index, that the header does not count; the laboratory's MATLAB reader (Zenodo
+      10.5281/zenodo.7853531) takes it as row 1 and then the pairs, acceptor first.
+
+    The variant is found from the file size: ``6 + 2 * frames * channels`` bytes has no frame
+    index and ``6 + 2 * frames * (channels + 1)`` has one; any other size is refused, so a
+    truncated file fails here. The channel order cannot be found from the file and is therefore
+    a required parameter: ``order="donor-first"`` or ``order="acceptor-first"``.
     """
+    if order not in _ORDERS:
+        raise ValueError(f"order must be one of {_ORDERS}, got {order!r}")
     raw = path.read_bytes()
     if len(raw) < HEADER_BYTES:
         raise ValueError(f"{path.name}: {len(raw)} B is shorter than the {HEADER_BYTES} B header")
@@ -59,15 +91,23 @@ def read_traces(path: Path) -> Traces:
             f"{path.name}: header says {frames} frames and {channels} channels; expected at "
             "least one frame and a positive even number of channels"
         )
-    expected = HEADER_BYTES + 2 * frames * channels
-    if len(raw) != expected:
+    plain = HEADER_BYTES + 2 * frames * channels
+    indexed = HEADER_BYTES + 2 * frames * (channels + 1)
+    if len(raw) == plain:
+        width = channels
+    elif len(raw) == indexed:
+        width = channels + 1
+    else:
         raise ValueError(
             f"{path.name}: {len(raw)} B, but {frames} frames x {channels} channels of int16 "
-            f"need {expected} B"
+            f"need {plain} B, or {indexed} B with a frame index in each frame"
         )
-    values = np.frombuffer(raw, dtype="<i2", offset=HEADER_BYTES).reshape(frames, channels)
-    per_channel = values.T.astype(np.float64)
-    return Traces(frames=frames, donor=per_channel[0::2].copy(), acceptor=per_channel[1::2].copy())
+    values = np.frombuffer(raw, dtype="<i2", offset=HEADER_BYTES).reshape(frames, width)
+    frame_index = values[:, 0].astype(np.int64) if width > channels else None
+    per_channel = values[:, width - channels :].T.astype(np.float64)
+    first, second = per_channel[0::2].copy(), per_channel[1::2].copy()
+    donor, acceptor = (first, second) if order == "donor-first" else (second, first)
+    return Traces(frames=frames, donor=donor, acceptor=acceptor, frame_index=frame_index)
 
 
 def read_column_file(path: Path, columns: int) -> np.ndarray:

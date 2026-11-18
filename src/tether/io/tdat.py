@@ -16,13 +16,13 @@ MCOS object blob, because each is a plain numeric leaf of ``temp/``:
   ``double`` scalar holding the Deep-LASI ``findPart`` ``method`` code the movie
   was detected with (``mapping/findPart.m:18-62``: 1 wavelet, 2 intensity, 3
   band-pass; ``classes/TRACERdata.m:62`` defaults it to 1). It maps to the Tether
-  :class:`~tether.imaging.detect.ParticleDetectionMode` string so a ``.tether``
+  [`ParticleDetectionMode`][tether.imaging.detect.ParticleDetectionMode] string so a ``.tether``
   re-extraction can reproduce the method the data was actually detected with
   (PRD §11.2, ADR-0021). The companion per-channel ``DetectionThreshold`` (the
   ``findPart`` ``t``, a fraction of the detection-image max — ``TIRFdata.m:63``,
   ``findPart.m:20/24/30``) is a ``TIRFdata`` MCOS property
   (``temp/Channel[i]`` -> ``#subsystem#/MCOS FileWrapper__``), decoded via
-  :mod:`tether.io.mcos`. :attr:`TdatDetectionSettings.threshold` carries the
+  [`tether.io.mcos`][]. [`TdatDetectionSettings.threshold`][] carries the
   **mapping/detection reference channel**'s value
   (``temp/MappingReferenceChannel``, the channel spots are detected on); a
   ``.tdat`` slimmed to plain leaves (no MCOS blob) leaves it ``None`` so each
@@ -45,7 +45,7 @@ MCOS object blob, because each is a plain numeric leaf of ``temp/``:
 * **Correction factors** — ``temp/DefaultAlpha`` / ``DefaultBeta`` /
   ``DefaultGamma``. **Deep-LASI's naming is inverted relative to Tether's**
   (``classes/TIRFdata.m:23-25``): Deep-LASI ``Beta`` is donor→acceptor spectral
-  *leakage*, ``Alpha`` is acceptor *direct excitation*. :func:`remap_correction_factors`
+  *leakage*, ``Alpha`` is acceptor *direct excitation*. [`remap_correction_factors`][]
   applies the PRD Appendix-B remap — Deep-LASI ``Beta`` → Tether ``alpha``
   (leakage, applied), Deep-LASI ``Alpha`` → Tether ``delta`` (direct excitation,
   **inert 0** without ALEX [Lee2005][Hohlbein2014]), Deep-LASI ``Gamma`` → Tether
@@ -55,9 +55,9 @@ MCOS object blob, because each is a plain numeric leaf of ``temp/``:
 * **Embedded movie reference** — the raw big-endian TIFF this acquisition was
   extracted from. Unlike the leaves above it is *not* a plain ``temp/`` leaf: it
   lives in the per-channel ``Channel.FilePath = {dir, {movie}}`` MCOS property
-  (``classes/TIRFdata.m:31``), decoded via :mod:`tether.io.mcos`
-  (:meth:`~tether.io.mcos.McosDecoder.property_value` — the string/cell counterpart
-  to the scalar ``DetectionThreshold`` decode). :func:`read_movie_reference` reads
+  (``classes/TIRFdata.m:31``), decoded via [`tether.io.mcos`][]
+  ([`property_value`][tether.io.mcos.McosDecoder.property_value] — the string/cell counterpart
+  to the scalar ``DetectionThreshold`` decode). [`read_movie_reference`][] reads
   just this for the M7 intake movie-pairing cross-check (PRD §7.8); it is the
   authoritative data-movie name, distinct from ``MapPath`` (the *registration*
   movie) and from the bare ``LastPath`` folder / stale ``Status`` message.
@@ -168,7 +168,7 @@ class TdatDetectionSettings:
     Attributes
     ----------
     mode:
-        the Tether :class:`~tether.imaging.detect.ParticleDetectionMode` string
+        the Tether [`ParticleDetectionMode`][tether.imaging.detect.ParticleDetectionMode] string
         (``"wavelet"`` / ``"intensity"`` / ``"bandpass"``) for the Deep-LASI
         ``findPart`` method the movie was detected with.
     threshold:
@@ -176,7 +176,7 @@ class TdatDetectionSettings:
         fraction of the detection-image max (``findPart`` ``t``), or ``None`` when
         the ``.tdat`` carries no MCOS ``Channel`` blob (e.g. a plain-leaf slice) or
         the reference channel stores no value. ``None`` lets each detector use its
-        own faithful default (PRD §11.2). Decoded via :mod:`tether.io.mcos`.
+        own faithful default (PRD §11.2). Decoded via [`tether.io.mcos`][].
     """
 
     mode: DetectionMode
@@ -201,7 +201,7 @@ class TdatMovieReference:
         path — kept for provenance, not for locating the file on the user's disk).
     filename:
         the first raw-movie filename (``FilePath{2}`` — a MATLAB MultiSelect cell,
-        so it may list several; :attr:`filenames` carries the full list, this
+        so it may list several; [`filenames`][] carries the full list, this
         included).
     filenames:
         every raw-movie filename referenced, in stored order — ``filename`` is its
@@ -318,13 +318,13 @@ def _reference_channel_threshold(file: h5py.File, temp: h5py.Group) -> float | N
 
 
 def _detection_settings(file: h5py.File, temp: h5py.Group) -> TdatDetectionSettings:
-    """Decode :class:`TdatDetectionSettings` from the ``temp`` struct.
+    """Decode [`TdatDetectionSettings`][] from the ``temp`` struct.
 
     Maps the Deep-LASI ``findPart`` ``method`` code to the Tether mode string; an
     unported mode (4 local-variance / 5 ZMW, or any out-of-range code) is refused
     so an import can never silently mis-detect with the wrong method. The
     per-channel ``DetectionThreshold`` of the mapping-reference channel is decoded
-    from the MCOS ``Channel`` blob when present (:func:`_reference_channel_threshold`).
+    from the MCOS ``Channel`` blob when present (`_reference_channel_threshold`).
     """
     code = _detection_mode_code(temp)
     try:
@@ -343,7 +343,7 @@ def _require_temp(file: h5py.File, path: Path) -> h5py.Group:
     """Return the ``temp`` TIRFdata struct, or raise if this is not a ``.tdat``.
 
     The single source of the "not a TIRFdata container" check + message, shared by
-    :func:`read_tdat` and :func:`read_detection_settings` so the two cannot drift.
+    [`read_tdat`][] and [`read_detection_settings`][] so the two cannot drift.
     """
     if "temp" not in file:
         raise ValueError(
@@ -356,10 +356,10 @@ def _require_temp(file: h5py.File, path: Path) -> h5py.Group:
 def read_detection_settings(path: str | PathLike[str]) -> TdatDetectionSettings:
     """Decode just the particle-detection config from a ``.tdat``.
 
-    A lightweight companion to :func:`read_tdat` for the ``tether extract --tdat``
+    A lightweight companion to [`read_tdat`][] for the ``tether extract --tdat``
     auto-apply path: it reads only ``temp/ParticleDetectionMode`` (no coordinate or
     correction-factor decode), so a ``.tdat`` that lacks colocalization data still
-    yields its detection mode. Raises :class:`ValueError` for a non-TIRFdata
+    yields its detection mode. Raises [`ValueError`][] for a non-TIRFdata
     container or an unsupported mode.
     """
     path = Path(path)
@@ -386,7 +386,7 @@ def _movie_reference(file: h5py.File, temp: h5py.Group) -> TdatMovieReference | 
     Each ``temp/Channel`` object carries ``FilePath = {dir, {movie}}`` (all channels
     of one acquisition share the same source movie — it is split into their views),
     so the first channel that yields a filename gives the reference. Best-effort like
-    :func:`_reference_channel_threshold`: returns ``None`` — never raising — when the
+    `_reference_channel_threshold`: returns ``None`` — never raising — when the
     ``.tdat`` has no MCOS ``Channel`` blob (a plain-leaf slice), the property is
     absent/empty, or the reverse-engineered layout does not match, so a movie-less or
     slimmed ``.tdat`` degrades cleanly rather than sinking the read.
@@ -420,12 +420,12 @@ def _movie_reference(file: h5py.File, temp: h5py.Group) -> TdatMovieReference | 
 def read_movie_reference(path: str | PathLike[str]) -> TdatMovieReference | None:
     """Decode just the embedded raw-movie reference from a ``.tdat`` (PRD §7.8).
 
-    A lightweight companion to :func:`read_tdat` for the M7 intake movie-pairing
+    A lightweight companion to [`read_tdat`][] for the M7 intake movie-pairing
     cross-check: it reads only the ``TIRFdata`` ``Channel.FilePath`` graph (no
     coordinate, correction-factor, or detection-mode decode), so a ``.tdat`` with an
     unported detection mode — irrelevant to the movie reference — still yields it.
     Returns ``None`` (never raising on the decode) when no usable reference is
-    present; still raises :class:`ValueError` for a non-TIRFdata container.
+    present; still raises [`ValueError`][] for a non-TIRFdata container.
     """
     path = Path(path)
     with h5py.File(path, "r") as file:
@@ -436,7 +436,7 @@ def _one_based_channel_index(value: float, name: str) -> int:
     """Validate a MATLAB 1-based channel index and return it 0-based.
 
     Rejects non-finite, fractional, or out-of-range values so a corrupt header
-    can never leak an invalid channel id into the public :class:`Tdat`.
+    can never leak an invalid channel id into the public [`Tdat`][].
     """
     if not np.isfinite(value):
         raise ValueError(f"{name} must be a finite channel index; got {value!r}")
@@ -491,11 +491,11 @@ def _coloc_tables(file: h5py.File, temp: h5py.Group) -> list[np.ndarray]:
 def read_tdat(path: str | PathLike[str]) -> Tdat:
     """Decode a Deep-LASI ``.tdat`` into coordinates + correction factors + detection mode.
 
-    Returns a :class:`Tdat`. Coordinates are 0-based ``[x, y]`` (PRD §11.1);
+    Returns a [`Tdat`][]. Coordinates are 0-based ``[x, y]`` (PRD §11.1);
     correction factors are remapped to the Tether scheme (PRD Appendix B) with the
-    Deep-LASI originals retained; :attr:`Tdat.detection` carries the
-    :class:`TdatDetectionSettings` (the ``findPart`` mode the movie was detected
-    with). Raises :class:`ValueError` if the file is not a recognizable TIRFdata
+    Deep-LASI originals retained; [`Tdat.detection`][] carries the
+    [`TdatDetectionSettings`][] (the ``findPart`` mode the movie was detected
+    with). Raises [`ValueError`][] if the file is not a recognizable TIRFdata
     container (no ``temp`` struct) or carries an unsupported detection mode.
     """
     path = Path(path)

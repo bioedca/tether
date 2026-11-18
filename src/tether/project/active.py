@@ -2,21 +2,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Store-integrated active-learning "recommended next" badge (PRD §7.5; FR-ML).
 
-Wires the pure uncertainty-sampling strategy (:mod:`tether.ml.active`) to a ``.tether``: it
-trains the per-condition quality ranker once (:func:`tether.project.gbranking.score_molecules`
+Wires the pure uncertainty-sampling strategy ([`tether.ml.active`][]) to a ``.tether``: it
+trains the per-condition quality ranker once ([`tether.project.gbranking.score_molecules`][]
 — human labels + decayed provisional priors), scores every molecule, and names the single
 **uncurated** molecule the active-learning loop recommends curating next — the one whose
 ``P(good)`` sits nearest the ``0.5`` decision boundary (maximally uncertain, most informative).
 
 The recommendation is returned **alongside the fixed within-video sweep, which it never
 reorders** (PRD §7.5: the "most informative next" suggestion is a *non-reordering badge*, not a
-live re-queue). :class:`ActiveRecommendation` carries both the sweep (verbatim from
-:func:`~tether.project.gbranking.ranker_ranking`) and the badge, making the non-reordering
+live re-queue). [`ActiveRecommendation`][] carries both the sweep (verbatim from
+[`ranker_ranking`][tether.project.gbranking.ranker_ranking]) and the badge, making the
+non-reordering
 contract explicit: the sweep object is the same never-auto-drop quality ordering the ranker
 produces; the badge is a cue over it.
 
 A molecule counts as *uncurated* when its ``/molecules.curation_label`` is ``UNCURATED`` (no
-human accept/reject) — the trusted human-signal reading (:mod:`tether.project.labels`), the
+human accept/reject) — the trusted human-signal reading ([`tether.project.labels`][]), the
 same field the training fold reads (ADR-0038). A molecule carrying only a provisional
 Deep-LASI / cross-condition seed prior is still uncurated *by a human* and so remains a valid
 recommendation candidate.
@@ -57,12 +58,12 @@ class ActiveRecommendation:
     ----------
     sweep:
         The quality-pre-sorted, never-auto-drop within-video order
-        (:class:`~tether.ml.ranking.RankedTraces`) — returned **unchanged** (identical to
-        :func:`tether.project.gbranking.ranker_ranking`); the badge is a non-reordering cue over
+        ([`RankedTraces`][tether.ml.ranking.RankedTraces]) — returned **unchanged** (identical to
+        [`tether.project.gbranking.ranker_ranking`][]); the badge is a non-reordering cue over
         it, never a re-queue.
     badge:
         The single uncurated molecule to curate next
-        (:class:`~tether.ml.active.NextBadge`), or ``None`` when every molecule is already
+        ([`NextBadge`][tether.ml.active.NextBadge]), or ``None`` when every molecule is already
         curated (nothing left to recommend — never a fabricated pick).
     """
 
@@ -84,15 +85,15 @@ def next_recommendation(
     plus the decayed provisional priors), scores every molecule, and returns the fixed quality
     sweep together with the single **uncurated** molecule of maximal predictive uncertainty
     (``P(good)`` nearest ``0.5``) as the non-reordering badge
-    (:func:`tether.ml.active.recommend_next`). The sweep is never reordered by the badge. Read-only.
+    ([`tether.ml.active.recommend_next`][]). The sweep is never reordered by the badge. Read-only.
 
     Parameters
     ----------
     project:
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     w0:
         The cold-start seed weight ``w₀`` provisional priors decay from
-        (default :data:`tether.ml.weighting.DEFAULT_SEED_WEIGHT`, the PRD §11.2 tunable).
+        (default [`tether.ml.weighting.DEFAULT_SEED_WEIGHT`][], the PRD §11.2 tunable).
 
     Returns
     -------

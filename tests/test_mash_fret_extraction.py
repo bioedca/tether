@@ -50,7 +50,7 @@ import tether.imaging.extract as imaging_extract  # noqa: E402
 import tether.project.extract as project_extract  # noqa: E402
 from tether.imaging.aperture import aperture_in_frame  # noqa: E402
 from tether.imaging.extract import read_molecules, read_traces  # noqa: E402
-from tether.project.extract import extract_movie  # noqa: E402
+from tether.project.extract import ExtractOptions, extract_movie  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _mash_fret  # noqa: E402
@@ -154,7 +154,11 @@ def measure(name: str, work: Path, *, isolated_only: bool = True) -> Measured:
     truth = _mash_fret.read_truth(run, name, channel_width=half, n_frames=n_frames)
     movie = _mash_fret.write_movie_tiff(video, work / f"{name}.tif")
     project = work / f"{name}.tether"
-    extract_movie(movie, project, overwrite=True)
+    # The frozen limits were set under the donor-anchored rule; this names it, so the new
+    # partner-in-both default cannot move them (#920, ADR-0127).
+    extract_movie(
+        movie, project, options=ExtractOptions(colocalization="donor-anchored"), overwrite=True
+    )
     molecules = read_molecules(project)
     traces = read_traces(project)
 
