@@ -19,6 +19,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.services.extract
 
+::: tether.services.maps
+
 ::: tether.services.notices
 
 ::: tether.services.profile

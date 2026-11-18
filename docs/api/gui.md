@@ -19,6 +19,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.app_settings
 
+::: tether.gui.calibration
+
 ::: tether.gui.conditions
 
 ::: tether.gui.curation
