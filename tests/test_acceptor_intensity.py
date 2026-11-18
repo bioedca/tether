@@ -49,7 +49,9 @@ def _identity_transform() -> PolyTransform2D:
     )
 
 
-def _channel(crop: np.ndarray) -> TmapChannel:
+def _channel(
+    crop: np.ndarray, *, rotation: np.ndarray | None = None, flip: np.ndarray | None = None
+) -> TmapChannel:
     ident = _identity_transform()
     return TmapChannel(
         channel_id=2,
@@ -57,7 +59,82 @@ def _channel(crop: np.ndarray) -> TmapChannel:
         map_particles=np.zeros((0, 2)),
         ref_to_channel=ident,
         channel_to_ref=ident,
+        rotation=np.array([]) if rotation is None else rotation,
+        flip=np.array([]) if flip is None else flip,
     )
+
+
+# --- stored Rotation / Flip decode (#559) -------------------------------------
+
+_HALF = np.array([[1, 257], [512, 512]])
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        (np.array([]), 0),
+        (np.array([[0.0]]), 0),
+        (np.array([[90.0]]), 90),
+        (np.array([[180.0]]), 180),
+        (np.array([[270]], dtype=np.uint16), 270),
+    ],
+)
+def test_rotation_deg_decodes_stored_value(stored: np.ndarray, expected: int) -> None:
+    assert _channel(_HALF, rotation=stored).rotation_deg == expected
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [np.array([[45.0]]), np.array([[360.0]]), np.array([[-90.0]]), np.array([[90.0, 180.0]])],
+    ids=["45", "360", "-90", "two-values"],
+)
+def test_rotation_deg_rejects_value_processimage_cannot_store(stored: np.ndarray) -> None:
+    with pytest.raises(ValueError, match="Rotation must be one of 0, 90, 180 or 270"):
+        _ = _channel(_HALF, rotation=stored).rotation_deg
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        (np.array([]), (0, 0)),
+        (np.array([[0, 0]]), (0, 0)),
+        (np.array([[1, 0]], dtype=np.uint8), (1, 0)),
+        (np.array([[0.0, 1.0]]), (0, 1)),
+        (np.array([[True, True]]), (1, 1)),
+    ],
+)
+def test_flip_vh_decodes_stored_value(stored: np.ndarray, expected: tuple[int, int]) -> None:
+    assert _channel(_HALF, flip=stored).flip_vh == expected
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [np.array([[2, 0]]), np.array([[1]]), np.array([[1, 0, 1]])],
+    ids=["value-2", "one-value", "three-values"],
+)
+def test_flip_vh_rejects_value_processimage_cannot_store(stored: np.ndarray) -> None:
+    with pytest.raises(ValueError, match=r"Flip must be two values \[v, h\]"):
+        _ = _channel(_HALF, flip=stored).flip_vh
+
+
+def test_simple_geometry_follows_the_decoded_values() -> None:
+    assert _channel(_HALF).has_simple_geometry
+    assert _channel(_HALF, rotation=np.array([[0.0]]), flip=np.array([[0, 0]])).has_simple_geometry
+    assert not _channel(_HALF, rotation=np.array([[90.0]])).has_simple_geometry
+    assert not _channel(_HALF, flip=np.array([[0, 1]])).has_simple_geometry
+
+
+def test_origin_refuses_a_rotated_or_flipped_channel() -> None:
+    # The crop of a turned channel is in the turned frame, not the raw frame, so a
+    # raw-frame origin (and the full-frame mapping built on it) would be wrong.
+    for ch in (
+        _channel(_HALF, rotation=np.array([[180.0]])),
+        _channel(_HALF, flip=np.array([[1, 0]])),
+    ):
+        with pytest.raises(ValueError, match="not a raw-frame position"):
+            _ = ch.origin
+        with pytest.raises(ValueError, match="not a raw-frame position"):
+            ch.reference_to_channel_image([[10.0, 20.0]])
 
 
 # --- channel-local -> full-frame mapping ------------------------------------

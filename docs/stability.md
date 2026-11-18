@@ -38,12 +38,12 @@ launcher (`[project.gui-scripts]` → `tether.gui.app:main`).
 
 | Covered | Detail |
 |---|---|
-| Subcommand names | `tether extract` and `tether batch` — the only two (`tether.cli`). No others exist to promise. |
+| Subcommand names | `tether extract`, `tether batch` and `tether export` with its three forms `table`, `traces` and `subset` (`tether.cli`). |
 | `tether --version` | Prints the version and exits `0`. |
 | `tether-gui` | Exists as a launcher and starts the application. Nothing about the window layout or its behavior is covered. |
-| Flag names and meanings | Every option listed by `tether extract --help` and `tether batch --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
+| Flag names and meanings | Every option listed by `tether extract --help`, `tether batch --help` and `tether export <form> --help` keeps its name and its meaning for the whole `1.x` line. See the sidecar carve-out below. |
 | Documented defaults | The default values printed in `--help` — e.g. `--donor-side left`, `--window 21`, `--coloc-distance 3`, `--rms-gate 0.5` — do not change within `1.x`. A default that changes silently changes a scientific result, so it is treated as a breaking change, not a tweak. |
-| Exit status | `0` on success, non-zero on failure. |
+| Exit status | `0` on success, non-zero otherwise. The exit codes are part of this contract: `1` the work failed (an `ExtractionError`, at least one movie failed in a batch, or at least one export failed), `2` a usage or configuration error, and — `tether batch` only — `3` no movie failed but at least one requested stage was deferred. `1` takes precedence over `3`. See [Exit codes](cli.md#exit-codes). |
 
 **Sidecar carve-out.** Four `tether batch` options — `--sidecar-python`, `--sidecar-timeout`,
 `--max-restarts` and `--no-defer` — describe the [sidecar interface](#not-covered), which is
@@ -56,10 +56,9 @@ are literals in the help strings, held equal to those constants by a committed t
 not treat those two numbers as frozen.
 
 Not covered on this surface: the wording and layout of anything printed to stdout or
-stderr, the field set of the `batch` JSONL structured log, and the *specific* non-zero exit
-values. For the record, `tether.cli` currently returns `1` when the work itself failed
-(an `ExtractionError`, or at least one movie failed in a batch) and `2` for a usage or
-configuration error — but only "non-zero" is promised. Do not branch on `1` vs `2`.
+stderr (the exit-code line at the end of the `tether batch` report included), and the field
+set of the `batch` JSONL structured log. The four exit codes above are covered, so a script
+may branch on them: `3` means "re-run this batch later", not "these projects are complete".
 
 New optional flags and new subcommands may appear in a minor release. Nothing that exists
 today disappears before `2.0.0`.
@@ -151,7 +150,7 @@ Everything below may change in any release, including a patch release, without n
 |---|---|
 | Any name not in the table above | The default. `tether.analysis`, `tether.imaging`, `tether.fret`, `tether.ml`, `tether.idealize`, and every module of `tether.project` other than the five `Project` members named above are **not covered**. |
 | Everything under `tether.gui.*` | Every module, class, dock, dialog and function. The GUI is a layer over the headless core; it is meant to be used, not imported. `tether-gui` starting is covered; nothing inside it is. |
-| Underscore names | Any module, attribute, function or method whose name begins with `_` — for example `tether.analysis._store`, `tether.project.extract._half_split_geometry`, `tether.io.schema._RICH_TABLES`. A leading underscore means internal, in every case, without further qualification. |
+| Underscore names | Any module, attribute, function or method whose name begins with `_` — for example `tether.analysis._store`, `tether.project.extract._layout_geometry`, `tether.io.schema._RICH_TABLES`. A leading underscore means internal, in every case, without further qualification. |
 | The sidecar interface | The isolated tMAVEN idealization backend and everything that talks to it: `tether.idealize._sidecar_runner` and its argv contract, the `TETHER_SIDECAR_STATUS` stdout protocol, and the pinned `sidecar/conda-lock.yml` environment. It is an implementation detail of idealization, pinned to an old numeric stack we do not control. See the [standalone-tMAVEN hand-off page](idealize/standalone-tmaven-handoff.md). |
 | Environment variables | `TETHER_SIDECAR_PYTHON` (`SIDECAR_ENV_VAR` in `tether.idealize.driver`) is the only Tether-namespaced environment variable the application reads. The [standalone-tMAVEN hand-off page](idealize/standalone-tmaven-handoff.md) documents exporting it as the supported way to point at a sidecar interpreter, and it will not be removed casually — but it belongs to the uncovered sidecar interface, so it is not frozen for `1.x`. (`TETHER_SIDECAR_STATUS` is not a variable at all: it is the stdout line prefix of the sidecar protocol, listed above.) |
 | Console output and log formats | Progress text, warning wording, report layout, and the `batch` JSONL log schema. |
@@ -226,7 +225,7 @@ a file stamped version 2 produces exactly this:
 file schema_version 2 is newer than this app's 1; refusing to open (PRD section 5.4).
 ```
 
-Four call sites in `src/tether/` invoke that guard, and they are the ones a person goes
+Five call sites in `src/tether/` invoke that guard, and they are the ones a person goes
 through:
 
 | Guarded entry point | Reached by |
@@ -234,9 +233,10 @@ through:
 | `Project.open` (`tether.project.core`) | the GUI's **Open project** dialog (`tether.gui.shell`) and any script that opens a project the covered way |
 | `extract_movie` (`tether.imaging.extract`) | `tether extract`, and the extract stage of `tether batch` |
 | `write_calibration` (`tether.imaging.calibrate`) | writing a registration map into a project |
+| `add_movie_to_project` (`tether.project.extract`) | appending a movie into an existing project |
 | `export_subset_tether` (`tether.project.export`) | subset export |
 
-A `tether batch` **resume** reaches none of those four: the checkpoint probes read the output
+A `tether batch` **resume** reaches none of those five: the checkpoint probes read the output
 project directly to decide what to skip, so with extraction already complete the guard inside
 `write_extraction` never runs. That path has its own check (`tether.project.batch`), added
 deliberately narrower than `assert_is_compatible_project` — it refuses only a file that

@@ -130,8 +130,9 @@ participating channel, so donor and acceptor rows stay index-aligned), the
 `ValueError` rather than silently mis-detected), and the embedded movie reference. Coordinate
 and correction decoding are MCOS-independent; only the detection threshold and movie
 reference need the MCOS graph and are decoded best-effort (a `None` there is normal, not an
-error). The shipped decode deliberately does **not** read the `.tdat`'s per-molecule series,
-image patches, masks, `FrameTime`, HMM states, or categories.
+error). Tether reads both MCOS metadata versions: 4 (the laboratory files) and 3 (the public
+Deep-LASI files). The shipped decode deliberately does **not** read the `.tdat`'s per-molecule
+series, image patches, masks, `FrameTime`, HMM states, or categories.
 
 ### Coordinate recovery + SMD cross-check
 
@@ -201,7 +202,8 @@ acquisition — **reconstruct** (needs a movie **and** a `.mat` trace source), e
 validated mutators that raise `WizardError` on an unsupported change. `finalize()` freezes a
 `WizardPlan` once at least one acquisition is runnable with no output-name collision, and
 `execute_plan` writes one `.tether` per acquisition (fail-soft by default, continuing past a
-bad file). The **Import → Deep-LASI bundle…** shell action (the menu was named "Legacy" before #629) runs the dialog, reports the
+bad file). The **Import → Deep-LASI bundle…** shell action (a menu of the Prepare section, shown while that
+section is open, and named "Legacy" before #629) runs the dialog, reports the
 written paths, and — when exactly one project was produced — opens it live via
 `TetherShell.load_project` for browse / curate / idealize; `load_project` does every fallible
 read before mutating shell state, so a bad open leaves the prior project in place.
