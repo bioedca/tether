@@ -44,14 +44,17 @@ def test_spots_and_traces_meet_the_oracle_a_limits(private_data, neutral_id, tmp
     pytest.importorskip("skimage")
     pytest.importorskip("h5py")
     pytest.importorskip("tifffile")
-    from tether.project.extract import extract_movie  # noqa: PLC0415
+    from tether.project.extract import ExtractOptions, extract_movie  # noqa: PLC0415
     from tether.project.oracle import evaluate_project  # noqa: PLC0415
 
     movie = private_data.path(neutral_id, "movie")
     tmap, tdat = (agree.agreement_file(private_data, neutral_id, r) for r in ("tmap", agree.STATE))
     mat = agree.window_export(private_data, neutral_id)
     out = tmp_path / f"{neutral_id}.tether"
-    summary = extract_movie(movie, out, tmap=tmap, tdat=tdat)
+    # The ADR-0022 limits were set for the donor-anchored rule; this names it, so the
+    # partner-in-both default cannot move recall (#1231, ADR-0127).
+    options = ExtractOptions(colocalization="donor-anchored")
+    summary = extract_movie(movie, out, options=options, tmap=tmap, tdat=tdat)
     assert out.is_file(), f"{neutral_id}: extraction wrote no project"
     assert summary.registration_source == "imported", neutral_id
 
