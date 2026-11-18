@@ -135,6 +135,8 @@ class SectionShells:
 
         shell = TetherShell(**shell_kwargs)
         self._qtbot.addWidget(shell.window)
+        # Showing the histogram dock shows Analyze, so remember the default to return to it.
+        default_section = shell.section
         opened: list[Path] = []
         self._built.append((shell, opened))
         if project is not False:
@@ -147,8 +149,9 @@ class SectionShells:
             assert loaded is not None, f"the harness could not open {path}: {shell.status_message}"
             opened.append(Path(loaded.path))
             assert shell.show_histogram() is not None, shell.status_message
-        if section is not None:
-            shell.set_section(section)
+        wanted = default_section if section is None else section
+        if shell.section != wanted:
+            shell.set_section(wanted)
         return shell
 
     def close(self, shell: TetherShell) -> None:

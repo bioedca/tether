@@ -137,6 +137,15 @@ def test_a_project_is_optional(section_shell) -> None:
     assert shell.project_path is None
 
 
+def test_no_section_means_the_default_section_with_a_project_too(section_shell) -> None:
+    # Building the histogram dock shows Analyze; the harness returns to the default after it.
+    bare = section_shell(project=False)
+    shell = section_shell()
+    assert shell.curation_project is not None
+    assert shell.section == bare.section
+    _assert_showing(shell, bare.section)
+
+
 def test_a_second_close_ignores_a_lock_another_shell_took_since(qtbot, tmp_path) -> None:
     shells = SectionShells(qtbot, tmp_path, lock_timeout_ms=50)
     first = shells("curate")
