@@ -343,6 +343,22 @@ def _select_rows(
     return rows
 
 
+def _rows_by_id(molecules: np.ndarray, molecule_ids: list[str]) -> list[int]:
+    """Row indices (store order) of exactly the rows whose ``molecule_id`` is listed.
+
+    The re-fit selection of an existing model. Unlike a ``molecule_key``, the
+    ``molecule_id`` is unique per row (§7.10), so a rejected row that shares a key
+    with a member is not pulled into the cohort. A listed id absent from
+    ``/molecules`` is an error, as a missing key is in ``_select_rows``.
+    """
+    wanted = set(molecule_ids)
+    ids = [_to_str(i) for i in molecules["molecule_id"]]
+    missing = sorted(wanted.difference(ids))
+    if missing:
+        raise KeyError(f"no molecule with molecule_id(s) {missing} in the store")
+    return [row for row, mid in enumerate(ids) if mid in wanted]
+
+
 def _windows(molecules: np.ndarray, rows: list[int]) -> tuple[np.ndarray, np.ndarray]:
     """Per-selected-molecule analysis window ``(pre, post)`` (SMD half-open bounds).
 
@@ -414,6 +430,7 @@ def idealize_molecules(
     write_guard: Callable[[], None] | None = None,
     seed: int | None = None,
     _runner: Callable[..., IdealizationResult] = run_vbfret,
+    _molecule_ids: list[str] | None = None,
 ) -> StoredIdealization:
     """Idealize selected molecules and write ``/idealization/{model_name}``.
 
@@ -515,7 +532,11 @@ def idealize_molecules(
                 f"(intensity_quantity={intensity_quantity!r})"
             )
 
-    rows = _select_rows(molecules, molecule_keys, include_rejected=include_rejected)
+    if _molecule_ids is not None:
+        # reidealize's exact stored cohort; rejection does not filter it.
+        rows = _rows_by_id(molecules, _molecule_ids)
+    else:
+        rows = _select_rows(molecules, molecule_keys, include_rejected=include_rejected)
     if not rows:
         raise ValueError("no molecules selected to idealize")
     _refuse_existing(path, model_name, overwrite)
@@ -1148,7 +1169,9 @@ def reidealize(
     ``overwrite=True``. The refreshed model's provenance hashes are recomputed from the
     current corrections, so the previously-stale molecules read live again. The stored
     cohort is preserved even when one of its members is now rejected; rejection filters
-    new default selections, not the explicit membership of an existing model. ``_runner``
+    new default selections, not the explicit membership of an existing model. The cohort
+    is selected by its stored ``molecule_ids``, so a rejected row that shares a
+    ``molecule_key`` with a member (§7.10) stays out of it. ``_runner``
     is the same private sidecar test seam as [`idealize_molecules`][], and
     ``require_held_lock`` is forwarded to it.
     """
@@ -1180,5 +1203,6 @@ def reidealize(
         overwrite=True,
         include_rejected=True,
         require_held_lock=require_held_lock,
+        _molecule_ids=list(stored.molecule_ids),
         **extra,
     )
