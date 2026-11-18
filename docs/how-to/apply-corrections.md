@@ -1,3 +1,7 @@
+---
+description: "Estimate the leakage factor alpha and the gamma factor from your traces and record them on every molecule of a project."
+---
+
 # Correct a dataset for leakage (α) and gamma (γ)
 
 ## Who this page is for
@@ -10,8 +14,8 @@ this page adds them.
 If you made the project with `tether batch`, this has already run with the default
 settings. Use this page to check the result, or to run it again with settings of your own.
 Running photobleach detection a second time updates the bleach frames. It sets the analysis
-window only of a molecule whose window still spans the whole trace, such as one with no
-bleach found the first time, so a window the first pass shortened stays as it was; new α and
+window only of a molecule whose analysis window still spans the whole trace, such as one with no
+bleach found the first time, so an analysis window the first pass shortened stays as it was; new α and
 γ settings take full effect.
 
 ## Before you start
@@ -41,7 +45,7 @@ bleach found the first time, so a window the first pass shortened stays as it wa
   factor needs, so a factor can pass on half that many real traces.
 - No rejected molecules you distrust. The α and γ steps read every molecule in the project,
   whatever its curation label, so a trace you rejected still enters both estimates when its
-  bleach steps pass the checks above. If you rejected traces as contaminants or artefacts,
+  bleach steps pass the checks above. If you rejected traces as contaminants or artifacts,
   [leave them out first](#leave-out-the-molecules-you-rejected).
 - The donor half was right at extraction. Swapped channels make both factors meaningless; see
   step 5 of [Extract traces from a dual-view movie](extract-traces.md#5-check-that-it-worked).
@@ -144,9 +148,8 @@ To report a corrected efficiency, compute it from the exported factors, as
 
 The settings the α, γ and correction steps used are recorded in the project; photobleach
 detection records none of its own. If you run the steps again and α is withheld this time,
-γ is skipped, and the γ settings from the earlier run stay in the project although no
-molecule carries that γ any more. The molecules' own `alpha` and `gamma` values are the
-current result. [Analysis
+γ is skipped, and the α step removes the γ settings of the earlier run, because no molecule
+carries that γ any more. [Analysis
 parameters](../reference/parameters.md#correction-factors) lists them, with what each one
 changes.
 

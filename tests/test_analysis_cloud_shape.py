@@ -366,12 +366,19 @@ def test_population_alpha_shape_molecule_key_selection(tmp_path) -> None:
     assert shape.n_points < both.n_points
 
 
-def test_population_alpha_shape_degenerate_returns_none(tmp_path) -> None:
+def test_population_alpha_shape_degenerate_is_no_region(tmp_path) -> None:
     # a single one-state molecule -> apparent E is constant -> a degenerate E axis ->
-    # no 2-D support -> None (honest, not a crash).
+    # no 2-D support. The pure alpha_shape says None; the population entry point says
+    # the same thing as an AlphaShape (ADR-0109), so a driver needs no isinstance check.
     states = np.zeros((1, 20), dtype="int64")
     project, _ = build_store_with_model(tmp_path, states, MEANS)
-    assert population_fret_cloud_alpha_shape(project) is None
+    shape = population_fret_cloud_alpha_shape(project)
+    assert isinstance(shape, AlphaShape)
+    assert not shape.spans_region and shape.is_empty
+    assert shape.n_triangles == 0 and shape.n_kept == 0 and shape.area == 0.0
+    assert shape.boundary_edges.shape == (0, 2, 2)
+    assert np.isnan(shape.alpha)
+    assert shape.n_points == 20  # the finite points it was given, none fabricated
 
 
 # --- store entry: population_fret_cloud_state_number_elbow --------------------

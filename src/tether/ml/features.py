@@ -29,20 +29,20 @@ pair, with no dependency on idealization or spatial geometry:
 
 The **spatial crowding** block (``neighbor_distance``, ``aperture_overlap``) is a
 *population* function — a molecule's donor spot relative to its same-movie
-neighbours — computed by :func:`compute_spatial_features` (reusing the audited
-:func:`tether.analysis.overlap.neighbor_report`) rather than the per-molecule
-:func:`compute_trace_features`; the store layer writes both blocks to the one
-``/features/table`` in :data:`FEATURE_NAMES` order. The remaining PRD §7.5
+neighbours — computed by [`compute_spatial_features`][] (reusing the audited
+[`tether.analysis.overlap.neighbor_report`][]) rather than the per-molecule
+[`compute_trace_features`][]; the store layer writes both blocks to the one
+``/features/table`` in [`FEATURE_NAMES`][] order. The remaining PRD §7.5
 features — the edge-proximity readout (needs the donor channel's frame bounds, a
 separate coordinate surface), idealization-coupled dwell statistics, the
 bleach-step count, and the composite single-anticorrelated-acceptor-then-donor-bleach
 detector (its own science gate) — are separate follow-up units.
 
-Design invariants (shared with :mod:`tether.analysis.crosscorr`):
+Design invariants (shared with [`tether.analysis.crosscorr`][]):
 
 * **Reuse, one definition.** ``fret_mean``/``fret_var`` reduce
-  :func:`tether.fret.apparent_fret` (the single apparent-E definition), and the
-  anticorrelation features are :func:`tether.analysis.cross_correlation` — no
+  [`tether.fret.apparent_fret`][] (the single apparent-E definition), and the
+  anticorrelation features are [`tether.analysis.cross_correlation`][] — no
   second copy of either can drift.
 * **Never fabricate a value for undefined input.** A window too short (``< 2``
   frames), non-finite, or constant has an undefined correlation / SNR and yields
@@ -107,7 +107,7 @@ __all__ = [
 ]
 
 #: The ordered **trace-derived** feature schema — a pure function of one molecule's
-#: windowed ``(donor, acceptor)`` pair, the :meth:`TraceFeatures.as_vector` layout.
+#: windowed ``(donor, acceptor)`` pair, the `TraceFeatures.as_vector` layout.
 #: New trace-derived features are appended (additive) here.
 TRACE_FEATURE_NAMES: tuple[str, ...] = (
     "n_frames",
@@ -120,8 +120,8 @@ TRACE_FEATURE_NAMES: tuple[str, ...] = (
 )
 
 #: The ordered **spatial** feature schema — a function of a molecule's position
-#: relative to its *same-movie* neighbours, the :meth:`SpatialFeatures.as_vector`
-#: layout. Appended after the trace block in :data:`FEATURE_NAMES`.
+#: relative to its *same-movie* neighbours, the `SpatialFeatures.as_vector`
+#: layout. Appended after the trace block in `FEATURE_NAMES`.
 SPATIAL_FEATURE_NAMES: tuple[str, ...] = (
     "neighbor_distance",
     "aperture_overlap",
@@ -138,7 +138,7 @@ FEATURE_NAMES: tuple[str, ...] = TRACE_FEATURE_NAMES + SPATIAL_FEATURE_NAMES
 class TraceFeatures:
     """One molecule's trace-derived engineered features (PRD §7.5).
 
-    Every field mirrors a :data:`TRACE_FEATURE_NAMES` entry; :meth:`as_vector` emits
+    Every field mirrors a [`TRACE_FEATURE_NAMES`][] entry; [`as_vector`][] emits
     them in that order as a ``float64`` vector for the ranker. Undefined features (a
     window too short / non-finite / constant) are ``NaN``, never fabricated.
     """
@@ -152,7 +152,7 @@ class TraceFeatures:
     anticorr_lag1_magnitude: float
 
     def as_vector(self) -> np.ndarray:
-        """The features as a ``float64`` vector in :data:`TRACE_FEATURE_NAMES` order.
+        """The features as a ``float64`` vector in [`TRACE_FEATURE_NAMES`][] order.
 
         ``n_frames`` is cast to float so the whole vector is one dtype — the
         ranker's feature matrix is a plain float array; the exact integer count is
@@ -178,7 +178,7 @@ def compute_trace_features(donor: np.ndarray, acceptor: np.ndarray) -> TraceFeat
     TraceFeatures
         The trace-derived feature block. Features whose input is undefined (a
         window of ``< 2`` frames, non-finite, or constant) are ``NaN`` — never a
-        fabricated ``0`` (mirrors :func:`tether.analysis.cross_correlation`).
+        fabricated ``0`` (mirrors [`tether.analysis.cross_correlation`][]).
 
     Raises
     ------
@@ -260,7 +260,7 @@ class SpatialFeatures:
     contaminates the integrated intensity, and automated smFRET trace selectors
     screen exactly such spatial/photophysical artifacts [Li2020]. These features
     surface that signal to the ranker. Every field mirrors a
-    :data:`SPATIAL_FEATURE_NAMES` entry; :meth:`as_vector` emits them in that order.
+    [`SPATIAL_FEATURE_NAMES`][] entry; [`as_vector`][] emits them in that order.
 
     Fields
     ------
@@ -281,7 +281,7 @@ class SpatialFeatures:
     aperture_overlap: float
 
     def as_vector(self) -> np.ndarray:
-        """The features as a ``float64`` vector in :data:`SPATIAL_FEATURE_NAMES` order."""
+        """The features as a ``float64`` vector in [`SPATIAL_FEATURE_NAMES`][] order."""
         return np.array(
             [float(getattr(self, name)) for name in SPATIAL_FEATURE_NAMES], dtype=np.float64
         )
@@ -295,10 +295,10 @@ def compute_spatial_features(
 ) -> list[SpatialFeatures]:
     """Per-molecule spatial (crowding) features over a population of donor spots.
 
-    Unlike :func:`compute_trace_features` (a per-molecule pure function), crowding is
+    Unlike [`compute_trace_features`][] (a per-molecule pure function), crowding is
     a **population** property: it depends on where a molecule sits relative to the
     other molecules in its movie. The nearest-neighbour geometry reuses the audited
-    :func:`tether.analysis.overlap.neighbor_report` (the M2 static overlap view),
+    [`tether.analysis.overlap.neighbor_report`][] (the M2 static overlap view),
     grouped by ``movie_ids`` so molecules in different movies never neighbour each
     other (§5.2). The aperture-overlap test is settled geometry — two PSF disks of
     radius ``aperture_radius`` overlap iff their centres are within
@@ -314,14 +314,14 @@ def compute_spatial_features(
         Length-``N`` group labels (each molecule's ``movie_id``); the neighbour
         search is confined within a group.
     aperture_radius
-        PSF-disk radius in px (default :data:`DEFAULT_APERTURE_RADIUS`); must be
+        PSF-disk radius in px (default [`DEFAULT_APERTURE_RADIUS`][]); must be
         finite and positive.
 
     Returns
     -------
     list[SpatialFeatures]
         Row-aligned to ``coords`` (length ``N``). **Never drops a molecule**: a
-        non-finite coordinate yields an all-``NaN`` :class:`SpatialFeatures`
+        non-finite coordinate yields an all-``NaN`` [`SpatialFeatures`][]
         (excluded from the neighbour search so it can neither poison the KDTree nor
         be fabricated a position), and a lone molecule yields
         ``neighbor_distance=NaN`` / ``aperture_overlap=0.0``.

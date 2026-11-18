@@ -4,16 +4,16 @@
 
 The M7 "New project from Deep-LASI data" workflow (PRD §7.8, goal G8) hands Tether
 a folder of legacy files and reconstructs a round-trip-ready project *without
-re-extraction*. :mod:`tether.io.intake` does the headless discovery (group files
+re-extraction*. [`tether.io.intake`][] does the headless discovery (group files
 into acquisitions + cross-check each to its movie); the two importers do the write
-(:func:`tether.project.reconstruct.reconstruct_project` for a full round-trip,
-:func:`tether.project.analysis_import.import_analysis_only_project` for the degraded
+([`tether.project.reconstruct.reconstruct_project`][] for a full round-trip,
+[`tether.project.analysis_import.import_analysis_only_project`][] for the degraded
 coordinate-less branch). This module is the **brain in between**: it turns a
-:class:`~tether.io.intake.DiscoveryResult` into a reviewable, user-confirmable
-*execution plan* — one :class:`WizardMode` per acquisition, validated against what
+[`DiscoveryResult`][tether.io.intake.DiscoveryResult] into a reviewable, user-confirmable
+*execution plan* — one [`WizardMode`][] per acquisition, validated against what
 that acquisition's files can actually support.
 
-Like the rest of ``tether.gui`` (cf. :mod:`tether.gui.roundtrip`), the controller is
+Like the rest of ``tether.gui`` (cf. [`tether.gui.roundtrip`][]), the controller is
 **Qt-free**: it touches only the discovery dataclasses and the standard library, so
 the wizard's decision logic runs in the default test matrix without a display. The
 QWizard widget that renders these steps, the executor that decodes each acquisition
@@ -69,9 +69,9 @@ __all__ = [
 class WizardError(ValueError):
     """An invalid wizard edit — a mode or coordinate source the files cannot support.
 
-    Raised by the :class:`DeepLasiWizard` mutators (and :meth:`DeepLasiWizard.finalize`)
+    Raised by the [`DeepLasiWizard`][] mutators (and [`DeepLasiWizard.finalize`][])
     rather than silently ignoring the edit, so the widget surfaces the reason to the
-    user. A :class:`ValueError` subclass so callers that only catch ``ValueError`` still
+    user. A [`ValueError`][] subclass so callers that only catch ``ValueError`` still
     handle it.
     """
 
@@ -79,7 +79,7 @@ class WizardError(ValueError):
 class WizardMode(StrEnum):
     """The action planned for one acquisition (PRD §7.8).
 
-    A :class:`~enum.StrEnum` so a mode round-trips through logs / JSON as its value.
+    A [`StrEnum`][enum.StrEnum] so a mode round-trips through logs / JSON as its value.
     """
 
     #: Reconstruct a full round-trip ``.tether`` (movie + ``.mat`` traces; the
@@ -99,12 +99,12 @@ class WizardMode(StrEnum):
 def _can_reconstruct(fileset: AcquisitionFileSet) -> bool:
     """Whether a full round-trip is possible: a movie **and** the ``.mat``.
 
-    This is deliberately stricter than :attr:`AcquisitionFileSet.round_trip_available`
+    This is deliberately stricter than [`AcquisitionFileSet.round_trip_available`][]
     (which asks only about *coordinate* availability, movie + ``.tdat``/``.mat``).
-    :func:`tether.project.reconstruct.reconstruct_project` reconstructs *without
+    [`tether.project.reconstruct.reconstruct_project`][] reconstructs *without
     re-extraction*, so it needs the pre-integrated per-molecule **traces**, and those
-    live only in the ``.mat`` (:class:`~tether.io.deeplasi.DeepLasiExport`) — the
-    ``.tdat`` (:class:`~tether.io.tdat.Tdat`) carries coordinates + correction factors
+    live only in the ``.mat`` ([`DeepLasiExport`][tether.io.deeplasi.DeepLasiExport]) — the
+    ``.tdat`` ([`Tdat`][tether.io.tdat.Tdat]) carries coordinates + correction factors
     but **no traces**. So a movie + ``.tdat``-only set has coordinates yet cannot be
     reconstructed; the ``.mat`` is the mandatory trace source, the ``.tdat`` only
     upgrades the coordinate source (and supplies corrections).
@@ -173,7 +173,7 @@ def _default_runnable_mode(fileset: AcquisitionFileSet) -> WizardMode | None:
     """The best importable mode for a set, or ``None`` when neither importer applies.
 
     Reconstruct is preferred (a full round-trip), then analysis-only. ``None`` marks a
-    blocked set (:func:`_blocked_reason` explains why).
+    blocked set (`_blocked_reason` explains why).
     """
     if _can_reconstruct(fileset):
         return WizardMode.RECONSTRUCT
@@ -212,19 +212,19 @@ def _default_output_name(fileset: AcquisitionFileSet) -> str:
 class PlannedAcquisition:
     """One acquisition's planned action, ready for the user to review/confirm (§7.8).
 
-    Built by :func:`plan_discovery` and edited (as new instances) by the
-    :class:`DeepLasiWizard` mutators.
+    Built by [`plan_discovery`][] and edited (as new instances) by the
+    [`DeepLasiWizard`][] mutators.
     """
 
     #: The discovered file set this plan acts on.
     fileset: AcquisitionFileSet
-    #: The action to take (:class:`WizardMode`).
+    #: The action to take (`WizardMode`).
     mode: WizardMode
     #: Which coordinate source a reconstruction reads (``"tdat"`` | ``"mat"``): the
     #: ``.tdat`` when present (its ``ParticlesColocalized`` is the native registration),
     #: else the ``.mat``. Populated for any reconstruct-capable set and **retained
     #: across mode changes** (so a reconstruct→skip→reconstruct round-trip keeps the
-    #: user's pick); read only when :attr:`mode` is reconstruct, and empty ("") for a
+    #: user's pick); read only when `mode` is reconstruct, and empty ("") for a
     #: set that can never reconstruct.
     coordinate_source: str
     #: The destination ``.tether`` filename (the acquisition stem by default).
@@ -264,14 +264,14 @@ def plan_discovery(discovery: DiscoveryResult) -> tuple[PlannedAcquisition, ...]
     """Propose a default plan for every discovered acquisition (PRD §7.8).
 
     Round-trip is preferred where possible, then analysis-only, else the set is
-    skipped as blocked. The order follows :attr:`DiscoveryResult.acquisitions`
+    skipped as blocked. The order follows [`DiscoveryResult.acquisitions`][]
     (sorted by key). Pure — reads no files.
     """
     return tuple(_default_plan(a) for a in discovery.acquisitions)
 
 
 def _default_plan(fileset: AcquisitionFileSet) -> PlannedAcquisition:
-    """The default :class:`PlannedAcquisition` for one file set."""
+    """The default [`PlannedAcquisition`][] for one file set."""
     warnings = tuple(fileset.warnings)
     output_name = _default_output_name(fileset)
     if _can_reconstruct(fileset):
@@ -336,7 +336,7 @@ class WizardSummary:
 
     @property
     def is_ready(self) -> bool:
-        """Whether :meth:`DeepLasiWizard.finalize` will succeed."""
+        """Whether [`DeepLasiWizard.finalize`][] will succeed."""
         return self.n_runnable >= 1 and not self.blocking
 
 
@@ -344,7 +344,7 @@ class WizardSummary:
 class WizardPlan:
     """The finalized, ready-to-run plan handed to the executor (PRD §7.8).
 
-    Produced by :meth:`DeepLasiWizard.finalize`. :attr:`acquisitions` holds only the
+    Produced by [`DeepLasiWizard.finalize`][]. [`acquisitions`][] holds only the
     runnable entries; the skipped/unpaired/ignored sets are carried for the run report.
     """
 
@@ -369,9 +369,9 @@ class WizardPlan:
 class DeepLasiWizard:
     """The editable plan behind the Deep-LASI re-analysis wizard (PRD §7.8, M7).
 
-    Wraps a :class:`~tether.io.intake.DiscoveryResult` in a per-acquisition plan the
+    Wraps a [`DiscoveryResult`][tether.io.intake.DiscoveryResult] in a per-acquisition plan the
     user reviews and confirms. Mutators validate every edit against what the
-    acquisition's files can support and raise :class:`WizardError` otherwise; the
+    acquisition's files can support and raise [`WizardError`][] otherwise; the
     widget catches that to show the reason. Acquisitions are addressed by their unique
     grouping ``key`` so edits survive re-ordering.
     """
@@ -452,7 +452,7 @@ class DeepLasiWizard:
 
     @property
     def is_ready(self) -> bool:
-        """Whether :meth:`finalize` will succeed (≥1 runnable, no output-name clash)."""
+        """Whether [`finalize`][] will succeed (≥1 runnable, no output-name clash)."""
         return self.summary().is_ready
 
     # -- mutators (each validated; raise WizardError on an unsupported edit) - #
@@ -513,8 +513,8 @@ class DeepLasiWizard:
     def set_output_name(self, key: str, name: str) -> PlannedAcquisition:
         """Rename an acquisition's destination project (a ``.tether`` suffix is enforced).
 
-        The executor writes ``output_dir / output_name`` (:func:`tether.gui.
-        deeplasi_executor.execute_plan`), so the name must be a **bare filename**:
+        The executor writes ``output_dir / output_name``
+        ([`tether.gui.deeplasi_executor.execute_plan`][]), so the name must be a **bare filename**:
         path separators, absolute paths, drive letters, and ``.``/``..`` traversal are
         rejected (checked against both POSIX and Windows path grammars) so a crafted
         name can never escape the chosen destination.
@@ -556,7 +556,7 @@ class DeepLasiWizard:
         """Re-include a **skipped** acquisition at its default runnable mode.
 
         Only a skipped plan can be included: calling this on an already-runnable plan
-        raises :class:`WizardError`, so a stray toggle never destructively resets a
+        raises [`WizardError`][], so a stray toggle never destructively resets a
         user-customized plan. Also raises for a blocked set (one that supports neither
         importer). Everything the user set — output name, categories, coordinate source,
         movie-reference annotation, warnings — is preserved; only the mode (and its
@@ -582,7 +582,7 @@ class DeepLasiWizard:
         """Attach the embedded-movie-reference cross-check to an acquisition (§7.8).
 
         The widget reads the ``.tdat``/``.mat`` references (file I/O the controller
-        avoids) and pushes the :class:`~tether.io.intake.MovieRefCheck` here. A
+        avoids) and pushes the [`MovieRefCheck`][tether.io.intake.MovieRefCheck] here. A
         ``"mismatch"`` / ``"movie_absent"`` adds an actionable confirm-step warning
         without changing the mode (the user decides). Re-annotating **replaces** the
         previous movie-ref warning rather than accumulating — so a resolved mismatch
@@ -599,9 +599,9 @@ class DeepLasiWizard:
         return updated
 
     def finalize(self) -> WizardPlan:
-        """Freeze the reviewed plan into a :class:`WizardPlan` for the executor.
+        """Freeze the reviewed plan into a [`WizardPlan`][] for the executor.
 
-        Raises :class:`WizardError` when the plan is not ready (no runnable acquisition,
+        Raises [`WizardError`][] when the plan is not ready (no runnable acquisition,
         or an output-name collision).
         """
         summary = self.summary()
