@@ -968,6 +968,7 @@ are on the [Deep trace classifier](ml/deep-classifier.md#gpu-cuda-setup) page.
 |---|---|---|---|
 | `tether extract` | success — **including a low-confidence-registration warning** | the run failed; the message is on stderr as `tether extract: <msg>` | argparse rejected the command line |
 | `tether batch` | every requested stage ran for every movie (`not-requested` and `warning` included) | at least one movie had a failed stage | argparse rejected the command line, **or** the run refused to start (a movie argument that gives no movie, two movies no folder name tells apart, a bad supervision argument) |
+| `tether export` | every export was written | at least one export failed; each failure is one `tether export <form>: <msg>` line on stderr | argparse rejected the command line, **or** the export refused to start (two projects mapping to one export, `-o` a file where a folder is needed) |
 | `tether` (no subcommand) | prints help | — | an unknown subcommand or top-level flag |
 
 `tether batch` has a fourth code, `3`: no movie failed, and at least one requested stage was
