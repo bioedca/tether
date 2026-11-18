@@ -473,14 +473,18 @@ def test_open_names_onedrive_conflict_copies_in_a_non_blocking_banner(shell, tmp
     assert numbered.read_bytes() == b"numbered copy"
 
 
-def test_conflict_copy_banner_shows_a_markup_file_name_literally(shell, tmp_path) -> None:
+def test_conflict_copy_banner_shows_a_markup_file_name_literally(
+    shell, tmp_path, monkeypatch
+) -> None:
     # A file name may hold "<" and ">" on Linux and macOS; Qt's default AutoText would read
-    # "<b>" as rich text and hide it, so the banner must be plain text.
+    # "<b>" as rich text and hide it, so the banner must be plain text. Windows refuses such
+    # a name, so the detector is stubbed to report it rather than the file being created.
     from pyqtgraph.Qt import QtCore
 
+    from tether.project import lock
+
     project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
-    copy = tmp_path / "exp-<b>BOX.tether"
-    copy.write_bytes(b"copy")
+    monkeypatch.setattr(lock, "conflict_copies", lambda _p: [tmp_path / "exp-<b>BOX.tether"])
 
     assert shell.load_project(project.path) is not None
 
