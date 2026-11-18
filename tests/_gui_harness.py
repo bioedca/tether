@@ -10,8 +10,8 @@ uses, so a test module can also import the guards directly. A test asks for a sh
         bare = section_shell(project=False)  # no project, the default section
 
 The harness closes every shell it built when the test ends and then checks that nothing leaked:
-the session lock file of each project it opened is gone, the curation event filter no longer
-reaches the controller, the window's close filter is removed, and the process-local owner
+the session lock file of each project it opened writable is gone, the curation event filter no
+longer reaches the controller, the window's close filter is removed, and the process-local owner
 registry ``_GUI_PROJECT_OWNERS`` is empty. A leak is an error in the teardown of that test.
 
 **Pixels are never asserted.** The offscreen platform gives a canvas of 0×0 pixels, so every
@@ -147,7 +147,10 @@ class SectionShells:
                 path = Path(project)
             loaded = shell.load_project(path)
             assert loaded is not None, f"the harness could not open {path}: {shell.status_message}"
-            opened.append(Path(loaded.path))
+            # Only a lock this shell took is its to release: a shell that opened a file another
+            # shell holds writable is read-only and never held that lock (#1238).
+            if shell.holds_project_claim:
+                opened.append(Path(loaded.path))
             assert shell.show_histogram() is not None, shell.status_message
         wanted = default_section if section is None else section
         if shell.section != wanted:
