@@ -151,6 +151,14 @@ the platform plugin activates. Where it does not, they skip, unless
 `TETHER_REQUIRE_WINDOW_ACTIVATION=1` is set: then they fail. The required `test` job sets
 it on all three operating systems, so that gate cannot go green without the key path (#855).
 
+A GUI test that needs a shell asks for the `section_shell` fixture (`tests/conftest.py`,
+built on `tests/_gui_harness.py`): `section_shell("analyze")` returns a shell showing that
+section over a writable temporary `.tether`, and `project=False` gives a bare one. When the
+test ends the fixture closes every shell it built and fails the teardown if a session lock,
+the curation event filter or a `_GUI_PROJECT_OWNERS` entry survived. A new section joins
+`SECTION_IDS` there, so `tests/test_gui_section_contract.py` runs on it, and joins
+`VIEWER_SECTIONS` too if it builds a napari `Viewer`, which macOS offscreen cannot draw (#344).
+
 `--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
 **not** protect a negated expression: `-m "not largge"` is a perfectly valid filter that
 happens to exclude nothing, so a typo there silently pulls the optional tiers back into
@@ -256,7 +264,7 @@ cannot see, on all three operating systems:
   them. An unlisted form it can detect, and that could change its verdict, fails with
   `unsupported Markdown form, the checker cannot vouch for it` and the file and line:
   rewrite the page in a listed form. Any other unlisted form is not guaranteed; known
-  gaps are tracked in #515.
+  gaps are tracked in #1013.
 - `tests/test_docs_examples.py` checks that every `from tether…` / `import tether…` line
   in a `python` fence names a real module and object, by reading the source — it never
   imports, so a deep-stack example resolves without torch. The fence must open and close
@@ -341,6 +349,9 @@ modes are silent:
   under embargo into a third-party service, confirm your group's policy *and* that
   service's data-retention terms. This repository is public, but not everything in your
   working tree is.
+
+Fill the `AI assistance:` line of the pull-request template: write `none`, or the tool that
+drafted the change and its model where the tool reports it.
 
 Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.

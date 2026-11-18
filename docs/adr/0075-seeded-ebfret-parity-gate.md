@@ -55,6 +55,17 @@ never seeded. It is not the environment (the same commit gave both answers on th
 image) and not thread scheduling or BLAS order (fitting is single-process, `ncpu = 1`, and
 `eb_outer_loop` is compiled with `parallel=False`).
 
+## Considered options
+
+- **Let the sidecar seed a fit, run the ebFRET gate on two fixed seeds, and guard the seeding
+  with a same-seed test** (chosen).
+- **Re-derive the band from more runs.**
+- **Raise the restart count for the gate.**
+- **Seed only NumPy before the fit.**
+- **Patch tMAVEN.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 1. **The sidecar can seed a fit.** `_sidecar_runner.py` takes an optional leading `--seed N`.

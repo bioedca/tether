@@ -90,8 +90,10 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--min-separation MIN_SEPARATION]
                [--detection-block DETECTION_BLOCK]
                [--prealign {translation,similarity}] [--pair-tol PAIR_TOL]
-               [--coloc-distance COLOC_DISTANCE] [--rms-gate RMS_GATE]
-               [--tmap PATH] [--tdat PATH] [--profile PATH]
+               [--coloc-distance COLOC_DISTANCE]
+               [--colocalization {partner-in-both,donor-anchored}]
+               [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
+               [--tdat PATH] [--profile PATH]
                movie
 ```
 
@@ -109,6 +111,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--prealign {translation,similarity}` | `translation` | registration prealign degrees of freedom |
 | `--pair-tol PAIR_TOL` | `2` | control-point pairing tolerance in px |
 | `--coloc-distance COLOC_DISTANCE` | `3` | acceptor colocalization distance in px |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | which molecules to keep: `partner-in-both` keeps a donor spot only when an acceptor spot was detected at its mapped position (Deep-LASI's rule); `donor-anchored` keeps every donor spot, for weak-acceptor and low-FRET samples ([see below](#choose-the-colocalization-rule)) |
+| `--count-only` | off | run detection, registration and colocalization, print the molecule count of each colocalization rule, and write nothing |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
 | `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
@@ -248,6 +252,35 @@ data and used on another computer
 Python, `tether.services.write_profile` writes one and
 `tether.services.ExtractionProfile.from_options` makes one from an `ExtractOptions`.
 
+### Choose the colocalization rule
+
+A molecule starts as a donor spot. By default (`--colocalization partner-in-both`) Tether
+keeps it only when an acceptor spot was also detected within `--coloc-distance` of its
+mapped position, which is the rule Deep-LASI uses. That rule **drops the low-FRET and
+acceptor-dark molecules**: their acceptor is too weak to be detected as a spot of its own.
+If your sample has a weak acceptor, or you expect a low-FRET population, extract with
+`--colocalization donor-anchored`, which keeps every donor spot whose aperture fits in the
+frame. Under both rules the acceptor intensity is read at the mapped donor position.
+
+To see what each rule keeps before you commit to a run, add `--count-only`. It writes
+nothing (`-o` is still required):
+
+```console
+$ tether extract movie.tif -o movie.tether --count-only
+Molecules in movie.tif under each colocalization rule (nothing written):
+  partner-in-both: 412 (selected)
+  donor-anchored: 455
+```
+
+A large gap between the two counts means many donor spots have no detected acceptor. The
+rule is recorded with each movie in the project, and every molecule records whether an
+acceptor spot was detected for it (`/molecules/acceptor_detected`). A project extracted
+before the rule could be chosen used the donor-anchored rule, and it reads that way.
+Extracting the movie again uses the new default unless you name `donor-anchored`.
+`tether batch --colocalization` sets the rule for every movie in a batch. In an
+[extraction profile](#extraction-profiles) the rule is the `colocalization` field, and
+`--colocalization` is then refused beside `--profile` like the other option flags.
+
 ### Example — one movie to one project
 
 ```bash
@@ -256,10 +289,13 @@ tether extract movie.tif -o movie.tether
 
 ```console
 Extracted 412 molecule(s) -> movie.tether
+  colocalization: partner-in-both kept 412 (donor-anchored would keep 455)
   donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 
-The second line is the [donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
+The second line names the [colocalization rule](#choose-the-colocalization-rule) and what
+the other rule would have kept. The third is the
+[donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
 If the registration RMS residual exceeds `--rms-gate`, extraction still succeeds and
 still exits 0, but a warning goes to stderr and the affected molecules are tagged
 `low-confidence-registration` in the project — a flag you can filter on later rather
@@ -276,8 +312,9 @@ resumes only the incomplete stages instead of redoing finished work.
 
 ```text
 tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PATH]
-             [--profile PATH] [--policy {warn,fail}] [--no-idealize] [--overwrite]
-             [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
+             [--profile PATH] [--policy {warn,fail}]
+             [--colocalization {partner-in-both,donor-anchored}] [--no-idealize]
+             [--overwrite] [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
              [--sidecar-python PATH] [--no-defer] [--quiet | --verbose]
              movies [movies ...]
 ```
@@ -290,8 +327,9 @@ tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PAT
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
-| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option is at its default |
+| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option but `--colocalization` is at its default. It cannot be combined with `--colocalization` |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | the colocalization rule of every movie's extraction; see [`tether extract`](#choose-the-colocalization-rule) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
 | `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
 | `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
@@ -815,6 +853,26 @@ tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
 tether export subset movie.tether -o accepted.tether
 ```
 
+## Sync-conflict copies beside a project
+
+OneDrive and SharePoint can leave a second copy of a file when two machines save it at the
+same time. Tether does not prevent these copies. It finds them and tells you.
+After `tether extract` writes its project, after `tether batch` finishes, and when
+`tether info`, `tether metadata` or `tether export` reads a project, each project the command
+opened is checked for siblings in the two documented naming forms:
+`<stem>-<COMPUTERNAME>.tether` and `<stem> (<...>).tether`. A hit adds one warning line to
+stderr:
+
+```text
+  warning: 1 possible OneDrive/SharePoint conflict copy beside movie.tether: movie-DESKTOP-AB12.tether. Tether does not merge or delete it; compare and reconcile by hand.
+```
+
+The warning is advisory. It does not change the exit code, and Tether does not open, merge,
+rename or delete the copy. It goes to stderr, so the `tether info --json` document on stdout
+does not change. The match is by file name only, so a project you named
+`movie-donoronly.tether` on purpose is also listed, and you can ignore the line for it. The GUI
+shows the same text in the Browser when you open the project.
+
 ## Service commands
 
 `tether extract` and `tether batch` are each the command-line route of one *service command*
@@ -843,8 +901,9 @@ the page, and a break between two parts of JSON does not change it:
 ```json
 {"command":"extract","fields":{"bg_window":10,"channel_layout":null,
 "channel_layout_acceptor_rect":null,"channel_layout_donor":null,
-"channel_layout_donor_rect":null,"coloc_distance":3.0,"detection_block":50,
-"detection_mode":null,"detection_threshold":null,"disk_radius":3.0,"donor_side":"left",
+"channel_layout_donor_rect":null,"coloc_distance":3.0,"colocalization":"partner-in-both",
+"count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
+"disk_radius":3.0,"donor_side":"left",
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
 "prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
