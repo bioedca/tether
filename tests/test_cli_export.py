@@ -537,3 +537,23 @@ def test_usage_errors_exit_2(argv) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(argv)
     assert excinfo.value.code == 2
+
+
+def test_export_warns_about_a_onedrive_conflict_copy_of_the_source(source, tmp_path, capsys):
+    # #560: an export reads the source project, so it names a sync-conflict sibling too.
+    path, _ = source
+    copy = path.with_name(f"{path.stem} (1){path.suffix}")
+    copy.write_bytes(b"copy")
+
+    assert main(["export", "table", str(path), "-o", str(tmp_path / "m.csv")]) == 0
+
+    err = capsys.readouterr().err
+    assert (
+        f"  warning: 1 possible OneDrive/SharePoint conflict copy beside {path.name}: "
+        f"{copy.name}." in err
+    )
+    assert copy.read_bytes() == b"copy"
+
+    copy.unlink()
+    assert main(["export", "table", str(path), "-o", str(tmp_path / "n.csv")]) == 0
+    assert "conflict" not in capsys.readouterr().err

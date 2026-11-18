@@ -454,9 +454,10 @@ def _build_mcos_metadata() -> bytes:
     names table (class / type-1) are empty; only the object table and type-2
     segment carry data.
     """
-    names = b"\x08\x1e\x00\x10\x1e\x00DetectionThreshold\x00"  # 2 skipped tokens + 1 name
-    names = names.ljust(28, b"\x00")  # pad the names region to a 4-byte boundary (off1 = 60)
-    header = struct.pack("<8I", 4, 1, 60, 60, 60, 108, 132, 132)  # version, n_names, off1..off6
+    names = b"DetectionThreshold\x00"  # 1 name, directly after the 10-word header (#874)
+    names = names.ljust(20, b"\x00")  # pad the names region to a 4-byte boundary (off1 = 60)
+    # version, n_names, off1..off6, then the two words the decoder does not read
+    header = struct.pack("<10I", 4, 1, 60, 60, 60, 108, 132, 132, 7688, 7696)
     # null row + object 1 (type-2 segment 1):
     obj_table = struct.pack("<12I", 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0)
     # skip word, seg 0 (nprops=0), seg 1: nprops=1 then (field 1, ptype 1, value 0):
@@ -513,7 +514,7 @@ def test_mcos_property_scalar_none_for_group_valued_property(tmp_path: Path) -> 
 
 
 def test_malformed_mcos_blob_degrades_to_no_threshold(tmp_path: Path) -> None:
-    # A .tdat whose MCOS metadata blob is malformed (too short for its 8-word header)
+    # A .tdat whose MCOS metadata blob is malformed (too short for its 10-word header)
     # must degrade the OPTIONAL threshold to None -- never sink read_tdat's
     # MCOS-independent coordinate/factor decode (the graceful-degradation contract).
     path = tmp_path / "bad_mcos.tdat"
@@ -553,15 +554,15 @@ def _build_two_channel_mcos_metadata() -> bytes:
     """FileWrapper metadata for two objects (ids 1, 2), each with ``ChannelID`` +
     ``DetectionThreshold`` -- so a test can prove the reader selects the reference
     channel by ``ChannelID``, not by ``Channel``-cell position."""
-    names = b"\x08\x1e\x00\x10\x1e\x00ChannelID\x00DetectionThreshold\x00"
-    names = names.ljust(36, b"\x00")  # pad the names region to a 4-byte boundary (off1 = 68)
-    header = struct.pack("<8I", 4, 2, 68, 68, 68, 140, 212, 212)
+    names = b"ChannelID\x00DetectionThreshold\x00"
+    names = names.ljust(32, b"\x00")  # pad the names region to a 4-byte boundary (off1 = 72)
+    header = struct.pack("<10I", 4, 2, 72, 72, 72, 144, 216, 216, 7688, 7696)
     obj_rows = [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 2, 0]  # null, obj1 seg1, obj2 seg2
     # skip, seg 0 (0 props), seg 1 [(ChannelID,1,0),(DetectionThreshold,1,1)], pad,
     # seg 2 [(ChannelID,1,2),(DetectionThreshold,1,3)], pad
     seg_words = [0, 0, 2, 1, 1, 0, 2, 1, 1, 0, 2, 1, 1, 2, 2, 1, 3, 0]
     blob = header + names + struct.pack("<18I", *obj_rows) + struct.pack("<18I", *seg_words)
-    assert len(blob) == 212
+    assert len(blob) == 216
     return blob
 
 
@@ -649,7 +650,7 @@ def _build_filewrapper_metadata(names: list[str], objects: list[list[tuple[int, 
     ``(field_id, value_heap_index)`` properties (all ptype 1). Mirrors the layout
     :func:`tether.io.mcos.McosDecoder._parse_metadata` walks (empty class/type-1 regions).
     """
-    names_bytes = b"\x08\x1e\x00\x10\x1e\x00" + b"".join(n.encode("ascii") + b"\x00" for n in names)
+    names_bytes = b"".join(n.encode("ascii") + b"\x00" for n in names)
     names_bytes = names_bytes.ljust(len(names_bytes) + (-len(names_bytes)) % 4, b"\x00")
 
     obj_words: list[int] = [0] * 6  # the null object row
@@ -664,10 +665,11 @@ def _build_filewrapper_metadata(names: list[str], objects: list[list[tuple[int, 
         if len(seg_words) % 2 == 1:  # pad to the 2-word (8-byte) segment boundary
             seg_words.append(0)
 
-    off1 = 32 + len(names_bytes)  # end of names; class/type-1 empty (off1==off2==off3)
+    off1 = 40 + len(names_bytes)  # end of names; class/type-1 empty (off1==off2==off3)
     off4 = off1 + len(obj_words) * 4  # end of object table
     off5 = off4 + len(seg_words) * 4  # end of type-2 segments
-    header = struct.pack("<8I", 4, len(names), off1, off1, off1, off4, off5, off5)
+    # the 10-word header: the last two words are not read by the decoder (#874)
+    header = struct.pack("<10I", 4, len(names), off1, off1, off1, off4, off5, off5, 0, 0)
     return (
         header
         + names_bytes

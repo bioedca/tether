@@ -256,7 +256,7 @@ cannot see, on all three operating systems:
   them. An unlisted form it can detect, and that could change its verdict, fails with
   `unsupported Markdown form, the checker cannot vouch for it` and the file and line:
   rewrite the page in a listed form. Any other unlisted form is not guaranteed; known
-  gaps are tracked in #515.
+  gaps are tracked in #1013.
 - `tests/test_docs_examples.py` checks that every `from tether…` / `import tether…` line
   in a `python` fence names a real module and object, by reading the source — it never
   imports, so a deep-stack example resolves without torch. The fence must open and close

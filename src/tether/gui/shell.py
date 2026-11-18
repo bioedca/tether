@@ -695,12 +695,14 @@ class TetherShell:
         # field. The category field is the text-entry exempt from the keymap.
         panel = QtWidgets.QWidget()
         vbox = QtWidgets.QVBoxLayout(panel)
+        # No invented movie id: the box stays empty, and it is disabled while no
+        # project is open (#1031). Filling it from /movies is #356.
         self._movie_switcher = QtWidgets.QComboBox()
-        self._movie_switcher.addItems(["movie-0"])
+        self._movie_switcher.setEnabled(False)
         self._molecule_list = QtWidgets.QListWidget()
         self._molecule_list.currentRowChanged.connect(self._on_list_row_changed)
         self._category_field = QtWidgets.QLineEdit()
-        self._category_field.setPlaceholderText("category name (text-entry — keymap exempt)")
+        self._category_field.setPlaceholderText("Type a category name")
         self._category_field.setProperty("tetherTextEntry", True)
         self._unreject_button = QtWidgets.QPushButton("Un-reject selected")
         self._unreject_button.setToolTip(
@@ -712,6 +714,15 @@ class TetherShell:
         # The theme's style sheet draws it in the "caution" state token.
         self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
+        # OneDrive/SharePoint sync-conflict siblings of the open project (PRD §5.4,
+        # detect-and-surface): a non-blocking warning, never a dialog or a refusal.
+        self._conflict_copy_banner = QtWidgets.QLabel()
+        self._conflict_copy_banner.setAccessibleName("Sync-conflict copy warning")
+        self._conflict_copy_banner.setWordWrap(True)
+        # File names are shown as written: a name holding "<b>" must not become markup.
+        self._conflict_copy_banner.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self._conflict_copy_banner.setProperty("tetherRole", "caution")
+        self._conflict_copy_banner.hide()
         # The banner's lock actions (#626), shown only when the lock allows one.
         self._recover_button = QtWidgets.QPushButton("Recover")
         self._recover_button.setAccessibleName("Recover the project lock")
@@ -744,6 +755,7 @@ class TetherShell:
         lock_actions.addWidget(self._take_over_button)
         lock_actions.addStretch(1)
         vbox.addLayout(lock_actions)
+        vbox.addWidget(self._conflict_copy_banner)
         vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
@@ -1352,6 +1364,17 @@ class TetherShell:
         return self._read_only_banner
 
     @property
+    def conflict_copy_banner(self) -> QtWidgets.QLabel:
+        """The Browser warning naming possible sync-conflict copies of the open project.
+
+        [`load_project`][] fills it from
+        [`conflict_copy_warning`][tether.services.notices.conflict_copy_warning] and hides
+        it when the project's directory holds none; closing the project clears it. It only
+        reports: Tether never reconciles, deletes or merges a conflict copy (§5.4).
+        """
+        return self._conflict_copy_banner
+
+    @property
     def recover_button(self) -> QtWidgets.QPushButton:
         """The banner's one-click **Recover** action, shown only after a crash (#626)."""
         return self._recover_button
@@ -1700,6 +1723,15 @@ class TetherShell:
             self._read_only_banner.show()
         self._sync_project_write_controls()
 
+    def _set_conflict_copy_warning(self, warning: str | None) -> None:
+        """Show ``warning`` in the sync-conflict banner, or clear and hide it for ``None``."""
+        if warning is None:
+            self._conflict_copy_banner.clear()
+            self._conflict_copy_banner.hide()
+        else:
+            self._conflict_copy_banner.setText(f"Warning: {warning}.")
+            self._conflict_copy_banner.show()
+
     def _sync_project_write_controls(self) -> None:
         """Enable source-project writers only for an idle writable GUI session.
 
@@ -1751,6 +1783,12 @@ class TetherShell:
         never crashes on an open. Returns the opened [`Project`][tether.project.core.Project]
         (``None`` on failure).
 
+        A successful open also looks for OneDrive/SharePoint sync-conflict siblings of
+        the file ([`conflict_copy_warning`][tether.services.notices.conflict_copy_warning],
+        PRD §5.4 detect-and-surface) and names any in the non-blocking
+        [`conflict_copy_banner`][]; with none, the banner is hidden. The open never
+        waits on, refuses over, or changes a conflict copy.
+
         The curation category vocabulary, the movie switcher, and the napari movie panel
         / round-trip navigation are **not** re-wired here (the movie panel lands in #356
         and the round-trip in #357, and the per-condition category list is edited through the
@@ -1760,6 +1798,7 @@ class TetherShell:
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
         from tether.project.lock import LockedError
+        from tether.services.notices import conflict_copy_warning
 
         if self._idealize_future is not None:
             self._status("Open project unavailable: wait for idealization to finish")
@@ -1944,6 +1983,7 @@ class TetherShell:
         self._remember_position()
         self._project_path = Path(proj_path)
         self._act_close_project.setEnabled(True)
+        self._movie_switcher.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
@@ -1967,6 +2007,10 @@ class TetherShell:
         detail = marker.banner if analysis_only else f"{len(traces)} molecule(s)"
         if read_only_reason is not None:
             detail = f"{detail}; {read_only_reason}"
+        # Detect-and-surface (§5.4): look for OneDrive/SharePoint conflict siblings on
+        # every successful open, writable or browse-only. Advisory only — the helper
+        # swallows a directory-listing failure, so this can never fail the open.
+        self._set_conflict_copy_warning(conflict_copy_warning(proj_path))
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
 
@@ -2373,6 +2417,7 @@ class TetherShell:
         self._lock_refresh_timer.stop()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         self._idealizer = None
         self._handoff = None
         self._histogram_seam = None
@@ -2381,6 +2426,7 @@ class TetherShell:
         self._reset_store_docks()
         self._project_path = None
         self._act_close_project.setEnabled(False)
+        self._movie_switcher.setEnabled(False)
         self.set_molecules([])
         # The start page is the page of Curate and correct, so show that section.
         self.set_section(CURATE_SECTION)
@@ -3137,6 +3183,7 @@ class TetherShell:
                 writable_project.refresh_lock()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         # A running fit is abandoned (its result is discarded): the service stops its
         # poll timer and restores the wait cursor it set, so it never leaks past close.
         self._tasks.abandon()
