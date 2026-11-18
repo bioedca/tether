@@ -69,11 +69,13 @@ OVERLAY_RTOL = 1e-13  # measured at most 1.44e-14 (vectorized form vs tMAVEN's l
 # unmarked multi-exponential fits in test_analysis_dwell.py use; R2 agrees far closer.
 FIT_RTOL, R2_RTOL = 1e-5, 1e-9
 # The standard errors (sqrt(diag(pcov)) at the optimizer's stopping point) and the mean dwell
-# time built from them (#1158), with the bound the rates use. Measured on Linux x86-64: equal to
-# the bit with the test on the sidecar stack, as the sidecar job runs it; with the test on the
-# base stack (NumPy 2.1.3, SciPy 1.18.0) at most 5.2e-6 for an error and 2.6e-6 for the error
-# of the mean dwell time, over the single, double and stretched fits.
-ERR_RTOL = TAU_RTOL = FIT_RTOL
+# time built from them (#1158), over the single, double and stretched fits. Measured 2026-11-17
+# on Linux x86-64, Windows 11 x86-64 and macOS 26 arm64: with the test on the sidecar stack, as
+# the sidecar job runs it, every value is equal to the bit on all three. With the test on the
+# base stack (NumPy 2.1.3, SciPy 1.18.0) the largest gaps are 1.28e-5 for an error (double rate,
+# Windows) and 5.6e-6 for the mean dwell time or its error (Windows). Each limit is the largest
+# measurement rounded up at the second significant digit.
+ERR_RTOL, TAU_RTOL = 1.3e-5, 5.6e-6
 A2B_PAIRS = ((-1, -1), (0, -1), (-1, 2), (1, 2), (2, 1))
 FITS = ("single", "double", "stretched", "triple")  # the child's FITS, in its order
 TM_PAIRS = ((0, 1), (1, 0), (1, 2), (2, 1), (2, 3), (3, 2))
@@ -216,12 +218,13 @@ def test_b2_triple_fit_matches_live_tmaven_on_one_stack(live: dict) -> None:
     """The triple fit, its errors and its mean dwell time, with the test on tMAVEN's stack.
 
     Six parameters on a survival curve leave curve_fit with nearby local minima, and which one
-    it stops in depends on the NumPy/SciPy build: measured on Linux x86-64, Tether on the base
-    stack (NumPy 2.1.3, SciPy 1.18.0) stops for state 3 in a minimum with a residual sum of
-    squares of 0.180 where tMAVEN, and Tether on the sidecar stack, reach 0.159, and differs by
-    up to 2.4e-4 relative for states 0 to 2. With both on the sidecar stack every value is equal
-    to the bit. So this comparison runs only when the test and the child share NumPy and SciPy,
-    which is how the sidecar job runs it.
+    it stops in depends on the NumPy/SciPy build. Measured with the test on the base stack
+    (NumPy 2.1.3, SciPy 1.18.0) against tMAVEN on the sidecar stack: on Linux x86-64, Tether
+    stops for state 3 at a residual sum of squares of 0.180 where tMAVEN reaches 0.159; on
+    Windows x86-64 and macOS arm64 it stops for state 1 at a better fit than tMAVEN's (R2 0.99549
+    against 0.99276), on macOS with a near-singular covariance. With both on the sidecar stack
+    every value is equal to the bit on all three systems. So this comparison runs only when the
+    test and the child share NumPy and SciPy, which is how the sidecar job runs it.
     """
     tm = live["tm"]
     here = f"numpy {np.__version__}, scipy {scipy.__version__}"

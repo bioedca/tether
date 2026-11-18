@@ -290,8 +290,8 @@ make the same `curve_fit` call, but on different NumPy/SciPy builds it can stop 
 different point (bit-equal on one host, up to 3.9e-6 relative on another; the test allows
 1e-5, the bound of the unmarked multi-exponential fits).
 
-The live test also compares the standard errors with tMAVEN's `error`, within the same bound
-(#1158). The double and triple fits in tMAVEN sort the rates but not their errors (#756,
+The live test also compares the standard errors with tMAVEN's `error`, within a bound measured
+on Linux, macOS and Windows (#1158). The double and triple fits in tMAVEN sort the rates but not their errors (#756,
 ADR-0097). So the test first pairs each error with its own parameter. The triple fit is compared
 only when the test and tMAVEN share NumPy and SciPy, as in the sidecar job. Across builds, its
 six-parameter fit can stop in another local minimum. As tMAVEN 0.3.0 has no mean dwell time,
