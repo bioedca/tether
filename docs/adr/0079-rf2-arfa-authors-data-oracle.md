@@ -27,6 +27,17 @@ file is 1.16 MB, larger than the 512 KiB plain-git gate); what to do where a res
 with the frozen tolerance; and how to state the kinetics check, because Tether's dwell-time rates
 are a different estimator from the HMM rates in the paper.
 
+## Considered options
+
+- **Commit one windowed model/SMD pair, download the rest through the manifest, and fit with
+  the priors stored in the authors' model** (chosen).
+- **Git LFS for the original SMD file.**
+- **Float32 recompression of the SMD file.**
+- **Let tMAVEN derive its own priors.**
+- **Compare Tether's dwell-time rates with the paper's Table 1.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 1. **Commit one pair, download the rest.** The smallest model/SMD pair (RF2 core domain on

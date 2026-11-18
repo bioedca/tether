@@ -24,13 +24,10 @@ Where the traces are
     ``(n_frames, 1)`` array for each molecule. Each excitation has every second camera frame,
     so the time step of one excitation is ``ALEXnumberofchannels * FrameTime``.
 
-A header that Tether's decoder does not read
-    The public files carry MCOS metadata **version 3**. Its two header words after the six
-    region offsets are zero, and :class:`tether.io.mcos.McosDecoder` (written against a
-    version 4 file, where they are not zero) counts two names too few and refuses the file.
-    :func:`mcos_metadata_for_decoder` gives the decoder a copy whose two words are not zero,
-    so that the product decoder reads the name table it already reads in version 4. The
-    product defect is tracked on its own issue; this module changes no product code.
+The MCOS header
+    The public files carry MCOS metadata **version 3**, and the committed fixture version 4.
+    :class:`tether.io.mcos.McosDecoder` reads the name table of both from byte 40 (#874), so
+    this module gives the decoder the metadata as it is in the file.
 
 The analysis (:func:`two_state_analysis`)
     Tether's own tools, in a fixed order with fixed constants: the window of each molecule
@@ -97,28 +94,13 @@ _DONOR_COLOUR = "G"
 _ACCEPTOR_COLOUR = "R"
 
 
-def mcos_metadata_for_decoder(meta: np.ndarray) -> np.ndarray:
-    """A copy of MCOS metadata that :class:`McosDecoder` reads, for version 3 too.
-
-    The name table starts at byte 40. Bytes 32 to 39 are two header words; the decoder takes
-    them as two NUL-separated tokens and skips them. In version 3 both words are zero, so
-    they give no token and the decoder skips two real names. Two words of value 1 give the
-    two tokens it expects. A version 4 header, or one whose words are not zero, is returned
-    unchanged (as a copy).
-    """
-    out = np.array(meta, dtype=np.uint8, copy=True).reshape(-1)
-    if out.size >= 40 and int(out[:4].view("<u4")[0]) == 3 and not out[32:40].any():
-        out[32:40] = np.array([1, 0, 0, 0, 1, 0, 0, 0], dtype=np.uint8)
-    return out
-
-
 def _decoder(file: h5py.File) -> McosDecoder:
     sub = file.get("#subsystem#")
     if sub is None or "MCOS" not in sub:
         raise ValueError("the .tdat has no MCOS subsystem, so it holds no traces")
     cells = np.asarray(sub["MCOS"][()]).reshape(-1)
     meta = np.asarray(file[cells[0]][()]).reshape(-1).astype(np.uint8)
-    return McosDecoder(file, cells, mcos_metadata_for_decoder(meta))
+    return McosDecoder(file, cells, meta)
 
 
 def _chars(dataset: h5py.Dataset) -> str:
