@@ -246,7 +246,8 @@ capability-sequenced, with no schedule commitment anywhere).
   max-projection detection image → à trous wavelet spot detection [Olivo-Marin2002] → 21×21 aperture (PSF disk
   r = 3) + annular background → Sum integration; and registration: native bead control-points →
   phase-correlation prealign → nearest-neighbour pairing → degree-2 polynomial map (forward + inverse, with a
-  numeric RMS-residual gate), or apply an imported `.tmap`; donor-anchored colocalization.
+  numeric RMS-residual gate), or apply an imported `.tmap`; colocalization by a partner in both channels
+  (default) or donor-anchored (ADR-0127).
 - **`tether.fret`** — photobleaching-step detection (a native, headless reimplementation of tMAVEN's Bayesian
   single-step model [Verma2024], run independently per channel — Appendix E Stage 16); correction factors (Appendix B); corrected FRET
   over the per-trace analysis window.
@@ -444,7 +445,7 @@ Each stage mirrors Deep-LASI (full specification in Appendix E):
 load movie (lazy)
   → calibration (apply .tmap OR native bead/grid fit)
   → split + register
-  → detect spots + colocalize (donor-anchored)
+  → detect spots + colocalize (partner in both, or donor-anchored)
   → place apertures
   → per-molecule per-channel background subtraction + integrate per frame (Sum)
   → detect photobleaching steps
@@ -478,8 +479,16 @@ localization by centroid + 3 px max-pixel snap [Izeddin2012] (optional radial-sy
 a 21×21 aperture with a PSF disk (radius 3, 29 px) and a concentric background annulus (inner 6, outer 8, with the
 deliberate dead-zone gap); per-frame local background subtraction; and Sum integration. Registration **shall**
 support both a native bead/grid fit (phase-correlation prealign → NN pairing → degree-2 polynomial map with a
-numeric RMS-residual gate) and an imported `.tmap`. Colocalization **shall** be donor-anchored (acceptor intensity
-read at the mapped position regardless of independent acceptor detection) so low-FRET acceptors are not lost.
+numeric RMS-residual gate) and an imported `.tmap`. Colocalization **shall** follow one of two rules, chosen per
+extraction (the colocalization policy, §11.2): *a partner in both channels*, the default for a new extraction, keeps
+a donor spot only when an acceptor spot is detected within the colocalization distance of its mapped position
+(Deep-LASI's rule [Asadiatouei2024]); *donor-anchored* keeps every in-frame donor spot, so molecules with a dark or
+weak acceptor, among them the low-FRET population, are not lost. Under both rules the acceptor intensity **shall** be
+read at the mapped donor position. The store **shall** keep, for each molecule, whether an acceptor spot was
+detected, and for each movie the rule it was extracted with; a project extracted before the policy existed reads as
+donor-anchored with the detection not recorded, and its molecules do not change. Before a run, the stage preview,
+the extraction page and `tether extract` **shall** show the molecule count of each rule. The cost of the default is
+recorded in ADR-0127: it drops the dark-acceptor population unless the user selects donor-anchored.
 Advanced options (disk/ring radii, detection mode, tolerances) **shall** be configurable, with defaults that
 reproduce Deep-LASI.
 
@@ -501,15 +510,6 @@ and records the result with the extraction provenance; the batch summary lists t
 advisory: it never changes data and never blocks. With too few events it reports "not enough bleach events to
 check" and stays out of the batch summary. Thresholds and the measured false-alarm rates are in §11.2 and
 [ADR-0070](adr/0070-advisory-check-for-swapped-donor-and-acceptor-halves.md).
-
-**Colocalization rule: the recorded change (maintainer decision 2026-11-14, card C1, option A).** For a new
-extraction the default rule **shall** become *a partner in both channels*: a molecule is kept when a spot is detected
-in the donor channel and in the acceptor channel at the mapped position (Deep-LASI's rule). Donor-anchored, the rule
-of the paragraph above, **shall** stay available as an option for weak-acceptor and low-FRET candidates, and the
-extraction page **shall** show the molecule count of each rule. The donor-anchored sentence above and the §11.2
-*Colocalization distance* row change in the pull request of
-[#920](https://github.com/bioedca/tether/issues/920), with the ADR that replaces ADR-0015. Until then the
-donor-anchored rule is the implemented default, and §9.6 carries the change.
 
 **Re-extraction makes a new trace generation (maintainer decision 2026-11-14, card C5, option A).** A new extraction
 of a movie **shall not** overwrite a reviewed extraction: it writes a new *trace generation*, and the old generation
@@ -1003,7 +1003,8 @@ publication of a deposit**, which is never a recipe step (below).
 
 Introduced by **[ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)**. In scope for 1.0; the
 sequence that delivers it is carried by the GitHub milestone that owns it, not by this document (§9).
-No updater code exists at the time of writing.
+Only the check half exists so far: the opt-in release query and notice of
+[#248](https://github.com/bioedca/tether/issues/248), which downloads nothing and makes no channel decision.
 
 The installed application **shall** be able to detect a newer **stable** release, download the installer for the
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
@@ -1040,7 +1041,7 @@ exit code. A failure that still cannot be classified **shall** be treated as *ra
 unsure is the safe error.
 
 **This is the only sanctioned exception to "no outbound network"** in `v1.0.0`; the user-started deposit upload of
-FR-DEPOSIT (§7.14), which comes after `v1.0.0`, is the second, with its own bounds (FR-DEPOSIT-7). Today the application makes none — the promise
+FR-DEPOSIT (§7.14), which comes after `v1.0.0`, is the second, with its own bounds (FR-DEPOSIT-7). Without the user's consent the application makes none — the promise
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
 bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
@@ -1481,8 +1482,7 @@ missed. Each row leaves this table in the pull request that meets it. *In `v1.0.
 | FR-WORKFLOW-8: channel layouts, two-file acquisitions, the geometry recipe, missing metadata, the source registry | yes | [#908](https://github.com/bioedca/tether/issues/908), [#909](https://github.com/bioedca/tether/issues/909), [#910](https://github.com/bioedca/tether/issues/910), [#911](https://github.com/bioedca/tether/issues/911), [#912](https://github.com/bioedca/tether/issues/912) |
 | FR-WORKFLOW-8: the import page and `tether import` | yes | [#913](https://github.com/bioedca/tether/issues/913), [#914](https://github.com/bioedca/tether/issues/914) |
 | FR-WORKFLOW-9: the map from a bead-slide video or one image, the map file asset, the mapping page, `tether map` | yes | [#915](https://github.com/bioedca/tether/issues/915), [#916](https://github.com/bioedca/tether/issues/916), [#917](https://github.com/bioedca/tether/issues/917), [#918](https://github.com/bioedca/tether/issues/918) |
-| FR-WORKFLOW-10: the aperture and background page with a trace preview | yes | [#922](https://github.com/bioedca/tether/issues/922) |
-| §7.1: the colocalization default becomes a partner in both channels (card C1) | yes | [#920](https://github.com/bioedca/tether/issues/920) |
+| FR-WORKFLOW-10: the aperture and background page with a trace preview, and the molecule count of each colocalization rule (§7.1) | yes | [#922](https://github.com/bioedca/tether/issues/922) |
 | §7.1: trace generations and the carried labels (card C5) | yes | [#921](https://github.com/bioedca/tether/issues/921), [#923](https://github.com/bioedca/tether/issues/923) |
 | §7.2: the correction states of G03 | yes | [#925](https://github.com/bioedca/tether/issues/925) |
 | §7.2: the α record, the γ evidence table, calibration windows, frozen factor versions | yes | [#926](https://github.com/bioedca/tether/issues/926), [#927](https://github.com/bioedca/tether/issues/927), [#928](https://github.com/bioedca/tether/issues/928), [#929](https://github.com/bioedca/tether/issues/929) |
@@ -1607,7 +1607,8 @@ this section.
 | Registration RMS-residual gate | ≤ 0.5 px (Tether addition; Deep-LASI uses visual QA only) | Tether improvement over `createMapPhaseCorr.m` |
 | Over-gate batch policy (headless) | `warn` = accept-with-flag + structured warning (default; never abort, never drop); `fail` = fail-the-movie | Tether (§7.1; ADR-0014) |
 | Batch sidecar supervision (auto-restart / liveness) | auto-restart up to **N = 3** per movie's idealization on a *transient* sidecar failure (crash/timeout; a sidecar-reported fit error is **not** retried); per-idealization-call timeout = **1800 s** (inherited from `run_vbfret`); startup liveness probe (probe timeout **120 s**) → sidecar absent/corrupt ⇒ idealization **deferred** for the run (extract + correct still run and checkpoint; a later run resumes only the deferred stage) | Tether (§7.11 FR-BATCH; ADR-0031) |
-| Colocalization distance | 3 px, donor-anchored (ADR-0015) | `deeplasi/functions/mapping/findColoc.m`, `traces/batchExtraction.m:182` |
+| Colocalization distance | 3 px, strict (`< 3`), donor spot to the nearest acceptor spot mapped into donor coordinates (ADR-0015) | `deeplasi/functions/mapping/findColoc.m`, `traces/batchExtraction.m:182` |
+| Colocalization policy (`colocalization`) | `partner-in-both` (default for a new extraction: keep a donor with a detected acceptor within the colocalization distance) or `donor-anchored` (keep every in-frame donor); a project without the record reads as `donor-anchored` | `deeplasi/functions/mapping/findColoc.m:110` [Asadiatouei2024]; Tether option for dark/low-FRET acceptors [Vogel2012] (ADR-0127) |
 | Donor-side check — event rule (advisory) | a molecule votes when one channel bleaches ≥ **5** frames before the other, the other also bleaches ≥ **5** frames before the trace end, and across the first step the first channel drops **and** the other rises by ≥ **3** standard errors (levels = means of ≤ **10** frames each side; noise = 1.4826·MAD of first differences / √2); vote *consistent* when the dropping channel is the labelled acceptor, *swapped* when it is the labelled donor; the bleach frames come from the bleach-detection row below | Tether (§7.1; ADR-0070); acceptor-bleach dequenching vs. donor-bleach-to-background [Roy2008][McCann2010][Hellenkamp2018]; the second-bleach requirement keeps FRET transitions from voting (measured on the kinSoftChallenge sets, ADR-0070) |
 | Donor-side check — verdict (advisory) | ≥ **15** votes, else *insufficient* ("not enough bleach events to check"); *swapped* when ≥ **80 %** of the votes (⌈0.8·n⌉) are swapped, *consistent* when ≥ 80 % are consistent, else *mixed*; never changes data, never blocks. Measured worst false-alarm rate (one-sided 95 % upper bound) **0.13 %** (kinSoft `level2` at 250 molecules, a small-pool bound with no wrong vote), **0.10 %** for binding-like short movies, all other fixtures and simulated conditions < 0.01 %; the 281-molecule fixture reads *consistent* as stored (150 / 10 votes) and *swapped* with the channels exchanged; of seven real 1,700-frame movies extracted both ways, none warns with the correct side and three warn with the wrong side (two at 20 events) | Tether (§7.1, §7.11; ADR-0070); `scripts/measure_side_check.py`, seed 0 |
 | Bleach detection | native reimplementation of **tMAVEN's Bayesian single-step model** (signal→N(0)), run per channel; priors a = b = β = 1, μ = 1000; per-channel first-bleach validated by reference-formula parity with tMAVEN's formulas + synthesized known-step recovery (ADR-0026, §9.5 (g); the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | [Verma2024]; `tmaven/tmaven/controllers/photobleaching/photobleaching.py`. (Kalafut2008 is a parameter-free *multi-step* method — classical alternative only; the `penalty ≈ 5` is Deep-LASI's `stepFinder` L1 mode, `TRACEdata.m:110`, not a Kalafut parameter) |
@@ -1621,6 +1622,7 @@ this section.
 | Analysis window | auto = both-dyes-active (start → first bleach on summed intensity); manual per-trace override | Appendix B step 6 |
 | FRET-histogram bootstrap | 1000 resamples; 95% percentile CI (2.5/97.5); resample unit = **molecule**; default seed = 0 | [König2013] BOBA-FRET (also in MASH-FRET [Börner2018]); cross-sample variability ⇒ molecule is the resampled unit (§7.7, §9 M3) |
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
+| Update check (`DEFAULT_TIMEOUT_S`) | **off** until the first-run question is answered yes (ADR-0095 store); then one `GET` of `releases/latest` per application start, queued after the window is built and run on a background thread; timeout **5 s**; no retry; every failure silent | Tether (§7.12; ADR-0060, ADR-0095); `tether.gui.update_check`, #248 |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
 | Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |
 | Per-trace UI latency budget | ≈ 100 ms render + navigate | Tether perf floor (§8 NFR-PERF) |
@@ -1659,8 +1661,11 @@ min_frames]`; `:157` holds the identical values in the out-of-scope 3-color bran
 - **`.tmap` / `.tdat`** — Deep-LASI's registration-map file vs full-session project file.
 - **dual-view** — donor and acceptor imaged on one chip via a splitter; the two halves are registered to each
   other.
-- **donor-anchored colocalization** — reading acceptor intensity at the mapped donor position regardless of
-  independent acceptor detection, so dark/low-FRET acceptors are retained.
+- **donor-anchored colocalization** — keeping every in-frame donor spot as a molecule, regardless of
+  independent acceptor detection, so dark/low-FRET acceptors are retained; the option to the default
+  partner-in-both rule (§7.1, ADR-0127).
+- **partner-in-both colocalization** — keeping a donor spot only when an acceptor spot is detected within the
+  colocalization distance of its mapped position (Deep-LASI's rule); the default for a new extraction (§7.1).
 - **kinSoftChallenge** — a blind community benchmark of single-molecule kinetics analysis tools [Götz2022].
 
 ---
@@ -2613,9 +2618,10 @@ vs `.tdat`).
 reference spot take the first other-channel spot with `dist < dist`; keep a molecule only if it has a partner in
 EVERY channel. `batchExtraction` calls `findColoc(T, 3)` → 3 px.
 **Tether:** (1) Register G↔R once (Stages 6–9). (2) Warp R spots into G coords, match by NN within 3 px (`cKDTree`).
-**For single-laser FRET, prefer donor-anchored extraction** (read acceptor intensity at the mapped position
-regardless of independent acceptor detection) so dark/low-FRET acceptors are not lost — a deliberate relaxation of
-Deep-LASI's "partner in every channel" rule.
+(3) Apply the colocalization policy (§7.1, ADR-0127): *partner in both* (the default, Deep-LASI's rule) keeps
+the donors with a match; *donor-anchored* keeps every in-frame donor, so dark/low-FRET acceptors are not lost,
+and is the choice for weak-acceptor and low-FRET candidates. Both counts are reported, and the acceptor is read at
+the mapped donor position under both. The match flag is stored per molecule (`/molecules/acceptor_detected`).
 **Refs:** `mapping/findColoc.m:4-112` (the "partner in every channel" gate at :110),
 `traces/batchExtraction.m:150-154,163-164,182`.
 
@@ -2764,6 +2770,13 @@ Published literature:
 - **[Wanninger2023]** Wanninger S, Asadiatouei P, Bohlen J, Salem CB, Tinnefeld P, Ploetz E, Lamb DC. "Deep-LASI:
   deep-learning assisted, single-molecule imaging analysis of multi-color DNA origami structures." *Nature
   Communications* 14:6564 (2023). doi:10.1038/s41467-023-42272-9.
+- **[Asadiatouei2024]** Asadiatouei P, Salem CB, Wanninger S, et al. "Deep-LASI, single-molecule data analysis
+  software." *Biophysical Journal* 123(17):2682–2695 (2024). doi:10.1016/j.bpj.2024.02.013. (Trace extraction "for
+  all detected molecules, for colocalized molecules only, or for molecules detected in a given detection channel";
+  the partner-in-both rule of §7.1, ADR-0127.)
+- **[Vogel2012]** Vogel SS, van der Meer BW, Blank PS. "The impact of heterogeneity and dark acceptor states on FRET:
+  implications for using fluorescent protein donors and acceptors." *PLoS ONE* 7(11):e49593 (2012).
+  doi:10.1371/journal.pone.0049593. (Correction 2013-01-14.)
 - **[Börner2018]** Börner R, Kowerko D, Hadzic MCAS, König SLB, Ritter M, Sigel RKO. "Simulations of camera-based
   single-molecule fluorescence experiments." *PLoS ONE* 13(4):e0195277 (2018). doi:10.1371/journal.pone.0195277.
 - **[Hadzic2018]** Hadzic MCAS, Börner R, König SLB, Kowerko D, Sigel RKO. "Reliable state identification and

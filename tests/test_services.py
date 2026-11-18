@@ -108,9 +108,10 @@ def test_every_registered_command_has_a_command_line_route() -> None:
     )
     names = [entry.name for entry in services.COMMANDS]
     assert list(subparsers.choices)[: len(names)] == names
-    # `tether info` (#655) only reads a project, and `tether metadata` (#911) shows or edits
-    # stored movie metadata through `Project`: plain subcommands, not service commands.
-    assert list(subparsers.choices)[len(names) :] == ["info", "metadata"]
+    # `tether info` (#655) only reads a project, `tether metadata` (#911) shows or edits
+    # stored movie metadata through `Project`, and `tether export` (#658) only reads:
+    # plain subcommands, not service commands.
+    assert list(subparsers.choices)[len(names) :] == ["info", "metadata", "export"]
 
 
 def test_a_registered_command_with_no_route_fails(monkeypatch) -> None:
@@ -314,7 +315,9 @@ def test_batch_reports_an_output_directory_it_cannot_make_as_a_failed_command(tm
     # CodeRabbit finding on #1058: an OSError must not escape as a traceback.
     blocker = tmp_path / "a-file"
     blocker.write_text("", encoding="utf-8")
-    request = services.BatchRequest(movies=("m.tif",), out_dir=str(blocker / "out"))
+    movie = tmp_path / "m.tif"
+    movie.write_bytes(b"x")
+    request = services.BatchRequest(movies=(str(movie),), out_dir=str(blocker / "out"))
     with pytest.raises(services.CommandFailed, match="cannot create output directory"):
         services.run(request)
 
@@ -322,8 +325,10 @@ def test_batch_reports_an_output_directory_it_cannot_make_as_a_failed_command(tm
 def test_batch_reports_a_log_it_cannot_write_as_a_failed_command(tmp_path) -> None:
     blocker = tmp_path / "a-file"
     blocker.write_text("", encoding="utf-8")
+    movie = tmp_path / "m.tif"
+    movie.write_bytes(b"x")
     request = services.BatchRequest(
-        movies=("m.tif",), out_dir=str(tmp_path / "out"), log=str(blocker / "log.jsonl")
+        movies=(str(movie),), out_dir=str(tmp_path / "out"), log=str(blocker / "log.jsonl")
     )
     with pytest.raises(services.CommandFailed, match="cannot write the batch output or log"):
         services.run(request)
@@ -334,7 +339,9 @@ def test_tether_batch_exits_1_with_one_line_when_it_cannot_make_its_output(
 ) -> None:
     blocker = tmp_path / "a-file"
     blocker.write_text("", encoding="utf-8")
-    code = cli.main(["batch", "m.tif", "--out-dir", str(blocker / "out")])
+    movie = tmp_path / "m.tif"
+    movie.write_bytes(b"x")
+    code = cli.main(["batch", str(movie), "--out-dir", str(blocker / "out")])
     assert code == 1
     err = capsys.readouterr().err
     assert err.startswith("tether batch: cannot create output directory")
