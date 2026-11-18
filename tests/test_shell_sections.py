@@ -30,13 +30,9 @@ _SECTIONS = ("prepare", "curate", "analyze")
 
 
 @pytest.fixture
-def shell(qapp, qtbot):
-    from tether.gui.shell import TetherShell
-
-    s = TetherShell()
-    qtbot.addWidget(s.window)
-    yield s
-    s.close()
+def shell(section_shell):
+    """A bare shell from the offscreen harness (#344), checked for leaks when the test ends."""
+    return section_shell(project=False)
 
 
 def _store(tmp_path, *, n=3, t=12, name="sections.tether"):

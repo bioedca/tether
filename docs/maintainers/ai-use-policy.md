@@ -49,7 +49,7 @@ This page does not change those rules.
 This rule applies to each pull request that rewrites existing pages to the style guide. Issue
 [#589](https://github.com/bioedca/tether/issues/589) is the first of these pull requests.
 
-1. The maintainer selects one page that the pull request changes.
+1. The maintainer selects one existing page that the pull request rewrites.
 2. The maintainer reads the full page against each rule of the style guide.
 3. The pull request description records the page, the date and the result. The result is
    "pass" or "fail". A "fail" also gives the number of each rule that the page does not obey.
@@ -59,12 +59,12 @@ If the sampled page fails, the pull request does not merge yet. Then do these st
 1. The author fixes the sampled page.
 2. The author reads each other changed page against each rule that failed, and fixes it.
 3. The maintainer reads the fixed page again.
-4. If the pull request changes more than one page, the maintainer also reads one other full
-   page that it changes.
+4. If the pull request rewrites more than one existing page, the maintainer also reads one
+   other full page that it rewrites.
 5. The pull request description records each read and its result.
 
-The pull request can merge when each read of steps 3 and 4 passes. A pull request that changes
-only one page needs only the read of step 3. A sample is not a full check. It shows
+The pull request can merge when each read of steps 3 and 4 passes. A pull request that rewrites
+only one existing page needs only the read of step 3. A sample is not a full check. It shows
 if the tool and the author obeyed the guide on that pull request.
 
 ### Rule 5. Automated checks are not proof

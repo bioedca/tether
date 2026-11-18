@@ -202,6 +202,37 @@ def test_cli_main_extract_succeeds(tmp_path, capsys) -> None:
     assert "Extracted 3 molecule(s)" in capsys.readouterr().out
 
 
+def test_cli_extract_warns_about_onedrive_conflict_copies(tmp_path, capsys) -> None:
+    # #560 / PRD §5.4: a project the CLI opens that has a sync-conflict sibling gets a
+    # stderr warning naming it; the copy is untouched and the exit code is unchanged.
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+    onedrive = tmp_path / "out-DESKTOP-AB12.tether"
+    numbered = tmp_path / "out (1).tether"
+    onedrive.write_bytes(b"copy")
+    numbered.write_bytes(b"copy")
+
+    rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW)])
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "  warning: 2 possible OneDrive/SharePoint conflict copies beside out.tether:" in err
+    assert "out-DESKTOP-AB12.tether" in err
+    assert "out (1).tether" in err
+    assert onedrive.read_bytes() == b"copy"
+    assert numbered.read_bytes() == b"copy"
+
+
+def test_cli_extract_without_conflict_copies_prints_no_conflict_warning(tmp_path, capsys) -> None:
+    movie = _make_movie(tmp_path)
+    out = tmp_path / "out.tether"
+
+    rc = main(["extract", str(movie), "-o", str(out), "--window", str(_WINDOW)])
+
+    assert rc == 0
+    assert "conflict cop" not in capsys.readouterr().err
+
+
 # --- error handling ----------------------------------------------------------
 
 

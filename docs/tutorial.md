@@ -58,16 +58,20 @@ Run:
 tether extract tutorial_movie.tif -o tutorial.tether
 ```
 
-It finishes in a few seconds and prints two lines:
+It finishes in a few seconds and prints three lines:
 
 ```text
 Extracted 3 molecule(s) -> tutorial.tether
+  colocalization: partner-in-both kept 3 (donor-anchored would keep 3)
   donor side: not enough bleach events to check the donor side (0 found, 15 needed).
 ```
 
 Tether found the three molecules, matched each donor spot to its acceptor spot, and wrote
 their intensity traces into a new project file, `tutorial.tether`, next to the movie. That one
-file is where everything from here on is saved. The second line is the check that the donor
+file is where everything from here on is saved. The second line says that a molecule was
+kept only where an acceptor spot was found too, and that keeping every donor spot would
+give the same three here ([choosing the rule](cli.md#choose-the-colocalization-rule)). The
+third line is the check that the donor
 and acceptor halves are not swapped; it needs at least 15 bleach events in which one channel
 drops and the other clearly rises, so on three molecules it says it cannot tell, which is expected here. The [Command line](cli.md#tether-extract)
 reference lists the options `tether extract` accepts; this tutorial needs none of them.
@@ -169,8 +173,9 @@ describes.
 
 ## 8. Draw the population histogram
 
-Choose **Analysis → Population histogram…**. The window goes to its **Analyze** section, a
-**Population histogram** panel opens, and the status bar reads:
+Choose **View → Section → Analyze**. Each section has its own menus, and the **Analysis**
+menu is in this one. Choose **Analysis → Population histogram…**. A **Population histogram**
+panel opens, and the status bar reads:
 
 ```text
 Population histogram — 2 molecule(s), 48 frame(s)
