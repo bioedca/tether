@@ -175,6 +175,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0128](0128-the-map-file-carries-a-format-version-and-a-reader-refuses-a-newer-one.md) | The map file carries a format version, and a reader refuses a newer one | accepted | §7.1 FR-EXTRACT (registration), Appendix E Stage 10 (map persistence) |
 | [0129](0129-an-extraction-profile-is-a-file-in-the-request-text-form.md) | An extraction profile is a file in the request text form, and `--tdat` sets two fields | accepted | §7.11 (FR-EXTRACT, FR-BATCH), §11.2, §8 NFR-REPRO |
 | [0132](0132-several-series-on-one-figure-one-color-cycle-small-multiples-and-one-grid.md) | Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid | accepted | §7.7 FR-PLOT (a plot is a layer list), §7.9 FR-EXPORT (per-series provenance) |
+| [0133](0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md) | The leakage-α band runs on the donor-only sample; the γ-vs-Deep-LASI leg stays withheld | accepted | §7.2, §9.1 item 8, §9.3 (Corrections), §9.5 oracle (e), §9.6, §11.2 (leakage-α validation band, γ-agreement tolerance) |
 
 <!-- gen:adr-index end -->
 
