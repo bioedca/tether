@@ -31,6 +31,32 @@ measures, what level 3 compares, and what "advisory" means for a level the metho
 - No new idealization method (#717, out of scope): measure the present one.
 - Never weaken or invent a band to fit a result (AGENTS.md).
 
+## Considered options
+
+One pair of options for each of the four open questions. The record names each set-aside option
+in its own text; no other section lists them.
+
+- Where the truth lives:
+  - **The simulator settings files, committed verbatim** (chosen).
+  - **A hand transcription from the paper's supplement**, as ADR-0048 recorded levels 2 and 3.
+    Set aside: #717's first acceptance criterion forbids a truth value typed by hand, and one
+    such reading of a diagram was already wrong.
+- What level 2 measures:
+  - **The present Gaussian HMM at three states, then the pooled rates `k_ij = n_ij / T_i`,
+    computed in the test helper** (chosen).
+  - **A correction for transitions inside a frame.** Set aside: it is a new method, which #717
+    puts out of scope; it is a follow-up with its own issue.
+- What level 3 compares:
+  - **Each FRET level's dwells against the closed-form aggregated-Markov dwell distribution**
+    (chosen).
+  - **Dwell-time distributions simulated from the model, as the benchmark does.** Set aside: that
+    needs a data simulator, and Tether ships none (PRD N2); the closed form is the simulation's
+    limit.
+- What "advisory" means:
+  - **Print the errors and pin them in `tether_measured`, never band-checked** (chosen).
+  - **A band check.** Set aside: no band is sourced for these levels, and inventing one to fit
+    the result is what the contract forbids.
+
 ## Decision outcome
 
 **Truth → the simulator settings files, committed verbatim.** The record's `MATLAB_simulator.zip`

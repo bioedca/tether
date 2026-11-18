@@ -7,7 +7,7 @@ dual-channel TIFF movie into a populated ``.tether`` project::
 
     open_movie -> split_channels -> detection_image / detect_spots_by_mode (both halves)
     -> estimate_*_prealign + pair_control_points -> fit_registration_map
-    -> colocalize (donor-anchored) -> extract_molecules -> write_extraction
+    -> colocalize (options.colocalization) -> extract_molecules -> write_extraction
 
 The spot detector is selectable (``options.detection_mode`` ∈ {``wavelet``,
 ``intensity``, ``bandpass``} with an optional ``options.detection_threshold``;
@@ -89,8 +89,8 @@ import hashlib
 import math
 import os
 import warnings
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -100,7 +100,12 @@ from uuid import uuid4
 # stack never loads for a bare ``tether --version`` (which imports only
 # ``tether.cli``). Keep it out of ``tether.project.__init__`` for the same reason.
 from tether import __version__
-from tether.extract_choices import DETECTION_MODES, DONOR_SIDES, PREALIGN_MODES
+from tether.extract_choices import (
+    COLOCALIZATION_POLICIES,
+    DETECTION_MODES,
+    DONOR_SIDES,
+    PREALIGN_MODES,
+)
 from tether.imaging.calibrate import (
     OverGateRegistrationWarning,
     RegistrationMap,
@@ -184,6 +189,9 @@ class ExtractOptions:
     rms_gate: float = 0.5
     window: int = 21
     coloc_distance: float = 3.0
+    #: The colocalization rule (ADR-0127): ``partner-in-both`` keeps a molecule only
+    #: with a detected acceptor spot; ``donor-anchored`` keeps every in-frame donor.
+    colocalization: str = "partner-in-both"
     disk_radius: float = 3.0
     ring_inner: float = 6.0
     ring_outer: float = 8.0
@@ -234,6 +242,11 @@ class ExtractOptions:
         # positive.
         if self.min_separation is not None and not self.min_separation > 0:
             raise ExtractionError(f"min_separation must be > 0, got {self.min_separation}")
+        if self.colocalization not in COLOCALIZATION_POLICIES:
+            raise ExtractionError(
+                f"colocalization must be one of {COLOCALIZATION_POLICIES}, "
+                f"got {self.colocalization!r}"
+            )
         if self.prealign not in PREALIGN_MODES:
             raise ExtractionError(
                 f"prealign must be 'translation' or 'similarity', got {self.prealign!r}"
@@ -280,6 +293,10 @@ class ExtractionSummary:
     detection_mode: str  # the ParticleDetectionMode actually run (post .tdat apply)
     #: The advisory donor-side check (#646, ADR-0070); also stored in /settings/extraction.
     donor_side_check: DonorSideCheck | None = None
+    #: The colocalization rule this run used (ADR-0127).
+    colocalization: str = "partner-in-both"
+    #: ``{rule: n_molecules}`` -- the molecules each rule keeps from the same spots (#920).
+    rule_counts: Mapping[str, int] = field(default_factory=dict)
     #: The RMS gate the registration was judged against (px): the run's ``rms_gate``, or a
     #: map file's own ``gate_px`` (#353). ``None`` only for a summary built without it.
     rms_gate: float | None = None
@@ -728,6 +745,7 @@ def _run_pipeline(
                 acceptor_spots=acceptor_spots,
                 window=options.window,
                 coloc_distance_px=options.coloc_distance,
+                policy=options.colocalization,
             )
 
             traces = extract_molecules(
@@ -859,6 +877,8 @@ def _summary(
         registration_source=_registration_source(reg_map, map_path),
         detection_mode=extracted.options.detection_mode,
         donor_side_check=extracted.side_check,
+        colocalization=extracted.molecules.policy,
+        rule_counts=dict(extracted.molecules.rule_counts),
         rms_gate=float(reg_map.gate_px),
     )
 
@@ -987,6 +1007,57 @@ def extract_movie(
     return _summary(
         output_path, extracted, movie_id, calibration_id, molecule_ids, map_path=map_path
     )
+
+
+def count_molecules_by_rule(
+    movie_path: str | os.PathLike[str],
+    *,
+    options: ExtractOptions | None = None,
+    tmap: str | os.PathLike[str] | None = None,
+    tdat: str | os.PathLike[str] | None = None,
+    map_path: str | os.PathLike[str] | None = None,
+) -> dict[str, int]:
+    """Count the molecules each colocalization rule keeps, before any extraction (#920).
+
+    Runs the stages of [`extract_movie`][] up to colocalization -- through the stage
+    preview ([`tether.project.preview.iter_extraction_stages`][]), whose molecules are
+    those of a real run -- and stops there: no trace is integrated and nothing is
+    written. ``options``, ``tmap``, ``tdat`` and ``map_path`` mean what they mean for
+    [`extract_movie`][], so a count with a map file uses that map (#353).
+
+    Returns
+    -------
+    dict[str, int]
+        ``{rule: n_molecules}`` for both rules of
+        [`COLOCALIZATION_POLICIES`][tether.extract_choices.COLOCALIZATION_POLICIES].
+
+    Raises
+    ------
+    ExtractionError
+        A missing or unreadable input, or a stage before colocalization that fails
+        (for example too few control points to register).
+    """
+    from tether.project.preview import OUTCOME_FAILED, iter_extraction_stages  # noqa: PLC0415
+
+    movie_path = Path(movie_path)
+    _check_inputs(movie_path, tmap, tdat, map_path)
+    options, imported_map = _resolve_sources(options or ExtractOptions(), tmap, tdat, map_path)
+    try:
+        with open_movie(movie_path) as reader:
+            stages = iter_extraction_stages(reader.data, options=options, registration=imported_map)
+            for stage in stages:
+                if stage.outcome == OUTCOME_FAILED:
+                    raise ExtractionError(
+                        f"could not count the molecules of {movie_path.name}: the "
+                        f"{stage.name} stage failed: {stage.message}"
+                    )
+                if stage.name == "colocalize":
+                    return dict(stage.outputs["rule_counts"])
+    except ExtractionError:
+        raise
+    except Exception as exc:  # an unreadable movie -> a clean operator message
+        raise ExtractionError(f"could not count the molecules of {movie_path.name}: {exc}") from exc
+    raise ExtractionError(f"could not count the molecules of {movie_path.name}")  # pragma: no cover
 
 
 def _movie_ids_with_sha256(project_path: Path, sha256: str) -> list[str]:

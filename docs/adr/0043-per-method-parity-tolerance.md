@@ -46,6 +46,16 @@ the state-count metric.
 - State-count agreement is a real parity signal worth keeping, not dropping for
   ebFRET.
 
+## Considered options
+
+- **Per-method tolerances: an additive `tolerance_by_method` block for ebFRET, measured
+  cross-seed, with the default `tolerance` unchanged** (chosen).
+- **Loosen the single shared tolerance to ebFRET's spread.**
+- **Drop `state_count` as an ebFRET criterion.**
+- **Commit an ebFRET-specific reference model and compare fresh fits to it.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 Freeze **per-method** tolerances. `schema/parity_tolerance.json` keeps its top-level

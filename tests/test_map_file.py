@@ -44,6 +44,7 @@ from tether.project.extract import (  # noqa: E402
     ExtractOptions,
     _run_pipeline,
     add_movie_to_project,
+    count_molecules_by_rule,
     extract_movie,
 )
 from tether.project.lock import publish_lock  # noqa: E402
@@ -161,6 +162,29 @@ def test_a_map_file_replaces_the_native_fit_and_ignores_donor_side(tmp_path, fit
         movie, out, options=ExtractOptions(window=_WINDOW, donor_side="right"), map_path=map_file
     )
     _same_molecules(out, in_memory)
+
+
+def test_a_count_with_a_map_file_counts_the_molecules_that_map_extracts(tmp_path, fitted) -> None:
+    """``--count-only`` with ``--map`` uses the map, not a native fit (#353 with #920)."""
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_012.tif")
+    # donor_side="right" would swap the halves of a native fit, so a count that ignored
+    # the map would not match the extraction with it.
+    options = ExtractOptions(window=_WINDOW, donor_side="right")
+    counts = count_molecules_by_rule(movie, options=options, map_path=map_file)
+    summary = extract_movie(movie, tmp_path / "count.tether", options=options, map_path=map_file)
+    assert counts[summary.colocalization] == summary.n_molecules > 0
+    assert counts == dict(summary.rule_counts)
+
+
+def test_the_cli_counts_with_a_map_file(tmp_path, fitted, capsys) -> None:
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_013.tif")
+    out = tmp_path / "never.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--map", str(map_file), "--count-only"])
+    assert rc == 0, capsys.readouterr().err
+    assert "(selected)" in capsys.readouterr().out
+    assert not out.exists()
 
 
 def test_a_tmap_and_a_map_file_together_are_refused_before_any_work(tmp_path) -> None:
