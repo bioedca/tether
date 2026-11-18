@@ -23,7 +23,8 @@ native fit is the ``over-gate`` outcome of the ``register`` stage, and the run c
 the molecules flagged, as ``extract_movie`` does (ADR-0014).
 
 The channel geometry, the registration source and the colocalization policy are arguments.
-Today the only policy is ``donor-anchored`` (ADR-0015); #920 adds the second.
+The ``colocalize`` stage reports the molecule count of both rules (``rule_counts``), so a
+caller can show what each rule keeps before the run (#920, ADR-0127).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from tether import __version__
+from tether.extract_choices import COLOCALIZATION_POLICIES
 from tether.imaging import (
     ChannelGeometry,
     OverGateRegistrationWarning,
@@ -53,7 +55,8 @@ from tether.project.extract import (
     _ACCEPTOR_CHANNEL,
     _DONOR_CHANNEL,
     ExtractOptions,
-    _half_split_geometry,
+    _layout_geometry,
+    resolve_channel_layout,
 )
 
 if TYPE_CHECKING:
@@ -63,8 +66,6 @@ if TYPE_CHECKING:
 
 #: The stages in the order ``extract_movie`` runs them.
 STAGES = ("split", "detect", "prealign", "pair", "register", "colocalize", "extract")
-#: The colocalization rules the preview accepts. #920 adds a second rule.
-COLOCALIZATION_POLICIES = ("donor-anchored",)
 #: A stage ran and its result is usable.
 OUTCOME_OK = "ok"
 #: The native fit's residual exceeds the RMS gate; molecules are flagged, not dropped.
@@ -168,6 +169,13 @@ def _geometry(
     params: dict[str, Any],
 ) -> tuple[ChannelGeometry, ChannelGeometry]:
     """Resolve the channel geometry exactly as ``extract_movie`` does, recording its source."""
+    if registration is not None and options.channel_layout is not None:
+        # As in extract_movie: an imported map carries its own split, and a layout
+        # beside it would name a second, competing one (#908). Checked before the
+        # geometry argument, so an explicit geometry does not hide the conflict.
+        raise ValueError(
+            "channel_layout and an imported registration both set the channel split; give only one"
+        )
     if geometry is not None:
         params["geometry_source"] = "argument"
         if registration is not None:
@@ -186,9 +194,12 @@ def _geometry(
         if donor is None or acceptor is None:
             raise ValueError("the registration map lacks per-channel crop geometry")
         return donor, acceptor
-    params.update(geometry_source="half-split", donor_side=options.donor_side)
+    if options.channel_layout is None:
+        params.update(geometry_source="half-split", donor_side=options.donor_side)
+    else:
+        params.update(geometry_source="layout", channel_layout=options.channel_layout.to_dict())
     height, width = movie.shape[-2:]
-    return _half_split_geometry(width, height, options.donor_side)
+    return _layout_geometry(resolve_channel_layout(options), width, height)
 
 
 def iter_extraction_stages(
@@ -197,7 +208,7 @@ def iter_extraction_stages(
     options: ExtractOptions | None = None,
     geometry: tuple[ChannelGeometry, ChannelGeometry] | None = None,
     registration: RegistrationMap | None = None,
-    policy: str = "donor-anchored",
+    policy: str | None = None,
 ) -> Iterator[StageResult]:
     """Yield one [`StageResult`][] per extraction stage of ``movie``.
 
@@ -211,26 +222,34 @@ def iter_extraction_stages(
         ``.tdat`` into them first; the preview reads no files.
     geometry:
         The ``(donor, acceptor)`` channel geometry. ``None`` uses the geometry of
-        ``registration`` when one is given, else the left/right half split that
-        ``options.donor_side`` names. With a ``registration`` that records its own
-        geometry, a different one fails the ``split`` stage, because the map's
-        coordinates are local to its own crops.
+        ``registration`` when one is given, else the split of
+        ``options.channel_layout``, or the left/right half split that
+        ``options.donor_side`` names when no layout is set. With a ``registration``
+        that records its own geometry, a different one fails the ``split`` stage,
+        because the map's coordinates are local to its own crops. A
+        ``channel_layout`` beside a ``registration`` fails it too.
     registration:
         An imported map (for example from
         [`registration_map_from_tmap`][tether.imaging.calibrate.registration_map_from_tmap]).
         ``None`` fits a native
         map from the movie's own spots. With a map, prealign and pair are ``skipped``.
     policy:
-        The colocalization rule, one of [`COLOCALIZATION_POLICIES`][].
+        The colocalization rule, one of
+        [`COLOCALIZATION_POLICIES`][tether.extract_choices.COLOCALIZATION_POLICIES].
+        ``None`` uses ``options.colocalization``, the rule ``extract_movie`` would run.
+        The ``colocalize`` stage outputs the molecule count of both rules as
+        ``rule_counts`` whichever is chosen.
 
     Raises
     ------
     ValueError
         For an unknown ``policy``. A stage that fails is yielded, never raised.
     """
+    opts = options or ExtractOptions()
+    if policy is None:
+        policy = opts.colocalization
     if policy not in COLOCALIZATION_POLICIES:
         raise ValueError(f"policy must be one of {COLOCALIZATION_POLICIES}, got {policy!r}")
-    opts = options or ExtractOptions()
     out: dict[str, Any] = {}  # every output so far, keyed as the stages name them
 
     def split() -> dict[str, Any]:
@@ -307,8 +326,13 @@ def iter_extraction_stages(
             acceptor_spots=out["acceptor_spots"],
             window=opts.window,
             coloc_distance_px=opts.coloc_distance,
+            policy=policy,
         )
-        return {"molecules": molecules, "n_molecules": int(molecules.n_molecules)}
+        return {
+            "molecules": molecules,
+            "n_molecules": int(molecules.n_molecules),
+            "rule_counts": dict(molecules.rule_counts),
+        }
 
     def extract() -> dict[str, Any]:
         stacks = (out["donor_stack"], out["acceptor_stack"])

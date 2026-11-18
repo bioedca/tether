@@ -29,8 +29,8 @@ The UC3 loop with this module is::
     model = retrain_condition_model(load_model(path), day2, video_id=v2)  # reads day1 again
     save_model(model, path)
 
-Out of scope here: the project's ``/models`` reference and the owner-curator lock (#561), and the
-application controls (#640).
+The project's ``/models`` reference and the model file's owner-curator lock are
+[`tether.project.model_artifact`][] (#561, ADR-0119); the application controls are #640.
 """
 
 from __future__ import annotations
