@@ -40,7 +40,8 @@ min_collected = 26
 max_skipped = 0
 
 [jobs."deep / smoke"]
-min_collected = 17
+# 33 since #759 added the PySMACKS reference (tests/test_pysmacks_classifier_deep.py).
+min_collected = 33
 max_skipped = 2
 
 [jobs."large-fixtures"]

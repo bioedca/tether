@@ -219,6 +219,37 @@ def test_a_new_project_reads_as_empty(tmp_path: Path, capsys) -> None:
     assert "corrections: not run" in capsys.readouterr().out
 
 
+def test_info_warns_about_onedrive_conflict_copies_on_stderr(tmp_path: Path, capsys) -> None:
+    # #560 / PRD §5.4: `tether info` is the CLI's read-only open, so a sync-conflict
+    # sibling is named on stderr; stdout (and so a --json document) is unchanged, and
+    # the copy is left as it was.
+    path = tmp_path / "exp.tether"
+    Project.create(path)
+    copy = tmp_path / "exp-DESKTOP-AB12.tether"
+    copy.write_bytes(b"copy")
+
+    assert main(["info", str(path)]) == 0
+    captured = capsys.readouterr()
+    assert (
+        "  warning: 1 possible OneDrive/SharePoint conflict copy beside exp.tether: "
+        "exp-DESKTOP-AB12.tether." in captured.err
+    )
+    assert "conflict cop" not in captured.out
+
+    assert main(["info", "--json", str(path)]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["projects"][0]["n_molecules"] == 0
+    assert "exp-DESKTOP-AB12.tether" in captured.err
+    assert copy.read_bytes() == b"copy"
+
+
+def test_info_prints_no_conflict_warning_without_copies(tmp_path: Path, capsys) -> None:
+    path = tmp_path / "exp.tether"
+    Project.create(path)
+    assert main(["info", str(path)]) == 0
+    assert "conflict cop" not in capsys.readouterr().err
+
+
 # --- read-only: nothing changes, no lock, no trace or movie reads ------------------------
 
 

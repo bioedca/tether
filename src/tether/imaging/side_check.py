@@ -298,12 +298,15 @@ class DonorSideCheck:
         *,
         donor_side: str = "left",
         imported_map: bool = False,
+        map_file: str | None = None,
         channel_layout: ChannelLayout | None = None,
     ) -> str:
         """One plain sentence for the operator, with the evidence and the remedy.
 
         ``donor_side`` is the side the movie was extracted with; ``imported_map`` says
         the split came from an imported ``.tmap``, where ``--donor-side`` does not apply.
+        ``map_file`` names the saved ``.npz`` map file (``--map``, #353) the split came
+        from; it takes precedence over ``imported_map``, and the remedy then names it.
         ``channel_layout`` is the [`ChannelLayout`][tether.imaging.layout.ChannelLayout]
         the extraction was given (#908), or ``None`` when the split came from
         ``donor_side``. A layout names its own donor, so the remedy for swapped halves
@@ -319,7 +322,13 @@ class DonorSideCheck:
             )
         evidence = f"{self.n_swapped} of {self.n_events} bleach events"
         if self.verdict == VERDICT_SWAPPED:
-            if imported_map:
+            if map_file is not None:
+                remedy = (
+                    f"check the channel order of the map file {map_file} (make it again "
+                    "with tether map create and the right --donor-side), or extract again "
+                    "without --map and with the right --donor-side"
+                )
+            elif imported_map:
                 remedy = (
                     "check the channel order of the .tmap, or extract again without --tmap "
                     "and with the right --donor-side"

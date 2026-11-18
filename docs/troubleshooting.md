@@ -823,6 +823,28 @@ has its own `.lock` and each user has their own record, so Tether does not stop 
 and an `--overwrite` by one of them does not stop with `is locked` either. Give a shared project
 one name only.
 
+### A warning names a possible OneDrive/SharePoint conflict copy
+
+**Symptom.** When you open a project, the GUI Browser shows a caution banner, or
+`tether extract`, `tether batch`, `tether info`, `tether metadata` or `tether export` writes
+a stderr line with the same text:
+
+```text
+Warning: 2 possible OneDrive/SharePoint conflict copies beside exp.tether: exp (1).tether, exp-DESKTOP-AB12.tether. Tether does not merge or delete them; compare and reconcile by hand.
+```
+
+**Cause.** The project's folder holds a file whose name matches a sync-conflict copy of the
+project: `<stem>-<COMPUTERNAME>.tether`, which OneDrive writes when a second machine saved a
+change at the same time, or `<stem> (<...>).tether`, the numbered and "conflicted copy"
+form. Tether detects these copies and does not try to prevent them. The match is
+by name only, so a sibling you named that way on purpose (`exp-donoronly.tether`) is also
+listed.
+
+**Remedy.** The open is not blocked and nothing is changed. Find out which file holds the
+work you want to keep: open each one in Tether, or compare their modification times. Then
+move or delete the other file yourself, outside Tether. Tether never reconciles, merges or
+deletes a conflict copy for you.
+
 ### The spot and overlap views are unavailable
 
 **Symptom.** A project opens and curates fine, histograms and idealization work, but the

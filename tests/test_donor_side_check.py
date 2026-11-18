@@ -183,6 +183,9 @@ def test_correct_labels_are_silent_and_swapped_labels_warn() -> None:
     assert "--donor-side right" in message
     assert "--donor-side left" in flipped.describe(donor_side="right")
     assert "--tmap" in flipped.describe(imported_map=True)
+    # A saved map file (--map, #353) is named, and wins over imported_map.
+    from_map = flipped.describe(imported_map=True, map_file="setup.npz")
+    assert "the map file setup.npz" in from_map and "--tmap" not in from_map
 
 
 def test_with_a_channel_layout_the_remedy_changes_the_layout_not_donor_side() -> None:
