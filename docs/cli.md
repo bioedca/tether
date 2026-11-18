@@ -382,11 +382,10 @@ Structured log: projects/batch-log.jsonl
 Sidecar: found at /opt/tether/envs/sidecar/bin/python (the run checks that it starts before the first movie)
 ```
 
-The settings include the channel split and the detection that each movie would be
-extracted with: `channel-layout` and, without a layout, `donor-side`, then `detection-mode`
-and `detection-threshold` (`mode default` when the profile leaves it `null`, and
-`from .tdat` for both when `--tdat` supplies them). Two profiles that differ in one of
-these print different lines.
+The settings also name how each movie would be extracted. `channel-layout` gives the
+split, and `donor-side` follows it when there is no layout. Then come `detection-mode` and
+`detection-threshold`. The threshold reads `mode default` when the profile leaves it
+`null`. Both read `from .tdat` when `--tdat` supplies them.
 
 What a line says comes from the output project's checkpoint, which is opened read-only:
 
@@ -398,9 +397,9 @@ What a line says comes from the output project's checkpoint, which is opened rea
 | `exists, incomplete:` | holds no finished extraction, and only `--overwrite` replaces it |
 | `exists, over the gate:` | holds an extraction that `--policy fail` rejects |
 
-A refusal to start, such as a movie argument that gives no movie or a profile
-`channel_layout` beside `--tmap` (the `.tmap` splits each frame at its own crops), is
-reported as it would be by the run, with exit code `2`. The dry run only looks for the sidecar
+A refusal to start is reported as it would be by the run, with exit code `2`. A movie
+argument that gives no movie is one. A profile `channel_layout` beside `--tmap` is another,
+because the `.tmap` splits each frame at its own crops. The dry run only looks for the sidecar
 interpreter. The real run also starts it once before the first movie.
 
 ### Progress while the batch runs
