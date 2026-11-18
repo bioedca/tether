@@ -46,6 +46,20 @@ PRD §9.6 carried four idealization-parity criteria that the code did not meet:
   (`sidecar / parity`, the RF2-ArfA check of ADR-0079, the docs guard) reads four bounds.
 - **A re-freeze is a visible, reviewed edit**, never a one-number change in one file.
 
+## Considered options
+
+The record names one other option for each item it decides, in its own text. Items 1 and 2 add
+their options with their own sections.
+
+- Item 3, the default row:
+  - **Re-measure on the pinned build and apply the freeze rule** (chosen; every bound stays).
+  - **Keep the 2026-06-26 measurement on tMAVEN `71cfa1af` under CPython 3.9.23.** Set aside: it
+    is not the build that the sidecar, CI and the installers run.
+- Item 4, the frozen bounds:
+  - **A literal copy of every frozen bound in the tests, checked against the file** (chosen).
+  - **Keep only the self-checks that each recorded value is within its bound.** Set aside: a
+    bound widened to any other finite value fails nothing.
+
 ## Decision
 
 #545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the

@@ -200,6 +200,40 @@ def test_channel_geometry_apply_matches_process_image() -> None:
     )
 
 
+def test_channel_geometry_operations_are_ordered_rotate_flip_crop() -> None:
+    # The ordered list a geometry recipe extends (#559 / #910): processImage order.
+    geom = ChannelGeometry(crop=[2, 1, 5, 4], rotation_deg=270, flip=(1, 0))
+    assert geom.operations == (("rotate", 270), ("flip", (1, 0)), ("crop", (2, 1, 5, 4)))
+    assert ChannelGeometry().operations == (("rotate", 0), ("flip", (0, 0)), ("crop", None))
+
+
+@pytest.mark.parametrize("deg", [0, 90, 180, 270])
+@pytest.mark.parametrize("flip", [(0, 0), (1, 0), (0, 1), (1, 1)])
+def test_channel_geometry_apply_runs_operations_in_order(deg: int, flip: tuple[int, int]) -> None:
+    # apply() folds the operations one step at a time; the result is the same bytes
+    # as a single processImage call, for every rotation and flip, frame and stack.
+    stack = np.arange(3 * 6 * 8, dtype=np.uint16).reshape(3, 6, 8)
+    crop = [1, 2, 4, 5]
+    geom = ChannelGeometry(crop=crop, rotation_deg=deg, flip=flip)
+    expected = process_image(stack, rotation_deg=deg, crop=crop, flip=flip)
+    got = geom.apply(stack)
+    assert got.dtype == stack.dtype
+    np.testing.assert_array_equal(got, expected)
+    np.testing.assert_array_equal(geom.apply(stack[0]), expected[0])
+
+
+def test_channel_geometry_apply_rejects_bad_steps() -> None:
+    a = np.zeros((4, 4))
+    with pytest.raises(ValueError, match="rotation_deg"):
+        ChannelGeometry(rotation_deg=45).apply(a)
+    with pytest.raises(ValueError, match="rotation_deg"):
+        ChannelGeometry(rotation_deg=90.5).apply(a)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="flip"):
+        ChannelGeometry(flip=(2, 0)).apply(a)
+    with pytest.raises(ValueError, match="exceeds"):
+        ChannelGeometry(crop=[1, 1, 5, 4]).apply(a)
+
+
 def test_channel_geometry_normalizes_to_tuples_for_value_semantics() -> None:
     # crop/flip accept array-like but are stored as immutable tuples, so the frozen
     # record keeps value semantics: equal geometries compare equal and hash equal
