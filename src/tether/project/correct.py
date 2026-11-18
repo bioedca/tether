@@ -164,6 +164,7 @@ def compute_corrected_fret(
     alpha_override: float | None = None,
     gamma_override: float | None = None,
     write_guard: Callable[[], None] | None = None,
+    movie_id: str | None = None,
 ) -> CorrectionSummary:
     """Resolve + stamp each molecule's correction method and store the provenance.
 
@@ -194,6 +195,12 @@ def compute_corrected_fret(
         ``/molecules`` update and ``/settings/correction`` stamp are written to a
         same-directory sibling project and published together by one final guarded
         atomic replace. Without a guard, the established in-place write path remains.
+    movie_id
+        Restrict the pass to the molecules of this ``/movies`` row; every other row
+        is left untouched and is not counted. ``None`` (default) examines every
+        molecule. A Deep-LASI acquisition appended to a project carries its own
+        factors, which must not be stamped on the molecules already there (#347,
+        ADR-0117). ``/settings/correction`` still records the latest pass.
 
     Returns
     -------
@@ -235,7 +242,10 @@ def compute_corrected_fret(
         # on the arguments, not the molecule).
         has_override = alpha_override is not None or gamma_override is not None
 
+        in_scope = _rows_of_movie(table, movie_id)
         for i in range(table.shape[0]):
+            if not in_scope[i]:
+                continue  # another movie's molecule: outside this pass (#347)
             start, end = int(frame_range[i][0]), int(frame_range[i][1])
             if end <= start:
                 continue  # no valid native frames → not analysable; leave row untouched
@@ -299,6 +309,17 @@ def compute_corrected_fret(
         total_failure=total_failure,
         apparent_e_only=apparent_e_only,
         source=CORRECTION_SOURCE,
+    )
+
+
+def _rows_of_movie(table: np.ndarray, movie_id: str | None) -> np.ndarray:
+    """Return a boolean mask of the ``/molecules`` rows a ``movie_id``-scoped pass covers."""
+    if movie_id is None:
+        return np.ones(table.shape[0], dtype=bool)
+    ids = table["movie_id"]
+    return np.array(
+        [(v.decode("utf-8") if isinstance(v, bytes) else str(v)) == movie_id for v in ids],
+        dtype=bool,
     )
 
 

@@ -231,6 +231,7 @@ class ConditionValidationDialog:
         *,
         confirm_merge: Callable[[RekeyPreview], bool] | None = None,
         writer_guard: Callable[[], object] | None = None,
+        labeler: str | None = None,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
@@ -244,6 +245,9 @@ class ConditionValidationDialog:
         #: Optional retained-session assertion supplied by TetherShell. Standalone
         #: dialogs keep the Project mutators' normal identity-only guard.
         self._writer_guard = writer_guard
+        #: The curator name a re-key's audit entry carries (#628); ``None`` lets the
+        #: project default it to the operating-system user, as before.
+        self._labeler = labeler
         #: ``condition_id`` per table row, in row order (the table shows summaries).
         self._row_ids: list[str] = []
 
@@ -357,6 +361,7 @@ class ConditionValidationDialog:
             from_condition_id,
             to_key,
             confirm=preview.is_merge,
+            labeler=self._labeler,
             reason="GUI condition validation",
         )
         self.refresh()

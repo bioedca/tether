@@ -80,6 +80,15 @@ version (ink) and a dark version (chalk), and the icons change with the theme.
 
 An icon is never the only sign of a function. Each menu item keeps its text.
 
+The **File**, **View** and **Help** menus show in every section. Each other menu shows only in
+its own section:
+
+| Section | Menus |
+|---|---|
+| Prepare | Import |
+| Curate and correct | Curation, Hand-off, Conditions |
+| Analyze | Analysis |
+
 **Busy indicator.** When a task runs and does not give a percentage, the right end of the
 status bar shows the busy indicator and the name of the task. Today this task is the
 one-click idealize (the `I` key). The task name uses the molecule name from the molecule
