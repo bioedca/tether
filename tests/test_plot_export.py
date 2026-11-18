@@ -1054,7 +1054,7 @@ def _public_functions() -> list[str]:
 def test_every_public_function_documents_its_sections_in_order():
     """#1172: Rule 3 of the docstring standard, for each function a script calls."""
     names = _public_functions()
-    assert len(names) == 14  # export_figure and the thirteen render_* functions
+    assert len(names) == 15  # export_figure, series_style and the thirteen render_* functions
     for name in names:
         doc = inspect.getdoc(getattr(pe, name))
         at = {s: doc.find(f"\n{s}\n{'-' * len(s)}\n") for s in _SECTIONS}

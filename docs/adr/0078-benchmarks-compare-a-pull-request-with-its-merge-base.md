@@ -26,6 +26,15 @@ runners can differ by more than 1.5. A stored history of numbers has the same pr
 every number comes from the same machine, which is the workstation history of #723 and not
 this decision.
 
+## Considered options
+
+- **Measure the merge base and the head in one job on one runner, interleaved** (chosen).
+- **Stored numbers from earlier runs on GitHub runners.**
+- **pytest-benchmark or asv.**
+- **A fixed time limit per case.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 1. **Same runner, same job, interleaved.** `benchmarks/bench.py run` measures the merge base and

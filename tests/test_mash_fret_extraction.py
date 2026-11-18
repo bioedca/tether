@@ -13,7 +13,9 @@ defaults) on each video and compares it with the truth:
 
 * **detection** — of the molecules whose 21-px aperture fits in the channel, how many Tether
   found (a Tether molecule within ``MATCH_PX`` of the true donor position), and how many Tether
-  molecules have no true molecule within ``MATCH_PX`` (false detections);
+  molecules have no true molecule within ``MATCH_PX`` (false detections), and how many Tether
+  molecules match a true molecule that an earlier Tether molecule already matched (duplicates,
+  ADR-0107: a molecule written twice keeps every other limit);
 * **position** — the distance from each found molecule to its true position, in the donor
   channel and, through Tether's channel mapping, in the acceptor channel;
 * **intensity** — for each found molecule with no other molecule within ``ISOLATION_PX`` (in
@@ -71,10 +73,13 @@ ISOLATION_PX = 10.0
 # rounded up to 0.05; gain: the measured median intensity ratio +/- 0.03, for each channel;
 # min_r: the lowest per-trace Pearson correlation, the measured lowest - 0.05, rounded down to
 # 0.05. Every molecule Tether missed has a true neighbour within 7.4 px (ADR-0088).
+# duplicate: at most this many matched Tether molecules whose true molecule an earlier one
+# already matched (the measured count; ADR-0107 adds it and amends ADR-0088 for it alone).
 LIMITS: dict[str, dict] = {
     "easy": {
         "found": 4,
         "false": 0,
+        "duplicate": 0,
         "donor_err": 0.6,
         "acceptor_err": 0.55,
         "gain": {"donor": (0.887, 0.947), "acceptor": (0.883, 0.943)},
@@ -83,6 +88,7 @@ LIMITS: dict[str, dict] = {
     "low-snr": {
         "found": 6,
         "false": 0,
+        "duplicate": 0,
         "donor_err": 1.1,
         "acceptor_err": 3.2,
         "gain": {"donor": (0.845, 0.905), "acceptor": (0.904, 0.964)},
@@ -91,6 +97,7 @@ LIMITS: dict[str, dict] = {
     "dense": {
         "found": 7,
         "false": 1,
+        "duplicate": 0,
         "donor_err": 1.1,
         "acceptor_err": 2.2,
         "gain": {"donor": (1.048, 1.108), "acceptor": (0.701, 0.761)},
@@ -99,6 +106,7 @@ LIMITS: dict[str, dict] = {
     "uneven": {
         "found": 7,
         "false": 0,
+        "duplicate": 0,
         "donor_err": 0.75,
         "acceptor_err": 0.75,
         "gain": {"donor": (0.935, 0.995), "acceptor": (0.862, 0.922)},
@@ -122,6 +130,7 @@ class Measured:
     n_eligible: int
     n_found: int
     n_false: int
+    n_duplicate: int
     donor_err: np.ndarray
     acceptor_err: np.ndarray
     gain: dict[str, np.ndarray]
@@ -157,12 +166,16 @@ def measure(name: str, work: Path, *, isolated_only: bool = True) -> Measured:
     found_xy = np.asarray(molecules["donor_xy"], dtype=float).reshape(-1, 2)
     if len(found_xy) == 0:
         empty = np.empty(0)
-        return Measured(int(eligible.sum()), 0, 0, empty, empty, {}, {})
+        return Measured(int(eligible.sum()), 0, 0, 0, empty, empty, {}, {})
     dist = _pairwise(found_xy, truth.donor_xy)
     nearest = dist.argmin(axis=1)
     matched = dist[np.arange(len(found_xy)), nearest] <= MATCH_PX
     hit = np.zeros(len(truth.donor_xy), dtype=bool)
     hit[nearest[matched]] = True
+    # A matched Tether molecule whose true molecule an earlier matched one already took is a
+    # duplicate. The match itself stays many-to-one, so ``n_false`` keeps its frozen meaning.
+    taken = nearest[matched]
+    n_duplicate = len(taken) - len(np.unique(taken))
 
     acceptor_xy = np.asarray(molecules["acceptor_xy"], dtype=float).reshape(-1, 2)
     rows = np.flatnonzero(matched)
@@ -187,6 +200,7 @@ def measure(name: str, work: Path, *, isolated_only: bool = True) -> Measured:
         n_eligible=int(eligible.sum()),
         n_found=int((hit & eligible).sum()),
         n_false=int((~matched).sum()),
+        n_duplicate=int(n_duplicate),
         donor_err=donor_err,
         acceptor_err=acceptor_err,
         gain={k: np.asarray(v) for k, v in gain.items()},
@@ -201,6 +215,8 @@ def violations(result: Measured, limits: dict) -> list[str]:
         found.append(f"found {result.n_found} of {result.n_eligible}, limit {limits['found']}")
     if result.n_false > limits["false"]:
         found.append(f"false detections {result.n_false}, limit {limits['false']}")
+    if not result.n_duplicate <= limits.get("duplicate", -1):
+        found.append(f"duplicates {result.n_duplicate}, limit {limits.get('duplicate')}")
     # Every comparison is written so that NaN breaks it: a NaN (a constant trace gives a NaN
     # correlation) must never read as a kept limit.
     for what in ("donor_err", "acceptor_err"):
@@ -227,6 +243,7 @@ def test_a_nan_breaks_a_limit() -> None:
         n_eligible=6,
         n_found=4,
         n_false=0,
+        n_duplicate=0,
         donor_err=np.array([0.1, 0.2]),
         acceptor_err=np.array([0.1, 0.2]),
         gain={"donor": np.array([0.91, 0.92]), "acceptor": np.array([0.91, 0.92])},
@@ -242,6 +259,10 @@ def test_a_nan_breaks_a_limit() -> None:
     assert [v for v in violations(nan_err, LIMITS["easy"]) if v.startswith("acceptor_err")]
     nan_gain = replace(good, gain={**good.gain, "acceptor": np.array([np.nan])})
     assert [v for v in violations(nan_gain, LIMITS["easy"]) if v.startswith("acceptor gain")]
+    nan_dup = replace(good, n_duplicate=np.nan)
+    assert [v for v in violations(nan_dup, LIMITS["easy"]) if v.startswith("duplicates")]
+    no_limit = {k: v for k, v in LIMITS["easy"].items() if k != "duplicate"}
+    assert [v for v in violations(good, no_limit) if v.startswith("duplicates")]
 
 
 @pytest.mark.parametrize("name", SCENARIOS)
@@ -316,3 +337,28 @@ def test_a_known_fault_breaks_a_limit(fault, expected, monkeypatch, tmp_path) ->
     fault(monkeypatch)
     broken = violations(measure("easy", tmp_path), LIMITS["easy"])
     assert any(text.startswith(expected) for text in broken), broken
+
+
+def test_a_duplicated_molecule_breaks_a_limit(monkeypatch, tmp_path) -> None:
+    """Each molecule written twice (its molecule row and its trace rows) breaks a limit (#1006).
+
+    Every copy matches a true molecule, so without the duplicate count the doubled output keeps
+    every other frozen limit.
+    """
+    module = sys.modules[__name__]
+    original_molecules, original_traces = module.read_molecules, module.read_traces
+
+    def doubled_molecules(project):
+        return np.repeat(original_molecules(project), 2, axis=0)
+
+    def doubled_traces(project):
+        return {k: np.repeat(v, 2, axis=0) for k, v in original_traces(project).items()}
+
+    monkeypatch.setattr(module, "read_molecules", doubled_molecules)
+    monkeypatch.setattr(module, "read_traces", doubled_traces)
+    result = measure("easy", tmp_path)
+    broken = violations(result, LIMITS["easy"])
+    assert result.n_duplicate >= result.n_found > 0, result
+    assert [text for text in broken if text.startswith("duplicates")], broken
+    others = violations(replace(result, n_duplicate=0), LIMITS["easy"])
+    assert others == [], others

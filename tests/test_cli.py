@@ -98,7 +98,12 @@ def _capture_run_batch(monkeypatch):
         captured["jobs"] = list(jobs)
         captured["kwargs"] = kwargs
         kwargs["log"].event(movie="capture", stage="batch", status="done")
-        return SimpleNamespace(format_report=lambda: "(report)", n_failed=0, n_deferred=0)
+        return SimpleNamespace(
+            format_report=lambda: "(report)",
+            n_failed=0,
+            n_deferred=0,
+            results=[SimpleNamespace(job=job) for job in captured["jobs"]],
+        )
 
     monkeypatch.setattr(batch_mod, "run_batch", _fake)
     return captured
@@ -150,6 +155,67 @@ def test_batch_no_idealize_disables_supervision(tmp_path, monkeypatch) -> None:
     assert rc == 0
     assert captured["kwargs"]["supervision"] is None
     assert captured["kwargs"]["idealize"] is False
+
+
+def test_batch_warns_about_conflict_copies_of_each_output(tmp_path, monkeypatch, capsys) -> None:
+    # #560 / PRD §5.4: every per-movie project the batch opens is checked for
+    # OneDrive/SharePoint conflict siblings, and only a flagged one is named.
+    _capture_run_batch(monkeypatch)
+    movies = [tmp_path / "movie_001.tif", tmp_path / "movie_002.tif"]
+    for movie in movies:
+        movie.write_bytes(b"x")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "movie_002.tether").write_bytes(b"project")
+    (out / "movie_002-DESKTOP-AB12.tether").write_bytes(b"copy")
+
+    rc = main(["batch", *map(str, movies), "--out-dir", str(out), "--no-idealize"])
+
+    assert rc == 0  # advisory: never changes the exit code
+    err = capsys.readouterr().err
+    assert (
+        "  warning: 1 possible OneDrive/SharePoint conflict copy beside movie_002.tether: "
+        "movie_002-DESKTOP-AB12.tether." in err
+    )
+    assert "beside movie_001.tether" not in err
+    assert (out / "movie_002-DESKTOP-AB12.tether").read_bytes() == b"copy"
+
+
+def test_batch_checks_the_projects_it_made_from_a_folder_and_colliding_names(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    # #560: a folder argument and two movies with one file name give output names that
+    # the raw arguments do not spell, so the check reads each job's own output path.
+    captured = _capture_run_batch(monkeypatch)
+    for folder in ("a", "b"):
+        (tmp_path / "data" / folder).mkdir(parents=True)
+        (tmp_path / "data" / folder / "movie.tif").write_bytes(b"x")
+    out = tmp_path / "out"
+    out.mkdir()
+
+    assert (
+        main(
+            ["batch", str(tmp_path / "data"), "--recursive", "--out-dir", str(out), "--no-idealize"]
+        )
+        == 0
+    )
+    outputs = [job.output_path for job in captured["jobs"]]
+    assert len(set(outputs)) == 2 and out / "movie.tether" not in outputs
+    capsys.readouterr()
+
+    flagged = outputs[1]
+    copy = flagged.with_name(f"{flagged.stem}-DESKTOP-AB12{flagged.suffix}")
+    copy.write_bytes(b"copy")
+    assert (
+        main(
+            ["batch", str(tmp_path / "data"), "--recursive", "--out-dir", str(out), "--no-idealize"]
+        )
+        == 0
+    )
+
+    err = capsys.readouterr().err
+    assert f"conflict copy beside {flagged.name}: {copy.name}." in err
+    assert f"beside {outputs[0].name}" not in err
 
 
 # --- Flags that reach the batch run (#730) ----------------------------------

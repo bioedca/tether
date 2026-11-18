@@ -42,6 +42,18 @@ was not converging, and the reason is not subtle: CommonMark's block grammar is 
 multi-pass algorithm over container blocks, and no finite set of line-oriented patterns reproduces
 it. Each fix was correct for the shape named in the finding and wrong for the next shape over.
 
+## Considered options
+
+- **Read block structure with `markdown-it-py`, as a dev-only dependency** (chosen).
+- **Keep widening the regular expressions.**
+- **Vendor a minimal CommonMark block parser.**
+- **`mistune` or Python-Markdown.**
+- **Add it to `environment.yml`.**
+- **Keep the gate stdlib-only by moving the structural rules into a maintainer-run grooming
+  check.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 **Block structure is read with `markdown-it-py`, and the gate's rules are applied to the tree it
