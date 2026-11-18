@@ -157,7 +157,8 @@ def _random_value(rng: random.Random, hint: Any) -> Any:
     if optional and rng.random() < 0.3:
         return None
     if typing.get_origin(inner) is tuple:
-        return tuple(_random_value(rng, str) for _ in range(rng.randint(0, 4)))
+        item = typing.get_args(inner)[0]
+        return tuple(_random_value(rng, item) for _ in range(rng.randint(0, 4)))
     if inner is bool:
         return rng.random() < 0.5
     if inner is int:
@@ -264,7 +265,7 @@ def test_an_unsupported_field_type_is_a_programming_error() -> None:
     with pytest.raises(TypeError, match="unsupported"):
         base._check("x", {"a": 1}, dict)
     with pytest.raises(TypeError, match="unsupported"):
-        base._check("x", (1,), tuple[int, ...])
+        base._check("x", (1.0,), tuple[float, ...])
     with pytest.raises(TypeError, match="unsupported"):
         base._allows_none(int | str | None)
 
