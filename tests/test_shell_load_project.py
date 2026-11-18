@@ -450,6 +450,81 @@ def test_read_only_reason_matches_banner_for_foreign_lock(shell, tmp_path) -> No
         assert lock.release(project.path, held)
 
 
+def test_open_names_onedrive_conflict_copies_in_a_non_blocking_banner(shell, tmp_path) -> None:
+    # #560 / PRD §5.4 detect-and-surface: both documented naming forms are named, the
+    # open still succeeds writable, and the copies are left exactly as they were.
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
+    onedrive = tmp_path / "exp-DESKTOP-AB12.tether"
+    numbered = tmp_path / "exp (1).tether"
+    onedrive.write_bytes(b"onedrive copy")
+    numbered.write_bytes(b"numbered copy")
+
+    opened = shell.load_project(project.path)
+
+    assert opened is not None
+    assert shell.curation_project is opened  # surfacing never blocks the open
+    banner = shell.conflict_copy_banner
+    assert not banner.isHidden()
+    assert banner.property("tetherRole") == "caution"
+    assert "exp-DESKTOP-AB12.tether" in banner.text()
+    assert "exp (1).tether" in banner.text()
+    assert "does not merge or delete them" in banner.text()
+    assert onedrive.read_bytes() == b"onedrive copy"
+    assert numbered.read_bytes() == b"numbered copy"
+
+
+def test_conflict_copy_banner_shows_a_markup_file_name_literally(
+    shell, tmp_path, monkeypatch
+) -> None:
+    # A file name may hold "<" and ">" on Linux and macOS; Qt's default AutoText would read
+    # "<b>" as rich text and hide it, so the banner must be plain text. Windows refuses such
+    # a name, so the detector is stubbed to report it rather than the file being created.
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
+    monkeypatch.setattr(lock, "conflict_copies", lambda _p: [tmp_path / "exp-<b>BOX.tether"])
+
+    assert shell.load_project(project.path) is not None
+
+    banner = shell.conflict_copy_banner
+    assert banner.textFormat() == QtCore.Qt.TextFormat.PlainText
+    assert "exp-<b>BOX.tether" in banner.text()
+
+
+def test_open_without_conflict_copies_shows_no_banner(shell, tmp_path) -> None:
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
+    (tmp_path / "other.tether").write_bytes(b"unrelated sibling")
+
+    assert shell.load_project(project.path) is not None
+
+    assert shell.conflict_copy_banner.isHidden()
+    assert shell.conflict_copy_banner.text() == ""
+
+
+def test_conflict_copy_banner_clears_on_close_and_on_a_clean_reopen(shell, tmp_path) -> None:
+    flagged_dir, clean_dir = tmp_path / "flagged", tmp_path / "clean"
+    flagged_dir.mkdir()
+    clean_dir.mkdir()
+    flagged, *_ = _round_trip_store(flagged_dir, n=3, t=12, name="exp.tether")
+    clean, *_ = _round_trip_store(clean_dir, n=3, t=12, name="exp.tether", seed=2)
+    (flagged_dir / "exp-LAPTOP-9.tether").write_bytes(b"copy")
+
+    assert shell.load_project(flagged.path) is not None
+    assert not shell.conflict_copy_banner.isHidden()
+
+    # Switching to a project with no copies must not leave the old warning up.
+    assert shell.load_project(clean.path) is not None
+    assert shell.conflict_copy_banner.isHidden()
+
+    assert shell.load_project(flagged.path) is not None
+    assert not shell.conflict_copy_banner.isHidden()
+    assert shell.close_project()
+    assert shell.conflict_copy_banner.isHidden()
+    assert shell.conflict_copy_banner.text() == ""
+
+
 @pytest.mark.parametrize("name", _SESSION_LOCK_ACCESSORS)
 def test_session_lock_accessors_have_no_setter(shell, name) -> None:
     from tether.gui.shell import TetherShell
@@ -512,6 +587,47 @@ def test_reopening_loaded_project_preserves_session_epoch(shell, tmp_path) -> No
     assert after is not None
     assert after.nonce == before.nonce
     assert not shell.lock_release_pending
+
+
+def test_reopening_through_a_hard_link_alias_preserves_session_epoch(shell, tmp_path) -> None:
+    """A hard-link spelling of the loaded file reuses its epoch (#257 defect 1, #346)."""
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    alias = tmp_path / "alias.tether"
+    os.link(project.path, alias)
+    retained = shell.load_project(project.path)
+    assert retained is not None
+    before = project.lock_owner()
+    assert before is not None
+
+    reopened = shell.load_project(alias)
+
+    assert reopened is retained
+    assert shell.curation_project is retained
+    after = project.lock_owner()
+    assert after is not None
+    assert after.nonce == before.nonce
+    assert not lock.lock_path(alias).exists()
+    assert not shell.lock_release_pending
+
+
+def test_deeplasi_import_cannot_replace_the_project_this_shell_holds(shell, tmp_path) -> None:
+    """The wizard's overwrite of the loaded project is refused, not published (#346)."""
+    from tether.gui.deeplasi_executor import _destination_lock
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    before = lock.file_identity(project.path)
+    nonce = project.lock_owner().nonce
+
+    with pytest.raises(lock.LockedError), _destination_lock(project.path, overwrite=True):
+        pass
+
+    assert lock.file_identity(project.path) == before
+    assert project.lock_owner().nonce == nonce
+    assert shell.curation_project is not None
 
 
 def test_idealization_rejects_lost_epoch_without_session_reacquire(shell, qtbot, tmp_path) -> None:
@@ -1029,6 +1145,56 @@ def test_real_curation_keys_persist_selected_label_and_survive_reopen(
     assert reopened.curation_label(keys[1]) == expected_label
 
 
+#: Every curation key whose command is deferred (#345): the key, and the feature its
+#: status line names. Jump becomes real in #357 and the grid in #364; category and
+#: analysis-window persistence land in #359. Each of those removes its rows here.
+_DEFERRED_KEYS = [
+    ("Key_Return", "Jump to movie spot"),
+    ("Key_Enter", "Jump to movie spot"),
+    ("Key_G", "Grid toggle"),
+    ("Key_1", "Category 1"),
+    ("Key_0", "Category clearing"),
+    ("Key_Minus", "Analysis-window editing"),
+    ("Key_Equal", "Analysis-window editing"),
+    ("Key_BracketLeft", "Analysis-window editing"),
+    ("Key_BracketRight", "Analysis-window editing"),
+    ("Key_R", "Analysis-window reset"),
+    ("Key_P", "Photobleach detection"),
+]
+
+
+@pytest.mark.parametrize(("key_name", "feature"), _DEFERRED_KEYS)
+def test_deferred_curation_keys_report_unavailable_and_write_nothing(
+    shell, qtbot, tmp_path, key_name, feature
+) -> None:
+    # #345: on a writable project with a molecule selected, a deferred command must
+    # say it is unavailable and must leave the .tether bytes exactly as they were.
+    # Before the fix Enter reported "Jump to movie spot" and G "Grid toggled",
+    # which read as done.
+    import hashlib
+
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project.labels import read_labels
+
+    def digest() -> str:
+        return hashlib.sha256(project.path.read_bytes()).hexdigest()
+
+    project, keys, *_ = _round_trip_store(tmp_path, n=3, t=12)
+    assert shell.load_project(project.path) is not None
+    assert shell.curation_project is not None  # writable: the honest path is not read-only
+    shell.molecule_list.setCurrentRow(1)
+    before = digest()
+
+    qtbot.keyClick(shell.molecule_list, getattr(QtCore.Qt.Key, key_name))
+
+    assert feature in shell.status_message
+    assert "unavailable" in shell.status_message
+    assert digest() == before
+    assert read_labels(project.path).shape == (0,)
+    assert project.curation_label(keys[1]) == 0
+
+
 def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     shell, qtbot, tmp_path
 ) -> None:
@@ -1042,6 +1208,8 @@ def test_unreject_button_persists_reversal_and_noops_when_not_rejected(
     shell.molecule_list.setCurrentRow(1)
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
     assert project.curation_label(keys[1]) == -1
+    # The reject showed the next molecule (#631); go back to the rejected one.
+    shell.molecule_list.setCurrentRow(1)
 
     qtbot.mouseClick(shell.unreject_button, QtCore.Qt.MouseButton.LeftButton)
 
@@ -1251,8 +1419,14 @@ def test_every_source_writer_waits_for_background_idealization(
         conditions_status = shell.status_message
         qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Space)
         curation_status = shell.status_message
+        wizard_calls = []
+        assert shell.import_deeplasi_bundle(dialog_factory=lambda: wizard_calls.append(1)) == ()
+        wizard_status = shell.status_message
 
         assert handoff.preview_calls == 0
+        assert wizard_calls == []
+        assert "Idealize in progress" in wizard_status
+        assert not shell._act_import_deeplasi.isEnabled()
         assert conditions_dialog_calls == []
         assert read_labels(project.path).shape == (0,)
         assert "Idealize in progress" in import_status
@@ -1268,6 +1442,7 @@ def test_every_source_writer_waits_for_background_idealization(
     assert shell.unreject_button.isEnabled()
     assert shell._act_import.isEnabled()
     assert shell._act_validate_conditions.isEnabled()
+    assert shell._act_import_deeplasi.isEnabled()
 
 
 def test_close_retains_session_lock_until_background_idealization_finishes(
@@ -1536,7 +1711,13 @@ def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
 
 def test_file_menu_exposes_open_close_and_quit(shell) -> None:
     labels = [a.text() for a in shell.file_menu.actions() if not a.isSeparator()]
-    assert labels == ["&Open project…", "&Close project", "&Quit"]
+    assert labels == [
+        "&Open project…",
+        "Open &recent",
+        "&Close project",
+        "Curator &name…",
+        "&Quit",
+    ]
 
 
 def test_file_menu_open_action_opens_the_picked_project(shell, tmp_path, monkeypatch) -> None:

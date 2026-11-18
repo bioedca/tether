@@ -9,13 +9,13 @@ processed and who wants to analyze it in Tether without extracting the traces ag
 assumes you have a Deep-LASI export and know its file types. It does not assume you know
 Tether's code.
 
-Tether re-analyses an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*.
+Tether re-analyzes an existing **Deep-LASI** acquisition *without [re-extracting](../pipeline.md#extract) the movie*.
 The import path reads the legacy file set — the raw movie, the
 [`TIRFdata`](../glossary.md#tirfdata-mcos-refs)
 [`.tdat`](../glossary.md#tmap-tdat), the `DeepLASI_MAT_export_*.mat`, the
 `…-donc-accc-w.txt`, and the tMAVEN [SMD](../glossary.md#smd) —
 recovers the per-molecule coordinates and pre-integrated traces, applies the Deep-LASI →
-Tether correction-factor remap, and writes a `.tether` project store.
+Tether correction-factor remap, and writes a `.tether` project file.
 
 Whether that project is **round-trip-ready** (linked to a movie, browsable/curatable with
 spot & overlap views) or **analysis-only** (idealization, histograms, TDP, kinetics — but
@@ -27,7 +27,7 @@ to the on-disk formats (the **coordinate-availability matrix**), the
 > **Where the behavior actually lives.** Every claim below is asserted by a committed test
 > (the "Evidence" column), which the 3-OS CI `test` matrix runs headlessly. This page
 > **consolidates** those behaviors into one reference; it does not replace the tests. Import
-> is deliberately layered: `tether.io.*` readers never write a store, `tether.project.*`
+> is deliberately layered: `tether.io.*` readers never write a project file, `tether.project.*`
 > writers never touch HDF5 directly (they drive the schema writers, whose file layout only ever grows), and the
 > `tether.gui.*` wizard only orchestrates — so `schema-guard` stays green across the whole
 > path.
@@ -36,7 +36,7 @@ This page is the **input** half of the story. Its counterpart,
 [Exports — what Tether writes out](../reference/exports.md), documents everything Tether
 writes *back* out: the molecule-table CSV column-by-column, the Deep-LASI `…-donc-accc-w.txt`
 matrix on the write side, the subset `.tether`, the plot exports, and the provenance
-sidecar every one of them carries.
+file every one of them carries.
 
 ## Coordinate-availability matrix
 
@@ -50,9 +50,9 @@ the movie to link molecules to pixels.
 |---|---|---|---|---|
 | Movie `*.tif` | big-endian multi-page TIFF | — (pixels only) | — (raw movie) | Links molecules to pixels; SHA-256 seeds every `molecule_key`; makes crops re-cacheable |
 | `*.tdat` | MATLAB v7.3 (HDF5, MCOS) | **✓** `ParticlesColocalized` (donor = reference channel, acceptor = the one other colocalized channel) | not read by the shipped decode | Preferred *native* coordinates + remapped α/γ + detection mode + embedded movie reference |
-| `DeepLASI_MAT_export_*.mat` | MATLAB v5 | **✓** `fret_pairs` → `donor_xy` / `acceptor_xy` | **✓** raw / corrected / background, donor + acceptor | **Mandatory trace source**; baseline coordinates when no `.tdat` |
-| `…-donc-accc-w.txt` | whitespace text | — | **✓** corrected only | Analysis-only trace source |
-| tMAVEN SMD `*.hdf5` | SMD-HDF5 (Appendix D) | — (Tether's coordinate superset is dropped on a standalone-tMAVEN round-trip) | **✓** corrected + curated subset | Analysis-only source; intensity-matched back to coordinates when a coordinate source is present |
+| `DeepLASI_MAT_export_*.mat` | MATLAB v5 | **✓** `fret_pairs` → `donor_xy` / `acceptor_xy` | **✓** raw / background-subtracted / background, donor + acceptor | **Mandatory trace source**; baseline coordinates when no `.tdat` |
+| `…-donc-accc-w.txt` | whitespace text | — | **✓** background-subtracted only | Analysis-only trace source |
+| tMAVEN SMD `*.hdf5` | SMD-HDF5 (Appendix D) | — (Tether's coordinate superset is dropped on a standalone-tMAVEN round-trip) | **✓** background-subtracted + curated subset | Analysis-only source; intensity-matched back to coordinates when a coordinate source is present |
 
 Coordinates are always **recovered, never re-detected** — but the two sources store them
 differently. The `.mat` `fret_pairs` is MATLAB 1-based `[x = col, y = row]`, so
@@ -130,15 +130,16 @@ participating channel, so donor and acceptor rows stay index-aligned), the
 `ValueError` rather than silently mis-detected), and the embedded movie reference. Coordinate
 and correction decoding are MCOS-independent; only the detection threshold and movie
 reference need the MCOS graph and are decoded best-effort (a `None` there is normal, not an
-error). The shipped decode deliberately does **not** read the `.tdat`'s per-molecule series,
-image patches, masks, `FrameTime`, HMM states, or categories.
+error). Tether reads both MCOS metadata versions: 4 (the laboratory files) and 3 (the public
+Deep-LASI files). The shipped decode deliberately does **not** read the `.tdat`'s per-molecule
+series, image patches, masks, `FrameTime`, HMM states, or categories.
 
 ### Coordinate recovery + SMD cross-check
 
 `recover_coordinates(tdat=…, mat=…, prefer=…)` unifies the two coordinate sources into one
 `RecoveredCoordinates` model (donor/acceptor `(N, 2)` in acquisition-molecule order), tagged
 with the source actually used. From a `.tdat` it takes donor = the reference channel and
-acceptor = the single other colocalized channel (two-colour only — one or three-plus
+acceptor = the single other colocalized channel (two-color only — one or three-plus
 channels raise). From a `.mat` it uses `donor_xy` / `acceptor_xy` directly. The two sources
 are **not** cross-validated (the `.mat` is often a curated slice with a different molecule
 count).
@@ -148,15 +149,15 @@ not trusted: `match_smd_to_coordinates` re-resolves each SMD trace to its acquis
 molecule by **exact intensity matching** against index-aligned reference traces, then attaches
 the recovered coordinates; unmatched rows are reported (`mapping = -1`, `[nan, nan]`), never
 guessed. The reference traces and the SMD must be the *same kind* of series — a Deep-LASI SMD
-stores the **corrected** `-donc-accc-w` intensities, so the cross-check uses the corrected
+stores the **background-subtracted** `-donc-accc-w` intensities, so the cross-check uses the background-subtracted
 `.mat` `donc`/`accc` (or the `.txt`), never the raw `don`/`acc`.
 
 ### Round-trip reconstruction
 
 `reconstruct_project(output_path, *, export, movie, coordinates=…, corrections=…, …)` builds
-a round-trip-ready store by **reusing the existing extraction writers** — it never writes
+a round-trip-ready project file by **reusing the existing extraction writers** — it never writes
 HDF5 directly, so the schema freeze holds (ADR-0045). It maps the legacy pre-integrated
-series into layers without re-integrating (corrected → `intensity`, raw → `total`,
+series into layers without re-integrating (background-subtracted → `intensity`, raw → `total`,
 background → `background`), writes the linked `/movies` row, the `/molecules` rows keyed by
 the stable `molecule_key = SHA-256(movie.sha256 + quantized donor_xy)`, the six
 `/traces` arrays, `/patches`, the remapped α/γ and corrected FRET (`METHOD_MANUAL` when
@@ -179,7 +180,7 @@ from it instead).
 
 `import_analysis_only_project(output_path, *, source, …)` handles the degraded branch — a
 bare `.txt` or a coordinate-less SMD with no `.tdat`, `.mat`, or movie (ADR-0046). It writes
-a **movie-less** store: only the corrected trace layer, `donor_xy` / `acceptor_xy` as NaN
+a **movie-less** project file: only the background-subtracted (`corrected`) trace layer, `donor_xy` / `acceptor_xy` as NaN
 sentinels (genuinely absent, never a fake `[0, 0]`), a synthesized per-molecule
 `molecule_key` (a content hash over source id + row index + trace bytes, so keys stay unique
 and stable without coordinates), and every molecule tagged
@@ -190,7 +191,7 @@ movie round-trip browser and patch/overlap views are structurally impossible and
 `read_analysis_only_marker(path)` is the O(1) gate the GUI reads. **Mind the polarity:** it
 returns the marker for an analysis-only project and **`None` for a normal, round-trip-capable
 one**; a missing/partial marker defaults `round_trip_available` to `False`, so a truncated
-store never re-enables round-trip over coordinate-less data.
+project file never re-enables round-trip over coordinate-less data.
 
 ### The wizard, and opening a project live
 
@@ -220,7 +221,7 @@ read before mutating shell state, so a bad open leaves the prior project in plac
 | Requires | movie + `.mat` (+ optional `.tdat`) | `.txt` or coordinate-less SMD |
 | Coordinates | recovered from `.tdat`/`.mat` | NaN (genuinely absent) |
 | Movie link | yes (`/movies` row, `molecule_key` from movie hash) | none (`movie_id = ""`) |
-| Trace layers | corrected + raw + background | corrected only |
+| Trace layers | background-subtracted + raw + background | background-subtracted only |
 | Patches | written (real if supplied, else zero-filled; crops re-cache from movie) | none |
 | Curation prior | Deep-LASI mask → `deeplasi-provisional` `/labels` | none (SMD *is* the curated subset; all import uncurated) |
 | Per-molecule marker | — | `tags = "round-trip-unavailable"` |

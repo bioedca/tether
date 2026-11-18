@@ -18,10 +18,11 @@ The workstation runner records the numbers in its result file. Only the molecule
 asserted, because they are the same file read again; a limit on the states or the dwell
 times needs the maintainer's sign-off (#716 item 4) and is not set here.
 
-The tests without the marker run in the required matrix. They check the two parts of the
-test-only reader that a workstation run cannot check every week: the MCOS header shim, on the
-committed version 4 fixture made into version 3, and the analysis, on synthetic traces with
-a known answer (``tests/_synth.py``).
+The test without the marker runs in the required matrix. It checks the part of the test-only
+reader that a workstation run cannot check every week: the analysis, on synthetic traces with
+a known answer (``tests/_synth.py``). The MCOS header of the public files (metadata version 3)
+is read by the product decoder itself since #874, and ``tests/test_mcos.py`` checks it on the
+committed version 4 fixture made into version 3.
 
 The neutral ids of the data folder are ``dlasi-02`` and ``dlasi-03``
 (``docs/maintainers/workstation-runner.md``). A test name never holds a file or folder name
@@ -34,22 +35,17 @@ import math
 import zipfile
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pytest
 
 from _deeplasi_public import (
     PAPER,
-    mcos_metadata_for_decoder,
     read_donor_excitation_traces,
     two_state_analysis,
 )
 from _synth import fret_traces
 from reference_data.fetch import path_for
 from tether.io import read_tdat
-from tether.io.mcos import McosDecoder, object_reference_id
-
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "tdat_coloc_slice.tdat"
 
 #: neutral id of the data folder -> (manifest id, molecules the record or the paper states)
 _SETS = {
@@ -58,46 +54,7 @@ _SETS = {
 }
 
 
-def _metadata(file: h5py.File) -> tuple[np.ndarray, np.ndarray]:
-    cells = np.asarray(file["#subsystem#"]["MCOS"][()]).reshape(-1)
-    return cells, np.asarray(file[cells[0]][()]).reshape(-1).astype(np.uint8)
-
-
-def _channel_colours(file: h5py.File, decoder: McosDecoder) -> list[object]:
-    colours = []
-    for ref in np.asarray(file["temp"]["Channel"][()]).reshape(-1):
-        if ref:
-            oid = object_reference_id(np.asarray(file[ref][()]).reshape(-1))
-            colours.append(decoder.property_value(oid, "ChannelColor"))
-    return colours
-
-
-# --- required matrix: the reader and the analysis -------------------------------------------
-
-
-def test_the_shim_makes_a_version_3_header_readable_by_the_product_decoder() -> None:
-    with h5py.File(FIXTURE, "r") as file:
-        cells, meta = _metadata(file)
-        assert int(meta[:4].view("<u4")[0]) == 4, "the committed fixture is version 4"
-        expected = _channel_colours(file, McosDecoder(file, cells, meta))
-        assert {"G", "R"} <= set(expected)
-
-        # The public files are version 3: the version word is 3 and bytes 32-39 are zero.
-        v3 = meta.copy()
-        v3[:4] = np.array([3, 0, 0, 0], dtype=np.uint8)
-        v3[32:40] = 0
-        with pytest.raises(ValueError, match="name table"):
-            McosDecoder(file, cells, v3)
-        shimmed = McosDecoder(file, cells, mcos_metadata_for_decoder(v3))
-        assert _channel_colours(file, shimmed) == expected
-
-
-def test_the_shim_leaves_a_version_4_header_unchanged() -> None:
-    with h5py.File(FIXTURE, "r") as file:
-        _cells, meta = _metadata(file)
-    out = mcos_metadata_for_decoder(meta)
-    assert out is not meta
-    assert np.array_equal(out, meta)
+# --- required matrix: the analysis -------------------------------------------------------
 
 
 def test_the_analysis_recovers_a_known_two_state_answer() -> None:
@@ -159,6 +116,9 @@ def test_a_public_archive_imports_every_molecule(private_data, tmp_path, neutral
         threshold_decoded=int(decoded.detection.threshold is not None),
         movie_reference_decoded=int(decoded.movie_reference is not None),
     )
+    # The public files carry MCOS metadata version 3; the decoder reads both since #874.
+    assert decoded.detection.threshold is not None, f"{neutral_id}: no detection threshold"
+    assert decoded.movie_reference is not None, f"{neutral_id}: no movie reference"
     expected = _SETS[neutral_id][1]
     assert decoded.colocalization.n_molecules == expected, (
         f"{neutral_id}: {decoded.colocalization.n_molecules} molecules, the source states "

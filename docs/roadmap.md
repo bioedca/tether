@@ -8,7 +8,7 @@ description: "What the current Tether release contains, what stable v1.0.0 adds,
 shipping, what comes next, and where its scope stops. This page summarizes the
 [GitHub milestones](https://github.com/bioedca/tether/milestones) and their issues, which
 are the roadmap of record. It does not duplicate the frozen schema or parameter tables.
-Use the [project-store reference](reference/tether-format.md) and
+Use the [project file reference](reference/tether-format.md) and
 [analysis-parameter reference](reference/parameters.md) for those contracts. Reading
 this page needs no repository access.
 
@@ -23,7 +23,7 @@ published version and its assets.
 
 The stable v1.0.0 scope is:
 
-- a provenance-first `.tether` project store that holds the movies of one experiment and
+- a provenance-first `.tether` project file that holds the movies of one experiment and
   keeps every trace linked to its source movie, coordinates, corrections, annotations,
   idealization, and analysis settings;
 - movie import for TIFF movies, with channel layouts (side by side, top and bottom, free
@@ -60,7 +60,10 @@ milestone, which holds its acceptance criteria and its issues.
 - [M15 - Trace extraction section](https://github.com/bioedca/tether/milestone/17),
   [M16 - Trace curation section](https://github.com/bioedca/tether/milestone/18) and
   [M17 - Analysis & plot composition](https://github.com/bioedca/tether/milestone/19) fill
-  the sections of the shell.
+  the sections of the shell. With M15, a lab member takes a fresh acquisition from the raw
+  movie to a `.tether` project with no terminal. Until then, a new movie is extracted with
+  `tether extract` or `tether batch` (see [Command line](cli.md)), and the application
+  opens the result.
 - [M20 - Movie import and channel geometry](https://github.com/bioedca/tether/milestone/22)
   has a part before the tag: channel layouts, two-file acquisitions, the geometry recipe,
   missing metadata, the source registry, the import page, and `tether import`.
@@ -96,8 +99,9 @@ These boundaries apply to v1.0 and are deliberate:
   single-laser acquisitions.
 - **No built-in data simulator.** Validation uses real labeled traces and named benchmark
   data instead.
-- **No attempt to clone every tMAVEN plot.** Seven plot types are native; other tMAVEN
-  views remain available through the standalone hand-off.
+- **No attempt to clone every tMAVEN plot.** Parity with tMAVEN covers seven plot types;
+  other tMAVEN views remain available through the standalone hand-off. Tether also plots
+  its own results that tMAVEN does not have, such as the raw FRET cloud.
 - **No open-ended legacy-format support.** Deep-LASI inputs and tMAVEN SMD are supported;
   older `.dat` and vbFRET `.mat` formats are not.
 - **No central Tether service.** The application runs on each user's workstation and
@@ -120,7 +124,7 @@ to M17.
 
 | Milestone | State | Public checkpoint | What it covers |
 | --- | --- | --- | --- |
-| M0 — Foundation | Closed | `v0.0.0` | Project store and schema freeze, application shell, pinned environments, CI, and repository governance. |
+| M0 — Foundation | Closed | `v0.0.0` | Project file and schema freeze, application shell, pinned environments, CI, and repository governance. |
 | M0.5 — De-risking | Closed | Validation gate before `v0.1.0` | tMAVEN-sidecar interchange and parity, and Deep-LASI extraction and registration feasibility. |
 | M1 — Extraction core | Closed | `v0.1.0` | Movie-to-trace extraction, calibration and registration, and the headless extraction path. |
 | M2 — MVP | Closed | `v0.2.0` | Trace↔movie browsing components, curation provenance, idealization hand-off, locking, and first analysis views. |
