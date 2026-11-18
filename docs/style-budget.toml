@@ -64,21 +64,21 @@ retired = 0
 
 [pages."docs/pipeline.md"]
 kind = "descriptive"
-long_share = 37.3
-semicolons = 36
+long_share = 35.2
+semicolons = 35
 long_paragraphs = 2
 retired = 4
 
 [pages."docs/compatibility.md"]
 kind = "descriptive"
-long_share = 28.3
+long_share = 25.4
 semicolons = 9
 long_paragraphs = 0
 retired = 6
 
 [pages."docs/install.md"]
 kind = "procedure"
-long_share = 29.6
+long_share = 25.0
 semicolons = 17
 long_paragraphs = 0
 retired = 0
@@ -99,14 +99,14 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 21.2
+long_share = 16.8
 semicolons = 8
 long_paragraphs = 0
 retired = 3
 
 [pages."docs/how-to/curate-traces.md"]
 kind = "procedure"
-long_share = 10.8
+long_share = 7.5
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -127,15 +127,15 @@ retired = 1
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 39.1
+long_share = 32.8
 semicolons = 8
 long_paragraphs = 1
 retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
-long_share = 30.4
-semicolons = 4
+long_share = 27.0
+semicolons = 3
 long_paragraphs = 0
 retired = 0
 
@@ -190,28 +190,28 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 24.6
+long_share = 19.8
 semicolons = 19
 long_paragraphs = 0
-retired = 7
+retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
 long_share = 21.8
-semicolons = 23
+semicolons = 22
 long_paragraphs = 1
 retired = 1
 
 [pages."docs/reference/parameters.md"]
 kind = "descriptive"
-long_share = 36.9
+long_share = 34.5
 semicolons = 14
 long_paragraphs = 2
 retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 28.8
+long_share = 24.1
 semicolons = 29
 long_paragraphs = 0
 retired = 0
@@ -239,10 +239,10 @@ retired = 2
 
 [pages."docs/troubleshooting.md"]
 kind = "descriptive"
-long_share = 23.6
-semicolons = 27
+long_share = 21.4
+semicolons = 25
 long_paragraphs = 2
-retired = 7
+retired = 6
 
 [pages."docs/citing.md"]
 kind = "descriptive"
@@ -267,7 +267,7 @@ retired = 0
 
 [pages."docs/privacy.md"]
 kind = "descriptive"
-long_share = 15.4
+long_share = 9.7
 semicolons = 6
 long_paragraphs = 0
 retired = 0
@@ -316,7 +316,7 @@ retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 19.7
+long_share = 16.9
 semicolons = 2
 long_paragraphs = 2
 retired = 0

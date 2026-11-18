@@ -388,7 +388,10 @@ class Project:
     def reject(self, molecule_key: str, **provenance: object) -> np.ndarray:
         """Reject a molecule (reversible sticky tag, `labels.reject`).
 
-        Refuses the canonical write if the file is locked by another writer (§5.4).
+        ``reason`` / ``note`` / ``value`` pass through to
+        [`labels.reject`][tether.project.labels.reject], which
+        records them in ``/labels/reject_log``. Refuses the canonical write if the file
+        is locked by another writer (§5.4).
         """
         from tether.project import labels
 
@@ -416,6 +419,12 @@ class Project:
         from tether.project import labels
 
         return labels.read_labels(self.path)
+
+    def reject_record(self, molecule_key: str) -> np.ndarray | None:
+        """The reason row of the molecule's current reject (`labels.reject_record_of`)."""
+        from tether.project import labels
+
+        return labels.reject_record_of(self.path, molecule_key)
 
     def rejected_molecule_keys(self) -> set[str]:
         """The molecules currently rejected (`labels.rejected_molecule_keys`)."""

@@ -35,6 +35,10 @@ On Windows and Linux you can also start Tether from the Start menu or applicatio
 application window then shows the start page. Click **Open project…** there, choose **File → Open
 project…**, or drop the `.tether` file on the application window. A dropped file of a different type does
 not open, and the status bar says why.
+
+**File → Open recent** lists the last ten projects you opened on this computer. A project
+whose file was moved or deleted shows grayed out, with its path.
+
 When the project opens, the status bar at the bottom of the application window names it and its molecule
 count:
 
@@ -44,6 +48,8 @@ Opened movie.tether — 412 molecule(s)
 
 If that line ends in `(read-only)` after the file name, another writer holds the project and
 nothing you mark will be saved. Close the other writer and open the project again.
+
+A project you opened before on this computer opens at the molecule you last had selected in it.
 
 ## 2. Move from trace to trace
 
@@ -56,6 +62,10 @@ underneath.
 3. Or click a name in the list.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
+
+The curation keys act only in the **Curate and correct** section. In **Prepare** and
+**Analyze** they change no molecule. There, **Help → Keyboard shortcuts…** lists no key. To
+curate again, choose **View → Section → Curate and correct**.
 
 The menu commands use your operating system's standard keys. Each key includes a modifier
 key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
@@ -137,10 +147,16 @@ for review ([curation label](../glossary.md#curation-label-category-quality-clas
 ## Who made each decision
 
 Every row in the curation log records a `labeler`: the name of the curator who made the
-decision. The desktop application fills it in with your login name on the computer you curate
-on, and has no field to change it.
+decision. The desktop application fills it in with your login name on this computer, unless
+you set a curator name. The status bar shows the name for new decisions, for example
+`Curator: ana`.
 
-To record a different name, make the change from Python instead, with
+To use a different name, choose **File → Curator name…** and type it. Do this on a lab
+computer that several people share under one login. Decisions you make after that carry the
+new name. Decisions already recorded keep their name. Leave the field empty to go back to your
+login name. The application keeps the name for your next session on this computer.
+
+From a script, pass the name with
 `labeler=`. For example, this script un-rejects every rejected molecule in the project and
 credits the change to `your-name`. Close the Tether application window first, then run it with the Python
 that came with Tether (`~/tether/envs/tether/bin/python` on Linux,
@@ -156,6 +172,29 @@ for key in sorted(project.rejected_molecule_keys()):
 ```
 
 `project.accept(key, labeler=…)` and `project.reject(key, labeler=…)` work the same way.
+
+## What the application remembers on this computer
+
+Between sessions the desktop application keeps these things for your user account on this
+computer:
+
+- The last ten projects you opened, for **File → Open recent**.
+- For each project, the molecule you had selected when you closed it.
+- The size of the window and the positions of its panels.
+- The curator name, if you set one.
+
+**View → Reset layout** puts the window and its panels back in their first positions. It also
+forgets the saved positions.
+
+The application writes none of this into the `.tether` file, so a project you share carries
+none of it. It keeps it in a file named `preferences.json` in your own settings folder:
+
+- Windows: `%LOCALAPPDATA%\MondragonLab\Tether\`
+- macOS: `~/Library/Application Support/MondragonLab/Tether/`
+- Linux: `~/.config/tether/`, or `$XDG_CONFIG_HOME/tether/` when that variable is set
+
+Delete that file and the application forgets all of it. Nothing else changes. To use another
+file, set the environment variable `TETHER_PREFERENCES_FILE` to its full path.
 
 ## Next
 

@@ -259,6 +259,28 @@ def test_one_update_applies_every_change_or_none(tmp_path) -> None:
     assert _only(out) == record
 
 
+def test_cli_warns_about_a_onedrive_conflict_copy_on_stderr(tmp_path, capsys) -> None:
+    # #560: tether metadata opens the project, so it names a sync-conflict sibling too.
+    out = tmp_path / "w.tether"
+    extract_movie(_make_movie(tmp_path), out, options=_OPTIONS)
+    copy = tmp_path / "w-DESKTOP-AB12.tether"
+    copy.write_bytes(b"copy")
+
+    assert main(["metadata", str(out), "--json"]) == 0
+
+    captured = capsys.readouterr()
+    json.loads(captured.out)  # stdout is still the JSON document
+    assert (
+        "  warning: 1 possible OneDrive/SharePoint conflict copy beside w.tether: "
+        "w-DESKTOP-AB12.tether." in captured.err
+    )
+    assert copy.read_bytes() == b"copy"
+
+    copy.unlink()
+    assert main(["metadata", str(out)]) == 0
+    assert "conflict" not in capsys.readouterr().err
+
+
 # ------------------------------------------------- the docstring examples (#1173)
 
 _SECTIONS = ("Parameters", "Returns", "Raises", "Examples")
