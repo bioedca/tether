@@ -92,9 +92,8 @@ behavior.
 
 The detection-efficiency / quantum-yield ratio between the channels
 (`tether.fret.gamma`). Estimated across the **acceptor-bleach step** as `ΔI_A / ΔI_D` on
-leakage-corrected intensities, with each level averaged over its whole segment: every FRET
-frame before the step and every donor-only frame after it, up to the donor bleach (a
-3-frame half-window each side remains an option, [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md)).
+leakage-corrected intensities. Each level is the mean of its whole segment, before or after
+the step ([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md)).
 Same `DEFAULT_MIN_WINDOW_FRAMES = 20` / 10-trace parameters as α, but the frame gate is
 **stricter and two-sided**: both the pre-step FRET segment `[0, step)` and the post-step
 donor-only segment `[step, donor_bleach)` must be **strictly longer than** 20 frames (`> 20`,

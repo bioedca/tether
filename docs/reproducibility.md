@@ -85,11 +85,12 @@ attribute here is the population median of those values, which the `n_fallback` 
 that failed the gates receive instead; it follows the same `withheld` rule. The rest are
 `n_qualifying`, `n_fallback`, `n_molecules`, `level_window`, `half_window`,
 `min_window_frames`, `ceiling`, `min_qualifying_traces`, `intensity_quantity`, `app_version`
-and `created_utc`. `level_window` says which frames the two levels each side of the step were
-averaged over: `whole-segment` (the default since
-[ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md), with
-`half_window` stored as `0`) or `half-window` (`half_window` frames each side). A project
-written before ADR-0130 has no `level_window` and used `half_window` frames.
+and `created_utc`.
+
+`level_window` names the frames each γ level was averaged over. It reads `whole-segment` by
+default ([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-the-whole-segments.md)), and
+then `half_window` is `0`. It reads `half-window` when `half_window` frames each side were
+used. A project from before ADR-0130 has no `level_window`.
 
 **`/settings/correction`** — `src/tether/project/correct.py`. Rewritten on every correction
 pass (`source` = `accurate-fret`). The pass decides, per molecule, whether its α and γ are
