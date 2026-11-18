@@ -17,7 +17,6 @@ Locks the S6 registration deliverables on top of the M0.5 fit/decode primitives:
 
 from __future__ import annotations
 
-import dataclasses
 import warnings
 from pathlib import Path
 
@@ -445,6 +444,48 @@ def test_write_read_calibration_nan_residual(tmp_path: Path) -> None:
 # --- imported .tmap path + apply-both parity (§7.1; §9 M1) -------------------
 
 
+def test_imported_map_carries_tmap_rotation_and_flip() -> None:
+    # #559: each channel's decoded Rotation/Flip lands in the map's split geometry
+    # next to its crop, so the movie is split rotate -> flip -> crop like the map.
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    moving_id = next(cid for cid in channels if cid != reference)
+    turned = dict(channels)
+    turned[moving_id] = replace(
+        channels[moving_id], rotation=np.array([[270.0]]), flip=np.array([[0, 1]])
+    )
+    reg = registration_map_from_tmap(turned, reference_channel=reference)
+    assert reg.reference_geometry is not None and reg.moving_geometry is not None
+    assert reg.reference_geometry.rotation_deg == 0
+    assert reg.reference_geometry.flip == (0, 0)
+    assert reg.moving_geometry.rotation_deg == 270
+    assert reg.moving_geometry.flip == (0, 1)
+    assert reg.moving_geometry.crop == tuple(np.asarray(channels[moving_id].crop).ravel())
+
+    bad = dict(channels)
+    bad[moving_id] = replace(channels[moving_id], rotation=np.array([[45.0]]))
+    with pytest.raises(ValueError, match="Rotation"):
+        registration_map_from_tmap(bad, reference_channel=reference)
+
+
+def test_imported_map_rotation_and_flip_survive_persistence(tmp_path) -> None:
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    moving_id = next(cid for cid in channels if cid != reference)
+    turned = dict(channels)
+    turned[moving_id] = replace(
+        channels[moving_id], rotation=np.array([[90.0]]), flip=np.array([[1, 1]])
+    )
+    reg = registration_map_from_tmap(turned, reference_channel=reference)
+    path = tmp_path / "map.npz"
+    save_map(reg, path)
+    back = load_map(path)
+    assert back.moving_geometry == reg.moving_geometry
+    assert back.reference_geometry == reg.reference_geometry
+
+
 def test_imported_map_matches_tmap_channel_helper() -> None:
     """The imported 0-based transform equals the TmapChannel 0-based helper exactly.
 
@@ -571,40 +612,6 @@ def test_registration_map_from_tmap_validates() -> None:
     donor = channels[next(c for c in channels if c != reference)].map_particles
     with pytest.raises(ValueError, match="provided together"):
         registration_map_from_tmap(channels, reference_points=donor)
-
-
-@pytest.mark.parametrize(
-    "geometry",
-    [{"rotation": np.array([180.0])}, {"flip": np.array([1, 0])}],
-    ids=["rotation", "flip"],
-)
-def test_registration_map_from_tmap_refuses_rotation_or_flip(geometry: dict) -> None:
-    # The imported path applies only the crop, so a channel whose stored rotation or
-    # flip is non-identity would split at the wrong frame. The builder itself must
-    # refuse it, not only extract_movie, so no caller gets a quietly mis-split map (#1137).
-    reference, channels = _load_tmap_fixture()
-    moving = next(c for c in channels if c != reference)
-    channels[moving] = dataclasses.replace(channels[moving], **geometry)
-    with pytest.raises(ValueError, match=rf"\[{moving}\].*rotation/flip"):
-        registration_map_from_tmap(channels)
-
-
-def test_registration_map_from_tmap_accepts_identity_rotation_and_flip() -> None:
-    # All-zero rotation/flip mean "none", exactly like the fixture's empty arrays, so
-    # such a .tmap still builds the same map as before the refusal was added (#1137).
-    _reference, channels = _load_tmap_fixture()
-    baseline = registration_map_from_tmap(channels)
-    zeroed = {
-        cid: dataclasses.replace(ch, rotation=np.zeros(1), flip=np.zeros(2))
-        for cid, ch in channels.items()
-    }
-    reg = registration_map_from_tmap(zeroed)
-    assert reg.reference_geometry == baseline.reference_geometry
-    assert reg.moving_geometry == baseline.moving_geometry
-    pts = np.array([[10.0, 20.0], [100.0, 200.0]])
-    np.testing.assert_array_equal(
-        reg.apply_reference_to_moving(pts), baseline.apply_reference_to_moving(pts)
-    )
 
 
 def test_imported_map_carries_both_channel_crops() -> None:

@@ -142,8 +142,9 @@ def _assert_bit_identical(preview, molecules, traces, out) -> None:
         (ExtractOptions(), _ACCEPTOR),
         (ExtractOptions(prealign="similarity"), _ACCEPTOR),
         (ExtractOptions(rms_gate=0.2), _OVER_GATE_ACCEPTOR),
+        (ExtractOptions(colocalization="donor-anchored"), _ACCEPTOR),
     ],
-    ids=["translation", "similarity", "over-gate"],
+    ids=["translation", "similarity", "over-gate", "donor-anchored"],
 )
 def test_native_preview_is_bit_identical_to_extract_movie(
     tmp_path, monkeypatch, options, acceptor
@@ -156,6 +157,28 @@ def test_native_preview_is_bit_identical_to_extract_movie(
     assert summary.n_molecules == preview.molecules.n_molecules == 3
     assert preview.registration.rms_residual == summary.rms_residual
     assert preview.registration.low_confidence is summary.low_confidence_registration
+
+
+#: A fourth donor whose acceptor is dark: no acceptor spot anywhere near its mapped position.
+_DARK_DONOR = np.vstack([_DONOR, [[36.0, 26.0]]])
+
+
+@pytest.mark.parametrize("rule", ["partner-in-both", "donor-anchored"])
+def test_both_rules_counts_come_before_the_run_and_match_it(tmp_path, monkeypatch, rule) -> None:
+    # #920: the colocalize stage reports what each rule keeps, and the run under either
+    # rule keeps exactly that many, bit for bit the preview's molecules.
+    movie_path = tmp_path / "Bla_010.tif"
+    frames = _movie_array(_ACCEPTOR, donor=_DARK_DONOR)
+    tifffile.imwrite(movie_path, frames, photometric="minisblack", byteorder=">")
+    options = ExtractOptions(colocalization=rule)
+    preview = preview_extraction(frames, options=options)
+    counts = preview.stage("colocalize").outputs["rule_counts"]
+    assert counts == {"partner-in-both": 3, "donor-anchored": 4}
+    summary, molecules, traces, out = _run_extract_movie(tmp_path, monkeypatch, movie_path, options)
+    _assert_bit_identical(preview, molecules, traces, out)
+    assert summary.n_molecules == counts[rule]
+    assert summary.colocalization == rule
+    assert summary.rule_counts == counts
 
 
 def test_imported_preview_is_bit_identical_to_extract_movie(tmp_path, monkeypatch) -> None:
@@ -212,7 +235,7 @@ def test_stages_run_in_order_and_record_their_parameters() -> None:
     assert preview.stage("pair").parameters == {"pair_tol": 1.5}
     assert preview.stage("register").parameters["rms_gate"] == options.rms_gate
     assert preview.stage("colocalize").parameters == {
-        "policy": "donor-anchored",
+        "policy": "partner-in-both",  # options.colocalization, the default (ADR-0127)
         "window": 19,
         "coloc_distance": 2.5,
     }
@@ -272,7 +295,7 @@ def test_geometry_and_policy_are_arguments() -> None:
     assert split.parameters["acceptor_rotation_deg"] == 0
     assert split.parameters["acceptor_flip"] == [0, 0]
     with pytest.raises(ValueError, match="policy"):
-        preview_extraction(_movie_array(), policy="partner-in-both")
+        preview_extraction(_movie_array(), policy="any-channel")
 
 
 def test_preview_writes_nothing(tmp_path, monkeypatch) -> None:
