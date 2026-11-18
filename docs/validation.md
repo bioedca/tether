@@ -928,8 +928,8 @@ per state, not per frame. Background
 subtraction is not compared, because the files hold no video. The leakage comparison uses both
 lasers; the FRET comparison uses only the donor and acceptor channels under the donor's laser.
 MASH-FRET's direct-excitation coefficient (an ALEX-only correction that Tether does not make) must
-be 0 in the record; in the test project it is not 0, and the test removes MASH-FRET's own term
-instead of comparing it.
+be 0 in the record, and in the test project, where it is not 0, the test removes MASH-FRET's own
+term instead of comparing it.
 
 **Where it runs.** The required matrix reads a committed extract of the smallest project file (18
 molecules, values unchanged). The archive (236 MB) is larger than the `download` limit, so it is a
