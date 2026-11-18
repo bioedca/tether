@@ -21,6 +21,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.analysis.dwell
 
+::: tether.analysis.gaussian_fit
+
 ::: tether.analysis.histogram
 
 ::: tether.analysis.kinetics
@@ -32,6 +34,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.analysis.query
 
 ::: tether.analysis.rate_bounds
+
+::: tether.analysis.saved_selection
 
 ::: tether.analysis.selection
 

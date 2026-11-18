@@ -42,9 +42,12 @@ the idealize stage stays PR7-A's single, error-isolated call.
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import logging
 import math
+import os
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -75,6 +78,8 @@ __all__ = [
     "MovieResult",
     "BatchSummary",
     "BatchLog",
+    "BatchProgress",
+    "TextProgress",
     "run_batch",
 ]
 
@@ -110,6 +115,11 @@ _EXTRACTION_SETTINGS = "extraction"
 _CORRECTION_SETTINGS = "correction"
 
 _LOG = logging.getLogger("tether.batch")
+
+#: The ``movie`` field of an event about the whole run rather than one movie.
+_RUN_LABEL = "(batch)"
+#: The marker a stage's ``detail`` carries when it kept a movie with a flag (#648).
+_FLAG_MARK = "(flagged)"
 
 
 def _app_version() -> str:
@@ -202,6 +212,15 @@ class MovieResult:
         """The failed stages, for naming in the summary."""
         return [s for s in self.stages.values() if s.status == STATUS_FAILED]
 
+    @property
+    def deferred(self) -> list[str]:
+        """The names of this movie's ``deferred`` stages, in pipeline order (#647)."""
+        return [
+            name
+            for name in STAGES
+            if (sr := self.stages.get(name)) is not None and sr.status == STATUS_DEFERRED
+        ]
+
 
 @dataclass(frozen=True)
 class BatchSummary:
@@ -225,6 +244,25 @@ class BatchSummary:
     def n_failed(self) -> int:
         """Number of movies with at least one failed stage."""
         return sum(1 for r in self.results if not r.ok)
+
+    @property
+    def n_deferred(self) -> int:
+        """Number of movies with at least one ``deferred`` stage (#647).
+
+        Only a requested stage can be deferred; one the user did not ask for is
+        ``not-requested``. ``tether batch`` exits ``3`` when this is non-zero and no movie
+        failed.
+        """
+        return sum(1 for r in self.results if r.deferred)
+
+    def deferred_by_stage(self) -> dict[str, int]:
+        """For each deferred stage, the number of movies it was deferred in (#647)."""
+        counts: dict[str, int] = {}
+        for name in STAGES:
+            n = sum(1 for r in self.results if name in r.deferred)
+            if n:
+                counts[name] = n
+        return counts
 
     @property
     def donor_side_flagged(self) -> list[MovieResult]:
@@ -254,6 +292,12 @@ class BatchSummary:
             if r.donor_side_swapped:
                 stage_bits.append("halves-swapped?")
             lines.append(f"  {flag}  {r.job.label:<{width}}  {' '.join(stage_bits)}")
+        deferred = self.deferred_by_stage()
+        if deferred:
+            stages = ", ".join(
+                f"{name} in {n} of {self.n_movies} movie(s)" for name, n in deferred.items()
+            )
+            lines.append(f"Deferred: {stages}; re-run the same command to resume.")
         flagged = self.donor_side_flagged
         if flagged:
             lines.append(
@@ -285,6 +329,10 @@ class BatchLog:
     mirrored to a `logging` logger as a human line and, if ``path`` is given,
     written as one JSON object per line. Usable as a context manager so the file
     handle is closed on exit.
+
+    ``on_event``, if given, receives a copy of each record after it is stored, so a
+    progress display reads the same events as the log (#648). An exception it raises is
+    swallowed: a display must never cost a movie its stage.
     """
 
     def __init__(
@@ -292,10 +340,12 @@ class BatchLog:
         path: str | Path | None = None,
         *,
         logger: logging.Logger | None = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.records: list[dict[str, Any]] = []
         self._path = Path(path) if path is not None else None
         self._logger = logger if logger is not None else _LOG
+        self._on_event = on_event
         self._fh: IO[str] | None = None
         if self._path is not None:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -337,6 +387,9 @@ class BatchLog:
         elif detail:
             msg += f" — {detail}"
         self._logger.log(level, msg)
+        if self._on_event is not None:
+            with contextlib.suppress(Exception):
+                self._on_event(dict(record))
         return record
 
     def close(self) -> None:
@@ -354,6 +407,144 @@ class BatchLog:
         tb: TracebackType | None,
     ) -> None:
         self.close()
+
+
+# --- Progress (#648) ----------------------------------------------------------
+
+
+class BatchProgress:
+    """An observer of a running batch; every method is a no-op until overridden (#648).
+
+    The ``batch`` service command ([`tether.services.batch.run`][]) calls ``run_started``
+    once, before the first movie is read, and passes ``event`` to the
+    [`BatchLog`][tether.project.batch.BatchLog] as its ``on_event``.
+    [`run_batch`][tether.project.batch.run_batch] calls ``movie_started`` before it
+    touches a movie and ``movie_finished`` once that movie's result is final. ``index``
+    counts from 1. An exception raised here is swallowed, so a display can never stop the
+    queue.
+    """
+
+    def run_started(
+        self, *, n_movies: int, out_dir: str | Path, policy: str, idealize: bool
+    ) -> None:
+        """The run's setup is known and no movie has been read yet."""
+
+    def event(self, record: dict[str, Any]) -> None:
+        """A copy of one structured-log record, after the log stored it."""
+
+    def movie_started(self, index: int, total: int, job: MovieJob) -> None:
+        """A movie is about to be processed."""
+
+    def movie_finished(self, index: int, total: int, result: MovieResult) -> None:
+        """A movie's stages are all recorded."""
+
+
+def _format_elapsed(seconds: float) -> str:
+    """``3.2s``, ``4m05s`` or ``2h03m``: short enough for one progress line."""
+    seconds = max(0.0, seconds)
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    whole = int(seconds)
+    if whole < 3600:
+        return f"{whole // 60}m{whole % 60:02d}s"
+    return f"{whole // 3600}h{whole % 3600 // 60:02d}m"
+
+
+class TextProgress(BatchProgress):
+    """Plain-text progress lines for ``tether batch`` (#648).
+
+    One line states the run's setup (``run_started``), then one line when each movie
+    starts and one when it ends: its position, its name, the result, the elapsed time and
+    every stage's status. A stage that kept the movie with a flag, or raised a warning, is
+    named on the end line. Events about the whole run (an idealization deferred at
+    startup) are always printed. With ``verbose``, every stage event is printed as well.
+
+    The stage text comes from the [`BatchLog`][tether.project.batch.BatchLog] events:
+    pass [`event`][tether.project.batch.TextProgress.event] as the log's ``on_event``.
+    The lines are plain text with no cursor control, so they read the same in a terminal,
+    a redirected file and a scheduler's log.
+    """
+
+    def __init__(
+        self,
+        stream: IO[str],
+        *,
+        verbose: bool = False,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._stream = stream
+        self._verbose = verbose
+        self._clock = clock
+        self._label: str | None = None
+        self._position = ""
+        self._started = 0.0
+        self._flagged: list[str] = []
+
+    def _write(self, line: str) -> None:
+        self._stream.write(line + "\n")
+        self._stream.flush()
+
+    def run_started(
+        self, *, n_movies: int, out_dir: str | Path, policy: str, idealize: bool
+    ) -> None:
+        """State the run's setup before the first movie is read.
+
+        This is called outside ``run_batch``, so it isolates its own failure: a closed or
+        broken stream must not stop the run from starting.
+        """
+        state = "on" if idealize else "off"
+        with contextlib.suppress(Exception):
+            self._write(
+                f"tether batch: {n_movies} movie(s) into {out_dir} "
+                f"(policy={policy}, idealize={state})"
+            )
+
+    def movie_started(self, index: int, total: int, job: MovieJob) -> None:
+        """Print the movie's start line and begin timing it."""
+        self._label = job.label
+        self._position = f"[{index}/{total}]"
+        self._started = self._clock()
+        self._flagged = []
+        self._write(f"{self._position} {job.label}: started")
+
+    def event(self, record: dict[str, Any]) -> None:
+        """Take one [`BatchLog`][tether.project.batch.BatchLog] record."""
+        movie = str(record.get("movie", ""))
+        stage = str(record.get("stage", ""))
+        status = str(record.get("status", ""))
+        text = record.get("error") or record.get("detail") or ""
+        current = self._label is not None and movie == self._label
+        flagged = status == STATUS_WARNING or _FLAG_MARK in str(record.get("detail", ""))
+        if current and flagged and stage not in self._flagged:
+            self._flagged.append(stage)
+        if movie == _RUN_LABEL:
+            line = f"tether batch: {stage} {status}"
+        elif not self._verbose:
+            return
+        elif current:
+            line = f"{self._position} {movie} {stage}: {status}"
+        else:
+            line = f"{movie} {stage}: {status}"
+        self._write(f"{line} - {text}" if text else line)
+
+    def movie_finished(self, index: int, total: int, result: MovieResult) -> None:
+        """Print the movie's end line: result, elapsed time and stage statuses."""
+        elapsed = _format_elapsed(self._clock() - self._started)
+        bits = []
+        for name in STAGES:
+            sr = result.stages.get(name)
+            if sr is None:
+                continue
+            bit = f"{name}={sr.status}"
+            if sr.status == STATUS_FAILED and sr.error:
+                bit += f"({sr.error})"
+            bits.append(bit)
+        stages = " ".join(bits)
+        if self._flagged:
+            stages += f"; flagged: {', '.join(self._flagged)}"
+        outcome = "ok" if result.ok else "FAIL"
+        self._write(f"[{index}/{total}] {result.job.label}: {outcome} in {elapsed} ({stages})")
+        self._label = None
 
 
 # --- Checkpoint probes (provenance presence) ---------------------------------
@@ -614,6 +805,40 @@ def _idealize_detail(stored: Any) -> str:
 # --- Provenance stamp --------------------------------------------------------
 
 
+def _stamp_under_writer_lock(
+    path: Path,
+    *,
+    ownership_guard: Callable[[], None] | None,
+    policy: str,
+    idealize_requested: bool,
+    stages: dict[str, StageResult],
+) -> None:
+    """Stamp ``/settings/batch`` while this job holds ``path``'s writer lock (ADR-0112).
+
+    The job-level claim supplies the lock when there is one. Otherwise the stamp takes
+    [`publish_lock`][tether.project.lock.publish_lock] for just this write, so a writer
+    that opened the project after this job published it stops the stamp (a provenance
+    warning) instead of having its file rewritten.
+    """
+    scope: contextlib.AbstractContextManager[Callable[[], None]]
+    if ownership_guard is not None:
+        scope = contextlib.nullcontext(ownership_guard)
+    else:
+        from tether.project.lock import publish_lock  # noqa: PLC0415
+
+        scope = publish_lock(path)
+    with scope as guard:
+        guard()
+        _stamp_batch_settings(
+            path,
+            policy=policy,
+            idealize_requested=idealize_requested,
+            stages=stages,
+            write_guard=guard,
+        )
+        guard()
+
+
 def _stamp_batch_settings(
     path: Path,
     *,
@@ -754,6 +979,7 @@ def run_batch(
     overwrite: bool = False,
     stamp_provenance: bool = True,
     log: BatchLog | None = None,
+    progress: BatchProgress | None = None,
     _extract: Callable[..., Any] | None = None,
     _correct: Callable[..., str] | None = None,
     _idealize: Callable[..., Any] | None = None,
@@ -798,6 +1024,9 @@ def run_batch(
         Write the additive ``/settings/batch`` provenance group into each project.
     log
         A [`BatchLog`][] sink; a throwaway one is created if omitted.
+    progress
+        A [`BatchProgress`][tether.project.batch.BatchProgress] told when each movie
+        starts and ends (#648). It changes nothing that is recorded.
     _extract, _correct, _idealize
         Injectable stage runners (test seams). Default to
         [`tether.project.extract.extract_movie`][], [`run_correct_stage`][], and
@@ -855,15 +1084,19 @@ def run_batch(
                 idealize_deferred = True
                 _safe_event(
                     log,
-                    movie="(batch)",
+                    movie=_RUN_LABEL,
                     stage=STAGE_IDEALIZE,
                     status=STATUS_DEFERRED,
                     detail=f"sidecar unavailable — idealization deferred: {probe_result.detail}",
                 )
 
     results: list[MovieResult] = []
+    total = len(jobs)
     try:
-        for job in jobs:
+        for index, job in enumerate(jobs, start=1):
+            if progress is not None:
+                with contextlib.suppress(Exception):
+                    progress.movie_started(index, total, job)
             rec = _Recorder(job=job, log=log)
             destination_lock_module: Any = None
             destination_owner: Any = None
@@ -992,17 +1225,13 @@ def run_batch(
                 )
                 if stamp_provenance and rec.canonical_write_safe and job.output_path.exists():
                     try:
-                        if ownership_guard is not None:
-                            ownership_guard()
-                        _stamp_batch_settings(
+                        _stamp_under_writer_lock(
                             job.output_path,
+                            ownership_guard=ownership_guard,
                             policy=policy,
                             idealize_requested=idealize,
                             stages=rec.stages,
-                            write_guard=ownership_guard,
                         )
-                        if ownership_guard is not None:
-                            ownership_guard()
                     except Exception as exc:  # provenance must never fail a movie
                         _safe_event(
                             log,
@@ -1060,6 +1289,11 @@ def run_batch(
                                 error=f"process reservation cleanup failed: {exc}",
                             )
                 results.append(MovieResult(job=job, stages=dict(rec.stages), donor_side=donor_side))
+                if progress is not None:
+                    with contextlib.suppress(Exception):
+                        # A deep copy, so an observer that edits its argument (the stages
+                        # or the donor-side record) cannot change the result returned.
+                        progress.movie_finished(index, total, copy.deepcopy(results[-1]))
     finally:
         if own_log:
             log.close()
@@ -1111,22 +1345,43 @@ def _do_extract(
         if not rejected_checkpoint:
             return rec.record(STAGE_EXTRACT, STATUS_SKIPPED, detail="already extracted").ok
     try:
-        runner_kwargs: dict[str, Any] = {}
-        if ownership_guard is not None:
-            runner_kwargs["publish_guard"] = ownership_guard
-        summary = runner(
-            job.movie_path,
-            job.output_path,
-            options=options,
-            tmap=job.tmap,
-            tdat=job.tdat,
-            overwrite=overwrite,
-            **runner_kwargs,
-        )
+        # Replacing an existing output needs its writer lock (#346, ADR-0112). The
+        # job-level claim supplies it for a rejected checkpoint; any other overwrite of
+        # an existing path holds the lock for just this publish.
+        publish_scope: contextlib.AbstractContextManager[Callable[[], None] | None]
+        publish_scope = contextlib.nullcontext(ownership_guard)
+        locked_for_publish = False
+        if ownership_guard is None and overwrite and os.path.lexists(job.output_path):
+            from tether.project.lock import publish_lock  # noqa: PLC0415
+
+            publish_scope = publish_lock(job.output_path)
+            # Until this publish succeeds the job does not own the project, so the
+            # unguarded provenance stamp must not write to it (another writer may hold it).
+            rec.canonical_write_safe = False
+            locked_for_publish = True
+        with publish_scope as publish_guard:
+            runner_kwargs: dict[str, Any] = {}
+            if publish_guard is not None:
+                runner_kwargs["publish_guard"] = publish_guard
+            summary = runner(
+                job.movie_path,
+                job.output_path,
+                options=options,
+                tmap=job.tmap,
+                tdat=job.tdat,
+                overwrite=overwrite,
+                **runner_kwargs,
+            )
         if ownership_guard is not None:
             ownership_guard()
     except Exception as exc:  # ExtractionError and any lower-level failure
+        if ownership_guard is None:
+            # An unguarded attempt may have lost a race to another writer, whose
+            # project now sits at the output path; never stamp that one.
+            rec.canonical_write_safe = False
         return rec.record(STAGE_EXTRACT, STATUS_FAILED, error=str(exc)).ok
+    if locked_for_publish:
+        rec.canonical_write_safe = True  # this job published the project just now
     low_conf = bool(getattr(summary, "low_confidence_registration", False))
     if low_conf and policy == POLICY_FAIL:
         return rec.record(
@@ -1137,7 +1392,7 @@ def _do_extract(
     n_mol = getattr(summary, "n_molecules", "?")
     detail = f"{n_mol} molecule(s)"
     if low_conf:
-        detail += "; low-confidence registration (flagged)"
+        detail += f"; low-confidence registration {_FLAG_MARK}"
     return rec.record(STAGE_EXTRACT, STATUS_DONE, detail=detail).ok
 
 

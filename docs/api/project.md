@@ -29,6 +29,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.deep_dataset
 
+::: tether.project.dependency_graph
+
 ::: tether.project.drift
 
 ::: tether.project.export
@@ -45,13 +47,23 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.idealize
 
+::: tether.project.jobs
+
 ::: tether.project.labels
 
 ::: tether.project.leakage
 
 ::: tether.project.lock
 
+::: tether.project.lock_takeovers
+
 ::: tether.project.merge
+
+::: tether.project.model_artifact
+
+::: tether.project.molecule_edits
+
+::: tether.project.movie_metadata
 
 ::: tether.project.oracle
 
@@ -60,6 +72,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.project.photobleach
 
 ::: tether.project.prequential
+
+::: tether.project.preview
 
 ::: tether.project.ranking
 

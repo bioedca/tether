@@ -49,7 +49,7 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # Counted in issue #166 from the `add_argument` calls, and asserted here so that adding
 # an option without touching the page fails loudly rather than silently under-documenting
 # it. Positionals (`movie`, `movies`) are checked separately below.
-_EXPECTED_OPTION_COUNTS = {"extract": 14, "batch": 11, "info": 2}
+_EXPECTED_OPTION_COUNTS = {"extract": 15, "batch": 14, "info": 2, "metadata": 5}
 
 # `-h/--help` is argparse boilerplate on every parser and is deliberately not documented.
 _UNDOCUMENTED = frozenset({"-h", "--help"})
@@ -194,14 +194,16 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """`extract`, `batch` and `info` (#655) each get their own section.
+    """`extract`, `batch`, `info` (#655) and `metadata` (#911) each get their own section.
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
     """
     text = _page_text()
     names = set(_subparsers(build_parser()))
-    assert names == {"extract", "batch", "info"}, f"unexpected subcommand set: {sorted(names)}"
+    assert names == {"extract", "batch", "info", "metadata"}, (
+        f"unexpected subcommand set: {sorted(names)}"
+    )
     for name in sorted(names):
         assert f"`tether {name}`" in text, (
             f"docs/cli.md has no `tether {name}` section for the {name!r} subcommand"
@@ -433,7 +435,7 @@ def test_batch_refuses_a_basename_collision_with_code_2(tmp_path: Path) -> None:
 
 
 def test_the_exit_code_table_documents_every_code() -> None:
-    """The table names 0, 1 and 2 for every subcommand.
+    """The table names 0, 1, 2 and 3 (``batch`` only, #647) for every subcommand.
 
     Presence of the row is the weak half; the exercised tests above are what pin the
     behaviour. What this adds is that the page cannot quietly drop a code.
@@ -441,7 +443,8 @@ def test_the_exit_code_table_documents_every_code() -> None:
     The rows themselves are parsed: the prose after the table also spells `` `0` ``,
     `` `1` `` and `` `2` ``, so a search of the section text passed with the whole table
     deleted (#744, GUI-F19). Each code needs exactly one ``| `N` | … | … |`` row with a
-    non-empty cell for each of ``tether extract``, ``tether batch`` and ``tether info``.
+    non-empty cell for each of ``tether extract``, ``tether batch``, ``tether info`` and
+    ``tether metadata``.
     """
     rows: dict[str, list[list[str]]] = {}
     for line in _exit_code_section().splitlines():
@@ -449,14 +452,14 @@ def test_the_exit_code_table_documents_every_code() -> None:
         if match:
             cells = [cell.strip() for cell in match.group(2).split("|")]
             rows.setdefault(match.group(1), []).append(cells)
-    assert sorted(rows) == ["0", "1", "2"], (
-        f"the exit-code table documents the codes {sorted(rows)}, not 0, 1 and 2"
+    assert sorted(rows) == ["0", "1", "2", "3"], (
+        f"the exit-code table documents the codes {sorted(rows)}, not 0, 1, 2 and 3"
     )
     for code, found in sorted(rows.items()):
         assert len(found) == 1, f"the exit-code table has {len(found)} rows for `{code}`"
-        assert len(found[0]) == 3 and all(found[0]), (
+        assert len(found[0]) == 4 and all(found[0]), (
             f"the `{code}` row must state the code's meaning for `tether extract`, "
-            f"`tether batch` and `tether info`, found {found[0]}"
+            f"`tether batch`, `tether info` and `tether metadata`, found {found[0]}"
         )
 
 
@@ -474,17 +477,20 @@ def test_the_page_does_not_claim_extract_never_exits_2() -> None:
 
 
 def test_the_deferred_idealization_caveat_survives() -> None:
-    """Exit 0 from ``batch`` does not imply idealization ran, and the page must say so.
+    """A deferred stage exits 3, and the page says so rather than warning about 0 (#647).
 
     ``run_batch`` records an unavailable-at-startup sidecar as ``deferred``, which is not
-    ``failed``, so ``n_failed`` stays 0 and the run exits 0 having done extraction and
-    correction only. A script consuming those projects as fully idealized is the failure
-    this paragraph exists to prevent.
+    ``failed``; the run has done extraction and correction only, and ``tether batch``
+    exits 3 so that a script cannot take those projects as complete. The page used to warn
+    that such a run exits 0; that warning must not come back.
     """
     section = _exit_code_section()
     assert "defer" in section.lower(), (
-        "the exit-code section no longer warns that `tether batch` can exit 0 with "
-        "idealization deferred"
+        "the exit-code section no longer explains the deferred-stage exit code"
+    )
+    assert "exits `3`" in section, "the exit-code section no longer says a deferral exits 3"
+    assert "exits `0` having done" not in section, (
+        "the exit-code section again warns that a deferred run exits 0"
     )
 
 

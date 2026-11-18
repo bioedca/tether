@@ -120,8 +120,8 @@ nav:
           - Command line: cli.md
           - Exports (files, columns, units): reference/exports.md
           - Analysis parameters: reference/parameters.md
-          - Project store (.tether HDF5 schema): reference/tether-format.md
-          - Window themes and trace colors: reference/gui-theme.md
+          - Project file format (.tether HDF5 schema): reference/tether-format.md
+          - Application window themes and trace colors: reference/gui-theme.md
           - Reproducibility & reporting: reproducibility.md
       - API reference:
           - Overview: api/index.md
@@ -132,6 +132,7 @@ nav:
           - tether.ml: api/ml.md
           - tether.analysis: api/analysis.md
           - tether.project: api/project.md
+          - tether.services: api/services.md
           - tether.gui: api/gui.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md

@@ -6,6 +6,7 @@
 a module that no page renders: such a module is simply absent from the site, with the gate green.
 These tests close that gap and pin the wiring that keeps the gate free of the conda stack:
 
+* each public subpackage of ``src/tether`` has its own page;
 * each public module of ``src/tether`` (no part of its dotted path starts with ``_``) has its
   own ``::: <module>`` block on the page of its subpackage, or on the overview page for the
   package itself and its top-level modules, and no block names a module that does not exist;
@@ -30,7 +31,17 @@ _REPO = Path(__file__).resolve().parents[1]
 _SRC = _REPO / "src"
 _API = _REPO / "docs" / "api"
 _BLOCK_RE = re.compile(r"^::: (\S+)\s*$", re.MULTILINE)
-_SUBPACKAGES = ("analysis", "fret", "gui", "idealize", "imaging", "io", "ml", "project")
+_SUBPACKAGES = (
+    "analysis",
+    "fret",
+    "gui",
+    "idealize",
+    "imaging",
+    "io",
+    "ml",
+    "project",
+    "services",
+)
 
 
 def _config() -> dict:
@@ -97,6 +108,16 @@ def test_every_public_module_has_a_block_on_its_subpackage_page() -> None:
                     f"docs/api/{sub}.md: '::: {module}' appears {blocks.count(module)} times"
                 )
     assert not problems, "\n".join(problems)
+
+
+def test_every_public_subpackage_has_its_own_page() -> None:
+    """A new subpackage needs a page: the test above walks only the listed ones."""
+    found = sorted(
+        path.parent.name
+        for path in (_SRC / "tether").glob("*/__init__.py")
+        if not path.parent.name.startswith("_")
+    )
+    assert found == sorted(_SUBPACKAGES), f"subpackages under src/tether: {found}"
 
 
 def test_every_top_level_module_has_a_block_on_the_overview_page() -> None:

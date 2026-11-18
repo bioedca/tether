@@ -1,19 +1,20 @@
 ---
-description: "The HDF5 layout of a .tether project store, so that you can read it with h5py, another language or a script that must work across releases."
+description: "The HDF5 layout of a .tether project file, so that you can read it with h5py, another language or a script that must work across releases."
 ---
 
-# The `.tether` project store
+# The `.tether` project file format
 
 **Who this page is for.** Anyone who has been handed a `.tether` file and wants to read it
 with plain `h5py`, in another language, or in a script that must keep working across Tether
 releases. It assumes you can run a Python script and know what an HDF5 group and dataset are.
 
-This page is the reference for the **internal** project store only. What
+This page is the reference for the **internal** layout of a project file only. This page
+calls that HDF5 layout the **store**, and uses "project file" for the `.tether` file itself. What
 Tether *writes out* (SMD-HDF5 hand-off, CSV/Parquet tables, plot exports) is a
 separate surface, described in [Exports (files, columns, units)](exports.md).
 
 A `.tether` file is an ordinary HDF5 file. There is no proprietary container, no
-sidecar index, and no compression scheme beyond stock gzip on the bulk arrays.
+separate index file, and no compression scheme beyond stock gzip on the bulk arrays.
 
 The format has **two layers**, and they carry different guarantees:
 
@@ -28,9 +29,9 @@ The format has **two layers**, and they carry different guarantees:
   page is a bug**.
 - Everything a pipeline stage writes *later* — `/traces/*`, `/patches/*`,
   `/settings/*`, `/idealization/{model}`, `/features/table`, `/conditions/categories`,
-  `/calibration/*` — is additive per-record data declared by the module that writes
-  it. None of it appears in the manifest, so the manifest cannot arbitrate it: the
-  writer named in each section below is the authority. Note the `/*`: the **container
+  `/movies/layouts`, `/calibration/*`, `/models/*` — is additive per-record data declared
+  by the module that writes it. None of it appears in the manifest, so the manifest
+  cannot arbitrate it: the writer named in each section below is the authority. Note the `/*`: the **container
   groups** these live in are themselves part of the frozen skeleton above, and only
   their contents are additive.
 
@@ -89,7 +90,7 @@ parts of this page are a promise rather than a description.
 
 What that means if you write your own reader:
 
-> **Tolerate what you do not recognise.** Read compound tables **by field name**,
+> **Tolerate what you do not recognize.** Read compound tables **by field name**,
 > never by positional index or a hard-coded record size, and ignore fields, datasets,
 > groups and attributes you do not know — a later Tether release may add them without
 > a `schema_version` bump. Conversely, you may rely on the **frozen skeleton** above —
@@ -128,7 +129,7 @@ Two properties worth knowing before you build on the format:
   here, plus the coordinates, patches, corrections and provenance SMD has no slot
   for. Round-trip fidelity is therefore a property of the data model, not of a
   converter.
-- The `<file>.lock` single-writer marker is a **sidecar file**, not part of the
+- The `<file>.lock` single-writer marker is a separate **lock file**, not part of the
   in-HDF5 schema (`src/tether/io/schema.py` module docstring); `create_project`
   never writes it.
 
@@ -151,14 +152,19 @@ guaranteed to be there.
 | `/movies/table`, `/molecules/table`, `/conditions/table`, `/labels/table` | yes, 0 rows | `create_project` (`src/tether/io/schema.py`) |
 | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models` | yes, empty groups | `create_project` |
 | `/calibration/<calibration_id>/…` | no | `write_calibration` (`src/tether/imaging/calibrate.py`) |
-| `/movies` and `/molecules` rows, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/movies` and `/molecules` rows, `/movies/layouts/<movie_id>`, `/traces/*`, `/patches/*`, `/settings/extraction` | no rows / absent | `write_extraction` (`src/tether/imaging/extract.py`) |
+| `/movies/metadata/<movie_id>` | absent | `extract_movie` (`src/tether/project/extract.py`); changed by `tether.project.movie_metadata` |
 | `/idealization/{model}` | no | `write_idealization_model` (`src/tether/project/idealize.py`) |
 | `/labels` rows | 0 rows | `set_curation_label` (`src/tether/project/labels.py`) |
+| `/labels/reject_log` | absent | `reject` / `unreject` (`src/tether/project/labels.py`) |
 | `/settings/leakage`, `/settings/gamma`, `/settings/correction`, `/settings/batch` | no | `tether.project.leakage` / `.gamma` / `.correct` / `.batch` |
 | `/conditions` rows, `/conditions/categories/<condition_id>`, `/settings/condition_audit` | 0 rows / absent | `tether.project.conditions` |
-| `/features/table` | no | `compute_features` (`src/tether/project/features.py`) |
+| `/settings/molecule_audit` | absent | `set_category` / `clear_category` / `set_analysis_window` / `reset_analysis_window` (`src/tether/project/molecule_edits.py`) |
+| `/settings/lock_takeovers` | absent | `record_takeover` (`src/tether/project/lock_takeovers.py`), called by the application after a Recover or Take over |
+| `/features/table` | no | `compute_features` (`src/tether/project/features.py`). `set_analysis_window` and `reset_analysis_window` delete it when they change a row it holds. |
 | `/settings/analysis_only` | no | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) |
-| `/models/*` | no | nothing yet — see below |
+| `/settings/jobs`, `/settings/recorded_inputs`, `/settings/stale_marks` | absent | `submit_job` / `record_inputs` / `set_stale_marks` (`src/tether/project/jobs.py`) |
+| `/models/<condition_id>` | no | `record_model_reference` (`src/tether/project/model_artifact.py`) |
 
 `write_extraction` is not the only writer of `/molecules` rows and `/traces`. Four
 shipped provenances produce a populated store, and they differ in what they fill in.
@@ -168,8 +174,8 @@ The rest of this page describes the native-extraction case unless it says otherw
 |---|---|---|
 | Native extraction | `write_extraction` (`src/tether/imaging/extract.py`) | The fullest record: `/movies` rows, coordinates, all six `/traces` layers, `/patches` — but only for a movie that yielded at least one molecule; see [`/traces`](#traces-the-integrated-intensity-arrays) for the zero-molecule case. |
 | Deep-LASI reconstruction | `reconstruct_project` (`src/tether/project/reconstruct.py`) | Also goes through `write_extraction`, so the `/movies`, `/molecules`, `/traces` and `/patches` layout is the same — but the trace values are the legacy `.mat` series copied verbatim, **not** an integration this build performed, and **no calibration is written**: `reconstruct_project` never calls `write_calibration`, so `/calibration` stays empty whatever the caller passes. The shipped GUI caller — the wizard is the only caller; no `tether` subcommand reconstructs — additionally leaves the calibration key and channel geometry unset ([`_movie_metadata`](https://github.com/bioedca/tether/blob/main/src/tether/gui/deeplasi_executor.py), `src/tether/gui/deeplasi_executor.py`), so in practice `/movies.calibration_id` is `""` and the crop/rotation/flip fields are all zero. |
-| Analysis-only import | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | No `/movies` rows, `movie_id = ""`, `donor_xy`/`acceptor_xy` `NaN`, `/patches` empty, only the two corrected `/traces` layers. |
-| Subset export | `export_subset_tether` (`src/tether/project/export.py`) | A new store: `/molecules` rows copied verbatim (so `movie_id` survives as a **dangling** key), no `/movies` rows, corrected `/traces` only unless `include_raw=True`. |
+| Analysis-only import | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | No `/movies` rows, `movie_id = ""`, `donor_xy`/`acceptor_xy` `NaN`, `/patches` empty, only the two background-subtracted (`corrected`) `/traces` layers. |
+| Subset export | `export_subset_tether` (`src/tether/project/export.py`) | A new store: `/molecules` rows copied verbatim (so `movie_id` survives as a **dangling** key), no `/movies` rows, background-subtracted (`corrected`) `/traces` only unless `include_raw=True`. |
 
 `create_project` opens the file with `track_order=True` and creates every skeleton
 group with it, and the later `/settings/*`, `/calibration/<id>` and
@@ -245,6 +251,44 @@ of the movie and therefore never hydrates a cloud placeholder.
 | `donor_flip` | `i1` | `(2,)` | `[vertical, horizontal]` flip flags, `0`/`1`. |
 | `acceptor_flip` | `i1` | `(2,)` | Same, acceptor channel. |
 
+The group also holds an additive child, `/movies/layouts/<movie_id>`: the **channel layout**
+the movie was split by (#908), written by `write_layout_record` in `src/tether/imaging/layout.py`. Each
+record is an empty group with attributes only:
+
+- `version` (int): `1`. A reader refuses a newer version (`read_layout_record`).
+- `kind` (str): `side-by-side`, `top-bottom` or `rectangles`.
+- `donor` and `acceptor` (str): the donor and the acceptor half — `left`/`right` or
+  `top`/`bottom` — and `""` for `rectangles`.
+- `donor_rect` and `acceptor_rect` (int32 `[y1, x1, y2, x2]`, 1-based inclusive): for
+  `rectangles` only.
+
+The record states the layout. The crops it resolved to for this frame size are the
+`donor_crop` and `acceptor_crop` fields above. The native `tether extract` path writes one for
+every movie, the default `side-by-side` / `left` included. A store written before #908, a
+Deep-LASI reconstruction, and an extraction that took its split from an imported `.tmap` have
+no record for the movie. For those, read the crop fields instead.
+
+The group also holds a second additive child, `/movies/metadata/<movie_id>`. It is one group
+with no datasets for each movie. Its attributes record three values, each with its
+**origin**: `file` (read from the movie), `user` (given by a person) or `unknown`
+(`src/tether/project/movie_metadata.py`, #911). It does not change `frame_time` above,
+which keeps the value from the file.
+
+| Attribute | Type | Meaning / units |
+|---|---|---|
+| `frame_time` | `float` | **Seconds per frame** in use: the file's value, or the one the user gave; `0.0` unknown. |
+| `frame_time_origin` | `str` | `file`, `user` or `unknown`. |
+| `frame_time_verified` | `bool` | True only for a file value, or after the user confirmed a given value in a separate action (`confirm_frame_time`); giving a value clears it. |
+| `pixel_size_um` | `float` | **Micrometres per pixel**: the ImageJ resolution when its unit is µm, the pixels are square and the resolution is not the `1/1` placeholder, or the user's value; `0.0` unknown. |
+| `pixel_size_origin` | `str` | `file`, `user` or `unknown`. |
+| `channel_roles_origin` | `str` | Where the donor/acceptor assignment of `donor_crop`/`acceptor_crop` came from: `file` for an imported `.tmap`, `user` for a native extraction (`--donor-side`). |
+
+`extract_movie` writes the group. Some rows have no group: a store written before #911,
+or one from the Deep-LASI reconstruction or the analysis-only import. Such a row reads
+(`read_movie_metadata`) as follows. A positive `frame_time` has origin `file` and is
+verified, because that field has only ever been filled from the ImageJ `finterval`. A
+`frame_time` of `0.0` is `unknown`. The pixel size and the channel roles are `unknown`.
+
 ## `/molecules` — one row per molecule
 
 Group holding `/molecules/table` (`MOLECULES_DTYPE`, 21 fields). This is the spine
@@ -255,8 +299,9 @@ by [`_validate_alignment`](https://github.com/bioedca/tether/blob/main/src/tethe
 Later stages mutate columns of existing rows; they never change the structure.
 Photobleach detection rewrites `bleach_frames` and `analysis_window`, the leakage /
 gamma / correction stages write `alpha`, `gamma`, `correction_method` and
-`correction_confidence`, curation writes `curation_label`, and a condition re-key
-rewrites `condition_id`.
+`correction_confidence`, curation writes `curation_label`, a condition re-key
+rewrites `condition_id`, and the per-molecule setters in
+`src/tether/project/molecule_edits.py` write `category` and `analysis_window`.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
@@ -265,17 +310,17 @@ rewrites `condition_id`.
 | `movie_id` | `str:utf-8` | scalar | Foreign key into `/movies/table`. `""` in an analysis-only import, and **dangling** in a subset export (which carries no `/movies` rows) — resolve it defensively. |
 | `donor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` donor (reference-channel) centroid, in **movie pixels** of the donor sub-image. |
 | `acceptor_xy` | `f8` | `(2,)` | Sub-pixel `[x, y]` acceptor read position, donor-anchored through the registration map, in **movie pixels**. |
-| `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard window); no per-aperture registry exists yet. |
+| `aperture_id` | `i4` | scalar | Aperture-geometry id. Always `0` today (the standard aperture window); no per-aperture registry exists yet. |
 | `frame_range` | `i4` | `(2,)` | `[start, stop)` **frame indices** of the molecule's valid native extent inside the zero-padded trace arrays. |
-| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analysed. `frame_range` at native extraction, but an SMD import seeds it from the source's window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed window wins. |
+| `analysis_window` | `i4` | `(2,)` | `[start, stop)` **frame indices** actually analyzed. `frame_range` at native extraction, but an SMD import seeds it from the source's analysis window (see the note below the table); auto-refined by photobleach detection *only* while it still equals `frame_range`, so an already-narrowed analysis window wins. A curator sets it with `set_analysis_window`, which clamps the request into `frame_range` (bounded by `[0, n_frames]`) by the SMD-import rule ([`_resolve_windows`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py), `src/tether/project/analysis_import.py`), and restores it with `reset_analysis_window`. There is no "manual" flag: an analysis window set to the whole `frame_range` is again under the auto-default. Either setter deletes `/features/table` when it changes a row that table holds, because those features were computed from the old frames. |
 | `bleach_frames` | `i4` | `(2,)` | `(donor, acceptor)` first-bleach **absolute frame indices**. `-1` is the pre-detection sentinel (see below), *not* "no bleach". |
 | `alpha` | `f8` | scalar | Donor leakage α, dimensionless. `NaN` = **no factor applied**, which is not the same as "the pass has not run": `compute_leakage_alpha` *withholds* the factor — resetting processed α rows and their downstream γ rows to `NaN` — when fewer than `min_qualifying_traces` molecules yield a valid donor-only tail (`src/tether/project/leakage.py`), and an analysis-only import seeds every row at `NaN` (`src/tether/project/analysis_import.py`). `compute_corrected_fret` then stamps `apparent-E (corrections unavailable)` on every analysable molecule (one whose `frame_range` is non-empty) and leaves the factor `NaN` — unless `apparent_e_only` forces `apparent-E (user toggle)` instead, or a manual `alpha_override`/`gamma_override` completes a usable pair (both effective factors finite, γ > 0), which stamps `manual` and **persists the override into this cell**. So read `correction_method` and `/settings/leakage` (`withheld`), never this cell, to tell the cases apart. |
 | `gamma` | `f8` | scalar | Detection-correction γ, dimensionless. Same `NaN` convention as `alpha` — `compute_gamma` withholds the dataset γ below `min_qualifying_traces` (`src/tether/project/gamma.py`) and resets processed rows to `NaN`; a withheld leakage recomputation also resets those rows because γ was derived from the prior α. A γ pass stamps `/settings/gamma` with `withheld = True`, and a withheld leakage pass removes `/settings/gamma` (there is no invalidated marker), so read `correction_method` / `/settings/gamma` rather than this cell. |
-| `delta` | `f8` | scalar | Direct-excitation δ, dimensionless. Inert in two-colour work; written `0.0`. |
+| `delta` | `f8` | scalar | Direct-excitation δ, dimensionless. Inert in two-color work; written `0.0`. |
 | `correction_method` | `str:utf-8` | scalar | Closed vocabulary from `src/tether/project/correct.py`: `corrected`, `manual`, `apparent-E (corrections unavailable)`, `apparent-E (user toggle)`. `""` before any correction pass. |
 | `correction_confidence` | `f8` | scalar | A **provenance flag, not a confidence interval**: `1.0` when a real correction was applied, `0.0` on apparent-E fallback, `NaN` before any pass. |
 | `curation_label` | `i4` | scalar | Signed codec `CurationLabel` (`src/tether/project/labels.py`): `0` uncurated, `1` accept, `-1` reject. Mirrors the most recent **human** label only. |
-| `category` | `str:utf-8` | scalar | Editable per-condition category value, independent of accept/reject. `""` at extraction. |
+| `category` | `str:utf-8` | scalar | Editable per-condition category value, independent of accept/reject. `""` at extraction. Stored by **name**. `set_category` accepts only a name in the condition's `/conditions/categories/<condition_id>` list, and `clear_category` writes `""`. |
 | `quality_class` | `f8` | scalar | Read-only ML ranker output, dimensionless. `NaN` when none; no shipped ML path writes it yet. |
 | `condition_id` | `str:utf-8` | scalar | Current foreign key into `/conditions/table`; rewritten by a re-key. |
 | `condition_id_provisional` | `str:utf-8` | scalar | The filename-derived condition id, retained verbatim across any re-key. |
@@ -283,19 +328,19 @@ rewrites `condition_id`.
 | `tags` | `str:utf-8` | scalar | Comma-joined tag string; `""` when none. The pipeline emits two tags — see below. |
 
 > **A narrowed `analysis_window` is not a provenance signal.** In a natively extracted
-> store the window starts equal to `frame_range`, so a narrower one does mean
+> store the analysis window starts equal to `frame_range`, so a narrower one does mean
 > photobleach detection or a curator edit. That inference breaks on an **analysis-only
 > import**: [`_normalize_source`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py) reads the SMD's tMAVEN `pre_list`/`post_list` and
 > [`_build_molecule_rows`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py) writes them straight into `analysis_window`
 > (`src/tether/project/analysis_import.py`), so a *freshly imported* row can already be
 > narrower than `frame_range` with `bleach_frames` still `-1` and `curation_label`
-> still `0`. And because the auto-refine fires only on a window that still equals
-> `frame_range`, a later `compute_photobleach` leaves those imported windows alone. On
+> still `0`. And because the auto-refine fires only on an analysis window that still equals
+> `frame_range`, a later `compute_photobleach` leaves those imported analysis windows alone. On
 > a real 2-molecule import with `pre_list = [3, 0]` / `post_list = [30, 40]` over 40
 > frames, the rows read `analysis_window` `[3, 30]` and `[0, 40]` against `frame_range`
 > `[0, 40]`, and `compute_photobleach` reported `n_windows_autoset=1` — it refined only
 > the second row. To tell the cases apart, read `/settings/analysis_only` or the
-> `round-trip-unavailable` tag, not the window.
+> `round-trip-unavailable` tag, not the analysis window.
 
 ### Two sentinels and two derivations worth reading twice
 
@@ -303,7 +348,7 @@ rewrites `condition_id`.
 what extraction and analysis-only import write *before anyone has looked*: it means
 the photobleach detector has not run for that row, not that it ran and found nothing.
 After `compute_photobleach` (`src/tether/project/photobleach.py`) a channel that does
-**not** bleach within the trace is recorded as `frame_range[1]` — the window end — so
+**not** bleach within the trace is recorded as `frame_range[1]` — the trace end — so
 the comparison you want is against `frame_range`, never against `-1`. (`-1` also
 survives on a row with no valid native frames, which the detector skips.) On a real
 40-frame store, one bleaching and two non-bleaching molecules read
@@ -392,7 +437,7 @@ file in the message.
 
 ## `/labels` — the append-only curation log
 
-Group holding `/labels/table` (`LABELS_DTYPE`, 8 fields): one row per labelling
+Group holding `/labels/table` (`LABELS_DTYPE`, 8 fields): one row per labeling
 *event*, **append-only** and carrying full provenance
 ([ADR-0023](../adr/0023-curation-label-codec-and-labels-log.md)). Rows are never
 removed or reordered, and every field except `weight` is immutable — `weight` is
@@ -411,6 +456,44 @@ so a crash leaves at worst an orphan label row, never an unaudited state change.
 | `weight` | `f8` | scalar | Effective training weight, dimensionless. Human labels are `1.0`; provisional weights decay as human labels accrue and this column is **rewritten** at retrain. |
 | `label_value` | `i4` | scalar | The same signed codec as `curation_label`: `0` uncurated, `1` accept, `-1` reject. |
 | `condition_id` | `str:utf-8` | scalar | The condition the label is scoped to. |
+
+### `/labels/reject_log` — the reason of each reject
+
+A resizable 1-D compound dataset, **append-only**, created on the first human reject
+(`reject`, `src/tether/project/labels.py`), so a fresh store does not have it
+([ADR-0104](../adr/0104-a-reject-reason-log-under-labels.md)). Each
+human reject appends a `reject` row and each un-reject appends a `restore` row.
+
+A rejected trace stays in the store: a reject sets `curation_label` to `-1` and deletes
+nothing. The log is a record only. The curation filter, the ranker and every analysis
+read `/molecules.curation_label` and not the reason. Provisional-source rejects write
+no row. `reject_record_of` returns the `reject` row that joins the molecule's
+latest human `/labels` event when that event is a reject, or `None` (also for a store
+written before this log existed).
+
+| Field | Type | Shape | Meaning / units |
+|---|---|---|---|
+| `molecule_key` | `str:utf-8` | scalar | Join key into `/molecules.molecule_key`. |
+| `event` | `str:utf-8` | scalar | `reject` or `restore`. |
+| `reason` | `str:utf-8` | scalar | A code from the list below; empty on a `restore` row. |
+| `note` | `str:utf-8` | scalar | Optional free text (valid UTF-8, no NUL character; anything else is refused before the reject or restore is written). |
+| `value` | `f8` | scalar | The score threshold of a `threshold` reject; `NaN` on all other rows. |
+| `labeler` | `str:utf-8` | scalar | Who rejected or restored. The same value as the matching `/labels` row. |
+| `timestamp` | `str:utf-8` | scalar | When. The same value as the matching `/labels` row, so the two rows join on `molecule_key` + `labeler` + `timestamp`. |
+| `condition_id` | `str:utf-8` | scalar | The condition of the matching `/labels` row. |
+
+The reasons are a fixed list, defined once in `REJECT_REASONS`
+(`src/tether/project/labels.py`). Any other value is refused before a write.
+
+| Code | Meaning |
+|---|---|
+| `unspecified` | No reason was given. The default of a reject. |
+| `no-anticorrelation` | Donor and acceptor do not anti-correlate. |
+| `multiple-molecules` | More than one donor or acceptor in the spot. |
+| `artifact` | A blink, spike, drift or other artifact makes the trace unusable. |
+| `low-signal` | The signal is too low or too noisy to use. |
+| `threshold` | Rejected by a score threshold. The row must carry the threshold in `value`. |
+| `other` | Another reason. The row must carry a `note` that says which. |
 
 ## `/traces` — the integrated intensity arrays
 
@@ -479,12 +562,12 @@ Two datasets, `donor` and `acceptor`, each
 aperture window is fixed per project and validated on every later append.
 
 In a **natively extracted** store each entry is the **temporal mean** image crop for
-that molecule and channel, in `(row, col)` image order, centred on the molecule's
+that molecule and channel, in `(row, col)` image order, centered on the molecule's
 rounded coordinate. [`_mean_patches`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py) (`src/tether/imaging/extract.py`) zero-fills a
-molecule whose window falls outside the frame, but no such molecule reaches disk:
-`colocalize` keeps only molecules whose window fits in **both** channels, and
+molecule whose aperture window falls outside the frame, but no such molecule reaches disk:
+`colocalize` keeps only molecules whose aperture window fits in **both** channels, and
 `write_extraction` refuses the whole write if any integrated trace is invalid
-([`_validate_alignment`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py) — "refusing to write an all-zero trace"). The default window is 21 px
+([`_validate_alignment`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/extract.py) — "refusing to write an all-zero trace"). The default aperture window is 21 px
 (`extract_molecules(..., window=21)`); the value actually used is recorded as
 `/settings/extraction@window`. Row order matches `/molecules/table`. A subset export
 carries both stacks, row-subset to the exported molecules; **analysis-only imports
@@ -508,17 +591,23 @@ leave `/patches` empty**, because they have no coordinates.
 ## `/settings` — provenance of each pipeline stage
 
 Empty until a stage runs. Every child is a **group carrying scalar attributes and no
-datasets**, except `condition_audit`, which is a dataset.
+datasets**, except `condition_audit`, `molecule_audit`, `lock_takeovers`, `jobs`,
+`recorded_inputs` and `stale_marks`, which are datasets.
 
 | Child | Written by | Lifecycle |
 |---|---|---|
-| `extraction` | `write_extraction` (`src/tether/imaging/extract.py`) | **Write-once** per project; later movies must match the recorded parameters or the write is rejected. |
+| `extraction` | `write_extraction` (`src/tether/imaging/extract.py`) | **Write-once** per project; later movies must match the recorded parameters or the write is rejected. Its child group `movies` gains one attribute per movie (below). |
 | `correction` | `compute_corrected_fret` (`src/tether/project/correct.py`) | Replaced on each pass. |
 | `leakage` | `compute_leakage_alpha` (`src/tether/project/leakage.py`) | Replaced on each pass. |
 | `gamma` | `compute_gamma` (`src/tether/project/gamma.py`) | Replaced on each pass. **Removed** by a `compute_leakage_alpha` pass that withholds α, because that pass resets the processed `gamma` rows to `NaN`; absent therefore means no current γ pass. |
 | `batch` | `run_batch` (`src/tether/project/batch.py`) | Replaced on each run; adds one `<stage>_status` attribute per stage. |
 | `analysis_only` | `import_analysis_only_project` (`src/tether/project/analysis_import.py`) | Marker that movie round-trip is unavailable for this store. |
 | `condition_audit` | `tether.project.conditions` | A **dataset**: append-only re-key/merge log, created lazily. |
+| `molecule_audit` | `tether.project.molecule_edits` | A **dataset**: append-only log of per-molecule category and analysis-window edits, created lazily. |
+| `lock_takeovers` | `tether.project.lock_takeovers` | A **dataset**: append-only log of each successful lock Recover or Take over, created lazily (ADR-0121). |
+| `jobs` | `tether.project.jobs` | A **dataset**: one row per job, created lazily; a row changes as its job runs. |
+| `recorded_inputs` | `tether.project.jobs` | A **dataset**: append-only identities of the inputs of each record, created lazily. |
+| `stale_marks` | `tether.project.jobs` | A **dataset**: append-only stale marks, created lazily; a mark is never removed. |
 
 `/settings/extraction` is the one most readers need, because it records the
 integration geometry behind `/traces` and `/patches`. In a **Deep-LASI
@@ -538,11 +627,79 @@ Deep-LASI, not by Tether:
 | `app_version` | str | Writing Tether version. |
 | `profile_json` | str | The caller's settings profile as JSON — present only when one was supplied. |
 
+The stamp describes only the first extraction. So each movie's own settings profile is also
+kept on the child group **`/settings/extraction/movies`**. It holds one string attribute per
+movie, named by its `movie_id`, with that movie's profile as JSON. The first movie gets one
+too. A movie appended later records its `.tmap` and `.tdat` sources, detection mode and
+registration verdict there.
+
+The appends are `add_movie_to_project`
+(`src/tether/project/extract.py`) and `add_reconstruction_to_project`
+(`src/tether/project/reconstruct.py`). The stamp above does not change.
+`read_movie_settings` (`src/tether/imaging/extract.py`) returns the record as
+`{movie_id: profile}`. A project written before this record existed has no `movies` child.
+It reads as `{}`
+([ADR-0117](../adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
+
 `/settings/condition_audit` is a resizable 1-D compound dataset with the fields
 `event` (`rekey` or `merge`), `from_condition_id`, `to_condition_id`, `n_molecules`
 (`i8`), `labeler`, `timestamp`, `reason`, `app_version` — all strings except
 `n_molecules` ([`_audit_dtype`](https://github.com/bioedca/tether/blob/main/src/tether/project/conditions.py) in `src/tether/project/conditions.py`). It is
 append-only and never rewritten.
+
+`/settings/molecule_audit` is a resizable 1-D compound dataset with one row for each
+`/molecules` row an edit changed ([`_audit_dtype`](https://github.com/bioedca/tether/blob/main/src/tether/project/molecule_edits.py) in `src/tether/project/molecule_edits.py`):
+`event` (`set_category`, `clear_category`, `set_analysis_window` or
+`reset_analysis_window`), `molecule_id`, `molecule_key`, `condition_id`, `old_category`,
+`new_category`, `old_window` and `new_window` (`i4`, shape `(2,)`, `[start, stop)` frame
+indices), `labeler`, `timestamp`, `reason` and `app_version`. A category row carries
+`[-1, -1]` in both window fields, and a window row carries `""` in both category fields. The
+row is written **before** the `/molecules` field changes, and an edit that changes
+nothing writes no row. Category edits are logged here and **not** in `/labels`, whose
+`label_value` is the accept/reject codec.
+
+`/settings/lock_takeovers` is a resizable 1-D compound dataset with one row for each
+successful lock takeover ([`_dtype`](https://github.com/bioedca/tether/blob/main/src/tether/project/lock_takeovers.py) in `src/tether/project/lock_takeovers.py`, ADR-0121):
+`timestamp` (the new lock's UTC acquisition instant), `action` (`recover` or `take_over`),
+`holder_user`, `holder_host`, `holder_pid` (`i8`), `ousted_corrupt` (`u1`, `1` when the ousted
+lock could not be parsed), `ousted_user`, `ousted_host`, `ousted_pid` (`i8`),
+`ousted_timestamp` and `app_version`. A corrupt ousted lock carries `""`, `""`, `-1` and `""` in
+the four `ousted_*` holder fields. The row is written after the project has been reopened
+writable under the new lock, so a refused or failed takeover writes none. It is append-only and
+never rewritten.
+
+### Jobs, recorded inputs and stale marks
+
+`/settings/jobs` holds one row for each job of the job and dependency coordinator
+([ADR-0126](../adr/0126-jobs-and-stale-marks-are-stored-in-the-project.md)). Every field is a
+UTF-8 string: `job_id` (32 hex characters), `command` and `request` (the service request in
+its text form, ADR-0100), `state`, `parts` and `completed` (JSON arrays of part names, and
+the second is the checkpoint), `inputs` (a JSON object from `"<node key>:<instance id>"` to the
+identity of that input), `owner` (JSON: `host`, `user`, `pid` and the lock `nonce` of the
+writer that last ran the job), `created_utc`, `started_utc`, `ended_utc` (ISO-8601 UTC, `""`
+when not reached), `error` and `app_version`. The `state` is one of:
+
+| State | Meaning |
+|---|---|
+| `queued` | Stored and not started. |
+| `running` | A writer session is doing the parts now. |
+| `done` | Every part is complete. |
+| `failed` | A part raised an error; `error` says which and why. A retry continues from `completed`. |
+| `cancelled` | Stopped by the user; the complete parts are kept. A retry continues from `completed`. |
+| `interrupted` | It was running when its owner stopped. A retry continues from `completed`. |
+
+A stored `running` row can outlive its writer: the lock no longer carries its `nonce`, or its
+process on this computer is not running. Such a row is **read** as `interrupted`, and the next
+writer stores it so. A reader needs no lock and the file is closed between parts, so a reader
+never waits on a job.
+
+`/settings/recorded_inputs` has the string fields `node`, `instance`, `upstream_node`,
+`upstream_instance` and `identity`: one row for each direct input of a record of the
+dependency graph ([ADR-0103](../adr/0103-the-project-dependency-graph-and-the-stale-rules.md)),
+written once when the record is made. `/settings/stale_marks` has the string fields `node`,
+`instance`, `edge` (the edge number of ADR-0103), `upstream_node`, `upstream_instance`,
+`edited_node`, `edited_instance`, `event`, `timestamp` and `app_version`. A record with a mark
+is stale: it stays readable and never supplies a current result. Both are append-only.
 
 ## `/idealization` — one subgroup per fitted model
 
@@ -551,7 +708,7 @@ Empty until an idealization runs. Each fit lands in `/idealization/{model_name}`
 first as `{model_name}.__writing__` and then swapped in by **delete-then-rename**.
 The staged group is complete before the swap, so a real model name never holds a
 half-written fit — but the swap itself is **not fully atomic**: HDF5 has no atomic
-in-file rename-over, so a crash in the window between removing the old model and
+in-file rename-over, so a crash in the interval between removing the old model and
 renaming the staged one can leave *only* the `.__writing__` group and no model at all
 (`write_idealization_model`, `src/tether/project/idealize.py`). Re-running the write
 repairs it. A reader should normally skip a name ending in `.__writing__` — but must
@@ -571,7 +728,7 @@ store's molecule count and *not* the store's row order — see the note under th
 | `frac` | `(nstates,)` | float64 | optional — the normalized populations; **use this for plots and exports**, not `pi` |
 | `priors/<name>` | `(nstates,)` or `(nstates, nstates)` | float64 | optional subgroup — the variational prior hyperparameters |
 | `idealized` | `(n_fitted, n_frames)` | float64, gzip | always — per-frame idealized FRET level, `NaN` outside each molecule's analysis window |
-| `state_path` | `(n_fitted, n_frames)` | int64, gzip | always — state index, `-1` (`tether.idealize.NO_STATE`) outside the window |
+| `state_path` | `(n_fitted, n_frames)` | int64, gzip | always — state index, `-1` (`tether.idealize.NO_STATE`) outside the analysis window |
 | `molecule_key` | `(n_fitted,)` | vlen UTF-8 | always |
 | `molecule_id` | `(n_fitted,)` | vlen UTF-8 | always — the **unique** join key for staleness and export |
 | `input_hash` | `(n_fitted,)` | vlen UTF-8 | always — see below |
@@ -650,16 +807,43 @@ Group attributes record the scalar provenance: `reference_channel`,
 geometry attributes written by [`_write_geometry_attrs`](https://github.com/bioedca/tether/blob/main/src/tether/imaging/calibrate.py)
 (`src/tether/imaging/calibrate.py`).
 
-## `/models` — reserved, and empty today
+## `/models` — a reference to each condition's model file
 
-`/models` exists in every store because the schema freeze forward-declared it, but
-**nothing in Tether writes to it**. The quality ranker is persisted as a standalone
-portable model file instead, deliberately: it travels with a *condition* across many
-experiment files rather than being trapped inside one `.tether`
-(`src/tether/ml/persistence.py`, which states outright that nothing in it touches a
-`.tether`). Subset export copies the group verbatim
-(`src/tether/project/export.py`). Treat `/models` as reserved: expect it to be
-present and empty, and do not attach your own payload to it.
+`/models` exists in every store because the schema freeze forward-declared it. The
+quality ranker itself is **not** in the project. It is a standalone portable model
+file that travels with a *condition* across many experiment files
+(`src/tether/ml/persistence.py`, ADR-0035). The project only records **where that
+file is and which version of it the project last saw**. It keeps one group per
+condition, written by
+[`record_model_reference`](https://github.com/bioedca/tether/blob/main/src/tether/project/model_artifact.py)
+(`src/tether/project/model_artifact.py`, ADR-0119). The group is empty until a model
+is saved for a condition the project holds.
+
+`/models/<condition_id>` is a group with no datasets and these attributes:
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `reference_version` | int | the layout version of this group (`MODEL_REFERENCE_VERSION`, currently `1`); independent of the store's `schema_version` |
+| `condition_id` | str | the condition, the same as the group name |
+| `artifact_path` | str | the model file, an absolute path on the machine that saved it |
+| `artifact_sha256` | str | the SHA-256 of the model file at that save: compare it with the file to see whether the model changed since |
+| `n_retrains` | int | the model's retrain count at that save |
+| `model_updated_utc` | str | the model's last fit time (ISO-8601 UTC) |
+| `recorded_utc` | str | when this reference was written (ISO-8601 UTC) |
+| `app_version` | str | the Tether version that wrote it |
+
+A later save replaces the attributes of that condition's group. A project keeps one
+reference per condition. The model file has its own single-writer lock: `<model>.lock`
+beside it, the same record as a project's `.lock`. The condition's owner-curator
+holds it while they retrain and save.
+
+The reference has no user or host field. Its `artifact_path` is an absolute path, and a
+path can still name a user or a host, such as a home folder or a network share. If you
+share a project or a subset of it, keep the model under a neutral folder.
+Subset export copies the group verbatim (`src/tether/project/export.py`). A missing
+`/models` child means "no model recorded". An `artifact_path` that does not exist on
+the reader's machine is normal: the file may live on another computer or in a synced
+folder.
 
 ## Where to look next
 

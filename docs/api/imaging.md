@@ -15,6 +15,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.imaging.aperture
 
+::: tether.imaging.beadmap
+
 ::: tether.imaging.calibrate
 
 ::: tether.imaging.coloc
@@ -22,6 +24,8 @@ It needs no write access to `bioedca/tether`.
 ::: tether.imaging.detect
 
 ::: tether.imaging.extract
+
+::: tether.imaging.layout
 
 ::: tether.imaging.register
 

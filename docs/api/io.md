@@ -1,5 +1,5 @@
 ---
-description: "The generated API reference of tether.io: movie and file readers, the project store schema and exporters."
+description: "The generated API reference of tether.io: movie and file readers, the project file schema and exporters."
 ---
 
 # Input and output API (`tether.io`)
@@ -12,6 +12,8 @@ It needs no write access to `bioedca/tether`.
     options:
       show_root_heading: false
       members: false
+
+::: tether.io.adapters
 
 ::: tether.io.deeplasi
 

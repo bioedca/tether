@@ -17,6 +17,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.app
 
+::: tether.gui.app_settings
+
 ::: tether.gui.conditions
 
 ::: tether.gui.curation
@@ -29,15 +31,21 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.env_path
 
+::: tether.gui.file_type
+
 ::: tether.gui.histogram_dock
 
 ::: tether.gui.identity
 
 ::: tether.gui.indicators
 
+::: tether.gui.macos_app
+
 ::: tether.gui.movie_panel
 
 ::: tether.gui.overlap_dock
+
+::: tether.gui.preferences
 
 ::: tether.gui.reconcile
 
@@ -50,6 +58,10 @@ It needs no write access to `bioedca/tether`.
 ::: tether.gui.splash
 
 ::: tether.gui.start_page
+
+::: tether.gui.task_service
+
+::: tether.gui.tasks
 
 ::: tether.gui.theme
 
