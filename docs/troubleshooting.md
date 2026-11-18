@@ -967,7 +967,7 @@ are on the [Deep trace classifier](ml/deep-classifier.md#gpu-cuda-setup) page.
 | Command | `0` | `1` | `2` |
 |---|---|---|---|
 | `tether extract` | success — **including a low-confidence-registration warning** | the run failed; the message is on stderr as `tether extract: <msg>` | argparse rejected the command line |
-| `tether batch` | every requested stage ran for every movie (`not-requested` and `warning` included) | at least one movie had a failed stage | argparse rejected the command line, **or** the run refused to start (colliding output basenames, a bad supervision argument) |
+| `tether batch` | every requested stage ran for every movie (`not-requested` and `warning` included) | at least one movie had a failed stage | argparse rejected the command line, **or** the run refused to start (a movie argument that gives no movie, two movies no folder name tells apart, a bad supervision argument) |
 | `tether export` | every export was written | at least one export failed; each failure is one `tether export <form>: <msg>` line on stderr | argparse rejected the command line, **or** the export refused to start (two projects mapping to one export, `-o` a file where a folder is needed) |
 | `tether` (no subcommand) | prints help | — | an unknown subcommand or top-level flag |
 
@@ -993,8 +993,10 @@ Two things the console deliberately does not print, and where to find them inste
   error text only for a `failed` stage. Everything else — the over-gate flag, the α-withheld
   fallback, the deferral reason — lives in the **JSONL structured log**, whose path is echoed
   to stderr on every run (`<out-dir>/batch-log.jsonl` by default, or `--log`).
-- **Basename collisions.** Two input movies with the same stem are refused **up front**, exit
-  `2`, before any work: `movies '…/flat.tif' and '…/sub2/flat.tif' both map to
-  '…/bout/flat.tether'; rename one or use a separate --out-dir`. This is the classic
-  `movie_010.tif` in two condition folders; the checkpoint would otherwise treat the second
-  movie as already done using the first's data.
+- **Movies with one file name.** Two input movies with the same file name, such as
+  `movie_010.tif` in two condition folders, get their parent folder in front of their output
+  name: `condA__movie_010.tether` and `condB__movie_010.tether`. The structured log records
+  each movie and its output first, and `--dry-run` prints them before anything runs. Only
+  two names that no folder tells apart, such as `A.tif` and `a.tif` in one folder, are
+  refused up front with exit `2`. See [Output names when two movies have the same file
+  name](cli.md#output-names-when-two-movies-have-the-same-file-name).
