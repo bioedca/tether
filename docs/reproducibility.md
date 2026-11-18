@@ -13,11 +13,11 @@ it.
 Tether's design rule is that every datum carries its origin
 ([ADR-0001](adr/0001-provenance-first-data-model.md)). In practice that means three things,
 covered in turn below: a version stamp and the stage's settings on extraction, the leakage,
-γ and correction passes and each idealization inside the project, the same stamp in a sidecar file
+γ and correction passes and each idealization inside the project, the same stamp in a provenance file
 beside every publication export, and committed dependency locks that pin the environment the
 version ran in. The record is not complete: some steps and some settings are never stamped,
 and [What is not recorded](#what-is-not-recorded) lists them. Two pages go further: the
-[project store reference](reference/tether-format.md) documents every group and dataset in a
+[project file reference](reference/tether-format.md) documents every group and dataset in a
 `.tether` file, and the [exports reference](reference/exports.md) documents every column of
 every export. What to cite is on [Citing Tether](citing.md#reporting-a-tether-analysis). Which
 files to deposit with a paper is on [Share and deposit a dataset](how-to/share-a-dataset.md).
@@ -31,8 +31,8 @@ Every project is created with these attributes on its root group
 
 | Attribute | Meaning |
 |---|---|
-| `format` | Always `tether-project`; marks the file as a Tether store. |
-| `schema_version` | The store layout version, an integer. |
+| `format` | Always `tether-project`; marks the file as a Tether project file. |
+| `schema_version` | The project file layout version, an integer. |
 | `app_version` | The Tether version that **created** the project. It is optional: a writer can leave it out, so a valid project may lack it. |
 
 The root `app_version` says nothing about later steps. A project created with one release
@@ -56,7 +56,7 @@ Tether performed.
 
 | Attribute | Meaning |
 |---|---|
-| `window` | Aperture and patch window edge, pixels. |
+| `window` | Aperture window edge (also the patch edge), pixels. |
 | `disk_radius` | Signal disk radius, pixels. |
 | `ring_inner`, `ring_outer` | Background annulus radii, pixels. |
 | `bg_window` | Background moving-average length, frames. |
@@ -111,9 +111,9 @@ per stage (`extract_status`, `correct_status`, `idealize_status`), `app_version`
 `created_utc`.
 
 **`/settings/analysis_only`** — `src/tether/project/analysis_import.py`. Present only in a
-store imported from someone else's traces, where there is no movie to go back to:
+project file imported from someone else's traces, where there is no movie to go back to:
 `round_trip_available` (`False`), `reason`, `n_molecules`, `n_frames`, `banner`, `source`,
-`source_kind`, `app_version` and `created_utc`. Such a store has no `/settings/extraction`
+`source_kind`, `app_version` and `created_utc`. Such a project file has no `/settings/extraction`
 at all.
 
 ### Each idealization, under `/idealization`
@@ -150,7 +150,7 @@ Some steps leave no version or parameter stamp in the project, and one leaves on
   records no version.
 - Ranking and classification runs. A saved classical ranker records the version it was
   trained under (`tether_version` in its model manifest). The deep classifier records none.
-- The SMD file handed off to standalone tMAVEN has no sidecar. A fit run there is stamped
+- The SMD file handed off to standalone tMAVEN has no provenance file. A fit run there is stamped
   only with the Tether version that imported it, so report the tMAVEN version you ran.
 - Extraction is stamped once, for the first movie (see `/settings/extraction` above).
   Tether records no per-movie version, so the release that extracted a later movie is not
@@ -167,12 +167,12 @@ belongs in your own notes.
 
 ### Every export
 
-Each publication export writes a sidecar beside its output with the same stamp
+Each publication export writes a provenance file beside its output with the same stamp
 (`write_provenance_sidecar`, `src/tether/project/export.py`). The name is the full output
 filename with `.provenance.json` appended, so the original extension survives:
 `molecules.csv.provenance.json`, `traces.txt.provenance.json`,
 `subset.tether.provenance.json`. A figure exported with `export_figure`
-(`src/tether/analysis/plot_export.py`) is named by its stem, so its sidecar is
+(`src/tether/analysis/plot_export.py`) is named by its stem, so its provenance file is
 `<stem>.provenance.json`.
 
 | Key | Meaning |
@@ -181,14 +181,14 @@ filename with `.provenance.json` appended, so the original extension survives:
 | `app_version` | The Tether version that wrote the export. |
 | `created_utc` | When. |
 | `source_project` | The project it came from, as a file name. For a figure it is whatever the code that exported it passed in. |
-| `parameters` | For the store exports, the export's own settings, such as the intensity quantity and molecule count. For a figure, whatever the code that exported it passed in, plus `formats`, `dpi` and `outputs`; nothing records a plotting choice such as the bin count unless that code passes it, so pass every setting the plot was drawn with. |
+| `parameters` | For the project exports, the export's own settings, such as the intensity quantity and molecule count. For a figure, whatever the code that exported it passed in, plus `formats`, `dpi` and `outputs`; nothing records a plotting choice such as the bin count unless that code passes it, so pass every setting the plot was drawn with. |
 
 Figures are stamped twice more: the version is printed in the figure footer and embedded in
 the PDF, SVG and PNG metadata. The printed footer is there only with `export_figure`'s
-default `stamp=True`; a caller that passes `stamp=False` gets no footer, while the sidecar
+default `stamp=True`; a caller that passes `stamp=False` gets no footer, while the provenance file
 and the embedded metadata are still written. A figure re-rendered and exported again at the same pinned
 time gives byte-identical files in all three formats. Each export's parameters are listed in
-the [exports reference](reference/exports.md#provenance-sidecar).
+the [exports reference](reference/exports.md#provenance-file).
 
 ## How to read it back
 
@@ -258,7 +258,7 @@ keys, because some are written only when a step ran or produced a result:
   only when the backend reports them.
 - `profile_json` appears only when a settings profile was supplied.
 - `/settings/batch` appears only for a `tether batch` run, and `/settings/analysis_only` only
-  for an imported analysis-only store.
+  for an imported analysis-only project file.
 
 In an intact project, a missing group means the step left no completed record: it did not
 run, withheld its result, or ran and failed. For a `tether batch` run, each `<stage>_status`
@@ -281,7 +281,7 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   disk_radius = 3.0
   molecule_key_quantum_px = 0.1
   n_psf = 29
-  profile_json = {"app_version": "<your version>", "bg_window": 10, "coloc_distance": 3.0, "detection_block": 50, "detection_mode": "wavelet", "detection_threshold": null, "disk_radius": 3.0, "donor_side": "left", "donor_side_check": {"level_frames": 10, "majority": 0.8, "min_events": 15, "min_frames": 5, "n_consistent": 10, "n_events": 10, "n_molecules": 16, "n_swapped": 0, "n_together": 1, "reason": "", "step_z": 3.0, "verdict": "insufficient"}, "min_separation": null, "n_control_points": 16, "pair_tol": 2.0, "pipeline": "native", "prealign": "translation", "prealign_high_sigma": 20.0, "prealign_low_sigma": 3.0, "prealign_upsample": 10, "registration_rms_px": 3.901419122093834e-14, "registration_source": "native", "ring_inner": 6.0, "ring_outer": 8.0, "rms_gate": 0.5, "tdat_source": null, "tmap_source": null, "window": 21}
+  profile_json = {"app_version": "<your version>", "bg_window": 10, "channel_layout": null, "coloc_distance": 3.0, "colocalization": "partner-in-both", "detection_block": 50, "detection_mode": "wavelet", "detection_threshold": null, "disk_radius": 3.0, "donor_side": "left", "donor_side_check": {"level_frames": 10, "majority": 0.8, "min_events": 15, "min_frames": 5, "n_consistent": 10, "n_events": 10, "n_molecules": 16, "n_swapped": 0, "n_together": 1, "reason": "", "step_z": 3.0, "verdict": "insufficient"}, "min_separation": null, "n_control_points": 16, "pair_tol": 2.0, "pipeline": "native", "prealign": "translation", "prealign_high_sigma": 20.0, "prealign_low_sigma": 3.0, "prealign_upsample": 10, "registration_rms_px": 3.901419122093834e-14, "registration_source": "native", "ring_inner": 6.0, "ring_outer": 8.0, "rms_gate": 0.5, "tdat_source": null, "tmap_source": null, "window": 21}
   ring_inner = 6.0
   ring_outer = 8.0
   window = 21
@@ -345,7 +345,7 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   type = vbconhmm
 ```
 
-An export's sidecar is plain JSON. To make one from the same project, start the Python that
+An export's provenance file is plain JSON. To make one from the same project, start the Python that
 came with Tether in the same folder and export the molecule table:
 
 ```pycon
@@ -355,7 +355,7 @@ came with Tether in the same folder and export the molecule table:
 16
 ```
 
-That writes `molecules.csv` and its sidecar, `molecules.csv.provenance.json`. This prints the
+That writes `molecules.csv` and its provenance file, `molecules.csv.provenance.json`. This prints the
 stamp and then each parameter:
 
 ```python
@@ -401,7 +401,7 @@ have:
   straight from a source tree that was never installed.
 
 To see the version you have installed, run `tether --version` once Tether's launcher folder
-is on your PATH ([Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)),
+is on your PATH ([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)),
 or run the launcher by its full path as that page shows. For results already on disk, read
 the stamps above instead: they record the version that actually ran each step, which may not
 be the one installed today.
@@ -484,7 +484,7 @@ not run. The citations are the ones [Citing Tether](citing.md) gives for each st
 
 > Single-molecule FRET movies were processed with Tether version `<your version>`
 > (https://doi.org/10.5281/zenodo.23306397). Donor and acceptor intensities were integrated
-> over a 3.0-pixel-radius disk inside a 21-pixel window, with the local background taken from
+> over a 3.0-pixel-radius disk inside a 21-pixel aperture window, with the local background taken from
 > an annulus between 6.0 and 8.0 pixels and averaged over 10 frames (Wanninger et al., 2023).
 > Correction factors were estimated as described by McCann et al. (2010) and Hellenkamp et
 > al. (2018): donor-to-acceptor leakage α = 0.080, from 15 of 16 molecules after acceptor

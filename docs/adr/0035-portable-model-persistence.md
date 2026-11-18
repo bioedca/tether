@@ -87,8 +87,9 @@ not a sandbox.
   hyperparameters remain the single §11.2 "Quality-ranker model" row from ADR-0034.
 - **Deferred to later PRs (explicitly out of scope here).** The store-integration layer — the
   `.tether` `/models` **reference** to the external artifact and its **own single-writer
-  owner-curator lock** (PRD §5.1 `/models`, §7.10) — is the next M5 PR (the lock machinery already
-  exists in `tether.project.lock`). Also still deferred: per-label `source` weighting + cold-start
+  owner-curator lock** (PRD §5.1 `/models`, §7.10) — was deferred to a later PR; it landed in
+  [ADR-0119](0119-the-condition-model-has-its-own-lock-and-a-project-reference.md)
+  (`tether.project.model_artifact`, #561). Also still deferred: per-label `source` weighting + cold-start
   decay, the prequential median-across-videos precision@k **uplift ship gate**, cross-condition
   seeding + drift flag + multi-curator merge, and the active-learning badge.
 
