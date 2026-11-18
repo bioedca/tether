@@ -1639,6 +1639,10 @@ def test_successful_curation_defers_open_population_histogram_refresh(
     assert dock.histogram.n_molecules == 3
     assert histogram_calls == 1
 
+    # Showing the histogram moved the window to Analyze, where the curation keys do not
+    # act (#342); the curator goes back to Curate and correct to curate. The open dock is
+    # still refreshed while its section is hidden (ADR-0116).
+    shell.set_section("curate")
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
 
     assert histogram_calls == 1
