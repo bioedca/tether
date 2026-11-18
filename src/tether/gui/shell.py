@@ -1011,6 +1011,14 @@ class TetherShell:
         return self._window
 
     @property
+    def channel_map(self) -> Any:
+        """The Calibration menu's actions.
+
+        A [`ChannelMapActions`][tether.gui.calibration.ChannelMapActions] (#353).
+        """
+        return self._channel_map
+
+    @property
     def trace_dock(self) -> Any:
         """The `TraceDock` on the page of the Curate and correct section."""
         return self._trace_dock
@@ -1166,9 +1174,10 @@ class TetherShell:
         project in later work (#352 publishes an extraction into it; analysis results are
         stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
 
-        Each section also declares its menus (#342): Import in Prepare; Curation, Hand-off
-        and Conditions in Curate and correct; Analysis in Analyze. Only Curate and correct
-        declares the curation keymap scope, so the curation keys act only there.
+        Each section also declares its menus (#342): Import and Calibration (#353) in
+        Prepare; Curation, Hand-off and Conditions in Curate and correct; Analysis in
+        Analyze. Only Curate and correct declares the curation keymap scope, so the
+        curation keys act only there.
         """
         browser_panel = self._browser_panel
         return SectionRegistry(
@@ -1188,6 +1197,11 @@ class TetherShell:
                             id="import",
                             title="&Import",
                             populate=lambda _host, menu: self._populate_import_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="calibration",
+                            title="Ca&libration",
+                            populate=lambda _host, menu: self._populate_calibration_menu(menu),
                         ),
                     ),
                 ),
@@ -1257,6 +1271,27 @@ class TetherShell:
         self._legacy_menu = menu
         self._act_import_deeplasi = menu.addAction("&Deep-LASI bundle…")
         self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+
+    def _populate_calibration_menu(self, menu: Any) -> None:
+        """Prepare's Calibration menu (#353): make, choose and apply a channel map file.
+
+        Make a channel map from a bead video or image, or choose a saved one, and extract
+        a later movie with it. Each action is a service command (map, extract), run on a
+        background worker of its own so the window stays live; the mapping page itself is
+        #917.
+        """
+        from tether.gui.calibration import ChannelMapActions
+
+        self._channel_map = ChannelMapActions(
+            status=self._status, open_project=self.load_project, window=self._window
+        )
+        self._calibration_menu = menu
+        self._act_make_map = menu.addAction("&Make channel map…")
+        self._act_make_map.triggered.connect(self._channel_map.make_map_dialog)
+        self._act_choose_map = menu.addAction("&Choose channel map…")
+        self._act_choose_map.triggered.connect(self._channel_map.choose_map_dialog)
+        self._act_extract_with_map = menu.addAction("&Extract a movie with the channel map…")
+        self._act_extract_with_map.triggered.connect(self._channel_map.extract_with_map_dialog)
 
     def _populate_curation_menu(self, menu: Any) -> None:
         """Curate and correct's Curation menu: the cheat-sheet and the overflow picker."""
@@ -3187,6 +3222,9 @@ class TetherShell:
         # A running fit is abandoned (its result is discarded): the service stops its
         # poll timer and restores the wait cursor it set, so it never leaks past close.
         self._tasks.abandon()
+        # The same for a running channel-map command (#353): its outcome is not applied
+        # to a closed shell, and its worker stops once the command ends.
+        self._channel_map.close()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()

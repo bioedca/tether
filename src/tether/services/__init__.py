@@ -29,6 +29,8 @@ from tether.services.base import (
 )
 from tether.services.batch import BatchRequest, BatchResult
 from tether.services.extract import ExtractRequest, ExtractResult
+from tether.services.idealize import IdealizeRequest, IdealizeResult, SidecarUnavailable
+from tether.services.maps import MapCreateRequest, MapCreateResult
 from tether.services.profile import (
     ExtractionFields,
     ExtractionProfile,
@@ -52,13 +54,18 @@ __all__ = [
     "CommandFailed",
     "ExtractRequest",
     "ExtractResult",
+    "IdealizeRequest",
+    "IdealizeResult",
     "ExtractionFields",
     "ExtractionProfile",
+    "MapCreateRequest",
+    "MapCreateResult",
     "Request",
     "RequestError",
     "RequestRefused",
     "ServiceCommand",
     "ServiceError",
+    "SidecarUnavailable",
     "command",
     "profile_from_text",
     "profile_to_text",
