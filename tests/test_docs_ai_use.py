@@ -13,7 +13,9 @@ so that a later edit cannot remove one without a failing test:
 * the README links the page;
 * every table row has one of the three statuses, and every row that is not ``Met`` links an
   issue;
-* the page cites the white paper and says that Tether is not certified.
+* the page cites the white paper and says that Tether is not certified;
+* the pull-request template asks for the AI tool that drafted a change, on a line outside the
+  footers that the squash commit takes, and the table row for traceability points at it (#652).
 
 Stdlib plus PyYAML (a mkdocs dependency in the base lock); it reads the files as text.
 """
@@ -105,3 +107,18 @@ def test_the_page_cites_the_white_paper_and_claims_no_certification() -> None:
     assert "Tether is not certified to ASD-STE100." in text
     assert "is not an endorsement of the tool" in text
     assert "they do not endorse Tether" in text
+
+
+def test_the_pr_template_records_the_drafting_tool_outside_the_footers() -> None:
+    """#652: each pull request names the AI tool that drafted it, and no commit footer does."""
+    template = (_REPO / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    lines = template.splitlines()
+    ai_lines = [i for i, line in enumerate(lines) if line.startswith("- AI assistance:")]
+    assert len(ai_lines) == 1, ai_lines
+    assert "none" in lines[ai_lines[0]]
+    headings = [(i, line) for i, line in enumerate(lines) if line.startswith("## ")]
+    section = max((h for h in headings if h[0] < ai_lines[0]), key=lambda h: h[0])[1]
+    assert section != "## Linked tracking", "the line must not be one of the squash footers"
+    row = next(r for r in _assessment_rows() if r[0] == "Transparency and traceability")
+    assert row[1] == "Met", row
+    assert "pull_request_template.md" in row[2], row

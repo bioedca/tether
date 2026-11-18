@@ -18,7 +18,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
   stored. It does not, because the tree has no application settings store at all and the per-OS
   re-install behaviour that decides the right location has not been measured. Stating a location here
   would be a guess presented as a decision; [#330](https://github.com/bioedca/tether/issues/330)
-  measures it instead (§3).
+  measures it instead (§3). (Resolved 2026-11-14 by
+  [ADR-0095](0095-application-settings-live-outside-the-install-folder.md): the answer lives in
+  the user's own settings folder, outside the install folder, and the re-install behaviour is
+  measured on all three systems.)
 - **Date:** 2026-07-30
 - **Deciders:** bioedca — integrity model, consent and channel recorded 2026-07-27; decision 2's
   verifier *mechanism* selected during authoring on measured evidence (that 2026-07-27 comment had
@@ -69,6 +72,33 @@ those three?
   `docs/stability.md`'s "no downgrade path" is about a `.tether` file's `schema_version` under
   *Project file compatibility*, not about application versions — it does not license this claim, and
   an earlier draft cited it as though it did.)
+
+## Considered options
+
+Decision 1, the scope of an update:
+
+- **Detect, download, verify, then hand off to the OS installer** (chosen).
+- **Notify-only.**
+- **An in-place environment update from the released `conda-lock.yml`.**
+
+Decision 2, how the installer is verified (as amended below):
+
+- **The GitHub build-provenance attestation, checked by `gh attestation verify --bundle` with a
+  pinned `gh` that Tether ships as an `extra_files` artifact** (chosen by the amendment).
+- **Checksum only.**
+- **Shell out to a `gh` the user might have.**
+- **`sigstore-python`, in-process** (the mechanism decision 2 first named).
+- **`cosign`.**
+- **A conda-forge verifier in the base lock.**
+
+Decision 4, how "stable" is told apart from a prerelease:
+
+- **Derive it from the verified tag, and allowlist the exact tag form** (chosen).
+- **Trust the release API's `prerelease` flag.**
+- **Deny a SemVer prerelease component** in place of the allowlist.
+
+Decisions 3, 5 and 6 record no rejected alternative. Why each other option was set aside is
+under decision 4, *Considered and rejected* and *Why `gh` rather than `cosign`*, below.
 
 ## Decision outcome
 

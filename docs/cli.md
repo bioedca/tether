@@ -1,14 +1,16 @@
 ---
-description: "Run tether extract and tether batch without the window: script the pipeline, process movies unattended or repeat an extraction from recorded settings."
+description: "Run tether extract and tether batch without the application window: script the pipeline, run movies unattended or repeat an extraction."
 ---
 
 # Command line
 
-**Who this page is for.** Anyone driving Tether without the window: scripting the
-pipeline, processing a night's worth of movies unattended, or reproducing an
-extraction from recorded settings. Today the command line has three subcommands:
-`tether extract` and `tether batch` write projects, and `tether info` only reads them and
-prints a summary.
+**Who this page is for.** Anyone driving Tether without the application window: scripting the
+pipeline, processing a night's worth of movies unattended, reproducing an
+extraction from recorded settings, or exporting results from many projects. Today the
+command line has five subcommands: `tether extract` and `tether batch` write projects,
+`tether info` only reads them and prints a summary, `tether metadata` shows or gives the
+frame time, pixel size and channel roles of a project's movies, and `tether export` reads
+projects and writes the molecule table, the trace text file or a subset project.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -37,9 +39,9 @@ The installer deliberately does **not** edit your `PATH` (see
 is a bare word you can type. It writes both launchers into one directory — `bin/` under
 the install root you chose during installation:
 
-| Platform | Command-line launcher | Window launcher |
+| Platform | Command-line launcher | Application-window launcher |
 |---|---|---|
-| Windows | `<install-root>\bin\tether.bat` | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
+| Windows | `<install-root>\bin\tether.bat`, or `tether` in Start Menu → **Tether Command Prompt** from the next release | Start Menu → **Tether**, or `<install-root>\bin\tether-gui.bat` in a terminal |
 | Linux | `<install-root>/bin/tether` | Applications menu → **Tether**, or `<install-root>/bin/tether-gui` |
 | macOS | `<install-root>/bin/tether` | `<install-root>/bin/tether-gui` |
 
@@ -48,13 +50,17 @@ the install root instead, a folder that holds nothing else
 ([#492](https://github.com/bioedca/tether/issues/492)): read `launchers` for `bin` in the
 table.
 
-Add that one directory to the **end** of your `PATH`, and you can copy every example on
-this page as it is. [Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)
+On Windows, from the next release, Start Menu → **Tether Command Prompt** opens a console
+that needs no `PATH` change ([#666](https://github.com/bioedca/tether/issues/666)). In it, you
+can type `tether` by name. An example written for one shell, such as the Bash or PowerShell
+batch example, still needs that shell. On any system, add that one directory to the **end**
+of your `PATH`, and `tether` works by name in any terminal.
+[Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)
 gives the line for each system. It also tells why the folder goes at the end: in rc3, on Linux
 and macOS, the `bin` folder also holds the installer's own `python`, `pip` and `conda`, and
 these must not hide your own.
 
-Without that step, substitute the full launcher path from the table for `tether` in
+Without either, substitute the full launcher path from the table for `tether` in
 every command below; nothing else changes. Verify the install with:
 
 ```console
@@ -84,8 +90,10 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--min-separation MIN_SEPARATION]
                [--detection-block DETECTION_BLOCK]
                [--prealign {translation,similarity}] [--pair-tol PAIR_TOL]
-               [--coloc-distance COLOC_DISTANCE] [--rms-gate RMS_GATE]
-               [--tmap PATH] [--tdat PATH]
+               [--coloc-distance COLOC_DISTANCE]
+               [--colocalization {partner-in-both,donor-anchored}]
+               [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
+               [--tdat PATH] [--profile PATH]
                movie
 ```
 
@@ -93,7 +101,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 |---|---|---|
 | `movie` | *(required)* | path to the dual-channel TIFF movie |
 | `-o OUTPUT`, `--output OUTPUT` | *(required)* | path to the `.tether` project to create |
-| `--overwrite` | off | overwrite an existing output project |
+| `--overwrite` | off | overwrite an existing output project; Tether holds the project's writer lock for the run, so it refuses a project that another writer has open (not another user who opened it through a different hard-link name) |
 | `--donor-side {left,right}` | `left` | which horizontal half is the donor channel |
 | `--detection-mode {wavelet,intensity,bandpass}` | `wavelet` | particle-detection method (Deep-LASI `findPart` mode). `intensity`/`bandpass` also honor `--detection-threshold`. Mutually exclusive with `--tdat`, which supplies the mode |
 | `--detection-threshold FRAC` | each mode's own — intensity `0.5`, bandpass `0.98` | detection threshold as a fraction of the detection-image max, in `[0, 1)` (intensity/bandpass modes only; ignored by wavelet). Mutually exclusive with `--tdat` |
@@ -103,9 +111,12 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--prealign {translation,similarity}` | `translation` | registration prealign degrees of freedom |
 | `--pair-tol PAIR_TOL` | `2` | control-point pairing tolerance in px |
 | `--coloc-distance COLOC_DISTANCE` | `3` | acceptor colocalization distance in px |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | which molecules to keep: `partner-in-both` keeps a donor spot only when an acceptor spot was detected at its mapped position (Deep-LASI's rule); `donor-anchored` keeps every donor spot, for weak-acceptor and low-FRET samples ([see below](#choose-the-colocalization-rule)) |
+| `--count-only` | off | run detection, registration and colocalization, print the molecule count of each colocalization rule, and write nothing |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
 | `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
-| `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with; mutually exclusive with `--detection-mode`/`--detection-threshold` |
+| `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
+| `--profile PATH` | none | read every extraction option from an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
 
 ### Get `--donor-side` right, and read the donor-side check
 
@@ -123,7 +134,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > When the acceptor bleaches first the acceptor drops to background and the donor *rises*;
 > when the donor bleaches first both drop. A bleach event is a molecule whose dyes bleach
 > one after the other, with a clear drop in one channel and a clear rise in the other at the
-> first bleach. If the channel labelled donor shows the acceptor's drop in at least 80 % of
+> first bleach. If the channel labeled donor shows the acceptor's drop in at least 80 % of
 > at least 15 bleach events, the command warns on standard error, names the evidence and
 > gives the remedy:
 >
@@ -146,7 +157,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 >
 > **How to check by eye (the fallback).** Look at a molecule whose acceptor photobleaches
 > mid-trace. When the acceptor dies the donor stops transferring energy, so the *donor*
-> trace steps **up** at that moment. If instead the trace you have labelled "donor" steps
+> trace steps **up** at that moment. If instead the trace you have labeled "donor" steps
 > *down* while the other steps up, your halves are swapped — re-extract with the other
 > value.
 >
@@ -163,11 +174,12 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 > `--tmap` run, and its warning then points at the map's channel order instead of at
 > `--donor-side`.
 
-`--detection-mode` and `--prealign` are refused in the same way: an unrecognised value
+`--detection-mode` and `--prealign` are refused in the same way: an unrecognized value
 gives the usage line, an `invalid choice` message that names the allowed values, and exit
 code 2. The three flags take their allowed values from the same constants that
 `ExtractOptions` checks (`tether.extract_choices`), so the command line and the library
-accept the same values.
+accept the same values. `--policy` on `tether batch` and `--intensity-quantity` on
+`tether export` also have an argparse `choices` list.
 
 ### Detection settings: pick one source
 
@@ -180,6 +192,95 @@ $ tether extract movie.tif -o movie.tether --tdat run.tdat --detection-mode wave
 tether extract: --detection-mode/--detection-threshold cannot be combined with --tdat (the .tdat supplies the detection mode); pass one or the other
 ```
 
+The rule for `--tdat`, in `tether extract` and `tether batch` alike:
+
+- **A `.tdat` sets `detection_mode` and `detection_threshold`, and no other option.** Every
+  other option, from a flag, a profile or its default, keeps its value. A `.tdat` that
+  holds no threshold keeps the threshold unset, so each detection mode uses its own.
+- **It is refused beside a choice of either field**: a `--detection-mode` or
+  `--detection-threshold` flag, or an [extraction profile](#extraction-profiles) in which
+  either is not `null`. The refusal comes before any movie is read.
+- **The values it applied are recorded.** `/settings/extraction` stores the
+  `detection_mode` and `detection_threshold` that ran, and the `.tdat` filename as
+  `tdat_source`.
+
+### Extraction profiles
+
+An *extraction profile* is a JSON file that holds every extraction option, so one
+file describes how a movie was extracted. `tether extract --profile` and
+`tether batch --profile` read one. Its form is the form of a
+[service-command request](#service-commands), with `"extraction-profile"` in place of the
+command name:
+
+```json
+{"command":"extraction-profile","fields":{"disk_radius":2.5,"ring_inner":5.0,
+"window":19},"version":1}
+```
+
+- **A field you leave out keeps its default**, so a profile you write by hand names only
+  the options it changes. The fields are the option names with `_` for `-`, plus the seven
+  options that have no flag: `prealign_upsample`, `prealign_low_sigma`,
+  `prealign_high_sigma`, `disk_radius`, `ring_inner`, `ring_outer` and `bg_window`.
+  [Analysis parameters](reference/parameters.md) gives each default and what it does.
+- **The channel layout is four fields.** `channel_layout` is the kind: `side-by-side`,
+  `top-bottom` or `rectangles`, or `null` for the split that `donor_side` describes.
+  `channel_layout_donor` is the donor half of a half layout (`left` or `right`, `top` or
+  `bottom`, and `null` takes the first). `channel_layout_donor_rect` and
+  `channel_layout_acceptor_rect` are the two rectangles of a `rectangles` layout, each
+  `[y1, x1, y2, x2]` with 1-based inclusive bounds. A layout is refused beside a
+  `donor_side` other than `left` and beside `--tmap`. For example, a camera that puts the
+  donor in the bottom half:
+
+  ```json
+  {"command":"extraction-profile","fields":{"channel_layout":"top-bottom",
+  "channel_layout_donor":"bottom"},"version":1}
+  ```
+
+- **It is checked before any movie is read.** An unknown field, a value of the wrong type
+  and a value extraction refuses (an even `window`, a `ring_outer` that does not fit in the
+  window) stop the command with a message that names the file.
+- **It replaces the option flags.** `--profile` with any of `--donor-side` to `--rms-gate`
+  is refused, even when the flag repeats the profile's value: change the value in the
+  file. `--tdat` may be combined with a profile whose `detection_mode` and
+  `detection_threshold` are `null` ([the rule above](#detection-settings-pick-one-source)).
+- **The values that ran are recorded.** Every option is written into `/settings/extraction`
+  as before. The profile's filename is not.
+
+A profile is a file you name, not a setting of the application, so it can be kept with the
+data and used on another computer
+([ADR-0129](adr/0129-an-extraction-profile-is-a-file-in-the-request-text-form.md)). From
+Python, `tether.services.write_profile` writes one and
+`tether.services.ExtractionProfile.from_options` makes one from an `ExtractOptions`.
+
+### Choose the colocalization rule
+
+A molecule starts as a donor spot. By default (`--colocalization partner-in-both`) Tether
+keeps it only when an acceptor spot was also detected within `--coloc-distance` of its
+mapped position, which is the rule Deep-LASI uses. That rule **drops the low-FRET and
+acceptor-dark molecules**: their acceptor is too weak to be detected as a spot of its own.
+If your sample has a weak acceptor, or you expect a low-FRET population, extract with
+`--colocalization donor-anchored`, which keeps every donor spot whose aperture fits in the
+frame. Under both rules the acceptor intensity is read at the mapped donor position.
+
+To see what each rule keeps before you commit to a run, add `--count-only`. It writes
+nothing (`-o` is still required):
+
+```console
+$ tether extract movie.tif -o movie.tether --count-only
+Molecules in movie.tif under each colocalization rule (nothing written):
+  partner-in-both: 412 (selected)
+  donor-anchored: 455
+```
+
+A large gap between the two counts means many donor spots have no detected acceptor. The
+rule is recorded with each movie in the project, and every molecule records whether an
+acceptor spot was detected for it (`/molecules/acceptor_detected`). A project extracted
+before the rule could be chosen used the donor-anchored rule, and it reads that way.
+Extracting the movie again uses the new default unless you name `donor-anchored`.
+`tether batch --colocalization` sets the rule for every movie in a batch. In an
+[extraction profile](#extraction-profiles) the rule is the `colocalization` field, and
+`--colocalization` is then refused beside `--profile` like the other option flags.
+
 ### Example — one movie to one project
 
 ```bash
@@ -188,10 +289,13 @@ tether extract movie.tif -o movie.tether
 
 ```console
 Extracted 412 molecule(s) -> movie.tether
+  colocalization: partner-in-both kept 412 (donor-anchored would keep 455)
   donor side: 38 of 40 bleach events agree with the donor side as extracted.
 ```
 
-The second line is the [donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
+The second line names the [colocalization rule](#choose-the-colocalization-rule) and what
+the other rule would have kept. The third is the
+[donor-side check](#get-donor-side-right-and-read-the-donor-side-check).
 If the registration RMS residual exceeds `--rms-gate`, extraction still succeeds and
 still exits 0, but a warning goes to stderr and the affected molecules are tagged
 `low-confidence-registration` in the project — a flag you can filter on later rather
@@ -199,27 +303,33 @@ than a silent pass.
 
 ## `tether batch`
 
-Process many movies unattended (FR-BATCH). Each movie becomes its own
-`<out-dir>/<stem>.tether`. That is how the command writes, not a limit of the project
+Process many movies unattended (FR-BATCH). Give it a folder of movies, a pattern or the
+movie files themselves. Each movie becomes its own `<out-dir>/<stem>.tether`. That is how the command writes, not a limit of the project
 file, which can hold several movies of one experiment
 ([`.tether` project](glossary.md#tether-project)). Failures are isolated — one bad movie
 does not stop the run — and each stage is checkpointed, so re-running the same command
 resumes only the incomplete stages instead of redoing finished work.
 
 ```text
-tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
-             [--no-idealize] [--overwrite] [--log PATH] [--max-restarts N]
-             [--sidecar-timeout SECONDS] [--sidecar-python PATH] [--no-defer]
+tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PATH]
+             [--profile PATH] [--policy {warn,fail}]
+             [--colocalization {partner-in-both,donor-anchored}] [--no-idealize]
+             [--overwrite] [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
+             [--sidecar-python PATH] [--no-defer] [--quiet | --verbose]
              movies [movies ...]
 ```
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `movies` | *(required, one or more)* | one or more dual-channel TIFF movies |
+| `movies` | *(required, one or more)* | dual-channel TIFF movies: each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
+| `--recursive` | off | a folder argument also includes the movies in its sub-folders |
+| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. No movie is read and nothing is written ([see below](#check-a-batch-before-it-runs-dry-run)) |
 | `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
-| `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie |
+| `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
+| `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option but `--colocalization` is at its default. It cannot be combined with `--colocalization` |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
+| `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | the colocalization rule of every movie's extraction; see [`tether extract`](#choose-the-colocalization-rule) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
 | `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
 | `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
@@ -227,6 +337,8 @@ tether batch [-h] -d OUT_DIR [--tmap PATH] [--tdat PATH] [--policy {warn,fail}]
 | `--sidecar-timeout SECONDS` | `1800` | per-idealization-call sidecar timeout in seconds |
 | `--sidecar-python PATH` | `$TETHER_SIDECAR_PYTHON` | sidecar interpreter for idealization |
 | `--no-defer` | off | do not defer idealization when the sidecar is unavailable at startup; let each movie's idealize stage fail in isolation instead |
+| `--quiet` | off | print no progress lines on stderr (the summary on stdout is unchanged, [see below](#progress-while-the-batch-runs)) |
+| `--verbose` | off | also print every stage event on stderr, as the structured log records it (not with `--quiet`) |
 
 Idealization runs in the isolated tMAVEN sidecar, not in the application environment. If
 `--sidecar-python` is not given, Tether uses `$TETHER_SIDECAR_PYTHON`; an installed build
@@ -235,14 +347,136 @@ normal install needs neither. When no sidecar can be found at startup the run *d
 idealization — extraction and correction still happen for every movie — unless you pass
 `--no-defer`, which instead lets each movie's idealize stage fail on its own.
 
-Two movies whose filenames share a basename would both map to the same output project,
-and the checkpoint would treat the second as already done using the first's data. That is
-rejected before any work starts:
+A profile changes how a movie is extracted, not which stages count as done: a movie whose
+extraction finished in an earlier run is not extracted again with a new profile, not even
+with `--overwrite`. Use a new `--out-dir` to extract a set of movies with a changed
+profile.
+
+### Which movies a folder or a pattern gives
+
+Each `movies` argument is one of three things, and Tether expands it itself, so the same
+command gives the same movies in PowerShell, cmd and bash:
+
+- **A folder** gives the movie files directly inside it. A movie file has an extension that
+  a Tether movie reader opens, in any case. Today these are `.tif` and `.tiff`. With
+  `--recursive` it also gives the movies in its sub-folders.
+- **A pattern** — an argument with `*`, `?` or `[...]` in it that is not an existing path —
+  gives the movie files it matches. `**` matches any number of folders. A folder that the
+  pattern matches is expanded as a folder argument. Put a pattern in quotes, so that bash
+  passes it to Tether as it is.
+- **A file** is used as it is, whatever its extension.
+
+Names that start with `.` are left out of folders and patterns. macOS writes `._name.tif`
+files beside movies on some drives. The movies of all the arguments are put in one list,
+sorted by path, and a movie that two arguments give is processed once. An argument that
+gives no movie stops the run before anything is written, and the message names it:
 
 ```console
-$ tether batch a/movie_010.tif b/movie_010.tif -d out
-tether batch: movies 'a/movie_010.tif' and 'b/movie_010.tif' both map to 'out/movie_010.tether'; rename one or use a separate --out-dir
+$ tether batch data/day4 -d out
+tether batch: folder 'data/day4' holds no movie file (.tif, .tiff); add --recursive to include its sub-folders
 ```
+
+A folder that Tether cannot list stops the run in the same way. This includes each
+sub-folder that `--recursive` or a pattern looks in, so a batch never runs with one of them
+left out.
+
+### Output names when two movies have the same file name
+
+Acquisition software often numbers the files the same way in each day's folder, so
+`day1/movie_010.tif` and `day2/movie_010.tif` are common. Two movies with one output name
+would share one project, and the checkpoint would treat the second as already done with
+the first one's data. So the output name follows one rule:
+
+- An output is named after the movie's file name without its extension, as `movie_010`.
+- While two names are the same, each of those movies puts its next parent folder in
+  front, joined with `__`: `day1__movie_010` and `day2__movie_010`. A movie whose name is
+  not shared keeps its own name, so a batch without equal file names writes the same
+  names as before.
+- Names are compared without regard to case on every operating system, because
+  `Movie_010.tether` and `movie_010.tether` are one file on Windows and macOS.
+
+The folders are those of the movie's full path, so the names do not depend on the folder
+you run the command from. If no folder tells two movies apart — `A.tif` and `a.tif` in one
+folder — the run stops before anything is written. `--dry-run` shows each name before
+the run, and the structured log records each movie and its output as an `input` event
+with status `mapped`.
+
+An output name depends on the whole list of movies: if you add `day3/movie_010.tif` to a
+batch that had only `day1/movie_010.tif`, the day 1 movie's output becomes
+`day1__movie_010` and the old `movie_010.tether` is not resumed. Run the batch with
+`--dry-run` first when you change what it holds.
+
+### Check a batch before it runs (`--dry-run`)
+
+`--dry-run` prints the plan and exits `0`. It reads no movie, creates no folder and writes
+no file. It prints one line for each movie with its output project and what the run would
+do with it, then the settings, the log path and whether a sidecar interpreter was found:
+
+```text
+Batch plan (dry run): 3 movie(s) into projects; no movie was read and nothing was written
+  data/day1/movie_010.tif -> projects/day1__movie_010.tether  [new]
+  data/day1/movie_011.tif -> projects/movie_011.tether  [exists, complete: will be skipped]
+  data/day2/movie_010.tif -> projects/day2__movie_010.tether  [exists: will resume at idealize]
+Settings: policy=warn, idealize=on, overwrite=off, recursive=on, tmap=none, tdat=none, max-restarts=3, sidecar-timeout=1800.0s, defer=on
+Structured log: projects/batch-log.jsonl
+Sidecar: found at /opt/tether/envs/sidecar/bin/python (the run checks that it starts before the first movie)
+```
+
+What a line says comes from the output project's checkpoint, which is opened read-only:
+
+| The line says | The output project |
+|---|---|
+| `new` | does not exist yet |
+| `exists, complete: will be skipped` | holds every stage the run asks for |
+| `exists: will resume at` a stage | holds some stages, and the run does the others |
+| `exists, incomplete:` | holds no finished extraction, and only `--overwrite` replaces it |
+| `exists, over the gate:` | holds an extraction that `--policy fail` rejects |
+
+A refusal to start, such as a movie argument that gives no movie, is reported as
+it would be by the run, with exit code `2`. The dry run only looks for the sidecar
+interpreter. The real run also starts it once before the first movie.
+
+### Progress while the batch runs
+
+A batch over a condition can run for hours, so `tether batch` prints progress to
+**stderr** while it works. One line states the setup before the first movie is read. It
+gives the number of movies, the output folder, the policy and whether idealization was
+asked for. Check that line first: a wrong option shows there, not hours later in the
+summary. Then each movie gets a start line and an end line. The end line gives its
+position, its name, the result, the time it took and the status of every stage:
+
+```text
+tether batch: 3 movie(s) into projects (policy=warn, idealize=on)
+tether batch: idealize deferred - sidecar unavailable — idealization deferred: no sidecar interpreter: pass sidecar_python= or set TETHER_SIDECAR_PYTHON to a Python in an env built from sidecar/conda-lock.yml with tMAVEN installed
+[1/3] cond_a_010: started
+[1/3] cond_a_010: ok in 4m12s (extract=done correct=done idealize=deferred)
+[2/3] cond_a_011: started
+[2/3] cond_a_011: ok in 3m58s (extract=done correct=done idealize=deferred; flagged: extract)
+[3/3] cond_a_012: started
+[3/3] cond_a_012: FAIL in 0.1s (extract=failed(could not extract from cond_a_012.tif: not a TIFF file: header=b'not ') correct=blocked idealize=blocked)
+```
+
+A line about the whole run, such as the idealization deferred at startup above, starts
+with `tether batch:`. The end line names a flagged stage after `flagged:`. A stage is
+flagged when it kept the movie with a flag (an over-gate registration under
+`--policy warn`) or raised a warning (the [donor-side
+check](#the-donor-side-check-in-the-batch-summary)).
+
+There are three levels:
+
+| Level | stderr while the run works |
+|---|---|
+| `--quiet` | no progress line |
+| default | the setup line, the run-level lines, and a start and an end line for each movie |
+| `--verbose` | the default lines, and also one line for each stage event, such as `[1/3] cond_a_010 extract: done - 3 molecule(s)` |
+
+The lines come from the same events as the structured log, so the two cannot disagree. They
+are plain text with no cursor control, so a redirected stderr or a scheduler's log file
+reads the same as a terminal. **stdout does not change at any level**: it holds the
+end-of-run summary and its `Exit code` line only, so a script that reads stdout is not
+affected. Two lines on stderr do not
+depend on the level. One is the `structured log:` path at the end. The other is a failed
+stage, which Python's logging prints as `movie · stage: failed — reason`.
 
 ### How policy `fail` behaves on resume
 
@@ -267,7 +501,7 @@ destination lock before testing whether its project file exists or reading a che
 any existing writer lock, including one held by another thread in this process, fails
 that movie as locked without refreshing or releasing the caller's lock. A process-local
 per-destination reservation also prevents another local thread from refreshing that
-same-identity sidecar or writing through it. Both claims remain held while batch creates,
+same-identity lock file or writing through it. Both claims remain held while batch creates,
 skips, or re-extracts the destination.
 
 ### The donor-side check in the batch summary
@@ -284,6 +518,7 @@ Batch run: 2 movie(s), 2 ok, 0 failed (policy=warn, idealize=off)
   ok    flipped_011  extract=done correct=done idealize=not-requested halves-swapped?
 Donor and acceptor halves look swapped in 1 movie(s) (advisory; nothing was changed):
   flipped_011: 27 of 27 bleach events are consistent with swapped donor and acceptor halves; extract this movie again with --donor-side right
+Exit code 0: every requested stage ran for every movie.
 ```
 
 The structured log carries the same finding as a `donor-side-check` event with status
@@ -294,12 +529,16 @@ and the remedy the message names.
 ### Example — a folder of movies, extraction and correction only
 
 ```bash
-tether batch data/*.tif -d projects --no-idealize
+tether batch data -d projects --no-idealize
 ```
 
-```powershell
-# Windows PowerShell has no shell glob expansion for native commands
-tether batch (Get-ChildItem data\*.tif) -d projects --no-idealize
+The same command works in PowerShell and cmd. To take the movies of several day folders,
+give the parent folder with `--recursive`, or a quoted pattern, which also works in every
+shell:
+
+```bash
+tether batch data --recursive -d projects --dry-run
+tether batch "data/2026-11-*" -d projects --no-idealize
 ```
 
 The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
@@ -370,7 +609,8 @@ out/movie_010.tether
 ```
 
 Give several projects to summarize them in one run (on Windows PowerShell, list them, or use
-`Get-ChildItem` as in the [batch example](#example-a-folder-of-movies-extraction-and-correction-only)).
+`tether info (Get-ChildItem projects\*.tether)`, because `tether info` does not expand a pattern
+itself).
 A project that cannot be read gives one line on stderr, `tether info: <path>: <reason>`, and the
 others are still printed. The reasons are: the file does not exist, it is not a `.tether`
 project, or its schema version is newer than this version of Tether can read.
@@ -435,35 +675,309 @@ value that the project does not record is `null`. The keys are:
 | `projects[].lock.age_s` | the age of the lock in seconds |
 | `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
 
+## `tether metadata`
+
+Show, or give, the metadata of the movies in a project: the frame time, the pixel size and
+the channel roles (which half is the donor). Each value has an **origin**: `file` when
+Tether read it from the movie (the ImageJ `finterval` and the ImageJ pixel size in µm, or
+the channel crops of an imported `.tmap`), `user` when a person gave it, and `unknown`
+when there is no value. A native extraction records the channel roles as `user`, because
+`--donor-side` names the donor half.
+
+A frame time is **verified** only when it is from the file, or when you confirm it in a
+second call. A value you type stays not verified until you confirm it. Tether stores
+this flag now. Rate calculations do not check it yet: that is planned work
+([#941](https://github.com/bioedca/tether/issues/941)).
+
+```text
+tether metadata [-h] [--movie MOVIE_ID] [--frame-time SECONDS] [--pixel-size UM]
+                [--confirm-frame-time] [--json]
+                project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | path to the `.tether` project |
+| `--movie MOVIE_ID` | the only movie | the movie to change; required when the project has more than one movie |
+| `--frame-time SECONDS` | none | give the frame time (origin `user`, not verified) |
+| `--pixel-size UM` | none | give the pixel size in µm per pixel (origin `user`) |
+| `--confirm-frame-time` | off | mark the movie's frame time as verified; refused in the same call as `--frame-time` |
+| `--json` | off | print the records as JSON instead of text |
+
+With no option the command changes nothing and prints each movie. A value of `0` means
+unknown. The values are kept beside the `/movies` table, and `/movies.frame_time` keeps
+the value from the file ([`.tether` file format](reference/tether-format.md#movies-one-row-per-source-movie)).
+
+```console
+$ tether metadata run.tether --frame-time 0.1
+mov-…:
+  frame time: 0.1 s (user, not verified)
+  pixel size: 0 um (unknown)
+  channel roles: user
+$ tether metadata run.tether --confirm-frame-time
+```
+
+## `tether export`
+
+Write the results of one or more `.tether` projects to files that another tool can read.
+The command has three forms. Each form calls one function of `tether.project.export`, so
+the file is the same file that the function writes for the same settings. The
+[Exports reference](reference/exports.md) tells what each file contains.
+
+| Form | Writes | Function |
+|---|---|---|
+| `tether export table` | one CSV row per molecule | `export_molecule_table_csv` |
+| `tether export traces` | the Deep-LASI donor and acceptor trace matrix | `export_deeplasi_txt` |
+| `tether export subset` | a smaller `.tether` without the movie | `export_subset_tether` |
+
+These rules apply to all three forms:
+
+- **The project is only read.** The export takes no lock and does not change the project or
+  its `<file>.lock` file. You can export a project that another user has open.
+- **Every export writes a provenance file.** It is named after the export with
+  `.provenance.json` added, and it records the Tether version, the source project and the
+  settings ([what the provenance file records](reference/exports.md#provenance-file)).
+- **An existing file is kept.** If the export or its provenance file exists, the export
+  stops with exit code `1` and tells you to give `--overwrite`.
+- **An input project is never a destination.** An output path that is the project
+  itself, or a hard link to it, stops the export with exit code `1`:
+  `subset out_path movie.tether is the source project; refusing to overwrite`. With several
+  projects, every export and provenance file is checked against every project you gave, before
+  the first export starts. A match stops the command with exit code `1` and nothing written.
+  So `movie.tether` and `movie-subset.tether` exported into one folder cannot replace the
+  second project with the subset of the first, even with `--overwrite`. The `<file>.lock` file
+  of a project you gave is refused in the same way.
+- **Several projects go into a folder.** Give several projects, and `-o` names a folder. Tether
+  makes the folder if necessary and names each export after its project: `<project>.csv`,
+  `<project>-donc-accc-w.txt` or `<project>-subset.tether`. Two projects with the same file
+  name would write the same export (names that differ only in upper and lower case count as the
+  same), so that command stops with exit code `2` before it writes a file. A project that fails does not stop the others, and the command then exits `1`.
+- **Each export prints one line,** the number of molecules and the path:
+  `Exported 412 molecule(s) -> molecules.csv`.
+
+### Example — the molecule table of every project after a batch run
+
+Make the folder first: if the pattern matches only one project, `-o` names the file to
+write unless it is an existing folder.
+
+```bash
+mkdir tables
+tether export table projects/*.tether -o tables
+```
+
+```powershell
+# Windows PowerShell has no shell glob expansion for native commands
+mkdir tables
+tether export table (Get-ChildItem projects\*.tether) -o tables
+```
+
+## `tether export table`
+
+Write one CSV row per molecule: the stored per-molecule fields and the apparent-E summary
+([Molecule-table CSV](reference/exports.md#1-molecule-table-csv)). Rejected molecules are
+included, with `reject` in the `curation_label` column.
+
+```text
+tether export table [-h] -o OUTPUT [--overwrite]
+                    [--intensity-quantity {corrected,raw}]
+                    [--exclude-rejected]
+                    projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the `.csv` file to write; with several projects, or when it is an existing folder, the folder (created if absent) that gets one `<project>.csv` per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--intensity-quantity {corrected,raw}` | `corrected` | which trace layer to read (`intensity_quantity`) |
+| `--exclude-rejected` | off | leave rejected molecules out of the table (`include_rejected=False`) |
+
+```bash
+tether export table movie.tether -o molecules.csv
+```
+
+## `tether export traces`
+
+Write the per-frame donor and acceptor traces as a Deep-LASI trace matrix
+([Deep-LASI trace matrix](reference/exports.md#2-deep-lasi-trace-matrix-txt)). `-o` always
+names a folder, and the file in it is named `<project>-donc-accc-w.txt`. An `-o` that ends in
+`.txt` and does not exist yet is refused with exit code `2`, because it is almost certainly a
+file name. Rejected molecules are left out.
+
+```text
+tether export traces [-h] -o OUTPUT [--overwrite]
+                     [--intensity-quantity {corrected,raw}]
+                     [--include-rejected] [--molecule-key KEY]
+                     projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the folder (created if absent) to write one `<project>-donc-accc-w.txt` in per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--intensity-quantity {corrected,raw}` | `corrected` | which trace layer to read (`intensity_quantity`) |
+| `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
+| `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+
+All molecules in one file share one frame axis. For a project that combines movies of
+different lengths, export one movie at a time with its `--molecule-key` values. Otherwise the
+export stops with exit code `1` and names the frame ranges.
+
+```bash
+tether export traces movie.tether -o traces
+```
+
+## `tether export subset`
+
+Write a self-contained `.tether` of the selected molecules, without the movie
+([Subset `.tether`](reference/exports.md#3-subset-tether)). Rejected molecules and the raw
+traces are left out.
+
+```text
+tether export subset [-h] -o OUTPUT [--overwrite] [--include-rejected]
+                     [--include-raw] [--molecule-key KEY]
+                     projects [projects ...]
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `projects` | *(required, one or more)* | one or more `.tether` projects to read |
+| `-o OUTPUT`, `--output OUTPUT` | *(required)* | the `.tether` file to write; with several projects, or when it is an existing folder, the folder (created if absent) that gets one `<project>-subset.tether` per project |
+| `--overwrite` | off | replace an existing output file and its provenance file |
+| `--include-rejected` | off | keep rejected molecules (`include_rejected=True`) |
+| `--include-raw` | off | also embed the raw and background traces (`include_raw=True`) |
+| `--molecule-key KEY` | every molecule | export only this molecule; give the flag again for each further molecule (`molecule_keys`) |
+
+```bash
+tether export subset movie.tether -o accepted.tether
+```
+
+## Sync-conflict copies beside a project
+
+OneDrive and SharePoint can leave a second copy of a file when two machines save it at the
+same time. Tether does not prevent these copies. It finds them and tells you.
+After `tether extract` writes its project, after `tether batch` finishes, and when
+`tether info`, `tether metadata` or `tether export` reads a project, each project the command
+opened is checked for siblings in the two documented naming forms:
+`<stem>-<COMPUTERNAME>.tether` and `<stem> (<...>).tether`. A hit adds one warning line to
+stderr:
+
+```text
+  warning: 1 possible OneDrive/SharePoint conflict copy beside movie.tether: movie-DESKTOP-AB12.tether. Tether does not merge or delete it; compare and reconcile by hand.
+```
+
+The warning is advisory. It does not change the exit code, and Tether does not open, merge,
+rename or delete the copy. It goes to stderr, so the `tether info --json` document on stdout
+does not change. The match is by file name only, so a project you named
+`movie-donoronly.tether` on purpose is also listed, and you can ignore the line for it. The GUI
+shows the same text in the Browser when you open the project.
+
+## Service commands
+
+`tether extract` and `tether batch` are each the command-line route of one *service command*
+([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
+command is the one implementation of an action. The command line uses it now. The
+desktop application and recipe files will use the same commands as their sections are
+moved onto them, so the three cannot do different things for the same input. The command
+line only reads your options into the command's *request*, runs the command, and prints
+the result.
+
+The table comes from the registry in `tether.services.registry`, and a test fails if the
+two differ:
+
+<!-- service-commands:begin (made from tether.services.registry; do not edit) -->
+| Command | Request | Result | What it does |
+|---|---|---|---|
+| `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
+| `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
+<!-- service-commands:end -->
+
+A request is plain data with one text form: a JSON object with the command name, the
+version of the request, and every field. For example, `tether extract movie.tif -o
+movie.tether` sends this request. The text form is one line. It is broken here to fit
+the page, and a break between two parts of JSON does not change it:
+
+```json
+{"command":"extract","fields":{"bg_window":10,"channel_layout":null,
+"channel_layout_acceptor_rect":null,"channel_layout_donor":null,
+"channel_layout_donor_rect":null,"coloc_distance":3.0,"colocalization":"partner-in-both",
+"count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
+"disk_radius":3.0,"donor_side":"left",
+"min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
+"pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
+"prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
+"rms_gate":0.5,"tdat":null,"tmap":null,"window":21},"version":1}
+```
+
+The field names are the option names with `_` for `-`. Both requests also hold the
+fields of an [extraction profile](#extraction-profiles), and `--profile` sets
+them: the file itself is not part of the request, so a request holds every value it ran
+with. Two `tether batch` flags are positive fields: `--no-idealize` is
+`"idealize": false` and `--no-defer` is `"defer_if_unavailable": false`. A recipe file, which `tether run` will read, is a list of
+these requests ([#899](https://github.com/bioedca/tether/issues/899)).
+
 ## Exit codes
 
-| Code | `tether extract` | `tether batch` | `tether info` |
-|---|---|---|---|
-| `0` | extraction completed | no stage failed — **but this does not guarantee idealization ran**; see below | every project was read |
-| `1` | extraction failed (`ExtractionError`) | at least one movie had a failed stage | at least one project could not be read |
-| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values, or two input movies whose basenames collide on one output `.tether` | bad command-line arguments (argparse) |
+| Code | `tether extract` | `tether batch` | `tether info` | `tether metadata` | `tether export` |
+|---|---|---|---|---|---|
+| `0` | extraction completed | every requested stage ran for every movie, or `--dry-run` printed its plan | every project was read | the records were printed, after any change | every export was written |
+| `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output path could not be checked or its folder made |
+| `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
+| `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned | never returned |
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
-before any subcommand handler ran, or `tether batch` refused to start. Nothing is read and no project is
-written on either path, so it is safe to fix the arguments and re-run — with one wrinkle,
-`tether batch` creates `--out-dir` before it checks for colliding basenames, so that
-particular refusal can leave an empty output directory behind.
+before any subcommand handler ran, or `tether batch` or `tether export` refused to start. Nothing is
+read and no project or export is written on either path, so it is safe to fix the arguments and re-run.
 
 Exit code `1` means the command *ran*. From `tether extract` it is a clean one-line error
-on stderr, never a traceback — an unhandled traceback from either subcommand is a bug
-worth reporting. From `tether batch` it means the run finished with at least one movie
-having a failed stage; fix those and re-run the same command to resume the rest.
+on stderr, never a traceback — an unhandled traceback from any subcommand is a bug
+worth reporting. From `tether export` it is one such line per failed project, and the other
+projects are still exported. From `tether batch` it means the run finished with at least one movie
+having a failed stage; fix those and re-run the same command to resume the rest. It also
+means `tether batch` could not create `--out-dir` or write the log. It then prints one line
+on stderr that names the path.
 
-> **`0` from `tether batch` does not mean every stage ran.** If the sidecar is unavailable
-> when the run starts, the default behaviour is to *defer* idealization: the stage is
-> recorded as `deferred`, which is not `failed`, so the run exits `0` having done
-> extraction and correction only. A script that treats `0` as "these projects are fully
-> idealized" will consume them too early. Re-run the same command once the sidecar is
-> available and the per-stage checkpoint resumes just the idealization, or pass
-> `--no-defer` to make an unavailable sidecar a per-movie failure (exit `1`) instead.
+> **`3` from `tether batch` means the projects are not finished.** If the sidecar is
+> unavailable when the run starts, the default behavior is to *defer* idealization: the
+> stage is recorded as `deferred`, which is not `failed`, and the run exits `3` having done
+> extraction and correction only. The report prints a `Deferred:` line with the stage and
+> the number of movies. Re-run the same command once the sidecar is available and the
+> per-stage checkpoint resumes just the idealization, or pass `--no-defer` to make an
+> unavailable sidecar a per-movie failure (exit `1`) instead.
+>
+> `1` takes precedence over `3`: a run with a failed movie exits `1` even when another
+> movie's idealization was deferred. A stage you did not ask for is not deferred, so a run
+> with `--no-idealize` exits `0` when every movie extracted and corrected. The last line of
+> the report names the exit code and its meaning, and `tether batch --help` lists the four
+> codes.
 
 **Where to look for what failed.** `tether batch` prints its end-of-run summary — the
 per-movie, per-stage detail — to **stdout**, together with the JSONL structured log it
-writes to `<out-dir>/batch-log.jsonl`. Only the log's path, and startup refusals, go to
-stderr. If you are capturing streams separately, per-movie failure detail is in stdout and
-the log, not in stderr.
+writes to `<out-dir>/batch-log.jsonl`. stderr carries the
+[progress lines](#progress-while-the-batch-runs) (none with `--quiet`), the log's path and
+startup refusals. If you are capturing streams separately, the complete per-movie failure
+detail is in stdout and the log. The progress lines on stderr are for watching the run.
+
+### Exit code `4`: a person must approve a step
+
+Code `4` is reserved, and it has one meaning in every `tether` command: the run stopped
+before a step that needs a person, because nothing approved that step. No command returns
+it today. `tether batch` never returns it, because it applies its `--policy` rule to the
+map and accepts the estimated correction factors, as it does now
+([ADR-0102](adr/0102-a-batch-run-stops-at-an-approval-step-or-applies-a-recipe-policy.md)).
+
+The codes that have one meaning in every command:
+
+- `0`: the command completed.
+- `1`: the command ran, and at least one item failed.
+- `2`: bad command-line arguments, or a refusal to start.
+- `4`: the run stopped at an approval step, and nothing failed.
+
+The approval steps are: accept a map, confirm the bleedthrough factor α, approve γ, and
+select the active fit. A command that stops with `4` writes one message to stderr with the
+step, its subject, the report that is the evidence, the command that approves the step and
+the command that continues the run. The work done before the stop is kept, and the
+continued run does not do it again. A run that has a failed item and also stopped exits
+`1`. A code that this list does not name has the meaning that the table of its command
+gives.

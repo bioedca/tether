@@ -67,7 +67,7 @@ branch with `drill` set to `fail`, then to `pass`. A drill issue has the title p
 `ci(drill)`, so it never touches the real issue.
 
 **Reference data sets.** Each reference file of the regression suite has one entry in
-`tests/reference_data/manifest.toml`: its DOI or accession, record URL, SPDX licence, size,
+`tests/reference_data/manifest.toml`: its DOI or accession, record URL, SPDX license, size,
 SHA-256, tier and citation. A test gets the file with `path_for(id)` from the `fetch` module
 beside that manifest, which calculates the SHA-256 before the first use and refuses a
 file whose checksum is not the manifest's. The tiers are `git` (at most 1 MB for each file), `lfs`
@@ -83,7 +83,7 @@ Fei and Mondragón, *Nature Communications* **15**:6592 (2024),
 Data as one archive (95 MB). The weekly job downloads it and verifies its SHA-256. The repository
 holds 26 of its members, unchanged: the folder `ErrorCalculations_CodeAndSourceData/` (without
 its one notebook, whose saved cells hold private paths) and `checkTDP.py` in plain git, and one trace matrix (6.7 MB) in Git LFS. These files are **not under
-GPL-3.0**. They are under the licence of the publication, CC BY-NC-ND 4.0: you can use and share
+GPL-3.0**. They are under the license of the publication, CC BY-NC-ND 4.0: you can use and share
 them unchanged, for non-commercial purposes only, and you must cite the article. A test that needs
 another format converts a file when it runs; the repository keeps no changed copy.
 [ADR-0083](adr/0083-unchanged-copies-of-cc-by-nc-nd-reference-data.md) records these rules, and
@@ -96,15 +96,18 @@ Which tier each oracle's *headline* assertion lives in:
 | (a) Extraction vs Deep-LASI | `workstation` — the ≈0.9 GB movie is private data on no CI runner, so the scheduled task on the maintainer's workstation runs it and records its numbers | scorer unit tests, the committed 4-molecule slice, the registration RMS gate |
 | (b) Idealization parity vs tMAVEN | `sidecar` — required, but only actually fits when a pull request touches an idealization path | the frozen artifact is checked against its own recorded evidence |
 | (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery; the level-2 and level-3 truth against the simulator settings files |
-| (d) Ranker held-out cross-validation | required matrix | yes (synthetic stores only) |
+| (d) Ranker held-out cross-validation | required matrix | yes (synthetic project files only) |
 | (e) α / γ estimators | required matrix | yes |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
 | (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 | MASH-FRET analyses: histogram, states, rates | required matrix (exact histogram) and `sidecar` (state limits), on a committed extract | the 37 stored histograms of the archive are checked by the workstation run |
+| Histogram bootstrap vs MASH-FRET | required matrix, on a committed extract | yes |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
+| Campos-Chavez et al. 2024: the tMAVEN fits | `reference_download` — weekly, with the sidecar env; **advisory** | the settings, the windows, the comparison and the limit rule; the stored models are checked by the workstation run |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
+| Published analysis of the 2024 T-box paper | `reference_download` — and **advisory**, never a gate | the method (rounding bound, window search, dwell inversion) on data built in the test |
 | Extraction vs MASH-FRET simulated truth | required matrix | yes |
 
 ## (a) Extraction vs Deep-LASI
@@ -112,7 +115,7 @@ Which tier each oracle's *headline* assertion lives in:
 **What is compared.** Tether's native extraction — donor spot coordinates and the
 per-molecule integrated donor/acceptor traces — against the Deep-LASI `.mat` export for
 the same movie. The scorers are in `src/tether/project/oracle.py`: `match_coordinates`
-(greedy unique nearest-neighbour), `coordinate_rms`, `pooled_pearson`,
+(greedy unique nearest-neighbor), `coordinate_rms`, `pooled_pearson`,
 `evaluate_extraction`.
 
 **Reference data.** The UCKOPSB movie plus its `.tdat`, `.tmap` and Deep-LASI `.mat`
@@ -125,6 +128,23 @@ the movie and its files through the name table of the workstation runner, under 
 `lab-01`, and no CI job runs it. A committed 4-molecule slice
 (`tests/fixtures/deeplasi_export_slice.mat`, `tests/fixtures/deeplasi_traces_slice.txt`)
 covers the readers on every matrix run.
+
+**More acquisitions.** Nine more acquisitions of the same laboratory (`lab-02` to `lab-08`,
+`lab-10`, `lab-12`) have the same bundle. The workstation run scores each one alone with the
+limits below (`tests/test_deeplasi_agreement.py`,
+[ADR-0115](adr/0115-deep-lasi-acquisitions-in-oracle-a-and-how-a-failure-is-handled.md)). A
+failure on one of them is a finding to investigate, never a reason to change a limit. Each
+Deep-LASI export is read from a frozen copy whose provenance record gives the file's date,
+because the exports were made in Deep-LASI's window.
+
+A scripted Deep-LASI run (`scripts/reference/matlab/deep_lasi.py`) at a pinned commit repeats
+the export of video 010: the same 250 molecules, positions and raw traces. It cannot make the
+correction factors, which come from a later step in the window. The workstation run also
+compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
+on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
+means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
+from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
 
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
 
@@ -153,10 +173,14 @@ the specification's original extraction gate asked for 1 px recall and r ≥ 0.9
 
 ADR-0022 records the reasons each reframed bar is science rather than a lowered
 standard: 1 px recall is a localizer-*identity* test between two independent sub-pixel
-localizers on human-curated picks; Tether is donor-anchored
+localizers on human-curated picks; the oracle extraction is donor-anchored
 ([ADR-0015](adr/0015-donor-anchored-colocalization.md)), so the acceptor is read at the
 mapped donor position and its Pearson carries the map's molecule-domain scatter; and a
-bidirectional colocalization filter was measured to collapse recall to ≈0.66.
+bidirectional colocalization filter was measured to collapse recall to ≈0.66. A new
+extraction defaults to that filter, the partner-in-both rule
+([ADR-0127](adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)),
+so the oracle test and `scripts/run_m1_oracle.py` select `donor-anchored` by name and keep
+the frozen numbers.
 
 **Enforcing tests.** `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`
 — `@pytest.mark.workstation`, so no CI job collects it
@@ -178,19 +202,22 @@ the two intake tests and the five reader tests on the same bundle
 as a one-shot report ([#555](https://github.com/bioedca/tether/issues/555)): it imports
 the `.tmap`, passes the unique `.tdat` to extraction, scores at the frozen `MATCH_TOL_PX`,
 and gates registration RMS only when the map is fit natively (an imported `.tmap` reports
-it as not applicable). Its own behaviour is pinned without the movie by
+it as not applicable). Its own behavior is pinned without the movie by
 `tests/test_run_m1_oracle.py`.
 
-**Newest recorded run.** On the maintainer's workstation on 2026-11-13, at commit `3697f80`
-(a run by hand of the pull request of [#699](https://github.com/bioedca/tether/issues/699),
-before the weekly task had a `main` commit that holds this check): **passed**, matched fraction
-0.984 (246 of 250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854.
-The numbers agree with ADR-0022. The record is
+**Newest recorded run.** On the maintainer's workstation on 2026-11-14, at commit `19796a9`
+on `main` (a scheduled run of the workstation task): **passed**, matched fraction 0.984 (246 of
+250 curated molecules), donor Pearson median 0.982, acceptor Pearson median 0.854. The first
+scheduled run that held this check, earlier that day, and the run by hand of the pull request of
+[#699](https://github.com/bioedca/tether/issues/699) on 2026-11-13 gave the same numbers. The
+numbers agree with ADR-0022. The record is
 [`docs/validation/oracle-a-last-run.json`](validation/oracle-a-last-run.json), one check entry of
 a workstation result, and `tests/test_oracle_a_record.py` keeps this paragraph and the record in
-step. Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
+step.
+
+Each of the five files of video 010 is pinned by its SHA-256 and size, and a check that
 reads one stops when the file is not the pinned one; the pins were measured on the workstation
-on 2026-11-13 after this run, and they are the full digests the fixture provenance table
+on 2026-11-13, and they are the full digests the fixture provenance table
 records. A deliberate regression (the donor traces reversed in time) made the same check fail at the
 donor Pearson gate; the demonstration is recorded on
 [#699](https://github.com/bioedca/tether/issues/699).
@@ -211,7 +238,7 @@ agreeing within 1 px, on committed fixtures).
 ## (b) Idealization parity vs tMAVEN
 
 **What is compared.** Four metrics from `src/tether/idealize/parity.py`, after canonical
-mean-sorted state relabelling: `state_count_fraction`, `state_mean_abs_delta`,
+mean-sorted state relabeling: `state_count_fraction`, `state_mean_abs_delta`,
 `viterbi_agreement`, `relative_elbo`. Parity is statistical, never bit-exact — tMAVEN
 self-reseeds ([ADR-0007](adr/0007-parity-is-statistical.md)).
 
@@ -268,7 +295,7 @@ observed draw scored Viterbi 0.7568 against the frozen 0.9034 floor
 streams in the sidecar, and the gate fits seeds 1 and 2, so it gives one answer per commit. The
 band is unchanged. `test_4mol_ebfret_same_seed_gives_the_same_model` fails if a seeded fit stops
 being reproducible ([ADR-0075](adr/0075-seeded-ebfret-parity-gate.md)). Unseeded fits, including
-every fit run from the GUI, keep tMAVEN's own behaviour.
+every fit run from the GUI, keep tMAVEN's own behavior.
 
 **Which build each tolerance was measured on.** Both `method` blocks name a build
 (`sidecar_python_version`, `tmaven_commit`) rather than an interpreter path, and both carry a
@@ -350,7 +377,7 @@ carry all four metrics in their declared direction, and each summary's
 from its own `values` list with the production `SpreadSummary`. So on every pull request
 these two tests fail on a bound **tightened** below its own evidence, on a deleted fixture,
 on a dropped or truncated run — including one removed cleanly with every summary statistic
-recomputed — on a re-labelled reference anchor, SMD path or state count, on a
+recomputed — on a re-labeled reference anchor, SMD path or state count, on a
 `$.provisional` that has drifted from `PROVISIONAL`, and on a per-method
 tolerance with no `measured_by_method` entry. The anchor pin is a check on the *strings the
 artifact records*: it asserts the frozen block still names the anchor it was measured
@@ -417,8 +444,8 @@ standalone tMAVEN, so it adds evidence and replaces none of the parity above
 ([#797](https://github.com/bioedca/tether/issues/797),
 [ADR-0090](adr/0090-measured-vbfret-paths-are-a-dwell-reference.md)).
 
-**Measured data.** Two whole condition folders of measured two-colour traces by Marzano et
-al., CC-BY-4.0, each trace with the per-trace vbFRET_nov12 idealization the authors analysed:
+**Measured data.** Two whole condition folders of measured two-color traces by Marzano et
+al., CC-BY-4.0, each trace with the per-trace vbFRET_nov12 idealization the authors analyzed:
 PPR-RNA `Validation_data/RNAanticognate` (114 traces, Zenodo 10.5281/zenodo.11323228;
 Nucleic Acids Res. 52:14154, 2024) and Hsp70/Hsp90 `KJG/KJG_231027` (68 traces, Zenodo
 10.5281/zenodo.17118152; Sci. Adv. 12:eaeg5464, 2026). The fixtures hold the original `.dat` bytes; a reader under
@@ -429,7 +456,7 @@ Nucleic Acids Res. 52:14154, 2024) and Hsp70/Hsp90 `KJG/KJG_231027` (68 traces, 
 code, `nmarzano/smFRET_module` v1.0.3 (MIT), ran once outside the product on the fixtures. Its
 dwell and transition tables are committed, and
 `tests/test_marzano_vbfret.py` asserts that Tether's dwell code and transition density, read
-from a `.tether` store that holds the stored paths, give the same state values, the same
+from a `.tether` project file that holds the stored paths, give the same state values, the same
 durations in frames and the same order: 640 PPR and 465 chaperone transitions. Four
 definitions differ, and the test goes through each one:
 
@@ -596,34 +623,53 @@ derivation on a model whose answer is known.
 
 ## (d) Ranker held-out cross-validation
 
-**What is compared.** Prequential (interleaved test-then-train) precision@k of the trained
-per-condition ranker against the file-order baseline, per video, aggregated as the
-**median across videos** and reported as an uplift in percentage points.
+**What is compared.** The held-out precision@k of the trained per-condition ranker against
+the file-order baseline, per video, aggregated as the **median across videos** and reported as
+an uplift in percentage points. Two protocols make that measurement
+([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)):
+
+- **Prequential** (interleaved test-then-train): each video is scored by a model trained on the
+  videos curated before it. The first video is skipped. This is the ship gate.
+- **Leave-one-video-out**: each video is scored by a model trained on every other video of the
+  condition, never on itself. The first video is scored too, and which videos train each
+  scorer does not depend on the curation order. It is reported beside the gate, at the same
+  bar. The store entry point evaluates one condition at a time.
 
 **Frozen tolerance.** `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py` — a
 Python constant, not a JSON artifact. Asserted exactly by
 `tests/test_ml_prequential.py::test_default_ship_bar_is_ten_points`, which pins
-`DEFAULT_SHIP_BAR_PTS == 10.0` as the specification's value. The rationale that apparent
-precision@k is *not* the gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
+`DEFAULT_SHIP_BAR_PTS == 10.0` as the specification's value, and both protocols default to it
+(`test_lovo_keeps_the_ship_bar_and_k`). The rationale that apparent precision@k is *not* the
+gate is [ADR-0034](adr/0034-gradient-boosting-quality-ranker.md).
 
-**Measured result.** None on real data. Both enforcing tests build synthetic or
-programmatic stores; no committed artifact records a precision@k uplift measured on a real
-labelled video set. What is proven is that the *protocol* behaves: the first video is
-skipped rather than scored against nothing, a ranker equal to file order yields zero uplift
-and does not ship, a non-finite score raises instead of being ranked last, and a
-single-movie project raises rather than inventing a held-out video.
+**Measured result.** None on real data. Every enforcing test builds synthetic or
+programmatic project files; no committed artifact records a precision@k uplift measured on a real
+labeled video set (withheld, see the gap below). What is
+proven is that both *protocols* behave: the prequential walk skips the first video rather than
+scoring it against nothing, leave-one-video-out trains each video's scorer on exactly the other
+videos' rows and labels of one condition, a ranker equal to file order yields zero uplift and does not ship, a
+non-finite score raises instead of being ranked last, a video split over two folds raises, and
+a single-movie project raises rather than inventing a held-out video.
 
 **Enforcing tests** (all unmarked — required 3-OS matrix): `tests/test_ml_prequential.py`
 (pure core with fake scorers, including `test_perfect_ranker_beats_file_order`,
 `test_ranker_equal_to_file_order_is_zero_uplift_not_shipped`,
-`test_no_trainable_prior_raises_never_fabricates`) and `tests/test_project_prequential.py`
-(store-integrated: `test_gate_ships_on_separable_multivideo`,
+`test_no_trainable_prior_raises_never_fabricates`,
+`test_lovo_prior_is_every_other_video_never_itself`,
+`test_lovo_priors_hold_the_same_rows_whatever_the_fold_order` and
+`test_lovo_duplicate_movie_id_raises`) and `tests/test_project_prequential.py`
+(project-integrated: `test_gate_ships_on_separable_multivideo`,
 `test_gate_uplift_is_held_out_not_apparent`, `test_custom_ship_bar_can_withhold_a_ship`,
-`test_single_movie_project_has_no_held_out_video`).
+`test_single_movie_project_has_no_held_out_video`,
+`test_lovo_gate_ships_on_separable_multivideo`,
+`test_lovo_trains_on_every_other_video_never_itself` and
+`test_lovo_refuses_a_project_whose_labels_span_conditions`).
 
-> Gap, stated plainly. The specification says "prequential / leave-one-video-out". Only the
-> **prequential** protocol exists — a repository-wide search for `leave_one_video_out`
-> returns nothing in `src/` or `tests/`.
+> Gap, stated plainly. Both protocols exist, but neither has been measured on a real labeled
+> multi-video set. No curated multi-video project with accept/reject labels exists yet, so the
+> real-data leg is withheld
+> ([ADR-0114](adr/0114-leave-one-video-out-is-the-second-held-out-ranker-protocol.md)), and it is
+> tracked in [#1100](https://github.com/bioedca/tether/issues/1100).
 
 ## (e) α / γ estimator edge cases
 
@@ -656,8 +702,13 @@ withholding below the minimum qualifying count rather than emitting a factor fro
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
 
-**Total failure → apparent E, never NaN.** `tests/test_project_correct.py` covers the path
-that the specification singles out: `test_total_failure_falls_to_apparent_never_nan`,
+**Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
+non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is
+still NaN in apparent E, because the ratio is not defined there. That is not a correction
+failure.
+
+`tests/test_project_correct.py` covers the path that the specification singles out:
+`test_total_failure_falls_to_apparent_never_nan`,
 `test_fresh_store_nan_factors_is_total_failure`, `test_zero_gamma_boundary_is_total_failure`,
 `test_negative_gamma_is_total_failure`, `test_manual_override_rescues_total_failure`,
 `test_partial_alpha_override_without_gamma_stays_apparent`, and
@@ -739,7 +790,7 @@ comparison of per-channel first-bleach frames against the `.mat` `pacc`/`pdon` f
 its tolerance of ±2 frames. [ADR-0026](adr/0026-photobleach-detection-and-window-default.md) found this
 field is not a per-molecule oracle: in `DeepLASI_MAT_export_…010.mat`, `pacc` and `pdon`
 are `uint8` arrays of shape 250×1 whose value is the **constant 60 for all 250 molecules**,
-while the corrected traces bleach at ≈97, ≈644 and ≈1693. Gating on it would require the
+while the background-subtracted traces bleach at ≈97, ≈644 and ≈1693. Gating on it would require the
 detector to return 60 for a molecule that demonstrably bleaches at 97. It is an
 acquisition-wide marker, not ground truth.
 
@@ -783,7 +834,7 @@ signal/noise settings and asserts `abs(pbt - k) <= 2` for each.
 `test_point_pbtime_matches_reference`, `test_ensemble_matches_reference`,
 `test_point_pbtime_recovers_known_step_within_two_frames`,
 `test_detect_photobleach_window_and_masks`, `test_never_bleaches_returns_length_and_all_zero_returns_zero`,
-`test_short_traces_do_not_raise`; and at the store level
+`test_short_traces_do_not_raise`; and at the project level
 `tests/test_project_photobleach.py::test_compute_photobleach_populates_frames_and_auto_window`
 and `test_manual_window_is_not_overwritten`. Live leg (`sidecar`):
 `tests/test_fret_photobleach_sidecar.py::test_ref_helpers_match_live_tmaven`,
@@ -810,7 +861,7 @@ legacy format out of scope).
 **Two exact conversions, no tolerance.** Tether and the script use different conventions in
 two places, and the tests convert each one exactly before they compare:
 
-- *Bin edges.* `hist(fret, -0.2:0.01:1.2)` puts the edges at the midpoints of the centres and
+- *Bin edges.* `hist(fret, -0.2:0.01:1.2)` puts the edges at the midpoints of the centers and
   closes each bin on the right; `apparent_e_histogram` closes each bin on the left. Only a
   sample exactly on an edge is binned differently. In these traces there is one sample, at
   0.375. The test moves each such sample one bin down and requires that there is exactly one.
@@ -848,7 +899,7 @@ wrote the smallest file, which is the source of the committed extract; the other
 reference, the convention mapping and the ALEX rule; `tests/test_mashfret_reference.py` holds the
 tests.
 
-- **Leakage.** From MASH-FRET's background-corrected intensities and its leakage coefficient,
+- **Leakage.** From MASH-FRET's background-subtracted intensities and its leakage coefficient,
   Tether's corrected acceptor equals MASH-FRET's cross-talk-corrected acceptor on both lasers, and
   the donor is unchanged (relative limit 1e-15; the difference is exactly 0).
 - **Leakage at a non-zero coefficient** ([#870](https://github.com/bioedca/tether/issues/870)).
@@ -923,6 +974,35 @@ comparison can prove. A second committed extract holds the 17 molecules of one t
 measurement and the maintainer's acceptance are needed to move them. No MASH-FRET rate is compared,
 because none is stored.
 
+## Histogram bootstrap vs MASH-FRET
+
+**What it checks.** Tether's bootstrap of the FRET histogram, which resamples molecules as
+BOBA-FRET does (König et al., *PLoS ONE* 8:e84157, 2013, doi `10.1371/journal.pone.0084157`),
+against the BOBA-FRET bootstrap that MASH-FRET itself ran on the same traces ([#713](https://github.com/bioedca/tether/issues/713),
+[ADR-0108](adr/0108-mash-fret-s-stored-bootstrap-is-the-reference-for-tether-s-bootstrap.md)). The
+Path A extract of the previous section keeps that bootstrap: 100 samples of 17 molecules drawn from
+the tag's 17, each molecule weighted to sum 1, with each sample's histogram and its fit of three
+Gaussians. These stored values are the reference, so no MATLAB run is needed.
+
+**How.** `tests/test_mashfret_bootstrap.py` runs Tether's bootstrap on the same FRET values, with
+the same weights and 100 samples, for ten fixed seeds. Each compared value is a z-score: the
+difference from MASH-FRET divided by the seed-to-seed SD of the ten seeds, times
+`sqrt(1 + 1/10)`. The limit, in `schema/mashfret_bootstrap_limits.json`, is |z| ≤ 3 for every
+value.
+
+| Compared value | Largest measured \|z\| | Limit |
+|---|---|---|
+| SD of each histogram bin over the samples (26 bins) | 1.11 | 3 |
+| Mean of each Gaussian population (0.410, 0.237, 0.352 against 0.415, 0.246, 0.340) | 1.17 | 3 |
+| SD of each Gaussian population (0.111, 0.110, 0.098 against 0.106, 0.111, 0.107) | 2.20 | 3 |
+
+Six other sets of ten seeds gave a largest |z| of at most 2.69. A bootstrap that resamples frames in
+place of molecules gives |z| = 130 on the bin SD, and a test keeps that case.
+
+**What it does not check.** One tag of one project file. The population fit is test code with
+SciPy. On MASH-FRET's own samples it moves the population means by up to 0.010 from MASH-FRET's
+MATLAB fit, and that difference is inside each population z-score.
+
 ## RF2-ArfA data set of the tMAVEN authors
 
 Every other tMAVEN check compares Tether with fits that Tether's own sidecar made. This one uses an
@@ -947,7 +1027,7 @@ files name no tMAVEN build and are dated 2022-11-29):
 | 1. Import | Every SMD file and model reads, writes back and stores with no loss. The one loss is the float32 `/traces` layers: in 3 of the 11 SMD files some intensities round, by at most 2^-24 relative |
 | 2. Idealization | A fresh two-state fit with the authors' priors and bleed-through 0.035, seed 1: state-count agreement 1.0, per-state \|ΔE\| 7.2e-5, Viterbi agreement 0.99954, all inside the frozen row. **Relative ΔELBO 0.0194 is outside the frozen 0.01.** The whole gap is the Gaussian-Wishart term, which tMAVEN adds once per trace; the other three ELBO terms agree to 2.0e-5 relative and the rates to 4.3e-4. The frozen row does not change; the test pins the measured difference |
 | 3. Kinetics | The stored rates are the authors' rule `-ln(1 - p) / τ` on the stored transition matrix. With the paper's photobleaching correction, 16 of the 21 numbers of Table 1 fall inside the stated SD |
-| 4. 2-D histogram | Start-synchronized: Tether's counts equal tMAVEN's cell for cell. Post-synchronized on the window frames: the same 38 transitions in 29 molecules and the same 1608 counts, cell for cell (since #806; before it Tether lacked 2, the last frame of a dwell that runs to the window end). tMAVEN's app also counts 2 jumps at a window border (#707) |
+| 4. 2-D histogram | Start-synchronized: Tether's counts equal tMAVEN's cell for cell. Post-synchronized on the analysis-window frames: the same 38 transitions in 29 molecules and the same 1608 counts, cell for cell (since #806; before it Tether lacked 2, the last frame of a dwell that runs to the analysis-window end). tMAVEN's app also counts 2 jumps at a window border (#707) |
 
 **Table 1 numbers that do not agree** (1/s; paper value ± SD against the value from the archived
 model). They are measured differences, pinned in `TABLE_1_DIFFERENCES`, not tolerances:
@@ -975,13 +1055,171 @@ and `test_the_stored_rates_are_the_authors_rule_on_the_stored_transition_matrix`
 `test_the_start_synchronized_histogram_equals_tmavens` and
 `test_the_post_synchronized_histogram_equals_tmavens_on_the_window_frames`.
 
+## Published analysis of the 2024 T-box paper
+
+**What is compared.** Tether's analysis functions against the published numbers of Campos-Chavez
+*et al.*, *Nature Communications* **15**:6592 (2024),
+[doi:10.1038/s41467-024-50885-x](https://doi.org/10.1038/s41467-024-50885-x), Source Data
+CC BY-NC-ND 4.0 (see "The Source Data of the 2024 T-box paper" above). The paper made them with
+tMAVEN 0.2.3 (commit 62422f9) and the authors' scripts.
+[ADR-0097](adr/0097-the-2024-t-box-source-data-is-an-advisory-analysis-reference.md) records the
+method, the limits and the measurements.
+
+| Published | Sheet or file | Tether function | Result (Linux, macOS, Windows) |
+| --- | --- | --- | --- |
+| Representative traces, Figs. 2b, 3g, 4a, 4e | `Fig2b`, `Fig3g`, `Fig4a`, `Fig4e` | `apparent_fret` | 12,000 values, 9.8e-15 relative |
+| FRET histograms, Figs. 2c, 3b, 3h, 4b, 4f, 6b, 7b | the seven sheets and their trace matrix | `apparent_fret`, `apparent_e_histogram` | 1,016,781 values in 1,440 recovered windows, each within the rounding bound (largest ratio 0.91); every bin count equal |
+| intraFRET histograms, Fig. 5b (4 of 5 columns) | `Fig5b` and the `intraFRET_*` matrices | `apparent_fret` | 282,800 values, first 400 frames, within the rounding bound (0.91) |
+| Survival curves, 13 panels of Figs. 2e-7f | `Fig2e` ... `Fig7f` | `survival_curve` | equal to 1.0e-15 |
+| Exponential fits of the same panels | `Model`, `Residual` columns | `fit_survival` (single or double) | within 5.9e-6 of the curve's first point |
+| Double-exponential parameters, Figs. 2e, 3e, 7d | `Double-Wt+Wt-4`, `Double-Wt+NCCA-5`, `Double-RAG-4` | `fit_survival` | parameters 1.3e-5 relative; errors 3.2e-3 relative after re-pairing (below) |
+| TDP counts, Figs. 2d, 3c, 3i, 4c, 4g, 6c, 7c | the seven sheets with `checkTDP.py`'s grid | `transition_density` | every count equal |
+
+The trace matrices of the archive keep 8 significant digits of each intensity, so an efficiency
+calculated from them can differ from a published one by the rounding of the two intensities. The
+bound is the largest change of the efficiency over the rounding interval of both intensities, which
+takes in both the rounded and the unrounded denominator. Where the interval of `D + A` contains zero
+there is no finite bound, and that frame is not checked. No published value falls on such a frame.
+That bound, not a chosen number, is the limit. The workbook does not say which frames a histogram pools,
+so each test finds the windows in the trace matrix when it runs.
+
+**Differences the archive shows.**
+
+1. tMAVEN's `optimize_double_surv` sorts the two rates and amplitudes of a double-exponential fit
+   but not their errors: in the three panels that can be checked, each published error belongs to
+   the other parameter. Tether's errors are paired correctly.
+2. The archive's 5 uM WT tRNA intraFRET matrix is a copy of the 13 uM one, so that column of
+   Fig. 5b has no trace data.
+3. `WT+NCCA_tRNA.txt` has 1499 frames, one fewer than the windows of Figs. 3b, 4b and 4f need.
+4. The intraFRET notebook skips the first line of each file, so the first 400 frames of a molecule
+   start at frame 0 or at frame 1.
+
+**Not compared.** The HMM population fits (#757), the rates and their bounds (#758), the mean dwell
+time of a double exponential with its error, the TDP smoothing and spline, and the two-Gaussian
+fit of Fig. 5c. Tether has no function for the last three: #1028, #1029 and #1030.
+
+**Enforcing tests.** Required matrix: `tests/test_campos_chavez_2024.py::test_the_rounding_bound_covers_intensities_written_with_eight_digits`,
+`test_find_windows_finds_each_window_and_a_value_the_matrix_lost` and
+`test_dwells_from_survival_give_back_the_survival_curve`. Weekly (`reference_download`):
+`test_representative_traces_have_tethers_efficiency`,
+`test_each_histogram_value_is_tethers_efficiency_of_one_frame`,
+`test_intrafret_histogram_values_are_tethers_first_400_frames`,
+`test_survival_curve_and_exponential_fit_reproduce_the_panel`,
+`test_double_exponential_parameters_and_errors` and
+`test_transition_density_counts_equal_checktdp`.
+
+## Campos-Chavez et al. 2024: the tMAVEN fits
+
+This check fits the measured traces of Campos-Chavez et al. (*Nat Commun* **15**:6592, 2024,
+doi `10.1038/s41467-024-50885-x`) again in Tether's sidecar and compares each fit with the fit the
+authors published. The Source Data archive is the manifest entry `campos2024-source-data`
+(CC BY-NC-ND 4.0). The test reads the published values from the archive each time and never
+commits them ([ADR-0083](adr/0083-unchanged-copies-of-cc-by-nc-nd-reference-data.md)).
+[ADR-0106](adr/0106-campos-chavez-tmaven-fits-are-an-advisory-reference.md) records the decisions.
+
+**What is compared.** Seven fits: the consensus vbHMM of five samples, and the two
+sub-populations of the ΔNCCA sample (Fig. 4: the composite HMM with K-means, and vbGMM). For each
+fit, the published state means are the levels of its transition density sheet, and the published
+populations and transitions come from its count matrix (`Kmatrix/*.txt`, global fits only). The
+frames that each fit read are the frames whose FRET values its histogram sheet pools. The priors
+are those of the Methods (α 1.0, β 0.25, π 1.0, a 2.5 and b 0.01, with b 0.4 for the Linker and
+0.2 for the RAG mutant), and the tMAVEN 0.2.3 defaults where the Methods give none.
+`tests/reference_data/campos_chavez_2024_hmm.json` gives each setting with its source.
+
+**Limits** (`schema/campos_chavez_hmm_limits.json`): the largest deviation over seeds 0 to 9 and
+757 at the pin (tMAVEN `10f4230`, the sidecar lock, 2026-11-15), rounded up at the second
+significant digit. "—" marks a metric that has no published value.
+
+| Fit | Sample | Key | States | Molecules | Means | Populations | Counts off the diagonal | Transitions |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `wt` | WT T-box, WT tRNA (Fig. 2) | `vbconhmm` | 3 | 348 | 3.8e-06 | 0.00092 | 0.015 | 0.023 |
+| `dncca` | WT T-box, tRNA-ΔNCCA, all traces (Fig. 3) | `vbconhmm` | 2 | 264 | 0.00024 | 1.3e-05 | 0.0011 | 0.033 |
+| `ddiscriminator` | Δ-Discriminator T-box, WT tRNA (Fig. 3) | `vbconhmm` | 2 | 164 | 6.6e-05 | 5.2e-05 | 0.0047 | 0.0063 |
+| `dncca_one_state` | tRNA-ΔNCCA One-state population (Fig. 4b-d) | `kmeans_vbhmm` | 2 | 192 | 0.0028 | — | — | 0.075 |
+| `dncca_two_state` | tRNA-ΔNCCA Two-state population (Fig. 4f-h) | `vbgmm` | 3 | 72 | 3.7e-06 | — | — | 0.00015 |
+| `linker` | Linker mutant, WT tRNA (Fig. 6) | `vbconhmm` | 3 | 197 | 0.4 | 0.48 | 0.79 | 0.56 |
+| `rag` | RAG mutant, WT tRNA (Fig. 7) | `vbconhmm` | 4 | 197 | 0.37 | 0.25 | 0.59 | 0.49 |
+
+**This is an advisory reference.** A limit measures how far the pinned tMAVEN is from the published
+fit, so a failure means that the sidecar fit moved, not that the article is wrong. Five fits
+reproduce the article: wild type, ΔNCCA, ΔDiscriminator and the two sub-populations. For the
+Linker and RAG mutants, the pin finds a different optimum. Each limit is an upper bound: a change
+that moves a fit further from the article fails it, and a change that moves a fit nearer to the
+article passes it and shows only in the printed numbers.
+
+**Seed and version.** The consensus vbHMM of `10f4230` and of 0.2.3 starts from percentiles of the
+data. At the pin, the 11 seeds change the means of the wild-type, ΔNCCA and ΔDiscriminator fits by
+less than 2e-8, and those of the Linker and RAG fits by less than 1.2e-6. In 0.2.3 the three
+reproduced fits are the same, but the seeds move the Linker and RAG means by up to 0.020 and
+0.017. The K-means start of the One-state
+population depends on the seed (means 1.0e-3 to 2.7e-3 from the published ones). The same fits
+with older tMAVEN, in a separate environment with the same numerical stack (the largest mean
+difference, over the seeds):
+
+| Fit | `10f4230` (pin) | 0.2.3 (`62422f9`, 2024-10-24) | 0.2.0 (`8beaeb1`, 2023-08-14) |
+| --- | --- | --- | --- |
+| `wt` | 3.8e-06 | 3.8e-06 | 1.6e-07 |
+| `dncca` | 0.00024 | 0.00024 | 0.00024 |
+| `ddiscriminator` | 6.6e-05 | 6.6e-05 | 5.2e-10 |
+| `dncca_one_state` | 0.00098 to 0.0027 | 0.0003 to 0.0019 | 0.0003 to 0.0019 |
+| `dncca_two_state` | 3.6e-06 | 3.6e-06 | 3.6e-06 |
+| `linker` | 0.39 | 0.41 to 0.42 | 0.0036 to 0.42 |
+| `rag` | 0.36 | 0.34 | 0.00011 to 0.39 |
+
+Three results follow.
+
+1. tMAVEN 0.2.0 reproduces the published fits most closely: the ΔDiscriminator count matrix to
+   8e-10, the wild-type means to 1.6e-7 with the same transitions, and, for 3 of the 11 seeds, the
+   Linker count matrix to 2e-4 (for 2 seeds, the RAG means to 1.1e-4). Its consensus fit starts
+   from K-means, so the seed decides which optimum it reaches. Commit `62422f9` (0.2.3) is dated
+   after the article, so the published fits were probably made with 0.2.0 or a build near it.
+2. For the wild-type, ΔNCCA, ΔDiscriminator and Two-state fits, the version changes the means by
+   less than 7e-5 (the One-state population depends on the seed in each version, above), and
+   `10f4230` changes the transitions of the idealized paths (2.2 % for the wild type, where 0.2.0
+   and 0.2.3 give exactly the published ones).
+3. For the Linker and RAG mutants, the percentile start of 0.2.3 and `10f4230` reaches another
+   optimum on every seed. The wild-type count matrix differs by 1.5 % off the diagonal in all three
+   versions.
+
+**The two sub-populations.** Each of their windows lies inside the window of the same molecule in
+the whole ΔNCCA fit, but the two do not split that fit: 26 molecules are in both and 26 in
+neither, though 192 + 72 = 264. The Two-state population is tMAVEN's plain vbGMM. The sidecar
+has no key for it, so the test adds one for itself. The sidecar key `vbgmm_vbhmm` selects one
+state on these traces. The weekly job prints its result and does not gate it.
+
+**Stored models** (`workstation`): each private tMAVEN trace file is matched to a sample by its
+donor traces (a correlation of 0.99 or more with a column of the sample's matrix, which does not
+see the background subtraction or one missing frame), and each stored model and model summary is
+compared with the published values and with the fresh fit of seed 757. Older tMAVEN models, which
+`read_model` cannot open yet (#1080), are read by the test's own reader. The result file holds
+numbers under neutral ids only.
+
+The first run (2026-11-15, 24 files: 17 trace files, 4 models, 3 summaries) found the traces of
+each of the five samples. Three trace files of one further sample match no matrix of the Source
+Data.
+
+The stored ΔNCCA model is the published one (count matrix to 1e-11). One of the three stored
+wild-type models also agrees (means to 5.8e-4, counts to 0.04 %). The other two do not (means to
+0.042 or 0.0085). The Linker summary has the published count matrix exactly and means to 3.6e-3,
+0.39 from the fresh fit: the published Linker fit is the one the authors' tMAVEN found, and the pin
+does not reach it. The Two-state and One-state summaries agree with the published means (to 4.7e-9
+and 1.5e-3).
+
+**Enforcing tests.** Required matrix: `tests/test_campos_chavez_hmm.py` (the settings and their
+sources, the windows, the comparison on built data, the rounding rule and this table). Weekly
+(`reference_download`, with the sidecar env of the `reference-data` job):
+`test_each_window_is_the_published_histogram_values`,
+`test_the_sidecar_fit_is_within_its_frozen_limits` and
+`test_the_vbgmm_vbhmm_key_on_the_two_state_population_is_reported`. Workstation:
+`tests/test_campos_chavez_hmm_stored.py`.
+
 ## Ha-laboratory SAM/SAH snapshot histogram
 
 **What is compared.** The ligand-free SAM/SAH riboswitch snapshots of Fig. 1 of Liao *et al.*,
 *Nucleic Acids Research* **51**:8957 (2023), doi:10.1093/nar/gkad633. The authors deposited the
 data as Zenodo 10.5281/zenodo.8088172 (CC-BY-4.0): 53 binary `.traces` snapshots of 20 frames
 each, with alternating excitation (green frames 1 to 10, red frames 11 to 20), and the
-laboratory's own output from them: 46,950 FRET values (`frets.dat`), their normalised histogram
+laboratory's own output from them: 46,950 FRET values (`frets.dat`), their normalized histogram
 (`test3.dat`, bins of 0.015) and the record of the script's parameters (`counts2.txt`).
 [ADR-0086](adr/0086-ha-laboratory-snapshot-histogram-is-a-reference.md) records this set as a
 reference.
@@ -1083,7 +1321,7 @@ provenance record, and `tests/test_matlab_reference.py` checks their SHA-256 val
 `tests/test_mash_fret_extraction.py` runs `extract_movie` with every default on each video and
 measures: how many of the molecules whose aperture fits in the channel Tether found (a donor
 position within 1.5 px of the truth), how many Tether molecules match no true one, the largest
-donor and acceptor position errors, and, in each channel, the median ratio of Tether's corrected
+donor and acceptor position errors, and, in each channel, the median ratio of Tether's background-subtracted
 intensity to the true image counts and the lowest Pearson correlation of the traces. The first
 measurement:
 
@@ -1099,6 +1337,12 @@ molecule Tether missed in `easy` and `uneven` has another true molecule within 7
 fault injections each break a limit: an aperture moved by 2 px lowers the donor ratio of `easy`
 to 0.689, and an acceptor position moved by 2 px after the channel mapping raises its largest
 acceptor error to 2.390 px.
+
+The test also counts duplicates: Tether molecules that match a true molecule which an earlier
+Tether molecule already matched (#1006,
+[ADR-0107](adr/0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md)). The count is 0
+in each scenario, and the limit is that count, so a molecule written twice breaks it. A test
+repeats each molecule and trace row of `easy` and requires the duplicate limit to break.
 
 ## External benchmark
 
@@ -1146,7 +1390,7 @@ Gaussian HMM (Baum–Welch + Viterbi) with pooled dwell-time MLE `k = 1/⟨τ⟩
 | `k12_low_high` | 0.15 | 0.1465 | 0.023 | ≤ 0.12 |
 | `k21_high_low` | 0.22 | 0.2131 | 0.031 | ≤ 0.12 |
 
-Both deviations sit inside the advisory band; the artifact characterises both as
+Both deviations sit inside the advisory band; the artifact characterizes both as
 "~4x inside the band" (`$.band.rationale`) and "~4x inside the 12% band"
 (`$.levels.level1.tether_measured.note`) for this one 2-state dataset. That is the whole claim: it is not a general accuracy
 guarantee, and the file records no uncertainty on Tether's own two fitted rates. The
@@ -1211,7 +1455,7 @@ probability `φ_A exp(Q_AA t) 1` — the dwell-time distribution of an aggregate
 | `low_fret` | 600 | 6.4653 | 9.0538 | 0.286 | 0.0781 |
 | `high_fret` | 667 | 3.0459 | 4.3897 | 0.306 | 0.1471 |
 
-The observed dwells are shorter than predicted. Most of that is the window: the traces are
+The observed dwells are shorter than predicted. Most of that is the observation time: the traces are
 short against the dwells (median 35.7 s against a predicted mean low-FRET dwell of 9.1 s),
 and a dwell that a trace end cuts is never counted, so long dwells are under-sampled.
 Blinking and noise also split dwells. The comparison therefore measures Tether's fit and
@@ -1238,7 +1482,7 @@ PySMACKS is at a beta version, so it is a second data point and not a reference 
 **The PySMACKS side was made once, offline.** The record's README says the file holds the HMM
 analysis, but it does not: no trace has the `HMM_param` entry that PySMACKS writes, no trace has
 FRET values, and the file names no PySMACKS version. So `scripts/make_pysmacks_reference.py` ran
-PySMACKS 1.0.0b4 on the 52 labelled traces on 2026-11-13 and wrote
+PySMACKS 1.0.0b4 on the 52 labeled traces on 2026-11-13 and wrote
 `tests/fixtures/pysmacks_tutorial_reference.json`, which records the versions that ran. PySMACKS
 never runs in CI (maintainer decision of 2026-11-13). The tests read the original downloaded zip
 with a test-only reader and use only the donor-excitation channels (rules 1 and 2 of the specification's rules for test
@@ -1247,7 +1491,7 @@ Both tests are in the weekly `reference-data` job.
 
 - **Histogram, exact.**
   `tests/test_pysmacks_tutorial_download.py::test_tethers_apparent_e_histogram_equals_the_pysmacks_histogram`
-  bins Tether's apparent FRET of each labelled, background-subtracted frame (56,442 frames) in
+  bins Tether's apparent FRET of each labeled, background-subtracted frame (56,442 frames) in
   151 bins over −0.5 to 1.5, and requires the count of every bin to equal the PySMACKS count.
   It does.
 - **Rates, report only.**
@@ -1312,20 +1556,20 @@ evidence about the size of the difference and not a tolerance.
   not recover the level-2 rates.
 - (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
   comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
-  tolerance (see "Measured traces with a stored vbFRET path"). (d) has no leave-one-video-out protocol and no
+  tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
   real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
   Deep-LASI-median oracle. Each is stated in its own section above with the ADR that
   deferred it. (f) has no migration tests, which is not a gap: the specification makes them
   required only at the first schema-version step (see (f) above).
 - The specification states that Tether ships no synthetic-data simulator. In practice (e) and (g) are
   validated against **synthesized known-α / known-γ / known-step traces**, and (d) against a
-  synthetic separable multi-video store, because the real fixtures do not carry the required
+  synthetic separable multi-video project file, because the real fixtures do not carry the required
   ground-truth field. Two of those substitutions were ratified in an ADR and two were not:
   [ADR-0026](adr/0026-photobleach-detection-and-window-default.md) option C ratifies the
   synthetic known-step ground truth for (g), and
   [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md) option D ships γ "validated
   against synthetic known-γ recovery". The synthetic known-α fixtures and (d)'s synthetic
-  multi-video store carry no such ratification —
+  multi-video project file carry no such ratification —
   [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md) defers the donor-only α cross-check
   but never mentions synthetic data, and neither ranker ADR
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
@@ -1373,8 +1617,8 @@ documented gaps rather than fabricated values):
   patches from the import wizard (which opens the movie), and otherwise zero-fills; the
   movie link keeps crops re-cacheable.
 - **γ may be absent.** Remapped α/γ are injected only when γ is finite and positive;
-  otherwise the project degrades to the explicit apparent-E substrate — never a NaN E
-  (ADR-0003). The committed Cy3-only fixture exercises that path.
+  otherwise the project degrades to the explicit apparent-E substrate, so a missing γ never
+  gives a NaN E (ADR-0003). The committed Cy3-only fixture exercises that path.
 - δ (direct excitation) is inert 0 for single-laser Deep-LASI data, which has no ALEX
   channel to estimate it from.
 - A raw-`.txt`-sourced SMD has no coordinates and no patches, so it is imported as an
@@ -1390,3 +1634,8 @@ without a CUDA device, and `.github/workflows/deep-gpu.yml` is `workflow_dispatc
 by construction it never reports a pull-request status and can never become a required
 check. Treat deep-classifier output as an assistive ranking signal, not a validated
 measurement.
+
+The nightly CPU job also trains the default model on the public PySMACKS tutorial labels and
+checks frozen training numbers and a floor on the area under the ROC curve of a held-out part
+([ADR-0098](adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md)). That floor is a
+regression check on one labeled set. It does not make the add-on part of the validated core.

@@ -82,6 +82,7 @@ from tether.idealize.driver import (
 from tether.idealize.smd import write_smd
 from tether.imaging.extract import read_molecules, read_traces
 from tether.project.correct import METHOD_APPARENT_TOGGLE, METHOD_APPARENT_UNAVAILABLE
+from tether.project.lock import replacement_identity
 from tether.project.trace_layers import INTENSITY_QUANTITY_LAYERS
 
 if TYPE_CHECKING:
@@ -821,7 +822,8 @@ def write_idealization_model(
         if guarded_stage is not None:
             assert write_guard is not None
             write_guard()
-            os.replace(guarded_stage, canonical_path)
+            with replacement_identity(guarded_stage, canonical_path):
+                os.replace(guarded_stage, canonical_path)
             guarded_stage = None
     finally:
         if guarded_stage is not None:

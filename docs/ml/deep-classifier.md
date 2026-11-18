@@ -94,12 +94,12 @@ scores = predict_proba(trained, dataset)       # per-molecule accept probability
 `build_deep_dataset` builds the framework-free substrate (base env); `train_classifier` and
 `predict_proba` are the torch consumers (deep env). The returned `TrainedDeepClassifier` is a
 frozen record carrying the trained model, the per-epoch weighted-loss `history`, the full
-hyperparameter set, and the **preprocessing provenance** (channels, channel count, window
+hyperparameter set, and the **preprocessing provenance** (channels, channel count, model window
 length, normalization, intensity quantity) — the reproducibility stamp (NFR-REPRO).
 
 That provenance is also a **safety contract**: `predict_proba` rejects an inference dataset
 whose preprocessing differs from what the model was trained on across **all five** recorded
-fields — channel order, channel count, window length, normalization, and intensity quantity —
+fields — channel order, channel count, model window length, normalization, and intensity quantity —
 because a mismatch keeps a compatible tensor *shape* yet would produce silently invalid scores.
 Pass a bare `nn.Module` to opt out and own the contract yourself.
 
@@ -118,7 +118,7 @@ trained model):
   the real observed frames. Padding is masked, **never zero-filled as real data**, and the
   LSTM consumes packed sequences so padded frames are excluded — never treated as observations.
 
-Labels are the shared-store **binary** accept(1)/reject(0) curation labels; the six-way
+Labels are the shared **binary** accept(1)/reject(0) curation labels; the six-way
 DeepFRET taxonomy awaits the category codec of ADR-0023 and is a later extension.
 
 ## Why a third isolated environment
@@ -157,7 +157,7 @@ cross-platform** (`linux-64`, `osx-64`, `osx-arm64`, `win-64`):
 - `numpy>=1.26,<2.2`, `scipy>=1.13`, `h5py>=3.11` — the empirically verified import footprint
   of the shared substrate (importing `tether.ml.deep.dataset` runs the `tether.ml` package
   init, which pulls the ranker's `scipy.spatial.cKDTree` and, transitively, the `h5py`
-  store bridge; scikit-learn / xgboost stay lazy and are not needed here)
+  project-file bridge; scikit-learn / xgboost stay lazy and are not needed here)
 
 ### Continuous integration
 
@@ -169,7 +169,8 @@ neither escape these legs nor redden the base matrix.
 
 | Leg | Workflow | Trigger | Runner | What it exercises |
 |-----|----------|---------|--------|-------------------|
-| **CPU smoke** | `deep.yml` | pull_request (deep paths), nightly cron, manual | `ubuntu-latest` | restores `deep/conda-lock.yml`; trains a tiny CNN/LSTM on synthetic labeled traces and asserts it trains, predicts, and is reproducible on CPU |
+| **CPU smoke** | `deep.yml` (`deep / smoke`) | pull_request (deep paths), nightly cron, manual | `ubuntu-latest` | restores `deep/conda-lock.yml`; trains a tiny CNN/LSTM on synthetic labeled traces and asserts it trains, predicts, and is reproducible on CPU; trains the default model on the public PySMACKS labels and checks the frozen numbers and the accuracy floor (below) |
+| **Ranker comparison** | `deep.yml` (`deep / ranker`) | after `deep / smoke` | `ubuntu-latest` | restores the base lock; trains the gradient-boosting quality ranker on the same split and writes both models' scores to the job summary; no limit |
 | **GPU smoke** | `deep-gpu.yml` | `workflow_dispatch` **only** | self-hosted CUDA runner | installs the documented CUDA wheel at run time and exercises the `device="cuda"` training + inference path; the job fails when the runner has no visible CUDA device, so a green run means the GPU tests ran |
 
 `deep.yml` is non-required by design (its `paths:` filter is safe precisely because it never
@@ -179,10 +180,37 @@ therefore can never become a required merge check. To run the GPU leg, dispatch 
 self-hosted runner labeled `self-hosted` + your GPU label (default `gpu`), choosing the CUDA
 channel (`cu126` / `cu124` / `cu128`) that matches the runner's driver.
 
+### Reference on public labeled traces
+
+Tether ships no trained model, so no reference model exists to compare with. The reference is a
+public labeled set instead ([ADR-0098](../adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md),
+#759): the traces file of the PySMACKS tutorial record (Zenodo
+[10.5281/zenodo.21793247](https://doi.org/10.5281/zenodo.21793247), CC0-1.0). A person marked
+frame ranges of 123 traces as `FRET`, `DO` (donor only) or `AO` (acceptor only). Each range is one
+sample: `FRET` is accept, `DO` and `AO` are reject (149 ranges, 52 accept).
+`schema/deep_classifier_reference.json` holds the split (by trace, 37 of the 123 traces are the
+test part), the training seed, the metric and the floor.
+
+The nightly `deep / smoke` job trains the model once, at the default hyperparameters, and checks
+two things:
+
+- **Frozen numbers.** The loss of each epoch, the score of each test range and the metrics equal the
+  [committed golden file](https://github.com/bioedca/tether/blob/main/tests/golden/deep/pysmacks_classifier.json)
+  within a relative limit measured in ten runs on GitHub runners. A deliberate change runs `python scripts/update_deep_golden.py` in the deep env
+  and pastes the old/new table, with a `Cause:` line, in the pull request (the rule of the
+  self-drift suite, ADR-0080).
+- **Accuracy floor.** The area under the ROC curve on the test part must reach the floor, which
+  sits below the scores of ten training seeds by three standard deviations of those scores. A
+  model that predicts the majority class gets 0.5 and fails it.
+
+The floor says that the default model learns this one human-labeled distinction on CPU. It is
+not a measure of how well the model sorts other data. `deep / ranker` puts the scores of the
+quality ranker on the same split beside it, as a report.
+
 ## Status and scope
 
 The classifier is optional, the base app is unaffected, the schema is untouched (the substrate
-is read-only over the store, whose layout is frozen), and every tunable is registered in the
+is read-only over the project file, whose layout is frozen), and every tunable is registered in the
 product specification's table of tunables — the single source of truth.
 
 ## References
