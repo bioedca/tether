@@ -657,14 +657,16 @@ def _difference(name: str, ours: object, theirs: object) -> str:
     """How one grid value differs from the first series', as the refusal states it.
 
     Two arrays of one shape are told apart by their first unequal entry, since a summary
-    of their size and ends can read the same for both; anything else by its summary.
+    of their size and ends can read the same for both; anything else by its summary. The
+    entries are written in full (``repr``), because a shortened form can print two
+    unequal values alike.
     """
     if isinstance(ours, np.ndarray) and isinstance(theirs, np.ndarray):
         a, b = np.asarray(ours), np.asarray(theirs)
         if a.shape == b.shape:
             index = tuple(int(i) for i in np.argwhere(a != b)[0])
             at = index[0] if len(index) == 1 else index
-            return f"{name} has {b[index]:g} at index {at}, not {a[index]:g}"
+            return f"{name} has {b[index].item()!r} at index {at}, not {a[index].item()!r}"
     return f"{name} is {_shown(theirs)}, not {_shown(ours)}"
 
 

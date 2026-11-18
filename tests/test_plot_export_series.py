@@ -616,6 +616,18 @@ def test_a_grid_refusal_names_the_first_unequal_value(results):
         pe.render_histogram1d([("WT", wt), ("mutant", moved)])
 
 
+def test_a_grid_refusal_tells_apart_values_a_short_form_prints_alike(results):
+    wt, mut = results["h1"]
+    edges = np.asarray(wt.bin_edges, dtype="float64").copy()
+    edges[1] = 0.02500001
+    first = replace(wt, bin_edges=edges)
+    moved_edges = edges.copy()
+    moved_edges[1] = 0.02500002
+    moved = replace(mut, bin_edges=moved_edges)
+    with pytest.raises(ValueError, match=r"has 0\.02500002 at index 1, not 0\.02500001"):
+        pe.render_histogram1d([("WT", first), ("mutant", moved)])
+
+
 @pytest.mark.parametrize("kind", KINDS)
 def test_a_one_series_record_says_it_is_drawn_as_the_bare_result(results, tmp_path, kind):
     wt, _ = results[kind]
