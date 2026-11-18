@@ -1322,6 +1322,12 @@ fault injections each break a limit: an aperture moved by 2 px lowers the donor 
 to 0.689, and an acceptor position moved by 2 px after the channel mapping raises its largest
 acceptor error to 2.390 px.
 
+The test also counts duplicates: Tether molecules that match a true molecule which an earlier
+Tether molecule already matched (#1006,
+[ADR-0107](adr/0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md)). The count is 0
+in each scenario, and the limit is that count, so a molecule written twice breaks it. A test
+repeats each molecule and trace row of `easy` and requires the duplicate limit to break.
+
 ## External benchmark
 
 Tether's rate constants were compared against the ground truth and the reported inter-tool
@@ -1612,3 +1618,8 @@ without a CUDA device, and `.github/workflows/deep-gpu.yml` is `workflow_dispatc
 by construction it never reports a pull-request status and can never become a required
 check. Treat deep-classifier output as an assistive ranking signal, not a validated
 measurement.
+
+The nightly CPU job also trains the default model on the public PySMACKS tutorial labels and
+checks frozen training numbers and a floor on the area under the ROC curve of a held-out part
+([ADR-0098](adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md)). That floor is a
+regression check on one labeled set. It does not make the add-on part of the validated core.
