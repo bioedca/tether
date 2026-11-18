@@ -19,6 +19,14 @@ Two companion dialogs complete the §7.3 contract:
 * [`CheatSheetOverlay`][] renders the shipped, always-current keyboard
   cheat-sheet from the live [`Keymap`][tether.gui.curation.Keymap].
 
+The window hosts its **sections** (#341, ADR-0116): the central widget is a
+``QStackedWidget`` with one page per section of the
+[`SectionRegistry`][tether.gui.sections.SectionRegistry] — Prepare, Curate and
+correct, Analyze — and each dock belongs to one section and shows only while that
+section is current.
+[`TetherShell.set_section`][tether.gui.shell.TetherShell.set_section] switches; a
+switch never touches the session lock of ADR-0055.
+
 The shell also carries the desktop basics (#629): File → Close project and Quit
 with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
 log folder, and the About box of [`tether.gui.about`][]), opening a dropped
@@ -31,13 +39,14 @@ subclass one) so importing this module costs no Qt, matching the rest of
 
 from __future__ import annotations
 
+import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING, Any
 
+from tether.gui import preferences
 from tether.gui.curation import (
     CATEGORY_SLOTS,
     Command,
@@ -47,6 +56,8 @@ from tether.gui.curation import (
     CurationHandlers,
     Keymap,
 )
+from tether.gui.sections import DockArea, DockSpec, SectionRegistry, SectionSpec
+from tether.gui.task_service import TaskService
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -59,6 +70,7 @@ if TYPE_CHECKING:
     from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
     from tether.gui.reconcile import ReconcileDecision
+    from tether.gui.tasks import TaskOutcome
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
@@ -107,7 +119,10 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "ANALYZE_SECTION",
+    "CURATE_SECTION",
     "DEFERRED_ACTIONS",
+    "PREPARE_SECTION",
     "CheatSheetOverlay",
     "OverflowCategoryPicker",
     "TetherShell",
@@ -146,6 +161,10 @@ _IDEALIZE_POLL_MS = 25
 #: Retry a failed nonce-safe session-lock release without waiting for staleness.
 _LOCK_RELEASE_RETRY_MS = 1000
 
+#: Upper bound (ms) on one wait before the shell judges a refused lock again (#626).
+#: A foreign holder can refresh while the shell waits, so the wait is re-armed.
+_LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
+
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
 _HISTOGRAM_REFRESH_DEBOUNCE_MS = 250
 
@@ -158,6 +177,15 @@ _SMD_SUFFIXES = (".hdf5", ".smd")
 #: File filter for the ``&File → Open project…`` dialog (a ``.tether`` HDF5 store).
 _TETHER_FILTER = "Tether project (*.tether);;All files (*)"
 
+#: The ids of the sections the shell registers (#341, ADR-0116), in the order of page 1
+#: of the design (#897). The Deposit section (order 4) is registered by #897 / #956.
+PREPARE_SECTION = "prepare"
+CURATE_SECTION = "curate"
+ANALYZE_SECTION = "analyze"
+
+#: The section that shows when the shell opens: its page holds the start page (#629).
+_DEFAULT_SECTION = CURATE_SECTION
+
 # Initial acquisition treats the same host/user/PID as one identity. Separate shells
 # in one QApplication therefore need an additional process-local ownership boundary
 # or they can both become writable before retained-session refresh takes over.
@@ -167,17 +195,20 @@ _GUI_PROJECT_OWNERS_LOCK = Lock()
 
 
 def _project_owner_key(path: str | Path) -> _ProjectOwnerKey:
-    """Return one process-local identity for paths to the same existing file."""
+    """Return one process-local identity for paths to the same existing file.
+
+    The identity is the canonical [`file_identity`][tether.project.lock.file_identity]
+    (ADR-0112), so the GUI registry and the lock lifecycle agree on what one file is.
+    """
+    from tether.project.lock import file_identity
+
     resolved = os.path.normcase(os.path.realpath(os.fspath(path)))
-    try:
-        stat = os.stat(resolved)
-    except OSError:
+    identity = file_identity(resolved)
+    if identity is None:
         # Construction/failure paths may not exist yet. Keep the former normalized
         # path behavior as a safe, deterministic fallback without inventing an inode.
         return ("path", resolved)
-    if stat.st_ino:
-        return ("file", int(stat.st_dev), int(stat.st_ino))
-    return ("path", resolved)
+    return ("file", *identity)
 
 
 def _claim_gui_project(path: str | Path, token: object) -> _ProjectOwnerKey | None:
@@ -230,6 +261,30 @@ def _local_paths(mime: Any) -> list[Path]:
     if mime is None or not mime.hasUrls():
         return []
     return [Path(url.toLocalFile()) for url in mime.urls() if url.isLocalFile()]
+
+
+def _guide_page(title: str, text: str) -> Any:
+    """A plain page with a heading and one paragraph that says where the tools are.
+
+    The Prepare and Analyze sections show one until their own content lands (#897 and the
+    issues it lists); the page never offers an action the shell cannot do.
+    """
+    from pyqtgraph.Qt import QtCore, QtWidgets
+
+    from tether.gui import theme
+
+    page = QtWidgets.QWidget()
+    page.setAccessibleName(f"{title} section")
+    layout = QtWidgets.QVBoxLayout(page)
+    heading = QtWidgets.QLabel(title)
+    heading.setFont(theme.heading_font())
+    body = QtWidgets.QLabel(text)
+    body.setWordWrap(True)
+    layout.addWidget(heading)
+    layout.addWidget(body)
+    layout.addStretch(1)
+    layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+    return page
 
 
 def _quit_application() -> None:  # pragma: no cover - ends the process's event loop
@@ -322,12 +377,14 @@ class CheatSheetOverlay:
         *,
         parent: QtWidgets.QWidget | None = None,
         unavailable: frozenset[CurationAction] = frozenset(),
+        note: str | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
         self._keymap = keymap
         self._unavailable = frozenset(unavailable)
         self._rows: list[tuple[str, str]] = []
+        self._note = note
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("Keyboard shortcuts")
         layout = QtWidgets.QVBoxLayout(self._dialog)
@@ -336,6 +393,12 @@ class CheatSheetOverlay:
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
+        if note:
+            # A behavior the key rows cannot carry, such as the advance-after-curation
+            # preference (#631): shown under the table, never as a key row.
+            label = QtWidgets.QLabel(note)
+            label.setWordWrap(True)
+            layout.addWidget(label)
         self.refresh()
 
     @property
@@ -347,6 +410,11 @@ class CheatSheetOverlay:
     def rows(self) -> list[tuple[str, str]]:
         """The ``(key_label, action)`` rows currently displayed."""
         return list(self._rows)
+
+    @property
+    def note(self) -> str | None:
+        """The text shown under the key table, or ``None`` when there is none."""
+        return self._note
 
     def refresh(self) -> None:
         """Re-read the keymap and repopulate the table (reflects rebindings)."""
@@ -362,6 +430,51 @@ class CheatSheetOverlay:
     def show(self) -> None:
         self.refresh()
         self._dialog.show()
+
+
+def _read_lock_recovery(path: str | PathLike[str]) -> Any | None:
+    """[`lock_recovery`][tether.project.lock.lock_recovery], or ``None`` if unreadable."""
+    from tether.project.lock import lock_recovery
+
+    try:
+        return lock_recovery(path)
+    except OSError:
+        return None
+
+
+def _lock_refusal_text(path: str | PathLike[str], recovery: Any) -> str:
+    """The refusal text for ``recovery``'s current holder, as an open would report it."""
+    from tether.project import lock
+
+    owner = recovery.owner
+    stale = owner is not None and owner.is_stale(timeout_s=lock.DEFAULT_STALENESS_TIMEOUT_S)
+    exc = lock.LockedError(owner, stale=stale, corrupt=recovery.corrupt, path=lock.lock_path(path))
+    return f"write lock unavailable: {exc}"
+
+
+def _lock_reason(refusal: str, recovery: Any | None) -> str:
+    """The read-only banner text for a refused lock and its recovery verdict (#626)."""
+    from tether.project.lock import RecoveryAction
+
+    if recovery is None:
+        return refusal
+    owner = recovery.owner
+    if recovery.action is RecoveryAction.RECOVER:
+        hint = "a Tether session of yours on this computer stopped; Recover reopens it writable"
+    elif recovery.action is RecoveryAction.TAKE_OVER:
+        hint = "the holder is idle past the staleness timeout; Take over… is available"
+    elif recovery.holder_running:
+        assert owner is not None  # a running holder is a parsed record
+        hint = (
+            f"a running Tether process on this computer holds it (pid {owner.pid}); "
+            "close that window to write here"
+        )
+    elif recovery.available_at is not None:
+        when = recovery.available_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        hint = f"a takeover becomes possible at {when} if the holder stays idle"
+    else:  # pragma: no cover - every NONE verdict carries one of the two facts above
+        hint = "no takeover is available"
+    return f"{refusal}; {hint}"
 
 
 class TetherShell:
@@ -380,7 +493,11 @@ class TetherShell:
     draws the returned Viterbi path on the dock. When an ``overlap`` seam is wired
     ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
-    (§7.3). Use as a context manager or call [`close`][].
+    (§7.3). The trace dock and the Browser belong to the Curate and correct section,
+    one of the sections [`set_section`][] switches between (#341). After a stored
+    accept or reject the next listed molecule is selected, so one key both decides
+    and moves on; ``advance_after_curation=False`` keeps the selection in place
+    instead. Use as a context manager or call [`close`][].
     """
 
     def __init__(
@@ -392,6 +509,8 @@ class TetherShell:
         histogram: HistogramSeam | None = None,
         overlap: OverlapSeam | None = None,
         conditions: Project | None = None,
+        advance_after_curation: bool = True,
+        preferences_file: Path | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
@@ -407,6 +526,10 @@ class TetherShell:
         )
         self._traces: list[TraceView] = []
         self._current_index = -1
+        # "Advance after accept or reject" (#631): a stored accept or reject selects
+        # the next listed molecule. On by default; the settings store (#330) will
+        # carry the preference, until then the caller passes it here.
+        self._advance_after_curation = bool(advance_after_curation)
         # The writable project behind Space/Backspace/Delete. It is set only by a
         # successful load_project call: synthetic/demo traces and a bare shell must
         # never acquire an accidental persistence target.
@@ -431,6 +554,15 @@ class TetherShell:
         # _curation_project so a blocked writer gets an actionable status instead
         # of the bare-shell "load a writable project" message.
         self._curation_read_only_reason: str | None = None
+        # What the read-only banner may offer for a lock the open could not take
+        # (#626): one-click Recover, typed Take over, or nothing yet.
+        self._lock_recovery: Any | None = None
+        # The open's refusal text, kept so a timed re-check can rebuild the banner.
+        self._lock_refusal: str | None = None
+        # A lock a recovery took whose reopen then failed and whose release has not
+        # yet succeeded: ``(project path, taken LockInfo)``. The release-retry timer
+        # keeps trying its exact nonce, as it does for a rollback session.
+        self._recovered_lock: tuple[Path, Any] | None = None
         # The one-click-idealize seam: a molecule_key -> idealized-path callable.
         # None (the synthetic/no-project default) makes ``I`` report that a project
         # must be loaded; make_store_idealizer(project) wires the real pipeline.
@@ -462,17 +594,23 @@ class TetherShell:
         # The currently open modal wrapper, retained so timer-detected lock loss can
         # reject it before its stale Project handle reaches another write action.
         self._active_conditions_dialog: Any | None = None
-        # The fit runs on a background worker (the sidecar can block for a cold-JIT
-        # first run); a main-thread QTimer polls the future so the GUI stays live and
-        # the overlay draw + status update always happen on the main thread.
-        self._idealize_executor = ThreadPoolExecutor(max_workers=1)
-        self._idealize_future: Any | None = None
         # A fit abandoned by shell close remains a writer until its Future settles.
         # Keep that Future separate from the visible idealization state so the
         # nonce-safe release timer waits for the writer and retries teardown errors.
         self._session_release_future: Any | None = None
-        self._idealize_timer: Any | None = None
-        self._idealize_key: str | None = None
+        # What this computer remembers between launches (#628, ADR-0122): recent
+        # projects, the molecule selected at close, the layout and the curator name.
+        # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
+        # file of tether.gui.preferences. Nothing of it is written into a project.
+        self._preferences_file = preferences_file
+        # A failed preferences write, kept until the next status message carries it, so a
+        # success message of the same action does not hide it (#628).
+        self._preferences_error: str | None = None
+        # The curator name set for new labels, or None: then the project writes the
+        # operating-system user, exactly as before #628.
+        self._curator_name: str | None = (
+            None if preferences_file is None else preferences.curator_name(preferences_file)
+        )
 
         self._window = QtWidgets.QMainWindow()
         self._window.setWindowTitle(_APP_NAME)
@@ -487,6 +625,11 @@ class TetherShell:
         self._lock_release_timer = QtCore.QTimer()
         self._lock_release_timer.setInterval(_LOCK_RELEASE_RETRY_MS)
         self._lock_release_timer.timeout.connect(self._retry_session_release)
+        # Judge a refused lock again once it can become stale (#626), so the banner
+        # offers Take over without a reopen.
+        self._lock_recovery_timer = QtCore.QTimer()
+        self._lock_recovery_timer.setSingleShot(True)
+        self._lock_recovery_timer.timeout.connect(self._recheck_lock_recovery)
         self._histogram_refresh_timer = QtCore.QTimer()
         self._histogram_refresh_timer.setSingleShot(True)
         self._histogram_refresh_timer.setInterval(_HISTOGRAM_REFRESH_DEBOUNCE_MS)
@@ -503,10 +646,11 @@ class TetherShell:
             on_open=lambda: self._open_project_dialog(),
             on_tutorial=self.open_tutorial,
         )
-        self._central = QtWidgets.QStackedWidget()
-        self._central.addWidget(self._start_page.widget)
-        self._central.addWidget(self._trace_dock.widget)
-        self._window.setCentralWidget(self._central)
+        # The page of the Curate and correct section: the start page while nothing is
+        # loaded, else the trace dock. The section stack itself is built further down.
+        self._curate_stack = QtWidgets.QStackedWidget()
+        self._curate_stack.addWidget(self._start_page.widget)
+        self._curate_stack.addWidget(self._trace_dock.widget)
         # A .tether file dropped anywhere on the window opens it (#629).
         self._window.setAcceptDrops(True)
 
@@ -531,6 +675,23 @@ class TetherShell:
         # The theme's style sheet draws it in the "caution" state token.
         self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
+        # The banner's lock actions (#626), shown only when the lock allows one.
+        self._recover_button = QtWidgets.QPushButton("Recover")
+        self._recover_button.setAccessibleName("Recover the project lock")
+        self._recover_button.setToolTip(
+            "A Tether session of yours on this computer stopped without releasing the "
+            "lock. Take the lock and reopen the project writable."
+        )
+        self._recover_button.clicked.connect(lambda: self.recover_project_lock())
+        self._recover_button.hide()
+        self._take_over_button = QtWidgets.QPushButton("Take over…")
+        self._take_over_button.setAccessibleName("Take over the project lock")
+        self._take_over_button.setToolTip(
+            "The lock holder has been idle past the staleness timeout. Take the lock "
+            "after a typed confirmation; the holder's unsaved work can be lost."
+        )
+        self._take_over_button.clicked.connect(lambda: self.take_over_project_lock())
+        self._take_over_button.hide()
         # Section titles use the heading font (Red Hat Display, else the system font).
         self._section_titles = [
             QtWidgets.QLabel(t) for t in ("Movie", "Molecules", "Category name")
@@ -541,15 +702,56 @@ class TetherShell:
         vbox.addWidget(movie_title)
         vbox.addWidget(self._movie_switcher)
         vbox.addWidget(self._read_only_banner)
+        lock_actions = QtWidgets.QHBoxLayout()
+        lock_actions.addWidget(self._recover_button)
+        lock_actions.addWidget(self._take_over_button)
+        lock_actions.addStretch(1)
+        vbox.addLayout(lock_actions)
         vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
         vbox.addWidget(self._category_field)
         vbox.addWidget(self._unreject_button)
-        browser = QtWidgets.QDockWidget("Browser", self._window)
-        browser.setWidget(panel)
-        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, browser)
-        self._browser_dock = browser
+        self._browser_panel = panel
+
+        # The sections (#341, ADR-0116): the central widget of the one QMainWindow is a
+        # QStackedWidget with one page per registered section, and each dock belongs to
+        # one section and shows only while that section is current. A section switch
+        # changes only which page and which docks show; it never touches the session lock.
+        self._sections = self._build_sections()
+        self._section_stack = QtWidgets.QStackedWidget()
+        self._section_pages: dict[str, Any] = {}
+        self._section_docks: dict[str, list[Any]] = {spec.id: [] for spec in self._sections}
+        # Whether a dock of a section that is not current shows again when its section does;
+        # kept so a dock the user closed stays closed across a switch.
+        self._dock_restore: dict[Any, bool] = {}
+        # Each dock's default area, so View -> Reset layout can return a dock built after
+        # the default layout was captured to its default place too (#628).
+        self._dock_default_area: dict[Any, Any] = {}
+        # The docks the stored layout names as hidden only by their section; a dock built
+        # after the restore reads it too (#628).
+        self._stored_section_hidden: set[str] = set()
+        self._section: str = _DEFAULT_SECTION
+        dock_widgets: dict[tuple[str, str], Any] = {}
+        for spec in self._sections:
+            page = spec.central(self)
+            self._section_stack.addWidget(page)
+            self._section_pages[spec.id] = page
+            for dock in spec.docks:
+                dock_widgets[spec.id, dock.id] = self._attach_section_dock(
+                    spec.id, dock.title, dock.factory(self), dock.area
+                )
+        self._window.setCentralWidget(self._section_stack)
+        self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
+        self._show_section(_DEFAULT_SECTION)
+        # The default layout, kept before a stored one is restored, for View -> Reset
+        # layout (#628). A window never shown reports Qt's placeholder size and takes its
+        # real one from its size hint on the first show; adjustSize applies that sizing now,
+        # so the size kept is the one a fresh launch shows.
+        self._window.adjustSize()
+        self._default_size = self._window.size()
+        self._default_state = self._window.saveState()
+        self._default_docks = set(self._dock_default_area)
 
         # Curation controller + keymap + the application-level event filter.
         self._controller = CurationController(self._build_handlers())
@@ -614,6 +816,17 @@ class TetherShell:
         _set_standard_shortcuts(self._act_close_project, std.Close, "Ctrl+W")
         self._act_close_project.triggered.connect(self.close_project)
         self._act_close_project.setEnabled(False)
+        # File -> Open recent (#628): the last projects opened on this computer, newest
+        # first; one whose file is missing shows disabled, with its path.
+        self._recent_menu = QtWidgets.QMenu("Open &recent", self._window)
+        self._file_menu.insertMenu(self._act_close_project, self._recent_menu)
+        self._recent_menu.aboutToShow.connect(self._sync_recent_menu)
+        self._sync_recent_menu()
+        self._file_menu.addSeparator()
+        # The name written into new labels (#628). Shown in the status bar too, so a
+        # user on a shared computer sees whose labels they are writing.
+        self._act_curator_name = self._file_menu.addAction("Curator &name…")
+        self._act_curator_name.triggered.connect(self._curator_name_dialog)
         self._file_menu.addSeparator()
         self._act_quit = self._file_menu.addAction("&Quit")
         _set_standard_shortcuts(self._act_quit, std.Quit, "Ctrl+Q")
@@ -622,7 +835,10 @@ class TetherShell:
 
         # Help / overflow actions (menu + the shipped cheat-sheet).
         self._cheatsheet = CheatSheetOverlay(
-            self._keymap, parent=self._window, unavailable=DEFERRED_ACTIONS
+            self._keymap,
+            parent=self._window,
+            unavailable=DEFERRED_ACTIONS,
+            note=self._advance_note(),
         )
         menu = self._window.menuBar().addMenu("&Curation")
         act_help = menu.addAction("Keyboard &shortcuts…")
@@ -675,6 +891,24 @@ class TetherShell:
             self._theme_actions[value] = action
         self._theme_menu.aboutToShow.connect(self._sync_theme_menu)
         self._sync_theme_menu()
+        # View -> Section: one checkable item per registered section (#341). The guided
+        # mode and the full direct navigation of #897 replace this plain list.
+        self._section_menu = self._view_menu.addMenu("&Section")
+        self._section_group = QtGui.QActionGroup(self._window)
+        self._section_actions: dict[str, Any] = {}
+        for spec in self._sections:
+            action = self._section_menu.addAction(spec.title)
+            action.setCheckable(True)
+            action.setData(spec.id)
+            self._section_group.addAction(action)
+            action.triggered.connect(lambda _checked=False, s=spec.id: self.set_section(s))
+            self._section_actions[spec.id] = action
+        self._section_actions[self._section].setChecked(True)
+        # View -> Reset layout (#628): the default window size and dock positions, and
+        # the stored layout forgotten, so the next launch starts from the default too.
+        self._view_menu.addSeparator()
+        self._act_reset_layout = self._view_menu.addAction("&Reset layout")
+        self._act_reset_layout.triggered.connect(self.reset_layout)
 
         # Help menu (#629): the installed version's documentation, the shortcut
         # cheat-sheet (the same action as Curation's), the log folder once a log
@@ -717,6 +951,18 @@ class TetherShell:
 
         self._busy_indicator = BusyIndicator()
         self._window.statusBar().addPermanentWidget(self._busy_indicator)
+        # The fit runs on the background-task service (#343): one worker thread (the
+        # sidecar can block for a cold-JIT first run), polled by a main-thread QTimer so
+        # the GUI stays live and the overlay draw + status update happen on the main
+        # thread. The service sets the wait cursor and drives the busy indicator.
+        self._tasks = TaskService(poll_ms=_IDEALIZE_POLL_MS, indicator=self._busy_indicator)
+        self._curator_label = QtWidgets.QLabel()
+        self._curator_label.setAccessibleName("Curator name")
+        self._window.statusBar().addPermanentWidget(self._curator_label)
+        self._sync_curator_label()
+
+        # The stored layout, last: every dock built at startup exists by now (#628).
+        self._restore_layout()
 
         self._window.statusBar().showMessage("Ready — Space accept · Backspace reject")
         self._sync_start_page()
@@ -730,8 +976,172 @@ class TetherShell:
 
     @property
     def trace_dock(self) -> Any:
-        """The `TraceDock` occupying the window's central widget."""
+        """The `TraceDock` on the page of the Curate and correct section."""
         return self._trace_dock
+
+    # --- sections (#341, ADR-0116) -----------------------------------------
+
+    @property
+    def sections(self) -> SectionRegistry:
+        """The [`SectionRegistry`][tether.gui.sections.SectionRegistry] the shell hosts."""
+        return self._sections
+
+    @property
+    def section_stack(self) -> QtWidgets.QStackedWidget:
+        """The central widget of the window: one page per registered section, in order."""
+        return self._section_stack
+
+    @property
+    def section(self) -> str:
+        """The id of the section that shows now."""
+        return self._section
+
+    @property
+    def section_actions(self) -> dict[str, Any]:
+        """The checkable **View → Section** actions, by section id."""
+        return dict(self._section_actions)
+
+    def section_page(self, section_id: str) -> QtWidgets.QWidget:
+        """The page of ``section_id`` in [`section_stack`][]; raise `KeyError` if unknown."""
+        self._sections.get(section_id)
+        return self._section_pages[section_id]
+
+    def section_docks(self, section_id: str) -> list[QtWidgets.QDockWidget]:
+        """The docks attached to ``section_id`` now, lazily built ones included."""
+        self._sections.get(section_id)
+        return list(self._section_docks[section_id])
+
+    def set_section(self, section_id: str) -> None:
+        """Show the section ``section_id``: its page, its docks, and no other section's docks.
+
+        A switch changes only what shows. It does not acquire, refresh or release the session
+        lock, and it does not change which write controls are enabled (ADR-0055 governs both,
+        unchanged). An unknown id raises `KeyError` and changes nothing.
+        """
+        self._sections.get(section_id)
+        if section_id == self._section:
+            return
+        self._show_section(section_id)
+        self._section_actions[section_id].setChecked(True)
+
+    def _show_section(self, section_id: str) -> None:
+        """Make ``section_id`` current: its page in the stack, its docks shown, others hidden.
+
+        The show/hide item of each other section's dock is hidden too, so the window's dock
+        menu (a right click on the menu bar) cannot show a dock outside its section.
+        """
+        for other, docks in self._section_docks.items():
+            if other == section_id:
+                continue
+            for dock_widget in docks:
+                if dock_widget not in self._dock_restore:
+                    self._dock_restore[dock_widget] = not dock_widget.isHidden()
+                dock_widget.hide()
+                dock_widget.toggleViewAction().setVisible(False)
+        for dock_widget in self._section_docks[section_id]:
+            dock_widget.toggleViewAction().setVisible(True)
+            if self._dock_restore.pop(dock_widget, True):
+                dock_widget.show()
+        self._section_stack.setCurrentWidget(self._section_pages[section_id])
+        self._section = section_id
+
+    def _attach_section_dock(
+        self, section_id: str, title: str, widget: Any, area: DockArea
+    ) -> QtWidgets.QDockWidget:
+        """Dock ``widget`` into the window as a dock of ``section_id``.
+
+        The dock shows at once when ``section_id`` is current; otherwise it stays hidden
+        until that section shows.
+        """
+        from pyqtgraph.Qt import QtCore, QtWidgets
+
+        dock_widget = QtWidgets.QDockWidget(title, self._window)
+        dock_widget.setObjectName(f"{section_id}-{title.lower().replace(' ', '-')}")
+        dock_widget.setWidget(widget)
+        default_area = getattr(QtCore.Qt.DockWidgetArea, area.qt_name)
+        self._dock_default_area[dock_widget] = default_area
+        # A dock built after the stored layout was restored takes its stored place (#628);
+        # a dock the layout does not know goes to its default area. Restore first:
+        # addDockWidget drops the stored placeholder of a dock with the same name.
+        # A restored dock keeps its stored visibility, so one the user closed stays closed,
+        # unless the layout names it as hidden only by its section.
+        restored = self._window.restoreDockWidget(dock_widget)
+        if not restored:
+            self._window.addDockWidget(default_area, dock_widget)
+        shown = (
+            not restored
+            or dock_widget.objectName() in self._stored_section_hidden
+            or not dock_widget.isHidden()
+        )
+        self._section_docks[section_id].append(dock_widget)
+        if section_id == self._section:
+            dock_widget.setVisible(shown)
+        else:
+            self._dock_restore[dock_widget] = shown
+            dock_widget.hide()
+            dock_widget.toggleViewAction().setVisible(False)
+        return dock_widget
+
+    def _detach_section_dock(self, dock_widget: Any) -> None:
+        """Remove a lazily-built dock from the window and from its section."""
+        self._window.removeDockWidget(dock_widget)
+        self._dock_restore.pop(dock_widget, None)
+        self._dock_default_area.pop(dock_widget, None)
+        for docks in self._section_docks.values():
+            if dock_widget in docks:
+                docks.remove(dock_widget)
+
+    def _build_sections(self) -> SectionRegistry:
+        """The sections this shell hosts, in the order of page 1 of the design (#897).
+
+        Each factory returns a widget the shell already owns or a plain guide page, so the
+        registry adds no second owner of any widget. Prepare and Analyze write to the open
+        project in later work (#352 publishes an extraction into it; analysis results are
+        stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
+        """
+        browser_panel = self._browser_panel
+        return SectionRegistry(
+            [
+                SectionSpec(
+                    id=PREPARE_SECTION,
+                    title="Prepare",
+                    order=1,
+                    central=lambda _host: _guide_page(
+                        "Prepare",
+                        "To make a project from a folder of Deep-LASI files, choose "
+                        "Import → Deep-LASI bundle…. The project opens in this window.",
+                    ),
+                    writes_project=True,
+                ),
+                SectionSpec(
+                    id=CURATE_SECTION,
+                    title="Curate and correct",
+                    order=2,
+                    central=lambda _host: self._curate_stack,
+                    writes_project=True,
+                    docks=(
+                        DockSpec(
+                            id="browser",
+                            title="Browser",
+                            area=DockArea.LEFT,
+                            factory=lambda _host: browser_panel,
+                        ),
+                    ),
+                    keymap_scope="curation",
+                ),
+                SectionSpec(
+                    id=ANALYZE_SECTION,
+                    title="Analyze",
+                    order=3,
+                    central=lambda _host: _guide_page(
+                        "Analyze",
+                        "To see the population histogram of the open project, choose "
+                        "Analysis → Population histogram…. It shows below this text.",
+                    ),
+                    writes_project=True,
+                ),
+            ]
+        )
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -802,6 +1212,25 @@ class TetherShell:
     def read_only_banner(self) -> QtWidgets.QLabel:
         """The persistent Browser warning shown while the loaded project is browse-only."""
         return self._read_only_banner
+
+    @property
+    def recover_button(self) -> QtWidgets.QPushButton:
+        """The banner's one-click **Recover** action, shown only after a crash (#626)."""
+        return self._recover_button
+
+    @property
+    def take_over_button(self) -> QtWidgets.QPushButton:
+        """The banner's **Take over…** action, shown only for a stale foreign lock (#626)."""
+        return self._take_over_button
+
+    @property
+    def lock_recovery(self) -> Any | None:
+        """The [`LockRecovery`][tether.project.lock.LockRecovery] verdict the banner shows.
+
+        ``None`` when the project is writable, nothing is open, or browse-only for a
+        reason other than a lock this shell could not take.
+        """
+        return self._lock_recovery
 
     @property
     def controller(self) -> CurationController:
@@ -899,13 +1328,220 @@ class TetherShell:
             self._attach_overlap_dock()
 
     def _attach_overlap_dock(self) -> None:
-        """Dock the (lazily-built) overlap view into the right of the window."""
-        from pyqtgraph.Qt import QtCore, QtWidgets
+        """Dock the (lazily-built) overlap view at the right, in Curate and correct."""
+        self._overlap_dock_widget = self._attach_section_dock(
+            CURATE_SECTION, "Overlap", self._overlap_dock.widget, DockArea.RIGHT
+        )
 
-        dock_widget = QtWidgets.QDockWidget("Overlap", self._window)
-        dock_widget.setWidget(self._overlap_dock.widget)
-        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock_widget)
-        self._overlap_dock_widget = dock_widget
+    # --- what this computer remembers between launches (#628, ADR-0122) -------
+
+    @property
+    def preferences_file(self) -> Path | None:
+        """The per-user preferences file, or ``None`` when this shell remembers nothing."""
+        return self._preferences_file
+
+    def _remember(self, write: Callable[[], object]) -> bool:
+        """Run one preferences write; a failure is a status message, never an exception.
+
+        Remembering is a convenience: a full disk or a read-only home folder must not stop
+        an open, a close or a curation decision.
+        """
+        if self._preferences_file is None:
+            return False
+        try:
+            write()
+        except (OSError, ValueError) as exc:
+            self._preferences_error = f"Could not save preferences: {exc}"
+            self._window.statusBar().showMessage(self._preferences_error)
+            return False
+        return True
+
+    @property
+    def curator_name(self) -> str:
+        """The name written into new labels: the preference, else the operating-system user."""
+        return self._curator_name if self._curator_name is not None else preferences.login_name()
+
+    def _labeler_kwargs(self) -> dict[str, str]:
+        """``labeler=`` for a project write when a curator name is set; else the project's own."""
+        return {} if self._curator_name is None else {"labeler": self._curator_name}
+
+    @property
+    def curator_label(self) -> QtWidgets.QLabel:
+        """The status-bar label that names the curator new labels are written for."""
+        return self._curator_label
+
+    @property
+    def curator_name_action(self) -> Any:
+        """The **File → Curator name…** action."""
+        return self._act_curator_name
+
+    def set_curator_name(self, name: str | None) -> bool:
+        """Write new labels as ``name``; ``None`` or blank returns to the operating-system user.
+
+        Labels already written keep the name they were written with. A name
+        [`validate_curator_name`][tether.gui.preferences.validate_curator_name] refuses
+        changes nothing and is reported on the status bar; the return value says whether
+        the name changed.
+        """
+        value = None if name is None or not name.strip() else name
+        try:
+            checked = None if value is None else preferences.validate_curator_name(value)
+        except ValueError as exc:
+            self._status(f"Curator name not changed: {exc}")
+            return False
+        self._remember(lambda: preferences.set_curator_name(checked, self._preferences_file))
+        self._curator_name = checked
+        self._sync_curator_label()
+        self._status(f"New labels are written as {self.curator_name}")
+        return True
+
+    def _sync_curator_label(self) -> None:
+        self._curator_label.setText(f"Curator: {self.curator_name}")
+        self._curator_label.setToolTip(
+            "New labels are written with this name. Change it with File → Curator name…"
+        )
+
+    def _curator_name_dialog(self) -> None:  # pragma: no cover - interactive dialog
+        from pyqtgraph.Qt import QtWidgets
+
+        text, ok = QtWidgets.QInputDialog.getText(
+            self._window,
+            "Curator name",
+            "Name written into new labels (leave empty for your login name):",
+            text=self.curator_name,
+        )
+        if ok:
+            self.set_curator_name(text)
+
+    @property
+    def recent_menu(self) -> QtWidgets.QMenu:
+        """The **File → Open recent** submenu."""
+        return self._recent_menu
+
+    def recent_projects(self) -> list[Path]:
+        """The projects **File → Open recent** lists, newest first (empty if nothing is kept)."""
+        if self._preferences_file is None:
+            return []
+        return preferences.recent_projects(self._preferences_file)
+
+    def _sync_recent_menu(self) -> None:
+        """Rebuild **File → Open recent** from the preferences file."""
+        self._recent_menu.clear()
+        recent = self.recent_projects()
+        for path in recent:
+            exists = path.is_file()
+            label = path.name if exists else f"{path} (missing)"
+            action = self._recent_menu.addAction(label.replace("&", "&&"))
+            action.setToolTip(str(path))
+            action.setStatusTip(str(path))
+            action.setData(str(path))
+            action.setEnabled(exists)
+            action.triggered.connect(lambda _checked=False, p=path: self.load_project(p))
+        if not recent:
+            empty = self._recent_menu.addAction("No recent projects")
+            empty.setEnabled(False)
+        self._recent_menu.setEnabled(self._preferences_file is not None)
+
+    def _remember_position(self) -> None:
+        """Store the selected molecule as the resume position of the open project."""
+        if self._project_path is None:
+            return
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        key = None if trace is None else trace.molecule_key
+        path = self._project_path
+        self._remember(lambda: preferences.record_resume(path, key, self._preferences_file))
+
+    def _resume_position(self) -> None:
+        """Select the molecule this project showed when it was last closed here, if any."""
+        if self._preferences_file is None or self._project_path is None:
+            return
+        key = preferences.resume_molecule(self._project_path, self._preferences_file)
+        if key is None:
+            return
+        for row, trace in enumerate(self._traces):
+            if trace.molecule_key == key:
+                self._molecule_list.setCurrentRow(row)
+                return
+
+    def _section_hidden_docks(self) -> list[str]:
+        """The docks hidden only because their section is not current (by object name)."""
+        names = {dock.objectName() for dock, shown in self._dock_restore.items() if shown}
+        # A dock not built in this session (Overlap, Population histogram) keeps the stored
+        # answer, since Qt keeps its stored place and visibility for the next launch too.
+        built = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
+        return sorted(names | (self._stored_section_hidden - built))
+
+    def _save_layout(self) -> None:
+        """Store the window geometry and dock positions for the next launch."""
+        geometry = bytes(self._window.saveGeometry().data())
+        state = bytes(self._window.saveState().data())
+        hidden = self._section_hidden_docks()
+        self._remember(
+            lambda: preferences.record_layout(
+                geometry, state, self._preferences_file, section_hidden=hidden
+            )
+        )
+
+    def _restore_layout(self) -> None:
+        """Restore the stored layout, then let the section rules decide what shows."""
+        if self._preferences_file is None:
+            return
+        stored = preferences.stored_layout(self._preferences_file)
+        if stored is None:
+            return
+        from pyqtgraph.Qt import QtCore
+
+        if not self._window.restoreGeometry(QtCore.QByteArray(stored.geometry)):
+            return
+        if not self._window.restoreState(QtCore.QByteArray(stored.state)):
+            return
+        self._stored_section_hidden = set(stored.section_hidden)
+        self._enforce_sections(shown_by_section=self._stored_section_hidden)
+
+    def _enforce_sections(self, *, shown_by_section: set[str]) -> None:
+        """Apply the section rule after Qt restored a state that knows nothing of sections.
+
+        A dock named in ``shown_by_section`` was hidden at save time only because its
+        section was not current, so it counts as shown. The current section's docks then
+        show or stay closed as restored, and every other section's docks are hidden.
+        """
+        self._dock_restore.clear()
+        for section_id, docks in self._section_docks.items():
+            for dock in docks:
+                visible = dock.objectName() in shown_by_section or not dock.isHidden()
+                if section_id == self._section:
+                    dock.setVisible(visible)
+                    dock.toggleViewAction().setVisible(True)
+                else:
+                    self._dock_restore[dock] = visible
+                    dock.hide()
+                    dock.toggleViewAction().setVisible(False)
+
+    def reset_layout(self) -> None:
+        """Return the window to its default size and dock positions (**View → Reset layout**).
+
+        Every dock shows again in its default place, the section rule still applies, and the
+        stored layout is forgotten so the next launch uses the default too.
+        """
+        self._window.restoreState(self._default_state)
+        self._stored_section_hidden = set()
+        # The default state does not know a dock built after it was captured (Overlap,
+        # Population histogram), so restoring it leaves such a dock where the user put it.
+        for dock, area in self._dock_default_area.items():
+            if dock not in self._default_docks:
+                dock.setFloating(False)
+                self._window.addDockWidget(area, dock)
+        self._window.resize(self._default_size)
+        every_dock = {dock.objectName() for docks in self._section_docks.values() for dock in docks}
+        self._enforce_sections(shown_by_section=every_dock)
+        self._remember(lambda: preferences.clear_layout(self._preferences_file))
+        self._status("Layout reset to the default")
+
+    @property
+    def reset_layout_action(self) -> Any:
+        """The **View → Reset layout** action."""
+        return self._act_reset_layout
 
     # --- project (open a produced / extracted .tether live, §7.8) ------------
 
@@ -920,17 +1556,24 @@ class TetherShell:
         if reason is None:
             self._read_only_banner.clear()
             self._read_only_banner.hide()
+            self._set_lock_recovery(None)
         else:
             self._read_only_banner.setText(f"Read-only project: {reason}")
             self._read_only_banner.show()
         self._sync_project_write_controls()
 
     def _sync_project_write_controls(self) -> None:
-        """Enable source-project writers only for an idle writable GUI session."""
+        """Enable source-project writers only for an idle writable GUI session.
+
+        The Deep-LASI import publishes whole projects, possibly over the loaded one, so
+        it is frozen while idealization owns HDF5 as well (#346, ADR-0112). It needs no
+        writable session: it writes its own files under each one's writer lock.
+        """
         enabled = self._curation_read_only_reason is None and self._idealize_future is None
         self._unreject_button.setEnabled(enabled)
         self._act_import.setEnabled(enabled)
         self._act_validate_conditions.setEnabled(enabled)
+        self._act_import_deeplasi.setEnabled(self._idealize_future is None)
 
     def _idealization_blocks_write(self, feature: str) -> bool:
         """Report and reject a source-project mutation while idealization owns HDF5."""
@@ -989,6 +1632,9 @@ class TetherShell:
         if self._rollback_session_project is not None:
             self._status("Open project unavailable: waiting to release a rolled-back session lock")
             return None
+        if self._recovered_lock is not None:
+            self._status("Open project unavailable: waiting to release a recovered project lock")
+            return None
 
         # Do every fallible read BEFORE touching shell state, so a bad open is atomic
         # (the prior project stays wired) — mirroring the catch-and-report contract of
@@ -1023,6 +1669,8 @@ class TetherShell:
             self._status(f"Open project failed: {exc}")
             return None
 
+        recovery = None
+        refusal = None
         if reusing_session:
             self._refresh_project_lock()
             if self._curation_project is None or self._session_project is None:
@@ -1046,7 +1694,10 @@ class TetherShell:
                     _release_gui_project(claimed_key, self._project_owner_token)
                     claimed_key = None
                     writable = False
-                    read_only_reason = f"write lock unavailable: {exc}"
+                    refusal = f"write lock unavailable: {exc}"
+                    if isinstance(exc, LockedError):
+                        recovery = _read_lock_recovery(proj_path)
+                    read_only_reason = _lock_reason(refusal, recovery)
                     idealizer = None
                 else:
                     session_project = project
@@ -1134,6 +1785,8 @@ class TetherShell:
         self._session_project = session_project
         self._claimed_project_key = claimed_key if session_project is not None else None
         self._set_read_only_reason(read_only_reason)
+        self._lock_refusal = refusal
+        self._set_lock_recovery(recovery)
         self._idealizer = idealizer
         self._histogram_seam = histogram
         self._handoff = handoff
@@ -1149,11 +1802,17 @@ class TetherShell:
         # Drop any docks built against a prior project so they rebuild fresh against the
         # new store (no stale histogram / overlap leaking across a re-open).
         self._reset_store_docks()
+        # The project being replaced keeps the molecule it shows now (#628).
+        self._remember_position()
         self._project_path = Path(proj_path)
         self._act_close_project.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
+        # Then the molecule selected when this project was last closed here, and the
+        # project goes to the top of File -> Open recent (#628).
+        self._resume_position()
+        self._remember(lambda: preferences.add_recent_project(proj_path, self._preferences_file))
         if prior_claimed_key != self._claimed_project_key:
             _release_gui_project(prior_claimed_key, self._project_owner_token)
 
@@ -1172,6 +1831,156 @@ class TetherShell:
             detail = f"{detail}; {read_only_reason}"
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
+
+    # --- lock recovery from the read-only banner (#626) -----------------------
+
+    def _set_lock_recovery(self, recovery: Any | None) -> None:
+        """Show the banner action ``recovery`` allows and arm its timed re-check."""
+        from tether.project.lock import RecoveryAction
+
+        self._lock_recovery = recovery
+        self._lock_recovery_timer.stop()
+        action = None if recovery is None else recovery.action
+        self._recover_button.setVisible(action is RecoveryAction.RECOVER)
+        self._take_over_button.setVisible(action is RecoveryAction.TAKE_OVER)
+        if recovery is not None and recovery.available_at is not None:
+            from datetime import UTC, datetime
+
+            wait_s = (recovery.available_at - datetime.now(UTC)).total_seconds()
+            wait_ms = int(max(0.0, wait_s) * 1000) + 1000
+            self._lock_recovery_timer.start(min(wait_ms, _LOCK_RECOVERY_RECHECK_MAX_MS))
+
+    def _recheck_lock_recovery(self) -> None:
+        """Judge the refused lock again and refresh the banner and its actions."""
+        if (
+            self._closed
+            or self._project_path is None
+            or self._lock_recovery is None
+            or self._curation_project is not None
+        ):
+            return
+        recovery = _read_lock_recovery(self._project_path)
+        if recovery is None:
+            reason = "the lock was released; open the project again to write"
+        else:
+            # Describe the holder from this verdict, not the refusal at open time:
+            # the lock can have been refreshed or taken by another writer since.
+            refusal = _lock_refusal_text(self._project_path, recovery)
+            self._lock_refusal = refusal
+            reason = _lock_reason(refusal, recovery)
+        self._set_read_only_reason(reason)
+        self._set_lock_recovery(recovery)
+
+    def recover_project_lock(self) -> Project | None:
+        """Take a lock left by a stopped session of this user here, and reopen writable.
+
+        The banner's one-click **Recover** (#626). It is available only when
+        [`lock_recovery`][] reports
+        [`RecoveryAction.RECOVER`][tether.project.lock.RecoveryAction]: the lock names
+        this computer and this user, and its process no longer runs. Returns the
+        reopened writable project, or ``None`` with a status message.
+        """
+        from tether.project.lock import RecoveryAction
+
+        return self._take_project_lock(RecoveryAction.RECOVER, confirmation=None)
+
+    def take_over_project_lock(self, confirmation: str | None = None) -> Project | None:
+        """Take a stale foreign lock after a typed confirmation, and reopen writable.
+
+        The banner's **Take over…** (#626). It is available only when
+        [`lock_recovery`][] reports
+        [`RecoveryAction.TAKE_OVER`][tether.project.lock.RecoveryAction]: another
+        computer, another user or a corrupt lock, idle past the staleness timeout
+        (PRD §11.2). ``confirmation`` is the typed text; ``None`` asks for it in a
+        dialog that warns that the holder's unsaved work can be lost. The text must
+        equal the project file name. Returns the reopened writable project, or
+        ``None`` with a status message.
+        """
+        from tether.project.lock import RecoveryAction
+
+        return self._take_project_lock(RecoveryAction.TAKE_OVER, confirmation=confirmation)
+
+    def _take_project_lock(self, action: Any, *, confirmation: str | None) -> Project | None:
+        """Shared body of [`recover_project_lock`][] and [`take_over_project_lock`][]."""
+        from tether.project import lock
+        from tether.project.lock import LockedError, RecoveryAction
+
+        label = "Recover" if action is RecoveryAction.RECOVER else "Take over"
+        if self._idealize_future is not None:
+            self._status(f"{label} unavailable: wait for idealization to finish")
+            return None
+        recovery = self._lock_recovery
+        path = self._project_path
+        if path is None or recovery is None or recovery.action is not action:
+            self._status(f"{label} unavailable: the project lock does not allow it")
+            return None
+        if action is RecoveryAction.TAKE_OVER:
+            if confirmation is None:
+                confirmation = self._ask_take_over_confirmation(path, recovery)
+                if confirmation is None:
+                    self._status("Take over cancelled")
+                    return None
+            if confirmation.strip() != path.name:
+                self._status(f"Take over cancelled: the typed text does not match {path.name}")
+                return None
+        try:
+            taken, ousted = lock.recover_lock(path, recovery)
+        except LockedError as exc:
+            self._status(f"{label} refused: the lock changed ({exc})")
+            self._recheck_lock_recovery()
+            return None
+        except OSError as exc:
+            self._status(f"{label} failed: {exc}")
+            return None
+        # Re-run the open path so every write seam binds to the new session.
+        opened = self.load_project(path)
+        if opened is None or self._curation_project is None:
+            # The reopen is not writable; give back the lock just taken. The release
+            # is nonce-checked, so a session lock the reopen took and still holds is
+            # not touched. A failed release keeps the record for the retry timer.
+            self._recovered_lock = (path, taken)
+            if not self._release_recovered_lock_once():
+                self._lock_release_timer.start()
+            self._status(f"{label} failed: {self._curation_read_only_reason or 'reopen failed'}")
+            return None
+        holder = (
+            "an unknown holder (corrupt lock)"
+            if ousted is None
+            else f"{ousted.user}@{ousted.host} (pid {ousted.pid})"
+        )
+        warning = "" if action is RecoveryAction.RECOVER else "; their unsaved work is not merged"
+        # The durable record goes in under the new lock, through the writable reopen,
+        # so a refused, failed or read-only takeover never writes one (#1099, ADR-0121).
+        try:
+            self._curation_project.record_lock_takeover(action, taken, ousted)
+        except Exception as exc:  # noqa: BLE001 - the takeover stands; say the record failed
+            logging.getLogger("tether.project.lock").warning(
+                "lock %s on %s: the takeover record was not written: %s", action.value, path, exc
+            )
+            warning += f"; the takeover record was not written ({exc})"
+        self._status(f"{label}: took the lock from {holder}; {path.name} is writable{warning}")
+        return opened
+
+    def _ask_take_over_confirmation(self, path: Path, recovery: Any) -> str | None:
+        """Ask the user to type the project file name; ``None`` when cancelled."""
+        from pyqtgraph.Qt import QtWidgets
+
+        holder = (
+            "The lock file is corrupt, so its holder is unknown."
+            if recovery.owner is None
+            else (
+                f"{recovery.owner.user}@{recovery.owner.host} holds this lock "
+                f"(pid {recovery.owner.pid}, last refreshed {recovery.owner.timestamp})."
+            )
+        )
+        text, ok = QtWidgets.QInputDialog.getText(
+            self._window,
+            "Take over the project lock",
+            f"{holder}\n\nIf you take over, this window becomes the only writer. Work "
+            "that the holder did not save is lost. It is not merged.\n\n"
+            f"Type the project file name, {path.name}, to confirm.",
+        )
+        return str(text) if ok else None
 
     # --- session-lock state (read-only) ---------------------------------------
     #
@@ -1298,8 +2107,33 @@ class TetherShell:
             return
         self._lock_release_timer.stop()
 
+    def _release_recovered_lock_once(self) -> bool:
+        """Release a lock a failed recovery reopen left held; ``False`` to retry."""
+        from tether.project import lock
+
+        with self._session_release_lock:
+            recovered = self._recovered_lock
+            if recovered is None:
+                return True
+            path, taken = recovered
+            try:
+                # Nonce-checked: a no-op once a later open re-took the lock.
+                released = lock.release(path, taken)
+                if not released:
+                    # As Project.release_lock: forget the record only when a
+                    # readable sidecar proves the lock is gone or no longer ours.
+                    current = lock.read_lock(path)
+                    if current is not None and current.nonce == taken.nonce:
+                        return False
+            except (OSError, lock.CorruptLockError):
+                return False
+            self._recovered_lock = None
+            return True
+
     def _release_rollback_session_once(self) -> bool:
         """Release a failed project-switch rollback without dropping its lifecycle."""
+        if not self._release_recovered_lock_once():
+            return False
         with self._session_release_lock:
             project = self._rollback_session_project
             if project is not None:
@@ -1342,7 +2176,7 @@ class TetherShell:
         ):
             widget = getattr(self, widget_attr)
             if widget is not None:
-                self._window.removeDockWidget(widget)
+                self._detach_section_dock(widget)
             dock = getattr(self, dock_attr)
             if dock is not None:
                 dock.close()
@@ -1396,6 +2230,7 @@ class TetherShell:
             self._status("Close project unavailable: wait for idealization to finish")
             return False
         name = self._project_path.name
+        self._remember_position()
         self._reject_active_conditions_dialog()
         self._lock_refresh_timer.stop()
         self._curation_project = None
@@ -1409,6 +2244,8 @@ class TetherShell:
         self._project_path = None
         self._act_close_project.setEnabled(False)
         self.set_molecules([])
+        # The start page is the page of Curate and correct, so show that section.
+        self.set_section(CURATE_SECTION)
         self._retry_session_release()
         self._status(f"Closed {name}")
         return True
@@ -1427,12 +2264,15 @@ class TetherShell:
 
     @property
     def start_page_visible(self) -> bool:
-        """Whether the start page, not the trace dock, fills the window."""
-        return self._central.currentWidget() is self._start_page.widget
+        """Whether the start page fills the window: Curate and correct shows, nothing loaded."""
+        return (
+            self._section == CURATE_SECTION
+            and self._curate_stack.currentWidget() is self._start_page.widget
+        )
 
     def _sync_start_page(self) -> None:
         empty = self._project_path is None and not self._traces
-        self._central.setCurrentWidget(
+        self._curate_stack.setCurrentWidget(
             self._start_page.widget if empty else self._trace_dock.widget
         )
 
@@ -1695,6 +2535,7 @@ class TetherShell:
                 self._conditions,
                 writer_guard=self._guard_conditions_write,
                 parent=self._window,
+                **self._labeler_kwargs(),
             )
             self._active_conditions_dialog = dialog
             dialog.exec()
@@ -1738,6 +2579,8 @@ class TetherShell:
         is the produced paths — empty when the user cancels, writes nothing, or the
         dialog fails.
         """
+        if self._idealization_blocks_write("Deep-LASI import"):
+            return ()
         factory = dialog_factory or self._new_deeplasi_dialog
         try:
             produced = tuple(factory().exec())
@@ -1810,7 +2653,7 @@ class TetherShell:
         try:
             dock.set_histogram(hist)
         except Exception as exc:  # noqa: BLE001 - a malformed result must not crash
-            # Mirrors _poll_idealize: an injected seam returning a shape-invalid
+            # Mirrors _finish_idealize: an injected seam returning a shape-invalid
             # Histogram1D surfaces as a status message, never an uncaught exception
             # out of the &Analysis menu action. A dock that fails its very first draw
             # is discarded, so no blank dock is ever adopted/attached to the window
@@ -1820,6 +2663,9 @@ class TetherShell:
             if newly_built:
                 dock.close()
             return None
+        # The histogram is a dock of the Analyze section (#341), so showing it shows that
+        # section; View → Section returns to Curate and correct.
+        self.set_section(ANALYZE_SECTION)
         if newly_built:
             self._histogram_dock = dock
             self._attach_histogram_dock()
@@ -1856,13 +2702,10 @@ class TetherShell:
             self._status(f"Histogram refresh failed: {error}")
 
     def _attach_histogram_dock(self) -> None:
-        """Dock the (already-built, successfully-drawn) histogram into the window."""
-        from pyqtgraph.Qt import QtCore, QtWidgets
-
-        dock_widget = QtWidgets.QDockWidget("Population histogram", self._window)
-        dock_widget.setWidget(self._histogram_dock.widget)
-        self._window.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, dock_widget)
-        self._histogram_dock_widget = dock_widget
+        """Dock the (already-built, successfully-drawn) histogram at the bottom, in Analyze."""
+        self._histogram_dock_widget = self._attach_section_dock(
+            ANALYZE_SECTION, "Population histogram", self._histogram_dock.widget, DockArea.BOTTOM
+        )
 
     # --- handlers ------------------------------------------------------------
 
@@ -1933,7 +2776,7 @@ class TetherShell:
                 CurationAction.REJECT: project.reject,
                 CurationAction.UNREJECT: project.unreject,
             }
-            result = writers[action](trace.molecule_key)
+            result = writers[action](trace.molecule_key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
             self._status(f"{verb} failed: {exc}")
             return
@@ -1943,7 +2786,44 @@ class TetherShell:
 
         target = trace.name or trace.molecule_key
         self._queue_open_histogram_refresh()
-        self._status(f"{completed} {target}")
+        if action is CurationAction.UNREJECT or not self._advance_after_curation:
+            self._status(f"{completed} {target}")
+            return
+        self._advance_from(row, f"{completed} {target}")
+
+    def _advance_from(self, row: int, done: str) -> None:
+        """Select the next listed molecule after ``row`` once a decision is stored.
+
+        "Next" is the next row in list order that the list shows, so a hidden
+        (filtered-out) row is skipped and the list is never reordered (§7.5). At the
+        last shown row the selection stays and the status says the end was reached.
+        The navigation status the move produces is kept after ``done``, so an overlap
+        failure on the new molecule is still reported.
+        """
+        nxt = row + 1
+        while nxt < len(self._traces) and self._molecule_list.isRowHidden(nxt):
+            nxt += 1
+        if nxt >= len(self._traces):
+            self._status(f"{done}; end of the list reached")
+            return
+        self._molecule_list.setCurrentRow(nxt)
+        self._status(f"{done}; {self.status_message}")
+
+    @property
+    def advance_after_curation(self) -> bool:
+        """Whether a stored accept or reject selects the next listed molecule.
+
+        Set once by the ``advance_after_curation`` constructor argument, on by default.
+        """
+        return self._advance_after_curation
+
+    def _advance_note(self) -> str:
+        """The cheat-sheet line that states the advance-after-curation preference."""
+        state = "on" if self._advance_after_curation else "off"
+        return (
+            f"Advance after accept or reject: {state}. When on, Accept and Reject show "
+            "the next trace; Un-reject and the category keys keep the same trace."
+        )
 
     def _assign_category(self, integer_class: int) -> None:
         name = (
@@ -1963,7 +2843,13 @@ class TetherShell:
     @property
     def is_idealizing(self) -> bool:
         """Whether a background one-click-idealize fit is currently running."""
-        return self._idealize_future is not None
+        return self._tasks.busy
+
+    @property
+    def _idealize_future(self) -> Any | None:
+        # The Future of the in-flight fit, held by the background-task service. Every
+        # source-project writer gate reads it: None means idealization owns no HDF5.
+        return self._tasks.future
 
     def _idealize_current(self) -> None:
         """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
@@ -1978,8 +2864,6 @@ class TetherShell:
         selection, no wired idealizer, an already-running fit, an empty result, or a
         failing/length-mismatched fit each surface as a status message, never a crash.
         """
-        from pyqtgraph.Qt import QtCore, QtWidgets
-
         if self._idealize_future is not None:
             self._status("Idealize: a fit is already running")
             return
@@ -2009,31 +2893,33 @@ class TetherShell:
                     "Idealize unavailable: selected molecule is rejected; un-reject it first"
                 )
                 return
-        self._idealize_key = key
         self._status(f"Idealizing {key} (one-click vbFRET)…")
         # The indicator names the molecule as the list shows it (``trace.name`` or
-        # ``mol-<i>``); the key stays for the idealizer and the status message.
-        self._busy_indicator.start(f"Idealizing {self._molecule_list.item(row).text()}")
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-        self._idealize_future = self._idealize_executor.submit(self._idealizer, key)
+        # ``mol-<i>``); the key stays for the idealizer and the status message. The fit
+        # is not cancellable (#343): its sidecar may still commit HDF5 data.
+        self._tasks.start(
+            self._idealizer,
+            key,
+            context=key,
+            label=f"Idealizing {self._molecule_list.item(row).text()}",
+            on_finished=self._finish_idealize,
+        )
         self._sync_project_write_controls()
-        self._idealize_timer = QtCore.QTimer()
-        self._idealize_timer.setInterval(_IDEALIZE_POLL_MS)
-        self._idealize_timer.timeout.connect(self._poll_idealize)
-        self._idealize_timer.start()
 
-    def _poll_idealize(self) -> None:
-        """Main-thread poll: when the background fit is done, draw it or report why."""
-        future = self._idealize_future
-        if future is None or not future.done():
+    def _finish_idealize(self, outcome: TaskOutcome) -> None:
+        """Apply a finished fit on the main thread: draw it, or report why not."""
+        from tether.gui.tasks import TaskState
+
+        # The service has already stopped the timer, restored the cursor and stopped the
+        # indicator, and holds no task: the write gates below see an idle shell.
+        key = outcome.context
+        self._sync_project_write_controls()
+        if self._curation_project is None:
+            self._retry_session_release()
+        if outcome.state is not TaskState.DONE:
+            self._status(f"Idealize failed for {key}: {outcome.error}")
             return
-        key = self._idealize_key
-        self._finish_idealize()  # stop the timer, clear state, restore the cursor
-        try:
-            idealized = future.result()
-        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
-            self._status(f"Idealize failed for {key}: {exc}")
-            return
+        idealized = outcome.value
         if idealized is None:
             self._status(f"Idealize: no idealization produced for {key}")
             return
@@ -2051,21 +2937,6 @@ class TetherShell:
             return
         self._status(f"Idealized {key} (one-click vbFRET)")
 
-    def _finish_idealize(self) -> None:
-        """Tear down the poll timer + fit state and restore the wait cursor."""
-        from pyqtgraph.Qt import QtWidgets
-
-        if self._idealize_timer is not None:
-            self._idealize_timer.stop()
-            self._idealize_timer = None
-        self._idealize_future = None
-        self._idealize_key = None
-        self._busy_indicator.stop()
-        self._sync_project_write_controls()
-        QtWidgets.QApplication.restoreOverrideCursor()
-        if self._curation_project is None:
-            self._retry_session_release()
-
     def _step(self, delta: int) -> None:
         if not self._traces:
             self._status("Next trace" if delta > 0 else "Previous trace")
@@ -2074,6 +2945,9 @@ class TetherShell:
         self._molecule_list.setCurrentRow(new_row)
 
     def _status(self, message: str) -> None:
+        if self._preferences_error is not None:
+            message = f"{message} ({self._preferences_error})"
+            self._preferences_error = None
         self._window.statusBar().showMessage(message)
 
     # --- lifecycle -----------------------------------------------------------
@@ -2093,13 +2967,14 @@ class TetherShell:
         lock is retained until that future completes and releases it from its done
         callback. With no active writer, the lock is released immediately.
         """
-        from pyqtgraph.Qt import QtWidgets
-
         from tether.gui import theme
 
         if self._closed:
             return
         self._closed = True
+        # What the next launch restores (#628), saved while every widget still exists.
+        self._remember_position()
+        self._save_layout()
         self._reject_active_conditions_dialog()
         self._window.removeEventFilter(self._window_close_filter)
         self._window_close_filter = None
@@ -2124,14 +2999,9 @@ class TetherShell:
                 writable_project.refresh_lock()
         self._curation_project = None
         self._set_read_only_reason(None)
-        if self._idealize_timer is not None:
-            self._idealize_timer.stop()
-            self._idealize_timer = None
-        if future is not None:
-            # A running fit is abandoned (its result is discarded), and the wait
-            # cursor it set is restored so it never leaks past close.
-            self._idealize_future = None
-            QtWidgets.QApplication.restoreOverrideCursor()
+        # A running fit is abandoned (its result is discarded): the service stops its
+        # poll timer and restores the wait cursor it set, so it never leaks past close.
+        self._tasks.abandon()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
@@ -2153,7 +3023,7 @@ class TetherShell:
             # nonce is released. A transient unlink failure is retried by the timer
             # even though the visible shell has already closed.
             self._retry_session_release()
-        self._idealize_executor.shutdown(wait=False)
+        self._tasks.shutdown()
         if self._histogram_dock is not None:
             self._histogram_dock.close()
         if self._overlap_dock is not None:

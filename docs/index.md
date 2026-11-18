@@ -12,8 +12,8 @@ description: "Tether is a free desktop suite for single-molecule FRET analysis. 
 **Tether** is a cross-platform single-molecule FRET (smFRET) desktop suite built for the
 Mondragón Lab at Northwestern University. It pairs a PySide6 application shell and
 [pyqtgraph](https://www.pyqtgraph.org) trace docks with a single self-describing HDF5
-(`.tether`) project store. Extraction, the corrections and idealization stamp their Tether
-version and most of their parameters into that store (not every setting, and not direct
+(`.tether`) project file. Extraction, the corrections and idealization stamp their Tether
+version and most of their parameters into that project file (not every setting, and not direct
 excitation, which Tether does not correct), and the publication exports carry the same stamp
 beside them; [Reproducibility and reporting](reproducibility.md) lists what is recorded, what
 is not, and how to read it back.
@@ -59,10 +59,10 @@ paper.
   [idealize them](how-to/idealize.md),
   [draw a histogram, TDP and dwell plots](how-to/analyze.md) and
   [export the results](how-to/export-results.md).
-- [Legacy Deep-LASI import](io/legacy-import.md) — for re-analysing an existing
+- [Legacy Deep-LASI import](io/legacy-import.md) — for re-analyzing an existing
   Deep-LASI acquisition without re-extracting the movie.
 - [Standalone-tMAVEN hand-off](idealize/standalone-tmaven-handoff.md) — for idealizing
-  in tMAVEN's own window and bringing the result back.
+  in tMAVEN's own application window and bringing the result back.
 - [Seven-plot parity gallery](analysis/parity-gallery.md) — for the seven analysis
   plots and how each corresponds to its tMAVEN counterpart.
 - [Validation & benchmarks](validation.md) — for deciding whether a Tether analysis is
@@ -73,7 +73,7 @@ paper.
   writes.
 - [Analysis parameters](reference/parameters.md) — for every default Tether applies and
   whether it is recorded in your project.
-- [Project store](reference/tether-format.md) — for reading a `.tether` file directly.
+- [Project file](reference/tether-format.md) — for reading a `.tether` file directly.
 - [Reproducibility and reporting](reproducibility.md) — for the version and settings a
   project records, reading them back, and writing them into a Methods section.
 - [Glossary](glossary.md) — for the terms used across these pages.
@@ -103,7 +103,7 @@ movie actually passes through them, and what each leaves in the project file, se
 
 | Module | Responsibility |
 | --- | --- |
-| [`tether.io`](io/legacy-import.md) | Readers, the HDF5 project store, the filename parser, and [exporters](reference/exports.md). |
+| [`tether.io`](io/legacy-import.md) | Readers, the HDF5 project file, the filename parser, and [exporters](reference/exports.md). |
 | [`tether.imaging`](cli.md#tether-extract) | Native movie-to-trace extraction and registration. |
 | [`tether.fret`](adr/0026-photobleach-detection-and-window-default.md) | Photobleaching detection, correction factors, and corrected FRET. |
 | [`tether.idealize`](idealize/standalone-tmaven-handoff.md) | The tMAVEN sidecar driver and dwell/rate analysis. |
