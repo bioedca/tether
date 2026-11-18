@@ -647,11 +647,11 @@ def _run_batch(args: argparse.Namespace) -> int:
     code = batch_exit_code(result.summary)
     print(result.summary.format_report())
     print(f"Exit code {code}: {BATCH_EXIT_MEANINGS[code]}.")
-    # Each movie's project is <out-dir>/<stem>.tether (the service refuses collisions).
-    from pathlib import Path
-
-    for movie in args.movies:
-        _warn_conflict_copies(Path(args.out_dir) / f"{Path(movie).stem}.tether")
+    # Check the projects the run actually used: folders and patterns are expanded, and
+    # colliding movie names get longer output names (output_stems), so the raw arguments
+    # do not name them.
+    for movie_result in result.summary.results:
+        _warn_conflict_copies(movie_result.job.output_path)
     print(f"  structured log: {result.log_path}", file=sys.stderr)
     return code
 
