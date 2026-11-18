@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from tether.services import batch, extract, idealize
+from tether.services import batch, extract, idealize, maps
 from tether.services.base import Request, RequestError, request_from_mapping
 
 __all__ = [
@@ -72,6 +72,13 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         result_type=idealize.IdealizeResult,
         run=idealize.run,
         summary="fit the molecules of a .tether project, or refit its stale models",
+    ),
+    ServiceCommand(
+        name="map",
+        request_type=maps.MapCreateRequest,
+        result_type=maps.MapCreateResult,
+        run=maps.run,
+        summary="make a channel map file (.npz) from a bead video or image",
     ),
 )
 
