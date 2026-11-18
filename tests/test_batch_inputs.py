@@ -323,6 +323,39 @@ def test_names_do_not_depend_on_the_current_folder(
     assert output_stems(relative) == output_stems(absolute) == ("day1__m", "day2__m")
 
 
+def _link_to(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("this machine cannot make a symbolic link")
+
+
+def test_a_link_followed_by_dotdot_takes_the_real_parent_folders(tmp_path: Path) -> None:
+    # ``work/link/../m.tif`` with ``work/link`` -> ``archive/sub`` is ``archive/m.tif``:
+    # read as text it would take ``work``'s folders and collide with ``work/m.tif`` (#1215).
+    beside_link = _touch(tmp_path / "work" / "m.tif")
+    _touch(tmp_path / "archive" / "m.tif")
+    (tmp_path / "archive" / "sub").mkdir()
+    _link_to(tmp_path / "work" / "link", tmp_path / "archive" / "sub")
+    through_link = os.path.join(str(tmp_path / "work" / "link"), "..", "m.tif")
+    movies = expand_movie_arguments([str(beside_link), through_link])
+    assert len(movies) == 2
+    by_movie = dict(zip((os.path.realpath(m) for m in movies), output_stems(movies), strict=True))
+    assert by_movie[os.path.realpath(tmp_path / "archive" / "m.tif")] == "archive__m"
+    assert by_movie[os.path.realpath(beside_link)] == "work__m"
+
+
+def test_a_path_through_a_link_without_dotdot_keeps_the_folders_it_names(
+    tmp_path: Path,
+) -> None:
+    # The path names the movie as typed, so the names stay those of the typed folders.
+    _touch(tmp_path / "real" / "day1" / "m.tif")
+    _touch(tmp_path / "day2" / "m.tif")
+    _link_to(tmp_path / "alias", tmp_path / "real" / "day1")
+    movies = [tmp_path / "alias" / "m.tif", tmp_path / "day2" / "m.tif"]
+    assert output_stems(movies) == ("alias__m", "day2__m")
+
+
 # --- The command line --------------------------------------------------------------------
 
 
