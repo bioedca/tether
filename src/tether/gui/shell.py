@@ -680,6 +680,8 @@ class TetherShell:
         self._conflict_copy_banner = QtWidgets.QLabel()
         self._conflict_copy_banner.setAccessibleName("Sync-conflict copy warning")
         self._conflict_copy_banner.setWordWrap(True)
+        # File names are shown as written: a name holding "<b>" must not become markup.
+        self._conflict_copy_banner.setTextFormat(QtCore.Qt.TextFormat.PlainText)
         self._conflict_copy_banner.setProperty("tetherRole", "caution")
         self._conflict_copy_banner.hide()
         # The banner's lock actions (#626), shown only when the lock allows one.

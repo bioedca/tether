@@ -473,6 +473,22 @@ def test_open_names_onedrive_conflict_copies_in_a_non_blocking_banner(shell, tmp
     assert numbered.read_bytes() == b"numbered copy"
 
 
+def test_conflict_copy_banner_shows_a_markup_file_name_literally(shell, tmp_path) -> None:
+    # A file name may hold "<" and ">" on Linux and macOS; Qt's default AutoText would read
+    # "<b>" as rich text and hide it, so the banner must be plain text.
+    from pyqtgraph.Qt import QtCore
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
+    copy = tmp_path / "exp-<b>BOX.tether"
+    copy.write_bytes(b"copy")
+
+    assert shell.load_project(project.path) is not None
+
+    banner = shell.conflict_copy_banner
+    assert banner.textFormat() == QtCore.Qt.TextFormat.PlainText
+    assert "exp-<b>BOX.tether" in banner.text()
+
+
 def test_open_without_conflict_copies_shows_no_banner(shell, tmp_path) -> None:
     project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
     (tmp_path / "other.tether").write_bytes(b"unrelated sibling")
