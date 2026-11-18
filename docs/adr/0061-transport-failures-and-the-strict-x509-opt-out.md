@@ -63,6 +63,22 @@ routinely issue exactly such a CA. Same machine, same host, same second:
 development platform, so 3.13 and 3.14 are supported interpreters that cannot reach the API at all.
 `SSL_CERT_FILE` does not help: the CA is not missing, it is present and judged malformed.
 
+## Considered options
+
+- **Enumerate the verdicts, name the cause that was observed, and offer an explicit
+  `TETHER_ALLOW_NONSTRICT_X509=1` opt-out that clears strict conformance and nothing else**
+  (chosen).
+- **Subtype the failures** — a `TransportError` caught ahead of a blanket `except ClaimError`
+  (the first attempt, recorded under *Decision*).
+- **`truststore`.**
+- **Pin the agent tooling to CPython < 3.13.**
+- **Route `_request` through `gh api`.**
+- **Report honestly and stop** (the issue as first written).
+- **Ship a CA bundle or honour `SSL_CERT_FILE`.**
+- **Retry without strict verification after a strict failure.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 **1. Classify the *verdicts*, not the failures: `IneligibleError(ClaimError)` is the only thing

@@ -444,6 +444,48 @@ def test_write_read_calibration_nan_residual(tmp_path: Path) -> None:
 # --- imported .tmap path + apply-both parity (§7.1; §9 M1) -------------------
 
 
+def test_imported_map_carries_tmap_rotation_and_flip() -> None:
+    # #559: each channel's decoded Rotation/Flip lands in the map's split geometry
+    # next to its crop, so the movie is split rotate -> flip -> crop like the map.
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    moving_id = next(cid for cid in channels if cid != reference)
+    turned = dict(channels)
+    turned[moving_id] = replace(
+        channels[moving_id], rotation=np.array([[270.0]]), flip=np.array([[0, 1]])
+    )
+    reg = registration_map_from_tmap(turned, reference_channel=reference)
+    assert reg.reference_geometry is not None and reg.moving_geometry is not None
+    assert reg.reference_geometry.rotation_deg == 0
+    assert reg.reference_geometry.flip == (0, 0)
+    assert reg.moving_geometry.rotation_deg == 270
+    assert reg.moving_geometry.flip == (0, 1)
+    assert reg.moving_geometry.crop == tuple(np.asarray(channels[moving_id].crop).ravel())
+
+    bad = dict(channels)
+    bad[moving_id] = replace(channels[moving_id], rotation=np.array([[45.0]]))
+    with pytest.raises(ValueError, match="Rotation"):
+        registration_map_from_tmap(bad, reference_channel=reference)
+
+
+def test_imported_map_rotation_and_flip_survive_persistence(tmp_path) -> None:
+    from dataclasses import replace
+
+    reference, channels = _load_tmap_fixture()
+    moving_id = next(cid for cid in channels if cid != reference)
+    turned = dict(channels)
+    turned[moving_id] = replace(
+        channels[moving_id], rotation=np.array([[90.0]]), flip=np.array([[1, 1]])
+    )
+    reg = registration_map_from_tmap(turned, reference_channel=reference)
+    path = tmp_path / "map.npz"
+    save_map(reg, path)
+    back = load_map(path)
+    assert back.moving_geometry == reg.moving_geometry
+    assert back.reference_geometry == reg.reference_geometry
+
+
 def test_imported_map_matches_tmap_channel_helper() -> None:
     """The imported 0-based transform equals the TmapChannel 0-based helper exactly.
 

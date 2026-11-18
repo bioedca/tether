@@ -116,7 +116,7 @@ never merge, release, or declare a PR ready while required checks are red or pen
   python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0"
 
   # exactly what the required `test` matrix runs (see Test tiers below)
-  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation"
+  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
   ```
 
   Large/gated fixtures are exercised only by the scheduled `large-fixtures.yml`
@@ -126,8 +126,8 @@ never merge, release, or declare a PR ready while required checks are red or pen
 
 A bare `pytest` runs **everything**, marked included — `-m` is a filter, not a default.
 The required matrix is therefore an explicit *exclusion*: it runs unmarked **and** `gui`
-tests, and excludes only the four tiers that need something CI does not have. Three of
-those have their own workflow; the fourth runs in no CI job at all:
+tests, and excludes only the five tiers that need something CI does not have. Four of
+those have their own workflow; the fifth runs in no CI job at all:
 
 | marker | needs | where it runs |
 |---|---|---|
@@ -136,19 +136,20 @@ those have their own workflow; the fourth runs in no CI job at all:
 | `sidecar` | a live tMAVEN env (`$TETHER_SIDECAR_PYTHON`) | `sidecar.yml` — never the required matrix |
 | `deep` | the isolated torch stack (`deep/conda-lock.yml`) | `deep.yml` / `deep-gpu.yml` — advisory |
 | `large` | the gated large-fixture tier | `large-fixtures.yml` — scheduled |
+| `reference_download` | network access to download the `download` tier of `tests/reference_data/manifest.toml` | `reference-data.yml` — weekly, the required matrix makes no network call ([ADR-0073](docs/adr/0073-one-manifest-for-reference-data-sets.md)) |
 | `workstation` | private laboratory data (`$TETHER_PRIVATE_DATA`) | no CI job — `scripts/workstation/run_private_checks.py` on the maintainer's workstation ([ADR-0071](docs/adr/0071-private-data-checks-run-from-a-workstation-task.md)) |
 
 ```bash
 # The required matrix, verbatim — ci.yml runs this on all three OSes
 # (Linux wraps it in `xvfb-run -a`; QT_QPA_PLATFORM=offscreen is the local equivalent).
-QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation"
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
 
 QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 
 # Skip Qt. The optional tiers must be excluded here too — `not gui` on its own still
-# selects deep/sidecar/large, and the deep tests import torch, which the base lock
-# does not carry.
-pytest -m "not gui and not large and not sidecar and not deep and not workstation"
+# selects deep/sidecar/large/reference_download, and the deep tests import torch, which
+# the base lock does not carry.
+pytest -m "not gui and not large and not sidecar and not deep and not workstation and not reference_download"
 ```
 
 The shell keyboard-shortcut tests in `tests/test_shell_basics.py` need a window that
@@ -261,7 +262,7 @@ cannot see, on all three operating systems:
   them. An unlisted form it can detect, and that could change its verdict, fails with
   `unsupported Markdown form, the checker cannot vouch for it` and the file and line:
   rewrite the page in a listed form. Any other unlisted form is not guaranteed; known
-  gaps are tracked in #515.
+  gaps are tracked in #1013.
 - `tests/test_docs_examples.py` checks that every `from tether…` / `import tether…` line
   in a `python` fence names a real module and object, by reading the source — it never
   imports, so a deep-stack example resolves without torch. The fence must open and close
@@ -346,6 +347,9 @@ modes are silent:
   under embargo into a third-party service, confirm your group's policy *and* that
   service's data-retention terms. This repository is public, but not everything in your
   working tree is.
+
+Fill the `AI assistance:` line of the pull-request template: write `none`, or the tool that
+drafted the change and its model where the tool reports it.
 
 Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
