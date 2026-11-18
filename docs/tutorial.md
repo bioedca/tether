@@ -173,8 +173,9 @@ describes.
 
 ## 8. Draw the population histogram
 
-Choose **Analysis → Population histogram…**. The window goes to its **Analyze** section, a
-**Population histogram** panel opens, and the status bar reads:
+Choose **View → Section → Analyze**. Each section has its own menus, and the **Analysis**
+menu is in this one. Choose **Analysis → Population histogram…**. A **Population histogram**
+panel opens, and the status bar reads:
 
 ```text
 Population histogram — 2 molecule(s), 48 frame(s)
