@@ -23,9 +23,8 @@ traces, fits one trace at a time and draws a population histogram. Extraction ru
 [command line](cli.md), where `tether batch` also applies the corrections and fits every
 molecule. From Python you can run the corrections and whole-project fits with your own
 settings, and make the other plots and the exports, as each [how-to guide](#using-tether)
-shows. The installer also includes
-[napari](https://napari.org) for the movie panel, which reaches the application with the planned
-[trace curation section](https://github.com/bioedca/tether/milestone/18).
+shows. The application also shows each movie of a project in a
+[napari](https://napari.org) movie panel, with its donor and acceptor spots.
 
 **New here?** Start with [Does Tether fit my data?](compatibility.md) — it describes the
 acquisition geometry and file formats Tether reads, what it deliberately does not do, and
