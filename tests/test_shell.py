@@ -75,21 +75,7 @@ def test_bare_accept_key_without_project_reports_nonwriting(shell) -> None:
     assert "Accepted" not in shell.status_message
 
 
-@pytest.mark.parametrize(
-    "key_name",
-    [
-        "Key_1",
-        "Key_0",
-        "Key_Minus",
-        "Key_Equal",
-        "Key_BracketLeft",
-        "Key_BracketRight",
-        "Key_R",
-        "Key_P",
-        "Key_Return",
-        "Key_G",
-    ],
-)
+@pytest.mark.parametrize("key_name", ["Key_Return", "Key_G"])
 def test_deferred_store_commands_report_unavailable(shell, qtbot, key_name) -> None:
     from pyqtgraph.Qt import QtCore
 
@@ -207,7 +193,8 @@ def test_status_bar_and_cheatsheet_do_not_advertise_deferred_keys(shell) -> None
     assert rows.get("Space") == "Accept trace"
     assert rows.get("I") == "One-click idealize"
     assert rows.get("G") == "Toggle grid (unavailable)"
-    assert rows.get("1") == "Assign category 1 (unavailable)"
+    # The category keys write the project since #359, so the sheet offers them plainly.
+    assert rows.get("1") == "Assign category 1"
     assert "Jump to movie spot (unavailable)" in rows.values()
     assert "Jump to movie spot" not in rows.values()
 

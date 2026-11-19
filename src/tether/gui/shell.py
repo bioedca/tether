@@ -66,6 +66,12 @@ from tether.gui.curation import (
 )
 from tether.gui.sections import DockArea, DockSpec, MenuSpec, SectionRegistry, SectionSpec
 from tether.gui.task_service import TaskService
+from tether.services.curation import (
+    resolved_frame_range,
+    resolved_window,
+    stored_molecule,
+    summed_bleach_frame,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -146,19 +152,11 @@ _APP_NAME = "Tether"
 #: The curation commands the shell does not implement yet (#345). Their keys stay
 #: bound, so a press reports ``… unavailable: …`` instead of a success it did not
 #: earn, and the cheat sheet marks them ``(unavailable)``. Jump becomes real in
-#: #357, the grid in #364, and the category / analysis-window / photobleach edits
-#: in #359; each removes its entry here in the PR that implements it.
+#: #357 and the grid in #364; each removes its entry here in the PR that implements
+#: it. The category, analysis-window and photobleach keys write the project (#359).
 DEFERRED_ACTIONS: frozenset[CurationAction] = frozenset(
     {
         CurationAction.JUMP,
-        CurationAction.ASSIGN_CATEGORY,
-        CurationAction.CLEAR_CATEGORY,
-        CurationAction.WINDOW_START_DEC,
-        CurationAction.WINDOW_START_INC,
-        CurationAction.WINDOW_END_DEC,
-        CurationAction.WINDOW_END_INC,
-        CurationAction.RESET_WINDOW,
-        CurationAction.PHOTOBLEACH,
         CurationAction.GRID,
     }
 )
@@ -521,7 +519,9 @@ class TetherShell:
     ``qtbot`` provide one). Installs the curation event filter on the application
     so the four bare keys reach the controller from any of the child surfaces,
     holds the loaded project's single-writer lock for the GUI session, persists
-    accept/reject/un-reject for the selected molecule when that lock is available,
+    accept/reject/un-reject, the category and the analysis window (``0``–``9``,
+    ``-``/``=``/``[``/``]``, ``R``, ``P``, #359) for the selected molecule when that
+    lock is available,
     falls back to read-only browsing otherwise, reports deferred commands explicitly
     unavailable, and exposes the dialogs. The ``I`` key runs one-click idealize on
     the selected molecule through
@@ -2564,9 +2564,31 @@ class TetherShell:
         self._cheatsheet.show()
         return self._cheatsheet
 
+    def _picker_categories(self) -> list[str]:
+        """The category list the overflow picker offers.
+
+        With a writable project and a project molecule selected, that molecule's
+        condition's list, the one an assignment stores from (#359). Otherwise, or when
+        it cannot be read, the shell's ``categories`` argument.
+        """
+        project = self._curation_project
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if project is None or trace is None or trace.molecule_key is None:
+            return list(self._categories)
+        try:
+            stored = stored_molecule(project.path, trace.molecule_key)
+            return list(project.category_list(stored.condition_id).categories)
+        except Exception:  # noqa: BLE001 - the picker still opens; assignment reports errors
+            return list(self._categories)
+
     def show_overflow_picker(self) -> OverflowCategoryPicker:
-        """Open the overflow category picker; on accept, dispatch the assignment."""
-        picker = OverflowCategoryPicker(self._categories, parent=self._window)
+        """Open the overflow category picker; on accept, dispatch the assignment.
+
+        It lists the selected molecule's condition's categories beyond the ``1``–``9``
+        keys, and the chosen class is stored like a number key's (#359).
+        """
+        picker = OverflowCategoryPicker(self._picker_categories(), parent=self._window)
         chosen = picker.exec()
         if chosen is not None:
             self._controller.dispatch(Command(CurationAction.ASSIGN_CATEGORY, chosen))
@@ -2948,21 +2970,11 @@ class TetherShell:
             next=lambda: self._step(+1),
             prev=lambda: self._step(-1),
             assign_category=self._assign_category,
-            clear_category=lambda: self._unavailable(
-                "Category clearing", "category persistence is not implemented"
-            ),
-            window_start=lambda _d: self._unavailable(
-                "Analysis-window editing", "GUI persistence is not implemented"
-            ),
-            window_end=lambda _d: self._unavailable(
-                "Analysis-window editing", "GUI persistence is not implemented"
-            ),
-            reset_window=lambda: self._unavailable(
-                "Analysis-window reset", "GUI persistence is not implemented"
-            ),
-            photobleach=lambda: self._unavailable(
-                "Photobleach detection", "GUI persistence is not implemented"
-            ),
+            clear_category=self._clear_category,
+            window_start=lambda delta: self._nudge_window(0, delta),
+            window_end=lambda delta: self._nudge_window(1, delta),
+            reset_window=self._reset_window,
+            photobleach=self._photobleach,
             grid=lambda: self._unavailable("Grid toggle", "the grid display is not implemented"),
         )
 
@@ -2981,21 +2993,10 @@ class TetherShell:
             CurationAction.UNREJECT: ("Un-reject", "Un-rejected"),
         }
         verb, completed = labels[action]
-        if self._idealization_blocks_write(verb):
+        selection = self._writable_selection(verb)
+        if selection is None:
             return
-        if self._curation_project is not None:
-            self._refresh_project_lock()
-        project = self._curation_project
-        if project is None:
-            reason = self._curation_read_only_reason or "load a writable project first"
-            prefix = "project is read-only: " if self._curation_read_only_reason else ""
-            self._status(f"{verb} unavailable: {prefix}{reason}")
-            return
-        row = self._molecule_list.currentRow()
-        trace = self._traces[row] if 0 <= row < len(self._traces) else None
-        if trace is None or trace.molecule_key is None:
-            self._status(f"{verb} failed: select a project molecule first")
-            return
+        project, row, trace = selection
 
         try:
             writers = {
@@ -3052,16 +3053,217 @@ class TetherShell:
             "the next trace; Un-reject and the category keys keep the same trace."
         )
 
+    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView] | None:
+        """The writable project, list row and trace a curation write acts on, or ``None``.
+
+        Every per-molecule writer passes these gates in this order, and each refusal is
+        a status naming ``verb`` that changes nothing: background idealization owns the
+        HDF5 ([`_idealization_blocks_write`][]), the project is read-only (the banner's
+        reason) or none is loaded, or no project molecule is selected.
+        """
+        if self._idealization_blocks_write(verb):
+            return None
+        if self._curation_project is not None:
+            self._refresh_project_lock()
+        project = self._curation_project
+        if project is None:
+            reason = self._curation_read_only_reason or "load a writable project first"
+            prefix = "project is read-only: " if self._curation_read_only_reason else ""
+            self._status(f"{verb} unavailable: {prefix}{reason}")
+            return None
+        row = self._molecule_list.currentRow()
+        trace = self._traces[row] if 0 <= row < len(self._traces) else None
+        if trace is None or trace.molecule_key is None:
+            self._status(f"{verb} failed: select a project molecule first")
+            return None
+        return project, row, trace
+
     def _assign_category(self, integer_class: int) -> None:
-        name = (
-            self._categories[integer_class - 1]
-            if 1 <= integer_class <= len(self._categories)
-            else "?"
+        """Store class ``integer_class`` of the molecule's condition list as its category.
+
+        Class ``N`` is the condition's ``N``-th category, the 0-based code ``N - 1`` of
+        its [`CategoryList`][tether.project.conditions.CategoryList] (§7.3); a class the
+        list does not hold is refused, never stored. The selection does not move.
+        """
+        verb = f"Category {integer_class} assignment"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, _row, trace = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            stored = stored_molecule(project.path, key)
+            names = project.category_list(stored.condition_id).categories
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        if not 1 <= integer_class <= len(names):
+            count = f"{len(names)} " + ("category" if len(names) == 1 else "categories")
+            self._status(f"{verb} unavailable: its condition has {count}")
+            return
+        name = names[integer_class - 1]
+        try:
+            project.set_category(key, name, **self._labeler_kwargs())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        self._status(f"Category {integer_class} ({name}) set for {trace.name or key}")
+
+    def _clear_category(self) -> None:
+        """Clear the selected molecule's category to *uncategorized* (``0``, §7.3)."""
+        verb = "Category clearing"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, _row, trace = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            project.clear_category(key, **self._labeler_kwargs())
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        self._status(f"Category cleared for {trace.name or key}")
+
+    def _nudge_window(self, bound: int, delta: int) -> None:
+        """Move the analysis window's start (``bound`` 0) or end (``bound`` 1) by ``delta``.
+
+        The window is ``[start, stop)`` in absolute frames. A nudge that would leave the
+        molecule's ``frame_range`` or empty the window is refused and stores nothing; a
+        stored one redraws the dock's window and idealization overlay (§7.3).
+        """
+        verb = "Analysis-window editing"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, row, trace = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            stored = stored_molecule(project.path, key)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        start, stop = stored.window
+        wanted = [start, stop]
+        wanted[bound] += delta
+        lo, hi = stored.frame_range
+        name = "start" if bound == 0 else "end"
+        if wanted[0] >= wanted[1]:
+            reason = "the window must keep at least one frame"
+        elif wanted[0] < lo or wanted[1] > hi:
+            reason = f"the window {name} is at the trace {name}"
+        else:
+            reason = None
+        if reason is not None:
+            self._status(f"Analysis window unchanged at [{start}, {stop}): {reason}")
+            return
+        self._write_window(
+            project,
+            row,
+            trace,
+            lambda: project.set_analysis_window(key, *wanted, **self._labeler_kwargs()),
+            verb,
+            "Analysis window",
         )
-        self._unavailable(
-            f"Category {integer_class} ({name}) assignment",
-            "category persistence is not implemented",
+
+    def _reset_window(self) -> None:
+        """Restore the analysis window to the molecule's whole ``frame_range`` (``R``)."""
+        verb = "Analysis-window reset"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, row, trace = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        self._write_window(
+            project,
+            row,
+            trace,
+            lambda: project.reset_analysis_window(key, **self._labeler_kwargs()),
+            verb,
+            "Analysis window reset to",
         )
+
+    def _photobleach(self) -> None:
+        """Detect the summed-intensity photobleach and end the analysis window there (``P``).
+
+        Runs the native single-step detector
+        ([`detect_photobleach`][tether.fret.photobleach.detect_photobleach]) on the
+        molecule's background-subtracted (``corrected``) donor and acceptor over its
+        ``frame_range``, as [`compute_photobleach`][tether.project.photobleach.compute_photobleach]
+        does, and stores ``[start, first bleach)`` with the window's start kept — tMAVEN's
+        ``P`` moves only the end. With no bleach the end is the trace end. A bleach at or
+        before the window start is refused. It is a manual window, so a later project
+        photobleach pass leaves it alone; the per-channel ``bleach_frames`` the
+        corrections read are not changed here.
+        """
+        verb = "Photobleach detection"
+        selection = self._writable_selection(verb)
+        if selection is None:
+            return
+        project, row, trace = selection
+        key = trace.molecule_key
+        assert key is not None  # _writable_selection requires a project molecule
+        try:
+            stored = stored_molecule(project.path, key)
+            bleach = summed_bleach_frame(project.path, stored)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        start = stored.window[0]
+        if bleach <= start:
+            self._status(
+                f"{verb} unavailable: the summed intensity bleaches at frame {bleach}, "
+                f"not after the window start {start}"
+            )
+            return
+        found = (
+            f"Photobleach at frame {bleach}:"
+            if bleach < stored.frame_range[1]
+            else "No photobleach step found:"
+        )
+        self._write_window(
+            project,
+            row,
+            trace,
+            lambda: project.set_analysis_window(key, start, bleach, **self._labeler_kwargs()),
+            verb,
+            f"{found} analysis window",
+        )
+
+    def _write_window(
+        self,
+        project: Project,
+        row: int,
+        trace: TraceView,
+        write: Callable[[], object],
+        verb: str,
+        done: str,
+    ) -> None:
+        """Run one analysis-window write, then show the window the project now stores.
+
+        The window is read back from the project rather than assumed from the request,
+        so the dock's bounds and overlay always agree with ``/molecules.analysis_window``.
+        """
+        from dataclasses import replace
+
+        key = trace.molecule_key
+        assert key is not None  # every caller passed _writable_selection
+        try:
+            write()
+            stored = stored_molecule(project.path, key)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
+            self._status(f"{verb} failed: {exc}")
+            return
+        window = _relative_window(stored.frame_range[0], trace.n_frames, stored.window)
+        self._traces[row] = replace(trace, analysis_window=window)
+        if self._molecule_list.currentRow() == row and self._trace_dock.trace is not None:
+            self._trace_dock.set_analysis_window(window)
+        self._queue_open_histogram_refresh()
+        start, stop = stored.window
+        self._status(f"{done} [{start}, {stop}) for {trace.name or key}")
 
     def _unavailable(self, feature: str, reason: str) -> None:
         """Report a deferred GUI command without claiming it changed project data."""
@@ -3657,26 +3859,37 @@ def traces_from_store(
     key_col = molecules["molecule_key"]
     movie_col = molecules["movie_id"]
     frame_range = molecules["frame_range"]
+    analysis_window = molecules["analysis_window"]
 
     def _decode(value: object) -> str:
         return value.decode() if isinstance(value, bytes) else str(value)
 
     views: list[TraceView] = []
     for i in range(molecules.shape[0]):
-        lo, hi = int(frame_range[i][0]), int(frame_range[i][1])
-        if hi <= lo:  # unset [0, 0] -> the full native row extent
-            lo, hi = 0, max_t
+        lo, hi = resolved_frame_range(frame_range[i], max_t)
         donor = np.asarray(donor_all[i, lo:hi], dtype=np.float64)
         acceptor = np.asarray(acceptor_all[i, lo:hi], dtype=np.float64)
+        window = resolved_window(analysis_window[i], (lo, hi))
         views.append(
             TraceView(
                 donor=donor,
                 acceptor=acceptor,
                 frame_time=frame_times.get(_decode(movie_col[i])),
                 molecule_key=_decode(key_col[i]),
+                analysis_window=_relative_window(lo, int(donor.size), window),
             )
         )
     return views
+
+
+def _relative_window(offset: int, n_frames: int, window: tuple[int, int]) -> tuple[int, int] | None:
+    """An absolute window as frames into a trace that starts at ``offset``, or ``None``.
+
+    Clipped to the trace's ``n_frames``; ``None`` when nothing of it lies inside.
+    """
+    start = min(max(window[0] - offset, 0), n_frames)
+    stop = min(max(window[1] - offset, 0), n_frames)
+    return (start, stop) if start < stop else None
 
 
 def launch() -> None:  # pragma: no cover - interactive smoke entry point

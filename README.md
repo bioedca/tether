@@ -48,6 +48,9 @@ brings it to the application.
   efficiency, with marginal histograms. The movie list holds one fixed entry.
 - **Curation.** Keyboard-driven accept, reject and un-reject. Each decision is written to the
   project with who made it and when.
+- **Category keys.** The **1**–**9** keys put a trace in a category of its condition, and
+  **0** clears it. Other keys move or reset the analysis window or end it at the photobleach
+  ([how-to](docs/how-to/curate-traces.md#4-set-a-category-and-the-analysis-window)).
 - **Neighbor view.** The selected molecule's cached image patch and the distance to its
   nearest neighbor, with a warning when the apertures overlap.
 - **One-trace idealization.** The **I** key fits the selected molecule in the **isolated
@@ -107,8 +110,6 @@ links a how-to guide, that guide shows the script; the quality ranker has no how
 - **Trace ⇄ movie round trip.** Click a trace → jump to its spot, click a spot → open its
   trace, across many movies ([#357](https://github.com/bioedca/tether/issues/357), M16). The
   project already stores the spot each trace came from.
-- **Category keys.** The **1**–**9** keys put a trace in a category. Today they report
-  "unavailable" ([#359](https://github.com/bioedca/tether/issues/359), M16).
 
 ## Installation
 

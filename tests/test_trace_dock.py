@@ -737,3 +737,56 @@ def test_curation_guide_states_the_crosscorr_lag_default() -> None:
     text = " ".join(page.read_text(encoding="utf-8").split())
     assert f"spans {DEFAULT_CROSSCORR_MAX_LAG} frames either side of 0" in text
     assert f"shorter than {DEFAULT_CROSSCORR_MAX_LAG + 1} frames" in text
+
+
+# --- the stored analysis window (#359) -----------------------------------------------
+
+
+@pytest.mark.parametrize("window", [(5, 5), (6, 5), (-1, 4), (0, 11), (0.5, 4), (True, 4), (1,)])
+def test_traceview_refuses_a_window_outside_the_trace(window) -> None:
+    with pytest.raises(ValueError, match="analysis_window"):
+        TraceView(donor=np.ones(10), acceptor=np.ones(10), analysis_window=window)
+
+
+def test_traceview_window_is_an_int_pair() -> None:
+    trace = TraceView(donor=np.ones(10), acceptor=np.ones(10), analysis_window=(np.int64(2), 9))
+    assert trace.analysis_window == (2, 9)
+    assert all(type(bound) is int for bound in trace.analysis_window)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_draws_the_window_and_follows_an_edit(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock(seconds_by_default=False) as dock:
+        qtbot.addWidget(dock.widget)
+        with pytest.raises(RuntimeError):
+            dock.set_analysis_window((0, 1))
+        dock.set_trace(TraceView(donor=np.ones(20), acceptor=np.ones(20)))
+        assert dock.analysis_window is None
+        assert not any(line.isVisible() for line in dock.window_lines)
+
+        dock.set_idealization(np.full(20, 0.4))
+        dock.set_analysis_window((3, 12))
+        assert [line.value() for line in dock.window_lines] == [2.5, 11.5]
+        x, y = dock.idealization_curve.getData()
+        assert (x[0], x[-1], y.size) == (2.5, 11.5, 9)
+        with pytest.raises(ValueError):
+            dock.set_analysis_window((3, 21))
+        assert dock.analysis_window == (3, 12)  # a refused window changes nothing
+
+        dock.set_analysis_window(None)
+        assert not any(line.isVisible() for line in dock.window_lines)
+        assert dock.idealization_curve.getData()[1].size == 20
+
+        dock.set_trace(
+            TraceView(
+                donor=np.ones(20), acceptor=np.ones(20), frame_time=0.5, analysis_window=(4, 8)
+            )
+        )
+        dock.set_time_mode("seconds")
+        assert [line.value() for line in dock.window_lines] == [1.75, 3.75]
+        dock.clear()
+        assert dock.analysis_window is None
+        assert not any(line.isVisible() for line in dock.window_lines)
