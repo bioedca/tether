@@ -69,9 +69,9 @@ synthetic dataset of the same construction reproduces (46 of 100,
   count, and say in the correction summary when an applied γ rests on fewer than the fraction.
   γ is unchanged.
 - **B — Withhold γ below the fraction.** Treat such a dataset like one with too few qualifying
-  molecules: no γ, apparent E. Not chosen by default: it would remove a factor from three of the
-  six acquisitions that have one on the measured set, on one run of one laboratory's data, and
-  the issue leaves that choice to the maintainer's sign-off on the pull request.
+  molecules: no γ, apparent E. Not chosen: it would remove a factor from three of the
+  six acquisitions that have one on the measured set (four of seven with `lab-07`), on one run of
+  one laboratory's data. The issue left the choice to the maintainer, who chose A on 2026-11-19.
 - **C — Gate each molecule on its own shape.** Already the case for `ΔI_D ≤ 0`
   (`degenerate-donor`); a stricter per-molecule gate, such as a donor rise of several standard
   errors, would change which molecules give a γ, and so every γ. Out of scope (#1232 changes no
@@ -81,7 +81,7 @@ synthetic dataset of the same construction reproduces (46 of 100,
 
 ## Decision outcome
 
-Chosen option: **A**, warn only.
+Chosen option: **A**, warn only, chosen by the maintainer on 2026-11-19 over option B.
 
 - **The count.** `tether.fret.gamma.TraceGamma` carries `delta_donor` (`ΔI_D`, the donor's rise)
   and `delta_acceptor` (`ΔI_A`, the leakage-corrected acceptor's drop) for every molecule that
@@ -120,8 +120,8 @@ Chosen option: **A**, warn only.
   the fraction should be revisited when more acquisitions are recorded.
 - Trade-off: the warning is only as visible as the surface that shows it: today the batch log
   and `/settings/gamma`. The application's correction surface (§9.6, #927) does not show it yet.
-- Not decided here: whether γ should also be **withheld** below the fraction (option B). That is
-  the maintainer's call on the pull request; the default is warn-only.
+- Withholding γ below the fraction (option B) was considered and not chosen. Revisit it with the
+  fraction, once more acquisitions are recorded.
 
 ## More information
 
