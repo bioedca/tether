@@ -375,9 +375,13 @@ The file holds at most three values. They are a format number, your answer (`all
 `declined`) and your trace colors (`safe` or `classic`). Each value is there only after you give
 it. The file holds no name, no computer name, no time, no file path and no project data.
 
-If the file is missing, empty or damaged, Tether reads it as *no answer yet*. It makes no network
-connection, and the traces use the default colors. Tether never reads a damaged file as
-*allowed*. A change of trace colors never writes an answer to the update question.
+If the file is missing, empty or damaged (unreadable, not JSON, or another format number),
+Tether reads it as *no answer yet*. It makes no network connection, and the traces use the
+default colors. Tether never reads a damaged file as *allowed*.
+
+In a readable file, Tether reads each value on its own. An unknown trace-color value gives the
+default colors and keeps a valid answer to the update question. An unknown answer keeps the
+trace colors. A change of trace colors never writes an answer to the update question.
 
 ### For a site administrator: turn the update check off for every user
 
