@@ -48,7 +48,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tether.io.schema import LABELS_DTYPE, TABLE
-from tether.project.labels import LABEL_SOURCE_HUMAN, REJECT_LOG, CurationLabel, _reject_log_dtype
+from tether.project.labels import (
+    LABEL_SOURCE_HUMAN,
+    REJECT_EVENT,
+    REJECT_LOG,
+    RESTORE_EVENT,
+    CurationLabel,
+    _reject_log_dtype,
+)
 
 if TYPE_CHECKING:
     from os import PathLike
@@ -78,6 +85,9 @@ _REJECT_JOIN_FIELDS = ("molecule_key", "labeler", "timestamp")
 #: ``condition_id`` is excluded for the reason ``_EVENT_FIELDS`` excludes it: it is rewritten to
 #: the owner's value on append.
 _REJECT_EVENT_FIELDS = ("molecule_key", "event", "reason", "note", "value", "labeler", "timestamp")
+#: The ``/labels.label_value`` of the label row a reject-log ``event`` belongs to: a reject row
+#: joins a reject, a restore row joins the ``UNCURATED`` row an un-reject writes.
+_LABEL_VALUE_OF_EVENT = {REJECT_EVENT: int(CurationLabel.REJECT), RESTORE_EVENT: _UNCURATED}
 
 
 def _project_path(project: ProjectRef) -> Path:
@@ -121,15 +131,17 @@ def _append_reject_log_rows(
 
     ``matched`` is every contributor human ``/labels`` row the merge attributes to an owner
     molecule, appended now or already present from an earlier pull. A reason row belongs to one of
-    them when the two share ``molecule_key``, ``labeler`` and ``timestamp`` (the ADR-0104 join). It
-    takes that label row's owner ``condition_id``, so the pair still agree after the merge. A row
-    already in the owner's log is skipped, so a re-pull appends nothing, while a pull interrupted
-    between the label and the reason writes completes on the next one. A join that names more than
-    one matched label row cannot say which reject a reason belongs to (the source's
-    [`tether.project.labels.reject_record_of`][] returns ``None`` for it), so its reasons are not
-    copied: the label dedup could collapse those rows into one and attach a reason to it. The
-    owner's log is created on the first row, as [`tether.project.labels.reject`][] creates it.
-    Returns the number of rows appended.
+    them when the two share ``molecule_key``, ``labeler`` and ``timestamp`` (the ADR-0104 join) and
+    the label row is the decision the reason's ``event`` records (a reject row joins a reject, a
+    restore row the un-reject's ``UNCURATED`` row). It takes that label row's owner
+    ``condition_id``, so the pair still agree after the merge. A row already in the owner's log is
+    skipped, so a re-pull appends nothing, while a pull interrupted between the label and the reason
+    writes completes on the next one. Where that join names more than one matched label row of the
+    same decision, no reason can say which of them it belongs to (for two rejects the source's
+    [`tether.project.labels.reject_record_of`][] returns ``None``), so its reasons are not copied:
+    the label dedup could collapse those rows into one and attach a reason to it. The owner's log is
+    created on the first row, as [`tether.project.labels.reject`][] creates it. Returns the number
+    of rows appended.
     """
     from collections import Counter  # noqa: PLC0415
 
@@ -137,11 +149,15 @@ def _append_reject_log_rows(
 
     if src_log is None or src_log.shape[0] == 0 or not matched:
         return 0
-    n_labels_of = Counter(_join_key(row) for row in matched)
+
+    def decision_key(row: np.ndarray) -> tuple:
+        return (*_join_key(row), int(row["label_value"]))
+
+    n_labels_of = Counter(decision_key(row) for row in matched)
     condition_of = {
-        _join_key(row): _to_str(row["condition_id"])
+        decision_key(row): _to_str(row["condition_id"])
         for row in matched
-        if n_labels_of[_join_key(row)] == 1
+        if n_labels_of[decision_key(row)] == 1
     }
     existing = (
         {_reject_event_key(row) for row in labels_group[REJECT_LOG][:]}
@@ -151,8 +167,9 @@ def _append_reject_log_rows(
     dtype = labels_group[REJECT_LOG].dtype if REJECT_LOG in labels_group else _reject_log_dtype()
     new_rows: list[np.ndarray] = []
     for row in src_log:
-        join = _join_key(row)
-        if join not in condition_of:
+        label_value = _LABEL_VALUE_OF_EVENT.get(_to_str(row["event"]))
+        join = (*_join_key(row), label_value)
+        if label_value is None or join not in condition_of:
             continue
         ev = _reject_event_key(row)
         if ev in existing:

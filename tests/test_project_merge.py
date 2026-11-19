@@ -465,6 +465,25 @@ def test_a_join_that_names_two_rejects_copies_no_reason(tmp_path) -> None:
     assert reject_record_of(owner, okeys[1]) is None
 
 
+def test_an_accept_sharing_the_join_keeps_the_reject_reason(tmp_path) -> None:
+    # An accept and a reject with the same labeler and timestamp are two decisions; the reject's
+    # reason is still the one reject_record_of reads in the split file, so it travels.
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=2)
+    _store(split, n=2)
+    when = "2026-11-19T12:00:00+00:00"
+    accept(split, okeys[1], labeler="bob", timestamp=when)
+    reject(split, okeys[1], labeler="bob", timestamp=when, reason="multiple-molecules")
+    assert _to_text(reject_record_of(split, okeys[1])["reason"]) == "multiple-molecules"
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 2
+    assert report.reject_log_appended == 1
+    assert _to_text(reject_record_of(owner, okeys[1])["reason"]) == "multiple-molecules"
+
+
 def test_split_file_without_a_reject_log_merges_as_before(tmp_path) -> None:
     # A split file with no /labels/reject_log (a label written straight through set_curation_label,
     # or a store from before #932) merges its label rows and leaves the owner without a log.

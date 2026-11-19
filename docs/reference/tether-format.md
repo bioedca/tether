@@ -501,7 +501,8 @@ The rows travel with their `/labels` rows. A subset export copies the rows of th
 molecules, and the split-file merge-back (`merge_labels`, `src/tether/project/merge.py`)
 appends the rows that join a `/labels` row it pulls, under the owner's `condition_id`, unless
 the owner already holds them. A second pull of the same file appends nothing. A join that names
-two pulled `/labels` rows copies no reason, since it cannot say which reject the reason belongs to.
+two pulled rejects (or two restores) copies no reason, since it cannot say which one the reason
+belongs to.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
