@@ -57,6 +57,14 @@ DEFAULT_STATE_NUMBER_LOW` imports `tether.analysis.state_number` too. When the p
 name from one of two modules (`if` and `else`, or `try` and `except`), both count. An import in a
 helper module that the test file imports does not count.
 
+A wildcard, `from tether.a import *`, imports the module of each public name of `tether.a`. When
+`tether.a` sets `__all__` as a list or tuple of strings, the public names are the names in it.
+Otherwise they are the names that `tether.a` binds and that do not start with `_`. A wildcard in
+a source module, such as `from .c import *` in `tether/a/__init__.py`, passes on the public names
+of `tether.a.c` in the same way. A module alias passes on the module itself. So when
+`tether/a/__init__.py` has `import tether.a.c as backend`, `from tether.a import backend` imports
+`tether.a.c` (#1007).
+
 ## How to read the report
 
 The artifact holds `mutation-report.md` (the same text is in the job summary) and

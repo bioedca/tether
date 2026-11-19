@@ -170,7 +170,8 @@ _IDEALIZE_POLL_MS = 25
 _LOCK_RELEASE_RETRY_MS = 1000
 
 #: Upper bound (ms) on one wait before the shell judges a refused lock again (#626).
-#: A foreign holder can refresh while the shell waits, so the wait is re-armed.
+#: A foreign holder can refresh while the shell waits, so the wait is re-armed. A running
+#: holder on this computer has no due time and is judged again at this interval (#1123).
 _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
@@ -2060,12 +2061,19 @@ class TetherShell:
         action = None if recovery is None else recovery.action
         self._recover_button.setVisible(action is RecoveryAction.RECOVER)
         self._take_over_button.setVisible(action is RecoveryAction.TAKE_OVER)
-        if recovery is not None and recovery.available_at is not None:
+        if recovery is None:
+            return
+        if recovery.available_at is not None:
             from datetime import UTC, datetime
 
             wait_s = (recovery.available_at - datetime.now(UTC)).total_seconds()
             wait_ms = int(max(0.0, wait_s) * 1000) + 1000
             self._lock_recovery_timer.start(min(wait_ms, _LOCK_RECOVERY_RECHECK_MAX_MS))
+        elif recovery.holder_running:
+            # A running holder has no due time, but it can stop (or crash) at any
+            # moment; judge it again at the cap so Recover appears once it has (#1123).
+            # recover_lock() probes the process again before it takes anything.
+            self._lock_recovery_timer.start(_LOCK_RECOVERY_RECHECK_MAX_MS)
 
     def _recheck_lock_recovery(self) -> None:
         """Judge the refused lock again and refresh the banner and its actions."""
