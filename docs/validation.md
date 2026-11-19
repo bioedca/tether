@@ -142,8 +142,9 @@ the export of video 010: the same 250 molecules, positions and raw traces. It ca
 correction factors, which come from a later step in the window. The workstation run also
 compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
 on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
-means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
-from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+means is 0.084. The formulas agree: the gap came from the 3-frame γ level windows Tether
+used then and from few molecules with their own γ (ADR-0115,
+[#1206](https://github.com/bioedca/tether/issues/1206)).
 The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
 
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
@@ -394,15 +395,15 @@ bounds (below); nothing pins `$.provisional` to its committed values.
 What the suite does still enforce against loosening is the *shape* of a tolerance block rather
 than the magnitude of any bound inside it, plus one ordering between two blocks:
 
-* Every block must carry exactly the four bound keys — checked by
+- Every block must carry exactly the four bound keys — checked by
   `test_load_frozen_tolerance_returns_the_four_bounds` for `$.tolerance` and by
   `test_per_method_tolerances_cover_their_own_measured_evidence` for each
   `$.tolerance_by_method` entry — so a bound cannot be loosened by deleting it. Deleting any
   one of the eight fails at least two tests.
-* The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
+- The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
   fails `test_load_frozen_tolerance_returns_the_four_bounds`. The per-method bounds carry no
   finiteness check: `$.tolerance_by_method.ebhmm.relative_elbo_max` set to infinity passes.
-* `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
+- `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
   below the default one, so it fails once `$.tolerance.state_count_min_fraction` is dropped to
   ebFRET's frozen `0.5249` or below (0.5249 and 0.40 fail; 0.5250 and 0.60 pass).
 
@@ -700,7 +701,7 @@ a single-movie project raises rather than inventing a held-out video.
 | `DEFAULT_MIN_WINDOW_FRAMES` | 20 | `src/tether/fret/leakage.py` |
 | `DEFAULT_MIN_QUALIFYING_TRACES` | 10 | `src/tether/fret/leakage.py` |
 | `GAMMA_CEILING` | 5.0 | `src/tether/fret/gamma.py` |
-| `DEFAULT_GAMMA_HALF_WINDOW` | 3 | `src/tether/fret/gamma.py` |
+| `DEFAULT_GAMMA_HALF_WINDOW` | 20 | `src/tether/fret/gamma.py` |
 
 The first three are locked by `tests/test_fret_leakage.py::test_defaults_match_prd_11_2`.
 
@@ -720,6 +721,11 @@ and negative rejection, degenerate donor, median over qualifying traces only, an
 withholding below the minimum qualifying count rather than emitting a factor from too
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
+
+**The γ level windows.** Since [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)
+each level averages 20 frames each side of the step. The parity check runs on that default,
+on the whole segments and on 3 frames. `test_wider_windows_scatter_less_than_three_frames`
+shows that over 200 noise draws the default's spread is under half the 3-frame estimate's.
 
 **Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
 non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is
