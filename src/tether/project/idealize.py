@@ -80,6 +80,7 @@ from tether.idealize.driver import (
     states_from_idealized,
 )
 from tether.idealize.smd import write_smd
+from tether.idealize_choices import IDEALIZE_METHODS
 from tether.imaging.extract import read_molecules, read_traces
 from tether.project.correct import METHOD_APPARENT_TOGGLE, METHOD_APPARENT_UNAVAILABLE
 from tether.project.lock import replacement_identity
@@ -92,6 +93,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "IDEALIZATION_GROUP",
+    "IDEALIZE_METHODS",
     "MODEL_TYPE_DEFAULT",
     "MODEL_TYPE_EBHMM",
     "NSTATES_GRID_DEFAULT",
@@ -341,6 +343,22 @@ def _select_rows(
     return rows
 
 
+def _rows_by_id(molecules: np.ndarray, molecule_ids: list[str]) -> list[int]:
+    """Row indices (store order) of exactly the rows whose ``molecule_id`` is listed.
+
+    The re-fit selection of an existing model. Unlike a ``molecule_key``, the
+    ``molecule_id`` is unique per row (§7.10), so a rejected row that shares a key
+    with a member is not pulled into the cohort. A listed id absent from
+    ``/molecules`` is an error, as a missing key is in ``_select_rows``.
+    """
+    wanted = set(molecule_ids)
+    ids = [_to_str(i) for i in molecules["molecule_id"]]
+    missing = sorted(wanted.difference(ids))
+    if missing:
+        raise KeyError(f"no molecule with molecule_id(s) {missing} in the store")
+    return [row for row, mid in enumerate(ids) if mid in wanted]
+
+
 def _windows(molecules: np.ndarray, rows: list[int]) -> tuple[np.ndarray, np.ndarray]:
     """Per-selected-molecule analysis window ``(pre, post)`` (SMD half-open bounds).
 
@@ -410,7 +428,9 @@ def idealize_molecules(
     include_rejected: bool = False,
     require_held_lock: bool = False,
     write_guard: Callable[[], None] | None = None,
+    seed: int | None = None,
     _runner: Callable[..., IdealizationResult] = run_vbfret,
+    _molecule_ids: list[str] | None = None,
 ) -> StoredIdealization:
     """Idealize selected molecules and write ``/idealization/{model_name}``.
 
@@ -459,6 +479,11 @@ def idealize_molecules(
         Supplied by the caller; ``require_held_lock`` instead derives that check
         from this handle's own retained nonce. When both are given they compose --
         the derived nonce check runs first, then this callback.
+    seed:
+        Forwarded to [`tether.idealize.run_vbfret`][] for every fit, so the same inputs,
+        settings and seed give the same model on the same build (ADR-0075). ``None``
+        (default) keeps tMAVEN's own unseeded behaviour. The seed is not stored in the
+        model.
 
     Returns
     -------
@@ -507,7 +532,11 @@ def idealize_molecules(
                 f"(intensity_quantity={intensity_quantity!r})"
             )
 
-    rows = _select_rows(molecules, molecule_keys, include_rejected=include_rejected)
+    if _molecule_ids is not None:
+        # reidealize's exact stored cohort; rejection does not filter it.
+        rows = _rows_by_id(molecules, _molecule_ids)
+    else:
+        rows = _select_rows(molecules, molecule_keys, include_rejected=include_rejected)
     if not rows:
         raise ValueError("no molecules selected to idealize")
     _refuse_existing(path, model_name, overwrite)
@@ -569,6 +598,9 @@ def idealize_molecules(
             "nrestarts": nrestarts,
             "timeout": timeout,
         }
+        if seed is not None:
+            # Only when given, so a runner that predates the seed keeps working.
+            run_kwargs["seed"] = seed
         if nstates is None:
             result, chosen_nstates, elbo_by_nstates = _select_by_elbo(
                 smd_path,
@@ -1125,6 +1157,7 @@ def reidealize(
     nrestarts: int | None = None,
     scratch_dir: str | PathLike[str] | None = None,
     timeout: float | None = DEFAULT_SIDECAR_TIMEOUT,
+    require_held_lock: bool = False,
     _runner: Callable[..., IdealizationResult] | None = None,
 ) -> StoredIdealization:
     """Re-fit an existing model over its molecule set with the *current* inputs.
@@ -1136,8 +1169,11 @@ def reidealize(
     ``overwrite=True``. The refreshed model's provenance hashes are recomputed from the
     current corrections, so the previously-stale molecules read live again. The stored
     cohort is preserved even when one of its members is now rejected; rejection filters
-    new default selections, not the explicit membership of an existing model. ``_runner``
-    is the same private sidecar test seam as [`idealize_molecules`][].
+    new default selections, not the explicit membership of an existing model. The cohort
+    is selected by its stored ``molecule_ids``, so a rejected row that shares a
+    ``molecule_key`` with a member (§7.10) stays out of it. ``_runner``
+    is the same private sidecar test seam as [`idealize_molecules`][], and
+    ``require_held_lock`` is forwarded to it.
     """
     stored = read_idealization(project, model_name)
     keys = list(dict.fromkeys(stored.molecule_keys))
@@ -1166,5 +1202,7 @@ def reidealize(
         timeout=timeout,
         overwrite=True,
         include_rejected=True,
+        require_held_lock=require_held_lock,
+        _molecule_ids=list(stored.molecule_ids),
         **extra,
     )
