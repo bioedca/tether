@@ -183,7 +183,7 @@ every other flag, and `tether batch`.
 
 ## Documentation
 
-- **User manual:** https://bioedca.github.io/tether/ — use the version selector to
+- **User manual:** <https://bioedca.github.io/tether/> — use the version selector to
   match your installed release.
 - **First run:** [Your first analysis](https://bioedca.github.io/tether/latest/tutorial/) —
   a guided tutorial on a sample movie, from extraction to an exported table.

@@ -7,10 +7,12 @@ description: "Run tether extract and tether batch without the application window
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, reproducing an
 extraction from recorded settings, or exporting results from many projects. Today the
-command line has five subcommands: `tether extract` and `tether batch` write projects,
-`tether info` only reads them and prints a summary, `tether metadata` shows or gives the
-frame time, pixel size and channel roles of a project's movies, and `tether export` reads
-projects and writes the molecule table, the trace text file or a subset project.
+command line has seven subcommands: `tether extract` and `tether batch` write projects,
+`tether idealize` fits the traces of a project that exists, `tether map create` writes a
+channel map file for later extractions, `tether info` only reads projects and prints a
+summary, `tether metadata` shows or gives the frame time, pixel size and channel roles of
+a project's movies, and `tether export` reads projects and writes the molecule table, the
+trace text file or a subset project.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -93,7 +95,7 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
                [--coloc-distance COLOC_DISTANCE]
                [--colocalization {partner-in-both,donor-anchored}]
                [--count-only] [--rms-gate RMS_GATE] [--tmap PATH]
-               [--tdat PATH] [--profile PATH]
+               [--map PATH] [--tdat PATH] [--profile PATH]
                movie
 ```
 
@@ -114,7 +116,8 @@ tether extract [-h] -o OUTPUT [--overwrite] [--donor-side {left,right}]
 | `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | which molecules to keep: `partner-in-both` keeps a donor spot only when an acceptor spot was detected at its mapped position (Deep-LASI's rule); `donor-anchored` keeps every donor spot, for weak-acceptor and low-FRET samples ([see below](#choose-the-colocalization-rule)) |
 | `--count-only` | off | run detection, registration and colocalization, print the molecule count of each colocalization rule, and write nothing |
 | `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
-| `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored) |
+| `--tmap PATH` | none | apply an imported Deep-LASI `.tmap` instead of a native fit; splits at the `.tmap`'s own channel geometry (`--donor-side` is then ignored). Cannot be combined with `--map` |
+| `--map PATH` | none | apply a saved Tether `.npz` map file (from [`tether map create`](#tether-map-create)) instead of a native fit. It splits at the map's own channel geometry (`--donor-side` is then ignored). Cannot be combined with `--tmap`. See [Registration: one map source](#registration-one-map-source) |
 | `--tdat PATH` | none | auto-apply the particle-detection mode decoded from a Deep-LASI `.tdat` (`temp/ParticleDetectionMode`), so extraction matches the method the movie was detected with. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with `--detection-mode`/`--detection-threshold` or with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
 | `--profile PATH` | none | read every extraction option from an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default. It cannot be combined with an option flag (`--donor-side` to `--rms-gate`) |
 
@@ -204,6 +207,36 @@ The rule for `--tdat`, in `tether extract` and `tether batch` alike:
   `detection_mode` and `detection_threshold` that ran, and the `.tdat` filename as
   `tdat_source`.
 
+### Registration: one map source
+
+Each run takes its registration map from exactly one source, and this is the order in
+which they apply:
+
+1. **Native fit** — the default. Control points are paired from the movie's own
+   detections and a degree-2 map is fitted, with `--donor-side` naming the donor half.
+2. **`--tmap PATH`** — a Deep-LASI `.tmap` replaces the native fit.
+3. **`--map PATH`** — a saved Tether `.npz` map file replaces the native fit. It is
+   applied as it was saved: its coefficients, its channel geometry, its RMS residual and
+   its low-confidence verdict are not changed. The run records the map's own RMS gate,
+   and `--rms-gate` does not change it.
+
+A map file or a `.tmap` replaces the native fit, so `--donor-side` is ignored. The two
+files are never combined: neither can be said to win, so passing both is refused before
+any movie is read. `--tdat` is a separate rule: it sets **detection**, not registration,
+so it composes with any of the three, and it cannot be combined with
+`--detection-mode`/`--detection-threshold` (above).
+
+```console
+$ tether extract movie.tif -o movie.tether --tmap run.tmap --map beads.npz
+tether extract: --tmap and --map cannot be combined (each one supplies the registration map); pass one or the other
+```
+
+The project records which source produced the map. In `/settings/extraction`,
+`registration_source` is `native`, `imported` (a `.tmap`) or `map-file`, and
+`tmap_source` or `map_source` holds the file name. The `/calibration` group of a
+map-file run also stores a `map_file` record (the name and the sha256 of the file) in
+its provenance, beside the map's own origin.
+
 ### Extraction profiles
 
 An *extraction profile* is a JSON file that holds every extraction option, so one
@@ -228,7 +261,7 @@ command name:
   `bottom`, and `null` takes the first). `channel_layout_donor_rect` and
   `channel_layout_acceptor_rect` are the two rectangles of a `rectangles` layout, each
   `[y1, x1, y2, x2]` with 1-based inclusive bounds. A layout is refused beside a
-  `donor_side` other than `left` and beside `--tmap`. For example, a camera that puts the
+  `donor_side` other than `left` and beside `--tmap` or `--map`. For example, a camera that puts the
   donor in the bottom half:
 
   ```json
@@ -304,15 +337,17 @@ than a silent pass.
 ## `tether batch`
 
 Process many movies unattended (FR-BATCH). Give it a folder of movies, a pattern or the
-movie files themselves. Each movie becomes its own `<out-dir>/<stem>.tether`. That is how the command writes, not a limit of the project
-file, which can hold several movies of one experiment
-([`.tether` project](glossary.md#tether-project)). Failures are isolated — one bad movie
+movie files themselves. With `--out-dir`, each movie becomes its own
+`<out-dir>/<stem>.tether`. With `--into PROJECT.tether`, every movie goes into that one
+project, which can hold several movies of one experiment
+([`.tether` project](glossary.md#tether-project), [see
+below](#every-movie-into-one-project-into)). Give one of the two. Failures are isolated — one bad movie
 does not stop the run — and each stage is checkpointed, so re-running the same command
 resumes only the incomplete stages instead of redoing finished work.
 
 ```text
-tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PATH]
-             [--profile PATH] [--policy {warn,fail}]
+tether batch [-h] [--recursive] [--dry-run] (-d OUT_DIR | --into PROJECT.tether)
+             [--tmap PATH] [--tdat PATH] [--profile PATH] [--policy {warn,fail}]
              [--colocalization {partner-in-both,donor-anchored}] [--no-idealize]
              [--overwrite] [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
              [--sidecar-python PATH] [--no-defer] [--quiet | --verbose]
@@ -323,16 +358,17 @@ tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PAT
 |---|---|---|
 | `movies` | *(required, one or more)* | dual-channel TIFF movies: each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
 | `--recursive` | off | a folder argument also includes the movies in its sub-folders |
-| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. No movie is read and nothing is written ([see below](#check-a-batch-before-it-runs-dry-run)) |
-| `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
+| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. Nothing is written, and no movie is read except to hash it under `--into` ([see below](#check-a-batch-before-it-runs-dry-run)) |
+| `-d OUT_DIR`, `--out-dir OUT_DIR` | *(this or `--into`)* | directory for the per-movie `.tether` projects (created if absent) |
+| `--into PROJECT.tether` | *(this or `--out-dir`)* | append every movie to this one project, which the first movie creates if it is absent. A movie already in it is skipped, and correct and idealize run once over the whole project ([see below](#every-movie-into-one-project-into)) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
 | `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option but `--colocalization` is at its default. It cannot be combined with `--colocalization` |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
 | `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | the colocalization rule of every movie's extraction; see [`tether extract`](#choose-the-colocalization-rule) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
-| `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
-| `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
+| `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip. Not with `--into` |
+| `--log PATH` | `<out-dir>/batch-log.jsonl`, or `<project>-batch-log.jsonl` beside the `--into` project | write a JSONL structured log here |
 | `--max-restarts N` | `3` | auto-restart a movie's idealization up to N times on a transient sidecar failure (crash/timeout). `0` disables restarts |
 | `--sidecar-timeout SECONDS` | `1800` | per-idealization-call sidecar timeout in seconds |
 | `--sidecar-python PATH` | `$TETHER_SIDECAR_PYTHON` | sidecar interpreter for idealization |
@@ -406,10 +442,61 @@ batch that had only `day1/movie_010.tif`, the day 1 movie's output becomes
 `day1__movie_010` and the old `movie_010.tether` is not resumed. Run the batch with
 `--dry-run` first when you change what it holds.
 
+### Every movie into one project (`--into`)
+
+`--into PROJECT.tether` writes the movies of one experiment into one project, so the
+conditions, the population views and the ranker see them together:
+
+```bash
+tether batch data --recursive --into experiment.tether
+```
+
+- **Each movie is appended.** The first movie creates the project when it does not exist.
+  Each later one is appended under the project's writer lock, so a failed append leaves the
+  project as it was and the run goes on with the next movie. Every movie must use the
+  window, radii and background window of the project's first movie. A movie extracted
+  with other values fails.
+- **A movie already in the project is skipped.** A movie is known by its content, not its
+  name. So the same command run again appends no movie twice. Two copies of one file go in
+  once. Tether hashes a movie to check this only when the project holds a movie of
+  the same file size.
+- **Correct and idealize run once, over the whole project,** after the last append. The
+  dataset α and γ then come from every movie's molecules. A run that appends a movie runs
+  both again, over every movie in the project. The idealization model is then fitted
+  again in place of the stored one. A run that appends nothing skips them. The exception
+  is an earlier `--into` run that left them unfinished, for example with idealization
+  deferred. A project that no `--into` run has written keeps its correction and model
+  when it gains no movie.
+- **The summary still has one line for each movie.** A movie's name is the one
+  [the output name rule](#output-names-when-two-movies-have-the-same-file-name) would give
+  its own project. So movies with one file name stay apart. Each movie in the project shows
+  the project's correct and idealize results. A movie that is not in it has them `blocked`.
+  The progress lines and the structured log give those two stages once, as `tether batch:`
+  run lines and `(batch)` events.
+- **`--policy fail` keeps an over-gate movie out.** Its extract stage is `failed` and
+  nothing of it is written, so it is not in the project. A later run tries it again.
+- `--into` with `--out-dir` is a usage error (exit `2`). So is `--into` with
+  `--overwrite`, because a movie in the project is skipped, never replaced.
+
+`--dry-run --into` prints one line for each movie. The line names the project and says
+whether the movie is new to it. A `Project:` line for correct and idealize comes last:
+
+```text
+Batch plan (dry run): 3 movie(s) into the one project experiment.tether; nothing was written (a movie is read only to hash it, when the project holds a movie of its size)
+  data/day1/movie_010.tif -> experiment.tether  [already in the project as movie 'a3f1c2d4e5b6': will be skipped]
+  data/day1/movie_011.tif -> experiment.tether  [will be appended]
+  data/day2/movie_010.tif -> experiment.tether  [will be appended]
+Project: correct and idealize will run over every movie in the project after the appends
+```
+
+A project that does not exist yet shows `new project: will be created with this movie` on
+the first movie's line.
+
 ### Check a batch before it runs (`--dry-run`)
 
 `--dry-run` prints the plan and exits `0`. It reads no movie, creates no folder and writes
-no file. It prints one line for each movie with its output project and what the run would
+no file ([with `--into`](#every-movie-into-one-project-into) it may read a movie to hash
+it). It prints one line for each movie with its output project and what the run would
 do with it, then the settings, the log path and whether a sidecar interpreter was found:
 
 ```text
@@ -546,6 +633,49 @@ The end-of-run summary goes to stdout; the machine-readable JSONL log lands at
 later without `--no-idealize` and only the idealization stage executes — everything
 already checkpointed is skipped.
 
+## `tether map create`
+
+Make a channel map file from a bead-slide video or from one bead image, so that later
+movies can be extracted with it (`tether extract --map`) instead of each fitting its own
+registration. The beads of both halves are detected, paired and fitted with the same
+stages a native extraction runs, and the map is saved as one `.npz` file with its source
+id (the sha256 of the bead file), its projection settings and its quality record. The
+application's **Calibration → Make channel map…** (a menu of the Prepare section) runs the same command.
+
+```text
+tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
+                  [--projection {max,mean}] [--donor-side {left,right}]
+                  [--rms-gate RMS_GATE] source
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `source` | required | a bead TIFF: one image, or a video of frames |
+| `-o`, `--output OUTPUT` | required | the `.npz` map file to write. The name must end in `.npz` |
+| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one) |
+| `--frames START STOP` | every frame | for a video: the 0-based half-open frame range to project |
+| `--projection {max,mean}` | `max` | for a video: how the frames are reduced to one image |
+| `--donor-side {left,right}` | `left` | which half of the frame is the donor channel |
+| `--rms-gate RMS_GATE` | `0.5` | registration RMS-residual gate in px |
+
+```console
+$ tether map create beads.tif -o beads.npz
+Map -> beads.npz: RMS 0.214 px over 38 bead pair(s), 71% of the field covered
+$ tether extract movie.tif -o movie.tether --map beads.npz
+```
+
+A map over `--rms-gate` is still written and the command exits `0`, with a warning on
+stderr: the map is flagged low-confidence, and every molecule extracted with it is tagged
+`low-confidence-registration`. A bead file with too few beads in either half, a bad frame
+range, an output that exists without `--overwrite`, or an output name without `.npz`
+exits `1` with one line on stderr. Bad arguments exit `2`.
+
+The map file has a `format_version` (now `1`). Tether reads a map file of its own
+version or older, and refuses one written by a newer version. The file holds only plain
+arrays and text and is read with pickling switched off, so no stored Python object can
+run when a map is loaded. [ADR-0128](adr/0128-the-map-file-carries-a-format-version-and-a-reader-refuses-a-newer-one.md)
+records this version rule.
+
 ## `tether info`
 
 Print a summary of what one or more projects hold, without the application and without a
@@ -674,6 +804,95 @@ value that the project does not record is `null`. The keys are:
 | `projects[].lock.acquired_utc` | the time the lock was taken (ISO 8601, UTC) |
 | `projects[].lock.age_s` | the age of the lock in seconds |
 | `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
+
+## `tether idealize`
+
+Fit a hidden Markov model to the traces of a project that exists, without a Python script:
+a project from `tether extract`, or one you curated or corrected after `tether batch`. The
+fit gives a small set of FRET states and the state of each molecule at each frame, and it
+is stored in the project as an idealization model. With `--stale-only`, the command refits
+each model whose inputs changed since its fit. [Idealize traces into FRET
+states](how-to/idealize.md) explains the methods and what to do with the result.
+
+```text
+tether idealize [-h] [--method {vbconhmm,ebhmm}] [--nstates N | --nstates-grid LIST]
+                [--model-name NAME] [--condition ID] [--include-rejected] [--overwrite]
+                [--seed N] [--stale-only] [--max-restarts N]
+                [--sidecar-timeout SECONDS] [--sidecar-python PATH]
+                project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | the `.tether` project to fit |
+| `--method {vbconhmm,ebhmm}` | `vbconhmm` | the fit: `vbconhmm` is the consensus VB-HMM, one shared model across all molecules, and `ebhmm` is ebFRET |
+| `--nstates N` | automatic | fit exactly N states. Without it, the command fits each state count of `--nstates-grid` and keeps the one with the largest ELBO |
+| `--nstates-grid LIST` | `1,2,3,4` | the state counts the automatic choice tries, comma-separated, for example `2,3,4,5`. Do not give it with `--nstates` |
+| `--model-name NAME` | the method | store the fit as `/idealization/NAME`. NAME is one name, with no `/`. With `--stale-only`, refit only this model |
+| `--condition ID` | all molecules | fit only the molecules of this condition ID (`tether info` lists them). Give it again for more conditions |
+| `--include-rejected` | off | also fit the molecules marked rejected. Without it they are left out |
+| `--overwrite` | off | replace a model of the same name. Without it the command refuses and fits nothing |
+| `--seed N` | unseeded | seed every fit, so the same project, options and seed give the same model on the same build. The seed is not stored in the project |
+| `--stale-only` | off | refit each model that has a stale molecule, with the settings stored in the model, and leave the others as they are. It takes none of the fit options above except `--model-name` |
+| `--max-restarts N` | `3` | restart a fit up to N times on a sidecar crash or timeout. `0` disables restarts |
+| `--sidecar-timeout SECONDS` | `1800` | per-fit sidecar timeout in seconds |
+| `--sidecar-python PATH` | `$TETHER_SIDECAR_PYTHON` | sidecar interpreter for the fit |
+
+The command fits the molecules that are not rejected, with the consensus VB-HMM and an
+automatic state count, and stores the model under the name of the method, so the default
+fit is the model `vbconhmm`. This is the same fit as `idealize_molecules` in Python with the
+same options. The fit runs in the tMAVEN sidecar, found as for `tether batch`. Before it
+writes anything the command checks that the sidecar can start. When the sidecar cannot
+start, the command says why, exits `3` and does not change the project.
+
+**The command holds the project's lock while it fits.** Close the project in the desktop
+application first. When another user or the application holds the lock, the command exits
+`1` and fits nothing. The molecules of each `--condition` are read again once the command
+holds the lock. A fit can take minutes. The lock is released when the command ends.
+
+**`--stale-only` refits a whole model.** A molecule is *stale* in a model when its trace,
+its analysis window or its correction factors changed after the fit. A consensus VB-HMM or
+an ebFRET model is one fit over all its molecules, so the command refits every molecule of
+a model that has a stale molecule, not only the stale ones. A model with no stale molecule
+is not refitted, and when no model has one the command needs no sidecar. The command counts
+the stale molecules again once it holds the lock, so a change made by another writer before
+then is refitted too.
+
+**`--stale-only` never refits a model imported from standalone tMAVEN.** Such a model stores
+no fit settings that Tether can repeat. The command reports it as `imported from tMAVEN, not
+refitted` and leaves it as it is, stale or not. Naming one with `--model-name` is refused.
+To refresh it, hand its molecules to tMAVEN again and import the new fit.
+
+The command stores the fit, and it does not select an *active fit*. Comparing fits and
+selecting one is planned work ([#939](https://github.com/bioedca/tether/issues/939)).
+
+| Code | `tether idealize` |
+|---|---|
+| `0` | the fit is stored, or `--stale-only` found nothing stale |
+| `1` | the fit failed, or the lock could not be taken |
+| `2` | bad command-line arguments, or a refusal to start: an unknown condition, a model that exists without `--overwrite`, a project that cannot be opened, fit options with `--stale-only`, or an imported model named with `--stale-only` |
+| `3` | the sidecar was not available, and nothing was written |
+
+### Example — fit a project, then refit it after a correction
+
+```console
+$ tether idealize movie_010.tether --seed 1
+movie_010.tether
+  model: vbconhmm
+  method: vbconhmm
+  states: 3 (largest ELBO)
+  ELBO by state count:
+    1: -1520.4
+    2: -1302.7
+    3: -1288.1
+    4: -1291.6
+  molecules fitted: 184
+$ tether idealize movie_010.tether --stale-only
+movie_010.tether
+  vbconhmm: 12 stale, 172 current; refitted
+```
+
+The numbers above are an example, not a reference result.
 
 ## `tether metadata`
 
@@ -875,7 +1094,8 @@ shows the same text in the Browser when you open the project.
 
 ## Service commands
 
-`tether extract` and `tether batch` are each the command-line route of one *service command*
+`tether extract`, `tether batch`, `tether idealize` and `tether map create` are each the
+command-line route of one *service command*
 ([ADR-0100](adr/0100-service-commands-are-the-one-way-to-run-an-action.md)). A service
 command is the one implementation of an action. The command line uses it now. The
 desktop application and recipe files will use the same commands as their sections are
@@ -891,6 +1111,8 @@ two differ:
 |---|---|---|---|
 | `tether extract` | `tether.services.extract.ExtractRequest` (version 1) | `tether.services.extract.ExtractResult` | extract traces from a dual-channel movie into a .tether project |
 | `tether batch` | `tether.services.batch.BatchRequest` (version 1) | `tether.services.batch.BatchResult` | run the extract -> correct -> idealize pipeline over many movies |
+| `tether idealize` | `tether.services.idealize.IdealizeRequest` (version 1) | `tether.services.idealize.IdealizeResult` | fit the molecules of a .tether project, or refit its stale models |
+| `tether map` | `tether.services.maps.MapCreateRequest` (version 1) | `tether.services.maps.MapCreateResult` | make a channel map file (.npz) from a bead video or image |
 <!-- service-commands:end -->
 
 A request is plain data with one text form: a JSON object with the command name, the
@@ -903,7 +1125,7 @@ the page, and a break between two parts of JSON does not change it:
 "channel_layout_acceptor_rect":null,"channel_layout_donor":null,
 "channel_layout_donor_rect":null,"coloc_distance":3.0,"colocalization":"partner-in-both",
 "count_only":false,"detection_block":50,"detection_mode":null,"detection_threshold":null,
-"disk_radius":3.0,"donor_side":"left",
+"disk_radius":3.0,"donor_side":"left","map_path":null,
 "min_separation":null,"movie":"movie.tif","output":"movie.tether","overwrite":false,
 "pair_tol":2.0,"prealign":"translation","prealign_high_sigma":20.0,
 "prealign_low_sigma":1.0,"prealign_upsample":10,"ring_inner":6.0,"ring_outer":8.0,
@@ -925,6 +1147,9 @@ these requests ([#899](https://github.com/bioedca/tether/issues/899)).
 | `1` | extraction failed (`ExtractionError`), or the `--profile` could not be used | at least one movie had a failed stage (whether or not a stage was also deferred), or the output directory or the log could not be written | at least one project could not be read | a refused change or an unreadable project: no movie to choose, an unknown movie, a value that is not finite and positive, nothing to confirm, or a locked file | at least one export failed: the project could not be read, the output exists and `--overwrite` was not given, an output is an input project or its lock file, or the function refused the selection; or the output path could not be checked or its folder made |
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 | `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned | never returned |
+
+`tether idealize` has a code `3` of its own, for a sidecar that cannot start. Its codes are
+in [its section](#tether-idealize).
 
 Exit code `2` means no movie was processed: either argparse rejected the command line
 before any subcommand handler ran, or `tether batch` or `tether export` refused to start. Nothing is

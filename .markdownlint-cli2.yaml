@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# markdownlint-cli2 settings for Tether (#185). The pre-commit hook and a bare
+# `npx markdownlint-cli2@0.24.1` run read this file. Each rule below differs from the
+# tool default for the reason given beside it; every other rule keeps its default.
+config:
+  default: true
+  # The house style does not wrap lines.
+  MD013: false
+  # Lists use "-" (3,227 list lines on 2026-11-16; 3 used "*").
+  MD004:
+    style: dash
+  # The site's Python-Markdown nests a list only under a four-space indent, while GitHub
+  # nests at two; no single indent setting is right for both renderers.
+  MD007: false
+  # Some headings are whole sentences and end with a period, for example "Rule 1. A
+  # docstring says what. A comment says why."; the other default marks stay flagged.
+  MD026:
+    punctuation: ",;:!。，；：！"
+  # Separate callouts in docs/reference/exports.md are adjacent blockquotes on purpose.
+  MD028: false
+  # ADRs 0026 and 0027 number their decisions across subheadings (a list that starts at
+  # 3 or 4). No style of this rule accepts a list that starts above 1, and the fix would
+  # renumber decisions in accepted ADRs.
+  MD029: false
+  # Inline HTML only where a page uses it on purpose: citation anchors (`<a id="...">`),
+  # line breaks in table cells, and the README and docs home-page logo blocks.
+  MD033:
+    allowed_elements: [a, br, img, div, picture, source]
+  # ADRs use bold sub-labels as run-in headings.
+  MD036: false
+  # README, the docs home page and the wiki open with a logo block, and the pull-request
+  # template opens with a comment, so the first line is not always the top heading.
+  MD041: false
+  # Emphasis uses "*" (every emphasis in the corpus on 2026-11-16 but 4).
+  MD049:
+    style: asterisk
+  # The site builds heading ids with Python-Markdown's toc slugs, which differ from the
+  # GitHub slugs this rule computes. `mkdocs build --strict` and tests/test_docs_links.py
+  # check in-page links against the ids the site really builds.
+  MD051: false
+  # docs/PRD.md writes adjacent citation tags, for example `[Hellenkamp2018][Lee2005]`, as
+  # plain text. They are not reference links, so their second tag is not a missing label.
+  # "x" is the default entry (GitHub task lists).
+  MD052:
+    ignored_labels:
+      - x
+      - ha1996
+      - hadzic2018
+      - hellenkamp2018
+      - hohlbein2014
+      - lee2005
+      - mccann2010
+      - roy2008
+      - wanninger2023
+  # Tables use a `|---|` delimiter row with spaced cells, which none of this rule's
+  # styles accepts; rewriting every delimiter row would change 478 lines for no
+  # rendering change.
+  MD060: false
+
+# Read only tracked Markdown: `site/` and other ignored output stay out.
+gitignore: true
+
+# Paths the linter must not read (#185).
+ignores:
+  # The agent layer is feature-complete (ADR-0064); a new gate on it is a capability change.
+  - ".agents/**"
+  - ".claude/**"
+  - "docs/agents/**"
+  - "**/AGENTS.md"
+  - "CLAUDE.md"
+  # Third-party and verbatim files.
+  - "tests/fixtures/**"
+  - "LICENSES/**"
+  - "NOTICE"
+  # Generated output and binary assets.
+  - "site/**"
+  - "docs/assets/**"

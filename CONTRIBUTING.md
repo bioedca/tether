@@ -95,8 +95,14 @@ never merge, release, or declare a PR ready while required checks are red or pen
   pre-commit run --all-files
   ```
 
-  Hooks include `ruff` (lint + format), `reuse lint` (SPDX/REUSE licensing), and
-  secret/large-file guards (PRD §12.6, §12.9).
+  Hooks include `ruff` (lint + format), `reuse lint` (SPDX/REUSE licensing),
+  secret/large-file guards (PRD §12.6, §12.9), and two documentation linters:
+  `markdownlint-cli2` for the Markdown structure (settings in `.markdownlint-cli2.yaml`)
+  and `codespell` for misspellings in prose and code comments (settings in `.codespellrc`).
+  When `codespell` flags a word that is correct, such as a name, an abbreviation or an
+  identifier, add the word in lowercase on its own line in `.codespell-ignore` and keep
+  the list sorted. Do not rename an identifier for it, and do not add a per-line ignore
+  comment.
 - Run the **small-fixture** test suite locally; GUI tests run headless with
   `QT_QPA_PLATFORM=offscreen`:
 
