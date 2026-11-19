@@ -287,3 +287,31 @@ def test_a_log_that_fails_later_keeps_the_window_routed(qapp, qtbot, tmp_path, m
     assert center.latest.text == "Could not save the answer."
     assert center.sticky is not None and center.sticky.level is Level.ERROR
     center.close()
+
+
+def test_a_log_whose_close_fails_too_still_delivers_the_message(qapp, qtbot, tmp_path) -> None:
+    # Codex review on PR #1274: on a full disk the flush inside close() fails again; that
+    # must not escape post() or keep the message from the panel.
+    from pyqtgraph.Qt import QtWidgets
+
+    class FullDisk:
+        def write(self, _text):
+            return None
+
+        def flush(self):
+            raise OSError("No space left on device")
+
+        def close(self):
+            self.flush()
+
+    window = QtWidgets.QMainWindow()
+    qtbot.addWidget(window)
+    center = messages.MessageCenter(window, log_folder=tmp_path / "logs")
+    center.post("Closed a.tether")
+    center._log.stream = FullDisk()
+    received = []
+    center.subscribe(received.append)
+    center.post("Closed b.tether")
+    assert center.log_file is None
+    assert [m.text for m in received] == ["Closed b.tether"]
+    center.close()

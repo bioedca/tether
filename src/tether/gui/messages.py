@@ -22,6 +22,7 @@ this module costs no Qt, matching the rest of [`tether.gui`][].
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import logging
 import os
@@ -288,10 +289,12 @@ class MessageCenter:
         self._close_log()
 
     def _close_log(self) -> None:
-        if self._log is not None:
-            self._log.close()
-            self._log = None
-        self._log_folder = None
+        log, self._log, self._log_folder = self._log, None, None
+        if log is not None:
+            # Closing a log that failed (a full disk) can fail again on the flush; the log is
+            # off either way, and the message still reaches the panel (Codex review on PR #1274).
+            with contextlib.suppress(OSError, ValueError):
+                log.close()
 
     def _on_message_changed(self, text: str) -> None:
         if not text and self._sticky is not None:
