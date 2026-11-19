@@ -41,6 +41,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.analysis.state_number
 
+::: tether.analysis.successive
+
 ::: tether.analysis.tdp
 
 ::: tether.analysis.transition_prob
