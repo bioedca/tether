@@ -721,6 +721,9 @@ class TetherShell:
         self._trace_dock = TraceDock()
         # The path of the project load_project opened, or None (no project open).
         self._project_path: Path | None = None
+        # The intensity_quantity that open used, so a lock recovery reopens the same
+        # trace layer rather than load_project's default (#1097).
+        self._intensity_quantity = "corrected"
         self._start_page = StartPage(
             on_open=lambda: self._open_project_dialog(),
             on_tutorial=self.open_tutorial,
@@ -2241,6 +2244,7 @@ class TetherShell:
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
         movie_note = self._wire_movies(movies)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
@@ -2327,8 +2331,10 @@ class TetherShell:
         The banner's one-click **Recover** (#626). It is available only when
         [`lock_recovery`][] reports
         [`RecoveryAction.RECOVER`][tether.project.lock.RecoveryAction]: the lock names
-        this computer and this user, and its process no longer runs. Returns the
-        reopened writable project, or ``None`` with a status message.
+        this computer and this user, and its process no longer runs. The reopen uses
+        the ``intensity_quantity`` of the open that was refused, so the traces under
+        curation keep their layer. Returns the reopened writable project, or ``None``
+        with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -2343,8 +2349,9 @@ class TetherShell:
         computer, another user or a corrupt lock, idle past the staleness timeout
         (PRD §11.2). ``confirmation`` is the typed text; ``None`` asks for it in a
         dialog that warns that the holder's unsaved work can be lost. The text must
-        equal the project file name. Returns the reopened writable project, or
-        ``None`` with a status message.
+        equal the project file name. The reopen uses the ``intensity_quantity`` of
+        the open that was refused, as [`recover_project_lock`][] does. Returns the
+        reopened writable project, or ``None`` with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -2382,8 +2389,9 @@ class TetherShell:
         except OSError as exc:
             self._status(f"{label} failed: {exc}")
             return None
-        # Re-run the open path so every write seam binds to the new session.
-        opened = self.load_project(path)
+        # Re-run the open path so every write seam binds to the new session, over the
+        # same trace layer the refused open showed (#1097).
+        opened = self.load_project(path, intensity_quantity=self._intensity_quantity)
         if opened is None or self._curation_project is None:
             # The reopen is not writable; give back the lock just taken. The release
             # is nonce-checked, so a session lock the reopen took and still holds is

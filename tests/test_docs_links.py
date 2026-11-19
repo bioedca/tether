@@ -102,6 +102,7 @@ from __future__ import annotations
 
 import bisect
 import html
+import importlib.util
 import re
 import sys
 import unicodedata
@@ -117,6 +118,16 @@ _MKDOCS_YML = DOCS.parent / "mkdocs.yml"
 
 # `mkdocs.yml` `exclude_docs:` — not part of the site, so neither walked nor linkable.
 _EXCLUDED = {DOCS / "PRD.md"}
+
+# Files the site serves that are not under docs/: ``scripts/mkdocs_hooks.py`` adds each one to the
+# build from its repository path (#612). A link to one resolves when that source file exists.
+_hooks_spec = importlib.util.spec_from_file_location(
+    "mkdocs_hooks_links", DOCS.parent / "scripts" / "mkdocs_hooks.py"
+)
+assert _hooks_spec is not None and _hooks_spec.loader is not None
+_hooks = importlib.util.module_from_spec(_hooks_spec)
+_hooks_spec.loader.exec_module(_hooks)
+_GENERATED = {(DOCS / site).resolve(): source for site, source in _hooks.PUBLISHED_FILES.items()}
 
 _UNSUPPORTED = "unsupported Markdown form, the checker cannot vouch for it"
 
@@ -1027,6 +1038,8 @@ def _target_problem(source: Path, target: str) -> str | None:
             return "target is outside docs/, so it is not part of the published site"
         if resolved in _EXCLUDED:
             return "target is excluded from the site by mkdocs.yml exclude_docs"
+        if resolved in _GENERATED:
+            return None if _GENERATED[resolved].is_file() else "the hook's source file is missing"
         if not resolved.exists():
             return "no such file"
         if resolved.is_dir():

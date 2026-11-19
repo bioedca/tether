@@ -215,7 +215,9 @@ none of it. It keeps it in a file named `preferences.json` in your own settings 
 - macOS: `~/Library/Application Support/MondragonLab/Tether/`
 - Linux: `~/.config/tether/`, or `$XDG_CONFIG_HOME/tether/` when that variable is set
 
-Delete that file and the application forgets all of it. Nothing else changes. To use another
+Delete that file and the application forgets all of it. Nothing else changes. Beside it sits
+an empty file, `preferences.json.lock`. It lets two open Tether windows take turns saving, so
+neither loses what the other saved. To use another
 file, set the environment variable `TETHER_PREFERENCES_FILE` to its full path.
 
 ## Next
