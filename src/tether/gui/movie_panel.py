@@ -435,14 +435,11 @@ class NapariMoviePanel:
             try:
                 self.set_active_movie(index)
             except Exception:
-                # A movie that cannot be shown leaves no trace: it is not registered and
-                # not active, so the next movie added becomes the active one.
-                self._movies.pop()
-                self._active_index = -1
-                if self._switcher is not None:
-                    self._switcher.blockSignals(True)
-                    self._switcher.removeItem(index)
-                    self._switcher.blockSignals(False)
+                # A movie that cannot be shown leaves no trace: no movie was active, so it
+                # is the only one registered, and clearing removes it with any image or
+                # overlay layer it got as far as drawing. The next movie added becomes the
+                # active one.
+                self.clear_movies()
                 raise
         return index
 

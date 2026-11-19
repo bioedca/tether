@@ -376,6 +376,8 @@ def test_a_movie_that_cannot_be_shown_leaves_no_trace(qtbot, tmp_path, monkeypat
         assert panel.n_movies == 0
         assert panel.active_index == -1
         assert combo.count() == 0
+        # Nothing of the failed movie stays in the viewer: not its image, not its spots.
+        assert len(panel.layers) == 0
 
         assert panel.add_movie(m1, name="B") == 0
         assert panel.active_index == 0
