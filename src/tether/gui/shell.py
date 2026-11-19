@@ -1612,7 +1612,9 @@ class TetherShell:
 
         Returns a note for the open's status message when a recorded movie file cannot be
         shown, or the panel cannot be built here, else ``None``. A movie whose ``uri`` is
-        empty records no file, so it is listed (disabled) without a note.
+        empty records no file, so it is listed (disabled) without a note. A movie whose
+        spots cannot be placed (no channel geometry recorded) is shown without spots, and
+        its switcher entry says so.
         """
         from pyqtgraph.Qt import QtCore
 
@@ -1622,7 +1624,8 @@ class TetherShell:
         try:
             switcher.clear()
             for row, movie in enumerate(self._project_movies):
-                label = movie.name if movie.available else f"{movie.name} ({movie.unavailable})"
+                why = movie.unavailable or movie.no_spots
+                label = f"{movie.name} ({why})" if why else movie.name
                 switcher.addItem(label, movie.movie_id)
                 tooltip = str(movie.path) if movie.path is not None else movie.unavailable
                 switcher.setItemData(row, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
@@ -1673,8 +1676,13 @@ class TetherShell:
                 self._disable_movie_row(row)
                 continue
             self._movie_readers.append(reader)
-            overlay = MovieOverlay(
-                donor_xy=movie.donor_xy, acceptor_xy=movie.acceptor_xy, aperture_radius=radius
+            # A movie whose spots cannot be placed on the frame is shown without any.
+            overlay = (
+                None
+                if movie.no_spots
+                else MovieOverlay(
+                    donor_xy=movie.donor_xy, acceptor_xy=movie.acceptor_xy, aperture_radius=radius
+                )
             )
             self._movie_rows[row] = panel.add_movie(reader, overlay=overlay, name=movie.movie_id)
         return failed

@@ -178,6 +178,29 @@ def test_overlays_show_each_movies_spots_at_the_stored_radius(section_shell, tmp
 
 @needs_napari
 @needs_gl
+def test_a_movie_with_no_channel_geometry_is_shown_without_spots(section_shell, tmp_path) -> None:
+    # A Deep-LASI reconstruction records no channel geometry, so nothing says where its
+    # sub-image coordinates sit in the frame: no spot rather than a spot on the wrong half.
+    path = _store(tmp_path)
+    with h5py.File(path, "r+") as handle:
+        table = handle["movies"]["table"][:]
+        table["donor_crop"][0] = 0
+        table["acceptor_crop"][0] = 0
+        handle["movies"]["table"][:] = table
+    shell = _open(section_shell, path)
+    panel = shell.movie_panel
+
+    switcher = shell.movie_switcher
+    assert switcher.itemText(0) == f"{MOVIE_FIXTURE.name} (spot positions not recorded)"
+    assert switcher.model().item(0).isEnabled()
+    assert panel.movie_layer.data.shape == (50, 64, 64)
+    assert panel.active_overlay is None
+    assert panel.donor_layer is None
+    assert panel.acceptor_layer is None
+
+
+@needs_napari
+@needs_gl
 def test_a_movie_switch_replaces_the_image_without_piling_up_layers(
     section_shell, tmp_path
 ) -> None:

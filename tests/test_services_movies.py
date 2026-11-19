@@ -105,6 +105,70 @@ def test_a_relative_uri_is_read_against_the_project_folder(tmp_path) -> None:
     assert movie.available
 
 
+def _set_movie_row(path, **fields) -> None:
+    with h5py.File(path, "r+") as handle:
+        table = handle["movies"]["table"][:]
+        for name, value in fields.items():
+            table[name][0] = value
+        handle["movies"]["table"][:] = table
+
+
+def test_a_relative_uri_from_the_extraction_folder_is_found_there_too(
+    tmp_path, monkeypatch
+) -> None:
+    # `tether extract raw/m.tif -o out/m.tether` records "raw/m.tif", relative to the folder
+    # the command ran in rather than to the project (#356 review).
+    (tmp_path / "raw").mkdir()
+    (tmp_path / "raw" / "m.tif").write_bytes(b"four")
+    (tmp_path / "out").mkdir()
+    path = _store(tmp_path / "out", uri="raw/m.tif")
+    monkeypatch.chdir(tmp_path)
+
+    (movie,) = read_project_movies(path).movies
+    assert movie.path == tmp_path / "raw" / "m.tif"
+    assert movie.available
+
+    # Only a file of the recorded size is taken from the current folder.
+    _set_movie_row(path, file_size=5)
+    (movie,) = read_project_movies(path).movies
+    assert movie.path == tmp_path / "out" / "raw" / "m.tif"
+    assert movie.unavailable == "file missing"
+    _set_movie_row(path, file_size=4)
+    (movie,) = read_project_movies(path).movies
+    assert movie.available
+
+
+def test_a_movie_with_no_channel_geometry_has_no_spots(tmp_path) -> None:
+    # A Deep-LASI reconstruction records no channel geometry: the stored coordinates are
+    # sub-image pixels with no record of where the sub-images sat (#356 review).
+    movie_file = tmp_path / "m.tif"
+    movie_file.write_bytes(b"x")
+    path = _store(tmp_path, uri=str(movie_file))
+    zero = np.zeros(4, dtype=np.int32)
+    _set_movie_row(path, donor_crop=zero, acceptor_crop=zero)
+
+    (movie,) = read_project_movies(path).movies
+
+    assert movie.available
+    assert movie.no_spots == "spot positions not recorded"
+    assert movie.donor_xy.shape == movie.acceptor_xy.shape == (0, 2)
+
+
+def test_one_full_frame_channel_keeps_its_spots(tmp_path) -> None:
+    # One all-zero channel is a full-frame channel, not missing geometry.
+    movie_file = tmp_path / "m.tif"
+    movie_file.write_bytes(b"x")
+    path = _store(tmp_path, uri=str(movie_file))
+    _set_movie_row(path, donor_crop=np.zeros(4, dtype=np.int32))
+
+    (movie,) = read_project_movies(path).movies
+
+    assert movie.no_spots is None
+    donor, acceptor = _molecule_xy(path)
+    np.testing.assert_allclose(movie.donor_xy, donor)
+    np.testing.assert_allclose(movie.acceptor_xy, acceptor + [64.0, 0.0])
+
+
 @pytest.mark.parametrize(
     ("uri", "reason"),
     [("", "no movie file recorded"), ("gone.tif", "file missing")],

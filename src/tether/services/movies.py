@@ -26,9 +26,17 @@ stores ``donor_xy`` in the pixels of the donor *sub-image* and ``acceptor_xy`` i
 pixels of the acceptor sub-image (``docs/reference/tether-format.md``). A sub-image is the
 frame after the channel's rotate, flip and crop ([`tether.imaging.split.process_image`][]).
 [`subimage_to_frame`][] undoes those three steps, so each spot is drawn on the half of the
-frame it was measured in. A row with no stored geometry (an all-zero crop, rotation 0, no
-flip, as a Deep-LASI reconstruction writes) leaves the coordinates as they are, because
-there is nothing recorded to undo.
+frame it was measured in. A channel whose geometry is all zero (crop, rotation and flip)
+is a full-frame channel and keeps its coordinates. When *both* channels are all zero, as a
+Deep-LASI reconstruction writes them, the zeros mean "not recorded": nothing says where
+either sub-image sat in the frame, so the movie is shown without spots rather than with
+spots on the wrong half ([`ProjectMovie.no_spots`][tether.services.movies.ProjectMovie]).
+
+**Which folder.** PRD §5.1 records the ``uri`` relative to the project, so a relative
+``uri`` is looked up in the project's folder first. The extraction writer records the path
+it was given, which can be relative to the folder the command ran in instead; when the
+project-relative file does not exist, the same relative path is tried from the current
+folder, and taken only when its size matches the recorded ``file_size``.
 """
 
 from __future__ import annotations
@@ -75,8 +83,9 @@ class ProjectMovie:
         The label a front end shows: the file name of the ``uri``, or the ``movie_id``
         when no ``uri`` is recorded.
     path:
-        The movie file, the ``uri`` resolved against the project's folder, or ``None``
-        when the row records no ``uri``.
+        The movie file, the ``uri`` resolved against the project's folder (or, for a
+        relative ``uri`` not found there, a size-matching file at that path from the current
+        folder), or ``None`` when the row records no ``uri``.
     unavailable:
         ``None`` when the file can be opened; otherwise a short reason in plain words:
         ``"file missing"``, ``"file not on this disk"``, ``"file unreadable"`` or
@@ -84,7 +93,11 @@ class ProjectMovie:
     donor_xy, acceptor_xy:
         ``(N, 2)`` ``[x, y]`` spot centres of this movie's molecules, in pixels of the
         whole camera frame (see [`subimage_to_frame`][]). A molecule whose stored
-        coordinates are not finite is left out.
+        coordinates are not finite is left out. Both are empty when
+        [`no_spots`][tether.services.movies.ProjectMovie] gives a reason.
+    no_spots:
+        ``None`` when the spots can be placed on the frame; otherwise why not, in plain
+        words: ``"spot positions not recorded"`` when neither channel's geometry is.
     """
 
     movie_id: str
@@ -93,6 +106,7 @@ class ProjectMovie:
     unavailable: str | None
     donor_xy: np.ndarray
     acceptor_xy: np.ndarray
+    no_spots: str | None = None
 
     @property
     def available(self) -> bool:
@@ -215,11 +229,43 @@ def _unavailable(path: Path | None) -> str | None:
     return None
 
 
-def _resolve(uri: str, project_dir: Path) -> Path | None:
+def _resolve(uri: str, project_dir: Path, file_size: int) -> Path | None:
+    """Return the movie file ``uri`` names: project-relative first (PRD §5.1).
+
+    A relative ``uri`` whose project-relative file does not exist is tried from the current
+    folder too, where the extraction writer's caller may have meant it, but only a file
+    whose size equals the recorded ``file_size`` (when one is recorded) is taken there.
+    Only ``stat`` is read, never the file's bytes.
+    """
     if not uri:
         return None
     path = Path(uri)
-    return path if path.is_absolute() else project_dir / path
+    if path.is_absolute():
+        return path
+    in_project = project_dir / path
+    if in_project.exists():
+        return in_project
+    try:
+        size = path.stat().st_size if path.is_file() else None
+    except OSError:
+        size = None
+    if size is not None and (file_size <= 0 or size == file_size):
+        return path.absolute()
+    return in_project
+
+
+def _geometry_recorded(row: np.void) -> bool:
+    """Whether either channel of a ``/movies`` row records a crop, rotation or flip."""
+    import numpy as np
+
+    for channel in ("donor", "acceptor"):
+        if any(int(v) for v in np.asarray(row[f"{channel}_crop"]).ravel()):
+            return True
+        if int(row[f"{channel}_rotation_deg"]):
+            return True
+        if any(int(v) for v in np.asarray(row[f"{channel}_flip"]).ravel()):
+            return True
+    return False
 
 
 def _aperture_radius(handle: object) -> float:
@@ -271,19 +317,26 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
     for row in movies:
         movie_id = _to_str(row["movie_id"])
         uri = _to_str(row["uri"])
-        resolved = _resolve(uri, project_path.parent)
+        resolved = _resolve(uri, project_path.parent, int(row["file_size"]))
         mine = mol_movie == movie_id
         donor = donor_all[mine]
         acceptor = acceptor_all[mine]
         finite = np.isfinite(donor).all(axis=1) & np.isfinite(acceptor).all(axis=1)
+        no_spots = None if _geometry_recorded(row) else "spot positions not recorded"
+        if no_spots is None:
+            donor_xy = _to_frame(donor[finite], row, "donor")
+            acceptor_xy = _to_frame(acceptor[finite], row, "acceptor")
+        else:
+            donor_xy = acceptor_xy = np.empty((0, 2), dtype=np.float64)
         out.append(
             ProjectMovie(
                 movie_id=movie_id,
                 name=_movie_name(uri) if uri else movie_id,
                 path=resolved,
                 unavailable=_unavailable(resolved),
-                donor_xy=_to_frame(donor[finite], row, "donor"),
-                acceptor_xy=_to_frame(acceptor[finite], row, "acceptor"),
+                donor_xy=donor_xy,
+                acceptor_xy=acceptor_xy,
+                no_spots=no_spots,
             )
         )
     return ProjectMovies(movies=tuple(out), aperture_radius=radius)

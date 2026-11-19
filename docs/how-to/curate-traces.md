@@ -55,12 +55,17 @@ red dot marks each acceptor spot. The ring around each dot is the integration ap
 radius the extraction used. To show another movie, choose it in the **Movie** box.
 
 Tether looks for each movie file at the path recorded when the traces were extracted. A
-movie whose file was moved or deleted shows grayed out, with `(file missing)`. The status
+relative path is looked up in the project's folder first. A movie whose file was moved or
+deleted shows grayed out, with `(file missing)`. The status
 line then ends with, for example, `1 of 1 movie(s) not shown`.
 
 Tether does not download a movie that is only in the cloud, such as a OneDrive file. Such a
 movie shows `(file not on this disk)`. Make the file available on this computer, then open the
 project again. A project imported without spot coordinates has no movie panel.
+
+A [round-trip reconstruction](../io/legacy-import.md#round-trip-reconstruction) of a
+Deep-LASI export does not record where each channel sits in the frame. Its movie shows
+without dots, marked `(spot positions not recorded)`.
 
 A project you opened before on this computer opens at the molecule you last had selected in it.
 
