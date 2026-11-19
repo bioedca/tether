@@ -176,8 +176,9 @@ else would make it a worse historical record in exchange for a working link.
 | [0129](0129-an-extraction-profile-is-a-file-in-the-request-text-form.md) | An extraction profile is a file in the request text form, and `--tdat` sets two fields | accepted | §7.11 (FR-EXTRACT, FR-BATCH), §11.2, §8 NFR-REPRO |
 | [0130](0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md) | The γ levels are averaged over 20 frames each side of the acceptor-bleach step | accepted; amends [ADR-0028](0028-gamma-acceptor-bleach-step-estimator.md) on the frames each γ level is averaged over, whose other decisions govern unchanged | §7.2 (γ), §11.2 (the correction tolerance window row), Appendix B.2 step 4 |
 | [0132](0132-several-series-on-one-figure-one-color-cycle-small-multiples-and-one-grid.md) | Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid | accepted | §7.7 FR-PLOT (a plot is a layer list), §7.9 FR-EXPORT (per-series provenance) |
+| [0133](0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md) | The leakage-α band runs on the donor-only sample; the γ-vs-Deep-LASI leg stays withheld | accepted | §7.2, §9.1 item 8, §9.3 (Corrections), §9.5 oracle (e), §9.6, §11.2 (leakage-α validation band, γ-agreement tolerance) |
 
 <!-- gen:adr-index end -->
 
-_Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
-by the PRs that implement them._
+*Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
+by the PRs that implement them.*

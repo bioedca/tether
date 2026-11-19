@@ -97,7 +97,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (b) Idealization parity vs tMAVEN | `sidecar` — required, but only actually fits when a pull request touches an idealization path | the frozen artifact is checked against its own recorded evidence |
 | (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery; the level-2 and level-3 truth against the simulator settings files |
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic project files only) |
-| (e) α / γ estimators | required matrix | yes |
+| (e) α / γ estimators | required matrix; the α band on the lab's donor-only sample is `workstation` | yes (the band's arithmetic and limits) |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
@@ -393,15 +393,15 @@ bounds (below); nothing pins `$.provisional` to its committed values.
 What the suite does still enforce against loosening is the *shape* of a tolerance block rather
 than the magnitude of any bound inside it, plus one ordering between two blocks:
 
-* Every block must carry exactly the four bound keys — checked by
+- Every block must carry exactly the four bound keys — checked by
   `test_load_frozen_tolerance_returns_the_four_bounds` for `$.tolerance` and by
   `test_per_method_tolerances_cover_their_own_measured_evidence` for each
   `$.tolerance_by_method` entry — so a bound cannot be loosened by deleting it. Deleting any
   one of the eight fails at least two tests.
-* The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
+- The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
   fails `test_load_frozen_tolerance_returns_the_four_bounds`. The per-method bounds carry no
   finiteness check: `$.tolerance_by_method.ebhmm.relative_elbo_max` set to infinity passes.
-* `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
+- `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
   below the default one, so it fails once `$.tolerance.state_count_min_fraction` is dropped to
   ebFRET's frozen `0.5249` or below (0.5249 and 0.40 fail; 0.5250 and 0.60 pass).
 
@@ -413,7 +413,6 @@ eight above — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/m
 `WIDENED`. `test_widening_any_one_frozen_bound_fails` widens each bound alone by 1e-4 and checks
 that it is reported. A deliberate re-freeze changes both copies in one pull request, under an ADR
 ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md)).
-
 
 **Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
 also assert a second bound, much tighter than the frozen default row: a state-mean difference of
@@ -722,20 +721,32 @@ failure.
 `inf`). The design rule is [ADR-0003](adr/0003-apparent-e-never-nan.md). All of these run on
 the required matrix.
 
-> Not implemented — the two deferred legs of this oracle.
+**The conjunctive α band on real data (workstation).** The band of the specification
+(relative-median difference ≤ 20 % *and* both medians within 0.05–0.2, never the band alone) is
+`tests/test_leakage_alpha_band.py`, a `workstation` test
+([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)).
+The donor-only α comes from the lab's Cy3-only calibration acquisition (`donly-01`), read with the
+test-only trace reader of the public Deep-LASI check (#716): the tail estimator with every frame before the donor
+bleach as its window, so the gates are the tail estimator's own. The tail α is the median over the
+pooled molecules of the FRET series that sample calibrates (`lab-03` to `lab-08`), with Tether's
+bleach frames. The band's arithmetic and its two limits are checked on the required matrix in the
+same file, against the specification's row.
+
+**The first run passed** (2026-11-19). The donor-only α was 0.1200 (89 of 91 molecules
+qualifying) and the pooled tail α of the series 0.1012 (260 of 971), a relative difference of
+17.0 % against the 20 % limit, with both medians inside 0.05–0.2.
+
+> Not implemented — the γ leg of this oracle.
 >
-> 1. The **conjunctive two-estimator α agreement** band of the specification (relative-median
->    difference ≤ 20 % *and* both medians within 0.05–0.2) has no code and no test. The
->    donor-only-sample estimator it needs cannot be built from the committed
->    `cy3-donor-only-calibration` `.tdat`, whose traces sit in an undecoded MCOS
->    `FileWrapper__` blob; deferred in
->    [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md) gated on an MCOS trace decoder.
->    Until then the tail α is the applied factor and the band is not gated against a
->    fabricated value.
-> 2. The **γ within ±10 % of the Deep-LASI median** oracle of the specification is deferred: the
->    vendored export carries no per-frame classification, so the shared-frame,
->    estimator-isolated comparison cannot be constructed
->    ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
+> The **γ within ±10 % of the Deep-LASI median** oracle of the specification, and its looser
+> CI-overlap check, stay deferred. They need Deep-LASI's per-molecule γ and its per-frame
+> classification, and no available file holds them: not the vendored export
+> ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)), not the lab's saved Deep-LASI
+> states, and not the public Figure 3 state
+> ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)).
+> Deep-LASI's γ uses its per-frame classes, not its `BleachFrame`, so the shared frame set is
+> those classes once a state is saved after Deep-LASI's classification and automatic correction
+> ([#1244](https://github.com/bioedca/tether/issues/1244)).
 
 ## (f) Round-trip integrity and schema migration
 
@@ -1552,8 +1563,8 @@ evidence about the size of the difference and not a tolerance.
 - (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
   comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
-  real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
-  Deep-LASI-median oracle. Each is stated in its own section above with the ADR that
+  real-data uplift number, (e) is missing the γ Deep-LASI-median oracle, and its α band runs on
+  the workstation only. Each is stated in its own section above with the ADR that
   deferred it. (f) has no migration tests, which is not a gap: the specification makes them
   required only at the first schema-version step (see (f) above).
 - The specification states that Tether ships no synthetic-data simulator. In practice (e) and (g) are
@@ -1569,10 +1580,11 @@ evidence about the size of the difference and not a tolerance.
   but never mentions synthetic data, and neither ranker ADR
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all.
-  The specification allows synthesized known-truth fixtures in tests, and it lists these two
-  among its criteria not yet met, as not yet validated on real data
-  ([#546](https://github.com/bioedca/tether/issues/546),
-  [#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
+  The specification allows synthesized known-truth fixtures in tests. (e)'s α is now also checked
+  on real data, by the workstation band above
+  ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md));
+  (d)'s synthetic project file is listed among the criteria not yet met, as not yet validated on
+  real data ([#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
   exist (oracles (a), (b), (c)) stay on real fixtures.
 - A reference that comes from an ALEX data set compares **apparent FRET from the
   donor-excitation channels only** — the donor and acceptor intensities under donor

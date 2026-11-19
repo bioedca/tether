@@ -39,7 +39,7 @@ discussions, or pull requests.**
 
 Report privately via GitHub **[Private Vulnerability Reporting (PVR)](https://github.com/bioedca/tether/security/advisories/new)**
 (Security → Advisories → "Report a vulnerability" on the repository). If PVR is
-unavailable to you, email **bioedca@u.northwestern.edu** with subject
+unavailable to you, email **<bioedca@u.northwestern.edu>** with subject
 `SECURITY: tether`.
 
 Please include:

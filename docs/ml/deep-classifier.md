@@ -184,7 +184,7 @@ channel (`cu126` / `cu124` / `cu128`) that matches the runner's driver.
 
 Tether ships no trained model, so no reference model exists to compare with. The reference is a
 public labeled set instead ([ADR-0098](../adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md),
-#759): the traces file of the PySMACKS tutorial record (Zenodo
+\#759): the traces file of the PySMACKS tutorial record (Zenodo
 [10.5281/zenodo.21793247](https://doi.org/10.5281/zenodo.21793247), CC0-1.0). A person marked
 frame ranges of 123 traces as `FRET`, `DO` (donor only) or `AO` (acceptor only). Each range is one
 sample: `FRET` is accept, `DO` and `AO` are reject (149 ranges, 52 accept).
