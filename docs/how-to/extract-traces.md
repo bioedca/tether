@@ -220,9 +220,10 @@ From Python, `tether.project.extract.add_movie_to_project` adds one. It extracts
 steps as `tether extract`. Then it appends the movie to the project. Hold the project's writer
 lock with `tether.project.lock.publish_lock`, and give its check as `publish_guard`. The new
 movie must use the same window, radii and background window as the first movie. A movie that
-is already in the project is refused. The project's correction and idealization stay as they
-were, but they no longer cover every movie, so the next `tether batch --into` run over the
-project does them again.
+is already in the project is refused.
+
+The project's correction and idealization stay as they were after an append. They no longer
+cover every movie, so the next `tether batch --into` run over the project does them again.
 
 A project without raw traces cannot take a movie. An analysis-only import is one example. A
 subset exported without its raw traces is another.
