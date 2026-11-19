@@ -114,9 +114,8 @@ _CATEGORIES_GROUP = "categories"
 _CLASS_LOOKUP_ATTR = "tmaven_class_lookup"
 
 #: tMAVEN class ``0`` is pinned to Tether's *uncategorized* null state, the stored
-#: ``/molecules.category`` value ``""`` (PRD §7.3, §7.4): a tMAVEN round trip never
-#: turns an uncategorized trace into a named category. Named categories are classes
-#: ``>= 1``.
+#: ``/molecules.category`` value ``""`` (PRD §7.3, §7.4): a returning class ``0``
+#: always resolves to ``""``. Named categories are classes ``>= 1``.
 UNCATEGORIZED_CLASS = 0
 
 #: The append-only re-key/merge audit log, a lazily-created dataset under the

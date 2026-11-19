@@ -74,9 +74,10 @@ UNCATEGORIZED_CLASS = 0
 #: as its [`keymap_scope`][tether.gui.sections.SectionSpec] is where those keys act.
 CURATION_SCOPE = "curation"
 
-#: The number of categories addressable by the ``1``–``9`` hotkeys; categories
-#: beyond this are assigned via the overflow picker. Hotkey ``n`` and the picker
-#: both name an integer class ``n``, the ``n``-th category: the rule the persisted
+#: The number of categories addressable by the ``1``–``9`` hotkeys; a category
+#: beyond this is chosen in the overflow picker, which dispatches its class (the shell
+#: does not persist a category assignment yet). Hotkey ``n`` and the picker both
+#: name an integer class ``n``, the ``n``-th category: the rule the persisted
 #: [`ClassLookup`][tether.project.conditions.ClassLookup] stores (ADR-0125). The GUI
 #: may not import the core directly (ADR-0100), so a test pins the agreement.
 CATEGORY_SLOTS = 9
