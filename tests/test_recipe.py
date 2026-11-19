@@ -419,3 +419,247 @@ def test_save_as_recipe_needs_a_completed_job(tmp_path) -> None:
     Project.create(tmp_path / "exp.tether")
     with pytest.raises(rc.RecipeError, match="no completed job"):
         rc.recipe_from_project(tmp_path / "exp.tether")
+
+
+# --- the edges of the checker and the runner ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ('{"format": "tether-recipe", "version": 1, "steps": [1]}', "step 1: a step must be"),
+        ('{"format": "tether-recipe", "version": 1, "steps": [{"command": "extract"}]}', "step 1:"),
+        (_recipe({**_step(), "policy": {"step": "x"}}), "step 1: a policy names an unknown"),
+    ],
+)
+def test_a_bad_step_or_step_policy_is_refused_with_the_step(tmp_path, text, message) -> None:
+    with pytest.raises(rc.RecipeError, match=re.escape(message)):
+        rc.read_recipe(_write(tmp_path, text))
+
+
+def test_a_policy_must_be_an_object_and_a_missing_recipe_cannot_be_read(tmp_path) -> None:
+    with pytest.raises(rc.RecipeError, match="a policy must be a JSON object"):
+        rc.check_policy(["map.accept"])
+    with pytest.raises(rc.RecipeError, match="cannot read the recipe"):
+        rc.read_recipe(tmp_path / "missing.json")
+
+
+def test_a_list_of_paths_is_read_and_written_relative_to_the_recipe_folder(tmp_path) -> None:
+    from tether.services import BatchRequest
+
+    path = _write(tmp_path, _recipe(_step("batch", movies=["a.tif", "in/b.tif"], out_dir="out")))
+    (step,) = rc.read_recipe(path).steps
+    assert step.request.movies == (str(tmp_path / "a.tif"), str(tmp_path / "in" / "b.tif"))
+    saved = rc.write_recipe(tmp_path / "saved.json", [step.request])
+    fields = json.loads(saved.read_text(encoding="utf-8"))["steps"][0]["fields"]
+    assert fields["movies"] == ["a.tif", "in/b.tif"] and fields["out_dir"] == "out"
+    assert isinstance(step.request, BatchRequest)
+
+
+def test_a_path_on_another_drive_stays_a_full_path(tmp_path, monkeypatch) -> None:
+    def other_drive(path: str, start: object = None) -> str:
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(rc.os.path, "relpath", other_drive)
+    movie = str(tmp_path / "m.tif")
+    saved = rc.write_recipe(tmp_path / "saved.json", [ExtractRequest(movie=movie, output=movie)])
+    assert json.loads(saved.read_text(encoding="utf-8"))["steps"][0]["fields"]["movie"] == movie
+
+
+def test_a_job_part_that_is_not_a_recipe_part_is_not_a_checkpoint() -> None:
+    assert rc._parse_part("{") is None
+    assert rc._parse_part('{"step": 1}') is None
+    assert rc._parse_part('{"recipe_sha256": "a", "recipe_version": 1, "step": 2}') is not None
+
+
+def test_the_stopped_recipe_is_read_only_from_a_stopped_recipe_job(tmp_path) -> None:
+    from tether.project import jobs
+
+    path = tmp_path / "exp.tether"
+    project = Project.create(path)
+    request = IdealizeRequest(project=str(path))
+
+    def stop(_part: str, _cancel: object) -> None:
+        raise jobs.JobCancelled
+
+    project.acquire_lock()
+    try:
+        for parts in (["a", "b"], ["not a recipe part"]):
+            job = jobs.submit_job(project, request, parts)
+            jobs.run_job(project, job.job_id, stop)
+    finally:
+        project.release_lock()
+    assert [j.stored_state for j in read_jobs(path)] == [JobState.CANCELLED] * 2
+    assert rc.stopped_recipe(path) is None
+
+
+def _replace_run(monkeypatch, name: str, run) -> None:  # noqa: ANN001
+    commands = tuple(
+        dataclasses.replace(e, run=run) if e.name == name else e for e in registry.COMMANDS
+    )
+    monkeypatch.setattr(registry, "COMMANDS", commands)
+
+
+def test_a_failed_step_in_a_project_is_stored_failed_and_resume_retries_it(
+    tmp_path, capsys, calibrate, monkeypatch
+):
+    from tether.services.base import CommandFailed
+
+    def fail(request, *, approvals):  # noqa: ANN001, ANN202
+        raise CommandFailed("the fit did not converge")
+
+    _replace_run(monkeypatch, "calibrate", fail)
+    path = _write(tmp_path, _recipe(_calibrate_step()))
+    project = tmp_path / "exp.tether"
+    assert main(["run", str(path)]) == 1
+    assert "the fit did not converge" in capsys.readouterr().out
+    (job,) = read_jobs(project)
+    assert job.state is JobState.FAILED
+
+    _replace_run(monkeypatch, "calibrate", lambda request, *, approvals: _CalibrateResult(True))
+    assert main(["run", str(path), "--resume"]) == 0
+    (job,) = read_jobs(project)
+    assert job.state is JobState.DONE
+
+
+def test_a_step_whose_job_cannot_be_stored_fails_with_the_reason(tmp_path, calibrate, monkeypatch):
+    recipe = rc.read_recipe(_write(tmp_path, _recipe(_calibrate_step())))
+
+    def broken(*_args: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rc, "_queue", broken)
+    run = rc.run_recipe(recipe)  # no progress callback
+    assert run.failed and "cannot store the job of the step" in run.steps[0].message
+
+    monkeypatch.undo()
+    monkeypatch.setattr(registry, "COMMANDS", (*registry.COMMANDS, _calibrate_entry()))
+    monkeypatch.setattr(rc, "_record", broken)
+    policy = {"step": "gamma.approve", "rule": "value", "gamma": 1.1, "source": "lab note"}
+    recipe = rc.read_recipe(
+        _write(tmp_path, _recipe(_calibrate_step(**policy, otherwise="stop")), "p.json")
+    )
+    run = rc.run_recipe(recipe)
+    assert run.failed and run.stop is None
+    assert "the step ran, but its job could not be stored" in run.steps[0].message
+
+
+def _calibrate_entry() -> registry.ServiceCommand:
+    return registry.ServiceCommand(
+        name="calibrate",
+        request_type=_CalibrateRequest,
+        result_type=_CalibrateResult,
+        run=_calibrate,
+        summary="a test command that reaches gamma.approve",
+        approval_steps=("gamma.approve",),
+    )
+
+
+def test_a_running_job_of_the_step_is_not_taken_over(tmp_path, calibrate) -> None:
+    from tether.project import jobs
+
+    path = _write(tmp_path, _recipe(_calibrate_step()))
+    project = tmp_path / "exp.tether"
+    assert main(["run", str(path)]) == EXIT_APPROVAL_NEEDED
+    (job,) = read_jobs(project)
+    # As if another run of the recipe holds the job: it is not reused.
+    jobs._write_job(project, job.job_id, state=JobState.RUNNING.value)
+    assert main(["run", str(path), "--resume"]) == EXIT_APPROVAL_NEEDED
+    assert len(read_jobs(project)) == 2
+
+
+def test_two_steps_in_one_project_each_have_their_job_and_save_keeps_a_request_once(
+    tmp_path, capsys, calibrate
+):
+    policy = {"step": "gamma.approve", "rule": "value", "gamma": 1.1, "source": "lab note"}
+    step = _calibrate_step(**policy, otherwise="stop")
+    path = _write(tmp_path, _recipe(step, step))
+    project = tmp_path / "exp.tether"
+    assert main(["run", str(path), "--dry-run"]) == 0
+    assert "  approval step gamma.approve: policy {" in capsys.readouterr().out
+    assert main(["run", str(path)]) == 0
+    assert [j.state for j in read_jobs(project)] == [JobState.DONE] * 2
+    # The same request twice is one step of the saved recipe.
+    assert len(rc.recipe_from_project(project)) == 1
+
+
+def test_a_dry_run_names_an_approval_step_that_stops_for_a_person(tmp_path, capsys, calibrate):
+    path = _write(tmp_path, _recipe(_calibrate_step()))
+    assert main(["run", str(path), "--dry-run"]) == 0
+    assert (
+        "  approval step gamma.approve: stops for a person (no policy)" in capsys.readouterr().out
+    )
+
+
+def test_the_gate_records_only_the_policy_of_its_step(tmp_path, calibrate) -> None:
+    recipe = rc.read_recipe(_write(tmp_path, _recipe(_calibrate_step())))
+    gate = rc.ApprovalGate(recipe, recipe.steps[0])
+    with pytest.raises(ValueError, match="no policy for 'gamma.approve'"):
+        gate.record(None, step="gamma.approve", subject="c", report=str(calibrate))
+
+
+def test_save_as_recipe_refuses_a_job_it_cannot_read(tmp_path, calibrate, monkeypatch) -> None:
+    from tether.services.base import RequestError
+
+    policy = {"step": "gamma.approve", "rule": "value", "gamma": 1.1, "source": "lab note"}
+    path = _write(tmp_path, _recipe(_calibrate_step(**policy, otherwise="stop")))
+    assert main(["run", str(path)]) == 0
+
+    def unreadable(text: str) -> Request:
+        raise RequestError("version 9 is not supported")
+
+    monkeypatch.setattr(registry, "request_from_text", unreadable)
+    with pytest.raises(rc.RecipeError, match="holds a request this Tether cannot read"):
+        rc.recipe_from_project(tmp_path / "exp.tether")
+
+
+# --- tether approve: the refusals the command line cannot reach -------------------------------
+
+
+def test_approve_refuses_an_unknown_step_a_blank_name_or_a_missing_project(tmp_path) -> None:
+    from tether.services import ApproveRequest
+    from tether.services import approve as ap
+    from tether.services.base import RequestRefused
+
+    report = tmp_path / "r.json"
+    report.write_text("{}", encoding="utf-8")
+    project = tmp_path / "exp.tether"
+    Project.create(project)
+    good = {"project": str(project), "step": "map.accept", "subject": "s", "report": str(report)}
+    for change, message in (
+        ({"step": "deposit.publish"}, "unknown approval step"),
+        ({"by": " "}, "needs the name of the person"),
+        ({"project": str(tmp_path / "missing.tether")}, "cannot open"),
+    ):
+        with pytest.raises(RequestRefused, match=message):
+            ap.run(ApproveRequest(**{**good, **change}))
+    assert approvals.read_approvals(project) == []
+
+
+def test_approve_fails_when_the_lock_or_the_write_fails(tmp_path, monkeypatch) -> None:
+    from tether.project.lock import LockError
+    from tether.services import ApproveRequest
+    from tether.services import approve as ap
+    from tether.services.base import CommandFailed
+
+    report = tmp_path / "r.json"
+    report.write_text("{}", encoding="utf-8")
+    project = tmp_path / "exp.tether"
+    Project.create(project)
+    request = ApproveRequest(
+        project=str(project), step="map.accept", subject="s", report=str(report), by="Ana"
+    )
+
+    def no_write(*_args: object, **_kwargs: object) -> None:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(approvals, "record_approval", no_write)
+    with pytest.raises(CommandFailed, match="read-only file system"):
+        ap.run(request)
+
+    def no_lock(self: Project) -> None:
+        raise LockError("held by Ben")
+
+    monkeypatch.setattr(Project, "acquire_lock", no_lock)
+    with pytest.raises(CommandFailed, match="cannot take the lock"):
+        ap.run(request)
