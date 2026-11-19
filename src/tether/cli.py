@@ -18,7 +18,9 @@ registered command that has no route here. ``tether info`` prints a read-only su
 what a project holds — see [`tether.project.summary`][]. ``tether metadata`` shows and
 gives a project's movie metadata with its origin — see
 [`tether.project.movie_metadata`][]. ``tether export`` writes the molecule table, the
-trace text file or a subset project — see [`tether.cli_export`][].
+trace text file or a subset project — see [`tether.cli_export`][]. ``tether status`` prints
+the readiness of each stage of a project and its next step — see
+[`tether.project.readiness`][].
 
 The CLI deliberately uses the standard-library [`argparse`][] rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
@@ -68,6 +70,7 @@ from tether.services.profile import read_profile
 if TYPE_CHECKING:
     # Annotation-only: the summary module pulls in h5py, which ``--version`` must not.
     from tether.project.batch import BatchSummary
+    from tether.project.readiness import ProjectReadiness
     from tether.project.summary import CurationCounts, ProjectSummary
 
 
@@ -122,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_info_parser(subparsers)
     _add_metadata_parser(subparsers)
     add_export_parser(subparsers)
+    _add_status_parser(subparsers)
     return parser
 
 
@@ -1209,6 +1213,119 @@ def _run_metadata(args: argparse.Namespace) -> int:
     return 0
 
 
+#: The stages ``tether status --require`` accepts; ``tether.project.readiness.STAGES`` keys.
+#: A literal, so ``build_parser`` stays off the HDF5 stack; a test pins the two equal.
+_STATUS_STAGES = (
+    "sources",
+    "map",
+    "traces",
+    "curation",
+    "corrections",
+    "analysis_sets",
+    "fits",
+    "results",
+    "deposit",
+)
+
+#: ``tether status`` exits with this code when a ``--require`` stage is not ready.
+STATUS_NOT_READY_EXIT = 3
+
+
+def _add_status_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``status`` subcommand (the readiness of each stage, #896)."""
+    status = subparsers.add_parser(
+        "status",
+        help="print the readiness of each stage of a .tether project and the next step",
+        description=(
+            "Print each stage of the project in workflow order with its state, each stale "
+            "item with the reason, the stored jobs, and the next step. The project is opened "
+            "read-only and no lock is taken, as for tether info. Exit codes: 0 read, 1 the "
+            f"project could not be read, 2 bad arguments, {STATUS_NOT_READY_EXIT} a --require "
+            "stage is not ready."
+        ),
+    )
+    status.add_argument("project", help="the .tether project")
+    status.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON document (a documented, versioned layout) instead of text",
+    )
+    status.add_argument(
+        "--require",
+        action="append",
+        choices=_STATUS_STAGES,
+        metavar="STAGE",
+        help=(
+            f"exit {STATUS_NOT_READY_EXIT} unless STAGE is ready (or not needed); give it "
+            f"again for more stages. One of: {', '.join(_STATUS_STAGES)}"
+        ),
+    )
+
+
+def _format_readiness(r: ProjectReadiness) -> str:
+    """The text form of one [`ProjectReadiness`][tether.project.readiness.ProjectReadiness]."""
+    from tether.project.readiness import SECTIONS  # noqa: PLC0415
+
+    lines = [r.path]
+    for section, title in SECTIONS:
+        lines.append(f"  {title}")
+        for stage in (s for s in r.stages if s.section == section):
+            detail = f" ({stage.detail})" if stage.detail else ""
+            lines.append(f"    {stage.name}: {stage.state.text}{detail}")
+    if r.stale:
+        lines.append(f"  stale: {len(r.stale)}")
+        lines.extend(f"    {s.item}: {s.reason}" for s in r.stale)
+    else:
+        lines.append("  stale: none")
+    if r.jobs:
+        lines.append(f"  jobs: {len(r.jobs)}")
+        for j in r.jobs:
+            error = f"; {j.error}" if j.error else ""
+            lines.append(
+                f"    {j.job_id[:8]} {j.command}: {j.state}, "
+                f"{j.n_completed} of {j.n_parts} parts complete{error}"
+            )
+    else:
+        lines.append("  jobs: none")
+    lines.append(f"  next step: {r.next_step.action}")
+    return "\n".join(lines)
+
+
+def _run_status(args: argparse.Namespace) -> int:
+    """Handle ``tether status``: 0 read, 1 unreadable, 3 a ``--require`` stage not ready."""
+    import json  # noqa: PLC0415
+
+    from tether.project.readiness import (  # noqa: PLC0415
+        READINESS_FORMAT_VERSION,
+        ProjectReadinessError,
+        read_project_readiness,
+    )
+
+    try:
+        readiness = read_project_readiness(args.project)
+    except ProjectReadinessError as exc:
+        print(f"tether status: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        document = {
+            "format": "tether-status",
+            "format_version": READINESS_FORMAT_VERSION,
+            "tether_version": __version__,
+            **readiness.to_dict(),
+        }
+        print(json.dumps(document, indent=2))
+    else:
+        print(_format_readiness(readiness))
+    _warn_conflict_copies(args.project)
+    code = 0
+    for key in args.require or ():
+        stage = readiness.stage(key)
+        if not stage.state.done:
+            print(f"tether status: {key} is {stage.state.text}", file=sys.stderr)
+            code = STATUS_NOT_READY_EXIT
+    return code
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI. Returns a process exit code (``0`` on success).
 
@@ -1230,6 +1347,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_metadata(args)
     if command == "export":
         return run_export(args)
+    if command == "status":
+        return _run_status(args)
     parser.error(f"unknown command: {command}")  # pragma: no cover
     return 2  # pragma: no cover
 
