@@ -562,16 +562,18 @@ Corrections **shall** not be required to *view* traces: apparent-E analysis and 
 photobleaching; only the α/γ corrections require bleach steps.
 
 **Total-correction-failure path.** The min-qualifying-traces gate (§11.2) is applied **before** the population
-median, so an empty qualifying set can never emit a NaN factor. A missing factor never becomes a NaN in E: a missing or
-non-finite α or γ routes the molecule to apparent E. When **no donor-only sample is
+median, so a factor is never computed from an empty or too-small qualifying set. A missing factor never becomes a NaN in
+E: a missing or non-finite α or γ routes the molecule to apparent E. When **no donor-only sample is
 loaded and fewer than `min_qualifying_traces` molecules yield a valid factor** — the *expected* case for the lab's
 typical pure-FRET acquisitions lacking a clean acceptor-bleach step — Tether **shall** retain/display **apparent
 E** (α = δ = 0, γ = 1), stamp provenance `method = "apparent-E (corrections unavailable)"`, show a **non-blocking
 banner**, and offer two recovery actions: load a donor-only sample, or enter manual per-condition α/γ (which stamps
-`method = "manual"`). If the user declines, the project stays in apparent-E. A NaN factor is never written (§9 M3,
-§10). This guarantee is about the factors only. E can still be NaN on a frame whose denominator is zero, because the
-ratio is not defined there: for apparent E that is a frame with zero total intensity, and for corrected E a frame where
-I_A,corr + γ·I_D,corr is zero.
+`method = "manual"`). If the user declines, the project stays in apparent-E. A withheld α or γ is stored as the NaN
+"no factor computed" sentinel in `/molecules.alpha` / `.gamma` (the [glossary](glossary.md) entry "withheld factor / NaN sentinel"),
+and a NaN or other non-finite factor is never applied: the molecule goes to apparent E (§9 M3, §10). This guarantee
+is about the factors only. E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
+there: for apparent E that is a frame with zero total intensity, and for corrected E a frame where I_A,corr + γ·I_D,corr
+is zero.
 
 **Two analysis modes (maintainer decision 2026-11-14, card C2, option B).** An analysis **shall** run in one of two
 named modes. **Apparent E** (α = δ = 0, γ = 1) stays possible as a separate named mode in every correction state.
@@ -1218,7 +1220,7 @@ boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) s
   §9 M8); (d) the per-condition ranker via **held-out cross-validation** (prequential /
   leave-one-video-out, the precision@k protocol of §7.5); (e) the α/γ estimators via **edge-case unit tests**
   (missing/sparse bleach steps, median-fallback paths, and the **total-failure → apparent-E** path that must never
-  emit a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
+  apply a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
   agreement** (§7.2, §11.2); (f) round-trip integrity and schema-integrity tests under existing conventions,
   with a schema-migration test from the first schema-version step on (§5.4);
   (g) the photobleaching detector's **per-channel first-bleach frames**, reframed by ADR-0026 (§9.5 (g)):
@@ -1281,9 +1283,10 @@ These hold across every milestone and are never regressed. They are harvested fr
    version bump ([ADR-0005](adr/0005-m0-schema-freeze.md), §5).
 2. **`main` is always green and releasable.** Never advance or summarize over a red or pending check (§12.3).
 3. **A missing factor never makes E NaN.** A missing α or γ routes the molecule to apparent E, and a total correction
-   failure falls to apparent E with a banner; the gate is applied *before* the median, so no NaN factor is ever
-   written (§7.2, [ADR-0003](adr/0003-apparent-e-never-nan.md); the ADR's title refers to the factors). A frame
-   with zero total intensity is still NaN in apparent E, because the ratio is not defined there.
+   failure falls to apparent E with a banner; the gate is applied *before* the median, so no factor is ever
+   computed from too few traces, and a NaN factor is never applied; a withheld factor is stored as the NaN sentinel
+   (§7.2, [glossary](glossary.md), [ADR-0003](adr/0003-apparent-e-never-nan.md); the ADR's title refers to the
+   factors). A frame with zero total intensity is still NaN in apparent E, because the ratio is not defined there.
 4. **Provenance travels with every datum** — coordinates, corrections, app version, parameters. The trace↔movie
    round-trip is a data-model property, recovered by exact intensity matching on any tMAVEN return leg
    ([ADR-0001](adr/0001-provenance-first-data-model.md),
@@ -1352,7 +1355,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Round-trip browser & curation** (FR-ROUNDTRIP) | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies (*not yet met*, §9.6); every accept/reject writes a `/labels` row; headless: the MVP histogram reproduces from the API. | M2 |
 | **Multi-movie project** (§5) | One `.tether` holds many movies, as the M2 multi-movie round-trip browser assumes: a second movie appends into an existing project under its writer lock (*not yet met*, §9.6). | M2 |
 | **File lifecycle** (FR-CONCURRENCY) | The single-writer lock (wall-clock stale-timeout) prevents a second writer, steal-lock recovers, and a cross-machine lock / stale / steal case is exercised. | M2 |
-| **Corrections** (FR-CORRECT, Appendix B) | A pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent E with a banner and never writes a NaN factor**; changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1). Per-channel first-bleach detection **(reframed — [ADR-0026](adr/0026-photobleach-detection-and-window-default.md))**: reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the §11.2 ±2-frame tolerance — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth. The **conjunctive §11.2 leakage-α validation band** (Tether's donor-only α vs its own post-acceptor-bleach-tail α, matched gates, same FRET dataset: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2, §7.2) is a `workstation` check on the lab's Cy3-only donor-only acquisition against the pooled tail α of the FRET series it calibrates ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); it is met: the run of 2026-11-19 recorded a donor-only α of 0.120 (89 of 91 molecules) against a pooled tail α of 0.101 (260 of 971), a relative difference of 17.0 %. Withheld under §9.1 item 8: **γ agreement with the Deep-LASI median within the §11.2 γ-agreement tolerance** (default ±10%) on a shared frame set derived from Deep-LASI's own per-frame classification (estimator-isolated; the §11.2 level windows) plus a looser end-to-end CI-overlap check — no available Deep-LASI file holds Deep-LASI's per-molecule γ or its per-frame classification ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md), [ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); *not yet met* and carried in §9.6. Corrections are a first-class surface of the application (*not yet met*, §9.6). | M3 |
+| **Corrections** (FR-CORRECT, Appendix B) | A pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent E with a banner, never computes a factor from too few traces and never applies a NaN factor** (a withheld factor is stored as the NaN sentinel, [glossary](glossary.md)); changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1). Per-channel first-bleach detection **(reframed — [ADR-0026](adr/0026-photobleach-detection-and-window-default.md))**: reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the §11.2 ±2-frame tolerance — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth. The **conjunctive §11.2 leakage-α validation band** (Tether's donor-only α vs its own post-acceptor-bleach-tail α, matched gates, same FRET dataset: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2, §7.2) is a `workstation` check on the lab's Cy3-only donor-only acquisition against the pooled tail α of the FRET series it calibrates ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); it is met: the run of 2026-11-19 recorded a donor-only α of 0.120 (89 of 91 molecules) against a pooled tail α of 0.101 (260 of 971), a relative difference of 17.0 %. Withheld under §9.1 item 8: **γ agreement with the Deep-LASI median within the §11.2 γ-agreement tolerance** (default ±10%) on a shared frame set derived from Deep-LASI's own per-frame classification (estimator-isolated; the §11.2 level windows) plus a looser end-to-end CI-overlap check — no available Deep-LASI file holds Deep-LASI's per-molecule γ or its per-frame classification ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md), [ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); *not yet met* and carried in §9.6. Corrections are a first-class surface of the application (*not yet met*, §9.6). | M3 |
 | **Batch runner** (FR-BATCH) | The batch runner **(i)** isolates a deliberately corrupt movie (continue-on-error) while the rest complete, **(ii)** resumes after a killed movie via per-stage checkpoint, and **(iii)** emits an end-of-run summary naming the failed movie — exercising sidecar timeout/restart. | M3 |
 | **Performance** (NFR-PERF) | The §8 targets — per-trace render+navigate ≈ 100 ms; a ~100-movie condition completes extraction + correction + idealization overnight; a bounded `.tether` size per condition — verified as a light gate over slice-scaled envelopes, not an SLA matrix ([ADR-0032](adr/0032-nfr-perf-budget-verification.md)). | M3 |
 | **Annotation & conditions** (FR-ANNOTATE) | A condition aggregates molecules across ≥ 2 files; category edits persist (*not yet met* from the application, §9.6); provisional `condition_id` values are confirmed or corrected via the validation UI; a mis-parsed `condition_id` re-keys all affected molecules transactionally with an audit entry, and merges are keep-separate-by-default + human-confirmed (§5.1). | M4 |
@@ -1557,8 +1560,9 @@ this section.
 - **Correction factors on sparse bleaching.** Mitigation: trace-wise α/γ with a global-median fallback +
   confidence; a donor-only-sample fallback for α; manual override; do not require photobleaching to *view* traces.
   **Total failure** (no donor-only sample AND fewer than `min_qualifying_traces` valid factors — the *expected*
-  pure-FRET case) applies the gate *before* the median, so no NaN factor is ever emitted: the project falls to
-  **apparent-E with a banner + recovery actions** (load donor-only / manual entry), never a NaN factor (§7.2).
+  pure-FRET case) applies the gate *before* the median, so no factor is ever computed from too few traces: the project
+  falls to **apparent-E with a banner + recovery actions** (load donor-only / manual entry) and never applies a NaN
+  factor; the withheld factor is stored as the NaN sentinel (§7.2, [glossary](glossary.md)).
 - **OneDrive + a single HDF5.** Mitigation: a **one-owner-at-a-time** posture with single-writer `.lock` + a
   **wall-clock stale-timeout** (≈ 30 min) + steal-lock; **detect-and-surface OneDrive conflict-copies**; concurrent
   curation via per-user split files (§7.10), never concurrent writes to one file; a routine open never auto-hydrates
