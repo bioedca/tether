@@ -303,6 +303,36 @@ def test_wildcard_imports_and_module_aliases_name_the_modules_that_made_the_valu
     assert rm.covering_tests(mutant, {}, passed, None, imports) == ["tests/test_w.py::test_x"]
 
 
+def test_wildcard_public_names_follow_what_the_docs_say(tmp_path: Path) -> None:
+    # CodeRabbit review on PR #1049: an annotated ``__all__`` is a list of strings; a list
+    # with a non-string element, or an ``__all__`` changed in a way not read, is not, so
+    # the public names fall back to the bound ones; a module-level loop binds its target.
+    _tree(
+        tmp_path,
+        {
+            "src/xa/__init__.py": "from .c import _C\n__all__: list[str] = ['_C']\n",
+            "src/xa/c.py": "_C = 1\n",
+            "src/xb/__init__.py": "from .c import A\nfrom .d import B\nN = 'B'\n"
+            "__all__ = ['A', N]\n",
+            "src/xb/c.py": "A = 1\n",
+            "src/xb/d.py": "B = 1\n",
+            "src/xc/__init__.py": (
+                "from .c import A\nfrom .d import B\nEXTRA = ['B']\n"
+                "__all__ = ['A']\n__all__ += EXTRA\n"
+            ),
+            "src/xc/c.py": "A = 1\n",
+            "src/xc/d.py": "B = 1\n",
+            "src/xd/__init__.py": "from .values import *\n",
+            "src/xd/values.py": "for VALUE in (1,):\n    pass\n",
+        },
+    )
+    of = rm._Imports(tmp_path / "src").of
+    assert of("from xa import *\n") == {"xa", "xa.c"}, "an annotated __all__"
+    assert of("from xb import *\n") == {"xb", "xb.c", "xb.d"}, "a non-string element"
+    assert of("from xc import *\n") == {"xc", "xc.c", "xc.d"}, "an __all__ write not read"
+    assert of("from xd import VALUE\n") == {"xd", "xd.values"}, "a module-level loop target"
+
+
 def test_identical_changes_on_one_line_have_different_occurrences() -> None:
     mutants = [m for m in rm.mutants_of("def f(a):\n    return a + a + a\n", "x") if m.old == "+"]
     assert [m.occurrence for m in mutants] == [0, 1]

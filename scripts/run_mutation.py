@@ -469,11 +469,29 @@ def _module_scope(tree: ast.Module) -> Iterable[ast.AST]:
             todo[:0] = [c for c in ast.iter_child_nodes(node) if isinstance(c, inner)]
 
 
+def _writes_all(node: ast.AST) -> bool:
+    """Whether *node* changes ``__all__``: an assignment to it (annotated, augmented or plain,
+    with a value) or a call of one of its methods, such as ``__all__.extend(...)``."""
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AugAssign) or (isinstance(node, ast.AnnAssign) and node.value):
+        targets = [node.target]
+    elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+        func = node.value.func
+        targets = [func.value] if isinstance(func, ast.Attribute) else []
+    else:
+        return False
+    return any(isinstance(n, ast.Name) and n.id == "__all__" for t in targets for n in ast.walk(t))
+
+
 def _names_of_all(node: ast.AST) -> list[str] | None:
-    """The strings of ``__all__ = [...]`` or ``__all__ += (...)``; ``None`` for anything else."""
+    """The strings of ``__all__ = [...]``, ``__all__: list[str] = [...]`` or
+    ``__all__ += (...)`` when every element is a string; ``None`` for anything else."""
     if isinstance(node, ast.Assign):
         targets, value = node.targets, node.value
-    elif isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add):
+    elif isinstance(node, ast.AnnAssign) or (
+        isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add)
+    ):
         targets, value = [node.target], node.value
     else:
         return None
@@ -481,13 +499,18 @@ def _names_of_all(node: ast.AST) -> list[str] | None:
         return None
     if not isinstance(value, (ast.List, ast.Tuple)):
         return None
-    return [e.value for e in value.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+    if not all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in value.elts):
+        return None
+    return [e.value for e in value.elts]
 
 
 def _bound_names(node: ast.AST) -> set[str]:
-    """The module names a ``def``, ``class`` or assignment at module scope binds itself."""
+    """The module names a ``def``, ``class``, assignment or ``for`` target at module scope
+    binds itself."""
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         return {node.name}
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        return {n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)}
     if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         return {n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name)}
@@ -503,8 +526,9 @@ class _Imports:
     the test reads a value that ``tether.a.c`` made, so it imports ``tether.a.c`` too, and so on
     down the chain of re-exports (every branch of a conditional one). A wildcard
     (``from tether.a import *``) imports what each public name of ``tether.a`` comes from, as
-    ``__all__`` lists them when it is a literal and else every bound name without a leading ``_``;
-    a wildcard inside a source module (``from .c import *``) passes those names on the same way.
+    ``__all__`` lists them when it is a literal of strings and else every bound name without a
+    leading ``_``; a wildcard inside a source module (``from .c import *``) passes those names
+    on the same way.
     A module alias (``import tether.a.c as backend`` in ``tether.a``) passes on the module
     itself, so ``from tether.a import backend`` imports ``tether.a.c``. Every module found also
     imports its parent packages (``tether`` and ``tether.a`` for ``tether.a.b``), as Python
@@ -522,6 +546,7 @@ class _Imports:
             stars: list[str] = []
             local: set[str] = set()
             all_: list[str] | None = None
+            unknown = False
             path = _module_file(self.src, module)
             if path is not None:
                 is_package = path.name == "__init__.py"
@@ -546,10 +571,14 @@ class _Imports:
                             else:  # ``import a.b`` binds a
                                 local.add(alias.name.split(".", 1)[0])
                     else:
-                        listed = _names_of_all(node)
-                        if listed is not None:
-                            plus = isinstance(node, ast.AugAssign)
-                            all_ = [*(all_ or []), *listed] if plus else listed
+                        if _writes_all(node):  # a change not read leaves ``__all__`` unknown
+                            listed = _names_of_all(node)
+                            if listed is None:
+                                all_, unknown = None, True
+                            elif not isinstance(node, ast.AugAssign):
+                                all_, unknown = listed, False
+                            elif not unknown:
+                                all_ = [*(all_ or []), *listed]
                         local |= _bound_names(node) - {"__all__"}
             self._parsed[module] = (names, stars, local, all_)
         return self._parsed[module]
