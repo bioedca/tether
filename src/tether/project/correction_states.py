@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -471,8 +473,54 @@ def send_event(
     does not hold. The single-writer lock is required: it must be present and this writer's,
     and under the open file it is checked again, with the scope's transitions, before the row
     is written, so a steal or a concurrent transition refuses the write. *finish review* reads
-    the stale marks again there too.
+    the stale marks again there too. Transitions of one project file run one at a time in
+    this process, from the read of the state to the write of the row.
     """
+    with _transition_lock(project.path):
+        return _send_event_held(
+            project,
+            event,
+            actor,
+            scope=scope,
+            alpha=alpha,
+            gamma=gamma,
+            source=source,
+            factor_version=factor_version,
+            correction_version=correction_version,
+            note=note,
+        )
+
+
+_TRANSITION_LOCKS: dict[str, threading.RLock] = {}
+_TRANSITION_LOCKS_GUARD = threading.Lock()
+
+
+def _transition_lock(path: str | Path) -> threading.RLock:
+    """Return the lock that serializes the transitions of the project file at ``path``.
+
+    The writer lock excludes other processes, not other threads that share one project, and
+    the check before the append does not exclude a second thread that checks before the first
+    one writes. Reentrant, so a transition sent from inside one (as the tests do) still runs.
+    """
+    key = os.path.realpath(path)
+    with _TRANSITION_LOCKS_GUARD:
+        return _TRANSITION_LOCKS.setdefault(key, threading.RLock())
+
+
+def _send_event_held(
+    project: Project,
+    event: CorrectionEvent | str,
+    actor: Actor,
+    *,
+    scope: str,
+    alpha: float | None,
+    gamma: float | None,
+    source: str,
+    factor_version: str,
+    correction_version: str,
+    note: str,
+) -> CorrectionStatus:
+    """Run [`send_event`][tether.project.correction_states.send_event] under its lock."""
     event = CorrectionEvent(event)
     _check_scope(scope)
     epoch = _held_nonce(project)

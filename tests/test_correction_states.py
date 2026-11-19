@@ -7,6 +7,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import h5py
@@ -471,3 +472,48 @@ def test_a_transition_that_lands_after_the_state_is_read_refuses_the_second(
     assert records[-1].to_state is S.CALIBRATION_BLOCKED
     for before, after in zip(records, records[1:], strict=False):
         assert after.from_state is before.to_state  # the log has no gap
+
+
+def test_two_threads_on_one_project_send_their_transitions_one_at_a_time(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # One thread has checked its row and not yet written it. A second thread on the same
+    # project waits for it, then reads the new state, so no two rows leave the same state.
+    _drive(project, S.GAMMA_REVIEW)
+    append = cs._append
+    checked, release = threading.Event(), threading.Event()
+
+    def held_append(path: object, row: dict[str, str], check: object) -> None:
+        def held_check(f: object) -> None:
+            check(f)  # type: ignore[operator]
+            if row["event"] == E.APPROVE:
+                checked.set()
+                release.wait(10)
+
+        append(path, row, held_check)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cs, "_append", held_append)
+    outcome: dict[str, object] = {}
+
+    def run(name: str, event: cs.CorrectionEvent) -> None:
+        try:
+            outcome[name] = _send(project, event).state
+        except Exception as exc:  # noqa: BLE001 - the test reads which error it was
+            outcome[name] = exc
+
+    first = threading.Thread(target=run, args=("first", E.APPROVE))
+    first.start()
+    assert checked.wait(10)
+    second = threading.Thread(target=run, args=("second", E.INSUFFICIENT_EVIDENCE))
+    second.start()
+    second.join(0.5)
+    assert second.is_alive()  # it waits for the first transition
+    release.set()
+    first.join(10)
+    second.join(10)
+    assert outcome["first"] is S.CALIBRATION_APPROVED
+    assert isinstance(outcome["second"], cs.CorrectionTransitionError)
+    records = cs.read_correction_transitions(project.path)
+    assert records[-1].to_state is S.CALIBRATION_APPROVED
+    for before, after in zip(records, records[1:], strict=False):
+        assert after.from_state is before.to_state

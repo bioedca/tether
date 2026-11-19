@@ -74,7 +74,9 @@ and `/settings/lock_takeovers` idiom.
    to be present and this writer's, so an unlocked project is refused (the `reconcile_jobs` rule of
    ADR-0126). Under the open file the lock epoch and the scope's rows are checked again before the
    row is written, so a steal or a transition that landed in between refuses the write. *Finish
-   review* also reads the stale marks again there, since a mark changes neither.
+   review* also reads the stale marks again there, since a mark changes neither. Within one
+   process the transitions of a project file run one at a time, from the read of the state to
+   the write of the row, since the writer lock does not exclude threads that share it.
 4. **The scope** is the project now (`scope = "project"`). When #624 gives each condition its own
    factors, each condition becomes a scope of its own in the same column, an additive change; until
    then any other scope is refused.
