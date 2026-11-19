@@ -652,7 +652,7 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 |---|---|---|
 | `source` | required | a bead TIFF: one image, or a video of frames |
 | `-o`, `--output OUTPUT` | required | the `.npz` map file to write. The name must end in `.npz` |
-| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one). Tether holds the map file's writer lock for the replacement, so it refuses while another `tether map create` holds that lock; the lock leaves a `<file>.lock.guard` file beside the map |
+| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one). Tether holds the map file's writer lock for the replacement, so it refuses while another `tether map create` holds that lock |
 | `--frames START STOP` | every frame | for a video: the 0-based half-open frame range to project |
 | `--projection {max,mean}` | `max` | for a video: how the frames are reduced to one image |
 | `--donor-side {left,right}` | `left` | which half of the frame is the donor channel |
@@ -669,6 +669,12 @@ stderr: the map is flagged low-confidence, and every molecule extracted with it 
 `low-confidence-registration`. A bead file with too few beads in either half, a bad frame
 range, an output that exists without `--overwrite`, an output whose writer lock another
 writer holds, or an output name without `.npz` exits `1` with one line on stderr. Bad arguments exit `2`.
+
+Without `--overwrite` the map is saved as a hard link to a finished temporary file, which
+never replaces a file. On a file system without hard links (a FAT drive, some network
+shares) the map is copied instead, under the map file's writer lock, so a copy that fails
+removes only its own file. The writer lock, whenever it is taken, leaves a
+`<file>.lock.guard` file beside the map, as it does beside a project.
 
 The map file has a `format_version` (now `1`). Tether reads a map file of its own
 version or older, and refuses one written by a newer version. The file holds only plain

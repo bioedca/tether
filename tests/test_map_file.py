@@ -544,7 +544,9 @@ def test_map_create_keeps_a_map_saved_meanwhile_without_overwrite(
     assert main(["map", "create", str(beads), "-o", str(output)]) == 1
     assert "output exists" in capsys.readouterr().err
     assert output.read_bytes() == b"the other session's map"
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", "shared.npz"]
+    # Without hard links the copy holds the output's writer lock, whose guard stays.
+    left = ["beads.tif", "shared.npz"] + ([] if hard_links else [_GUARD("shared.npz")])
+    assert sorted(p.name for p in tmp_path.iterdir()) == left
 
 
 def test_map_create_writes_a_map_where_there_are_no_hard_links(monkeypatch, tmp_path) -> None:
@@ -556,7 +558,11 @@ def test_map_create_writes_a_map_where_there_are_no_hard_links(monkeypatch, tmp_
         main(["map", "create", str(_write_beads(tmp_path / "beads.tif")), "-o", str(output)]) == 0
     )
     assert load_map(output).n_control_points == 9
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", "copied.npz"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "beads.tif",
+        "copied.npz",
+        _GUARD("copied.npz"),
+    ]
 
 
 def test_a_failed_copy_without_hard_links_leaves_no_file(monkeypatch, tmp_path, capsys) -> None:
@@ -697,8 +703,9 @@ def _no_hard_links(src, dst):
 def _GUARD(name: str) -> str:  # noqa: N802 - reads as the file name it builds
     """The writer lock's persistent guard file for map file *name* (never a map).
 
-    The cleanup of a failed copy checks and removes under the output's writer lock
-    (#1240), and the lock's guard file is never removed (ADR-0055).
+    A copy without hard links and an ``--overwrite`` replacement run under the
+    output's writer lock (#1240), and the lock's guard file is never removed
+    (ADR-0055).
     """
     return f"{name}.lock.guard"
 
@@ -755,39 +762,61 @@ def test_a_replacement_waiting_on_the_guard_is_not_removed_by_the_cleanup(
     assert output.read_bytes() == b"the other session's map"
 
 
-def test_the_cleanup_leaves_the_name_to_a_replacement_holding_the_guard(
-    monkeypatch, tmp_path
-) -> None:
-    """A cleanup that runs while an --overwrite publish holds the lock removes nothing (#1240).
+def test_a_copy_cannot_start_while_a_replacement_holds_the_guard(monkeypatch, tmp_path) -> None:
+    """A copy without hard links is refused while an --overwrite publish holds the lock (#1240).
 
-    The replacement holds the output's writer lock across its ``os.replace``, so a
-    failed copy's cleanup in that span is refused the lock and leaves the name to it,
-    even though the name is still the failed copy's file at that instant.
+    The replacement holds the output's writer lock across its ``os.replace``, and the
+    copy takes the same lock before it makes a file, so the copy (and any cleanup of
+    it) cannot run in that span; the replacement's map is the one that stays.
     """
     import os
 
-    from tether.project.lock import read_lock
+    from tether.project.lock import LockedError, read_lock
     from tether.services import maps
 
     output = tmp_path / "shared.npz"
-    output.write_bytes(b"a failed copy's partial file")
-    made = os.stat(output)
     ours = tmp_path / "ours.npz"
     ours.write_bytes(b"this session's complete map")
+    theirs = tmp_path / "theirs.npz"
+    theirs.write_bytes(b"the other session's map")
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
     real_replace = os.replace
-    seen: list[bool] = []
+    seen: list[object] = []
 
-    def replace_while_a_cleanup_runs(src, dst):
+    def replace_while_a_copy_starts(src, dst):
         if Path(dst) == output:  # the lock's own files are replaced too; leave those be
             seen.append(read_lock(output) is not None)  # the lock is held across the replace
-            maps._unlink_if_made(output, made)  # the name is still the failed copy's file
+            with pytest.raises(LockedError):
+                maps._publish(theirs, output, overwrite=False)
             seen.append(output.exists())
         real_replace(src, dst)
 
-    monkeypatch.setattr(maps.os, "replace", replace_while_a_cleanup_runs)
+    monkeypatch.setattr(maps.os, "replace", replace_while_a_copy_starts)
     maps._publish(ours, output, overwrite=True)
-    assert seen == [True, True]
+    assert seen == [True, False]  # held, and the refused copy made no file
     assert output.read_bytes() == b"this session's complete map"
+
+
+def test_a_failed_copy_holds_the_lock_before_its_file_is_made(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """The lock's files exist before the copy, so the cleanup needs no write (Codex P2).
+
+    A copy that fails on a full disk then removes its own file even though nothing
+    more could be written at that point.
+    """
+    from tether.project.lock import read_lock
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    output = tmp_path / "full.npz"
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    held: list[bool] = []
+    _disk_full_after(monkeypatch, lambda: held.append(read_lock(output) is not None))
+    assert main(["map", "create", str(beads), "-o", str(output)]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert held == [True]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", _GUARD("full.npz")]
 
 
 def test_map_create_overwrite_is_refused_while_another_writer_holds_the_lock(

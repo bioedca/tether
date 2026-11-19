@@ -133,9 +133,10 @@ def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
     hard link is made instead, which fails with [`FileExistsError`][] if *output*
     exists, also when it appeared after the first check. Where the file system has no
     hard links, the bytes are copied to a file opened with ``"xb"``, which refuses an
-    existing file the same way. A failed copy removes that file only while the name
-    still points to it, and checks and removes under the same lock, so a map another
-    session published with *overwrite* meanwhile stays (#1240).
+    existing file the same way. That copy runs under the same lock, taken before the
+    file is made, so a failed copy can remove its own file without writing anything
+    first (the lock's files exist before a full disk can refuse them), and no
+    replacement can land between its check and its removal (#1240).
     """
     from tether.project.lock import publish_lock
 
@@ -151,32 +152,26 @@ def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
         raise
     except OSError:  # no hard links here (a FAT drive, some network shares)
         pass
-    f = open(output, "xb")  # noqa: SIM115 - FileExistsError if another session made it
-    made = os.fstat(f.fileno())  # which file is this call's, for the cleanup below
-    try:
-        with f:  # the close flushes, and a failed flush is a failed write
-            f.write(written.read_bytes())
-    except BaseException:
-        _unlink_if_made(output, made)
-        raise
+    with publish_lock(output):
+        f = open(output, "xb")  # noqa: SIM115 - FileExistsError if another session made it
+        made = os.fstat(f.fileno())  # which file is this call's, for the cleanup below
+        try:
+            with f:  # the close flushes, and a failed flush is a failed write
+                f.write(written.read_bytes())
+        except BaseException:
+            _unlink_if_made(output, made)
+            raise
 
 
 def _unlink_if_made(output: Path, made: os.stat_result) -> None:
     """Remove *output* only while it is still the file this call created.
 
-    The check and the removal run under *output*'s writer lock, which an
-    ``--overwrite`` publish holds across its ``os.replace``, so that replacement
-    lands before the check or after the removal, never between them. A map it put
-    there is complete and stays. When another writer holds the lock, that writer is
-    replacing the name, so the file is left to it.
+    The caller holds *output*'s writer lock, which an ``--overwrite`` publish holds
+    across its ``os.replace``, so that replacement cannot land between this check and
+    the removal. The removal writes nothing, so it still runs on a full disk.
     """
-    from tether.project.lock import LockedError, publish_lock
-
     try:
-        with publish_lock(output):
-            if os.path.samestat(os.stat(output), made):
-                output.unlink()
+        if os.path.samestat(os.stat(output), made):
+            output.unlink()
     except FileNotFoundError:
-        pass
-    except LockedError:
         pass
