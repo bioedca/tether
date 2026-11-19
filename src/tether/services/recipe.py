@@ -695,13 +695,12 @@ def run_recipe(
     """Run the steps of ``recipe`` in order, each as a stored job; stop at a failure or stop.
 
     With ``resume``, the steps that a run of the same recipe completed are skipped, and
-    the run goes on from the first step that is not complete. ``progress`` is called with
-    the outcome of each step. Raise [`RecipeError`][] when ``resume`` finds no completed
-    step of this recipe and no stopped one to continue.
+    the run goes on from the first step that is not complete. When no step of this recipe
+    is complete (a new or changed recipe, or a first step that stores no job and deferred a
+    stage), ``resume`` runs from the first step. ``progress`` is called with the outcome of
+    each step.
     """
     start = _checkpoint(recipe) if resume else 0
-    if resume and start == 0 and not _any_job(recipe):
-        raise RecipeError("there is no run of this recipe to resume; run it without --resume")
     outcomes: list[StepOutcome] = []
     stop: ApprovalStop | None = None
     for step in recipe.steps:
@@ -719,21 +718,6 @@ def run_recipe(
             # move the checkpoint past it: stop here, and --resume runs it again.
             break
     return RecipeRun(recipe=recipe, steps=tuple(outcomes), stop=stop)
-
-
-def _any_job(recipe: Recipe) -> bool:
-    from tether.project.jobs import read_jobs  # noqa: PLC0415
-
-    parts = {recipe_part(recipe, s.number) for s in recipe.steps}
-    for step in recipe.steps:
-        project = _project_of(step.request)
-        if (
-            project
-            and Path(project).is_file()
-            and any(job.parts and job.parts[0] in parts for job in read_jobs(project))
-        ):
-            return True
-    return False
 
 
 def plan_recipe(recipe: Recipe, *, resume: bool = False) -> list[str]:

@@ -230,10 +230,13 @@ def test_tether_run_runs_each_step_as_a_stored_job_and_resume_skips_it(tmp_path,
     assert len(read_jobs(tmp_path / "m.tether")) == 1
 
 
-def test_resume_with_no_run_of_the_recipe_is_refused(tmp_path, capsys) -> None:
+def test_resume_with_no_completed_step_runs_from_the_first_step(tmp_path, capsys) -> None:
+    # A changed recipe is a new recipe, and a first step that stores no job leaves nothing
+    # to find: --resume then starts again from the first step.
+    _make_movie(tmp_path, name="m.tif")
     path = _write(tmp_path, _recipe(_step()))
-    assert main(["run", str(path), "--resume"]) == 2
-    assert "no run of this recipe to resume" in capsys.readouterr().err
+    assert main(["run", str(path), "--resume"]) == 0
+    assert "step 1/1 extract: done" in capsys.readouterr().out
 
 
 def test_a_failed_step_stops_the_run_with_exit_1(tmp_path, capsys) -> None:
@@ -790,6 +793,15 @@ def test_a_deferred_step_that_stores_no_job_stops_the_run(tmp_path, calibrate, m
     assert main(["run", str(path), "--resume"]) == 0
     assert ran == ["survey"]
     assert [j.stored_state for j in read_jobs(project)] == [JobState.DONE] * 2
+
+    # As the first step, it leaves nothing stored, and --resume still runs it again.
+    deferred["n"] = 1
+    alone = _write(tmp_path, _recipe(survey_step), "alone.json")
+    assert main(["run", str(alone)]) == 3
+    deferred["n"] = 0
+    ran.clear()
+    assert main(["run", str(alone), "--resume"]) == 0
+    assert ran == ["survey"]
 
 
 def test_save_as_recipe_writes_the_jobs_in_the_order_they_completed(
