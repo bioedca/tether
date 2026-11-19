@@ -104,6 +104,17 @@ def test_the_command_prints_what_the_function_returns(tmp_path: Path, monkeypatc
     assert {k: document[k] for k in expected} == expected
 
 
+def test_the_command_reads_through_the_status_service(tmp_path: Path, monkeypatch) -> None:
+    from tether.services import status
+
+    seen: list[str] = []
+    real = status.project_status
+    monkeypatch.setattr(status, "project_status", lambda p: seen.append(str(p)) or real(p))
+    path = _store(tmp_path)
+    assert main(["status", str(path)]) == 0
+    assert seen == [str(path)]
+
+
 def test_the_require_choices_are_the_stages() -> None:
     assert tuple(key for key, *_ in rd.STAGES) == cli._STATUS_STAGES
     assert [s for s, _ in rd.SECTIONS] == ["prepare", "curate", "analyze", "deposit"]

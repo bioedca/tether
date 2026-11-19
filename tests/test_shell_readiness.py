@@ -70,6 +70,17 @@ def test_an_open_reads_the_function_tether_status_prints(shell, tmp_path, monkey
     assert shell.refresh_readiness() is None
 
 
+def test_the_shell_reads_through_the_status_service(shell, tmp_path, monkeypatch) -> None:
+    from tether.services import status
+
+    seen = []
+    real = status.project_status
+    monkeypatch.setattr(status, "project_status", lambda p: seen.append(str(p)) or real(p))
+    path = _store(tmp_path)
+    assert shell.load_project(path) is not None
+    assert seen == [str(path)]
+
+
 def test_a_readiness_that_cannot_be_read_never_fails_the_open(shell, tmp_path, monkeypatch) -> None:
     from tether.project import readiness as rd
 

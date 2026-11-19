@@ -820,8 +820,8 @@ tether status [-h] [--json] [--require STAGE] project
 | Argument | Default | Meaning |
 |---|---|---|
 | `project` | *(required)* | the `.tether` project |
-| `--json` | off | print one JSON document instead of text; the layout is [below](#status-json-layout) |
-| `--require STAGE` | none | exit `3` unless the stage is ready (or not needed); give it again for more stages. `STAGE` is one of the keys in the table below |
+| `--json` | off | print one JSON document instead of text, in the layout [below](#status-json-layout) |
+| `--require STAGE` | none | exit `3` unless the stage is ready (or not needed). Give it again for more stages. `STAGE` is one of the keys in the table below |
 
 **It does not change the project.** As for `tether info`, the project is opened read-only
 and no lock is taken, so this works on a project that another user holds. To say whether a
@@ -841,17 +841,25 @@ The stages, in the order of the workflow, and the section of the application eac
 | `results` | results | Analyze | not available in this version ([#943](https://github.com/bioedca/tether/issues/943)) |
 | `deposit` | deposit | Deposit | not available in this version ([#956](https://github.com/bioedca/tether/issues/956)) |
 
-Each stage has one of these states: `ready`; `not needed` (a project made from imported traces
-has no movie and no map); `in progress`; `not started`; `stale` (a record it depends on has
-changed); `blocked` (the correction state is `CALIBRATION_BLOCKED`); `running` (a job of the
-stage is running now); and `not available in this version`, for a stage whose feature has
-not landed yet. The corrections stage also names the correction state of the project
-([the correction states](reference/tether-format.md#correction-states), [ADR-0131](adr/0131-the-correction-states-are-a-transition-log-in-the-project.md)): one of `APPARENT_REVIEW`,
+Each stage has one of these states:
+
+- `ready`.
+- `not needed`: a project made from imported traces has no movie and no map.
+- `in progress` or `not started`.
+- `stale`: a record it depends on has changed.
+- `blocked`: the correction state is `CALIBRATION_BLOCKED`.
+- `running`: a job of the stage is running now.
+- `not available in this version`: the feature of the stage has not landed yet.
+
+The corrections stage also names the correction state of the project
+([the correction states](reference/tether-format.md#correction-states),
+[ADR-0131](adr/0131-the-correction-states-are-a-transition-log-in-the-project.md)), one of
+`APPARENT_REVIEW`,
 `BLEEDTHROUGH_REQUIRED`, `GAMMA_REVIEW`, `CALIBRATION_BLOCKED`, `CALIBRATION_APPROVED`,
 `CORRECTED_REVIEW`, `ANALYSIS_READY` and `CALIBRATION_STALE`.
 
 The next step is, in this order: a failed or interrupted job that no later job of the same
-command finished; else the first stale stage; else the first stage that is not ready. A
+command finished, else the first stale stage, else the first stage that is not ready. A
 stage that is not available is never the next step.
 
 ```console
@@ -876,10 +884,13 @@ out/movie_010.tether
   next step: refit the stale models (tether idealize PROJECT --stale-only)
 ```
 
-The exit codes: `0` the project was read (and each `--require` stage is ready); `1` the
-project could not be read, with one line `tether status: <path>: <reason>` on stderr; `2` bad
-command-line arguments; `3` a `--require` stage is not ready, with one line on stderr for
-each such stage. The document or the text is printed with code `3` too.
+The exit codes:
+
+- `0`: the project was read, and each `--require` stage is ready.
+- `1`: the project could not be read. One line `tether status: <path>: <reason>` goes to stderr.
+- `2`: bad command-line arguments.
+- `3`: a `--require` stage is not ready. One line for each such stage goes to stderr, and
+  the document or the text is printed too.
 
 ### Status JSON layout
 
@@ -899,8 +910,8 @@ and changes the version if it renames or removes a key, or changes the meaning o
 | `stages[].section` | `prepare`, `curate`, `analyze` or `deposit` |
 | `stages[].state` | `ready`, `not_needed`, `in_progress`, `not_started`, `stale`, `blocked`, `running` or `not_available` |
 | `stages[].detail` | a short detail, for example the counts |
-| `stages[].action` | what to do when the stage is not done; `""` when it is done or not available |
-| `stages[].issue` | for a stage that is not available, the issue that adds it; else `null` |
+| `stages[].action` | what to do when the stage is not done, or `""` when it is done or not available |
+| `stages[].issue` | for a stage that is not available, the issue that adds it, else `null` |
 | `correction_state` | the correction state, for example `"GAMMA_REVIEW"` |
 | `stale` | one entry for each stale record |
 | `stale[].stage` | the stage key of the record |

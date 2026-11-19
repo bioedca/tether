@@ -1298,11 +1298,11 @@ def _run_status(args: argparse.Namespace) -> int:
     from tether.project.readiness import (  # noqa: PLC0415
         READINESS_FORMAT_VERSION,
         ProjectReadinessError,
-        read_project_readiness,
     )
+    from tether.services.status import project_status  # noqa: PLC0415
 
     try:
-        readiness = read_project_readiness(args.project)
+        readiness = project_status(args.project)
     except ProjectReadinessError as exc:
         print(f"tether status: {exc}", file=sys.stderr)
         return 1

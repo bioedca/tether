@@ -2455,21 +2455,21 @@ class TetherShell:
     def readiness(self) -> Any | None:
         """The readiness record of the open project, or ``None`` (#896).
 
-        It is [`read_project_readiness`][tether.project.readiness.read_project_readiness],
-        the function that ``tether status`` prints, read when the project opened or at the
-        last [`refresh_readiness`][]. ``None`` when no project is open or the read failed.
+        It is [`project_status`][tether.services.status.project_status], the function that
+        ``tether status`` prints, read when the project opened or at the last
+        [`refresh_readiness`][]. ``None`` when no project is open or the read failed.
         """
         return self._readiness
 
     def refresh_readiness(self) -> Any | None:
         """Read the readiness of the open project again and return it (#896)."""
-        from tether.project.readiness import read_project_readiness
+        from tether.services.status import project_status
 
         if self._project_path is None:
             self._readiness = None
         else:
             try:
-                self._readiness = read_project_readiness(self._project_path)
+                self._readiness = project_status(self._project_path)
             except Exception:  # noqa: BLE001 - an open never fails on this read
                 self._readiness = None
         return self._readiness
