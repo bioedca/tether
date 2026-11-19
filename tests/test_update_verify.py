@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import pickle
+import re
 import socket
 import subprocess
 import sys
@@ -953,9 +954,9 @@ def test_the_timeouts_are_registered_in_the_prd() -> None:
 def test_the_prd_names_both_hosts_of_the_trusted_root_service() -> None:
     # gh's TUF client reaches both; an administrator who allows one silently disables the
     # check. The privacy page lists them with the PR that first calls the verifier (#331).
-    prd = _PRD.read_text(encoding="utf-8")
-    assert "tuf-repo-cdn.sigstore.dev" in prd
-    assert "tuf-repo.github.com" in prd
+    # Compared as whole code spans, not substrings: a host name is a token, not a fragment.
+    spans = set(re.findall(r"`([^`\s]+)`", _PRD.read_text(encoding="utf-8")))
+    assert {"tuf-repo-cdn.sigstore.dev", "tuf-repo.github.com"} <= spans
 
 
 def test_the_manual_command_in_the_release_guide_matches_the_app() -> None:

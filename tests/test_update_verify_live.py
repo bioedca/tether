@@ -137,7 +137,7 @@ def bundle(digest: str, workdir: Path) -> Path:
 @pytest.fixture(scope="module")
 def trusted_root(gh: Path, workdir: Path) -> Path:
     if _ROOT_OVERRIDE:
-        print(f"\nTRUSTED ROOT from {_ROOT_OVERRIDE}, not fetched by this run")
+        print("\nthe trusted root comes from TETHER_LIVE_TRUSTED_ROOT; this run did not fetch it")
         return Path(_ROOT_OVERRIDE)
     return fetch_trusted_root(gh, workdir)
 
