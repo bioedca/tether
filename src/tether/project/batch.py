@@ -818,6 +818,12 @@ def run_correct_stage(
             parts.append(f"α={lk.alpha:.3f}")
             if gm.applied and gm.gamma is not None:
                 parts.append(f"γ={gm.gamma:.3f}")
+                if gm.few_clean_steps:
+                    # Most measured steps lack an acceptor bleach's shape (ADR-0134).
+                    parts.append(
+                        f"γ from few clean steps: {gm.n_step_clean} of "
+                        f"{gm.n_step_evaluated} {_FLAG_MARK}"
+                    )
             else:
                 parts.append("γ withheld")
         else:

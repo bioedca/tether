@@ -556,7 +556,10 @@ never a standalone pass path (an OR would let two badly-disagreeing estimates bo
 defeating the oracle; §9 M3, §11.2). γ
 **shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise), each level averaged
 over a tolerance window (half-width pinned to 20 frames each side, configurable, or the whole segment each side as an
-option; §11.2; ADR-0130), aggregated by population median [McCann2010].
+option; §11.2; ADR-0130), aggregated by population median [McCann2010]. Among the molecules whose step passed
+both segment gates, the **clean** steps — donor rose **and** leakage-corrected acceptor dropped — **shall** be
+counted and stamped; when an applied γ rests on fewer than the §11.2 clean-step fraction of them, Tether **shall**
+report it with a warning, which changes no γ value (ADR-0134).
 Manual override of every factor **shall** be available.
 Corrections **shall** not be required to *view* traces: apparent-E analysis and histograms work without any
 photobleaching; only the α/γ corrections require bleach steps.
@@ -1630,6 +1633,7 @@ this section.
 | γ acceptance ceiling | γ ≤ 5 | `deeplasi/functions/gui/TracesTab/createTracesPlotLayout.m:172` (in-scope 2-color single-row table; `:157` is the out-of-scope 3-color variant, same values) |
 | `min_window_frames` (per-trace bleach-window minimum) | 20 frames | `createTracesPlotLayout.m:172` (2-color single-row table default) |
 | `min_qualifying_traces` (per-dataset minimum before manual entry) | ≈ 10 molecules | Tether default |
+| γ clean-step warning fraction (`min_clean_step_fraction`) | 0.65 of the measured acceptor-bleach steps clean (donor rose and acceptor dropped), else an applied γ is reported with a warning; warn only, γ unchanged; `0` turns it off | Tether, from the #1233 step counts of the workstation run of 2026-11-19 on `1acd4f0`: clean fraction 0.70–0.77 where γ agrees with Deep-LASI (`lab-03`–`lab-05`), 0.21–0.58 where it does not (`lab-01`, `lab-02`, `lab-06`); about 0.5 on pure noise ([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)) |
 | Analysis window | auto = both-dyes-active (start → first bleach on summed intensity); manual per-trace override | Appendix B step 6 |
 | FRET-histogram bootstrap | 1000 resamples; 95% percentile CI (2.5/97.5); resample unit = **molecule**; default seed = 0 | [König2013] BOBA-FRET (also in MASH-FRET [Börner2018]); cross-sample variability ⇒ molecule is the resampled unit (§7.7, §9 M3) |
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |

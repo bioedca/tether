@@ -90,6 +90,9 @@ print(f"alpha = {alpha.alpha} from {alpha.n_qualifying} molecules")
 if alpha.applied:
     gamma = compute_gamma(project)
     print(f"gamma = {gamma.gamma} from {gamma.n_qualifying} molecules")
+    print(f"{gamma.n_step_clean} of {gamma.n_step_evaluated} bleach steps clean")
+    if gamma.few_clean_steps:
+        print("warning: gamma rests on few clean bleach steps")
 
 result = compute_corrected_fret(project)
 print(f"{result.n_corrected} corrected, {result.n_apparent} left at apparent E")
@@ -109,7 +112,14 @@ Read the printed lines:
 2. `gamma = None` means γ was withheld for the same reason.
 3. The molecule counts after `from` are the molecules each factor rests on. A factor built on
    the bare minimum of 10 is a weaker basis than one built on hundreds.
-4. `0 corrected` means no molecule carries a correction.
+4. `warning: gamma rests on few clean bleach steps` means fewer than 65 % of the measured
+   acceptor-bleach steps had the expected shape, the donor rising as the acceptor drops. The
+   γ is still stored, but it comes mostly from noise and can be far from the dyes' real value:
+   report it with that caveat, or use a γ measured another way (step 3). `tether batch` writes
+   the same warning in the correct stage's line of its log, and the project records it as
+   `few_clean_steps` in `/settings/gamma`
+   ([`min_clean_step_fraction`](../reference/parameters.md#correction-factors), [ADR-0134](../adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).
+5. `0 corrected` means no molecule carries a correction.
 
 Then look at the molecules themselves. Export the molecule table, as in
 [Export results for a figure or another tool](export-results.md), and read its `alpha`,

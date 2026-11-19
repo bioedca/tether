@@ -178,6 +178,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0131](0131-the-correction-states-are-a-transition-log-in-the-project.md) | The correction states of G03 are a transition log stored in the project | accepted | §7.2 (FR-CORRECT, the correction states), Appendix B, §7.13 (FR-WORKFLOW), §5 (data model) |
 | [0132](0132-several-series-on-one-figure-one-color-cycle-small-multiples-and-one-grid.md) | Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid | accepted | §7.7 FR-PLOT (a plot is a layer list), §7.9 FR-EXPORT (per-series provenance) |
 | [0133](0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md) | The leakage-α band runs on the donor-only sample; the γ-vs-Deep-LASI leg stays withheld | accepted | §7.2, §9.1 item 8, §9.3 (Corrections), §9.5 oracle (e), §9.6, §11.2 (leakage-α validation band, γ-agreement tolerance) |
+| [0134](0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md) | A γ from few clean acceptor-bleach steps is reported with a warning | accepted; adds to [ADR-0028](0028-gamma-acceptor-bleach-step-estimator.md) and [ADR-0130](0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md), whose decisions govern unchanged | §7.2 (γ), §11.2 (the γ clean-step warning fraction row), Appendix B.2 step 4 |
 
 <!-- gen:adr-index end -->
 
