@@ -71,7 +71,7 @@ class WizardError(ValueError):
 
     Raised by the [`DeepLasiWizard`][] mutators (and [`DeepLasiWizard.finalize`][])
     rather than silently ignoring the edit, so the widget surfaces the reason to the
-    user. A [`ValueError`][] subclass so callers that only catch ``ValueError`` still
+    user. A `ValueError` subclass so callers that only catch ``ValueError`` still
     handle it.
     """
 
@@ -79,7 +79,7 @@ class WizardError(ValueError):
 class WizardMode(StrEnum):
     """The action planned for one acquisition (PRD §7.8).
 
-    A [`StrEnum`][enum.StrEnum] so a mode round-trips through logs / JSON as its value.
+    A `StrEnum` so a mode round-trips through logs / JSON as its value.
     """
 
     #: Reconstruct a full round-trip ``.tether`` (movie + ``.mat`` traces; the

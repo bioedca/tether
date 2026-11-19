@@ -60,6 +60,8 @@ _ROW_RE = re.compile(r"^\|\s*\[(\d{4})\]\(")
 _CELL_RE = re.compile(r"(?<!\\)\|")
 _H1_RE = re.compile(r"^#\s*\d{4}\s*[—–-]\s*(.+?)\s*$")
 _FIELD_RE = r"^-\s+\*\*{name}:\*\*\s*(.+?)\s*$"
+# An indented line that opens a list item is a nested bullet, not a continuation of the field.
+_NESTED_ITEM_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s")
 
 # A record's own Status/PRD-anchor bullet, used only for a record the index has never seen. Markdown
 # emphasis is stripped so a derived cell does not arrive pre-bolded; links are kept, since an index
@@ -135,11 +137,24 @@ def _h1(path: Path) -> str:
 
 
 def _field(path: Path, name: str) -> str:
-    """The first line of a record's ``**<name>:**`` bullet, de-emphasised. Empty when absent."""
-    for line in _text(path).splitlines():
+    """A record's whole ``**<name>:**`` bullet, de-emphasised. Empty when absent.
+
+    A bullet that wraps continues on indented lines, and those are joined with one space. Taking
+    only the first line cut 0095's and 0109's cells mid-phrase (#1117), and because a drafted cell
+    becomes curated data once written, ``--check`` then kept passing over the truncation. The
+    bullet ends at a blank line, an unindented line, or a nested list item.
+    """
+    lines = _text(path).splitlines()
+    for i, line in enumerate(lines):
         match = re.match(_FIELD_RE.format(name=name), line)
         if match:
-            return _EMPHASIS_RE.sub("", match.group(1)).strip()
+            parts = [match.group(1)]
+            for cont in lines[i + 1 :]:
+                stripped = cont.strip()
+                if not stripped or not cont[:1].isspace() or _NESTED_ITEM_RE.match(stripped):
+                    break
+                parts.append(stripped)
+            return _EMPHASIS_RE.sub("", " ".join(parts)).strip()
     return ""
 
 

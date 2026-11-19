@@ -173,11 +173,12 @@ jobs:
       # "no third-party asset requests" sentence of docs/privacy.md stays true (#674), and each
       # page head carries its description and the citation metadata of CITATION.cff (#599). The
       # 3-OS matrix has no MkDocs and so no built site; it runs the source checks of the same
-      # files and skips the built-site tests, which TETHER_BUILT_SITE turns on here.
+      # files and skips the built-site tests, which TETHER_BUILT_SITE turns on here. The same
+      # variable checks that the site serves the three deposit files unchanged (#612).
       - name: Built site loads nothing from another host and carries the citation metadata
         env:
           TETHER_BUILT_SITE: site
-        run: python -m pytest -v tests/test_docs_site_brand.py tests/test_docs_citation_head.py
+        run: python -m pytest -v tests/test_docs_site_brand.py tests/test_docs_citation_head.py tests/test_docs_published_data.py
       # The rendered site, so a reviewer can open the page a docs PR changes instead of
       # inferring it from markdown (#183). `--strict` only sees links it can resolve, so
       # the rendered HTML is the one place an unresolved `[text][key]` is visible as text.

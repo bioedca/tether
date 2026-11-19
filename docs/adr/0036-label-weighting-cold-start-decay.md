@@ -50,7 +50,7 @@ Reading `n_human` from the authoritative human state (a provisional source never
 `curation_label`; ADR-0023) makes it exactly the trusted evidence the ranker trains on and immune to
 re-curation, so a seed's influence shrinks in lockstep with the ground truth that supersedes it.
 The pure/`w = w₀/(1+n_human)` law stays store-free and vocabulary-free (it takes an `is_human` mask
-+ per-row `n_human`); the store layer owns the `source→is_human` mapping and the per-condition count.
+\+ per-row `n_human`); the store layer owns the `source→is_human` mapping and the per-condition count.
 Persisting the weights means any consumer reads them straight from `/labels` rather than re-deriving.
 
 ### Consequences

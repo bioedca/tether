@@ -101,7 +101,7 @@ def install_file_open_handler(app: Any, *, filter_events: bool | None = None) ->
     runs: macOS delivers the event inside that loop, and the code that opened the dialog
     continues on the open project after the dialog returns (the tMAVEN reconciliation
     dialog, for one, applies the changes it showed). Then the path waits, and the object
-    looks again every [`FILE_OPEN_RETRY_MS`][] milliseconds until the loop has ended.
+    looks again every `FILE_OPEN_RETRY_MS` milliseconds until the loop has ended.
 
     The filter is installed on *app* only on macOS (#1202). An event filter on the
     application sees every event of every object in the process, and only macOS sends a
