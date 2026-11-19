@@ -1001,6 +1001,8 @@ class _Recorder:
     canonical_write_safe: bool = True
     #: The ``movie_id`` an ``--into`` run's extract stage left this movie under (#1243).
     movie_id: str | None = None
+    #: That movie's content ``sha256`` in the project, when it could be read (#1243).
+    movie_sha256: str | None = None
 
     def record(
         self, stage: str, status: str, *, detail: str = "", error: str | None = None
@@ -1940,7 +1942,27 @@ def _do_append(
         detail += f"; low-confidence registration {_FLAG_MARK}"
     rec.record(STAGE_EXTRACT, STATUS_DONE, detail=detail)
     rec.movie_id = str(getattr(summary, "movie_id", "")) or None
+    rec.movie_sha256 = _movie_content(project, rec.movie_id)
     return rec.movie_id
+
+
+def _movie_content(project: Path, movie_id: str | None) -> str | None:
+    """Return the content ``sha256`` of ``movie_id`` in ``project``; ``None`` if unreadable."""
+    if movie_id is None:
+        return None
+    try:
+        import h5py  # noqa: PLC0415
+
+        from tether.io.schema import TABLE  # noqa: PLC0415
+
+        with h5py.File(project, "r") as f:
+            table = f["movies"][TABLE][:]
+        return next(
+            (_as_text(r["sha256"]).lower() for r in table if _as_text(r["movie_id"]) == movie_id),
+            None,
+        )
+    except Exception:
+        return None
 
 
 def _movie_in_project(
@@ -1964,6 +1986,7 @@ def _skip_present(rec: _Recorder, project: Path, existing: str) -> str:
         detail=f"already in {project.name} as movie {existing!r}",
     )
     rec.movie_id = existing
+    rec.movie_sha256 = _movie_content(project, existing)
     return existing
 
 
@@ -1997,10 +2020,10 @@ def _movies_digest(project: Path) -> str:
 
 
 def _project_movies(project: Path) -> tuple[frozenset[str], str]:
-    """Return the ``movie_id`` of every movie in ``project`` and the movies digest.
+    """Return the content ``sha256`` of every movie in ``project`` and the movies digest.
 
-    The digest hashes the movies' content ``sha256`` values, in sorted order, so it names
-    the set of movies whatever their ids or row order (#1151).
+    The digest hashes those values, in sorted order, so it names the set of movies
+    whatever their ids or row order (#1151).
     """
     import hashlib  # noqa: PLC0415
 
@@ -2011,8 +2034,7 @@ def _project_movies(project: Path) -> tuple[frozenset[str], str]:
     with h5py.File(project, "r") as f:
         table = f["movies"][TABLE][:]
     hashes = sorted(_as_text(v).lower() for v in table["sha256"])
-    ids = frozenset(_as_text(v) for v in table["movie_id"])
-    return ids, hashlib.sha256("\n".join(hashes).encode("utf-8")).hexdigest()
+    return frozenset(hashes), hashlib.sha256("\n".join(hashes).encode("utf-8")).hexdigest()
 
 
 def _covered_movies(project: Path, stage: str) -> str | None:
@@ -2070,10 +2092,16 @@ def _project_stages(
     gone: set[int] = set()
     current = ""
     if extracted:
-        movie_ids, current = _project_movies(project)
-        # A movie that is not in the locked project (another writer replaced the file
-        # since its extract stage) does not share the project's stages (#1243).
-        gone = {id(r) for r in extracted if r.movie_id is not None and r.movie_id not in movie_ids}
+        contents, current = _project_movies(project)
+        # A movie whose content the locked project no longer holds (another writer
+        # replaced the file since its extract stage) does not share the project's
+        # stages (#1243). Content, not id: a replacement may hold the movie under
+        # another id, and a movie whose content could not be read is kept.
+        gone = {
+            id(r)
+            for r in extracted
+            if r.movie_sha256 is not None and r.movie_sha256 not in contents
+        }
     in_project = [r for r in extracted if id(r) not in gone]
     members = {id(r) for r in in_project}
     for rec in recorders:

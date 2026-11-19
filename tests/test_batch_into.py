@@ -951,13 +951,13 @@ def test_a_movie_the_locked_project_no_longer_holds_gets_no_project_results(
     with h5py.File(project, "r") as f:
         table = f["movies/table"][:]
     dropped = next(
-        _text(row["movie_id"]) for row in table if Path(_text(row["uri"])).name == "m1.tif"
+        _text(row["sha256"]).lower() for row in table if Path(_text(row["uri"])).name == "m1.tif"
     )
     real = batch_module._project_movies
 
     def replaced_without_m1(path):
-        ids, digest = real(path)
-        return ids - {dropped}, digest
+        contents, digest = real(path)
+        return contents - {dropped}, digest
 
     monkeypatch.setattr(batch_module, "_project_movies", replaced_without_m1)
 
