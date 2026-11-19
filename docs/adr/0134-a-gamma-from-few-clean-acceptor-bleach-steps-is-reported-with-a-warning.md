@@ -49,13 +49,14 @@ factors to compare with.
 
 On `lab-03` to `lab-05` Tether's γ is 1.07 to 1.20 times Deep-LASI's, and 70 to 77 % of the
 measured steps are clean. On `lab-01`, `lab-02` and `lab-06` it is 2.7 to 3.0 times Deep-LASI's,
-and 21 to 58 % are clean. Where the acceptor drops and the donor change is only noise around
-zero, the expected clean fraction is about one half, which a synthetic dataset of the same
+and 21 to 58 % are clean. Where the corrected acceptor drops and the donor change is only noise
+with an equal chance of either sign, the expected clean fraction is about one half, which a synthetic dataset of the same
 construction reproduces (46 of 100, `tests/test_fret_gamma_clean_steps.py`). Were the acceptor
-change noise as well, it would be about one quarter. A measured step follows a detected acceptor
+change also noise, independent of the donor's and equally likely either sign, it would be about
+one quarter; leakage correction couples the two changes, so that case is a rough guide only. A measured step follows a detected acceptor
 bleach, so its acceptor usually drops and the one-half case is the closer one, but the gates do
-not guarantee that the leakage-corrected acceptor drops: where it does not, the clean fraction
-falls toward one quarter and the warning fires all the more.
+not guarantee that the leakage-corrected acceptor drops: where it does not, the step cannot be
+clean, so the clean fraction falls further and the warning fires all the more.
 
 The two groups are named by that ratio, not by a tolerance. Under the ±10 % γ tolerance of
 PRD §11.2 only `lab-03` (1.07) and `lab-05` (1.09) agree, and `lab-04` (1.20) does not. In this
@@ -148,6 +149,7 @@ Chosen option: **A**, warn only, chosen by the maintainer on 2026-11-19 over opt
   transfer ([Roy2008](https://doi.org/10.1038/nmeth.1208)); [McCann2010](https://doi.org/10.1016/j.bpj.2010.04.063)
   remains the source of the per-molecule route. None of them sets a fraction of clean steps, so
   0.65 is Tether's own, chosen from the measurement above. That donor noise with a real acceptor
-  drop gives a clean step about half the time is the symmetry of a zero-mean `ΔI_D`, shown on the
-  synthetic dataset.
+  drop gives a clean step about half the time assumes `ΔI_D` is equally likely to be either sign
+  on those steps (a zero mean alone would not do), which holds for the synthetic dataset's
+  Gaussian noise and is shown there.
 - The decision: #1232.
