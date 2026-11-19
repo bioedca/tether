@@ -702,7 +702,8 @@ that fails.
 
 A step that ran with a stage deferred is not complete. Its job is stored
 `failed`, and `--resume` runs that step again, so that the command's own checkpoint does
-just the deferred stage. A relative path in the recipe is read from the folder of the
+just the deferred stage. A step that stores no job, such as a `batch` with an `out_dir`,
+stops the run when a stage is deferred, so `--resume` starts again from it. A relative path in the recipe is read from the folder of the
 recipe file.
 
 A recipe is refused before anything runs when it is not valid: an unknown command, field

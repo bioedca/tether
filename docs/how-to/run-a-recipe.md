@@ -96,7 +96,7 @@ no recipe step stops.
 ## 5. Save a recipe from the application
 
 Open the project and choose **File → Save as recipe…**. The recipe holds the request of each
-completed job of the project, oldest first. Each path is relative to the folder you save it
+completed job of the project, in the order the jobs completed. Each path is relative to the folder you save it
 in. Keep the recipe beside the inputs, copy the folder, and `tether run` makes the same project
 in the copy.
 

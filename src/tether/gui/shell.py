@@ -2755,7 +2755,7 @@ class TetherShell:
     def save_recipe(self, path: str | Path) -> Path | None:
         """Write the open project's actions as the recipe file ``path`` (#899).
 
-        The recipe holds the requests of the project's completed jobs, oldest first, with
+        The recipe holds the requests of the project's completed jobs, in order, with
         each path relative to the recipe's folder where that is possible
         ([`tether.services.recipe.recipe_from_project`][]). Returns the path written, or
         ``None`` (with a status message) when there is nothing to save or the write failed.

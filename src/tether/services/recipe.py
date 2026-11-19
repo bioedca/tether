@@ -444,13 +444,15 @@ def _project_of(request: Request) -> str | None:
 
 
 def _done_parts(path: str) -> set[str]:
+    """Return the recipe parts whose latest job in ``path`` is done.
+
+    A later run that failed or deferred a step stores a newer job for it, so an older
+    *done* job of the same step does not make it complete.
+    """
     from tether.project.jobs import JobState, read_jobs  # noqa: PLC0415
 
-    return {
-        job.parts[0]
-        for job in read_jobs(path)
-        if job.stored_state is JobState.DONE and len(job.parts) == 1
-    }
+    latest = {job.parts[0]: job.stored_state for job in read_jobs(path) if len(job.parts) == 1}
+    return {part for part, state in latest.items() if state is JobState.DONE}
 
 
 def _checkpoint(recipe: Recipe) -> int:
@@ -466,6 +468,11 @@ def _checkpoint(recipe: Recipe) -> int:
     return 0
 
 
+def _stores_job(request: Request) -> bool:
+    project = _project_of(request)
+    return bool(project) and Path(project).is_file()
+
+
 def _skipped(recipe: Recipe, step: RecipeStep, start: int) -> bool:
     """Whether ``--resume`` skips ``step``, given the checkpoint ``start``.
 
@@ -474,10 +481,9 @@ def _skipped(recipe: Recipe, step: RecipeStep, start: int) -> bool:
     """
     if step.number > start:
         return False
-    project = _project_of(step.request)
-    if not project or not Path(project).is_file():
+    if not _stores_job(step.request):
         return True
-    return recipe_part(recipe, step.number) in _done_parts(project)
+    return recipe_part(recipe, step.number) in _done_parts(str(_project_of(step.request)))
 
 
 class _StepFailed(Exception):  # noqa: N818 - stored as the job's error text
@@ -708,6 +714,10 @@ def run_recipe(
             progress(outcome)
         if outcome.state in ("failed", "stopped"):
             break
+        if outcome.deferred and not _stores_job(step.request):
+            # Nothing records that this step is not complete, so a later step must not
+            # move the checkpoint past it: stop here, and --resume runs it again.
+            break
     return RecipeRun(recipe=recipe, steps=tuple(outcomes), stop=stop)
 
 
@@ -756,19 +766,19 @@ def plan_recipe(recipe: Recipe, *, resume: bool = False) -> list[str]:
 
 
 def recipe_from_project(path: str | Path) -> list[Request]:
-    """Return the requests of a project's completed jobs, oldest first (**Save as recipe**).
+    """Return the requests of a project's completed jobs, in order (**Save as recipe**).
 
-    These are the actions that made the present state of the project, each in its place:
-    a request that a later job repeats is kept again, since a job between the two can
+    These are the actions that made the present state of the project, in the order they
+    completed (a job retried after a later one completed takes its place after it). A
+    request that a later job repeats is kept again, since a job between the two can
     change what the repeat does.
     """
     from tether.project.jobs import JobState, read_jobs  # noqa: PLC0415
 
     registry = _registry()
     requests: list[Request] = []
-    for job in read_jobs(path):
-        if job.stored_state is not JobState.DONE:
-            continue
+    done = [job for job in read_jobs(path) if job.stored_state is JobState.DONE]
+    for job in sorted(done, key=lambda job: job.ended_utc):
         try:
             requests.append(registry.request_from_text(job.request))
         except RequestError as exc:

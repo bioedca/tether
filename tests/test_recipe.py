@@ -719,3 +719,91 @@ def test_resume_skips_a_step_that_stores_no_job_up_to_the_checkpoint(tmp_path) -
     recipe = rc.read_recipe(_write(tmp_path, _recipe(step)))
     assert rc._skipped(recipe, recipe.steps[0], 1)
     assert not rc._skipped(recipe, recipe.steps[0], 0)
+
+
+def _fail_on(name: str):  # noqa: ANN202
+    """A calibrate run that fails for the report ``name`` and records what it ran."""
+    from tether.services.base import CommandFailed
+
+    ran: list[str] = []
+
+    def run(request, *, approvals):  # noqa: ANN001, ANN202
+        ran.append(Path(request.report).name)
+        if Path(request.report).name == name:
+            raise CommandFailed(f"{name} failed")
+        return _CalibrateResult(True)
+
+    run.ran = ran  # type: ignore[attr-defined]
+    return run
+
+
+def test_a_step_that_a_later_run_failed_is_not_complete_for_resume(
+    tmp_path, calibrate, monkeypatch
+):
+    path = _write(tmp_path, _recipe(_calibrate_step()))
+    _replace_run(monkeypatch, "calibrate", _fail_on("none"))
+    assert main(["run", str(path)]) == 0
+    _replace_run(monkeypatch, "calibrate", _fail_on("gamma.json"))
+    assert main(["run", str(path)]) == 1  # a new run, not --resume: a new job, failed
+    run = _fail_on("none")
+    _replace_run(monkeypatch, "calibrate", run)
+    assert main(["run", str(path), "--resume"]) == 0
+    assert run.ran == ["gamma.json"]  # the latest attempt failed, so it runs again
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _SurveyRequest(Request):
+    COMMAND: ClassVar[str] = "survey"
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = ("report",)
+
+    report: str
+
+
+def test_a_deferred_step_that_stores_no_job_stops_the_run(tmp_path, calibrate, monkeypatch):
+    from types import SimpleNamespace
+
+    deferred = {"n": 1}
+    ran: list[str] = []
+
+    def survey(request, **_observers):  # noqa: ANN001, ANN003, ANN202
+        ran.append("survey")
+        return SimpleNamespace(summary=SimpleNamespace(n_failed=0, n_deferred=deferred["n"]))
+
+    entry = registry.ServiceCommand(
+        name="survey",
+        request_type=_SurveyRequest,
+        result_type=object,
+        run=survey,
+        summary="a test command that stores no job",
+    )
+    monkeypatch.setattr(registry, "COMMANDS", (*registry.COMMANDS, entry))
+    policy = {"step": "gamma.approve", "rule": "value", "gamma": 1.1, "source": "lab note"}
+    first = _calibrate_step(**policy, otherwise="stop")
+    survey_step = _step("survey", report="gamma.json")
+    path = _write(tmp_path, _recipe(first, survey_step, first))
+    project = tmp_path / "exp.tether"
+    assert main(["run", str(path)]) == 3
+    assert [j.stored_state for j in read_jobs(project)] == [JobState.DONE]  # step 3 not run
+
+    deferred["n"] = 0
+    ran.clear()
+    assert main(["run", str(path), "--resume"]) == 0
+    assert ran == ["survey"]
+    assert [j.stored_state for j in read_jobs(project)] == [JobState.DONE] * 2
+
+
+def test_save_as_recipe_writes_the_jobs_in_the_order_they_completed(
+    tmp_path, calibrate, monkeypatch
+):
+    (tmp_path / "b.json").write_text("{}", encoding="utf-8")
+    first = _write(tmp_path, _recipe(_calibrate_step()), "a.json.recipe")
+    second = _write(
+        tmp_path, _recipe(_step("calibrate", project="exp.tether", report="b.json")), "b.recipe"
+    )
+    _replace_run(monkeypatch, "calibrate", _fail_on("gamma.json"))
+    assert main(["run", str(first)]) == 1
+    assert main(["run", str(second)]) == 0
+    _replace_run(monkeypatch, "calibrate", _fail_on("none"))
+    assert main(["run", str(first), "--resume"]) == 0
+    reports = [Path(r.report).name for r in rc.recipe_from_project(tmp_path / "exp.tether")]
+    assert reports == ["b.json", "gamma.json"]
