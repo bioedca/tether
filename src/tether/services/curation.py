@@ -129,7 +129,7 @@ def stored_molecules(project_path: str | Path, molecule_key: str) -> tuple[Store
 
     A key-based setter writes all of them, each clamped to its own ``frame_range``, so a
     caller that shows rows refreshes each one from here after a write. Raises
-    [`KeyError`][] when no row carries the key.
+    ``KeyError`` when no row carries the key.
     """
     out = stored_rows(project_path, (molecule_key,))
     if not out:
@@ -146,7 +146,7 @@ def stored_molecule(
 
     Pass the row the curator selected: two rows can share a key (the same file extracted
     twice) with different frame ranges and windows, and an edit starts from the selected
-    one. Read-only; raises [`KeyError`][] when no row carries the key.
+    one. Read-only; raises ``KeyError`` when no row carries the key.
     """
     matches = stored_molecules(project_path, molecule_key)
     return next((m for m in matches if m.row == row), matches[0])
@@ -160,7 +160,7 @@ def summed_bleach_frame(project_path: str | Path, molecule: StoredMolecule) -> i
     with its frozen §11.2 priors, as
     [`compute_photobleach`][tether.project.photobleach.compute_photobleach] does: raw traces
     keep a background pedestal and never look bleached. ``frame_range[1]`` means the trace
-    does not bleach. Raises [`KeyError`][] when the corrected layers are missing.
+    does not bleach. Raises ``KeyError`` when the corrected layers are missing.
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415

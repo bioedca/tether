@@ -3369,7 +3369,7 @@ class TetherShell:
         A window setter writes every row that carries a key, each clamped to its own
         ``frame_range``, so each listed row takes its own stored window back, and a
         listed row the store does not hold takes its key's first. The current trace's
-        dock bounds and overlay are redrawn. Raises [`KeyError`][] when no row carries
+        dock bounds and overlay are redrawn. Raises ``KeyError`` when no row carries
         any of ``keys``.
         """
         from dataclasses import replace
