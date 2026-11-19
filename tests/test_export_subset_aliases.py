@@ -29,7 +29,11 @@ from tether.io import schema  # noqa: E402
 from tether.io.filename import ConditionKey  # noqa: E402
 from tether.project import conditions as C  # noqa: E402
 from tether.project import export as E  # noqa: E402
-from tether.project.export import USER_NAME_FIELDS, export_subset_tether  # noqa: E402
+from tether.project.export import (  # noqa: E402
+    PATH_ATTRS,
+    USER_NAME_FIELDS,
+    export_subset_tether,
+)
 from tether.project.labels import default_labeler  # noqa: E402
 
 #: Distinct, unmistakable names, so a byte search cannot match by chance.
@@ -39,6 +43,13 @@ BOB = "bob-xk4-curator"
 #: A compound field whose name says it records a person. A field that matches must be
 #: in USER_NAME_FIELDS, or the alias option would let that person's name through.
 _PERSON_FIELD = re.compile(r"label(l)?er|approv|confirm|review|curator|user|operator|author|_by$")
+
+#: An attribute whose name says it stores a file or folder path. One that matches must be
+#: in PATH_ATTRS, or the alias option would let a home folder (a user name) through.
+_PATH_ATTR = re.compile(r"path|dir|folder|home")
+
+#: A folder name that a byte search cannot match by chance.
+_HOME = "dana-pq9-home"
 
 
 def _state_matrix() -> np.ndarray:
@@ -321,3 +332,70 @@ def test_every_field_that_names_a_person_is_aliased(tmp_path):
     }
     assert person_fields  # the scan sees labeler, so it is looking in the right place
     assert person_fields <= USER_NAME_FIELDS
+
+
+def _record_model(project_path, artifact_path: str) -> str:
+    """Write a ``/models/<condition_id>`` reference as ``record_model_reference`` does."""
+    from tether.project import model_artifact as M
+
+    cid = to_str(read_molecules(project_path)["condition_id"][0])
+    reference = M.ModelReference(
+        condition_id=cid,
+        artifact_path=artifact_path,
+        artifact_sha256="0" * 64,
+        n_retrains=0,
+        model_updated_utc="2026-01-02T03:04:05+00:00",
+        recorded_utc="2026-01-02T03:04:05+00:00",
+        app_version="0.0.0",
+        reference_version=M.MODEL_REFERENCE_VERSION,
+    )
+    with h5py.File(project_path, "r+") as f:
+        group = f.require_group("models").require_group(cid)
+        for key, value in M._reference_attrs(reference).items():
+            group.attrs[key] = value
+    return cid
+
+
+@pytest.mark.parametrize(
+    "artifact_path",
+    [f"/home/{_HOME}/models/cond.tethermodel", f"C:\\Users\\{_HOME}\\models\\cond.tethermodel"],
+    ids=["posix", "windows"],
+)
+def test_a_model_path_keeps_only_its_file_name(tmp_path, artifact_path):
+    """A model file under a home folder does not carry the user name into the copy."""
+    from tether.project.model_artifact import read_model_references
+
+    project, _ = _source(tmp_path)
+    cid = _record_model(project.path, artifact_path)
+    plain = tmp_path / "plain.tether"
+    shared = tmp_path / "shared.tether"
+
+    export_subset_tether(project, plain, include_rejected=True)
+    export_subset_tether(project, shared, include_rejected=True, curator_alias="curator")
+
+    assert _HOME.encode() in plain.read_bytes()  # the search can see the folder
+    assert _HOME.encode() not in shared.read_bytes()
+    assert read_model_references(shared)[cid].artifact_path == "cond.tethermodel"
+    assert read_model_references(plain)[cid].artifact_path == artifact_path
+    assert read_model_references(project.path)[cid].artifact_path == artifact_path
+
+
+def test_every_attribute_that_stores_a_path_is_shortened(tmp_path):
+    """Guard: an attribute that stores a path must be in PATH_ATTRS.
+
+    Scans every attribute of a populated store with a model reference, so a later
+    attribute that records a path fails here until the alias option covers it.
+    """
+    project, _ = _source(tmp_path)
+    _record_model(project.path, f"/home/{_HOME}/cond.tethermodel")
+    names: set[str] = set()
+
+    def collect(_name, obj) -> None:
+        names.update(obj.attrs.keys())
+
+    with h5py.File(project.path, "r") as f:
+        names.update(f.attrs.keys())
+        f.visititems(collect)
+    path_attrs = {name for name in names if _PATH_ATTR.search(name)}
+    assert "artifact_path" in path_attrs  # the scan sees the model path
+    assert path_attrs <= PATH_ATTRS

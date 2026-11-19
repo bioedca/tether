@@ -50,7 +50,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import numpy as np
 
@@ -629,6 +629,13 @@ def _copy_idealization(
 #: ``tests/test_export_subset_aliases.py`` fails until it is.
 USER_NAME_FIELDS: frozenset[str] = frozenset({"labeler"})
 
+#: Attributes that store a **full file path** (#620). A path can name the user (a home
+#: folder), so with ``curator_alias`` the copy keeps only the file name. Today this is the
+#: model file of each ``/models/<condition_id>`` reference (ADR-0112); an attribute added
+#: later that stores a path must be added here, and
+#: ``tests/test_export_subset_aliases.py`` fails until it is.
+PATH_ATTRS: frozenset[str] = frozenset({"artifact_path"})
+
 
 def _name_fields(dtype: np.dtype) -> list[str]:
     """The [`USER_NAME_FIELDS`][] a compound ``dtype`` carries (``[]`` if none)."""
@@ -701,6 +708,14 @@ def _iter_name_datasets(group: object) -> list[object]:
     return found
 
 
+def _copied_attr(key: str, value: object, aliases: _CuratorAliases | None) -> object:
+    """The value the copy stores for attribute ``key``: with ``aliases``, a path in
+    [`PATH_ATTRS`][] becomes its file name (Windows or POSIX separators)."""
+    if aliases is None or key not in PATH_ATTRS:
+        return value
+    return PureWindowsPath(_to_str(value)).name
+
+
 def _source_user_names(src: object, label_rows: np.ndarray) -> list[str]:
     """Every user name the copy would carry, in the order the copy writes them:
     the exported ``/labels`` rows first, then the verbatim metadata groups."""
@@ -721,30 +736,34 @@ def _copy_group_aliased(src_group: object, dst_parent: object, aliases: _Curator
     """Copy ``src_group`` under ``dst_parent``, writing name-bearing datasets aliased.
 
     A name-bearing dataset is built from its aliased rows (never copied and then
-    overwritten, because HDF5 does not reclaim the old string bytes); everything
-    else is copied verbatim with [`h5py.Group.copy`][].
+    overwritten, because HDF5 does not reclaim the old string bytes), and a path in
+    [`PATH_ATTRS`][] is written as its file name only; everything else is copied
+    verbatim with [`h5py.Group.copy`][].
     """
     import h5py  # noqa: PLC0415
 
     name = src_group.name.rsplit("/", 1)[-1]  # type: ignore[attr-defined]
     dst_group = dst_parent.create_group(name)  # type: ignore[attr-defined]
     for key, val in src_group.attrs.items():  # type: ignore[attr-defined]
-        dst_group.attrs[key] = val
+        dst_group.attrs[key] = _copied_attr(key, val, aliases)
     for member in src_group:  # type: ignore[attr-defined]
         item = src_group[member]  # type: ignore[index]
         if isinstance(item, h5py.Group):
             _copy_group_aliased(item, dst_group, aliases)
-        elif isinstance(item, h5py.Dataset) and _name_fields(item.dtype):
+        elif isinstance(item, h5py.Dataset) and (
+            _name_fields(item.dtype) or PATH_ATTRS.intersection(item.attrs)
+        ):
+            data = item[()]
             ds = dst_group.create_dataset(
                 member,
-                data=aliases.apply(item[()]),
+                data=aliases.apply(data) if _name_fields(item.dtype) else data,
                 dtype=item.dtype,
                 maxshape=item.maxshape,
                 chunks=item.chunks,
                 compression=item.compression,
             )
             for key, val in item.attrs.items():
-                ds.attrs[key] = val
+                ds.attrs[key] = _copied_attr(key, val, aliases)
         else:
             src_group.file.copy(item, dst_group, name=member)  # type: ignore[attr-defined]
 
@@ -901,7 +920,9 @@ def export_subset_tether(
     the curator's user name (by default the operating-system login). With
     ``curator_alias`` set, every stored user name ([`USER_NAME_FIELDS`][]) is
     replaced by ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first
-    met, so one person keeps one alias and multi-curator analysis still works. The
+    met, so one person keeps one alias and multi-curator analysis still works. A full
+    file path, which can name the user ([`PATH_ATTRS`][]: the model file of each
+    ``/models`` reference), keeps only its file name. The
     provenance records that names were replaced and how many, never the names. The
     option does not remove ``source_filename`` (a file name, not a path): a file name
     can still identify a sample.

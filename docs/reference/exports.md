@@ -372,6 +372,11 @@ list of name fields is `tether.project.export.USER_NAME_FIELDS`.
 | `None` (default) | The names are copied as they are. The output is the same as before the option existed |
 | A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the `/labels` rows in store order, then the audit log. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that contains a name in the source is skipped (so a copy whose names are already `curator-1`, … never gets `curator-10`), and a prefix that contains a name in the source raises `ValueError`. An empty `labeler` stays empty. The source project does not change |
 
+A path can name the user too, for example a model file in a home folder. With the option,
+each path in `tether.project.export.PATH_ATTRS` keeps only its file name. Today that is the
+`artifact_path` of each `/models/<condition_id>` reference, so the copy's reference names
+the model file but not its folder.
+
 A name-bearing table is written from its aliased rows, not copied and then changed, so the
 names are not in the bytes of the file. The count of names includes only the names in the
 copy: a name whose labels stay behind (for example on a rejected molecule) is not counted.
