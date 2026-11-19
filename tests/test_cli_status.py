@@ -274,6 +274,40 @@ def test_a_stale_record_made_again_is_no_longer_stale(tmp_path: Path) -> None:
     assert rd.read_project_readiness(path).stale == ()
 
 
+def test_a_record_made_again_for_one_movie_leaves_the_other_stale(tmp_path: Path) -> None:
+    """Two generations share a map; remaking one after a map edit leaves the other stale."""
+    path = _store(tmp_path)
+    project = Project(path)
+    with project.write_lock():
+        for gen, movie in (("a1", "A"), ("b1", "B")):
+            jobs.record_inputs(
+                project,
+                "trace_generation",
+                gen,
+                {("map", "m1"): "v1", ("source_movie", movie): f"s{movie}"},
+            )
+        jobs.set_stale_marks(project, "map", "m1", "v2")
+        jobs.record_inputs(
+            project,
+            "trace_generation",
+            "a2",
+            {("map", "m1"): "v2", ("source_movie", "A"): "sA"},
+        )
+    r = rd.read_project_readiness(path)
+    assert [s.item for s in r.stale] == ["Trace generation b1"]
+    assert r.stage("traces").state is rd.StageState.STALE
+    assert main(["status", "--require", "traces", str(path)]) == 3
+
+    with project.write_lock():
+        jobs.record_inputs(
+            project,
+            "trace_generation",
+            "b2",
+            {("map", "m1"): "v2", ("source_movie", "B"): "sB"},
+        )
+    assert rd.read_project_readiness(path).stale == ()
+
+
 def test_a_running_job_is_waited_for_and_never_started_again(tmp_path: Path) -> None:
     path = tmp_path / "new.tether"
     project = Project.create(path)
