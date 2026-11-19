@@ -85,7 +85,14 @@ not UTF-8) reads as empty. Reading never raises and never creates a file or fold
 temporary file in the same folder, `fsync`, `os.replace`), as ADR-0095's writer does. Keys this
 version does not know are kept. A JSON object with another `schema`, or a file too large to read,
 is never replaced: the write refuses and leaves it as it was, so a newer version's file survives a
-session of this one. In the shell every write goes through one guard that turns a failure (a full
+session of this one. The read and the replace hold an operating-system lock on an empty file
+beside it, `preferences.json.lock` (`fcntl.flock` on macOS and Linux, `msvcrt.locking` of one
+byte on Windows), so two windows that write at the same moment take turns and neither update is
+lost ([#1171](https://github.com/bioedca/tether/issues/1171)). The lock belongs to the open
+handle, so it is released when an instance exits or crashes; the lock file is never deleted, so
+every instance locks the same file, and a stale one blocks nothing. A write that cannot take the
+lock within five seconds fails like any other failed write. Reading takes no lock. In the shell
+every write goes through one guard that turns a failure (a full
 disk, a read-only home folder, another version's file) into a status message, so remembering can
 never stop an open, a close or a curation decision.
 
@@ -126,9 +133,12 @@ preference will be one more key in this file.
 - **Trade-off.** The file holds project paths and a name, which is personal data on the user's own
   computer; `docs/privacy.md` says what is stored and where.
 - **Trade-off.** Two per-user files where there was one.
-- **Trade-off.** The writer is atomic but holds no lock across processes, so two windows
-  writing at the same moment can lose one of the two updates. Issue
-  [#1171](https://github.com/bioedca/tether/issues/1171) tracks a lock.
+- **Trade-off.** A third file, `preferences.json.lock`, stays beside the other two. It is empty
+  and is what lets two windows write without losing an update (#1171).
+- **Trade-off.** The lock makes writes take turns and does nothing more. That is enough for the
+  recent projects: each write starts from the file it reads under the lock, so both windows'
+  additions are kept (up to the list limit), and **File → Open recent** is rebuilt from the file
+  each time it opens.
 - **Follow-up.** `tests/test_gui_preferences.py` pins the file (location, per-key reading, the
   writer, the limits, the import cost); `tests/test_shell_session_memory.py` pins each acceptance
   criterion of #628 in the shell, headless.
