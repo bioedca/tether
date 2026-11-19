@@ -234,7 +234,8 @@ def _widget_classes() -> dict[str, type]:
             self._label.setTextFormat(QtCore.Qt.TextFormat.PlainText)
             self._progress = ProgressRow(self)
             self._progress.setVisible(False)
-            self._cancel = QtWidgets.QToolButton(self)
+            # A push button keeps Space and Enter from the curation keys (#832).
+            self._cancel = QtWidgets.QPushButton(self)
             self._cancel.setText("Cancel")
             self._cancel.setVisible(False)
             self._cancel.clicked.connect(self._on_cancel)
@@ -252,7 +253,7 @@ def _widget_classes() -> dict[str, type]:
             return self._progress
 
         @property
-        def cancel_button(self) -> QtWidgets.QToolButton:
+        def cancel_button(self) -> QtWidgets.QPushButton:
             """The **Cancel** button shown for a task that can be cancelled."""
             return self._cancel
 

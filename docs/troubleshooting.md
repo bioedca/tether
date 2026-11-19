@@ -999,8 +999,8 @@ are on the [Deep trace classifier](ml/deep-classifier.md#gpu-cuda-setup) page.
 **Symptom.** The desktop application showed something in the status bar at the bottom of the
 window, and the next action replaced it before you read it.
 
-**Cause and what to do.** Every message the status bar shows is kept in the **Messages**
-panel, with its time and its level: information, warning or error. Open the panel with
+**Cause and what to do.** The **Messages** panel keeps the latest 2,000 messages the status
+bar showed, with their time and their level: information, warning or error. Open the panel with
 **View → Messages**. Select the rows you want, or none for all of them, and press **Copy**.
 The messages go to the clipboard as text, ready for a bug report.
 
@@ -1027,7 +1027,7 @@ no trace data and no file contents. A path is in it only where a message showed 
 When the file passes about 1 MB it is renamed `tether.log.1`, and the three newest old files
 are kept. The environment variable `TETHER_LOG_DIR` moves the folder. If the file cannot be
 written, the application stops writing it for that session. The Messages panel still keeps
-every message.
+the latest 2,000 messages, and an older one is then gone for good.
 
 ---
 

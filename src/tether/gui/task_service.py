@@ -156,7 +156,10 @@ class TaskService:
             on_finished(outcome)
 
     def cancel(self) -> bool:
-        """Ask the active task to stop; its outcome arrives as ``CANCELLED`` on the next poll.
+        """Ask the active task to stop; the stop is a request the work answers.
+
+        The outcome arrives on the poll after the work returns. It is ``CANCELLED`` when the
+        work stops on its token, and ``DONE`` or ``FAILED`` as usual when it finishes anyway.
 
         Returns
         -------

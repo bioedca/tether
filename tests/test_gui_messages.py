@@ -40,6 +40,11 @@ pytestmark = [
         # Only the part before the reason gives the level: a reason may quote anything.
         ("Idealize: select a molecule first (the last one failed)", Level.INFO),
         ("Hand-off unavailable: the export failed", Level.WARNING),
+        # A line with no reason names things whose names may hold any word.
+        ("Opened failed.tether — 1 molecule(s)", Level.INFO),
+        ("Molecule not-yet (2/3)", Level.INFO),
+        ("Closed lost data.tether", Level.INFO),
+        ("Could not open https://example.org/a", Level.ERROR),
     ],
 )
 def test_the_level_comes_from_the_action_not_the_reason(text, level) -> None:
@@ -142,6 +147,17 @@ def test_a_warning_survives_a_later_information_line(shell) -> None:
     assert bar.currentMessage() == "Molecule mol-1 (2/3)"
 
 
+def test_space_on_the_focused_dismiss_button_dismisses_and_does_not_curate(shell, qtbot) -> None:
+    # The curation keys bind Space to accept; a focused push button keeps it (#832).
+    from pyqtgraph.Qt import QtCore
+
+    shell.set_section("curate")
+    shell._status("Drop refused: drop one .tether project file at a time")
+    button = shell.messages.dismiss_button
+    qtbot.keyClick(button, QtCore.Qt.Key.Key_Space)
+    assert shell.messages.sticky is None and button.isHidden()
+
+
 def test_a_cleared_status_bar_shows_the_held_warning_again(shell, qtbot) -> None:
     # A menu's status tip clears the bar when the pointer leaves an item.
     bar = shell.window.statusBar()
@@ -214,21 +230,25 @@ def test_a_running_task_shows_its_name_progress_and_cancel(shell, qtbot) -> None
             threading.Event().wait(0.01)
         raise TaskCancelled
 
-    shell._tasks.start(
+    task = shell._tasks.start(
         work,
         label="Exporting 4 molecules",
         on_finished=outcomes.append,
         cancellable=True,
         reports_progress=True,
     )
-    assert busy.label.text() == "Exporting 4 molecules"
-    assert not busy.cancel_button.isHidden()
-    reported.wait(timeout=5)
-    qtbot.waitUntil(lambda: not busy.progress_row.isHidden(), timeout=3000)
-    assert busy.progress_row.value() == 25 and busy.mark.isHidden()
-    busy.cancel_button.click()
-    assert not busy.cancel_button.isEnabled()
-    qtbot.waitUntil(lambda: bool(outcomes), timeout=5000)
+    assert task is not None
+    try:
+        assert busy.label.text() == "Exporting 4 molecules"
+        assert not busy.cancel_button.isHidden()
+        reported.wait(timeout=5)
+        qtbot.waitUntil(lambda: not busy.progress_row.isHidden(), timeout=3000)
+        assert busy.progress_row.value() == 25 and busy.mark.isHidden()
+        busy.cancel_button.click()
+        assert not busy.cancel_button.isEnabled()
+        qtbot.waitUntil(lambda: bool(outcomes), timeout=5000)
+    finally:
+        task.cancel()  # a failed assertion above must not leave the worker looping
     assert outcomes[0].state is TaskState.CANCELLED
     assert not busy.is_running() and busy.cancel_button.isHidden()
     assert busy.progress_row.isHidden() and not busy.mark.isHidden()

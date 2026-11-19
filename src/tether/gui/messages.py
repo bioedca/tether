@@ -100,7 +100,10 @@ def classify(text: str) -> Level:
     """Return the level of a message that names none, read from the text before its reason.
 
     That part, up to the first ``": "``, names the action and what happened to it; the reason
-    after it may quote any text (an exception, a file name), so it is not read. ``failed``
+    after it may quote any text (an exception, a file name), so it is not read. A message with
+    no reason is information unless it opens with ``could not``: the rest of such a line names
+    things (a file, a molecule) whose names may hold any word, as in
+    ``"Opened failed.tether"``. In the part that is read, ``failed``
     and ``could not`` give [`Level.ERROR`][]; ``unavailable``, ``refused``, ``not`` (as in
     ``"Channel map not made"``), ``became read-only`` and ``lost`` give [`Level.WARNING`][],
     each as a whole word; anything else is
@@ -114,7 +117,10 @@ def classify(text: str) -> Level:
     >>> classify("Idealize unavailable: wait for it to finish (it failed before)").value
     'warning'
     """
-    head = text.split(": ", 1)[0].casefold()
+    folded = text.casefold()
+    if ": " not in folded:
+        return Level.ERROR if folded.startswith("could not") else Level.INFO
+    head = folded.split(": ", 1)[0]
     if _ERROR_MARKS.search(head):
         return Level.ERROR
     if _WARNING_MARKS.search(head):
@@ -189,7 +195,9 @@ class MessageCenter:
         folder = log_folder_path() if log_folder is MessageCenter._DEFAULT else log_folder
         self._log_folder: Path | None = folder
         self._log: _LogFile | None = None
-        self._dismiss = QtWidgets.QToolButton()
+        # A push button, not a tool button: a focused push button keeps Space and Enter from
+        # the curation keys (#832), so Space on it never accepts a molecule.
+        self._dismiss = QtWidgets.QPushButton()
         self._dismiss.setText("Dismiss")
         self._dismiss.setAccessibleName("Dismiss the warning")
         self._dismiss.setToolTip("Dismiss the warning or error in the status bar")
@@ -314,7 +322,7 @@ class MessageCenter:
         self._log.handle(record)
         if self._log.failed:
             # A log that cannot be written (a full disk, another copy of Tether rotating the
-            # same file) is turned off for the session; the panel still keeps every message,
+            # same file) is turned off for the session; the panel still keeps the latest messages,
             # and the window stays routed here (Codex review on PR #1274).
             self._close_log()
 
