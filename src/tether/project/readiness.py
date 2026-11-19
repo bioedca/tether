@@ -413,9 +413,11 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
     record and left unmarked was made from it as it is now, since an edit marks every
     record made from it at another identity; that holds when an edit is undone too.
     *The same scope* means: the new instance was made from the marked record's other
-    inputs, each of them and nothing else. Two trace generations made from one map and two
-    movies are two scopes, so remaking the first after a map edit leaves the second stale,
-    and a fit made from generations A and B is not replaced by one made from A alone.
+    inputs, each of them or a record made in its place, and nothing else. Two trace
+    generations made from one map and two movies are two scopes, so remaking the first
+    after a map edit leaves the second stale, and a correction version made from
+    generations A and B is not replaced by one made from A alone (it is by one made from
+    A and B made again).
     """
     first: dict[tuple[str, str], Any] = {}
     for m in marks:
@@ -432,8 +434,13 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
             return set()
         up = (mark.upstream_node, mark.upstream_instance)
         direct = up == (mark.edited_node, mark.edited_instance)
-        in_place = {up[1]} if direct else replacements(*up, seen | {(node, instance)})
-        others = inputs_of.get((node, instance), set()) - {up}
+        deeper = seen | {(node, instance)}
+        in_place = {up[1]} if direct else replacements(*up, deeper)
+        # Each other input may be the same record, or a record made in its place.
+        others = [
+            (n, {i} | replacements(n, i, deeper))
+            for n, i in sorted(inputs_of.get((node, instance), set()) - {up})
+        ]
         return {
             r.instance
             for r in recorded
@@ -442,10 +449,26 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
             and (r.node, r.instance) not in first
             and r.upstream_node == up[0]
             and r.upstream_instance in in_place
-            and inputs_of[(r.node, r.instance)] - {(r.upstream_node, r.upstream_instance)} == others
+            and _same_scope(
+                others,
+                sorted(inputs_of[(r.node, r.instance)] - {(r.upstream_node, r.upstream_instance)}),
+            )
         }
 
     return [m for m in marks if not replacements(m.node, m.instance)]
+
+
+def _same_scope(wanted: list[tuple[str, set[str]]], given: list[tuple[str, str]]) -> bool:
+    """Pair each given input with one wanted input it may stand for, using each once."""
+    if len(wanted) != len(given):
+        return False
+    if not given:
+        return True
+    (node, instance), rest = given[0], given[1:]
+    return any(
+        w_node == node and instance in accepted and _same_scope(wanted[:k] + wanted[k + 1 :], rest)
+        for k, (w_node, accepted) in enumerate(wanted)
+    )
 
 
 def _next_step(stages: tuple[StageReadiness, ...], jobs: tuple[JobStatus, ...]) -> NextStep:

@@ -329,6 +329,48 @@ def test_a_record_made_again_from_fewer_inputs_leaves_the_mark(tmp_path: Path) -
     assert rd.read_project_readiness(path).stale == ()
 
 
+def test_a_record_made_again_from_every_input_made_again_is_not_stale(tmp_path: Path) -> None:
+    """A map edit stales two generations and the correction made from both; remake all three."""
+    path = _store(tmp_path)
+    project = Project(path)
+    with project.write_lock():
+        for gen, movie in (("a1", "A"), ("b1", "B")):
+            jobs.record_inputs(
+                project,
+                "trace_generation",
+                gen,
+                {("map", "m1"): "v1", ("source_movie", movie): f"s{movie}"},
+            )
+        jobs.record_inputs(
+            project,
+            "correction_version",
+            "c1",
+            {("trace_generation", "a1"): "ha1", ("trace_generation", "b1"): "hb1"},
+        )
+        jobs.set_stale_marks(project, "map", "m1", "v2")
+        for gen, movie in (("a2", "A"), ("b2", "B")):
+            jobs.record_inputs(
+                project,
+                "trace_generation",
+                gen,
+                {("map", "m1"): "v2", ("source_movie", movie): f"s{movie}"},
+            )
+    r = rd.read_project_readiness(path)
+    assert [s.item for s in r.stale] == ["Correction version c1"]
+
+    with project.write_lock():
+        jobs.record_inputs(
+            project,
+            "correction_version",
+            "c2",
+            {("trace_generation", "a2"): "ha2", ("trace_generation", "b2"): "hb2"},
+        )
+    after = rd.read_project_readiness(path)
+    assert after.stale == ()
+    assert after.stage("corrections").state is not rd.StageState.STALE
+    assert main(["status", "--require", "traces", str(path)]) == 0
+
+
 def test_a_record_made_again_after_an_edit_is_undone_is_not_stale(tmp_path: Path) -> None:
     """An edited map put back as it was: a generation made from it then is current."""
     path = _store(tmp_path)
