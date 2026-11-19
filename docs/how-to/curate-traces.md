@@ -57,6 +57,15 @@ The list on the left holds every molecule. The large panel shows the selected on
 (green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
 underneath.
 
+The bottom panel shows the donor–acceptor cross-correlation of the trace. While the total
+intensity stays about constant, a change in FRET raises one channel and lowers the other.
+The cross-correlation at lag 0 is then below zero. A change in the total intensity can make
+it positive even when FRET changes too.
+
+The lag axis uses the unit of the time axis, seconds or frames. It spans 50 frames either
+side of 0. A trace shorter than 51 frames shows a note in that panel instead of a curve.
+So does a trace with a missing value or a constant channel.
+
 1. Press **Right arrow** or **Down arrow** for the next molecule.
 2. Press **Left arrow** or **Up arrow** for the previous one.
 3. Or click a name in the list.
