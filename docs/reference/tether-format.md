@@ -499,8 +499,9 @@ written before this log existed).
 
 The rows travel with their `/labels` rows. A subset export copies the rows of the exported
 molecules, and the split-file merge-back (`merge_labels`, `src/tether/project/merge.py`)
-appends the rows that join a `/labels` row it appends, under the owner's `condition_id`. A
-second pull of the same file appends nothing.
+appends the rows that join a `/labels` row it pulls, under the owner's `condition_id`, unless
+the owner already holds them. A second pull of the same file appends nothing. A join that names
+two pulled `/labels` rows copies no reason, since it cannot say which reject the reason belongs to.
 
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|

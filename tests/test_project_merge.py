@@ -413,6 +413,58 @@ def test_reject_reasons_append_after_the_owner_s_own(tmp_path) -> None:
     assert _to_text(reject_record_of(owner, okeys[1])["labeler"]) == "bob"
 
 
+def test_a_pull_interrupted_before_the_reasons_completes_on_the_next(tmp_path, monkeypatch) -> None:
+    # The label rows and the reason rows are two writes. A pull that stops between them leaves the
+    # label rows in the owner; the next pull skips them as duplicates but still copies their
+    # reasons, once.
+    import tether.project.merge as merge_mod  # noqa: PLC0415
+
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=2)
+    _store(split, n=2)
+    reject(split, okeys[1], labeler="bob", reason="multiple-molecules")
+    real = merge_mod._append_reject_log_rows
+
+    def _crash(*_args: object) -> int:
+        raise RuntimeError("interrupted")
+
+    monkeypatch.setattr(merge_mod, "_append_reject_log_rows", _crash)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        merge_labels(owner, split)
+    assert _n_rows(owner) == 1  # the label row landed
+    assert read_reject_log(owner).shape == (0,)  # its reason did not
+    monkeypatch.setattr(merge_mod, "_append_reject_log_rows", real)
+
+    retry = merge_labels(owner, split)
+
+    assert retry.appended == 0
+    assert retry.skipped_duplicate == 1
+    assert retry.reject_log_appended == 1
+    assert _to_text(reject_record_of(owner, okeys[1])["reason"]) == "multiple-molecules"
+    assert merge_labels(owner, split).reject_log_appended == 0
+
+
+def test_a_join_that_names_two_rejects_copies_no_reason(tmp_path) -> None:
+    # Two rejects with the same labeler and timestamp cannot be told apart (the split file reads no
+    # reason for them). Their label rows collapse into one in the owner, so no reason is attached.
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=2)
+    _store(split, n=2)
+    when = "2026-11-19T12:00:00+00:00"
+    reject(split, okeys[1], labeler="bob", timestamp=when, reason="multiple-molecules")
+    reject(split, okeys[1], labeler="bob", timestamp=when, reason="no-anticorrelation")
+    assert reject_record_of(split, okeys[1]) is None
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 1  # the two identical events collapse into one label row
+    assert report.reject_log_appended == 0
+    assert curation_labels(owner)[okeys[1]] == _REJECT
+    assert reject_record_of(owner, okeys[1]) is None
+
+
 def test_split_file_without_a_reject_log_merges_as_before(tmp_path) -> None:
     # A split file with no /labels/reject_log (a label written straight through set_curation_label,
     # or a store from before #932) merges its label rows and leaves the owner without a log.
