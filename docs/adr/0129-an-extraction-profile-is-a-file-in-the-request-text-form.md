@@ -20,7 +20,7 @@ of them part of the pinned contract, recorded verbatim in `/settings/extraction`
 no `ExtractOptions` at all, so a batch ran at the defaults whatever the experiment needed. A
 `.tdat` replaced the detection mode and threshold with no stated rule.
 
-#349 asks for an *extraction profile* that carries all of them, for `tether batch` to
+\#349 asks for an *extraction profile* that carries all of them, for `tether batch` to
 accept one, for the `--tdat` rule to be stated, and for a decision on where a profile lives
 against the application settings store of #330 (ADR-0095). Its plan change of 2026-11-14 adds that
 the profile becomes the extraction part of a recipe (#899), so its text form must be the request

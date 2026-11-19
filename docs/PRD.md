@@ -30,6 +30,7 @@ its trace.
 10. [Risks & mitigations](#10-risks--mitigations)
 11. [Conventions & glossary](#11-conventions--glossary)
 12. [Development & version-control protocol (GitHub)](#12-development--version-control-protocol-github)
+
 - [Appendix A — Input formats](#appendix-a--input-formats)
 - [Appendix B — Correction-factor scheme](#appendix-b--correction-factor-scheme-single-laser-2-color)
 - [Appendix C — tMAVEN plot inventory](#appendix-c--tmaven-plot-inventory-m6-native-reproduction-scope)
@@ -313,7 +314,7 @@ uses the three words only in these meanings:
   ADR-0068 lists each with the issue that carries it.
 
 - **`/movies/{id}`** — source URI (relative), full `sha256`, a **metadata-only fast signature** (file size + mtime
-  + offline-availability flag, e.g. `FILE_ATTRIBUTE_OFFLINE`) for routine no-hydration checks — it performs **zero
+  \+ offline-availability flag, e.g. `FILE_ATTRIBUTE_OFFLINE`) for routine no-hydration checks — it performs **zero
   byte reads**, so it never forces a OneDrive Files-On-Demand placeholder to hydrate; dims, dtype + endianness,
   frame_time, dual-view geometry, calibration reference. An optional head/tail content hash is computed only at
   extraction (file guaranteed local) and consulted only inside the already-hydrated relink/verify path. Integrity-
@@ -442,7 +443,7 @@ imported as a degraded, round-trip-disabled **analysis-only** project (§7.8).
 
 Each stage mirrors Deep-LASI (full specification in Appendix E):
 
-```
+```text
 load movie (lazy)
   → calibration (apply .tmap OR native bead/grid fit)
   → split + register
@@ -554,23 +555,26 @@ it passes iff the relative difference of the two population medians |α_donor-on
 α_tail) ≤ 20% **and** both medians lie in the physical band 0.05–0.2 — the band is a plausibility check only and is
 never a standalone pass path (an OR would let two badly-disagreeing estimates both pass on plausibility alone,
 defeating the oracle; §9 M3, §11.2). γ
-**shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise) over a tolerance
-window (half-width pinned to 3 frames each side, configurable; §11.2), aggregated by population median [McCann2010].
+**shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise), each level averaged
+over a tolerance window (half-width pinned to 20 frames each side, configurable, or the whole segment each side as an
+option; §11.2; ADR-0130), aggregated by population median [McCann2010].
 Manual override of every factor **shall** be available.
 Corrections **shall** not be required to *view* traces: apparent-E analysis and histograms work without any
 photobleaching; only the α/γ corrections require bleach steps.
 
 **Total-correction-failure path.** The min-qualifying-traces gate (§11.2) is applied **before** the population
-median, so an empty qualifying set can never emit a NaN factor. A missing factor never becomes a NaN in E: a missing or
-non-finite α or γ routes the molecule to apparent E. When **no donor-only sample is
+median, so a factor is never computed from an empty or too-small qualifying set. A missing factor never becomes a NaN in
+E: a missing or non-finite α or γ routes the molecule to apparent E. When **no donor-only sample is
 loaded and fewer than `min_qualifying_traces` molecules yield a valid factor** — the *expected* case for the lab's
 typical pure-FRET acquisitions lacking a clean acceptor-bleach step — Tether **shall** retain/display **apparent
 E** (α = δ = 0, γ = 1), stamp provenance `method = "apparent-E (corrections unavailable)"`, show a **non-blocking
 banner**, and offer two recovery actions: load a donor-only sample, or enter manual per-condition α/γ (which stamps
-`method = "manual"`). If the user declines, the project stays in apparent-E. A NaN factor is never written (§9 M3,
-§10). This guarantee is about the factors only. E can still be NaN on a frame whose denominator is zero, because the
-ratio is not defined there: for apparent E that is a frame with zero total intensity, and for corrected E a frame where
-I_A,corr + γ·I_D,corr is zero.
+`method = "manual"`). If the user declines, the project stays in apparent-E. A withheld α or γ is stored as the NaN
+"no factor computed" sentinel in `/molecules.alpha` / `.gamma` (the [glossary](glossary.md) entry "withheld factor / NaN sentinel"),
+and a NaN or other non-finite factor is never applied: the molecule goes to apparent E (§9 M3, §10). This guarantee
+is about the factors only. E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
+there: for apparent E that is a frame with zero total intensity, and for corrected E a frame where I_A,corr + γ·I_D,corr
+is zero.
 
 **Two analysis modes (maintainer decision 2026-11-14, card C2, option B).** An analysis **shall** run in one of two
 named modes. **Apparent E** (α = δ = 0, γ = 1) stays possible as a separate named mode in every correction state.
@@ -750,7 +754,7 @@ next warm-start retrain) and required to hold on the **median across the conditi
 the default ship-bar is a ≥ 10-percentage-point precision@k uplift (tunable, §11.2).
 
 **Curation order.** Within a single video's pass, trace order is **fixed once the model pre-sorts on load**; retrain
-+ re-sort happen only at the **video boundary**, preserving a predictable sweep. The active-learning loop surfaces
+\+ re-sort happen only at the **video boundary**, preserving a predictable sweep. The active-learning loop surfaces
 its "most informative next" suggestion as a **non-reordering badge** (a "recommended next" cue), not a live
 re-queue; live unseen-tail re-ranking is a deferred opt-in.
 
@@ -1224,7 +1228,7 @@ boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) s
   §9 M8); (d) the per-condition ranker via **held-out cross-validation** (prequential /
   leave-one-video-out, the precision@k protocol of §7.5); (e) the α/γ estimators via **edge-case unit tests**
   (missing/sparse bleach steps, median-fallback paths, and the **total-failure → apparent-E** path that must never
-  emit a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
+  apply a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
   agreement** (§7.2, §11.2); (f) round-trip integrity and schema-integrity tests under existing conventions,
   with a schema-migration test from the first schema-version step on (§5.4);
   (g) the photobleaching detector's **per-channel first-bleach frames**, reframed by ADR-0026 (§9.5 (g)):
@@ -1287,9 +1291,10 @@ These hold across every milestone and are never regressed. They are harvested fr
    version bump ([ADR-0005](adr/0005-m0-schema-freeze.md), §5).
 2. **`main` is always green and releasable.** Never advance or summarize over a red or pending check (§12.3).
 3. **A missing factor never makes E NaN.** A missing α or γ routes the molecule to apparent E, and a total correction
-   failure falls to apparent E with a banner; the gate is applied *before* the median, so no NaN factor is ever
-   written (§7.2, [ADR-0003](adr/0003-apparent-e-never-nan.md); the ADR's title refers to the factors). A frame
-   with zero total intensity is still NaN in apparent E, because the ratio is not defined there.
+   failure falls to apparent E with a banner; the gate is applied *before* the median, so no factor is ever
+   computed from too few traces, and a NaN factor is never applied; a withheld factor is stored as the NaN sentinel
+   (§7.2, [glossary](glossary.md), [ADR-0003](adr/0003-apparent-e-never-nan.md); the ADR's title refers to the
+   factors). A frame with zero total intensity is still NaN in apparent E, because the ratio is not defined there.
 4. **Provenance travels with every datum** — coordinates, corrections, app version, parameters. The trace↔movie
    round-trip is a data-model property, recovered by exact intensity matching on any tMAVEN return leg
    ([ADR-0001](adr/0001-provenance-first-data-model.md),
@@ -1358,7 +1363,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Round-trip browser & curation** (FR-ROUNDTRIP) | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies (*not yet met*, §9.6); every accept/reject writes a `/labels` row; headless: the MVP histogram reproduces from the API. | M2 |
 | **Multi-movie project** (§5) | One `.tether` holds many movies, as the M2 multi-movie round-trip browser assumes: a second movie appends into an existing project under its writer lock (*not yet met*, §9.6). | M2 |
 | **File lifecycle** (FR-CONCURRENCY) | The single-writer lock (wall-clock stale-timeout) prevents a second writer, steal-lock recovers, and a cross-machine lock / stale / steal case is exercised. | M2 |
-| **Corrections** (FR-CORRECT, Appendix B) | A pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent E with a banner and never writes a NaN factor**; changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1). Per-channel first-bleach detection **(reframed — [ADR-0026](adr/0026-photobleach-detection-and-window-default.md))**: reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the §11.2 ±2-frame tolerance — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth. Withheld under §9.1 item 8: the **conjunctive §11.2 leakage-α validation band** (Tether's donor-only α vs its own post-acceptor-bleach-tail α, matched gates, same FRET dataset: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2, §7.2; the donor-only traces sit in an undecoded MCOS blob — [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md)) and **γ agreement with the Deep-LASI median within the §11.2 γ-agreement tolerance** (default ±10%) on a shared frame set derived from Deep-LASI's own per-frame classification (estimator-isolated; 3-frame half-width) plus a looser end-to-end CI-overlap check (the vendored export carries no per-frame classification — [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)); both are *not yet met* and carried in §9.6. Corrections are a first-class surface of the application (*not yet met*, §9.6). | M3 |
+| **Corrections** (FR-CORRECT, Appendix B) | A pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent E with a banner, never computes a factor from too few traces and never applies a NaN factor** (a withheld factor is stored as the NaN sentinel, [glossary](glossary.md)); changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1). Per-channel first-bleach detection **(reframed — [ADR-0026](adr/0026-photobleach-detection-and-window-default.md))**: reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the §11.2 ±2-frame tolerance — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth. The **conjunctive §11.2 leakage-α validation band** (Tether's donor-only α vs its own post-acceptor-bleach-tail α, matched gates, same FRET dataset: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2, §7.2) is a `workstation` check on the lab's Cy3-only donor-only acquisition against the pooled tail α of the FRET series it calibrates ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); it is met: the run of 2026-11-19 recorded a donor-only α of 0.120 (89 of 91 molecules) against a pooled tail α of 0.101 (260 of 971), a relative difference of 17.0 %. Withheld under §9.1 item 8: **γ agreement with the Deep-LASI median within the §11.2 γ-agreement tolerance** (default ±10%) on a shared frame set derived from Deep-LASI's own per-frame classification (estimator-isolated; the §11.2 level windows) plus a looser end-to-end CI-overlap check — no available Deep-LASI file holds Deep-LASI's per-molecule γ or its per-frame classification ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md), [ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); *not yet met* and carried in §9.6. Corrections are a first-class surface of the application (*not yet met*, §9.6). | M3 |
 | **Batch runner** (FR-BATCH) | The batch runner **(i)** isolates a deliberately corrupt movie (continue-on-error) while the rest complete, **(ii)** resumes after a killed movie via per-stage checkpoint, and **(iii)** emits an end-of-run summary naming the failed movie — exercising sidecar timeout/restart. | M3 |
 | **Performance** (NFR-PERF) | The §8 targets — per-trace render+navigate ≈ 100 ms; a ~100-movie condition completes extraction + correction + idealization overnight; a bounded `.tether` size per condition — verified as a light gate over slice-scaled envelopes, not an SLA matrix ([ADR-0032](adr/0032-nfr-perf-budget-verification.md)). | M3 |
 | **Annotation & conditions** (FR-ANNOTATE) | A condition aggregates molecules across ≥ 2 files; category edits persist (*not yet met* from the application, §9.6); provisional `condition_id` values are confirmed or corrected via the validation UI; a mis-parsed `condition_id` re-keys all affected molecules transactionally with an audit entry, and merges are keep-separate-by-default + human-confirmed (§5.1). | M4 |
@@ -1391,9 +1396,10 @@ that table, which would drift.
 - A new fixture needs a work item that authorizes it, a redistribution license, and a `PROVENANCE.md` row before it
   is committed; third-party data keeps its own license (as the CC-BY-4.0 kinSoftChallenge data does).
 - **Never fabricate a stub donor-only distribution.** If the donor-only data a leg needs does not exist or cannot be
-  decoded, that is a data-gap sourcing task and the dependent leg is withheld (§9.1 item 8). This is the live case:
-  the lab's `cy3-donor-only-calibration` `.tdat` keeps its traces in an undecoded MCOS blob, so the donor-only α
-  leg is withheld (ADR-0027) rather than fed a synthesized distribution.
+  decoded, that is a data-gap sourcing task and the dependent leg is withheld (§9.1 item 8). The lab's
+  `cy3-donor-only-calibration` `.tdat` was that case (ADR-0027) until the test-only reader of
+  `tests/_deeplasi_public.py` (§2.2 rule 2) read its traces: the donor-only α leg now runs on that real sample
+  on the workstation ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)), never on a synthesized distribution.
 
 ### 9.5 The validation suite
 
@@ -1410,7 +1416,7 @@ tolerance), is release-acceptance work owned by its GitHub milestone.
 | **(b)** Idealization parity vs tMAVEN | state count, state means, Viterbi path, ELBO | `sidecar` — required, but **path-filtered**: it fits only when a pull request touches an idealization path | the frozen artifact checked against its own recorded evidence | `tests/fixtures/smd_4mol.hdf5`; LFS `smd_281mol.hdf5` + `model_281mol.hdf5` | `schema/parity_tolerance.json` (`$.tolerance`; ebFRET `$.tolerance_by_method.ebhmm`, ADR-0043); per-trace vbFRET and the transition-matrix term are not yet evidenced (§9.6); the ebFRET gate fits two fixed seeds, so it gives one answer per commit ([#311](https://github.com/bioedca/tether/issues/311), ADR-0075) | gate |
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
 | **(d)** Ranker held-out cross-validation | prequential and leave-one-video-out precision@k uplift over file order, median across videos (ADR-0114) | required matrix | yes (synthetic stores only) | synthetic separable multi-video and programmatic stores (no ADR accepts them; §9.6) | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`, for both protocols; the real-video uplift leg is withheld, no curated labelled set exists (ADR-0114, §9.6) | gate on the prequential protocol; the real-data leg is *not yet met* |
-| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E (a missing factor never gives a NaN E; a zero-total-intensity frame is NaN) | required matrix | yes | synthetic known-α/known-γ and edge-case traces (known-γ accepted by ADR-0028; known-α by no ADR, §9.6) | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band and the γ-vs-Deep-LASI legs withheld (ADR-0027, ADR-0028; §9.6) | gate |
+| **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E (a missing factor never gives a NaN E; a zero-total-intensity frame is NaN) | required matrix | yes | synthetic known-α/known-γ and edge-case traces (known-γ accepted by ADR-0028; known-α by no ADR, and α is also checked on real data by the workstation band, ADR-0133) | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band is a `workstation` check on the lab's donor-only sample, passed 2026-11-19 (ADR-0133); the γ-vs-Deep-LASI leg is withheld (ADR-0028, ADR-0133; §9.6) | gate |
 | **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); no schema-migration leg while the schema is additive-only; the first schema-version step adds a backup-and-migrate test (§5.4) | gate |
 | **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
 
@@ -1419,8 +1425,9 @@ rate recovery that (c) runs on the required matrix) shows that the implementatio
 (N2). It does not show agreement with real data. Two substitutions are accepted by an ADR:
 [ADR-0026](adr/0026-photobleach-detection-and-window-default.md) option C makes synthesized known steps the ground
 truth for (g), and [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md) option D accepts γ's known-γ
-recovery for (e), with its Deep-LASI leg still in §9.6. No ADR accepts (e)'s synthesized known-α traces or (d)'s
-synthetic multi-video store, so §9.6 carries both as not yet validated on real data.
+recovery for (e), with its Deep-LASI leg still in §9.6. No ADR accepts (e)'s synthesized known-α traces, but (e)'s α
+is also checked on real data, by the workstation band of ADR-0133. No ADR accepts (d)'s synthetic multi-video store,
+so §9.6 carries it as not yet validated on real data.
 
 **What "runs end to end" means.** Every *gate* row has passing evidence bound to the release commit, and (c) may be
 recorded advisory; no other oracle may. Binding that evidence (one artifact per oracle naming the commit it was
@@ -1472,8 +1479,7 @@ it, *From* gives the §7 clause (or the goal or use case) that states it.
 | Per-trace vbFRET parity against the frozen tolerance (the row was measured on consensus `vbconhmm`; no test fits per-trace vbFRET) | M2 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The transition-matrix term of consensus VB-HMM / ebFRET parity on the ≥ 50-molecule SMD (the parity metrics have no transition-matrix term) | M6 | [#545](https://github.com/bioedca/tether/issues/545) |
 | The ranker's precision@k uplift over file order measured on real labelled videos, not only synthetic stores — withheld: no curated multi-video project with accept/reject labels exists yet (ADR-0114). Oracle (d) is evidenced only on a synthetic multi-video store, which no ADR accepts (N2, §9.5) | M5 | [#1100](https://github.com/bioedca/tether/issues/1100) |
-| The conjunctive §11.2 leakage-α validation band — withheld: the donor-only traces sit in an undecoded MCOS blob (ADR-0027). Until it is met, oracle (e)'s α is evidenced only on synthesized known-α traces, which no ADR accepts (N2, §9.5) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
-| γ agreement with the Deep-LASI median on a shared frame set — withheld: the vendored export carries no per-frame classification (ADR-0028) | M3 | [#546](https://github.com/bioedca/tether/issues/546) |
+| γ agreement with the Deep-LASI median on a shared frame set, and its looser CI-overlap check — withheld: no available Deep-LASI file holds Deep-LASI's per-molecule γ or its per-frame classification, neither the vendored export (ADR-0028) nor the lab's saved states nor the public Figure 3 state (ADR-0133). It runs once a Deep-LASI state is saved after Deep-LASI's classification and automatic correction | M3 | [#1244](https://github.com/bioedca/tether/issues/1244) |
 
 **Requirements of the workflow design of 2026-11-14, not yet met.** These are new requirements (§7.1, §7.2, §7.4,
 §7.7, §7.9, §7.11, §7.13, §7.14 and Appendix A; tracking issue [#890](https://github.com/bioedca/tether/issues/890)), not criteria that a closed milestone
@@ -1562,8 +1568,9 @@ this section.
 - **Correction factors on sparse bleaching.** Mitigation: trace-wise α/γ with a global-median fallback +
   confidence; a donor-only-sample fallback for α; manual override; do not require photobleaching to *view* traces.
   **Total failure** (no donor-only sample AND fewer than `min_qualifying_traces` valid factors — the *expected*
-  pure-FRET case) applies the gate *before* the median, so no NaN factor is ever emitted: the project falls to
-  **apparent-E with a banner + recovery actions** (load donor-only / manual entry), never a NaN factor (§7.2).
+  pure-FRET case) applies the gate *before* the median, so no factor is ever computed from too few traces: the project
+  falls to **apparent-E with a banner + recovery actions** (load donor-only / manual entry) and never applies a NaN
+  factor; the withheld factor is stored as the NaN sentinel (§7.2, [glossary](glossary.md)).
 - **OneDrive + a single HDF5.** Mitigation: a **one-owner-at-a-time** posture with single-writer `.lock` + a
   **wall-clock stale-timeout** (≈ 30 min) + steal-lock; **detect-and-surface OneDrive conflict-copies**; concurrent
   curation via per-user split files (§7.10), never concurrent writes to one file; a routine open never auto-hydrates
@@ -1624,7 +1631,7 @@ this section.
 | Donor-side check — event rule (advisory) | a molecule votes when one channel bleaches ≥ **5** frames before the other, the other also bleaches ≥ **5** frames before the trace end, and across the first step the first channel drops **and** the other rises by ≥ **3** standard errors (levels = means of ≤ **10** frames each side; noise = 1.4826·MAD of first differences / √2); vote *consistent* when the dropping channel is the labelled acceptor, *swapped* when it is the labelled donor; the bleach frames come from the bleach-detection row below | Tether (§7.1; ADR-0070); acceptor-bleach dequenching vs. donor-bleach-to-background [Roy2008][McCann2010][Hellenkamp2018]; the second-bleach requirement keeps FRET transitions from voting (measured on the kinSoftChallenge sets, ADR-0070) |
 | Donor-side check — verdict (advisory) | ≥ **15** votes, else *insufficient* ("not enough bleach events to check"); *swapped* when ≥ **80 %** of the votes (⌈0.8·n⌉) are swapped, *consistent* when ≥ 80 % are consistent, else *mixed*; never changes data, never blocks. Measured worst false-alarm rate (one-sided 95 % upper bound) **0.13 %** (kinSoft `level2` at 250 molecules, a small-pool bound with no wrong vote), **0.10 %** for binding-like short movies, all other fixtures and simulated conditions < 0.01 %; the 281-molecule fixture reads *consistent* as stored (150 / 10 votes) and *swapped* with the channels exchanged; of seven real 1,700-frame movies extracted both ways, none warns with the correct side and three warn with the wrong side (two at 20 events) | Tether (§7.1, §7.11; ADR-0070); `scripts/measure_side_check.py`, seed 0 |
 | Bleach detection | native reimplementation of **tMAVEN's Bayesian single-step model** (signal→N(0)), run per channel; priors a = b = β = 1, μ = 1000; per-channel first-bleach validated by reference-formula parity with tMAVEN's formulas + synthesized known-step recovery (ADR-0026, §9.5 (g); the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | [Verma2024]; `tmaven/tmaven/controllers/photobleaching/photobleaching.py`. (Kalafut2008 is a parameter-free *multi-step* method — classical alternative only; the `penalty ≈ 5` is Deep-LASI's `stepFinder` L1 mode, `TRACEdata.m:110`, not a Kalafut parameter) |
-| Correction tolerance window (γ half-width) | 3 frames each side of the bleach step (configurable) | `MASH-FRET/docs/.../panel-factor-corrections.md`; [McCann2010] (§7.2, §9 M3) |
+| Correction tolerance window (γ half-width) | 20 frames each side of the bleach step (configurable; equal to `min_window_frames`, 3 before [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)); `half_window = None` averages the whole segment each side instead, the FRET segment before the step and the donor-only segment after it, up to the donor bleach | Tether, measured against Deep-LASI on the #715 workstation acquisitions (ADR-0130); Deep-LASI `deep_autocorrect_2color.m:108-127` at `d2d348cb` for the whole-segment option; the former 3-frame default from `MASH-FRET/docs/.../panel-factor-corrections.md`; [McCann2010] (§7.2, §9 M3) |
 | γ-agreement tolerance (M3) | γ within ±10% of the Deep-LASI median on the shared-frame, estimator-isolated comparison | Tether (§7.2, §9 M3) |
 | Bleach-frame tolerance (M3) | per-channel first-bleach frame within ±2 frames of a synthesized known step (reframed — ADR-0026: the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | Tether (§8 NFR-VALID (g), §9 M3, §9.5 (g)) |
 | Leakage acceptance ceiling | ≈ 0.3 (Cy3→Cy5 leakage typically 0.05–0.2; empirical median ≈ 0.09) | Tether tightening of Deep-LASI's loose `ct_lim = 1` |
@@ -2374,7 +2381,8 @@ Order (load-bearing): **background → leakage (α) → direct-excitation (δ = 
    excitation signal I_YY, which requires ALEX [Lee2005][Hohlbein2014]; pre-FRET acceptor signal is treated as
    background (already removed). This is the correct single-laser simplification, not an omission.
 4. **Gamma γ** — trace-wise across the **acceptor-bleach step** (acceptor drop / donor rise) on leakage-corrected
-   intensities, averaged over a tolerance window (3 frames each side, configurable; §11.2), on traces where the
+   intensities, averaged over a tolerance window (20 frames each side, configurable, or the whole segments;
+   §11.2; ADR-0130), on traces where the
    acceptor bleaches before the donor; global = **median** [McCann2010]. Formally
    γ = (I_A,spFRET − I_A,after) / (I_D,after − I_D,spFRET) = ΔI_A/ΔI_D
    (`deeplasi/functions/deeplearning/deep_autocorrect_2color.m:118-130`), with the ALEX `de·(da+dd)` term dropped
@@ -2524,11 +2532,12 @@ below are named by physical meaning.
 1. Split geometry · 2. Detection image · 3. Spot detection · 4. Sub-pixel localization + guardrails · 5. PSF +
 background aperture masks · 6. Registration: bead control-point detection · 7. Registration: phase-correlation
 prealign · 8. Registration: NN pairing within tolerance · 9. Registration: polynomial fit + residual QA ·
-10. Map persistence · 11. Cross-view colocalization · 12. Apply map at extraction · 13. Crop box · 14. Per-frame
+10\. Map persistence · 11. Cross-view colocalization · 12. Apply map at extraction · 13. Crop box · 14. Per-frame
 background · 15. Signal integration (Sum) · 16. Bleach-step detection → active windows · 17. Correction factors
 (leakage α, γ) · 18. Trace-wise → global aggregation (median).
 
 ### Stage 1 — Split geometry
+
 **Deep-LASI:** Each channel is a `TIRFdata` object with a chip region (Left/Right/Lower/Upper/Full),
 Rotation ∈ {0,90,180,270}, and Flip. `processImage` applies the fixed order `imrotate(I,−rot) → flipud/fliplr →
 crop`, the same transform on the calibration image and every movie frame.
@@ -2539,6 +2548,7 @@ hardcoded.
 **Refs:** `gui/GUIchannels.m:164-177`, `tools/processImage.m:1-32`, `classes/TIRFdata.m:118-120,175`.
 
 ### Stage 2 — Detection image (moving-average max projection, "Cumulated")
+
 **Deep-LASI:** `cumIMG` reshapes frames into non-overlapping blocks of `MovingAverageWindowSize = 50`, takes each
 block's mean, then the per-pixel MAX across blocks, normalized by the global max. Empty ALEX sequence ⇒ continuous-
 wave ⇒ uses all frames; falls back to a sum projection if too few frames.
@@ -2548,6 +2558,7 @@ in ≥ 1 window.
 **Refs:** `tools/cumIMG.m:16-65`, `classes/TRACEdata.m:70-74`, `traces/batchExtraction.m:122,147`.
 
 ### Stage 3 — Spot detection (à trous wavelet, mode 1 = class default)
+
 **Deep-LASI:** `Wave_Partfind(I, J=6, t, vicinity=true)` — an undecimated starlet transform, separable B3-spline
 kernel `[1/16,1/4,3/8,1/4,1/16]` dilated by `2^(i-1)` zeros; per-scale noise `σ = 2·MAD`, hard-threshold;
 significance via cumulative product across scales; detection mask = AND of scales 1 and 4 (`bwmorph(...,'clean')`);
@@ -2561,6 +2572,7 @@ is a selectable alternative; ADR-0021.) The multiscale-product wavelet detector 
 `mapping/find_part_bpass_sort.m`, `external/bpass.m`.
 
 ### Stage 4 — Sub-pixel localization + guardrails
+
 **Deep-LASI:** Mode 1 (default) does NOT use `radialcenter`; it uses the connected-component centroid + a snap:
 per spot crop half-width 5, `imgaussfilt(σ=1)`, find the max; if the offset from center is < 3 px, snap to
 `round(coord + offset)`. Remove spots closer than `z = ceil(len(MaskBG)/2)` apart and within `z` of the border.
@@ -2574,6 +2586,7 @@ Deep-LASI's numbers.
 filters at :67-77), `external/radialcenter.m:50-167` (alt only).
 
 ### Stage 5 — PSF + background aperture masks
+
 **Deep-LASI:** Default `MaskType = 1` (manual `circ` on a 21×21 grid, `MaskOuterSize = 9`). PSF disk =
 `circ(19, 0.6)` → radius 3 (29 px). BG ring = `circ(19, 0.35, 0.15)` → inner 6, outer 8 (`6 < dist ≤ 8`, 84 px). A
 dead-zone gap `3 < dist ≤ 6` is deliberate so the ring samples true background, not PSF tails. (An autocorrelation-
@@ -2583,6 +2596,7 @@ keeping the dead-zone gap. Expose disk/ring radii (defaults reproduce Deep-LASI)
 **Refs:** `gui/DataTab/genMask.m:4-5`, `filtering/circ.m:5-32`, `classes/TRACERdata.m:92-100`.
 
 ### Stage 6 — Registration: bead control-point detection
+
 **Deep-LASI:** A separate calibration movie (multi-labeled beads / multi-dye origami); `RawMap = mean over stack`;
 per channel `findPart(RawMap, …, method=1, refine=true)` (the same wavelet detector as Stage 3); store `fliplr()`
 as `MapParticles`.
@@ -2592,6 +2606,7 @@ enforce min-separation + border exclusion; be explicit about `[row,col]` vs `[x,
 **Refs:** `classes/TIRFdata.m:117`, `gui/createMapTab.m:122-124`, `mapping/findPart.m:18-30,67-101`.
 
 ### Stage 7 — Registration: phase-correlation prealign (4-DOF similarity)
+
 **Deep-LASI:** `PreMap = imregcorr(RawMap_moving, RawMap_ref, 'similarity')` (translation + rotation + isotropic
 scale); reference = `MappingReferenceChannel` (default donor, idx 1); prealign moving control points by
 `transformPointsForward`.
@@ -2601,6 +2616,7 @@ reference = donor.
 **Refs:** `gui/createMapTab.m:100-108`, `mapping/createMapPhaseCorr.m:6-16`.
 
 ### Stage 8 — Registration: NN pairing within tolerance
+
 **Deep-LASI:** `findPairs(ref, [prealigned, original], tol)` — per moving point, the NN reference via
 `pdist2 'Smallest',1`, keep `dist ≤ tol`; **fit on the ORIGINAL (un-prealigned) moving coords** (prealign only aids
 matching). `tol = 2 px` active / 4 px legacy.
@@ -2609,6 +2625,7 @@ enforce mutual/unique matches to avoid greedy double-assignment.
 **Refs:** `mapping/createMapPhaseCorr.m:16-22` (fit on original at :21), `mapping/findPairs.m:15-24`.
 
 ### Stage 9 — Registration: polynomial fit + residual QA
+
 **Deep-LASI:** Stored map = `fitgeotrans(moving, ref, 'polynomial', 2)` forward + inverse; retries degree 3 on
 failure; a similarity fallback if that fails. Legacy uses degree 4 and `tol = 4`. Residuals are not computed
 numerically — visual overlay only. (The transform is polynomial, despite a tutorial calling it "affine.")
@@ -2619,6 +2636,7 @@ RMS residual and reject/flag above ~0.5 px** (Deep-LASI only eyeballs it). Avoid
 tol = 4 at :53).
 
 ### Stage 10 — Map persistence (`.tmap` analog)
+
 **Deep-LASI:** `.tmap` = a MATLAB `-mat` cell `m{i}` of per-channel structs (MapToReference, MapFromReference,
 Crop, Rotation, Flip, WarpImref2D, MapParticles, ChannelColor) with raw images stripped; `.tdat` is the full
 session file (distinct).
@@ -2629,6 +2647,7 @@ vs `.tdat`).
 **Refs:** `gui/createMainGui.m:380-449`, `gui/MainGUI/save_load_State.m:33`.
 
 ### Stage 11 — Cross-view colocalization / donor↔acceptor pairing
+
 **Deep-LASI:** `findColoc(T, dist)` — warp all spots into the reference frame, compute pairwise distances, per
 reference spot take the first other-channel spot with `dist < dist`; keep a molecule only if it has a partner in
 EVERY channel. `batchExtraction` calls `findColoc(T, 3)` → 3 px.
@@ -2641,6 +2660,7 @@ the mapped donor position under both. The match flag is stored per molecule (`/m
 `traces/batchExtraction.m:150-154,163-164,182`.
 
 ### Stage 12 — Apply map at extraction (coordinate domain, no movie rewarp)
+
 **Deep-LASI:** The map is applied in the coordinate domain — the movie is NOT rewarped for extraction (warp is
 display/QA only). Reference (donor) spot positions are transformed into each channel's native coords; apertures are
 placed there: `xy_mapped = MapToReference.transformPointsInverse(fliplr(D.Particles))`.
@@ -2650,6 +2670,7 @@ I_A at paired sub-pixel centers with the same aperture + ring. **Transform coord
 **Refs:** `traces/batchExtraction.m:128,160-164,415-431` (the transform at :421), `classes/TRACERdata.m:65`.
 
 ### Stage 13 — Crop box
+
 **Deep-LASI:** Per spot, round the coord and crop a square sub-stack across all frames
 `cr = S(x−z:x+z, y−z:y+z, :)`, `z = floor(size(B,1)/2)`; with `MaskOuterSize = 9` ⇒ 21×21 ⇒ `z = 10` ⇒ crop
 21×21 × Nframes. Out-of-bounds ⇒ zeros (border spots already removed).
@@ -2657,6 +2678,7 @@ I_A at paired sub-pixel centers with the same aperture + ring. **Transform coord
 **Refs:** `traces/extractTraces.m:9-25`.
 
 ### Stage 14 — Per-frame background
+
 **Deep-LASI:** `Filter = ones(1,1,10)/10` — a 10-frame uniform moving average along time only, replicate-padded;
 per frame `bg = bg_avg(:,:,i).*B` (ring), then `bg = mean(bg(bg>0))` — one scalar/pixel per frame.
 **Tether:** Per frame, background = the mean of ring pixels after a 10-frame uniform temporal moving-average
@@ -2664,6 +2686,7 @@ per frame `bg = bg_avg(:,:,i).*B` (ring), then `bg = mean(bg(bg>0))` — one sca
 **Refs:** `traces/extractTracesC.m:13-22`, `traces/extractTraces_Cpp.m:24-29`.
 
 ### Stage 15 — Signal integration (Sum / top-hat — the default)
+
 **Deep-LASI:** `ExtractionMethod = 'Sum'` ("Always use Sum!"). Per frame: `psf = RAW_frame .* P` (not
 time-smoothed); `TOT = sum(psf)`; `BG = bg_per_pixel · sum(P)`; `I = TOT − BG`. Summed-aperture, not
 Gaussian-weighted. Returns `I` (corrected), `BG`, `TOT`.
@@ -2673,6 +2696,7 @@ halves at paired coords.
 **Refs:** `traces/extractTracesC.m:20-33`, `classes/TRACERdata.m:38`.
 
 ### Stage 16 — Bleach-step detection → active windows
+
 **Deep-LASI:** Primary = a DNN (`predict_trace_categories`, model 2 = 2-color non-ALEX) classifying each frame;
 per-channel first-bleach = argmax of the bleach-prob channel; per-frame donor/acceptor active booleans in
 `TraceSelection`. A classical alternative `stepFinder(s,'L1',5,1)` (single-step) feeds `autoCategorization`. The
@@ -2694,7 +2718,9 @@ parameter-free *multi-step* BIC detector — is a classical alternative only; De
 `tmaven/tmaven/controllers/photobleaching/photobleaching.py`, `photobleaching_controller.py`.
 
 ### Stage 17 — Correction factors from bleach steps
+
 **Deep-LASI:**
+
 - **Leakage (= Tether α):** donor-only frames (acceptor bleached); `ct = mean(I_DA)/mean(I_DD)` over that window;
   accept `0 < ct < ct_lim`.
 - **γ:** at the acceptor-bleach step (donor rises, acceptor falls). Non-ALEX branch:
@@ -2711,6 +2737,7 @@ parameter-free *multi-step* BIC detector — is a classical alternative only; De
 (header), `:46-90`, `:256-323`; gate defaults `gui/TracesTab/createTracesPlotLayout.m:172` (in-scope 2-color branch).
 
 ### Stage 18 — Trace-wise → global aggregation (population median)
+
 **Deep-LASI:** Factors per molecule, aggregated globally; stored factors come from the median branch (`g==2`), with
 a population-median substitution when a molecule's own factor is NaN. Gates: leakage `0 < · < 1`, γ `0 < · ≤ 5`,
 windows `> 20` frames.
@@ -2724,6 +2751,7 @@ leakage-corrected.
 **Refs:** `deeplearning/deep_autocorrect_2color.m:95-148,243-247`, `traces/manualCorrectionFactors.m:271-272`.
 
 ### Notes on faithfulness
+
 - `stepFinder`/`autoCategorization` (classical changepoint math) are an external toolbox not in the reference
   clone — Tether instead ships a native reimplementation of **tMAVEN's Bayesian single-step model** [Verma2024]
   (Stage 16), run per channel: a defensible, parameter-light method (conjugate priors, no ad-hoc penalty).
@@ -2834,5 +2862,5 @@ Published literature:
 Development standards & conventions (§12):
 
 - **[ConventionalCommits]** *Conventional Commits 1.0.0* — a lightweight convention for commit-message structure
-  that maps to SemVer. https://www.conventionalcommits.org/en/v1.0.0/
-- **[SemVer]** Preston-Werner T. *Semantic Versioning 2.0.0.* https://semver.org/spec/v2.0.0.html
+  that maps to SemVer. <https://www.conventionalcommits.org/en/v1.0.0/>
+- **[SemVer]** Preston-Werner T. *Semantic Versioning 2.0.0.* <https://semver.org/spec/v2.0.0.html>

@@ -51,7 +51,7 @@ host the sections without a second window and without a change to that lifecycle
 ## Decision outcome
 
 Chosen option: **3**, because it keeps one window and one session and leaves the navigation to
-#897.
+\#897.
 
 - **The stack.** `TetherShell.window` is still one `QMainWindow`. Its central widget is a
   `QStackedWidget` (`TetherShell.section_stack`) with one page per section of the registry

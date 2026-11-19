@@ -374,8 +374,12 @@ if TYPE_CHECKING:  # static checkers see the real types; runtime resolves them l
         DEFAULT_FIGSIZE,
         DEFAULT_PLOT_FORMATS,
         DEFAULT_TDP_COLOR_SCALE,
+        SERIES_COLOR_CYCLE,
+        SERIES_COLORS,
+        SERIES_LINESTYLES,
         TDP_COLOR_SCALES,
         PlotExportResult,
+        SeriesStyle,
         export_figure,
         render_alpha_shape,
         render_cross_correlation,
@@ -390,6 +394,7 @@ if TYPE_CHECKING:  # static checkers see the real types; runtime resolves them l
         render_transition_density,
         render_transition_prob,
         render_transition_sync_histogram2d,
+        series_style,
     )
 
 __all__ = [
@@ -548,8 +553,12 @@ _LAZY_PLOT_EXPORT_NAMES = frozenset(
         "DEFAULT_FIGSIZE",
         "DEFAULT_PLOT_FORMATS",
         "DEFAULT_TDP_COLOR_SCALE",
+        "SERIES_COLOR_CYCLE",
+        "SERIES_COLORS",
+        "SERIES_LINESTYLES",
         "TDP_COLOR_SCALES",
         "PlotExportResult",
+        "SeriesStyle",
         "export_figure",
         "render_alpha_shape",
         "render_cross_correlation",
@@ -564,6 +573,7 @@ _LAZY_PLOT_EXPORT_NAMES = frozenset(
         "render_transition_density",
         "render_transition_prob",
         "render_transition_sync_histogram2d",
+        "series_style",
     }
 )
 
