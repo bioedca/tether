@@ -259,10 +259,10 @@ def _try_lock(fd: int) -> bool:
 def _locked(path: Path) -> Iterator[None]:
     """Hold the cross-process lock that serializes writes to ``path`` (#1171).
 
-    The lock file is opened without following a symbolic link, never blocks on open, and must be
-    a regular file. It is never deleted, so every instance locks the same file. The lock is
-    released when the handle closes, which the operating system also does for an instance that
-    exits or crashes.
+    The lock file must be a regular file. On macOS and Linux it is also opened without following
+    a symbolic link and never blocks on open; Windows has no such flags. It is never deleted, so
+    every instance locks the same file. The lock is released when the handle closes, which the
+    operating system also does for an instance that exits or crashes.
     """
     lock = _lock_path(path)
     lock.parent.mkdir(parents=True, exist_ok=True)

@@ -135,8 +135,10 @@ preference will be one more key in this file.
 - **Trade-off.** Two per-user files where there was one.
 - **Trade-off.** A third file, `preferences.json.lock`, stays beside the other two. It is empty
   and is what lets two windows write without losing an update (#1171).
-- **Trade-off.** Two windows still each write their own recent-project list in turn: the lock
-  keeps both updates, it does not merge what each window shows.
+- **Trade-off.** The lock makes writes take turns and does nothing more. That is enough for the
+  recent projects: each write starts from the file it reads under the lock, so both windows'
+  additions are kept (up to the list limit), and **File → Open recent** is rebuilt from the file
+  each time it opens.
 - **Follow-up.** `tests/test_gui_preferences.py` pins the file (location, per-key reading, the
   writer, the limits, the import cost); `tests/test_shell_session_memory.py` pins each acceptance
   criterion of #628 in the shell, headless.
