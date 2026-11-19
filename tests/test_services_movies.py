@@ -142,6 +142,33 @@ def test_a_relative_uri_from_the_extraction_folder_is_found_there_too(
     assert movie.unavailable == "file missing"
 
 
+def test_a_movie_whose_signature_cannot_be_read_is_unreadable(tmp_path, monkeypatch) -> None:
+    # A stat that fails after the file was found (a permission or network error) reads as
+    # unreadable, and a file in the current folder whose stat fails is not taken.
+    from tether.services import movies as movies_mod
+
+    movie_file = tmp_path / "m.tif"
+    movie_file.write_bytes(b"four")
+    path = _store(tmp_path, uri=str(movie_file))
+    st = movie_file.stat()
+    _set_movie_row(path, file_size=st.st_size, mtime=st.st_mtime)
+
+    def _refused(*_args) -> bool:
+        raise PermissionError("stat refused")
+
+    monkeypatch.setattr(movies_mod, "_signature_matches", _refused)
+    (movie,) = read_project_movies(path).movies
+    assert movie.unavailable == "file unreadable"
+
+    (tmp_path / "out").mkdir()
+    elsewhere = _store(tmp_path / "out", uri="m.tif")
+    _set_movie_row(elsewhere, file_size=st.st_size, mtime=st.st_mtime)
+    monkeypatch.chdir(tmp_path)
+    (movie,) = read_project_movies(elsewhere).movies
+    assert movie.path == tmp_path / "out" / "m.tif"
+    assert movie.unavailable == "file missing"
+
+
 @pytest.mark.parametrize("changed", ["file_size", "mtime"])
 def test_a_movie_whose_fast_signature_differs_is_flagged(tmp_path, changed) -> None:
     # PRD §5.4: a routine open checks size + mtime (no byte read); a mismatch is flagged
