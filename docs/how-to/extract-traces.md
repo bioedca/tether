@@ -97,9 +97,10 @@ Molecules in movie.tif under each colocalization rule (nothing written):
   halves of your movie and fits the map from them.
 - **An imported map:** add `--tmap beads.tmap` to use a Deep-LASI channel map instead,
   for example one made from a bead slide. The map carries its own channel layout, so
-  `--donor-side` is ignored when you pass one. Tether reads only the crop of each channel
-  from the map, so a map that also rotates or flips a channel stops the extraction with an
-  error; use native registration for that movie instead.
+  `--donor-side` is ignored when you pass one. Tether splits each channel with the map's
+  rotation, flip and crop, in that order. A movie whose frames cannot hold that geometry, for
+  example one turned by 90 degrees against the map, stops the extraction with an error that
+  names the movie's frame size and the map's geometry.
 - **A saved Tether map:** make a map once from a bead slide with
   `tether map create beads.tif -o beads.npz`. In the application, use **Calibration → Make
   channel map…**. Then add `--map beads.npz` to extract each later movie with it. The map
