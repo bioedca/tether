@@ -1105,7 +1105,7 @@ def run_batch(
         starts and ends (#648). It changes nothing that is recorded.
     _extract, _correct, _idealize
         Injectable stage runners (test seams). Default to
-        [`tether.project.extract.extract_movie`][], [`run_correct_stage`][], and
+        [`tether.project.extract.extract_movie`][], `run_correct_stage`, and
         [`tether.project.idealize.idealize_molecules`][] respectively.
     _probe
         Injectable startup-liveness probe (test seam) taking the ``supervision`` and

@@ -331,7 +331,7 @@ def export_molecule_table_csv(
 ) -> ExportResult:
     """Export one CSV row per molecule (the ``/molecules`` scalars + derived E).
 
-    Columns are [`MOLECULE_TABLE_COLUMNS`][]. Each row carries the stored
+    Columns are `MOLECULE_TABLE_COLUMNS`. Each row carries the stored
     per-molecule fields (identity, condition, correction factors α/γ/δ, photobleach
     frames, frame range, curation label, category, ML ``quality_class``, tags) plus a
     derived apparent-E summary — mean/median of ``A / (D + A)`` over the molecule's

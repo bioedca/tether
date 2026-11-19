@@ -290,7 +290,7 @@ def train_portable_model(
     condition_id:
         The condition this model belongs to (its identity across videos/files).
     hyperparams:
-        Override [`tether.ml.gbranker.DEFAULT_HYPERPARAMS`][].
+        Override `tether.ml.gbranker.DEFAULT_HYPERPARAMS`.
     sample_weight:
         Optional per-row training weights (the §7.5 cold-start label weighting) forwarded to
         [`tether.ml.gbranker.train_quality_ranker`][]; ``None`` fits at unit weight.

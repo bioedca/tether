@@ -79,6 +79,7 @@ plugins:
             docstring_style: numpy
             scoped_crossrefs: true
             show_if_no_docstring: true
+            filters: public
             show_root_heading: true
             show_root_full_path: true
             show_source: false

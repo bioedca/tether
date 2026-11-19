@@ -31,6 +31,9 @@ _REPO = Path(__file__).resolve().parents[1]
 _SRC = _REPO / "src"
 _API = _REPO / "docs" / "api"
 _BLOCK_RE = re.compile(r"^::: (\S+)\s*$", re.MULTILINE)
+#: Text the generator does not run: an HTML comment, or a fenced block at the root.
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.DOTALL | re.MULTILINE)
 _SUBPACKAGES = (
     "analysis",
     "fret",
@@ -61,7 +64,9 @@ def _public_modules(subpackage: str) -> list[str]:
 
 
 def _blocks(page: Path) -> list[str]:
-    return _BLOCK_RE.findall(page.read_text(encoding="utf-8"))
+    """The ``:::`` blocks the generator renders: one in a comment or a fence does not count."""
+    text = page.read_text(encoding="utf-8")
+    return _BLOCK_RE.findall(_FENCE_RE.sub("", _COMMENT_RE.sub("", text)))
 
 
 def _module_exists(dotted: str) -> bool:
@@ -148,6 +153,19 @@ def test_the_module_walk_sees_the_package() -> None:
     assert not any("._" in module for sub in _SUBPACKAGES for module in _public_modules(sub))
 
 
+def test_a_block_in_a_comment_or_a_fence_does_not_count(tmp_path: Path) -> None:
+    """A block the generator skips must not satisfy the coverage tests above."""
+    page = tmp_path / "page.md"
+    page.write_text(
+        "::: tether.io.movie\n\n"
+        "<!--\n::: tether.services.maps\n-->\n\n"
+        "```text\n::: tether.analysis.histogram\n```\n\n"
+        "~~~\n::: tether.ml.deep\n~~~\n",
+        encoding="utf-8",
+    )
+    assert _blocks(page) == ["tether.io.movie"]
+
+
 def test_every_api_page_is_in_the_api_reference_section() -> None:
     pages = sorted(f"api/{page.name}" for page in _API.glob("*.md"))
     assert sorted(_api_section()) == pages
@@ -171,6 +189,8 @@ def test_the_handler_reads_the_source_without_importing_it() -> None:
     assert options["docstring_style"] == "numpy"
     assert options["scoped_crossrefs"] is True
     assert options["show_if_no_docstring"] is True
+    # Only the names in `__all__` (or, with no `__all__`, the public ones), as the overview says.
+    assert options["filters"] == "public"
     assert "inventories" not in python, "ADR-0111: the build fetches nothing from the network"
 
 
