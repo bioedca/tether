@@ -198,7 +198,7 @@ Rendering constants reproduced exactly as module defaults: `DEFAULT_TDP_NSKIP = 
 stores the **raw, unsmoothed** histogram — tMAVEN's `gaussian_filter` smoothing and
 `LogNorm` log-normalization are display-only, applied at render time. Tether's
 `render_transition_density` applies a log color scale by default (`color_scale="log"`,
-#556). The scale is zero-safe: an empty bin gets the floor color of the color map, not
+\#556). The scale is zero-safe: an empty bin gets the floor color of the color map, not
 `-inf`. The floor is one decade below the smallest non-empty bin, so the rarest transition
 stays visible. The scale changes only the picture, not the stored counts, and it is not
 part of the figure parity gate.
@@ -331,7 +331,7 @@ pins the four ported constants; hand-checked `empirical_transition_probability` 
 (`P(0→1) = 1/3`, self-pair `2/3`, gap-successor exclusion, undefined → `None`); density
 integrates to 1 and empty/out-of-range paths stay all-zeros, never NaN; KDE present with
 ≥ 2 distinct probabilities and `None` on identical values; the project-level path enforces fresh-only
-+ rejected-exclusion + `molecule_keys ∩ fresh` and reproduces the pure-core counts.
+\+ rejected-exclusion + `molecule_keys ∩ fresh` and reproduces the pure-core counts.
 [`tests/test_plot_export.py::test_render_transition_prob`](https://github.com/bioedca/tether/blob/main/tests/test_plot_export.py) exercises the render + vector/PNG
 export round-trip. Live, in [`tests/test_analysis_plots_sidecar.py`](https://github.com/bioedca/tether/blob/main/tests/test_analysis_plots_sidecar.py): tMAVEN's `tm_hist` on a per-trace
 "vb GMM + vb HMM" fit of the 281-molecule SMD against Tether on the consensus model, for six

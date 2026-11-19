@@ -190,7 +190,7 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 18.4
+long_share = 18.1
 semicolons = 19
 long_paragraphs = 0
 retired = 6
@@ -386,14 +386,14 @@ retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 16.9
-semicolons = 2
+long_share = 17.2
+semicolons = 3
 long_paragraphs = 2
 retired = 0
 
 [pages."docs/maintainers/mutation-testing.md"]
 kind = "descriptive"
-long_share = 6.7
+long_share = 8.0
 semicolons = 2
 long_paragraphs = 1
 retired = 0
