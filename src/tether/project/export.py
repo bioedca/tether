@@ -623,11 +623,12 @@ def _copy_idealization(
 
 
 #: Compound-dataset fields that store a **person's name** (#620). The curator who
-#: labeled a molecule (``/labels`` ``labeler``) and who re-keyed or merged a condition
-#: (``/settings/condition_audit`` ``labeler``) are the two stores today; a field added
-#: later that records a person (an approver, a reviewer) must be added here, and
-#: ``tests/test_export_subset_aliases.py`` fails until it is.
-USER_NAME_FIELDS: frozenset[str] = frozenset({"labeler"})
+#: labeled a molecule (``/labels`` ``labeler``), who re-keyed or merged a condition
+#: (``/settings/condition_audit`` ``labeler``), and who took over or lost a project lock
+#: (``/settings/lock_takeovers`` ``holder_user`` and ``ousted_user``, #626) are the stores
+#: today; a field added later that records a person (an approver, a reviewer) must be
+#: added here, and ``tests/test_export_subset_aliases.py`` fails until it is.
+USER_NAME_FIELDS: frozenset[str] = frozenset({"labeler", "holder_user", "ousted_user"})
 
 #: Attributes that store a **full file path** (#620). A path can name the user (a home
 #: folder), so with ``curator_alias`` the copy keeps only the file name. Today this is the
@@ -916,8 +917,8 @@ def export_subset_tether(
     before staging). A ``<out_path>.provenance.json`` sidecar is written and the same
     provenance is stamped into the subset's root attributes.
 
-    Copy for sharing (#620). The ``/labels`` rows and the condition audit log record
-    the curator's user name (by default the operating-system login). With
+    Copy for sharing (#620). The ``/labels`` rows, the condition audit log and the
+    lock takeover log record the user name (by default the operating-system login). With
     ``curator_alias`` set, every stored user name ([`USER_NAME_FIELDS`][]) is
     replaced by ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first
     met, so one person keeps one alias and multi-curator analysis still works. A full

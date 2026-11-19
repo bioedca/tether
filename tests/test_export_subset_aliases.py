@@ -50,6 +50,7 @@ _PATH_ATTR = re.compile(r"path|dir|folder|home")
 
 #: A folder name that a byte search cannot match by chance.
 _HOME = "dana-pq9-home"
+CAROL = "carol-vb2-curator"
 
 
 def _state_matrix() -> np.ndarray:
@@ -313,10 +314,12 @@ def test_every_field_that_names_a_person_is_aliased(tmp_path):
     """Guard: a compound field that records a person must be in USER_NAME_FIELDS.
 
     Scans the schema's table dtypes, the audit-log dtype, and every compound dataset of
-    a populated store, so a later approver or reviewer field fails here until the alias
-    option covers it (the #890 plan change: no approver name in the copy).
+    a populated store (with a lock takeover log, which is written lazily), so a later
+    approver or reviewer field fails here until the alias option covers it (the #890
+    plan change: no approver name in the copy).
     """
     project, _ = _source(tmp_path)
+    _record_takeovers(project.path)  # written lazily, so the scan must see one
     dtypes = [getattr(schema, n) for n in dir(schema) if n.endswith("_DTYPE") and n.isupper()] + [
         C._audit_dtype()
     ]
@@ -399,3 +402,44 @@ def test_every_attribute_that_stores_a_path_is_shortened(tmp_path):
     path_attrs = {name for name in names if _PATH_ATTR.search(name)}
     assert "artifact_path" in path_attrs  # the scan sees the model path
     assert path_attrs <= PATH_ATTRS
+
+
+def _record_takeovers(project_path) -> None:
+    """A take-over of Carol's lock by Bob, then a recovery of a corrupt lock by Bob."""
+    from tether.project.lock import LockInfo
+    from tether.project.lock_takeovers import record_takeover
+
+    def info(user: str) -> LockInfo:
+        return LockInfo(
+            host="lab-pc", user=user, pid=7, timestamp="2026-01-02T03:04:05+00:00", nonce="n"
+        )
+
+    record_takeover(project_path, "take_over", info(BOB), info(CAROL))
+    record_takeover(project_path, "recover", info(BOB), None)
+
+
+def _takeovers(path) -> list[tuple[str, str]]:
+    from tether.project.lock_takeovers import read_takeovers
+
+    rows = read_takeovers(path)
+    return [(to_str(r["holder_user"]), to_str(r["ousted_user"])) for r in rows]
+
+
+def test_lock_takeover_names_are_aliased(tmp_path):
+    """The lock takeover log names the users; one person keeps one alias across tables."""
+    project, _ = _source(tmp_path)
+    _record_takeovers(project.path)
+    plain = tmp_path / "plain.tether"
+    shared = tmp_path / "shared.tether"
+
+    export_subset_tether(project, plain, include_rejected=True)
+    result = export_subset_tether(project, shared, include_rejected=True, curator_alias="curator")
+
+    # Labels give alice 1, bob 2, the OS login 3; then the audit log, then the takeovers.
+    assert _takeovers(shared) == [("curator-2", "curator-4"), ("curator-2", "")]
+    assert _takeovers(project.path) == [(BOB, CAROL), (BOB, "")]
+    assert CAROL.encode() in plain.read_bytes()  # the search can see the name
+    for name in (ALICE.encode(), BOB.encode(), CAROL.encode()):
+        assert name not in shared.read_bytes()
+    params = json.loads(result.provenance_path.read_text(encoding="utf-8"))["parameters"]
+    assert params["n_aliased_names"] == 4

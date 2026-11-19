@@ -362,15 +362,17 @@ row counts consistent, both patch channels present) **before** anything is writt
 | Raw **and** background traces, when `include_raw=False` | They ride as a set of four. Because `corrected = raw − background` exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too |
 | Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the provenance file's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
-**User names (`curator_alias`).** A project records a person's user name in two places:
-the `labeler` of each `/labels` row and the `labeler` of each `/settings/condition_audit`
-row (a condition re-key or merge). By default this is the operating-system login. The
-list of name fields is `tether.project.export.USER_NAME_FIELDS`.
+**User names (`curator_alias`).** A project records a person's user name in three places:
+the `labeler` of each `/labels` row, the `labeler` of each `/settings/condition_audit`
+row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
+`/settings/lock_takeovers` row (a lock that was recovered or taken over). By default this
+is the operating-system login. The list of name fields is
+`tether.project.export.USER_NAME_FIELDS`.
 
 | `curator_alias` | Result |
 |---|---|
 | `None` (default) | The names are copied as they are. The output is the same as before the option existed |
-| A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the `/labels` rows in store order, then the audit log. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that contains a name in the source is skipped (so a copy whose names are already `curator-1`, … never gets `curator-10`), and a prefix that contains a name in the source raises `ValueError`. An empty `labeler` stays empty. The source project does not change |
+| A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the `/labels` rows in store order, then the `/settings` logs. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that contains a name in the source is skipped (so a copy whose names are already `curator-1`, … never gets `curator-10`), and a prefix that contains a name in the source raises `ValueError`. An empty name stays empty. The source project does not change |
 
 A path can name the user too, for example a model file in a home folder. With the option,
 each path in `tether.project.export.PATH_ATTRS` keeps only its file name. Today that is the
@@ -385,7 +387,8 @@ A blank prefix raises `ValueError`.
 The option does **not** remove `source_filename` or `tether_subset_of`. They are file
 names, not paths, and they are the origin record of each molecule. A file name can
 identify a sample, so read them before you share the copy. Free text, such as the `reason`
-of an audit row, is also copied as it is.
+of an audit row, is also copied as it is. So are the computer names (`holder_host`,
+`ousted_host`) of a lock takeover row.
 
 **Embedded provenance.** Besides the provenance file, the subset stamps four root attributes
 (readable with `h5py`), and two more with `curator_alias`:
