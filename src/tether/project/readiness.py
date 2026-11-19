@@ -99,6 +99,10 @@ _NODE_STAGE = {
 #: The stage that the job of each service command (ADR-0100) works on.
 _COMMAND_STAGE = {"extract": "traces", "batch": "traces", "idealize": "fits", "map": "map"}
 
+#: The ``nstates_selected_by`` of a fit imported from standalone tMAVEN (#367 handoff).
+_IMPORTED = "imported"
+_REFIT_ACTION = "refit the stale models (tether idealize PROJECT --stale-only)"
+
 #: What to do next in each correction state of G03; ``""`` where nothing is left to do.
 _CORRECTION_ACTIONS = {
     "APPARENT_REVIEW": "finish the initial curation, then confirm the bleedthrough factor α",
@@ -263,18 +267,31 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def _store_facts(path: Path) -> tuple[bool, int, int]:
-    """Whether the project is an analysis-only import, and its movies with a map (and low)."""
+def _text(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+def _store_facts(path: Path) -> tuple[bool, int, int, frozenset[str]]:
+    """Read the analysis-only flag, the movies with a map (and low), and the imported fits.
+
+    A fit imported from standalone tMAVEN is one ``--stale-only`` never refits.
+    """
     import h5py  # noqa: PLC0415
 
     with h5py.File(path, "r") as f:
         analysis_only = "analysis_only" in f["settings"]
         calibration = f["calibration"]
         rows = f["movies"]["table"].fields("calibration_id")[:]
-        ids = [v.decode("utf-8") if isinstance(v, bytes) else str(v) for v in rows]
+        ids = [_text(v) for v in rows]
         mapped = [i for i in ids if i and i in calibration]
         low = sum(bool(calibration[i].attrs.get("low_confidence", False)) for i in set(mapped))
-    return analysis_only, len(mapped), low
+        models = f.get("idealization")
+        imported = frozenset(
+            name
+            for name in (models if models is not None else ())
+            if _text(models[name].attrs.get("nstates_selected_by", "")) == _IMPORTED
+        )
+    return analysis_only, len(mapped), low, imported
 
 
 def _prepare_stages(
@@ -341,18 +358,24 @@ def _corrections_stage(status: CorrectionStatus) -> tuple[StageState, str, str]:
     return StageState.IN_PROGRESS, detail, action
 
 
-def _fits_stage(summary: ProjectSummary) -> tuple[StageState, str, str]:
+def _fits_stage(summary: ProjectSummary, imported: frozenset[str]) -> tuple[StageState, str, str]:
     models = summary.idealizations
     if not models:
         return StageState.NOT_STARTED, "no fit", "fit the molecules (tether idealize PROJECT)"
     detail = _plural(len(models), "model")
-    if any(m.stale for m in models):
-        return (
-            StageState.STALE,
-            detail,
-            "refit the stale models (tether idealize PROJECT --stale-only)",
+    stale = [m.name for m in models if m.stale]
+    if not stale:
+        return StageState.READY, detail, ""
+    actions = []
+    if any(name not in imported for name in stale):
+        actions.append(_REFIT_ACTION)
+    from_tmaven = [name for name in stale if name in imported]
+    if from_tmaven:
+        actions.append(
+            f"hand the molecules of {', '.join(from_tmaven)} to tMAVEN again and import "
+            "the new fit (--stale-only never refits a fit imported from tMAVEN)"
         )
-    return StageState.READY, detail, ""
+    return StageState.STALE, detail, ", then ".join(actions)
 
 
 def _job_status(job: JobRecord) -> JobStatus:
@@ -465,7 +488,7 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
         raise ProjectReadinessError(str(exc)) from exc
     store = Path(path)
     try:
-        analysis_only, n_mapped, n_low = _store_facts(store)
+        analysis_only, n_mapped, n_low, imported = _store_facts(store)
         correction = correction_states.read_correction_state(store)
         finished = any(
             t.event is correction_states.CorrectionEvent.FINISH_INITIAL_CURATION
@@ -505,7 +528,7 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
     computed = _prepare_stages(summary, analysis_only, n_mapped, n_low)
     computed["curation"] = _curation_stage(summary, finished)
     computed["corrections"] = _corrections_stage(correction)
-    computed["fits"] = _fits_stage(summary)
+    computed["fits"] = _fits_stage(summary, imported)
     stale_stages = {s.stage for s in stale}
     running = {j.stage for j in job_records if j.state == "running"}
     stages: list[StageReadiness] = []

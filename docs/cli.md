@@ -862,6 +862,10 @@ The next step is, in this order: a failed or interrupted job that no later job o
 command finished, else waiting for a running job, else the first stale stage, else the first
 stage that is not ready. A stage that is not available is never the next step.
 
+The step for a stale fit is `tether idealize PROJECT --stale-only`, except for a fit imported
+from standalone tMAVEN, which that command never refits: for one, the step is to hand its
+molecules to tMAVEN again and import the new fit.
+
 ```console
 $ tether status out/movie_010.tether
 out/movie_010.tether

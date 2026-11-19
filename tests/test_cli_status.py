@@ -177,6 +177,21 @@ def test_a_project_with_a_stale_fit(tmp_path: Path, capsys) -> None:
     assert fresh.stale == ()
 
 
+def test_a_stale_fit_imported_from_tmaven_is_handed_back_not_refit(tmp_path: Path) -> None:
+    import h5py
+
+    path = _store(tmp_path, stale=True)
+    with h5py.File(path, "r+") as f:
+        f["idealization"]["vbconhmm"].attrs["nstates_selected_by"] = "imported"
+    r = rd.read_project_readiness(path)
+    fits = r.stage("fits")
+    assert fits.state is rd.StageState.STALE
+    # ``--stale-only`` skips an imported fit, so it is never the step that finishes one.
+    assert "--stale-only" not in fits.action.replace("--stale-only never", "")
+    assert fits.action.startswith("hand the molecules of vbconhmm to tMAVEN again")
+    assert r.next_step.action == fits.action
+
+
 def test_a_project_with_an_interrupted_job(tmp_path: Path, capsys) -> None:
     path = _store(tmp_path)
     project = Project(path)
