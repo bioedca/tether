@@ -225,6 +225,25 @@ def test_several_series_give_one_table_with_a_series_column(results, tmp_path, k
     _assert_table(columns, rows[n_wt:], _expected(kind, mut))
 
 
+def test_the_tables_are_the_inputs_as_drawn_not_as_changed_later(results, tmp_path):
+    wt, mut = results["h1"]
+    drawn = {"counts": np.array(wt.counts, copy=True)}
+    series = [("WT", wt)]
+    fig = pe.render_histogram1d(series)
+    series[0] = ("mutant", mut)  # replaced after drawing
+    series.append(("extra", mut))  # and a series the figure never drew
+    in_place = isinstance(wt.counts, np.ndarray) and wt.counts.flags.writeable
+    try:
+        if in_place:
+            wt.counts[...] = 0  # and the drawn result changed in place
+        _, columns, rows = _read(_export(fig, tmp_path / "later").data_paths["data"])
+    finally:
+        if in_place:
+            wt.counts[...] = drawn["counts"]  # the module fixture is shared
+    assert set(_text(columns, rows, "series")) == {"WT"}
+    _assert_table(columns, rows, _bins(wt.bin_edges, drawn["counts"]))
+
+
 def test_a_one_series_sequence_names_its_series(results, tmp_path):
     out = _export(pe.render_histogram1d([("WT", results["h1"][0])]), tmp_path / "one")
     _, columns, rows = _read(out.data_paths["data"])

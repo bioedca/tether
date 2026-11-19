@@ -610,7 +610,8 @@ print(result.data_paths)         # {'data': PosixPath('figures/a1-histogram.csv'
 ```
 
 Each `render_*` helper records on the figure the result it drew. The tables come from that
-result, so they are the values plotted and not a second computation. A figure you drew yourself carries no
+result, so they are the values plotted and not a second computation. The record is a copy made
+when the figure is drawn. A result you change later does not change the tables. A figure you drew yourself carries no
 such record, and `data_csv=True` raises `ValueError` before it writes any file.
 `tether.analysis.plot_data` builds and writes the tables.
 

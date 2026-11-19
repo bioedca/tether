@@ -50,6 +50,7 @@ stays Matplotlib-free.
 
 from __future__ import annotations
 
+import copy
 import functools
 import inspect
 import json
@@ -330,7 +331,9 @@ def _records_plotted(render: Callable[..., Figure]) -> Callable[..., Figure]:
 
     The record is the data argument as given (one result or its series) and the
     companions the caller passed, so the data tables of `export_figure` are the values
-    plotted rather than a second computation of them.
+    plotted rather than a second computation of them. Both are deep copies taken when
+    the figure is drawn: a series list or result the caller changes afterwards does not
+    change the tables, which always match the figure.
     """
     signature = inspect.signature(render)
     data_arg = next(iter(signature.parameters))
@@ -339,8 +342,9 @@ def _records_plotted(render: Callable[..., Figure]) -> Callable[..., Figure]:
     def wrapper(*args: Any, **kwargs: Any) -> Figure:
         figure = render(*args, **kwargs)
         bound = signature.bind(*args, **kwargs).arguments
-        companions = {k: bound[k] for k in _COMPANION_ARGS if k in bound}
-        setattr(figure, _PLOTTED_ATTR, PlottedData(render.__name__, bound[data_arg], companions))
+        companions = {k: copy.deepcopy(bound[k]) for k in _COMPANION_ARGS if k in bound}
+        data = copy.deepcopy(bound[data_arg])
+        setattr(figure, _PLOTTED_ATTR, PlottedData(render.__name__, data, companions))
         return figure
 
     return wrapper
