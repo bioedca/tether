@@ -331,3 +331,22 @@ def test_population_cloud_excludes_rejected_by_default(tmp_path) -> None:
     assert everyone.n_molecules == 3
     one = population_successive_frame_cloud(project, molecule_keys=keys[1:2], n_centroids=None)
     assert one.n_molecules == 1
+
+
+def test_population_cloud_provenance_names_the_molecules_it_used(tmp_path) -> None:
+    # Two selections with the same counts must not share one provenance (CodeRabbit, PR #1087):
+    # the record lists the keys that entered, in input order, so keys[molecule_index[r]] is the
+    # molecule of pair r.
+    project, keys = build_store_with_model(
+        tmp_path, _cycling_states(3, 10), MEANS, rejected=[True, False, False]
+    )
+    first = population_successive_frame_cloud(project, molecule_keys=keys[1:2], n_centroids=None)
+    second = population_successive_frame_cloud(project, molecule_keys=keys[2:3], n_centroids=None)
+    assert first.n_molecules == second.n_molecules == 1
+    assert first.n_pairs == second.n_pairs
+    assert first.provenance["parameters"]["molecule_keys"] == [str(keys[1])]
+    assert second.provenance["parameters"]["molecule_keys"] == [str(keys[2])]
+    everyone = population_successive_frame_cloud(project, n_centroids=None)
+    used = everyone.provenance["parameters"]["molecule_keys"]
+    assert used == [str(k) for k in keys[1:]]  # the rejected molecule is left out
+    assert {used[i] for i in everyone.pairs.molecule_index} == set(used)

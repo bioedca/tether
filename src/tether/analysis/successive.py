@@ -479,15 +479,19 @@ def population_successive_frame_cloud(
     counts the molecules that the filter kept, in store order. ``molecule_keys`` is the selection
     (ADR-0109): ``None`` for all, ``molecule_key`` strings, or a
     [`MoleculeSelection`][tether.analysis.selection.MoleculeSelection]; it is intersected with
-    the curation filter. The other parameters go to
+    the curation filter. The provenance records the ``molecule_key`` of every molecule that
+    entered, in that same order, so ``provenance["parameters"]["molecule_keys"][i]`` is molecule
+    ``i`` of ``molecule_index``. The other parameters go to
     [`successive_frame_cloud`][tether.analysis.successive.successive_frame_cloud].
     """
-    from tether.analysis._store import windowed_channels
+    from tether.analysis._store import windowed_channels_with_keys
     from tether.fret.efficiency import apparent_fret
 
-    channels = windowed_channels(project, molecule_keys, intensity_quantity, include_rejected)
+    channels = windowed_channels_with_keys(
+        project, molecule_keys, intensity_quantity, include_rejected
+    )
     cloud = successive_frame_cloud(
-        [apparent_fret(donor, acceptor) for donor, acceptor in channels],
+        [apparent_fret(donor, acceptor) for _key, donor, acceptor in channels],
         grid_points=grid_points,
         value_range=value_range,
         bandwidth=bandwidth,
@@ -501,6 +505,7 @@ def population_successive_frame_cloud(
         {
             "intensity_quantity": intensity_quantity,
             "include_rejected": bool(include_rejected),
+            "molecule_keys": [str(key) for key, _donor, _acceptor in channels],
         }
     )
     return cloud
