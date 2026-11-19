@@ -799,6 +799,23 @@ class TetherShell:
         self._window.setCentralWidget(self._section_stack)
         self._browser_dock = dock_widgets[_DEFAULT_SECTION, "browser"]
         self._show_section(_DEFAULT_SECTION)
+        # The message log (#627): every status message, with its time and level, in a
+        # Messages dock of the whole window (not of a section), hidden by default and built
+        # before the default layout is kept so View -> Reset layout hides it again. The
+        # same lines go to a rotating log file; a warning stays in the status bar until
+        # dismissed.
+        from tether.gui.messages import MessageCenter, MessagesPanel
+
+        self._messages = MessageCenter(self._window)
+        self._messages_panel = MessagesPanel(self._messages)
+        self._messages_dock = QtWidgets.QDockWidget("Messages", self._window)
+        self._messages_dock.setObjectName("messages")
+        self._messages_dock.setWidget(self._messages_panel.widget)
+        self._messages_dock.toggleViewAction().setText("&Messages")
+        self._window.addDockWidget(
+            getattr(QtCore.Qt.DockWidgetArea, DockArea.BOTTOM.qt_name), self._messages_dock
+        )
+        self._messages_dock.hide()
         # The default layout, kept before a stored one is restored, for View -> Reset
         # layout (#628). A window never shown reports Qt's placeholder size and takes its
         # real one from its size hint on the first show; adjustSize applies that sizing now,
@@ -945,6 +962,7 @@ class TetherShell:
             action.triggered.connect(lambda _checked=False, s=spec.id: self.set_section(s))
             self._section_actions[spec.id] = action
         self._section_actions[self._section].setChecked(True)
+        self._view_menu.addAction(self._messages_dock.toggleViewAction())
         # View -> Reset layout (#628): the default window size and dock positions, and
         # the stored layout forgotten, so the next launch starts from the default too.
         self._view_menu.addSeparator()
@@ -1004,7 +1022,7 @@ class TetherShell:
         # The stored layout, last: every dock built at startup exists by now (#628).
         self._restore_layout()
 
-        self._window.statusBar().showMessage("Ready — Space accept · Backspace reject")
+        self._messages.post("Ready — Space accept · Backspace reject")
         self._sync_start_page()
 
     # --- accessors -----------------------------------------------------------
@@ -1454,8 +1472,28 @@ class TetherShell:
 
     @property
     def status_message(self) -> str:
-        """The message currently displayed in the window's status bar."""
-        return self._window.statusBar().currentMessage()
+        """The latest status message (#627).
+
+        The status bar shows it, unless the bar holds an earlier warning or error until the
+        user dismisses it; [`messages`][tether.gui.shell.TetherShell.messages] has both.
+        """
+        latest = self._messages.latest
+        return "" if latest is None else latest.text
+
+    @property
+    def messages(self) -> Any:
+        """The [`MessageCenter`][tether.gui.messages.MessageCenter] of the window (#627)."""
+        return self._messages
+
+    @property
+    def messages_panel(self) -> Any:
+        """The [`MessagesPanel`][tether.gui.messages.MessagesPanel] in the Messages dock."""
+        return self._messages_panel
+
+    @property
+    def messages_dock(self) -> QtWidgets.QDockWidget:
+        """The Messages dock (**View → Messages**), hidden by default."""
+        return self._messages_dock
 
     # --- molecules -----------------------------------------------------------
 
@@ -1551,8 +1589,10 @@ class TetherShell:
         try:
             write()
         except (OSError, ValueError) as exc:
+            from tether.gui.messages import Level
+
             self._preferences_error = f"Could not save preferences: {exc}"
-            self._window.statusBar().showMessage(self._preferences_error)
+            self._messages.post(self._preferences_error, Level.ERROR)
             return False
         return True
 
@@ -3179,11 +3219,13 @@ class TetherShell:
         new_row = min(max(self._molecule_list.currentRow() + delta, 0), len(self._traces) - 1)
         self._molecule_list.setCurrentRow(new_row)
 
-    def _status(self, message: str) -> None:
+    def _status(self, message: str, level: Any = None) -> None:
+        # Every message goes through the message log (#627): the panel, the log file and
+        # the status bar. ``level`` (a messages.Level) defaults to the one the text gives.
         if self._preferences_error is not None:
             message = f"{message} ({self._preferences_error})"
             self._preferences_error = None
-        self._window.statusBar().showMessage(message)
+        self._messages.post(message, level)
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -3242,6 +3284,7 @@ class TetherShell:
         # to a closed shell, and its worker stops once the command ends.
         self._channel_map.close()
         self._busy_indicator.stop()
+        self._messages.close()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
         if session_project is not None and future is not None and not future.done():

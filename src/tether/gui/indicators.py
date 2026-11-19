@@ -18,8 +18,9 @@ change it sends to every widget.
   and the text percentage stays beside them.
 
 The task service ([`TaskService`][tether.gui.task_service.TaskService], #343) starts and
-stops the busy indicator for each background task, the one-click idealize first. The progress
-indicator (#627) puts `ProgressRow` in front of the other tasks.
+stops the busy indicator for each background task, the one-click idealize first. For a task
+that reports its progress the indicator swaps the mark for its `ProgressRow`, and for a task
+that can be cancelled it shows a **Cancel** button (#627).
 
 Qt is imported when one of the three widget classes is first used, so importing this
 module costs no Qt, matching the rest of [`tether.gui`][].
@@ -214,7 +215,13 @@ def _widget_classes() -> dict[str, type]:
             painter.end()
 
     class BusyIndicator(QtWidgets.QWidget):
-        """The busy mark and the name of the running task; hidden while no task runs."""
+        """The busy mark and the name of the running task; hidden while no task runs.
+
+        A task that reports its progress shows a `ProgressRow` in place of the mark
+        ([`set_progress`][tether.gui.indicators.BusyIndicator.set_progress]), and a task that
+        can be cancelled a **Cancel** button
+        ([`offer_cancel`][tether.gui.indicators.BusyIndicator.offer_cancel]).
+        """
 
         def __init__(self, parent: Any = None) -> None:
             super().__init__(parent)
@@ -225,10 +232,52 @@ def _widget_classes() -> dict[str, type]:
             self._label = QtWidgets.QLabel(self)
             # The task name carries user data (a molecule key): never read it as markup.
             self._label.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+            self._progress = ProgressRow(self)
+            self._progress.setVisible(False)
+            self._cancel = QtWidgets.QToolButton(self)
+            self._cancel.setText("Cancel")
+            self._cancel.setVisible(False)
+            self._cancel.clicked.connect(self._on_cancel)
+            self._cancel_callback: Any = None
             layout.addWidget(self._mark)
+            layout.addWidget(self._progress)
             layout.addWidget(self._label)
+            layout.addWidget(self._cancel)
             self._task: str | None = None
             self.setVisible(False)
+
+        @property
+        def progress_row(self) -> ProgressRow:
+            """The `ProgressRow` shown for a task that reports its progress."""
+            return self._progress
+
+        @property
+        def cancel_button(self) -> QtWidgets.QToolButton:
+            """The **Cancel** button shown for a task that can be cancelled."""
+            return self._cancel
+
+        def offer_cancel(self, callback: Any) -> None:
+            """Show **Cancel** for the running task; a press calls ``callback()`` once."""
+            self._cancel_callback = callback
+            self._cancel.setText("Cancel")
+            self._cancel.setEnabled(True)
+            self._cancel.setAccessibleName(f"Cancel {self._task or 'the task'}")
+            self._cancel.setVisible(True)
+
+        def set_progress(self, fraction: float) -> None:
+            """Show ``fraction`` (0 to 1) of the running task in the progress row."""
+            self._mark.animate(False)
+            self._mark.setVisible(False)
+            self._progress.setAccessibleName(self._task or "")
+            self._progress.setValue(round(100 * min(1.0, max(0.0, fraction))))
+            self._progress.setVisible(True)
+
+        def _on_cancel(self) -> None:
+            callback, self._cancel_callback = self._cancel_callback, None
+            self._cancel.setEnabled(False)
+            self._cancel.setText("Cancelling…")
+            if callback is not None:
+                callback()
 
         @property
         def mark(self) -> BusyMark:
@@ -265,6 +314,11 @@ def _widget_classes() -> dict[str, type]:
             """Hide the indicator when the task stops, for any reason."""
             self._task = None
             self._mark.animate(False)
+            self._mark.setVisible(True)
+            self._progress.setVisible(False)
+            self._progress.setValue(0)
+            self._cancel.setVisible(False)
+            self._cancel_callback = None
             self._label.clear()
             self._mark.setAccessibleName("")
             self.setVisible(False)

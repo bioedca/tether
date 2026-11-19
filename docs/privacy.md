@@ -7,7 +7,7 @@ description: "What Tether and this documentation site collect and do not collect
 **Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
 needed to read it or to rely on it.
 
-**Effective date: 17 November 2026**
+**Effective date: 19 November 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the
 **Tether desktop application** and this **documentation website**
@@ -78,6 +78,14 @@ you allow it** (below).
   and the application forgets these things.
   [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)
   lists the folder on each system.
+- **The message log.** The desktop application writes the messages its status bar shows to a
+  log file, `tether.log`, in your own application data folder, so that you can read them
+  again or copy them into a bug report. Each line holds the time, the level and the text of
+  one message. The log holds no trace data and no file contents, but a message that shows a
+  file path, such as the project you opened, keeps that path. It keeps at most about 4 MB in
+  four files. It is **never transmitted by Tether**; delete the folder and it is gone.
+  [Troubleshooting](troubleshooting.md#i-missed-a-message-in-the-status-bar) lists the folder
+  on each system, and **Help → Open log folder** opens it.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
   These run locally, and Tether does not configure them to collect or transmit your data.

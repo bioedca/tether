@@ -46,7 +46,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from tether.gui import app_settings
+from tether.gui import app_settings, messages
 from tether.gui.update_check import RELEASES_PAGE, Version, check_for_update
 
 __all__ = [
@@ -256,8 +256,8 @@ def _make_notice_class() -> type:
                 # The session still follows the answer (self._session_answer); only
                 # remembering it failed.
                 _LOG.info("could not store the update-check answer: %s", exc)
-                self._window.statusBar().showMessage(
-                    "Could not save the answer. It applies until Tether closes."
+                messages.post(
+                    self._window, "Could not save the answer. It applies until Tether closes."
                 )
 
         def _sync_action(self, state: app_settings.UpdateCheckState | None = None) -> None:
