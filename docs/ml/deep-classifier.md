@@ -197,7 +197,8 @@ two things:
 - **Frozen numbers.** The loss of each epoch, the score of each test range and the metrics equal the
   [committed golden file](https://github.com/bioedca/tether/blob/main/tests/golden/deep/pysmacks_classifier.json)
   within a relative limit measured in ten runs on GitHub runners. A deliberate change runs `python scripts/update_deep_golden.py` in the deep env
-  and pastes the old/new table, with a `Cause:` line, in the pull request (the rule of the
+  (with `TETHER_REFERENCE_DOWNLOAD=1` when the PySMACKS traces are not cached yet, or it stops
+  with exit 2) and pastes the old/new table, with a `Cause:` line, in the pull request (the rule of the
   self-drift suite, ADR-0080).
 - **Accuracy floor.** The area under the ROC curve on the test part must reach the floor, which
   sits below the scores of ten training seeds by three standard deviations of those scores. A
