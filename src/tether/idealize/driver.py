@@ -19,7 +19,7 @@ spawn a Qt app, so it runs headless under ``QT_QPA_PLATFORM=offscreen``.
 
 The sidecar interpreter is located via the ``sidecar_python`` argument, then the
 ``TETHER_SIDECAR_PYTHON`` environment variable, then the installer's sibling
-``envs/sidecar`` derived from [`sys.prefix`][] (ADR-0049/0051 — a shortcut or
+``envs/sidecar`` derived from `sys.prefix` (ADR-0049/0051 — a shortcut or
 ``PATH``-shim launch never runs the conda ``activate.d`` hook that exports the
 variable). There is still no hard-coded path: the last step resolves relative to the
 running interpreter, so any env built from ``sidecar/conda-lock.yml`` (with tMAVEN
@@ -311,7 +311,7 @@ def bundled_sidecar_python() -> Path | None:
     ``PATH`` shim or a ``.desktop`` entry (ADR-0051) never sees it and idealization
     would fail on an otherwise correct install.
 
-    Deriving the sibling from [`sys.prefix`][] covers every launch path without
+    Deriving the sibling from `sys.prefix` covers every launch path without
     relying on the shell. Returns ``None`` when the sibling is absent — a development
     checkout — so the caller still reports the actionable "set the env var" error
     rather than a confusing missing-path one.
@@ -366,7 +366,7 @@ def _sidecar_env() -> dict[str, str]:
 def _check_seed(seed: object) -> int | None:
     """Return ``seed`` as a plain ``int``, or ``None``; refuse anything else.
 
-    Only integer types pass: [`numbers.Integral`][], which holds ``int`` and
+    Only integer types pass: `numbers.Integral`, which holds ``int`` and
     the NumPy integer types, never ``bool`` (nor ``numpy.bool_``, which is not
     registered as integral). A float such as ``3.0`` is refused although it
     equals an integer (issue #839), and so is a string such as ``"3"``. The
@@ -599,7 +599,7 @@ def check_smd_opens(
     checksum, and the analysis windows tMAVEN read back. Raises [`SidecarError`][]
     if the interpreter is unset/missing, the launch fails, the load times out, or
     tMAVEN could not open the file. ``_run`` is an injectable subprocess launcher
-    (test seam), defaulting to [`subprocess.run`][].
+    (test seam), defaulting to `subprocess.run`.
     """
     py = resolve_sidecar_python(sidecar_python)
     smd_path = Path(smd_path)

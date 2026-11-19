@@ -170,7 +170,8 @@ _IDEALIZE_POLL_MS = 25
 _LOCK_RELEASE_RETRY_MS = 1000
 
 #: Upper bound (ms) on one wait before the shell judges a refused lock again (#626).
-#: A foreign holder can refresh while the shell waits, so the wait is re-armed.
+#: A foreign holder can refresh while the shell waits, so the wait is re-armed. A running
+#: holder on this computer has no due time and is judged again at this interval (#1123).
 _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
@@ -679,6 +680,9 @@ class TetherShell:
         self._trace_dock = TraceDock()
         # The path of the project load_project opened, or None (no project open).
         self._project_path: Path | None = None
+        # The intensity_quantity that open used, so a lock recovery reopens the same
+        # trace layer rather than load_project's default (#1097).
+        self._intensity_quantity = "corrected"
         self._start_page = StartPage(
             on_open=lambda: self._open_project_dialog(),
             on_tutorial=self.open_tutorial,
@@ -946,6 +950,25 @@ class TetherShell:
         self._view_menu.addSeparator()
         self._act_reset_layout = self._view_menu.addAction("&Reset layout")
         self._act_reset_layout.triggered.connect(self.reset_layout)
+
+        # View -> Trace colors (#636): the colour-blind-safe set is the default; the
+        # classic green and red set is the option. The choice is kept in the settings
+        # store (ADR-0123) and create_shell applies it at the next start.
+        self._trace_colors_menu = self._view_menu.addMenu("Trace &colors")
+        self._trace_colors_group = QtGui.QActionGroup(self._window)
+        self._trace_colors_actions: dict[str, Any] = {}
+        for value, label in (
+            ("safe", "Color-blind &safe (default)"),
+            ("classic", "&Classic green and red"),
+        ):
+            action = self._trace_colors_menu.addAction(label)
+            action.setCheckable(True)
+            action.setData(value)
+            self._trace_colors_group.addAction(action)
+            action.triggered.connect(lambda _checked=False, v=value: self.set_trace_colors(v))
+            self._trace_colors_actions[value] = action
+        self._trace_colors_menu.aboutToShow.connect(self._sync_trace_colors_menu)
+        self._sync_trace_colors_menu()
 
         # Help menu (#629): the installed version's documentation, the shortcut
         # cheat-sheet (the same action as Curation's), the log folder once a log
@@ -1355,13 +1378,33 @@ class TetherShell:
 
     @property
     def view_menu(self) -> QtWidgets.QMenu:
-        """The ``&View`` menu; its ``&Theme`` submenu selects System, Light or Dark."""
+        """The ``&View`` menu: ``&Theme`` (System, Light, Dark) and ``Trace &colors``."""
         return self._view_menu
 
     @property
     def theme_actions(self) -> dict[str, Any]:
         """The checkable **View → Theme** actions, by mode (``system``/``light``/``dark``)."""
         return dict(self._theme_actions)
+
+    @property
+    def trace_colors_actions(self) -> dict[str, Any]:
+        """The checkable **View → Trace colors** actions, by palette (``safe``/``classic``)."""
+        return dict(self._trace_colors_actions)
+
+    def set_trace_colors(self, name: str) -> None:
+        """Draw the traces in the palette ``name`` now and keep the choice for later starts.
+
+        The plots change at once. If the settings store cannot be written, the choice
+        still holds for this session and the status bar says it was not kept.
+        """
+        from tether.gui import app_settings, theme
+
+        theme.set_trace_palette(name)
+        self._sync_trace_colors_menu()
+        try:
+            app_settings.record_trace_colors(name)
+        except OSError as exc:
+            self._status(f"Trace colors changed for this session only; not saved: {exc}")
 
     @property
     def section_titles(self) -> list[QtWidgets.QLabel]:
@@ -1392,6 +1435,11 @@ class TetherShell:
         from tether.gui import theme
 
         self._theme_actions[theme.mode()].setChecked(True)
+
+    def _sync_trace_colors_menu(self) -> None:
+        from tether.gui import theme
+
+        self._trace_colors_actions[theme.trace_palette()].setChecked(True)
 
     @property
     def read_only_banner(self) -> QtWidgets.QLabel:
@@ -2017,6 +2065,7 @@ class TetherShell:
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
         self._movie_switcher.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
@@ -2060,12 +2109,19 @@ class TetherShell:
         action = None if recovery is None else recovery.action
         self._recover_button.setVisible(action is RecoveryAction.RECOVER)
         self._take_over_button.setVisible(action is RecoveryAction.TAKE_OVER)
-        if recovery is not None and recovery.available_at is not None:
+        if recovery is None:
+            return
+        if recovery.available_at is not None:
             from datetime import UTC, datetime
 
             wait_s = (recovery.available_at - datetime.now(UTC)).total_seconds()
             wait_ms = int(max(0.0, wait_s) * 1000) + 1000
             self._lock_recovery_timer.start(min(wait_ms, _LOCK_RECOVERY_RECHECK_MAX_MS))
+        elif recovery.holder_running:
+            # A running holder has no due time, but it can stop (or crash) at any
+            # moment; judge it again at the cap so Recover appears once it has (#1123).
+            # recover_lock() probes the process again before it takes anything.
+            self._lock_recovery_timer.start(_LOCK_RECOVERY_RECHECK_MAX_MS)
 
     def _recheck_lock_recovery(self) -> None:
         """Judge the refused lock again and refresh the banner and its actions."""
@@ -2094,8 +2150,10 @@ class TetherShell:
         The banner's one-click **Recover** (#626). It is available only when
         [`lock_recovery`][] reports
         [`RecoveryAction.RECOVER`][tether.project.lock.RecoveryAction]: the lock names
-        this computer and this user, and its process no longer runs. Returns the
-        reopened writable project, or ``None`` with a status message.
+        this computer and this user, and its process no longer runs. The reopen uses
+        the ``intensity_quantity`` of the open that was refused, so the traces under
+        curation keep their layer. Returns the reopened writable project, or ``None``
+        with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -2110,8 +2168,9 @@ class TetherShell:
         computer, another user or a corrupt lock, idle past the staleness timeout
         (PRD §11.2). ``confirmation`` is the typed text; ``None`` asks for it in a
         dialog that warns that the holder's unsaved work can be lost. The text must
-        equal the project file name. Returns the reopened writable project, or
-        ``None`` with a status message.
+        equal the project file name. The reopen uses the ``intensity_quantity`` of
+        the open that was refused, as [`recover_project_lock`][] does. Returns the
+        reopened writable project, or ``None`` with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -2149,8 +2208,9 @@ class TetherShell:
         except OSError as exc:
             self._status(f"{label} failed: {exc}")
             return None
-        # Re-run the open path so every write seam binds to the new session.
-        opened = self.load_project(path)
+        # Re-run the open path so every write seam binds to the new session, over the
+        # same trace layer the refused open showed (#1097).
+        opened = self.load_project(path, intensity_quantity=self._intensity_quantity)
         if opened is None or self._curation_project is None:
             # The reopen is not writable; give back the lock just taken. The release
             # is nonce-checked, so a session lock the reopen took and still holds is
@@ -3449,7 +3509,7 @@ def _applied_summary(applied: AppliedReconcile) -> str:
 
 
 class _StoreHandoff:
-    """Store-backed [`HandoffSeam`][] over [`tether.project.handoff`][].
+    """Store-backed `HandoffSeam` over [`tether.project.handoff`][].
 
     Binds one project + intensity quantity so all three legs use the same ``/traces``
     layer; see [`make_store_handoff`][]. Each op imports its ``handoff`` function
@@ -3535,7 +3595,7 @@ def make_store_handoff(
     model_name: str | None = None,
     overwrite: bool = False,
 ) -> HandoffSeam:
-    """Build the store-backed [`HandoffSeam`][] for a [`TetherShell`][].
+    """Build the store-backed `HandoffSeam` for a [`TetherShell`][].
 
     Binds one ``.tether`` project + intensity quantity across all three legs so the
     outbound SMD and the return-leg intensity match use the **same** ``/traces`` layer

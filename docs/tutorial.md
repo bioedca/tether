@@ -95,7 +95,7 @@ Opened tutorial.tether — 3 molecule(s)
 
 The list on the left holds three molecules, `mol-0`, `mol-1` and `mol-2`, with `mol-0`
 selected. The large panel shows the selected molecule's trace: on top, the donor intensity
-in green, the acceptor intensity in red and their total in gray; underneath, its apparent
+in green, the acceptor intensity in magenta and their total in gray; underneath, its apparent
 FRET efficiency in blue.
 
 ## 5. Look at each trace
@@ -110,14 +110,14 @@ Molecule mol-1 (2/3)
 
 Look at all three:
 
-- **`mol-0`**: green and red stay level for the first half, then **both jump up together**
+- **`mol-0`**: green and magenta stay level for the first half, then **both jump up together**
   and stay up. The blue trace sits near 0.5 the whole time.
-- **`mol-1`**: red starts high and green low, then halfway through they **swap**. The blue
+- **`mol-1`**: magenta starts high and green low, then halfway through they **swap**. The blue
   trace steps down once, from about 0.75 to about 0.25.
-- **`mol-2`**: green and red swap places three times, so the blue trace steps between about
+- **`mol-2`**: green and magenta swap places three times, so the blue trace steps between about
   0.25 and about 0.75 four times in all.
 
-In `mol-1` and `mol-2` the green and red traces mirror each other: when one goes up, the
+In `mol-1` and `mol-2` the green and magenta traces mirror each other: when one goes up, the
 other goes down. That is what a change in FRET looks like. In `mol-0` they move the same way
 at the same moment, which is a change in brightness, not in FRET, so this is the molecule
 you will set aside.
