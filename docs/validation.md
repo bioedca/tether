@@ -393,15 +393,15 @@ bounds (below); nothing pins `$.provisional` to its committed values.
 What the suite does still enforce against loosening is the *shape* of a tolerance block rather
 than the magnitude of any bound inside it, plus one ordering between two blocks:
 
-* Every block must carry exactly the four bound keys — checked by
+- Every block must carry exactly the four bound keys — checked by
   `test_load_frozen_tolerance_returns_the_four_bounds` for `$.tolerance` and by
   `test_per_method_tolerances_cover_their_own_measured_evidence` for each
   `$.tolerance_by_method` entry — so a bound cannot be loosened by deleting it. Deleting any
   one of the eight fails at least two tests.
-* The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
+- The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
   fails `test_load_frozen_tolerance_returns_the_four_bounds`. The per-method bounds carry no
   finiteness check: `$.tolerance_by_method.ebhmm.relative_elbo_max` set to infinity passes.
-* `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
+- `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
   below the default one, so it fails once `$.tolerance.state_count_min_fraction` is dropped to
   ebFRET's frozen `0.5249` or below (0.5249 and 0.40 fail; 0.5250 and 0.60 pass).
 
@@ -413,7 +413,6 @@ eight above — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/m
 `WIDENED`. `test_widening_any_one_frozen_bound_fails` widens each bound alone by 1e-4 and checks
 that it is reported. A deliberate re-freeze changes both copies in one pull request, under an ADR
 ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md)).
-
 
 **Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
 also assert a second bound, much tighter than the frozen default row: a state-mean difference of
