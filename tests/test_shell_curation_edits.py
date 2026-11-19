@@ -471,3 +471,22 @@ def test_a_return_leg_import_redraws_the_imported_windows(shell, tmp_path, monke
     assert [t.analysis_window for t in shell._traces] == [(5, 30), (12, 44), (10, 50)]
     shell.molecule_list.setCurrentRow(1)
     assert shell.trace_dock.analysis_window == (12, 44)
+
+
+def test_a_saved_window_whose_reread_fails_is_reported_as_saved(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.gui import shell as shell_mod
+
+    project, keys = _loaded(shell, tmp_path, windows=[(10, 50)] * 3)
+
+    def unreadable(path, molecule_keys):
+        raise OSError("disk went away")
+
+    monkeypatch.setattr(shell_mod, "stored_rows", unreadable)
+
+    _press(qtbot, shell, "Key_Equal")
+
+    assert _window(project, keys[0]) == (11, 50)
+    assert shell.status_message.startswith("Analysis window saved for")
+    assert "could not reread it: disk went away" in shell.status_message

@@ -3301,11 +3301,18 @@ class TetherShell:
         try:
             self._guard_session_write(project, nonce)
             write()
-            by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
         self._queue_open_histogram_refresh()
+        try:
+            by_row = self._show_stored_windows(project.path, (key,))
+        except Exception as exc:  # noqa: BLE001 - the write stands; say what is not shown
+            self._status(
+                f"Analysis window saved for {trace.name or key}, "
+                f"but the trace view could not reread it: {exc}"
+            )
+            return
         selected = by_row.get(row) or next(iter(by_row.values()))
         start, stop = selected.window
         self._status(f"{done} [{start}, {stop}) for {trace.name or key}")
