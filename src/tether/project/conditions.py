@@ -745,8 +745,8 @@ def rekey_condition(
     ------
     ValueError
         If ``from_condition_id`` is empty, ``to_key`` hashes back to it (a no-op
-        re-key), ``timestamp`` is not an offset-aware ISO-8601 string, or ``labeler``
-        or ``reason`` contains a NUL character. Nothing is written.
+        re-key), ``timestamp`` is not an offset-aware ISO-8601 string, or ``labeler``,
+        ``reason`` or ``timestamp`` contains a NUL character. Nothing is written.
     KeyError
         If no ``/molecules`` row carries ``from_condition_id`` (never a silent no-op).
     ConfirmationRequired
@@ -765,7 +765,8 @@ def rekey_condition(
     labeler = labeler if labeler is not None else default_labeler()
     timestamp = timestamp if timestamp is not None else _utc_now_iso()
     _validate_timestamp(timestamp)  # reject a bad stamp before it enters the audit log
-    _refuse_nul_audit_text(labeler=labeler, reason=reason)
+    # fromisoformat takes any one character as the date/time separator, NUL included
+    _refuse_nul_audit_text(labeler=labeler, reason=reason, timestamp=timestamp)
     path = Path(path)
 
     with h5py.File(path, "r+") as f:

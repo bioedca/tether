@@ -141,7 +141,8 @@ def _resolve_provenance(labeler: str | None, timestamp: str | None, reason: str)
     labeler = labeler if labeler is not None else default_labeler()
     timestamp = timestamp if timestamp is not None else _utc_now_iso()
     _validate_timestamp(timestamp)  # a bad stamp would be persisted forever
-    _refuse_nul_audit_text(labeler=labeler, reason=reason)  # h5py refuses it mid-append
+    # h5py refuses NUL mid-append; fromisoformat accepts it as the date/time separator
+    _refuse_nul_audit_text(labeler=labeler, reason=reason, timestamp=timestamp)
     return labeler, timestamp
 
 
@@ -300,7 +301,8 @@ def set_category(
         If ``category`` is empty (use [`clear_category`][]), is not in the
         condition's category list, the matched rows disagree on ``condition_id``,
         ``timestamp`` is not an offset-aware ISO-8601 string, or ``category``,
-        ``labeler`` or ``reason`` contains a NUL character. Nothing is written.
+        ``labeler``, ``reason`` or ``timestamp`` contains a NUL character. Nothing is
+        written.
     """
     if not isinstance(category, str):
         raise TypeError(f"category must be a string, got {type(category).__name__}")
@@ -511,8 +513,8 @@ def set_analysis_window(
         If ``start`` or ``stop`` is not an integer.
     ValueError
         If ``start >= stop``, a matched row has no valid frames, ``timestamp`` is
-        not an offset-aware ISO-8601 string, or ``labeler`` or ``reason`` contains a
-        NUL character. Nothing is written.
+        not an offset-aware ISO-8601 string, or ``labeler``, ``reason`` or
+        ``timestamp`` contains a NUL character. Nothing is written.
     """
     import numbers  # noqa: PLC0415
 

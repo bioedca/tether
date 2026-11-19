@@ -944,13 +944,23 @@ def test_copied_category_list_is_additive_data_schema_guard_stays_green(tmp_path
 # --- #1145: a failed audit append leaves the log as it was ---------------------
 
 
-@pytest.mark.parametrize("field", ["reason", "labeler"])
-def test_rekey_refuses_audit_text_with_nul_before_any_write(tmp_path: Path, field: str) -> None:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reason", "bad\x00note"),
+        ("labeler", "bad\x00note"),
+        # fromisoformat accepts NUL as the date/time separator, so the stamp needs the check
+        ("timestamp", "2026-11-14\x0012:00:00+00:00"),
+    ],
+)
+def test_rekey_refuses_audit_text_with_nul_before_any_write(
+    tmp_path: Path, field: str, value: str
+) -> None:
     """HDF5 vlen strings refuse NUL; the re-key says so before it moves a molecule (#1145)."""
     path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
     key = parse_filename(_FILE_A10).key
     with pytest.raises(ValueError, match=f"{field}.*NUL"):
-        C.rekey_condition(path, _BOGUS, key, **{field: "bad\x00note"})
+        C.rekey_condition(path, _BOGUS, key, **{field: value})
     assert C.read_condition_audit(path).shape[0] == 0
     assert _condition_id_of(path, "k0") == _BOGUS
 

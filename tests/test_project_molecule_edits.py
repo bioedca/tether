@@ -618,6 +618,15 @@ def test_a_window_edit_waits_for_the_feature_write(
         (lambda p: M.clear_category(p, "k0", reason="bad\x00note", timestamp=TS), "reason"),
         (lambda p: M.set_analysis_window(p, "k0", 10, 60, reason="x\x00", timestamp=TS), "reason"),
         (lambda p: M.reset_analysis_window(p, "k0", labeler="\x00", timestamp=TS), "labeler"),
+        # fromisoformat accepts NUL as the date/time separator, so the stamp needs the check
+        (
+            lambda p: M.set_category(p, "k0", "dynamic", timestamp=TS.replace("T", "\x00")),
+            "timestamp",
+        ),
+        (
+            lambda p: M.set_analysis_window(p, "k0", 10, 60, timestamp=TS.replace("T", "\x00")),
+            "timestamp",
+        ),
     ],
 )
 def test_audit_text_with_nul_is_refused_before_any_write(
