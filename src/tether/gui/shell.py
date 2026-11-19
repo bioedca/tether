@@ -879,6 +879,11 @@ class TetherShell:
         self._file_menu.insertMenu(self._act_close_project, self._recent_menu)
         self._recent_menu.aboutToShow.connect(self._sync_recent_menu)
         self._sync_recent_menu()
+        # Save as recipe (#899): the requests of the open project's completed jobs, as a
+        # recipe file that `tether run` runs again on a new copy of the inputs.
+        self._act_save_recipe = self._file_menu.addAction("Save as &recipe…")
+        self._act_save_recipe.triggered.connect(self._save_recipe_dialog)
+        self._act_save_recipe.setEnabled(False)
         self._file_menu.addSeparator()
         # The name written into new labels (#628). Shown in the status bar too, so a
         # user on a shared computer sees whose labels they are writing.
@@ -2023,6 +2028,7 @@ class TetherShell:
         self._project_path = Path(proj_path)
         self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
+        self._act_save_recipe.setEnabled(True)
         self._movie_switcher.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
@@ -2477,6 +2483,7 @@ class TetherShell:
         self._reset_store_docks()
         self._project_path = None
         self._act_close_project.setEnabled(False)
+        self._act_save_recipe.setEnabled(False)
         self._movie_switcher.setEnabled(False)
         self.set_molecules([])
         # The start page is the page of Curate and correct, so show that section.
@@ -2700,6 +2707,42 @@ class TetherShell:
                 self._status("Hand-off cancelled")
                 return
         self.hand_off_to_tmaven(smd_path)
+
+    def save_recipe(self, path: str | Path) -> Path | None:
+        """Write the open project's actions as the recipe file ``path`` (#899).
+
+        The recipe holds the requests of the project's completed jobs, oldest first, with
+        each path relative to the recipe's folder where that is possible
+        ([`tether.services.recipe.recipe_from_project`][]). Returns the path written, or
+        ``None`` (with a status message) when there is nothing to save or the write failed.
+        """
+        from tether.services.recipe import RecipeError, recipe_from_project, write_recipe
+
+        if self._project_path is None:
+            self._status("Save as recipe: open a project first")
+            return None
+        try:
+            requests = recipe_from_project(self._project_path)
+            written = write_recipe(path, requests)
+        except (RecipeError, OSError) as exc:
+            self._status(f"Save as recipe: {exc}")
+            return None
+        self._status(f"Saved the recipe {written.name} ({len(requests)} step(s))")
+        return written
+
+    def _save_recipe_dialog(self) -> None:  # pragma: no cover - interactive file dialog
+        """Menu entry: choose where the recipe goes, then [`save_recipe`][]."""
+        from pyqtgraph.Qt import QtWidgets
+
+        out_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self._window, "Save as recipe", "", "Tether recipe (*.json)"
+        )
+        if not out_path:
+            self._status("Save as recipe cancelled")
+            return
+        if not out_path.lower().endswith(".json"):
+            out_path += ".json"
+        self.save_recipe(out_path)
 
     def _import_dialog(self) -> None:  # pragma: no cover - interactive file dialog
         """Menu entry: pick the returning SMD (+ optional model), then reconcile."""

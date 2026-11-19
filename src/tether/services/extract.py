@@ -43,6 +43,8 @@ class ExtractRequest(ExtractionFields, Request):
 
     COMMAND: ClassVar[str] = "extract"
     VERSION: ClassVar[int] = 1
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = ("movie", "output", "tmap", "tdat", "map_path")
+    PROJECT_FIELD: ClassVar[str | None] = "output"
 
     movie: str
     output: str

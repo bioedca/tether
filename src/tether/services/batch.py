@@ -55,6 +55,8 @@ class BatchRequest(ExtractionFields, Request):
 
     COMMAND: ClassVar[str] = "batch"
     VERSION: ClassVar[int] = 1
+    PATH_FIELDS: ClassVar[tuple[str, ...]] = ("movies", "out_dir", "into", "tmap", "tdat", "log")
+    PROJECT_FIELD: ClassVar[str | None] = "into"
 
     movies: tuple[str, ...]
     out_dir: str | None = None

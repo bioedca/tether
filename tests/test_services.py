@@ -55,12 +55,19 @@ _SAMPLE_ARGV: dict[str, list[str]] = {
     "batch": ["batch", "a.tif", "b.tif", "-d", "out"],
     "idealize": ["idealize", "p.tether"],
     "map": ["map", "create", "beads.tif", "-o", "beads.npz"],
+    "approve": ["approve", "p.tether", "gamma.approve", "--subject", "c1", "--report", "r.json"],
 }
 _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
     "extract": {"movie": "movie.tif", "output": "out.tether"},
     "batch": {"movies": ("a.tif", "b.tif"), "out_dir": "out"},
     "idealize": {"project": "p.tether"},
     "map": {"source": "beads.tif", "output": "beads.npz"},
+    "approve": {
+        "project": "p.tether",
+        "step": "gamma.approve",
+        "subject": "c1",
+        "report": "r.json",
+    },
 }
 
 
@@ -69,7 +76,7 @@ _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
 
 def test_the_registry_names_each_command_once_with_its_types() -> None:
     names = [entry.name for entry in services.COMMANDS]
-    assert names == ["extract", "batch", "idealize", "map"]
+    assert names == ["extract", "batch", "idealize", "map", "approve"]
     assert len(set(names)) == len(names)
     for entry in services.COMMANDS:
         assert issubclass(entry.request_type, base.Request)
@@ -112,10 +119,11 @@ def test_every_registered_command_has_a_command_line_route() -> None:
     )
     names = [entry.name for entry in services.COMMANDS]
     assert list(subparsers.choices)[: len(names)] == names
-    # `tether info` (#655) only reads a project, `tether metadata` (#911) shows or edits
-    # stored movie metadata through `Project`, and `tether export` (#658) only reads:
-    # plain subcommands, not service commands.
-    assert list(subparsers.choices)[len(names) :] == ["info", "metadata", "export"]
+    # `tether run` (#899) runs a recipe of service requests, `tether info` (#655) only reads
+    # a project, `tether metadata` (#911) shows or edits stored movie metadata through
+    # `Project`, and `tether export` (#658) only reads: plain subcommands, not service
+    # commands.
+    assert list(subparsers.choices)[len(names) :] == ["run", "info", "metadata", "export"]
 
 
 def test_a_registered_command_with_no_route_fails(monkeypatch) -> None:

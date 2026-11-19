@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from tether.services import batch, extract, idealize, maps
+from tether.services import approve, batch, extract, idealize, maps
 from tether.services.base import Request, RequestError, request_from_mapping
 
 __all__ = [
@@ -33,7 +33,10 @@ class ServiceCommand:
     """One registered service command.
 
     ``name`` is the command-line subcommand and the ``command`` key of the request's
-    text form; ``summary`` is its one-line help.
+    text form; ``summary`` is its one-line help. ``approval_steps`` names each approval
+    step of ADR-0102 that the command can reach; a recipe run then passes the command an
+    ``approvals`` gate ([`tether.services.recipe.ApprovalGate`][]), and a recipe may name
+    a policy for those steps only.
     """
 
     name: str
@@ -41,6 +44,7 @@ class ServiceCommand:
     result_type: type
     run: Callable[[Any], Any]
     summary: str
+    approval_steps: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Refuse a name that is not the request type's ``COMMAND``."""
@@ -79,6 +83,13 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         result_type=maps.MapCreateResult,
         run=maps.run,
         summary="make a channel map file (.npz) from a bead video or image",
+    ),
+    ServiceCommand(
+        name="approve",
+        request_type=approve.ApproveRequest,
+        result_type=approve.ApproveResult,
+        run=approve.run,
+        summary="record that a person approved a step that needs a person",
     ),
 )
 

@@ -88,6 +88,7 @@ nav:
           - Draw a histogram, TDP and dwell plots: how-to/analyze.md
           - Export results: how-to/export-results.md
           - Share and deposit a dataset: how-to/share-a-dataset.md
+          - Run a recipe again with no window: how-to/run-a-recipe.md
       - Import:
           - Legacy Deep-LASI import: io/legacy-import.md
       - Idealization:

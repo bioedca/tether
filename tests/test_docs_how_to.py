@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The seven task guides under ``docs/how-to/`` keep the shape and the commands #177 set.
+"""The eight task guides under ``docs/how-to/`` keep the shape and the commands #177 set.
 
 The how-to layer is one page per user goal, so a reader who knows what they want lands on
 instructions rather than reference. These tests pin what makes those pages usable and true:
 
-* ``docs/how-to/`` holds exactly the seven pages, each in the nav under ``Using Tether``;
+* ``docs/how-to/`` holds exactly the eight pages, each in the nav under ``Using Tether``;
 * each opens with a task H1, then ``## Who this page is for``, then ``## Before you start``;
 * none carries a Markdown table, so no flag enumeration creeps in (reference pages own those);
 * every ``tether …`` command in a shell fence parses with the real argparse parser, and no
@@ -15,7 +15,7 @@ instructions rather than reference. These tests pin what makes those pages usabl
   the keys of a ``dict(...)`` it spreads with ``**``.
 
 Imports are already checked by ``tests/test_docs_examples.py``, and so are the calls of every
-other docs page (#749); this module pins the seven pages, their commands and the calls they make.
+other docs page (#749); this module pins the eight pages, their commands and the calls they make.
 The call reader is shared, in ``tests/_docs_source.py``.
 Nothing under ``tether`` is imported except :mod:`tether.cli`, whose ``build_parser`` needs only
 ``argparse``. Signatures are read from source with :mod:`ast`, so the default matrix runs this
@@ -49,6 +49,7 @@ PAGES = (
     "analyze.md",
     "export-results.md",
     "share-a-dataset.md",
+    "run-a-recipe.md",
 )
 
 # Python-Markdown's fenced_code matches fences at column zero only, so this is what renders.
@@ -77,7 +78,7 @@ def _nav_pages(entries: object) -> list[str]:
     return [entries] if isinstance(entries, str) else []
 
 
-def test_the_folder_holds_exactly_the_seven_pages() -> None:
+def test_the_folder_holds_exactly_the_eight_pages() -> None:
     assert sorted(p.name for p in HOW_TO.iterdir()) == sorted(PAGES)
 
 
@@ -120,6 +121,8 @@ def test_the_pages_show_tether_commands() -> None:
         "batch",
         "idealize",
         "export",
+        "run",
+        "approve",
     }
 
 
@@ -143,7 +146,7 @@ def test_every_tether_command_parses(name: str, argv: list[str]) -> None:
     if argv[0] == "tether-gui":
         assert len(argv) == 2 and argv[1].endswith(".tether"), (name, argv)
         return
-    assert argv[1] in {"extract", "batch", "idealize", "export"}, (name, argv)
+    assert argv[1] in {"extract", "batch", "idealize", "export", "run", "approve"}, (name, argv)
     parser = build_parser()
     command, first = _command_parser(argv)
     assert command is not parser, (name, argv)
