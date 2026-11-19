@@ -434,3 +434,46 @@ def test_a_generation_written_without_settings_does_not_claim_the_first_ones(
         inputs = generation_inputs(f, movie_id)
     assert inputs["options"] == {}
     assert inputs["colocalization"] == "donor-anchored"
+
+
+def test_a_version_1_store_is_backed_up_before_it_is_migrated(tmp_path: Path) -> None:
+    """Oracle (f): the first schema-version step backs the file up, then migrates it."""
+    project, movie_a, movie_b = _project_a_b(tmp_path)
+    _make_v1(project)
+    original = project.read_bytes()
+
+    _reextract(project, movie_a)
+
+    backup = tmp_path / "experiment.v1-backup.tether"
+    assert backup.read_bytes() == original
+    assert read_schema_version(backup) == 1
+    assert_is_compatible_project(backup)  # the backup still opens, as a version-1 project
+    assert read_schema_version(project) == SCHEMA_VERSION
+    # A later write to the migrated store raises no stamp, so it makes no second backup.
+    _reextract(project, movie_b)
+    assert sorted(p.name for p in tmp_path.glob("*.tether")) == [
+        "experiment.tether",
+        "experiment.v1-backup.tether",
+    ]
+
+
+def test_a_second_version_1_store_of_one_name_keeps_the_first_backup(tmp_path: Path) -> None:
+    project, movie_a, _ = _project_a_b(tmp_path)
+    first = tmp_path / "experiment.v1-backup.tether"
+    first.write_bytes(b"an earlier backup")
+    _make_v1(project)
+
+    _reextract(project, movie_a)
+
+    assert first.read_bytes() == b"an earlier backup"
+    assert read_schema_version(tmp_path / "experiment.v1-backup-2.tether") == 1
+
+
+def test_a_refused_write_to_a_version_1_store_makes_no_backup(tmp_path: Path) -> None:
+    project, _, _ = _project_a_b(tmp_path)
+    _make_v1(project)
+    stranger = _write_movie(tmp_path / "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_012.tif", _DONOR_B[:2])
+    with pytest.raises(ExtractionError):
+        _reextract(project, stranger)
+    assert not list(tmp_path.glob("*backup*"))
+    assert read_schema_version(project) == 1

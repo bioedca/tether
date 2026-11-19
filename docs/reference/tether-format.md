@@ -120,7 +120,8 @@ module named in each section, and treat a missing or unfamiliar payload as norma
 `schema_version` is currently **`2`** (`SCHEMA_VERSION`, `src/tether/io/schema.py`).
 Version 2 added the `/generations` table ([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)).
 A store stamped `1` has no such table. It is still a complete project, and it reads as
-generation 1 of each of its movies. What a bump would mean for a file you already hold, and
+generation 1 of each of its movies. The first write that adds the table keeps the file as it
+was beside it, as `<stem>.v1-backup.tether`. What a bump would mean for a file you already hold, and
 what a non-additive change has to carry before one is allowed, are set out under
 [Project file compatibility](../stability.md#project-file-compatibility); how a
 covered name is retired is the

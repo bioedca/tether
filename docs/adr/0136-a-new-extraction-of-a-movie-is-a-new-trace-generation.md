@@ -119,6 +119,13 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    empty table and stamps it 2 (`upgrade_to_generations`), so an app that predates generations then
    refuses it rather than ignoring the record. A first new generation of such a movie also records
    its generation 1, with `created_utc` `""`, before archiving it.
+9. **Back up, then migrate.** This is the first schema-version step, so it carries the
+   backup-and-migrate path PRD §5.4 asks of it. A staged publish whose copy carries a higher
+   `schema_version` than the file it replaces first copies that file, as it was, to
+   `<stem>.v<old>-backup<suffix>` beside it (`experiment.v1-backup.tether`; `-2`, `-3`, … when the
+   name is taken, so a backup is never overwritten), and only then replaces it. A failed copy
+   publishes nothing. Every writer that can migrate a file (the append and a new generation) runs
+   in that publish (`guarded_project_write`, ADR-0112). The test joins oracle (f).
 
 ### Consequences
 
@@ -136,7 +143,7 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
   1 there.
 - Follow-up: the reconciliation page (#923); the GUI publish (#352), the background extraction
   (#354) and the extraction queue (#645) call `reextract_movie` for a movie the project holds.
-- Tests: `tests/test_trace_generations.py`; `scripts/dump_schema.py --check` with the regenerated
+- Tests: `tests/test_trace_generations.py`, the backup-and-migrate test of oracle (f) among them; `scripts/dump_schema.py --check` with the regenerated
   golden.
 
 ## More information

@@ -435,11 +435,11 @@ imported as a degraded, round-trip-disabled **analysis-only** project (§7.8).
   dehydrated placeholder — it warns instead; the head/tail content hash and full `sha256` run only on relink or
   explicit verify. A mismatch is flagged and never silently trusted.
 - Tether refuses files newer than the app: a file whose `schema_version` is above the app's `SCHEMA_VERSION` does
-  not open. Schema migration (back up the file, then migrate it in place) is **not needed** while the schema is
-  additive-only (ADR-0005): `SCHEMA_VERSION` has never been raised, so there is no version step to migrate across.
-  The **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an ADR (§9.2,
-  §12.6), makes it required: that change carries the backup-and-migrate path and a test that exercises it, and
-  the test joins oracle (f) (§9.5).
+  not open. Schema migration means back up the file, then migrate it in place. The
+  **first schema-version step**, a structural change that raises `SCHEMA_VERSION` with an ADR (§9.2, §12.6), made
+  it required. That step is version 2 (`/generations`, ADR-0136): a publish that raises a file's stamp first copies
+  the file, as it was, to `<stem>.v<old>-backup.tether` beside it, and the test that exercises it is in oracle (f)
+  (§9.5).
 - **Movie-less mode** is first-class (patches + coordinates); a subset-export `.tether` always opens movie-less
   (raw is not reconstructable there).
 
@@ -1433,7 +1433,7 @@ tolerance), is release-acceptance work owned by its GitHub milestone.
 | **(c)** Kinetics vs kinSoftChallenge | 2-state rate constants vs the inter-tool spread | `large`, **advisory** | reference loader + synthetic rate recovery | LFS `tests/fixtures/large/kinsoft_sim.hdf5` | `schema/kinsoft_reference.json` (≤ 12% relative deviation per rate, [ADR-0048](adr/0048-kinsoft-kinetics-oracle.md)) | advisory, never a gate |
 | **(d)** Ranker held-out cross-validation | prequential and leave-one-video-out precision@k uplift over file order, median across videos (ADR-0114) | required matrix | yes (synthetic stores only) | synthetic separable multi-video and programmatic stores (no ADR accepts them; §9.6) | `DEFAULT_SHIP_BAR_PTS = 10.0` in `src/tether/ml/prequential.py`, for both protocols; the real-video uplift leg is withheld, no curated labelled set exists (ADR-0114, §9.6) | gate on the prequential protocol; the real-data leg is *not yet met* |
 | **(e)** α / γ estimators | sparse/missing bleach steps, median fallbacks, total failure → apparent E (a missing factor never gives a NaN E; a zero-total-intensity frame is NaN) | required matrix | yes | synthetic known-α/known-γ and edge-case traces (known-γ accepted by ADR-0028; known-α by no ADR, and α is also checked on real data by the workstation band, ADR-0133) | constants in `src/tether/fret/leakage.py` and `gamma.py`; the conjunctive α band is a `workstation` check on the lab's donor-only sample, passed 2026-11-19 (ADR-0133); the γ-vs-Deep-LASI leg is withheld (ADR-0028, ADR-0133; §9.6) | gate |
-| **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); no schema-migration leg while the schema is additive-only; the first schema-version step adds a backup-and-migrate test (§5.4) | gate |
+| **(f)** Round-trip and schema integrity | `.tether` structure, frozen fields, SMD superset round-trip | required matrix plus the required `schema-guard` job; the live tMAVEN-opens leg is `sidecar` | yes | fresh `.tether` stores; `smd_4mol.hdf5` | `schema/schema_frozen.json` — structural, additive-only (ADR-0005); the backup-and-migrate test of the first schema-version step (version 2, ADR-0136; §5.4) | gate |
 | **(g)** Photobleach detector | per-channel first-bleach frame | required matrix | yes | synthesized known steps | reference-formula parity with tMAVEN's `photobleaching.py` + known-step recovery within ±2 frames (reframed — ADR-0026; supersedes the ±2 frames vs `.mat` `pacc`/`pdon` bar) | gate |
 
 **What a synthesized fixture establishes.** A row whose fixture is synthesized ((d), (e), (g), and the synthetic

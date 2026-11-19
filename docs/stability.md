@@ -72,7 +72,7 @@ top-level group skeleton, and the compound-dtype field sets of the five entity t
 | Covered | Detail |
 |---|---|
 | Format marker | Root attribute `format == "tether-project"`. |
-| Entity groups | `/molecules`, `/movies`, `/labels`, `/conditions` — each a group holding a compound dataset named `table`. |
+| Entity groups | `/molecules`, `/movies`, `/labels`, `/conditions` and, from version 2, `/generations` — each a group holding a compound dataset named `table`. |
 | Container groups | `/calibration`, `/traces`, `/patches`, `/idealization`, `/settings`, `/features`, `/models`. |
 | Existing fields | A field in a frozen compound dtype is never removed, renamed, retyped, or reordered. New fields are appended *after* the existing ones, so the on-disk byte layout of the existing prefix is stable — a binary reader can index the old fields positionally. |
 | `schema_version` | Monotonic; never decremented. |
@@ -207,7 +207,8 @@ added the `/generations` table (ADR-0136), and `_missing_skeleton` asks for it o
 stamped 2 or newer (`_RICH_TABLES_SINCE`), so a file stamped 1 stays a complete project and
 reads as generation 1 of each movie. The first writer that records a generation into such a
 file adds the empty table and stamps it 2 (`upgrade_to_generations`). Nothing else in it is
-rewritten. Every other group in the skeleton was forward-declared empty at M0 so that later
+rewritten, and the publish that raises the stamp first keeps the file as it was beside it, as
+`<stem>.v1-backup.tether`. Every other group in the skeleton was forward-declared empty at M0 so that later
 milestones add *data*, not structure.
 
 The same constraint applies one level down, where no guard can see it.
