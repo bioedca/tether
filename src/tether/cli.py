@@ -22,7 +22,7 @@ trace text file or a subset project — see [`tether.cli_export`][]. ``tether st
 the readiness of each stage of a project and its next step — see
 [`tether.project.readiness`][].
 
-The CLI deliberately uses the standard-library [`argparse`][] rather than a
+The CLI deliberately uses the standard-library `argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
 not justified by the current command surface (the pin-and-hold invariant). The
 heavy imaging/IO stack is imported only when a service command runs, so that

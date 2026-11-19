@@ -329,7 +329,7 @@ class LockInfo:
         return LockIdentity(self.host, self.user, self.pid)
 
     def acquired_at(self) -> datetime:
-        """Parse [`timestamp`][] into an offset-aware [`datetime`][]."""
+        """Parse [`timestamp`][] into an offset-aware `datetime`."""
         parsed = datetime.fromisoformat(self.timestamp)
         if parsed.tzinfo is None:  # defensive: we only ever write offset-aware stamps
             parsed = parsed.replace(tzinfo=UTC)
@@ -360,7 +360,7 @@ class LockInfo:
     def from_dict(cls, data: dict[str, object]) -> LockInfo:
         """Reconstruct from a parsed JSON mapping.
 
-        Raises [`KeyError`][] on a missing field, ``TypeError`` on an ill-typed
+        Raises `KeyError` on a missing field, ``TypeError`` on an ill-typed
         one, and ``ValueError`` on an unparseable ``timestamp`` — callers map all of
         these to [`CorruptLockError`][], so a malformed record is treated as a
         corrupt lock up front rather than escaping as a valid-looking foreign lock or
@@ -1072,7 +1072,7 @@ def _identity_guard(project_path: str | Path, *, claim: bool) -> Iterator[Path |
     filesystem reports no inode number), so only ``<file>.lock`` protects it; cleanup
     still holds the guard then, so it can reap records. The guard is taken before
     any ``<file>.lock`` guard, always in that order. A claim fails closed with
-    [`OSError`][] when the per-user directory cannot be made; cleanup
+    `OSError` when the per-user directory cannot be made; cleanup
     (``claim=False``) then goes on with ``<file>.lock`` alone.
     """
     identity = file_identity(project_path)
@@ -1959,7 +1959,7 @@ def writing(
     The per-user directory is created first if it is missing, as a claim does, so that a
     claim through a hard link that creates it meanwhile still waits for the identity guard.
     If it cannot be created for a file that has an identity, the write fails closed with
-    [`OSError`][] before the block runs, as a claim does.
+    `OSError` before the block runs, as a claim does.
 
     Keep the block short, as for [`holding`][]: another process's lifecycle call waits
     for the guard for at most a few seconds before it fails with ``TimeoutError``.
