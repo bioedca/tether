@@ -652,7 +652,7 @@ tether map create [-h] -o OUTPUT [--overwrite] [--frames START STOP]
 |---|---|---|
 | `source` | required | a bead TIFF: one image, or a video of frames |
 | `-o`, `--output OUTPUT` | required | the `.npz` map file to write. The name must end in `.npz` |
-| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one) |
+| `--overwrite` | off | replace an existing map file (it is replaced only by a complete one). Tether holds the map file's writer lock for the replacement, so it refuses while another `tether map create` holds that lock; the lock leaves a `<file>.lock.guard` file beside the map |
 | `--frames START STOP` | every frame | for a video: the 0-based half-open frame range to project |
 | `--projection {max,mean}` | `max` | for a video: how the frames are reduced to one image |
 | `--donor-side {left,right}` | `left` | which half of the frame is the donor channel |
@@ -667,8 +667,8 @@ $ tether extract movie.tif -o movie.tether --map beads.npz
 A map over `--rms-gate` is still written and the command exits `0`, with a warning on
 stderr: the map is flagged low-confidence, and every molecule extracted with it is tagged
 `low-confidence-registration`. A bead file with too few beads in either half, a bad frame
-range, an output that exists without `--overwrite`, or an output name without `.npz`
-exits `1` with one line on stderr. Bad arguments exit `2`.
+range, an output that exists without `--overwrite`, an output whose writer lock another
+writer holds, or an output name without `.npz` exits `1` with one line on stderr. Bad arguments exit `2`.
 
 The map file has a `format_version` (now `1`). Tether reads a map file of its own
 version or older, and refuses one written by a newer version. The file holds only plain

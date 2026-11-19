@@ -71,6 +71,10 @@ def run(request: MapCreateRequest) -> MapCreateResult:
     replaces a file, so a map another session saves at ``output`` while this one is
     fitted is kept, and this run is refused. A map over the RMS gate is still saved:
     it carries its low-confidence verdict, as the native fit does (§7.1).
+
+    An ``overwrite`` replacement holds the output's writer lock
+    ([`publish_lock`][tether.project.lock.publish_lock]) as ``tether extract
+    --overwrite`` does, so it is refused while another writer holds that lock.
     """
     import warnings
     from uuid import uuid4
@@ -78,6 +82,7 @@ def run(request: MapCreateRequest) -> MapCreateResult:
     import tether
     from tether.imaging.beadmap import BeadMapError, bead_map_from_file
     from tether.imaging.calibrate import OverGateRegistrationWarning, save_map
+    from tether.project.lock import LockError
 
     output = Path(request.output)
     if output.suffix.lower() != ".npz":
@@ -105,7 +110,7 @@ def run(request: MapCreateRequest) -> MapCreateResult:
         _publish(written, output, overwrite=request.overwrite)
     except FileExistsError as exc:  # another session made the file while this one fitted
         raise CommandFailed(f"output exists: {output} (use --overwrite)") from exc
-    except (BeadMapError, OSError, ValueError) as exc:
+    except (BeadMapError, LockError, OSError, ValueError) as exc:
         raise CommandFailed(str(exc)) from exc
     finally:
         tmp.unlink(missing_ok=True)
@@ -123,15 +128,21 @@ def run(request: MapCreateRequest) -> MapCreateResult:
 def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
     """Move the complete map file *written* to *output*; without *overwrite*, never replace.
 
-    ``os.replace`` replaces a file at *output* in one step. Without *overwrite* a hard
-    link is made instead, which fails with [`FileExistsError`][] if *output* exists,
-    also when it appeared after the first check. Where the file system has no hard
-    links, the bytes are copied to a file opened with ``"xb"``, which refuses an
+    ``os.replace`` replaces a file at *output* in one step, under *output*'s writer
+    lock ([`publish_lock`][tether.project.lock.publish_lock]). Without *overwrite* a
+    hard link is made instead, which fails with [`FileExistsError`][] if *output*
+    exists, also when it appeared after the first check. Where the file system has no
+    hard links, the bytes are copied to a file opened with ``"xb"``, which refuses an
     existing file the same way. A failed copy removes that file only while the name
-    still points to it, so a map another session published meanwhile stays.
+    still points to it, and checks and removes under the same lock, so a map another
+    session published with *overwrite* meanwhile stays (#1240).
     """
+    from tether.project.lock import publish_lock
+
     if overwrite:
-        os.replace(written, output)
+        with publish_lock(output) as guard:
+            guard()  # refuses if the lock was taken over since it was acquired
+            os.replace(written, output)
         return
     try:
         os.link(written, output)
@@ -153,11 +164,19 @@ def _publish(written: Path, output: Path, *, overwrite: bool) -> None:
 def _unlink_if_made(output: Path, made: os.stat_result) -> None:
     """Remove *output* only while it is still the file this call created.
 
-    Another session may have replaced it meanwhile (``--overwrite`` is one
-    ``os.replace``); that map is complete and stays.
+    The check and the removal run under *output*'s writer lock, which an
+    ``--overwrite`` publish holds across its ``os.replace``, so that replacement
+    lands before the check or after the removal, never between them. A map it put
+    there is complete and stays. When another writer holds the lock, that writer is
+    replacing the name, so the file is left to it.
     """
+    from tether.project.lock import LockedError, publish_lock
+
     try:
-        if os.path.samestat(os.stat(output), made):
-            output.unlink()
+        with publish_lock(output):
+            if os.path.samestat(os.stat(output), made):
+                output.unlink()
     except FileNotFoundError:
+        pass
+    except LockedError:
         pass
