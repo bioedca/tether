@@ -39,7 +39,7 @@ comes from the 3-frame level windows. A level averaged over 3 frames carries `1/
 noise; one averaged over 20 frames carries `1/√20` of it.
 
 The first draft of this record made Deep-LASI's **whole segments** the default. Rerunning the
-#715 corrected-FRET check with that draft (2026-11-18) showed why a whole segment is the wrong
+\#715 corrected-FRET check with that draft (2026-11-18) showed why a whole segment is the wrong
 default for Tether. Tether's pre-step segment is every frame from the start of the trace, and on
 these 1,700-frame movies the step falls at frames 700 to 1,280. A donor that dims slowly over that
 time lifts the pre-step mean above the post-step one, so the donor no longer rises across the step
