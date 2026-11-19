@@ -458,6 +458,49 @@ def test_recheck_describes_the_current_holder(shell, tmp_path) -> None:
         lock.release(project.path, winner)
 
 
+def test_recover_keeps_the_opened_intensity_layer(shell, qtbot, tmp_path) -> None:
+    # #1097: the reopen after a recovery must use the quantity of the refused open,
+    # not load_project's "corrected" default, or the traces under curation change.
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import traces_from_store
+    from tether.project import lock
+    from tether.project.lock import LockIdentity, local_identity
+
+    project = _store(tmp_path)
+    raw = traces_from_store(project, intensity_quantity="raw")
+    corrected = traces_from_store(project, intensity_quantity="corrected")
+    assert not np.allclose(raw[0].donor, corrected[0].donor)  # the layers differ here
+    me = local_identity()
+    lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=_dead_pid()))
+
+    assert shell.load_project(project.path, intensity_quantity="raw") is not None
+    assert shell.curation_project is None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+
+    qtbot.mouseClick(shell.recover_button, QtCore.Qt.MouseButton.LeftButton)
+
+    assert shell.curation_project is not None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+    np.testing.assert_array_equal(shell.trace_dock.trace.acceptor, raw[0].acceptor)
+
+
+def test_take_over_keeps_the_opened_intensity_layer(shell, tmp_path) -> None:
+    from tether.gui.shell import traces_from_store
+    from tether.project import lock
+
+    project = _store(tmp_path)
+    raw = traces_from_store(project, intensity_quantity="raw")
+    lock.acquire(project.path, identity=_foreign(), now=_stale_now())
+
+    assert shell.load_project(project.path, intensity_quantity="raw") is not None
+    assert shell.take_over_project_lock(confirmation=project.path.name) is not None
+
+    assert shell.curation_project is not None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+    np.testing.assert_array_equal(shell.trace_dock.trace.acceptor, raw[0].acceptor)
+
+
 def test_takeover_stands_when_its_record_cannot_be_written(shell, tmp_path, monkeypatch) -> None:
     """A record that fails to write is reported; the lock taken is kept (#1099)."""
     from tether.project import lock
