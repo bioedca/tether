@@ -75,7 +75,7 @@ per-plot `dataclass → figure → PDF/SVG/PNG + provenance stamp` code and its 
   pyside6 6.11.1, pyqtgraph 0.14.0 — held).
 - Follow-up: `conda-lock-verify` (base) stays green (content-hash match); the 3-OS
   `test` matrix proves the drifted lock installs+imports; PR-8b lands the renderer
-  + export tests (each plot produces a valid vector + raster carrying the stamp).
+  \+ export tests (each plot produces a valid vector + raster carrying the stamp).
 
 ## More information
 
