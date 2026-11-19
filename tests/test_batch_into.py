@@ -20,6 +20,7 @@ not in the project has its project stages ``blocked``.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -570,7 +571,7 @@ def test_a_project_pass_that_cannot_read_the_project_fails_its_stage(
     def unreadable(_project):
         raise OSError("the project went away")
 
-    monkeypatch.setattr(batch_module, "_movies_digest", unreadable)
+    monkeypatch.setattr(batch_module, "_project_movies", unreadable)
     project = tmp_path / "P.tether"
     movie = _movie(tmp_path, "m0.tif", 300.0)
 
@@ -782,12 +783,10 @@ def test_a_project_gone_before_its_stages_is_claimed_and_not_corrected(
     assert not project.exists()
 
 
-def test_a_checkpoint_no_into_run_stamped_is_not_stamped_as_covering_the_movies(
-    tmp_path: Path,
-) -> None:
-    # CodeRabbit (Major) on #1223: a movie appended by another route after the project
-    # was corrected is not in what that correction saw, so a run that skips the stage on
-    # that checkpoint must not stamp it as covering the project's movies.
+def test_a_movie_appended_by_another_route_is_corrected_by_the_next_run(tmp_path: Path) -> None:
+    # #1243 item 8: the plain append (#347) keeps /settings/correction, so the project
+    # still read as corrected and a run that appends nothing skipped the stage; the
+    # appended movie's molecules then never entered the dataset alpha and gamma.
     first = _movie(tmp_path, "m0.tif", 300.0)
     second = _movie(tmp_path, "m1.tif", 360.0)
     project = tmp_path / "P.tether"
@@ -795,19 +794,293 @@ def test_a_checkpoint_no_into_run_stamped_is_not_stamped_as_covering_the_movies(
     extract_movie(first, project, options=options)
     with h5py.File(project, "r+") as f:
         f.require_group("settings/correction")
+        f.require_group("idealization/vbconhmm")
     with lock.publish_lock(project) as guard:
         add_movie_to_project(project, second, options=options, publish_guard=guard)
+    assert _batch_attrs(project) == {"correct_movies": "", "idealize_movies": ""}
+    corrected: list[Path] = []
+    idealized: list[dict[str, object]] = []
+
+    def correct(path, **_kwargs):
+        corrected.append(Path(path))
+        return "stub"
 
     summary = run_batch_into(
         _into_jobs(project, first, second),
         project,
         extract_options=options,
-        idealize=False,
-        _correct=lambda *_a, **_k: pytest.fail("the curated project was recomputed"),
+        _correct=correct,
+        _idealize=_idealize_recorder(idealized),
     )
 
     assert {r.stages[STAGE_EXTRACT].status for r in summary.results} == {STATUS_SKIPPED}
-    assert {r.stages[STAGE_CORRECT].status for r in summary.results} == {STATUS_SKIPPED}
+    assert {r.stages[STAGE_CORRECT].status for r in summary.results} == {STATUS_DONE}
+    assert corrected == [project]
+    assert idealized[0].get("overwrite") is True
     attrs = _batch_attrs(project)
-    assert "correct_movies" not in attrs
-    assert "idealize_movies" not in attrs
+    assert attrs["correct_movies"] == attrs["idealize_movies"] != ""
+
+
+def test_an_append_that_does_not_publish_leaves_no_stage_mark(tmp_path: Path) -> None:
+    # #1243 item 3: the marks are written in the publish that adds the movie, so an
+    # append that fails before it publishes leaves the project as it was, marks included.
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    options = ExtractOptions(window=helpers._WINDOW)
+    run_batch_into(_into_jobs(project, first), project, extract_options=options, idealize=False)
+    stamped = _batch_attrs(project)["correct_movies"]
+    before = project.read_bytes()
+    calls = 0
+
+    def lost_lock() -> None:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise RuntimeError("the writer lock was lost")
+
+    second = _movie(tmp_path, "m1.tif", 360.0)
+    with pytest.raises(ExtractionError, match="lock was lost"):
+        add_movie_to_project(project, second, options=options, publish_guard=lost_lock)
+
+    assert project.read_bytes() == before
+    assert _batch_attrs(project)["correct_movies"] == stamped != ""
+
+
+def test_a_run_cut_off_before_its_append_publishes_redoes_no_project_stage(
+    tmp_path: Path,
+) -> None:
+    # #1243 item 3: the batch used to mark both stages unfinished before calling the
+    # append, so a run cut off in between left the marks with no movie added, and the
+    # next run corrected the same movies again.
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    second = _movie(tmp_path, "m1.tif", 360.0)
+    project = tmp_path / "P.tether"
+    run_batch_into(_into_jobs(project, first), project, idealize=False)
+    stamped = _batch_attrs(project)["correct_movies"]
+
+    def cut(*_args, **_kwargs):
+        raise _Cut
+
+    with pytest.raises(_Cut):
+        run_batch_into(_into_jobs(project, second), project, idealize=False, _append=cut)
+    assert _batch_attrs(project)["correct_movies"] == stamped != ""
+
+    summary = run_batch_into(
+        _into_jobs(project, first),
+        project,
+        idealize=False,
+        _correct=lambda *_a, **_k: pytest.fail("the same movies were corrected again"),
+    )
+    assert summary.results[0].stages[STAGE_CORRECT].status == STATUS_SKIPPED
+
+
+def test_a_movie_another_writer_appends_first_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #1243 item 1: membership is read again under the writer lock, so a movie another
+    # writer appends after the first read is skipped rather than failed as a duplicate.
+    import tether.project.batch_inputs as inputs  # noqa: PLC0415
+
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    second = _movie(tmp_path, "m1.tif", 360.0)
+    project = tmp_path / "P.tether"
+    extract_movie(first, project, options=ExtractOptions(window=helpers._WINDOW))
+    answers = iter([None, "mov-elsewhere"])
+    monkeypatch.setattr(inputs, "movie_in_project", lambda _p, _m: next(answers))
+
+    summary = run_batch_into(
+        _into_jobs(project, second),
+        project,
+        idealize=False,
+        _append=lambda *_a, **_k: pytest.fail("the movie was appended twice"),
+    )
+
+    extract = summary.results[0].stages[STAGE_EXTRACT]
+    assert extract.status == STATUS_SKIPPED
+    assert "'mov-elsewhere'" in extract.detail
+    assert summary.n_failed == 0
+
+
+def test_a_project_replaced_by_a_newer_tether_under_the_lock_is_not_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #1243 item 2: the schema is checked again under the writer lock, so a project
+    # another writer replaced with a newer-schema file after the first check is refused.
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    extract_movie(first, project, options=ExtractOptions(window=helpers._WINDOW))
+    real_lock = lock.publish_lock
+    replaced: list[bytes] = []
+
+    @contextlib.contextmanager
+    def replacing_lock(path, **kwargs):
+        with real_lock(path, **kwargs) as guard:
+            if not replaced:
+                with h5py.File(path, "r+") as f:
+                    f.attrs["schema_version"] = 999
+                replaced.append(Path(path).read_bytes())
+            yield guard
+
+    monkeypatch.setattr(lock, "publish_lock", replacing_lock)
+    second = _movie(tmp_path, "m1.tif", 360.0)
+
+    summary = run_batch_into(
+        _into_jobs(project, second),
+        project,
+        idealize=False,
+        _append=lambda *_a, **_k: pytest.fail("a newer project was appended to"),
+    )
+
+    stages = summary.results[0].stages
+    assert stages[STAGE_EXTRACT].status == STATUS_FAILED
+    assert "999" in str(stages[STAGE_EXTRACT].error)
+    assert stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert project.read_bytes() == replaced[0]
+
+
+def test_a_movie_the_locked_project_no_longer_holds_gets_no_project_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # #1243 item 4: the project stages read the movies of the locked project, so a movie
+    # that another writer's replacement dropped is not given the project's results.
+    import tether.project.batch as batch_module  # noqa: PLC0415
+
+    movies = [_movie(tmp_path, f"m{i}.tif", 300.0 + 40.0 * i) for i in range(2)]
+    project = tmp_path / "P.tether"
+    run_batch_into(_into_jobs(project, *movies), project, idealize=False)
+    with h5py.File(project, "r") as f:
+        table = f["movies/table"][:]
+    dropped = next(
+        _text(row["movie_id"]) for row in table if Path(_text(row["uri"])).name == "m1.tif"
+    )
+    real = batch_module._project_movies
+
+    def replaced_without_m1(path):
+        ids, digest = real(path)
+        return ids - {dropped}, digest
+
+    monkeypatch.setattr(batch_module, "_project_movies", replaced_without_m1)
+
+    summary = run_batch_into(_into_jobs(project, *movies), project, idealize=False)
+
+    stages = {r.job.label: r.stages for r in summary.results}
+    assert stages["m1"][STAGE_EXTRACT].status == STATUS_SKIPPED
+    assert stages["m1"][STAGE_CORRECT].status == STATUS_BLOCKED
+    assert stages["m1"][STAGE_CORRECT].detail == "no longer in P.tether"
+    assert stages["m1"][STAGE_IDEALIZE].status == STATUS_NOT_REQUESTED
+    assert stages["m0"][STAGE_CORRECT].status == STATUS_SKIPPED
+
+
+def test_a_run_without_the_provenance_stamp_still_records_what_its_stages_cover(
+    tmp_path: Path,
+) -> None:
+    # #1243 item 5: with stamp_provenance=False a successful stage cleared no unfinished
+    # mark, so every later run corrected again.
+    first = _movie(tmp_path, "m0.tif", 300.0)
+    second = _movie(tmp_path, "m1.tif", 360.0)
+    project = tmp_path / "P.tether"
+    corrected: list[Path] = []
+
+    def correct(path, **_kwargs):
+        corrected.append(Path(path))
+        with h5py.File(path, "r+") as f:
+            f.require_group("settings/correction")
+        return "stub"
+
+    for _ in range(2):
+        run_batch_into(
+            _into_jobs(project, first, second),
+            project,
+            idealize=False,
+            stamp_provenance=False,
+            _correct=correct,
+        )
+
+    assert corrected == [project]
+    attrs = _batch_attrs(project)
+    assert set(attrs) == {"correct_movies", "idealize_movies"}  # no provenance stamp
+    assert attrs["correct_movies"] != ""
+
+
+def test_a_skipped_movie_of_a_legacy_project_repeats_its_donor_side_advisory(
+    tmp_path: Path,
+) -> None:
+    # #1243 item 6: a project written before per-movie profiles holds its one movie's
+    # profile in the stamp only; the advisory is read back from there.
+    from tether.project.batch import _stored_movie_donor_side_check  # noqa: PLC0415
+
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    extract_movie(movie, project, options=ExtractOptions(window=helpers._WINDOW))
+    with h5py.File(project, "r+") as f:
+        movie_id = _text(f["movies/table"]["movie_id"][0])
+        stamp = f["settings/extraction"]
+        profile = json.loads(_text(stamp.attrs["profile_json"]))
+        profile["donor_side_check"] = {"verdict": "swapped", "ratio": 3.0}
+        stamp.attrs["profile_json"] = json.dumps(profile)
+        del stamp["movies"]  # as written before per-movie records existed
+
+    record = _stored_movie_donor_side_check(project, movie_id)
+
+    assert record is not None
+    assert record["verdict"] == "swapped"
+    assert _stored_movie_donor_side_check(project, "mov-not-here") is None
+
+
+def test_one_malformed_movie_profile_does_not_hide_another_movies_advisory(
+    tmp_path: Path,
+) -> None:
+    # #1243 item 6: only the requested movie's profile is decoded.
+    from tether.project.batch import _stored_movie_donor_side_check  # noqa: PLC0415
+
+    movie = _movie(tmp_path, "m0.tif", 300.0)
+    project = tmp_path / "P.tether"
+    extract_movie(movie, project, options=ExtractOptions(window=helpers._WINDOW))
+    with h5py.File(project, "r+") as f:
+        movie_id = _text(f["movies/table"]["movie_id"][0])
+        records = f["settings/extraction/movies"]
+        profile = json.loads(_text(records.attrs[movie_id]))
+        profile["donor_side_check"] = {"verdict": "swapped", "ratio": 3.0}
+        records.attrs[movie_id] = json.dumps(profile)
+        records.attrs["mov-broken"] = "{not json"
+
+    record = _stored_movie_donor_side_check(project, movie_id)
+
+    assert record is not None
+    assert record["verdict"] == "swapped"
+    assert _stored_movie_donor_side_check(project, "mov-broken") is None
+
+
+def test_a_dry_run_skips_a_second_copy_of_a_movie_the_run_adds(tmp_path: Path, capsys) -> None:
+    # #1243 item 7: with the project absent, a second file holding the first one's movie
+    # was planned as "will be appended"; the run skips it by content.
+    data = tmp_path / "data"
+    movie = _movie(data, "a.tif", 300.0)
+    (data / "b.tif").write_bytes(movie.read_bytes())
+    _movie(data, "c.tif", 360.0)
+    project = tmp_path / "P.tether"
+
+    rc = main(["batch", str(data), "--into", str(project), "--dry-run"])
+
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    lines = {
+        Path(line.split(" -> ")[0].strip()).name: line
+        for line in out.splitlines()
+        if line.startswith("  ")
+    }
+    assert lines["a.tif"].endswith("[new project: will be created with this movie]")
+    assert lines["b.tif"].endswith("[same content as a.tif: will be skipped]")
+    assert lines["c.tif"].endswith("[will be appended]")
+    assert not project.exists()
+    summary = run_batch_into(
+        _into_jobs(project, data / "a.tif", data / "b.tif"), project, idealize=False
+    )
+    assert [r.stages[STAGE_EXTRACT].status for r in summary.results] == [
+        STATUS_DONE,
+        STATUS_SKIPPED,
+    ]
+
+
+def _text(value: object) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)

@@ -452,6 +452,48 @@ def describe_append(project: Path, movie: Path, *, first: bool) -> str:
     return "will be appended"
 
 
+def describe_appends(project: Path, movies: Sequence[Path]) -> list[str]:
+    """Say what an ``--into`` run will do with each of ``movies``, in order (#1243).
+
+    As [`describe_append`][] for each movie, and a movie with the same content as an
+    earlier one the run adds is skipped, as the run skips it: the earlier one is in the
+    project by then. Movies are hashed only when an earlier added movie has their size.
+    """
+    from tether.project.extract import _hash_movie  # noqa: PLC0415
+
+    added: list[tuple[Path, int]] = []
+    hashes: dict[Path, str] = {}
+
+    def content(movie: Path) -> str:
+        if movie not in hashes:
+            hashes[movie] = _hash_movie(movie)[0]
+        return hashes[movie]
+
+    actions: list[str] = []
+    for index, movie in enumerate(movies):
+        action = describe_append(project, movie, first=index == 0)
+        if action == "will be appended" or action.startswith("new project"):
+            twin: Path | None = None
+            try:  # an unreadable movie is not a twin: the run reports it
+                size = movie.stat().st_size
+                twin = next(
+                    (
+                        earlier
+                        for earlier, earlier_size in added
+                        if earlier_size == size and content(earlier) == content(movie)
+                    ),
+                    None,
+                )
+            except OSError:
+                size = -1
+            if twin is not None:
+                action = f"same content as {twin.name}: will be skipped"
+            else:
+                added.append((movie, size))
+        actions.append(action)
+    return actions
+
+
 def describe_project_stages(project: Path, *, idealize: bool, appending: bool) -> str:
     """Say what an ``--into`` run will do with the project's correct and idealize stages.
 
