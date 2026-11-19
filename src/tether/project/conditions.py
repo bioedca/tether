@@ -890,8 +890,9 @@ class ClassLookup:
 
     tMAVEN stores a per-trace integer ``class``; Tether stores the free-text
     ``/molecules.category`` name. This is the one translation between them, read by
-    the tMAVEN hand-off and return leg ([`tether.project.handoff`][]) and by the
-    curation hotkeys ([`tether.gui.curation`][]):
+    the tMAVEN hand-off and return leg ([`tether.project.handoff`][]). The curation
+    hotkeys ([`tether.gui.curation`][]) keep their own class names, which follow the
+    same rule; tests pin that agreement rather than the shell reading this lookup:
 
     * class ``0`` ↔ ``""``, the *uncategorized* null state (always, on every
       condition, even one with no category list);
@@ -1007,8 +1008,8 @@ def _read_class_lookup(f: object, condition_id: str) -> ClassLookup:
 def read_class_lookup(path: str | Path, condition_id: str) -> ClassLookup:
     """Read a condition's persisted tMAVEN class ↔ category lookup (PRD §7.4). Read-only.
 
-    The single source the tMAVEN hand-off, its return leg and the curation hotkeys
-    read ([`ClassLookup`][]). Lenient about the id, like [`read_category_list`][]: a
+    The single source the tMAVEN hand-off and its return leg read
+    ([`ClassLookup`][]). Lenient about the id, like [`read_category_list`][]: a
     condition with no list yet answers a lookup holding only class 0. Raises
     [`ValueError`][] when the persisted lookup is malformed or disagrees with the
     category list beside it.

@@ -454,8 +454,8 @@ tMAVEN class to category lookup, stored as a JSON object. Its keys are the class
 It always means no category (`""`).
 
 The same writer rewrites the attribute with every list
-edit, so it never lags the names. The tMAVEN hand-off, its return leg and the curation hotkeys
-read it through `read_class_lookup`. A list saved before the attribute existed reads as the
+edit, so it never lags the names. The tMAVEN hand-off and its return leg read it through
+`read_class_lookup`. The curation hotkeys follow the same numbering. A list saved before the attribute existed reads as the
 lookup its order defines. A lookup that disagrees with the names beside it is refused
 ([ADR-0125](../adr/0125-the-tmaven-class-lookup-follows-the-category-list.md)).
 
