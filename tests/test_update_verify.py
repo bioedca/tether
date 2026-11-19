@@ -391,10 +391,8 @@ def test_a_missing_installer_is_refused(rig: Rig) -> None:
     assert rig.run().outcome is Outcome.REFUSED
 
 
-def test_a_copy_with_no_bundled_verifier_says_nothing(
-    rig: Rig, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(update_verify._verifier, "bundled_gh", lambda: None)
+def test_a_copy_with_no_bundled_verifier_says_nothing(rig: Rig) -> None:
+    # The caller passes tether._verifier.bundled_gh(), which is None outside an install.
     result = rig.run(gh=None)
     assert result.outcome is Outcome.UNAVAILABLE
     assert rig.gh.calls == [] and rig.api.urls == []

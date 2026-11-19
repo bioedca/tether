@@ -257,10 +257,10 @@ checksum the other three.
 
 ##### Offline, the way Tether's updater verifies
 
-The commands above let `gh` fetch the attestation and the Sigstore trusted root itself, and
-`--repo` then needs a signed-in `gh`. Tether's updater (`tether.gui.update_verify`, #333)
-fetches both first, with no token, and then runs `gh` with no network at all. To reproduce
-that by hand, with `$digest` the installer's SHA-256 from the manifest:
+The commands above let `gh` fetch the attestation and the trusted root, so they need a
+signed-in `gh`. Tether's updater (`tether.gui.update_verify`, #333) fetches both itself, with
+no token. Then it runs `gh` with no network at all. To do the same by hand, set `$digest` to
+the installer's SHA-256 from the manifest:
 
 ```bash
 curl -fsS -H "Accept: application/vnd.github+json" \
@@ -276,9 +276,9 @@ gh attestation verify Tether-1.0.0-rc1-Linux-x86_64.sh \
   --deny-self-hosted-runners
 ```
 
-The last command needs no network and no sign-in. The updater adds `--source-ref
-refs/tags/vX.Y.Z` for the version it offers, installs only a release whose certificate names
-a `vMAJOR.MINOR.PATCH` tag (so it refuses every `rc` above), and requires the attestation to
+The last command needs no network and no sign-in. The updater also passes `--source-ref
+refs/tags/vX.Y.Z` for the version it offers. It installs only a release whose certificate
+names a `vMAJOR.MINOR.PATCH` tag, so it refuses every `rc` above. The attestation must also
 name the downloaded file as this platform's installer.
 
 #### Documentation status

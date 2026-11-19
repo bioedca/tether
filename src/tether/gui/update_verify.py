@@ -16,7 +16,7 @@ when every step before it passed:
    nothing else happens: no request, no ``gh``.
 2. **Local checks.** The version must be a stable ``MAJOR.MINOR.PATCH``, the file's name
    must be this platform's installer for that version, and the bundled ``gh``
-   ([`tether._verifier.bundled_gh`][]) must report a version at or above
+   (the caller passes [`tether._verifier.bundled_gh`][]) must report a version at or above
    [`GH_MIN_VERSION`][] (CVE-2025-25204 made ``gh attestation verify`` fail open below it).
 3. **Tether fetches.** The SHA-256 of the file, then one unauthenticated ``GET`` of
    [`ATTESTATIONS_API`][] for that digest, read as explicit UTF-8, and the Sigstore trusted
@@ -89,7 +89,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from tether import _verifier
 from tether.gui import app_settings
 from tether.gui.update_check import DEFAULT_TIMEOUT_S, Version
 
@@ -135,9 +134,10 @@ SIGNER_WORKFLOW = "bioedca/tether/.github/workflows/release.yml"
 ATTESTATIONS_API = "https://api.github.com/repos/bioedca/tether/attestations/sha256:{digest}"
 """The attestations endpoint, public and unauthenticated; ``{digest}`` is 64 hex digits."""
 
-GH_MIN_VERSION = (2, 67, 0)
-"""The lowest ``gh`` accepted at runtime. CVE-2025-25204 (GHSA-fgw4-v983-mgp8): in 2.49.0
-through 2.66.x ``gh attestation verify`` exited 0 on a predicate-type mismatch."""
+GH_MIN_VERSION: tuple[int, ...] = tuple(int(part) for part in ["2", "67", "0"])
+"""The lowest ``gh`` accepted at runtime, ``(2, 67, 0)``. CVE-2025-25204
+(GHSA-fgw4-v983-mgp8): in 2.49.0 through 2.66.x ``gh attestation verify`` exited 0 on a
+predicate-type mismatch."""
 
 TRUSTED_ROOT_TIMEOUT_S = 30.0
 """Seconds ``gh attestation trusted-root`` may take before the check is abandoned in
@@ -750,7 +750,7 @@ def verify_update(
     *,
     settings_file: Path | None = None,
     override_file: Path | None = None,
-    gh: Path | None = None,
+    gh: Path | None,
     tag: str | None = None,
     fetch: Fetch = _default_fetch,
     runner: Runner = run_gh,
@@ -763,9 +763,11 @@ def verify_update(
     otherwise *refused* (tell the user ``reason``) or *unavailable* (say nothing).
 
     ``settings_file`` and ``override_file`` go to
-    [`tether.gui.app_settings.update_check_state`][]; ``gh`` defaults to
-    [`tether._verifier.bundled_gh`][] and ``tag`` to [`platform_tag`][]. ``fetch`` and
-    ``runner`` are for tests.
+    [`tether.gui.app_settings.update_check_state`][]. ``gh`` is required and is what
+    [`tether._verifier.bundled_gh`][] returns for this installed copy; ``None`` (no
+    verifier, as in a development checkout) is *unavailable*. The caller looks it up
+    because this GUI module does not import the core (ADR-0100). ``tag`` defaults to
+    [`platform_tag`][]. ``fetch`` and ``runner`` are for tests.
     """
     try:
         return _verify(installer, version, settings_file, override_file, gh, tag, fetch, runner)
@@ -817,7 +819,6 @@ def _verify(
         raise VerificationRefused("The downloaded update could not be read.") from error
     if not stat.S_ISREG(info.st_mode):
         raise VerificationRefused("The downloaded update is not an ordinary file.")
-    gh = _verifier.bundled_gh() if gh is None else gh
     if gh is None:
         raise VerificationUnavailable("this copy of Tether has no bundled verifier")
 
