@@ -123,10 +123,26 @@ bot even inside backticks, so name the provider in words.
    never rebase a published branch. A rejected push means the branch moved: fetch, merge, rerun the
    affected checks, push, log.
 
-The branches are `agent/issue-<N>`, and their claim refs and generations belong to the Claude
-threads that claimed them. The Codex lane neither claims, checks, releases nor recreates them; the
-label is what holds the pull request during the handoff. The reaper never reclaims a claim that has
-an open pull request, so a held branch is safe from it.
+The branches are `agent/issue-<N>`, and their claims belong to the Claude threads that claimed
+them. The Codex lane never claims, releases or recreates one, **but it revalidates the claim it
+works under exactly as `AGENTS.md` requires**: the label says which lane holds the pull request, and
+only the claim's generation says whether the claim still stands. Read the generation once, when you
+take the pull request, and record it in the `taken` entry:
+
+```sh
+gh api -X GET "repos/bioedca/tether/activity?ref=refs/heads/agent/issue-<N>&activity_type=branch_creation" --jq "map(.id) | max"
+```
+
+Then, immediately before every authoritative write — a push, ready-for-review, a merge — run:
+
+```sh
+<py> .agents/bin/claim.py check --issue <N> --generation <G>
+```
+
+Exit `5` means the claim was reclaimed and a successor owns it: **stop writing**, post a
+`stood-down` entry and remove the label. A pull request whose branch is not `agent/issue-<N>` (a
+Dependabot bump, a session branch) has no claim; say so in the `taken` entry. The reaper never
+reclaims a claim that has an open pull request, so a check failing is a signal worth stopping for.
 
 ### What the Claude lane does on resume
 
