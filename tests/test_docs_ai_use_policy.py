@@ -11,7 +11,8 @@ without a failing test:
 
 * the page is in the ``Project & maintainers`` nav group;
 * it has rules 1 to 10, in order, and rules 1, 3 and 8 point to the rule they do not restate;
-* rule 4 says who reads, how much, where the result goes and what happens on a fail;
+* rule 4 says who reads, how much, where the result goes and what happens on a fail, and its
+  sample is a page that the pull request rewrites, not a page that it only adds (#1033);
 * its table has the ``Safe`` and ``Unsafe`` columns and at least six filled pairs;
 * ``CONTRIBUTING.md`` links it from the AI section, and the four table rows link it.
 
@@ -97,6 +98,21 @@ def test_rule_four_says_who_reads_how_much_where_it_is_recorded_and_what_a_fail_
     assert "The maintainer reads the full page" in rule
     assert "The pull request description records" in rule
     assert "If the sampled page fails, the pull request does not merge yet." in rule
+
+
+def test_rule_four_samples_a_rewritten_page_not_a_new_one() -> None:
+    """A style-rewrite pull request can also add a page; the sample must be a rewrite (#1033)."""
+    rule = " ".join(_rule(4).split())
+    assert "1. The maintainer selects one existing page that the pull request rewrites." in rule
+    assert (
+        "4. If the pull request rewrites more than one existing page, the maintainer also reads"
+        " one other full page that it rewrites."
+    ) in rule
+    assert "A pull request that rewrites only one existing page needs only the read of step 3." in (
+        rule
+    )
+    assert "page that the pull request changes" not in rule
+    assert "page that it changes" not in rule
 
 
 def test_the_table_has_at_least_six_filled_safe_and_unsafe_pairs() -> None:

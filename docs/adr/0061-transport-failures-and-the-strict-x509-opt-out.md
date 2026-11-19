@@ -37,7 +37,7 @@ socket or TLS failure raised by `_request`, came back as an answer **about the i
 `status:ready` item with a binding marker was reported to an agent as unapproved, and a compliant
 agent correctly walked away from work it should have done. Measured:
 
-```
+```console
 $ python .agents/bin/claim.py claim --issue 222 --vendor claude
 ineligible: GitHub API is unreachable
 exit=3
@@ -62,6 +62,22 @@ routinely issue exactly such a CA. Same machine, same host, same second:
 `pyproject.toml` declares `requires-python = ">=3.11"` and Windows is this repository's primary
 development platform, so 3.13 and 3.14 are supported interpreters that cannot reach the API at all.
 `SSL_CERT_FILE` does not help: the CA is not missing, it is present and judged malformed.
+
+## Considered options
+
+- **Enumerate the verdicts, name the cause that was observed, and offer an explicit
+  `TETHER_ALLOW_NONSTRICT_X509=1` opt-out that clears strict conformance and nothing else**
+  (chosen).
+- **Subtype the failures** — a `TransportError` caught ahead of a blanket `except ClaimError`
+  (the first attempt, recorded under *Decision*).
+- **`truststore`.**
+- **Pin the agent tooling to CPython < 3.13.**
+- **Route `_request` through `gh api`.**
+- **Report honestly and stop** (the issue as first written).
+- **Ship a CA bundle or honour `SSL_CERT_FILE`.**
+- **Retry without strict verification after a strict failure.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
 
 ## Decision
 
@@ -162,7 +178,7 @@ maintainer's amendment:
 
 ## Why the opt-out, given #315 ruled it out
 
-#315's non-goal was written to forbid the blunt instruments — `PYTHONHTTPSVERIFY=0`,
+\#315's non-goal was written to forbid the blunt instruments — `PYTHONHTTPSVERIFY=0`,
 `_create_unverified_context`, `CERT_NONE` — and those stay forbidden, asserted against the parsed
 source rather than promised in prose. What it also forbade, and the maintainer has now reversed, is
 the narrow one.
