@@ -59,8 +59,8 @@ the reason of the *current* reject?
 
 - A store written before this change reads `None` for every reason; nothing needs migrating.
 - The reason is a record for a later reader. No analysis, filter or training path reads it.
-- A subset export and the split-file merge-back copy `/labels/table` only, so a reason does not
-  travel with them yet (#1051).
+- A subset export and the split-file merge-back copy the reject-log rows that join the
+  `/labels` rows they copy, so a reason travels with its reject (#1051).
 - A future reason is a new code in `REJECT_REASONS` plus a row in the format page; the dtype does
   not change.
 

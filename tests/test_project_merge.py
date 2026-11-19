@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("numpy")
-pytest.importorskip("h5py")
+h5py = pytest.importorskip("h5py")
 
 import numpy as np  # noqa: E402
 
@@ -36,11 +36,14 @@ from tether.io.filename import parse_filename  # noqa: E402
 from tether.io.schema import create_project  # noqa: E402
 from tether.project.labels import (  # noqa: E402
     LABEL_SOURCE_DEEPLASI,
+    REJECT_LOG,
     CurationLabel,
     accept,
     curation_labels,
     read_labels,
+    read_reject_log,
     reject,
+    reject_record_of,
     set_curation_label,
     unreject,
 )
@@ -345,6 +348,90 @@ def test_append_only_and_idempotent_re_pull(tmp_path) -> None:
     assert second.adopted == ()  # already owner-ACCEPT
     assert second.agreements == (okeys[1],)
     assert curation_labels(owner)[okeys[1]] == _ACCEPT
+
+
+def test_reject_reasons_follow_the_appended_label_rows(tmp_path) -> None:
+    # #1051: the split file's /labels/reject_log rows that join an appended /labels row on
+    # molecule_key + labeler + timestamp are appended to the owner, under the owner's condition_id,
+    # so reject_record_of reads the contributor's reason in the owner.
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=4)
+    skeys = _store(split, n=4, filename=_OTHER_CONDITION_FILENAME)
+    reject(split, skeys[0], labeler="bob", reason="other", note="two spots")
+    unreject(split, skeys[0], labeler="bob", note="one spot after all")
+    reject(split, skeys[0], labeler="bob", reason="threshold", value=0.4)
+    reject(split, skeys[1], labeler="bob", reason="multiple-molecules")
+    # Not appended: a reason row whose molecule the owner does not hold (no label row joins it).
+    foreign = _store(tmp_path / "foreign.tether", n=1, sha_char="b")[0]
+    with h5py.File(split, "r+") as f:
+        log = f["labels"][REJECT_LOG]
+        extra = log[:1].copy()
+        extra["molecule_key"] = foreign
+        log.resize((log.shape[0] + 1,))
+        log[-1:] = extra
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 4
+    assert report.reject_log_appended == 4
+    log = read_reject_log(owner)
+    assert [_to_text(k) for k in log["molecule_key"]] == [okeys[0]] * 3 + [okeys[1]]
+    assert [_to_text(e) for e in log["event"]] == ["reject", "restore", "reject", "reject"]
+    assert {_to_text(c) for c in log["condition_id"]} == {_condition_of(owner)}
+    record = reject_record_of(owner, okeys[1])
+    assert record is not None
+    assert _to_text(record["reason"]) == "multiple-molecules"
+    assert _to_text(record["labeler"]) == "bob"
+    # okeys[0] went to the owner as a fresh adopt: its current reject carries the threshold reason.
+    record = reject_record_of(owner, okeys[0])
+    assert record is not None
+    assert _to_text(record["reason"]) == "threshold"
+    assert float(record["value"]) == 0.4
+
+    second = merge_labels(owner, split)
+    assert second.appended == 0
+    assert second.reject_log_appended == 0
+    assert read_reject_log(owner).shape == (4,)
+
+
+def test_reject_reasons_append_after_the_owner_s_own(tmp_path) -> None:
+    # The owner's own reasons stay where they are; the contributor's are appended after them.
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=3)
+    _store(split, n=3)
+    reject(owner, okeys[0], labeler="alice", reason="no-anticorrelation")
+    reject(split, okeys[1], labeler="bob", reason="multiple-molecules")
+
+    report = merge_labels(owner, split)
+
+    assert report.reject_log_appended == 1
+    log = read_reject_log(owner)
+    assert [_to_text(r) for r in log["reason"]] == ["no-anticorrelation", "multiple-molecules"]
+    assert _to_text(reject_record_of(owner, okeys[0])["labeler"]) == "alice"
+    assert _to_text(reject_record_of(owner, okeys[1])["labeler"]) == "bob"
+
+
+def test_split_file_without_a_reject_log_merges_as_before(tmp_path) -> None:
+    # A split file with no /labels/reject_log (a label written straight through set_curation_label,
+    # or a store from before #932) merges its label rows and leaves the owner without a log.
+    owner = tmp_path / "owner.tether"
+    split = tmp_path / "split.tether"
+    okeys = _store(owner, n=2)
+    _store(split, n=2)
+    set_curation_label(split, okeys[1], _REJECT, labeler="bob")
+    with h5py.File(split, "r") as f:
+        assert REJECT_LOG not in f["labels"]
+
+    report = merge_labels(owner, split)
+
+    assert report.appended == 1
+    assert report.reject_log_appended == 0
+    assert curation_labels(owner)[okeys[1]] == _REJECT
+    with h5py.File(owner, "r") as f:
+        assert REJECT_LOG not in f["labels"]
+    assert reject_record_of(owner, okeys[1]) is None
 
 
 def test_within_batch_duplicate_events_deduped(tmp_path) -> None:

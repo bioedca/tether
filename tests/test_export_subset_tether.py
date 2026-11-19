@@ -39,7 +39,12 @@ from tether.io.schema import TABLE, assert_is_compatible_project  # noqa: E402
 from tether.project import Project  # noqa: E402
 from tether.project.export import ExportResult, export_subset_tether  # noqa: E402
 from tether.project.idealize import write_idealization_model  # noqa: E402
-from tether.project.labels import CurationLabel  # noqa: E402
+from tether.project.labels import (  # noqa: E402
+    REJECT_LOG,
+    CurationLabel,
+    read_reject_log,
+    reject_record_of,
+)
 
 _ALL_LAYERS = frozenset(
     {
@@ -480,6 +485,52 @@ def test_labels_travel_only_for_exported_molecules(tmp_path):
     label_keys = {to_str(k) for k in sub.read_labels()["molecule_key"]}
     assert keys[0] in label_keys  # exported molecule's label row travels
     assert keys[2] not in label_keys  # a non-exported molecule's label is not carried
+
+
+def test_reject_reasons_travel_only_for_exported_molecules(tmp_path):
+    # #1051: the /labels/reject_log rows of the exported molecules travel with their /labels rows,
+    # and no other molecule's row does, so a reason reads the same in the subset.
+    project, keys = _source(tmp_path)
+    project.reject(keys[0], labeler="tester", reason="other", note="two spots")
+    project.unreject(keys[0], labeler="tester", note="one spot after all")
+    project.reject(keys[0], labeler="tester", reason="threshold", value=0.25)
+    project.reject(keys[2], labeler="tester", reason="multiple-molecules")
+    out = tmp_path / "subset.tether"
+
+    export_subset_tether(project, out, molecule_keys=[keys[0], keys[1]], include_rejected=True)
+
+    source_log = read_reject_log(project.path)
+    sub_log = read_reject_log(out)
+    assert {to_str(k) for k in sub_log["molecule_key"]} == {keys[0]}
+    expected = source_log[[to_str(k) == keys[0] for k in source_log["molecule_key"]]]
+    assert sub_log.shape == (3,)
+    for field in ("molecule_key", "event", "reason", "note", "labeler", "timestamp"):
+        assert [to_str(v) for v in sub_log[field]] == [to_str(v) for v in expected[field]]
+    np.testing.assert_array_equal(sub_log["value"], expected["value"])  # NaN-aware
+    record = reject_record_of(out, keys[0])
+    assert record is not None
+    assert to_str(record["reason"]) == "threshold"
+    assert float(record["value"]) == 0.25
+    with open(str(out) + ".provenance.json", encoding="utf-8") as fh:
+        assert json.load(fh)["parameters"]["n_reject_log_rows"] == 3
+
+
+def test_no_reject_log_in_the_subset_when_no_exported_molecule_has_one(tmp_path):
+    # A source without the log, or a selection with no logged reject, exports as before: the
+    # subset has no /labels/reject_log (it is created lazily, ADR-0104).
+    project, keys = _source(tmp_path)
+    plain = tmp_path / "plain.tether"
+    export_subset_tether(project, plain)
+    project.reject(keys[2], labeler="tester")
+    unrelated = tmp_path / "unrelated.tether"
+    export_subset_tether(project, unrelated, molecule_keys=[keys[0]])
+
+    for out in (plain, unrelated):
+        with h5py.File(out, "r") as f:
+            assert REJECT_LOG not in f["labels"]
+        assert read_reject_log(out).shape == (0,)
+        with open(str(out) + ".provenance.json", encoding="utf-8") as fh:
+            assert json.load(fh)["parameters"]["n_reject_log_rows"] == 0
 
 
 def test_conditions_copied_verbatim(tmp_path):

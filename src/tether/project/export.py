@@ -642,6 +642,31 @@ def _copy_labels(src: object, dst: object, selected_keys: set[str]) -> int:
     return int(kept.shape[0])
 
 
+def _copy_reject_log(src: object, dst: object, selected_keys: set[str]) -> int:
+    """Copy the ``/labels/reject_log`` rows whose molecule is in the subset (#1051).
+
+    The reason of each reject travels with its ``/labels`` row, so
+    [`tether.project.labels.reject_record_of`][] reads the same reason in the subset as in
+    the source. The log is created lazily, as [`tether.project.labels.reject`][] does: a
+    source without one, or a selection none of whose molecules has a row, leaves the subset
+    without the dataset. Returns the number of rows copied.
+    """
+    from tether.project.labels import REJECT_LOG  # noqa: PLC0415
+
+    if REJECT_LOG not in src["labels"]:
+        return 0
+    src_log = src["labels"][REJECT_LOG]
+    log = src_log[()]
+    if log.shape[0] == 0:
+        return 0
+    mask = np.array([_to_str(k) in selected_keys for k in log["molecule_key"]], dtype=bool)
+    kept = log[mask]
+    if kept.shape[0] == 0:
+        return 0
+    dst["labels"].create_dataset(REJECT_LOG, data=kept, dtype=src_log.dtype, maxshape=(None,))
+    return int(kept.shape[0])
+
+
 def _copy_verbatim_groups(src: object, dst: object) -> None:
     """Replace the fresh subset's empty metadata groups with the source's verbatim.
 
@@ -722,9 +747,9 @@ def export_subset_tether(
     their ``/molecules`` rows (coordinates + identity + all scalar fields), the two
     ``/patches`` channel stacks, the corrected ``/traces`` layers, every
     ``/idealization`` model (filtered to the exported molecules), the ``/labels``
-    provenance rows, and the ``/conditions``/``/settings``/``/calibration``/``/models``
-    metadata verbatim. The source **raw** traces are embedded only when
-    ``include_raw=True``.
+    provenance rows and their ``/labels/reject_log`` reasons, and the
+    ``/conditions``/``/settings``/``/calibration``/``/models`` metadata verbatim. The
+    source **raw** traces are embedded only when ``include_raw=True``.
 
     Movie-less & raw-reconstructability (§5.4). The subset carries **no** ``/movies``
     rows, so it is definitionally movie-less — there is no source movie to resolve or
@@ -838,6 +863,7 @@ def export_subset_tether(
                 # merge-back key, §5.1/§7.10) — deliberately different keys.
                 models, skipped_models = _copy_idealization(src, dst, selected_ids, set(layers))
                 n_labels = _copy_labels(src, dst, selected_keys)
+                n_reject_log = _copy_reject_log(src, dst, selected_keys)
                 _copy_verbatim_groups(src, dst)
                 # Embedded provenance (§7.9): stamp the subset's own root attributes so
                 # the file is self-describing even detached from its sidecar.
@@ -865,6 +891,7 @@ def export_subset_tether(
             "idealization_models": models,
             "skipped_idealization_models": skipped_models,
             "n_label_rows": n_labels,
+            "n_reject_log_rows": n_reject_log,
             "molecule_keys": None if molecule_keys is None else [str(k) for k in molecule_keys],
         },
     )

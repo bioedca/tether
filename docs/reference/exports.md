@@ -350,6 +350,7 @@ row counts consistent, both patch channels present) **before** anything is writt
 | `/patches` | Every channel (`donor`, `acceptor`), row-subset, aperture window unchanged |
 | `/idealization/{model}` | Per-model, filtered on **`molecule_id`** (the unique UUID, not the non-unique `molecule_key`). The row-aligned members `idealized`, `state_path`, `molecule_key`, `molecule_id`, `input_hash` are subset; every other member (`mean`, `var`, `frac`, `tmatrix`, `norm_tmatrix`, `rates`, `pi`, the `priors` group) is a global consensus array and is copied verbatim. The group's `n_molecules` attribute is rewritten to the kept count |
 | `/labels` | Rows whose `molecule_key` is in the selection |
+| `/labels/reject_log` | Rows whose `molecule_key` is in the selection, so each reject keeps its reason. Absent when the source has no log or no selected molecule has a row |
 | `/conditions`, `/settings`, `/calibration`, `/models` | Copied verbatim |
 
 **What does not travel:**
@@ -381,7 +382,7 @@ empty, or when the preflight fails.
 
 Provenance-file `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
-`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`.
+`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`, `n_reject_log_rows`.
 
 ## 4. Plot export (PDF + SVG + PNG)
 
