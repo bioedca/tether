@@ -49,9 +49,15 @@ factors to compare with.
 
 On `lab-03` to `lab-05` Tether's γ is 1.07 to 1.20 times Deep-LASI's, and 70 to 77 % of the
 measured steps are clean. On `lab-01`, `lab-02` and `lab-06` it is 2.7 to 3.0 times Deep-LASI's,
-and 21 to 58 % are clean. On pure noise the expected clean fraction is about one half, which a
-synthetic dataset of the same construction reproduces (46 of 100,
-`tests/test_fret_gamma_clean_steps.py`).
+and 21 to 58 % are clean. Where the acceptor drops and the donor change is only noise around
+zero, the expected clean fraction is about one half, which a synthetic dataset of the same
+construction reproduces (46 of 100, `tests/test_fret_gamma_clean_steps.py`). Were the acceptor
+change noise as well, it would be about one quarter; a measured step has a detected acceptor
+bleach, so the one-half case is the one that applies.
+
+The two groups are named by that ratio, not by a tolerance. Under the ±10 % γ tolerance of
+PRD §11.2 only `lab-03` (1.07) and `lab-05` (1.09) agree, and `lab-04` (1.20) does not. In this
+record, *near* Deep-LASI means within 1.2 times its γ, and *far* means 2.7 times or more.
 
 ## Decision drivers
 
@@ -95,9 +101,10 @@ Chosen option: **A**, warn only, chosen by the maintainer on 2026-11-19 over opt
   `compute_gamma(min_clean_step_fraction=…)`. The warning fires when
   `n_step_clean < fraction · n_step_evaluated`, only when γ was applied (a withheld γ already says
   so), and never with no measured step. `0` turns it off; a value outside `[0, 1]` is refused.
-  0.65 lies in the gap between the highest fraction where γ disagrees with Deep-LASI (0.583,
-  `lab-06`) and the lowest where it agrees (0.699, `lab-05`), near its middle, and above the one
-  half that noise alone gives. With it, `lab-03`, `lab-04` and `lab-05` raise no warning, and
+  0.65 lies in the gap between the highest fraction where γ is far from Deep-LASI's (0.583,
+  `lab-06`) and the lowest where it is near (0.699, `lab-05`), near its middle, and above the one
+  half that donor noise gives with a real acceptor drop. It separates near from far; it does
+  not mark agreement within the ±10 % tolerance, which `lab-04` misses while clearing 0.65. With it, `lab-03`, `lab-04` and `lab-05` raise no warning, and
   `lab-01`, `lab-02`, `lab-06` and `lab-07` do.
 - **The stamp.** `/settings/gamma` gains `n_step_evaluated`, `n_step_clean`,
   `min_clean_step_fraction` and `few_clean_steps`. The change is additive: no attribute is
@@ -138,6 +145,7 @@ Chosen option: **A**, warn only, chosen by the maintainer on 2026-11-19 over opt
   and the practical guide reads anticorrelated donor and acceptor changes as the sign of energy
   transfer ([Roy2008](https://doi.org/10.1038/nmeth.1208)); [McCann2010](https://doi.org/10.1016/j.bpj.2010.04.063)
   remains the source of the per-molecule route. None of them sets a fraction of clean steps, so
-  0.65 is Tether's own, chosen from the measurement above. That pure noise gives a clean step
-  about half the time is the symmetry of a zero-mean `ΔI_D`, shown on the synthetic dataset.
+  0.65 is Tether's own, chosen from the measurement above. That donor noise with a real acceptor
+  drop gives a clean step about half the time is the symmetry of a zero-mean `ΔI_D`, shown on the
+  synthetic dataset.
 - The decision: #1232.
