@@ -17,7 +17,7 @@ write over the source project, and exit codes (0 written, 1 failed, 2 usage).
 An export only reads the source project. It takes no writer lock and never touches the
 project's ``<file>.lock``, so it works on a project another user holds open.
 
-Only [`argparse`][] is imported at module level: ``tether.cli.build_parser`` registers
+Only `argparse` is imported at module level: ``tether.cli.build_parser`` registers
 these parsers on the ``tether --version`` path, which must stay free of the HDF5 stack.
 The export functions are imported inside [`run_export`][tether.cli_export.run_export].
 """

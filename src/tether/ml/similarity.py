@@ -12,14 +12,14 @@ from the population (PRD §7.5 "sort/rank only, never auto-drop").
 Method. Each molecule's stored feature vector ([`tether.project.features.feature_matrix`][])
 is **z-score standardized** per feature — ``z = (x - mean) / std`` over the searchable
 population — and neighbours are the nearest points under the ordinary Euclidean
-(``p=2``) metric via a [`scipy.spatial.cKDTree`][]. Standardization is load-bearing,
+(``p=2``) metric via a `scipy.spatial.cKDTree`. Standardization is load-bearing,
 not cosmetic: the raw features span wildly different scales (``total_intensity`` is
 hundreds–thousands; ``fret_mean`` is in ``[0, 1]``), so an un-standardized Euclidean
 distance would be dominated by whichever feature happens to carry the largest
 magnitude and the small-but-informative features would not affect the ranking at all.
 Feature normalization is the field-standard, empirically-validated preprocessing step
 for distance-based (k-NN / nearest-neighbour) methods, and z-score standardization is
-among the most robust choices across datasets [Vikri2026][Singh2020][Yusran2025].
+among the most robust choices across datasets [Vikri2026], [Singh2020], [Yusran2025].
 
 Never-fabricate discipline (shared with [`tether.ml.features`][]). A molecule whose
 feature vector is not fully finite (an undefined feature is ``NaN``, never a fabricated

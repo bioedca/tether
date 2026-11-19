@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from tether.services import batch, extract, maps
+from tether.services import batch, extract, idealize, maps
 from tether.services.base import Request, RequestError, request_from_mapping
 
 __all__ = [
@@ -67,6 +67,13 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         summary="run the extract -> correct -> idealize pipeline over many movies",
     ),
     ServiceCommand(
+        name="idealize",
+        request_type=idealize.IdealizeRequest,
+        result_type=idealize.IdealizeResult,
+        run=idealize.run,
+        summary="fit the molecules of a .tether project, or refit its stale models",
+    ),
+    ServiceCommand(
         name="map",
         request_type=maps.MapCreateRequest,
         result_type=maps.MapCreateResult,
@@ -77,7 +84,7 @@ COMMANDS: tuple[ServiceCommand, ...] = (
 
 
 def command(name: str) -> ServiceCommand:
-    """Return the registered command called *name*; raise [`KeyError`][] if none."""
+    """Return the registered command called *name*; raise `KeyError` if none."""
     for entry in COMMANDS:
         if entry.name == name:
             return entry

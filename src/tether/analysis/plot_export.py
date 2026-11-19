@@ -11,13 +11,13 @@ a **vector SVG**, and a **raster PNG**, each carrying a provenance stamp.
 Design
 ------
 - **Headless, Qt-free.** Rendering uses Matplotlib's object-oriented
-  [`matplotlib.figure.Figure`][] API directly (never ``pyplot``), so no GUI
+  `matplotlib.figure.Figure` API directly (never ``pyplot``), so no GUI
   backend is ever selected — this keeps the base environment free of PyQt5/Tk
   (the §4.1 no-PyQt5 base invariant that motivated shipping ``matplotlib-base``,
   ADR-0044). ``Figure.savefig`` attaches the format-appropriate canvas (Agg for
   PNG, ``backend_pdf`` for PDF, ``backend_svg`` for SVG) on demand.
 - **Rendering is separate from IO.** Each ``render_*`` returns a bare
-  [`Figure`][matplotlib.figure.Figure] (no stamp, no file); [`export_figure`][]
+  `Figure` (no stamp, no file); [`export_figure`][]
   adds the visible provenance footer and writes the three files + the sidecar.
   A caller can therefore embed the same figure in the GUI and export it
   identically.
@@ -607,7 +607,7 @@ def export_figure(
 
 
 def _new_figure(figsize: tuple[float, float] | None) -> Figure:
-    """A constrained-layout [`Figure`][] (no pyplot, so no GUI backend)."""
+    """A constrained-layout `Figure` (no pyplot, so no GUI backend)."""
     return Figure(figsize=figsize or DEFAULT_FIGSIZE, layout="constrained")
 
 
@@ -1300,7 +1300,7 @@ def _one_histogram2d(
 def _tdp_norm(counts: np.ndarray, color_scale: str, *, smoothed: bool = False) -> Normalize:
     """The colour normalization for a TDP ``counts`` array.
 
-    ``"log"`` is zero-safe: [`LogNorm`][matplotlib.colors.LogNorm] masks every bin
+    ``"log"`` is zero-safe: `LogNorm` masks every bin
     ``<= 0`` instead of taking ``log(0) = -inf``, and its limits come from the positive
     finite bins only. The floor sits `_TDP_LOG_FLOOR_DECADES` below the smallest
     non-empty bin, so the weakest transition is drawn visibly above the floor colour

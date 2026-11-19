@@ -163,7 +163,7 @@ class OverGateRegistrationWarning(UserWarning):
 
     The structured per-movie warning of the headless ``on_over_gate="warn"``
     (accept-with-flag) policy (§7.1). Its own category so callers/tests can target
-    it with [`warnings.catch_warnings`][] / [`pytest.warns`][].
+    it with `warnings.catch_warnings` / `pytest.warns`.
     """
 
 
@@ -451,7 +451,7 @@ def registration_map_from_tmap(
     Each channel's split geometry is carried from the ``.tmap`` (reference + moving):
     its crop and its decoded ``Rotation`` / ``Flip``, applied in ``processImage``
     order (rotate -> flip -> crop) when the movie is split (#559). A stored rotation
-    or flip that does not decode raises [`ValueError`][]. When
+    or flip that does not decode raises `ValueError`. When
     matched control points
     (``reference_points`` / ``moving_points``, e.g. colocalized molecule pairs) are
     supplied, the imported map's RMS residual is measured at them and the same
