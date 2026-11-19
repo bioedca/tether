@@ -6,8 +6,9 @@ Locks :mod:`tether.ml.prequential`: the interleaved test-then-train protocol sco
 with the model trained on the videos already seen (never on itself), reports the first video
 and single-class-prior videos as *skipped* rather than fabricating a ``0`` uplift, aggregates
 the held-out uplifts by their **median** into a ship verdict, and refuses (loudly) to invent a
-number when no video can be held-out evaluated. Model-free (a fake scorer) -> pure NumPy on the
-base CI matrix.
+number when no video can be held-out evaluated. The leave-one-video-out protocol (ADR-0114)
+scores every video with a model trained on all the other videos and never on itself.
+Model-free (a fake scorer) -> pure NumPy on the base CI matrix.
 """
 
 from __future__ import annotations
@@ -20,9 +21,12 @@ import numpy as np  # noqa: E402
 
 from tether.ml.prequential import (  # noqa: E402
     DEFAULT_SHIP_BAR_PTS,
+    PROTOCOL_LEAVE_ONE_VIDEO_OUT,
+    PROTOCOL_PREQUENTIAL,
     PrequentialResult,
     VideoFold,
     VideoUplift,
+    leave_one_video_out_uplift,
     prequential_uplift,
 )
 
@@ -220,3 +224,195 @@ def test_prior_expands_across_all_prior_videos() -> None:
     prequential_uplift(folds, _recording, k=2)
     # v2 trained on v1 (2), v3 trained on v1+v2 (2+3=5): expanding, not sliding.
     assert seen_prior_sizes == [2, 5]
+
+
+def test_prequential_result_names_its_protocol() -> None:
+    folds = [_fold("v1", [0.0, 1.0], [False, True]), _goods_last("v2")]
+    assert (
+        prequential_uplift(folds, _perfect, k=2).protocol == PROTOCOL_PREQUENTIAL == "prequential"
+    )
+
+
+# --- leave-one-video-out (PRD §8 NFR-VALID (d); ADR-0114) --------------------
+
+
+def _recording_scorer(log: list[np.ndarray]):
+    """A ``train_score_fn`` that records each prior's features and scores by column 0."""
+
+    def _fit(x_prior: np.ndarray, _y_prior: np.ndarray):
+        log.append(np.array(x_prior, dtype=np.float64, copy=True))
+        return lambda x: np.asarray(x, dtype=np.float64)[:, 0]
+
+    return _fit
+
+
+def _tagged(movie_id: str, tag: float, goods: list[bool]) -> VideoFold:
+    """A fold whose column 0 ranks goods first and whose column 1 is ``tag`` on every row."""
+    ids = tuple(f"{movie_id}-{i}" for i in range(len(goods)))
+    x = np.asarray([[1.0 if g else 0.0, tag] for g in goods], dtype=np.float64)
+    return VideoFold(movie_id=movie_id, molecule_ids=ids, X=x, is_good=tuple(goods))
+
+
+def test_lovo_scores_every_video_including_the_first() -> None:
+    folds = [_goods_last("v1"), _goods_last("v2"), _goods_last("v3")]
+    result = leave_one_video_out_uplift(folds, _perfect, k=2)
+    assert [v.movie_id for v in result.per_video] == ["v1", "v2", "v3"]  # v1 is held out too
+    assert result.skipped_movie_ids == ()
+    assert result.protocol == PROTOCOL_LEAVE_ONE_VIDEO_OUT == "leave-one-video-out"
+    for v in result.per_video:
+        assert v.ranker == pytest.approx(1.0)
+        assert v.baseline == pytest.approx(0.0)
+        assert v.uplift == pytest.approx(1.0)
+    assert result.median_uplift_pts == pytest.approx(100.0)
+    assert result.shipped is True
+
+
+def test_lovo_prior_is_every_other_video_never_itself() -> None:
+    # Column 1 tags each row with its video, so the recorded priors show exactly which videos
+    # trained each held-out scorer: all the others, earlier and later, and never the video itself.
+    folds = [
+        _tagged("v1", 1.0, [False, True]),
+        _tagged("v2", 2.0, [False, False, True]),
+        _tagged("v3", 3.0, [False, True, True, False]),
+    ]
+    log: list[np.ndarray] = []
+    leave_one_video_out_uplift(folds, _recording_scorer(log), k=2)
+    assert [sorted(set(prior[:, 1].tolist())) for prior in log] == [
+        [2.0, 3.0],  # v1 held out: trained on the later v2 and v3
+        [1.0, 3.0],
+        [1.0, 2.0],
+    ]
+    assert [prior.shape[0] for prior in log] == [7, 6, 5]  # every row of the other videos
+
+
+def test_lovo_prior_labels_align_with_their_rows() -> None:
+    seen: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def _fit(x_prior: np.ndarray, y_prior: np.ndarray):
+        seen.append((np.array(x_prior, copy=True), np.array(y_prior, copy=True)))
+        return lambda x: np.asarray(x, dtype=np.float64)[:, 0]
+
+    folds = [_tagged("v1", 1.0, [False, True]), _tagged("v2", 2.0, [True, False, False])]
+    leave_one_video_out_uplift(folds, _fit, k=1)
+    for x_prior, y_prior in seen:
+        np.testing.assert_array_equal(y_prior, x_prior[:, 0] == 1.0)  # truth row-for-row
+
+
+def _centroid(x_prior: np.ndarray, y_prior: np.ndarray):
+    """A scorer that learns from its prior and ignores its row order: the class-centroid axis."""
+    x_prior = np.asarray(x_prior, dtype=np.float64)
+    y_prior = np.asarray(y_prior, dtype=bool)
+    axis = x_prior[y_prior].mean(axis=0) - x_prior[~y_prior].mean(axis=0)
+    return lambda x: np.asarray(x, dtype=np.float64) @ axis
+
+
+def _two_feature_fold(movie_id: str, rows: list[tuple[float, float]], goods: list[bool]):
+    ids = tuple(f"{movie_id}-{i}" for i in range(len(goods)))
+    x = np.asarray(rows, dtype=np.float64)
+    return VideoFold(movie_id=movie_id, molecule_ids=ids, X=x, is_good=tuple(goods))
+
+
+def test_lovo_priors_hold_the_same_rows_whatever_the_fold_order() -> None:
+    # Only the order of the rows inside a prior follows the folds; which rows it holds does not.
+    folds = [
+        _tagged("v1", 1.0, [False, True]),
+        _tagged("v2", 2.0, [False, False, True]),
+        _tagged("v3", 3.0, [True, False, True, False]),
+    ]
+    forward: list[np.ndarray] = []
+    backward: list[np.ndarray] = []
+    leave_one_video_out_uplift(folds, _recording_scorer(forward), k=2)
+    leave_one_video_out_uplift(list(reversed(folds)), _recording_scorer(backward), k=2)
+    for a, b in zip(forward, reversed(backward), strict=True):  # same held-out video
+        np.testing.assert_array_equal(np.unique(a, axis=0), np.unique(b, axis=0))
+        assert a.shape == b.shape
+
+
+def test_lovo_uplifts_do_not_depend_on_fold_order_for_an_order_free_trainer() -> None:
+    # The centroid scorer learns from its prior (feature 1 carries the signal in v1 and v2 and
+    # feature 0 in v3), so a change in which rows train a video's scorer would move its uplift.
+    folds = [
+        _two_feature_fold("v1", [(0.0, 0.0), (0.0, 1.0), (0.0, 0.0)], [False, True, False]),
+        _two_feature_fold("v2", [(0.5, 0.0), (0.0, 1.0)], [False, True]),
+        _two_feature_fold("v3", [(0.0, 0.0), (1.0, 0.2), (1.0, 0.1)], [False, True, True]),
+    ]
+    forward = leave_one_video_out_uplift(folds, _centroid, k=1)
+    backward = leave_one_video_out_uplift(list(reversed(folds)), _centroid, k=1)
+    assert {v.movie_id: v for v in forward.per_video} == {v.movie_id: v for v in backward.per_video}
+    assert forward.median_uplift_pts == pytest.approx(backward.median_uplift_pts)
+    # The scorer really learned: trained on v1 + v2 only, it ranks v3's goods first.
+    v3 = {v.movie_id: v for v in forward.per_video}["v3"]
+    assert v3.ranker == pytest.approx(1.0)
+    assert v3.baseline == pytest.approx(0.0)
+
+
+def test_lovo_ranker_equal_to_file_order_is_zero_uplift_not_shipped() -> None:
+    folds = [_goods_last("v1"), _goods_last("v2"), _goods_last("v3")]
+    result = leave_one_video_out_uplift(folds, _identity_order, k=2)
+    assert all(v.uplift == pytest.approx(0.0) for v in result.per_video)
+    assert result.shipped is False
+
+
+def test_lovo_single_class_others_is_skipped_not_fabricated() -> None:
+    # v1 is the only video with a rejected molecule. Held out, it leaves v2 + v3 (all accepted,
+    # one class) as its prior, so it is skipped; v2 and v3 each still see v1's two classes.
+    folds = [
+        _fold("v1", [0.0, 1.0], [False, True]),
+        _fold("v2", [1.0, 1.0], [True, True]),
+        _fold("v3", [1.0, 1.0], [True, True]),
+    ]
+    result = leave_one_video_out_uplift(folds, _perfect, k=2)
+    assert result.skipped_movie_ids == ("v1",)
+    assert [v.movie_id for v in result.per_video] == ["v2", "v3"]
+
+
+def test_lovo_no_trainable_prior_raises_never_fabricates() -> None:
+    with pytest.raises(ValueError, match="no held-out video had a trainable prior"):
+        leave_one_video_out_uplift([_goods_last("only")], _perfect, k=2)
+    all_good = [_fold(f"v{i}", [1.0, 1.0], [True, True]) for i in range(3)]
+    with pytest.raises(ValueError, match="no held-out video had a trainable prior"):
+        leave_one_video_out_uplift(all_good, _perfect, k=2)
+
+
+def test_lovo_empty_folds_raises() -> None:
+    with pytest.raises(ValueError, match="no video folds"):
+        leave_one_video_out_uplift([], _perfect, k=2)
+
+
+def test_lovo_duplicate_movie_id_raises() -> None:
+    # Two folds of one video would put that video's traces on both sides of the split.
+    folds = [_goods_last("v1"), _goods_last("v2"), _goods_last("v1")]
+    with pytest.raises(ValueError, match="more than one fold"):
+        leave_one_video_out_uplift(folds, _perfect, k=2)
+
+
+@pytest.mark.parametrize("bad_k", [0, -1, 2.0, True])
+def test_lovo_k_must_be_positive_int(bad_k) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        leave_one_video_out_uplift([_goods_last("v1"), _goods_last("v2")], _perfect, k=bad_k)
+
+
+def test_lovo_scorer_misshapen_scores_raises() -> None:
+    def _wrong_length(_xp, _yp):
+        return lambda x: np.zeros(np.asarray(x).shape[0] + 1)
+
+    with pytest.raises(ValueError, match="must align"):
+        leave_one_video_out_uplift([_goods_last("v1"), _goods_last("v2")], _wrong_length, k=2)
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_lovo_scorer_nonfinite_scores_raises(bad) -> None:
+    def _nonfinite(_xp, _yp):
+        return lambda x: np.full(np.asarray(x).shape[0], bad, dtype=np.float64)
+
+    with pytest.raises(ValueError, match="non-finite"):
+        leave_one_video_out_uplift([_goods_last("v1"), _goods_last("v2")], _nonfinite, k=2)
+
+
+def test_lovo_keeps_the_ship_bar_and_k() -> None:
+    folds = [_goods_last("v1"), _goods_last("v2")]
+    default = leave_one_video_out_uplift(folds, _perfect, k=3)
+    assert default.ship_bar_pts == DEFAULT_SHIP_BAR_PTS  # the same bar as the prequential gate
+    assert default.k == 3
+    strict = leave_one_video_out_uplift(folds, _perfect, k=3, ship_bar_pts=150.0)
+    assert strict.shipped is False
