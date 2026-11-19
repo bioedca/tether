@@ -128,6 +128,7 @@ from tether.imaging.layout import (
     ChannelLayout,
     ChannelLayoutError,
 )
+from tether.imaging.recipe import ChannelRecipeError, check_frame_fits
 from tether.imaging.register import (
     estimate_similarity_prealign,
     estimate_translation_prealign,
@@ -687,6 +688,12 @@ def _run_pipeline(
                     raise ExtractionError(
                         "imported map lacks per-channel crop geometry; cannot split the movie"
                     )
+                # A movie turned against its map, or smaller than it, is refused here
+                # with both geometries named, not split at the wrong pixels (#887, #910).
+                try:
+                    check_frame_fits(height, width, donor_geom, acceptor_geom)
+                except ChannelRecipeError as exc:
+                    raise ExtractionError(f"{movie_path.name}: {exc}") from exc
                 donor_stack, acceptor_stack = split_channels(reader.data, donor_geom, acceptor_geom)
                 _, _, donor_spots, acceptor_spots = _detect_channels(
                     donor_stack, acceptor_stack, options
@@ -1153,7 +1160,7 @@ def add_movie_to_project(
     ----------
     project_path:
         An existing, compatible ``.tether`` project
-        ([`create_project`][tether.project.create_project] or [`extract_movie`][]).
+        ([`create_project`][tether.io.schema.create_project] or [`extract_movie`][]).
     movie_path:
         The movie to append; see [`extract_movie`][].
     options, tmap, tdat, map_path:

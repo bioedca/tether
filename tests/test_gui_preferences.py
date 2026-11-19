@@ -9,10 +9,12 @@ keys it does not know, and that the update-check consent file of ADR-0095 is nev
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -38,6 +40,9 @@ from tether.gui.preferences import (
     stored_layout,
     validate_curator_name,
 )
+
+# A write leaves the file and its lock file (#1171), and never a temporary.
+_LOCK_FILENAME = PREFERENCES_FILENAME + ".lock"
 
 
 @pytest.fixture
@@ -207,7 +212,38 @@ def test_the_curator_name_defaults_to_the_login_and_can_be_set_and_unset(prefs: 
 
 
 @pytest.mark.parametrize(
-    "bad", ["", "   ", "a\x00b", "line\nbreak", "line\u2028sep", "para\u2029sep", "x" * 101, 3]
+    "name",
+    ["\u0645\u06cc\u200c\u0631\u0632\u0627", "\u0915\u094d\u200d\u0937"],
+    ids=["persian-zwnj", "devanagari-zwj"],
+)
+def test_a_curator_name_with_a_zero_width_joiner_is_accepted_and_stored(
+    prefs: Path, name: str
+) -> None:
+    assert validate_curator_name(name) == name
+    set_curator_name(name, prefs)
+    assert curator_name(prefs) == name
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "   ",
+        "a\x00b",
+        "line\nbreak",
+        "line\u2028sep",
+        "para\u2029sep",
+        "x" * 101,
+        3,
+        "\u200c\u200d",
+        " \u200d \u200c ",
+        "Ana\u202eetoN",
+        "Ana\u2067x\u2069",
+        "Ana\u200bL",
+        "Ana\ue000",
+        "Ana\ud800",
+        "Ana\u0378",
+    ],
 )
 def test_a_bad_curator_name_is_refused_and_nothing_is_written(prefs: Path, bad: object) -> None:
     with pytest.raises(ValueError):
@@ -236,7 +272,7 @@ def test_a_write_never_replaces_a_file_of_another_schema(prefs: Path, content: b
     with pytest.raises(OSError, match="another format"):
         set_curator_name("ana", prefs)
     assert prefs.read_bytes() == content
-    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
+    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME, _LOCK_FILENAME]
 
 
 def test_a_write_never_replaces_a_file_too_large_to_read(
@@ -250,7 +286,7 @@ def test_a_write_never_replaces_a_file_too_large_to_read(
     with pytest.raises(OSError, match="larger than"):
         set_curator_name("ana", prefs)
     assert prefs.read_bytes() == content
-    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
+    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME, _LOCK_FILENAME]
 
 
 def test_a_write_replaces_a_file_that_is_not_a_json_object(prefs: Path) -> None:
@@ -273,7 +309,7 @@ def test_a_failed_write_leaves_the_old_file_and_no_temporary(
     with pytest.raises(OSError, match="disk full"):
         set_curator_name("after", prefs)
     assert prefs.read_bytes() == before
-    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
+    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME, _LOCK_FILENAME]
 
 
 def test_a_write_the_reader_would_discard_is_refused_and_the_old_file_kept(
@@ -287,7 +323,7 @@ def test_a_write_the_reader_would_discard_is_refused_and_the_old_file_kept(
         add_recent_project(tmp_path / ("x" * 200 + ".tether"), prefs)
     assert prefs.read_bytes() == before
     assert curator_name(prefs) == "before"
-    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME]
+    assert sorted(p.name for p in prefs.parent.iterdir()) == [PREFERENCES_FILENAME, _LOCK_FILENAME]
 
 
 def test_the_consent_file_is_never_written(prefs: Path, tmp_path: Path) -> None:
@@ -317,3 +353,85 @@ def test_the_login_name_shown_is_the_name_the_project_writes() -> None:
     from tether.project.labels import default_labeler
 
     assert preferences.login_name() == default_labeler()
+
+
+# --- two running instances (#1171) ---------------------------------------------------------
+
+
+def _pause_after_each_read(monkeypatch: pytest.MonkeyPatch, wait_s: float) -> None:
+    """Make every ``_update`` wait after its read until a second one has read too, or ``wait_s``.
+
+    Two writers that both get past their read before either writes are the lost update of
+    #1171. A writer that cannot read yet because the other holds the lock lets the wait time
+    out, which is the serialization the lock exists for.
+    """
+    barrier = threading.Barrier(2, timeout=wait_s)
+    real_load = preferences._load
+
+    def load_then_wait(path: Path) -> dict[str, object] | None:
+        data = real_load(path)
+        with contextlib.suppress(threading.BrokenBarrierError):
+            barrier.wait()
+        return data
+
+    monkeypatch.setattr(preferences, "_load", load_then_wait)
+
+
+def test_two_concurrent_updates_both_land(
+    prefs: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    set_curator_name("before", prefs)
+    _pause_after_each_read(monkeypatch, wait_s=1.0)
+    project = tmp_path / "a.tether"
+    writers = [
+        threading.Thread(target=set_curator_name, args=("Ana", prefs)),
+        threading.Thread(target=record_resume, args=(project, "m1", prefs)),
+    ]
+    for writer in writers:
+        writer.start()
+    for writer in writers:
+        writer.join(timeout=30)
+    assert not any(writer.is_alive() for writer in writers)
+    assert curator_name(prefs) == "Ana"
+    assert resume_molecule(project, prefs) == "m1"
+
+
+_HOLD_THE_LOCK = """
+import sys
+from pathlib import Path
+from tether.gui import preferences
+with preferences._locked(Path(sys.argv[1])):
+    print("held", flush=True)
+    sys.stdin.readline()
+"""
+
+
+def test_a_lock_held_by_another_instance_fails_the_write_and_dies_with_it(
+    prefs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    set_curator_name("before", prefs)
+    before = prefs.read_bytes()
+    holder = subprocess.Popen(  # noqa: S603 - this interpreter, a fixed script
+        [sys.executable, "-c", _HOLD_THE_LOCK, str(prefs)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "held"
+        monkeypatch.setattr(preferences, "_LOCK_TIMEOUT_S", 0.3)
+        # A write waits a short time, then fails the way any failed write does.
+        with pytest.raises(OSError, match="another Tether window"):
+            set_curator_name("after", prefs)
+        assert prefs.read_bytes() == before
+        # Reading takes no lock: it neither waits nor fails while the lock is held.
+        assert curator_name(prefs) == "before"
+    finally:
+        # A crashed instance: killed while it holds the lock, so it never releases it.
+        holder.kill()
+        holder.wait(timeout=30)
+    # The lock died with the process; the file it leaves behind blocks nothing.
+    assert preferences._lock_path(prefs).exists()
+    set_curator_name("after", prefs)
+    assert curator_name(prefs) == "after"

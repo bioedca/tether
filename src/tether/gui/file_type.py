@@ -114,7 +114,7 @@ def open_command(prefix: str | os.PathLike[str]) -> str:
 
 
 def install_scope(prefix: str | os.PathLike[str]) -> str:
-    """Return the registry root for an install into *prefix*: [`USER`][] or [`MACHINE`][].
+    """Return the registry root for an install into *prefix*: `USER` or `MACHINE`.
 
     The constructor installer writes ``.nonadmin`` into the install folder for a "Just
     Me" install, before ``post_install`` runs (constructor 3.17.3,
@@ -127,7 +127,7 @@ def install_scope(prefix: str | os.PathLike[str]) -> str:
 class Registry(Protocol):
     """The part of the Windows registry this module reads and writes.
 
-    *root* is [`USER`][] or [`MACHINE`][], *key* a path under it, and *name* a value
+    *root* is `USER` or `MACHINE`, *key* a path under it, and *name* a value
     name, where ``""`` is the default value of the key.
     """
 
