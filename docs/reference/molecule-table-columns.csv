@@ -1,0 +1,26 @@
+name,type,unit,can_be_blank,description
+molecule_id,string,none,yes,Stable identifier of the row: mol- followed by 32 hexadecimal characters. Unique within a store.
+molecule_key,string,none,yes,Cross-file join key: a 64-character SHA-256 hex digest of the movie hash and the quantized donor position. An analysis-only import hashes its source instead. Not unique.
+movie_id,string,none,yes,"Identifier of the source /movies row. Empty in an analysis-only project, which has no movie."
+source_filename,string,none,yes,"Name of the file the row's provenance was parsed from: the movie, or the imported SMD or .txt file."
+condition_id,string,none,yes,Condition key.
+condition_id_provisional,string,none,yes,"Provisional condition key parsed from the file name at extraction, kept unchanged after a later re-key."
+curation_label,string,none,no,"Curation decision as text: accept, uncurated or reject."
+category,string,none,yes,"Free-text category, editable per condition."
+quality_class,float,unspecified,yes,Read-only machine-learning quality score. Its range is not defined. Blank in every export the current build writes.
+aperture_id,integer,none,no,"Index into the aperture registry. Always 0, a placeholder; it does not describe the aperture geometry."
+alpha,float,dimensionless,yes,Donor-to-acceptor leakage factor alpha. Blank until the correction step estimates it.
+gamma,float,dimensionless,yes,Detection-correction factor gamma. Blank until it is estimated.
+delta,float,dimensionless,yes,Direct-excitation factor delta. 0.0 and not used in two-colour data.
+correction_method,string,none,yes,"Correction applied to the molecule: empty (none yet), corrected, manual, apparent-E (corrections unavailable) or apparent-E (user toggle)."
+correction_confidence,float,dimensionless,yes,"Provenance flag, not a statistical interval: 1.0 when a photophysical correction was applied, 0.0 when the molecule fell back to apparent E."
+donor_bleach_frame,integer,frames,no,Zero-based absolute frame where the donor bleaches. -1 when not detected; equal to frame_end when the donor does not bleach in the trace.
+acceptor_bleach_frame,integer,frames,no,"Zero-based absolute frame where the acceptor bleaches, with the same -1 and frame_end conventions."
+frame_start,integer,frames,no,"First frame of the molecule's valid extent, zero-based and inclusive."
+frame_end,integer,frames,no,"End of the molecule's valid extent, zero-based and exclusive."
+window_start,integer,frames,no,"First frame of the resolved analysis window, zero-based and inclusive. Equals frame_start when no window is set."
+window_end,integer,frames,no,"End of the resolved analysis window, zero-based and exclusive. Equals frame_end when no window is set."
+tags,string,none,yes,Free-text tags joined with commas.
+n_finite_frames,integer,frames,no,Number of frames in the resolved window that have a finite apparent E.
+mean_apparent_e,float,dimensionless,yes,"Mean apparent FRET efficiency A/(D+A) over the finite frames of the window. Not gamma-corrected and not clipped to [0, 1]. Blank when n_finite_frames is 0."
+median_apparent_e,float,dimensionless,yes,Median apparent FRET efficiency over the same frames. Not gamma-corrected and not clipped. Blank when n_finite_frames is 0.

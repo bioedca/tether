@@ -215,6 +215,13 @@ The order is frozen in `tether.project.export.MOLECULE_TABLE_COLUMNS`, annotated
 source as *"the per-molecule CSV column order (frozen; a reader may key on these names)"*.
 [`tests/test_docs_export_columns.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_export_columns.py) fails if this table and that tuple ever disagree. The
 underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
+The same columns are in a file you can download,
+[`molecule-table-columns.csv`](molecule-table-columns.csv): one row per column, with its
+name, CSV type, unit, whether it can be blank, and a one-line meaning (see
+[Put these files in your deposit](#put-these-files-in-your-deposit)).
+[`tests/test_docs_published_data.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_published_data.py)
+fails if that file and the tuple differ, or if its type, unit or blank entry for a column
+disagrees with this table.
 
 | Column | CSV type | Unit / domain | Blank when |
 |---|---|---|---|
@@ -594,6 +601,9 @@ full filename, so the original extension survives: `molecules.csv.provenance.jso
 `traces.txt.provenance.json`, `subset.tether.provenance.json`. Plot exports pass the
 extension-less stem, so theirs is `<stem>.provenance.json`.
 
+[`tether-provenance-schema.json`](tether-provenance-schema.json) states the keys below as a
+JSON Schema, with the `parameters` of each export.
+
 The payload is `json.dumps(payload, indent=2, sort_keys=True) + "\n"`, UTF-8 — which is
 why the keys read alphabetically:
 
@@ -635,6 +645,21 @@ metadata (both above) — but only the provenance file carries the full paramete
 
 To read a provenance file back next to the stamps inside the project, and to turn both into a
 Methods paragraph, see [Reproducibility and reporting](../reproducibility.md).
+
+## Put these files in your deposit
+
+A CSV or `.txt` export is flat text. To let another person read it correctly, put these
+files beside your data when you deposit it. Download them from the documentation of the
+Tether version that wrote your exports, so that they describe that version:
+
+| File | What it describes |
+|---|---|
+| [`tether-schema.json`](tether-schema.json) | The frozen skeleton of a `.tether` file: its groups, its four compound tables and its root attributes. It is `schema/schema_frozen.json` from the repository, unchanged ([format reference](tether-format.md)). |
+| [`molecule-table-columns.csv`](molecule-table-columns.csv) | The data dictionary of the molecule-table CSV: one row per column, with `name`, `type`, `unit`, `can_be_blank` and `description` ([columns](#molecule-table-columns)). |
+| [`tether-provenance-schema.json`](tether-provenance-schema.json) | A JSON Schema (draft 2020-12) of the `<file>.provenance.json` provenance file ([above](#provenance-file)). Any JSON Schema validator can check a provenance file against it. |
+
+These three files are licensed **CC0-1.0**, so you can copy them into a deposit with no
+conditions. The program code keeps its GPL-3.0-or-later license.
 
 ## Reading the exports elsewhere
 
