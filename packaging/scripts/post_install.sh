@@ -85,9 +85,49 @@ EOF
   chmod +x "$LAUNCH_D/$_cmd"
 done
 
-# Linux desktop entry so the shell is launchable from the applications menu. macOS
-# .pkg installs get the shims above only — a proper .app bundle is separate work
-# (ADR-0051). `uname` rather than a constructor selector: this is one shared script.
+# macOS application bundle (issue #663, ADR-0091): Tether.app in ~/Applications for an
+# install inside the home folder, else in /Applications, so that Launchpad, Spotlight and
+# the Dock find "Tether". The bundle is a launcher only: its executable is a sh script that
+# execs envs/tether/bin/tether-gui, and it holds no copy of the environment.
+# tether.gui.macos_app writes it with plistlib, so the Info.plist is valid by
+# construction, and the install smoke runs the same module's `check`. A Tether.app that
+# the module did not write is left in place. Nothing removes the bundle on uninstall
+# (constructor's pre_uninstall is Windows-only), so docs/install.md names it.
+if [ "$(uname -s)" = "Darwin" ]; then
+  TETHER_USER_APPS_NEW=""
+  [ -d "$HOME/Applications" ] || TETHER_USER_APPS_NEW=1
+  TETHER_APP="$("$TETHER_PY" -m tether.gui.macos_app install --prefix "$PREFIX")"
+  if [ -n "$TETHER_APP" ]; then
+    # An administrator install runs this script as root: give a bundle in the user's
+    # own Applications folder back to the user, as constructor does for the prefix,
+    # and the folder too when this step created it, so the user can remove the bundle
+    # without sudo. A folder that was there before keeps its owner.
+    if [ "$(id -u)" = "0" ] && [ -n "${USER:-}" ]; then
+      case "$TETHER_APP" in
+        "$HOME"/*)
+          chown -R "$USER" "$TETHER_APP" || true
+          if [ -n "$TETHER_USER_APPS_NEW" ] && [ -d "$HOME/Applications" ]; then
+            chown "$USER" "$HOME/Applications" || true
+          fi
+          ;;
+      esac
+    fi
+    # Best-effort: register the bundle now, so Spotlight and Launchpad need not wait
+    # for the next scan of the folder.
+    LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    if [ -x "$LSREGISTER" ]; then
+      "$LSREGISTER" -f "$TETHER_APP" >/dev/null 2>&1 || true
+    fi
+    # Best-effort: ask Spotlight to index the bundle now. Spotlight still indexes the new
+    # install folder first, so on a real Mac it listed Tether after about ten minutes.
+    if [ -x /usr/bin/mdimport ]; then
+      /usr/bin/mdimport "$TETHER_APP" >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
+# Linux desktop entry so the shell is launchable from the applications menu.
+# `uname` rather than a constructor selector: this is one shared script.
 # Exec= is quoted below: the freedesktop spec splits that value on whitespace, so an
 # unquoted prefix containing a space would launch the wrong executable.
 #
@@ -129,6 +169,21 @@ Terminal=false
 Categories=Science;Biology;Education;
 MimeType=application/x-tether;
 EOF
+  # The .tether file type (issue #664, ADR-0118). The entry above already names the MIME
+  # type and takes the file as %f; this defines the type, so that the desktop knows that a
+  # *.tether file is one and opens it with the entry. The package text comes from the
+  # installed wheel (tether.gui.file_type.mime_package_xml), so this script and the module
+  # cannot name different types. It goes into the user's own MIME folder, and
+  # update-mime-database rebuilds that folder's database from its packages; docs/install.md
+  # names the file for the uninstall. No mimeapps.list is written: with no other program
+  # for the type, the entry is its default, and a choice the user made stays.
+  MIME_D="$HOME/.local/share/mime"
+  mkdir -p "$MIME_D/packages"
+  "$TETHER_PY" -c 'import sys; from tether.gui.file_type import mime_package_xml; sys.stdout.write(mime_package_xml())' \
+    > "$MIME_D/packages/tether.xml"
+  if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database "$MIME_D" >/dev/null 2>&1 || true
+  fi
   # Best-effort: a stale cache hides a brand-new entry until the next login.
   if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$APPS_D" >/dev/null 2>&1 || true

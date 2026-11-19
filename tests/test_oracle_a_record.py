@@ -129,14 +129,64 @@ def test_each_file_of_video_010_is_pinned_and_agrees_with_the_provenance_table()
 
     ``tests/fixtures/PROVENANCE.md`` records the full SHA-256 and the size of all five files (the
     sources of the committed fixtures and of the ADR-0022 measurement; full digests since #552).
-    They must be the same files, or the record and ADR-0022 would describe different data.
+    They must be the same files, or the record and ADR-0022 would describe different data, so
+    each digest must sit beside its own size in one row, not merely appear somewhere (#1002).
     """
     assert set(FILES) == {"movie", "tmap", "tdat", "mat", "txt"}
     for role, (sha256, size) in FILES.items():
         assert re.fullmatch(r"[0-9a-f]{64}", sha256), role
         assert isinstance(size, int) and size > 0, role
-    table = PROVENANCE.read_text(encoding="utf-8")
+    assert _disagreements(FILES, PROVENANCE.read_text(encoding="utf-8")) == []
+
+
+def _source_pairs(table: str) -> list[list[tuple[str, str]]]:
+    """Each row of the fixture table as its ``(source digest, source size)`` pairs, in row order.
+
+    A row with several sources lists them in the same order in both columns, joined by ``+``.
+    """
+    rows: list[list[tuple[str, str]]] = []
+    columns: tuple[int, int] | None = None
+    for line in table.splitlines():
+        if not line.startswith("|"):
+            columns = None
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if "Source size" in cells and "Source SHA-256" in cells:
+            columns = (cells.index("Source SHA-256"), cells.index("Source size"))
+        elif columns is not None and not set("".join(cells)) <= set("-: "):
+            digests, sizes = (cells[i].split(" + ") for i in columns)
+            assert len(digests) == len(sizes), f"PROVENANCE.md row has unpaired sources: {line}"
+            rows.append(list(zip(digests, sizes, strict=True)))
+    return rows
+
+
+def _disagreements(files: dict[str, tuple[str, int]], table: str) -> list[str]:
+    """Roles of video 010 whose digest no row names, or whose row pairs it with another size."""
+    rows = _source_pairs(table)
+    problems = []
     for role in ("movie", "tmap", "tdat", "mat", "txt"):
-        sha256, size = FILES[role]
-        assert f"`{sha256}`" in table, f"{role}: PROVENANCE.md has another digest"
-        assert f"{size:,} B" in table, f"{role}: PROVENANCE.md has another size"
+        sha256, size = files[role]
+        found = [listed for row in rows for digest, listed in row if digest == f"`{sha256}`"]
+        if not found:
+            problems.append(f"{role}: no PROVENANCE.md row names its digest")
+        problems += [
+            f"{role}: a row pairs its digest with {s}, not {size:,} B"
+            for s in found
+            if s != f"{size:,} B"
+        ]
+    return problems
+
+
+@pytest.mark.parametrize(("one", "other"), [("movie", "mat"), ("tmap", "tdat"), ("mat", "tmap")])
+def test_a_pin_whose_sizes_are_swapped_disagrees_with_the_provenance_table(
+    one: str, other: str
+) -> None:
+    """Both sizes still appear in the table, but each now sits in another file's row (#1002)."""
+    swapped = dict(FILES)
+    swapped[one], swapped[other] = (
+        (FILES[one][0], FILES[other][1]),
+        (FILES[other][0], FILES[one][1]),
+    )
+    problems = _disagreements(swapped, PROVENANCE.read_text(encoding="utf-8"))
+    assert any(p.startswith(f"{one}:") for p in problems), problems
+    assert any(p.startswith(f"{other}:") for p in problems), problems

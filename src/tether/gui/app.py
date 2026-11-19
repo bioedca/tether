@@ -14,9 +14,26 @@ desktop shortcut to that entry would ship a demo rather than the application.
 The Qt import is deferred into [`create_shell`][], after the arguments are parsed,
 so that ``--version`` and ``--help`` answer without paying for PySide6/pyqtgraph,
 matching the lazy-import discipline [`tether.cli`][] uses for the imaging stack.
+The first Qt import is PySide6 itself, not ``pyqtgraph.Qt``: importing pyqtgraph loads
+NumPy, and the splash must be on the screen before that. pyqtgraph then picks the
+binding that is already loaded.
 
 Between the ``QApplication`` and the slow import of the shell, [`create_shell`][]
 shows the startup splash ([`tether.gui.splash`][], #676) on a platform with a screen.
+
+A double-click on a ``.tether`` project (issue #664, ADR-0118) reaches this module in two
+ways. On Windows and Linux the file type starts ``tether-gui PROJECT.tether``, so the
+project is the command-line argument. On macOS the system starts ``Tether.app`` without
+arguments and sends the file as a file-open event, or sends the event to the Tether that is
+already running; [`create_shell`][] gives each such event to
+[`load_project`][tether.gui.shell.TetherShell.load_project], the path of
+``&File -> &Open project...``. An event that arrives before the shell exists waits for it,
+and an event that arrives while a dialog is open waits until the dialog has closed.
+
+Once the shell exists, [`create_shell`][] installs the opt-in update notice
+([`tether.gui.update_notice`][], #248). It asks its first-run question, or starts one
+check on a background thread when the user allowed it, after the event loop starts; it
+makes no network request without that stored consent.
 """
 
 from __future__ import annotations
@@ -31,9 +48,12 @@ from tether.gui.env_path import put_env_folders_first
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from tether.gui.shell import TetherShell
 
-__all__ = ["build_parser", "create_shell", "main"]
+__all__ = ["build_parser", "create_shell", "install_file_open_handler", "main"]
 
 _ORGANIZATION = "MondragonLab"
+
+FILE_OPEN_RETRY_MS = 200
+"""How often a file-open request that waits for a dialog to close looks again, in ms."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +79,72 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     return parser
+
+
+def install_file_open_handler(app: Any) -> Any:
+    """Catch the file-open events of *app*; return the object that holds them.
+
+    macOS sends a file-open event (``QEvent.FileOpen``) when the user opens a ``.tether``
+    file that ``Tether.app`` declares, in place of a command-line argument. The returned
+    object filters the events of *app* and keeps the path of each one until
+    ``attach(open_project)`` is called. Then the newest waiting path goes to *open_project*
+    (each open replaces the open project, so opening the older ones first would only open
+    and close them), and from then on each new path goes to it as soon as the shell is idle.
+    When the object is destroyed (it is given the shell window as its parent), the filter
+    goes with it.
+
+    The shell is not idle while a modal dialog, a popup menu or any other nested event loop
+    runs: macOS delivers the event inside that loop, and the code that opened the dialog
+    continues on the open project after the dialog returns (the tMAVEN reconciliation
+    dialog, for one, applies the changes it showed). Then the path waits, and the object
+    looks again every [`FILE_OPEN_RETRY_MS`][] milliseconds until the loop has ended.
+    """
+    from PySide6 import QtCore, QtWidgets
+
+    def busy() -> bool:
+        return (
+            QtWidgets.QApplication.activeModalWidget() is not None
+            or QtWidgets.QApplication.activePopupWidget() is not None
+            or QtCore.QThread.currentThread().loopLevel() > 1
+        )
+
+    class _FileOpenHandler(QtCore.QObject):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pending: list[str] = []
+            self._open: Any = None
+            self._retry = QtCore.QTimer(self)
+            self._retry.setInterval(FILE_OPEN_RETRY_MS)
+            self._retry.timeout.connect(self._flush)
+
+        def attach(self, open_project: Any) -> None:
+            self._open = open_project
+            self._flush()
+
+        def _flush(self) -> None:
+            if self._open is None or not self.pending:
+                self._retry.stop()
+                return
+            if busy():
+                self._retry.start()
+                return
+            self._retry.stop()
+            pending, self.pending = self.pending, []
+            self._open(pending[-1])
+
+        def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt API
+            if event.type() != QtCore.QEvent.Type.FileOpen:
+                return False
+            path = event.file() or event.url().toLocalFile()
+            if not path:
+                return False
+            self.pending.append(path)
+            self._flush()
+            return True
+
+    handler = _FileOpenHandler()
+    app.installEventFilter(handler)
+    return handler
 
 
 def create_shell(
@@ -87,6 +173,16 @@ def create_shell(
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
     ``False`` decides it explicitly.
+
+    A file-open event (macOS, [`install_file_open_handler`][]) is caught from the moment the
+    ``QApplication`` exists. It opens its project after the shell is built, and after the
+    project on the command line, so the project the user opened last is the one shown.
+
+    The shell remembers the session in the per-user preferences file
+    ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
+    the molecule selected at close, the layout and the curator name. Last, the update
+    notice is installed ([`tether.gui.update_notice.install_update_notice`][]); its start
+    is queued for the event loop.
     """
     args = build_parser().parse_args(argv)
 
@@ -103,19 +199,31 @@ def create_shell(
     app.setOrganizationName(_ORGANIZATION)
     app.setApplicationVersion(__version__)
     apply_application_identity(app)
+    file_open = install_file_open_handler(app)
 
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
-        shell = TetherShell()
+        # The application remembers the session on this computer (#628, ADR-0122).
+        shell = TetherShell(preferences_file=preferences_path())
         if args.project is not None:
             shell.load_project(args.project)
+        # The opt-in update notice (#248): the first-run question, or one check on a
+        # background thread once the user allowed it. Queued for the event loop, so it
+        # never delays the window, and it makes no request without the stored consent.
+        from tether.gui.update_notice import install_update_notice
+
+        install_update_notice(shell.window, help_menu=shell.help_menu)
     except BaseException:
+        app.removeEventFilter(file_open)
         if screen is not None:
             screen.abort()
         raise
+    file_open.setParent(shell.window)
+    file_open.attach(shell.load_project)
     if screen is not None:
         screen.close_when_shown(shell.window)
     return app, shell

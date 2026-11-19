@@ -141,6 +141,9 @@ def extract_project(movie: Path, tmap: Path | None, workdir: Path) -> tuple[int,
 
     out_dir = workdir / "batch"
     argv = ["batch", str(movie), "-d", str(out_dir), "--no-idealize"]
+    # The golden numbers were made with the donor-anchored rule; this names it, so the
+    # new partner-in-both default cannot move them (#920, ADR-0127).
+    argv += ["--colocalization", "donor-anchored"]
     if tmap is not None:
         argv += ["--tmap", str(tmap)]
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

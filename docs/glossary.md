@@ -46,7 +46,8 @@ specifics worth knowing:
 `tether.fret.efficiency.corrected_fret(donor, acceptor, *, alpha, gamma)`, applying
 `I_A,corr = I_A − α·I_D`, a **bare** `I_D,corr = I_D`, and
 `E = I_A,corr / (I_A,corr + γ·I_D,corr)`
-([Hellenkamp 2018](https://doi.org/10.1038/s41592-018-0085-0)).
+([Hellenkamp 2018](https://doi.org/10.1038/s41592-018-0085-0)). In prose, "corrected E" and
+"corrected FRET" mean this value, corrected for leakage and γ, and nothing else.
 
 > **Tether does not scale the donor by `(1 + α)` the way Deep-LASI does.** γ is defined
 > consistently with the bare `I_D`, so Tether's γ is systematically ≈`(1 + α)`× Deep-LASI's
@@ -57,7 +58,7 @@ specifics worth knowing:
 
 The fixed chain, repeated verbatim in three modules
 (`tether.fret.efficiency`, `.leakage`, `.gamma`):
-**background → leakage α → direct excitation δ (= 0) → γ**. At the store level the chain is
+**background → leakage α → direct excitation δ (= 0) → γ**. At the project level the chain is
 **photobleach → leakage α → γ → corrected FRET** (`tether.project.correct`) and it is
 enforced at runtime — calling the steps out of order raises with the next command named in
 the message (see
@@ -67,13 +68,13 @@ the message (see
 
 Donor emission detected in the acceptor channel, applied **additively to the acceptor only**
 (`tether.fret.leakage`). Tether estimates it from each trace's own **post-acceptor-bleach
-tail** as `mean(I_DA) / mean(I_DD)` — a ratio of window means, not a mean of per-frame
+tail** as `mean(I_DA) / mean(I_DD)` — a ratio of estimator-window means, not a mean of per-frame
 ratios. Gates: tail ≥ `DEFAULT_MIN_WINDOW_FRAMES = 20` frames; per-trace α outside
 `[0, LEAKAGE_CEILING = 0.3]` dropped; the dataset value is the **median** of qualifying
 traces and is **withheld** below `DEFAULT_MIN_QUALIFYING_TRACES = 10` rather than fabricated
 (ADR-0027).
 
-**Scope:** α is **store-wide** in Tether. `compute_leakage_alpha` fits one dataset median over
+**Scope:** α is **project-wide** in Tether. `compute_leakage_alpha` fits one dataset median over
 every analysable molecule in the `.tether` — it does **not** partition by
 [condition](#condition) — and writes that single value into every one of their
 `/molecules.alpha` cells, which is the field `tether.project.correct` reads back as the
@@ -85,13 +86,14 @@ applied factor. The estimator's provenance lands on `/settings/leakage`.
 existing one). Nothing in the correction chain reads it and the estimator never writes it.
 ADR-0027 describes moving the applied α there per condition, but files that under *Deferred*
 — it has not happened, so read that ADR's "α is per-condition" as intent, not as current
-behaviour.
+behavior.
 
 ### γ (gamma, detection-correction)
 
 The detection-efficiency / quantum-yield ratio between the channels
 (`tether.fret.gamma`). Estimated across the **acceptor-bleach step** as `ΔI_A / ΔI_D` on
-leakage-corrected intensities, with levels averaged over a 3-frame half-window each side.
+leakage-corrected intensities, with levels averaged over 20 frames each side
+([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)).
 Same `DEFAULT_MIN_WINDOW_FRAMES = 20` / 10-trace parameters as α, but the frame gate is
 **stricter and two-sided**: both the pre-step FRET segment `[0, step)` and the post-step
 donor-only segment `[step, donor_bleach)` must be **strictly longer than** 20 frames (`> 20`,
@@ -107,7 +109,7 @@ keeps its own γ, a non-qualifying one silently takes the dataset median and is 
 
 Direct excitation of the acceptor by the donor laser. Measuring it requires the
 acceptor-under-acceptor-excitation channel that only [ALEX/PIE](#alex-pie) provides, and
-Tether is single-laser two-colour by design (non-goal N1) — so δ is carried as an **inert
+Tether is single-laser two-color by design (non-goal N1) — so δ is carried as an **inert
 `0.0`**, not "unset" (`rows["delta"] = 0.0` in `tether.imaging.extract`;
 ADR-0008).
 
@@ -151,7 +153,7 @@ from the `-1` [undetected sentinel](#photobleach-frames-first-bleach-frame) and 
 
 ---
 
-## Photobleaching, windows and curation
+## Photobleaching, analysis windows and curation
 
 ### photobleach frames (first-bleach frame)
 
@@ -173,22 +175,30 @@ model detects a decay to `N(0)`; raw traces keep a large offset and never look b
 ### analysis window
 
 `/molecules.analysis_window` — an `(start, end)` frame pair, the universal slicing contract
-every downstream reader honours (histograms, cross-correlation, features, idealization),
+every downstream reader honors (histograms, cross-correlation, features, idealization),
 each falling back to `frame_range` when it is unset.
 
 The **auto** default is trace start → first bleach of the **summed** donor+acceptor
 intensity — not per-channel (ADR-0026).
-**Manual wins**: the auto value is written only where the window still equals the extraction
-default, so a curator-narrowed window is never overwritten.
+**Manual wins**: the auto value is written only where the analysis window still equals the extraction
+default, so a curator-narrowed analysis window is never overwritten.
 
-### window (overloaded — four meanings)
+### window (always with a qualifier)
 
-1. **analysis window** — frames, above.
-2. **aperture window** — the `21 × 21` **pixel** crop side length (`tether.imaging.aperture`,
-   `tether.project.extract`); must be a positive **odd** integer.
-3. **estimator windows** — the leakage tail window and γ's 3-frame half-window, in frames.
-4. **deep-model `window_length`** — 500 frames, the ML classifier's input length
-   ([Deep trace classifier](ml/deep-classifier.md)).
+These pages never write a bare "window". Each use names one of these kinds:
+
+1. **analysis window**: frames, above.
+2. **aperture window**: the `21 × 21` **pixel** crop side length (`tether.imaging.aperture`,
+   `tether.project.extract`). It must be a positive **odd** integer. The CLI flag and the
+   stored setting keep the name `window`.
+3. **estimator windows**: the leakage tail window and γ's 20-frame half-window, in frames.
+4. **model window**: the deep model's `window_length`, 500 frames, the input length of the ML
+   classifier ([Deep trace classifier](ml/deep-classifier.md)).
+5. **application window**: the Tether desktop window, or tMAVEN's own application window. Its parts
+   keep their own names: the main window and the splash window.
+6. **post-synchronization window**: the frames that a post-synchronized heatmap bins around
+   each transition (`single_dwell`, `sync_preframe`; see
+   [post-synchronization](#post-synchronization)).
 
 ### curation label / category / quality class
 
@@ -235,7 +245,7 @@ dual-view TIRF movie; it does not itself model the optics.
 Alternating-laser excitation / pulsed interleaved excitation — acquisition schemes that add
 an acceptor-under-acceptor-excitation channel, enabling direct-excitation (δ) and
 stoichiometry correction ([Lee 2005](https://doi.org/10.1529/biophysj.104.054114)).
-**Out of scope for Tether** (non-goal N1): single-laser, two-colour only. This is why
+**Out of scope for Tether** (non-goal N1): single-laser, two-color only. This is why
 [δ](#delta-direct-excitation) is structurally zero.
 
 ### dual-view
@@ -259,16 +269,35 @@ is a sum (top-hat): `I = sum(crop · disk) − ring_background · N_psf`.
 This is what `corrected` means in `/traces` at extraction time — **background-subtracted,
 not photophysically corrected** (`tether.project.trace_layers`).
 
+### background-subtracted intensity (`corrected`)
+
+The trace layer with the local background removed: the aperture sum minus the ring background,
+as above. Tether stores this layer as `intensity_quantity="corrected"`, and it is the default
+layer for photobleach detection, the correction factors, idealization and the analyses. It is
+**not** corrected for leakage or γ. These pages write "background-subtracted" for it in prose,
+and write the stored value `corrected` in code formatting only.
+
 ### donor-anchored colocalization
 
-Tether **deliberately breaks** Deep-LASI's rule here. Deep-LASI's `findColoc` keeps a
+One of the two colocalization rules, and the option to the default
+[partner-in-both](#partner-in-both-colocalization) rule. Deep-LASI's `findColoc` keeps a
 molecule only if an independently-detected partner exists within 3 px in *every* channel,
-which silently discards the low-FRET and acceptor-dark population — exactly the molecules a
-FRET histogram must keep. Tether instead anchors on the donor: **every in-frame donor spot
-becomes a molecule**, and acceptor intensity is read at the *mapped* position whether or not
-an acceptor was independently detected. The independent-detection test survives only as the
-informational `ColocalizedMolecules.acceptor_detected` flag and **never drops a molecule**
-(`tether.imaging.coloc`; ADR-0015).
+which discards the low-FRET and acceptor-dark population, the molecules whose acceptor is too
+weak to be detected. The donor-anchored rule keeps them: **every in-frame donor spot becomes a
+molecule**, and acceptor intensity is read at the *mapped* position whether or not an acceptor
+was independently detected. Select it with `--colocalization donor-anchored`. The
+independent-detection result is still stored for each molecule, in
+`/molecules/acceptor_detected` (`tether.imaging.coloc`; ADR-0015, ADR-0127). A project
+extracted before the rule could be chosen reads as donor-anchored.
+
+### partner-in-both colocalization
+
+The default colocalization rule of a new extraction, and Deep-LASI's: a donor spot becomes a
+molecule only when an acceptor spot is detected within the colocalization distance (3 px) of
+its mapped position. The acceptor is still read at the mapped donor position, so a molecule
+kept by both rules has the same traces under both. The rule drops molecules with a dark or
+weak acceptor. Use [donor-anchored](#donor-anchored-colocalization) to keep them
+(ADR-0127).
 
 Two adjacent facts: **the movie is never resampled** — the map is applied to *coordinates*,
 never pixels, to avoid interpolation bias in integrated intensities; and a molecule is
@@ -447,11 +476,11 @@ of stitching them (identical first/last handling; a comparison, not a mode Tethe
 with the sentinel `-1`, which *is* `NO_STATE`.
 
 - `population_dwell_times` reads its paths through [`tether.analysis._store.windowed_states`](https://github.com/bioedca/tether/blob/main/src/tether/analysis/_store.py),
-  which cuts each molecule's window between its first and last non-sentinel frame but keeps
+  which cuts each molecule's analysis window between its first and last non-sentinel frame but keeps
   any interior gap — so it **merges**.
 - `pooled_exit_rates`' only caller in Tether's source is `two_state_rate_constants`, whose
   paths come from `viterbi_paths` — an `argmax` over the model's states that never emits the
-  sentinel, so nothing merges there. But `pooled_exit_rates` is public API: hand it a store
+  sentinel, so nothing merges there. But `pooled_exit_rates` is public API: hand it a stored analysis
   window and it merges identically.
 
 A gap between two *different* states is not merged: the strip makes the runs either side of it
@@ -468,7 +497,7 @@ to tMAVEN's `generate_dwells`, the **first and last dwell of every molecule are 
 last always; the first unless `include_first`), so at the default only interior dwells are
 measured. The two are dropped for different reasons. The **last** dwell is right-censored: the
 trace ends before the molecule is seen to leave that state. The **first** is a different case: its start was
-not observed, because the molecule was already in that state when the window opened, while its
+not observed, because the molecule was already in that state when the analysis window opened, while its
 end is a recorded transition. That exit is observed only when no interior `NO_STATE` gap
 separates the first dwell from the next state; across such a gap the exit happened somewhere
 inside it. How an interior gap joins two runs into one dwell, or leaves a transition untimed, is
@@ -488,7 +517,7 @@ the "real" TDP: built from a persisted model's Viterbi paths, with a point emitt
 state-change frames**, initial and final read `DEFAULT_TDP_NSKIP = 2` frames apart
 (`tether.analysis.tdp`). The stored array is the exact unsmoothed histogram in raw counts;
 log-normalization and smoothing are display-only. The plot export draws a zero-safe log
-colour scale by default and records the scale in the provenance sidecar.
+color scale by default and records the scale in the provenance file.
 
 ### post-synchronization
 
@@ -501,7 +530,7 @@ approach to and departure from a transition. Relative time zero sits at
 
 ### staleness (stale / fresh / live)
 
-A Tether-only concept with no tMAVEN analogue, and it gates most analyses. Every molecule in
+A Tether-only concept with no tMAVEN analog, and it gates most analyses. Every molecule in
 a persisted model carries a **composite input-provenance hash** folding the windowed input
 trace, the analysis-window bounds, and the molecule's **effective applied α and γ**. If any
 of those change, the recomputed hash diverges and the molecule is **stale**;
@@ -510,13 +539,13 @@ transition-probability keep by default
 (ADR-0029).
 
 Consequence: re-estimating **α** re-stales **every molecule in the project**, because the α
-estimator is **store-wide** — one median written to every analysable
+estimator is **project-wide** — one median written to every analysable
 molecule's `/molecules.alpha`. A γ-median shift re-stales only the molecules that took the
 fallback.
 
 ### fresh-idealization gating / curation filter
 
-The two Tether-added, on-by-default invariants on every store-level group-B/C entry point:
+The two Tether-added, on-by-default invariants on every project-level group-B/C entry point:
 stale molecules are excluded unless `include_stale=True`, and rejected molecules are excluded
 unless `include_rejected=True`. Both are toggles, not deletions.
 
@@ -612,6 +641,11 @@ survives only by exact intensity-trace matching. See the
 
 ### `.tether` project
 
+A **project** is the unit of work that you open and save in Tether. The **project file** is the
+`.tether` file that holds it. These pages use those two names. "Store" names the HDF5 layout
+inside a project file, and only the [format reference](reference/tether-format.md) and the
+contributor pages use it.
+
 One HDF5 file per experiment, that is, one day or one session of acquisition. A project can
 hold several movies and several conditions, and one condition can span several projects
 (ADR-0068). The file has the root attribute `format = "tether-project"` and a
@@ -621,6 +655,16 @@ when the schema was frozen**, so later versions add *data*, never *structure*
 
 A file stamped with a **higher** `schema_version` than the running app is refused outright
 rather than partially read.
+
+### provenance file
+
+The `.provenance.json` file that every export writes beside its output. A table or subset
+export names it after the whole output file (`molecules.csv.provenance.json` beside
+`molecules.csv`). A plot export writes one for all its formats and names it after the stem
+(`figure.provenance.json` beside `figure.png`, `figure.pdf` and `figure.svg`). It records the
+Tether version, the source project and the export's own parameters
+([Provenance file](reference/exports.md#provenance-file)). It has no relation to the
+[sidecar](#sidecar) environment.
 
 ### analysis-only import
 
@@ -647,6 +691,10 @@ interpreter is: explicit argument → `TETHER_SIDECAR_PYTHON` → the installer'
 menu shortcut, `PATH` shim or `.desktop` launch never runs the conda `activate.d` hook that
 would have set the variable.
 
+"Sidecar" names this environment only. The JSON file beside an export is the
+[provenance file](#provenance-file), and the `.lock` file beside an open project is the
+[lock file](#write-lock-stale-lock).
+
 ### transient vs deterministic sidecar failure
 
 `SidecarError.transient` (`tether.idealize.driver`) decides whether the supervisor retries:
@@ -669,8 +717,9 @@ The vocabulary `tether batch` prints per movie (`tether.project.batch`):
 | `not-requested` | `--no-idealize` | no |
 | `warning` | non-fatal, e.g. provenance stamping failed | no |
 
-Only `failed` makes the run exit non-zero — which is why
-[a deferred idealization exits 0](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
+Only `failed` makes the run exit `1`. A `deferred` stage in a run with no `failed` stage
+makes it exit `3` — see
+[a deferred idealization exits 3](troubleshooting.md#the-batch-finished-ok-but-nothing-was-idealized).
 
 `blocked` is the one row that never shows up on an exit-`0` run in practice: a stage is
 blocked only when its upstream stage was not `done`/`skipped`, so a `blocked` always travels
@@ -678,14 +727,14 @@ with a `failed` in the same movie and the run exits `1` anyway.
 
 ### write lock / stale lock
 
-Single-writer ownership is held by a `<project>.tether.lock` JSON sidecar carrying
+Single-writer ownership is held by a `<project>.tether.lock` lock file, in JSON, carrying
 `host / user / pid / timestamp` plus a per-acquisition nonce (`tether.project.lock`).
 Ownership is the full `(host, user, pid)` triple — `user` is included deliberately so a
 recycled PID under a different login is never silently granted write access.
 
 Liveness is judged by a **wall-clock staleness timeout of ≈30 min**, not by probing the PID
 (a remote PID cannot be probed and cloud sync is eventually consistent). A stale lock is
-reclaimable only by an **explicit steal**, never automatically. The `.lock` sidecar is not
+reclaimable only by an **explicit steal**, never automatically. The lock file is not
 part of the schema.
 
 ### schema_version

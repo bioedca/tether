@@ -25,22 +25,23 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-max_skipped = 16
+max_skipped = 18
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 30
+max_skipped = 32
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 16
+max_skipped = 35
 
 [jobs."sidecar / parity"]
 min_collected = 26
 max_skipped = 0
 
 [jobs."deep / smoke"]
-min_collected = 17
+# 33 since #759 added the PySMACKS reference (tests/test_pysmacks_classifier_deep.py).
+min_collected = 33
 max_skipped = 2
 
 [jobs."large-fixtures"]
@@ -182,10 +183,97 @@ why = """The test checks POSIX file modes and the umask, which Windows does not 
 test (ubuntu-latest) and test (macos-latest) run it."""
 
 [[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_shares_a_group_writable_directory_under_umask_022"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_repairs_an_existing_owner_only_guard"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_lifecycle_guard_does_not_widen_beyond_the_directory"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_steal_lock_runs_when_the_guard_is_not_writable_by_this_user"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_symlinked_guard_fails_closed_and_leaves_its_target_alone"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_hard_linked_guard_is_not_widened"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_the_guard_takes_the_group_of_a_group_writable_directory"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks the POSIX file modes of the lock lifecycle guard (#257), which Windows \
+does not have; test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_read_only_guard_on_a_filesystem_that_needs_write_names_the_remedy"
+reason = "POSIX flock semantics"
+jobs = ["test (windows-latest)"]
+why = """The test drives the POSIX flock path of the lock lifecycle guard (#257); Windows uses a \
+byte-range lock instead. test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_file_renamed_onto_the_guard_path_is_not_widened"
+reason = "POSIX mode/umask semantics"
+jobs = ["test (windows-latest)"]
+why = """The test checks POSIX mode bits on the lock lifecycle guard (#257); Windows has none. \
+test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
+test = "tests/test_lock.py::test_a_fifo_at_the_guard_path_fails_closed_without_blocking*"
+reason = "POSIX FIFO semantics"
+jobs = ["test (windows-latest)"]
+why = """Both parametrized cases plant a FIFO at the lock lifecycle guard path (#257); Windows has \
+no os.mkfifo. test (ubuntu-latest) and test (macos-latest) run them."""
+
+[[skip]]
+test = "tests/test_lock.py::test_second_user_steals_a_stale_lock_in_a_shared_project"
+reason = "needs root to run two real POSIX users"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The end-to-end check of #257 starts processes as two different POSIX users, which only \
+root can do, and the CI runners do not run pytest as root (Windows has no POSIX users). The \
+behaviour it checks is covered on every POSIX leg by the five other #257 tests in \
+tests/test_lock.py; the root-run test is evidence for a local or container run as root."""
+
+[[skip]]
 test = "tests/test_lock.py::test_fork_child_does_not_prolong_parent_lifecycle_guard"
 reason = "requires POSIX fork"
 jobs = ["test (windows-latest)"]
 why = """Windows has no os.fork; test (ubuntu-latest) and test (macos-latest) run the test."""
+
+[[skip]]
+test = "tests/test_benchmarks.py::test_a_timeout_also_stops_what_the_child_started"
+reason = "process groups are POSIX; the job is Linux"
+jobs = ["test (windows-latest)"]
+why = """The timeout kills the child's process group with os.killpg, which Windows lacks, and
+the benchmarks workflow runs only on ubuntu-latest (#875); test (ubuntu-latest) and
+test (macos-latest) run the test."""
 
 [[skip]]
 test = "tests/test_gui_theme.py::test_the_napari_viewer_follows_the_theme"
@@ -211,6 +299,28 @@ why = """The four round-trip tests open a napari Viewer (#745 added the click-ve
 test), which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not \
 give. test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
 
+[[skip]]
+test = "tests/test_file_type.py::test_linux_post_install_adds_the_mime_type"
+reason = "the MIME step of post_install.sh runs on Linux only"
+jobs = ["test (macos-latest)", "test (windows-latest)"]
+why = """post_install.sh writes the .tether MIME package (#664, ADR-0118) only when uname says \
+Linux, and Windows has no POSIX shell in the test environment. test (ubuntu-latest) runs it."""
+
+[[skip]]
+test = "tests/test_file_type.py::test_linux_post_install_adds_the_mime_type"
+reason = "no update-mime-database here; the install smoke checks the database"
+jobs = ["test (ubuntu-latest)"]
+why = """The test checks the package file first and then, where the machine has the tools, the \
+database update-mime-database builds and the type gio reads (#664). The tools come from the \
+runner image, not from the locked environment, so the test skips where they are missing; the \
+install smoke checks the same on the packaging runner."""
+
+[[skip]]
+test = "tests/test_file_type.py::test_linux_post_install_adds_the_mime_type"
+reason = "no gio here; the install smoke checks the content type"
+jobs = ["test (ubuntu-latest)"]
+why = """As above: gio comes from the runner image, not from the locked environment (#664)."""
+
 # --- deep / smoke ---------------------------------------------------------------------------
 
 [[skip]]
@@ -219,6 +329,15 @@ reason = "requires a CUDA-capable GPU"
 jobs = ["deep / smoke"]
 why = """deep / smoke runs on a CPU runner. The two CUDA tests run in deep-gpu.yml on a \
 CUDA machine (manual dispatch)."""
+
+[[skip]]
+test = "tests/test_macos_app.py::test_*"
+reason = "the bundle launcher and post_install.sh are sh scripts"
+jobs = ["test (windows-latest)"]
+why = """Five tests run sh scripts: the Tether.app launcher (#663, ADR-0091), \
+post_install.sh with a stand-in uname (three runs, two of them as a stand-in root), and a \
+stand-in lsregister. The macOS installer runs both under sh, and Windows has \
+no POSIX shell in the test environment. The Linux and macOS legs run them."""
 
 # --- large-fixtures -------------------------------------------------------------------------
 # Its one skip is the torch module above. The oracle (a) test and the two intake tests on the
