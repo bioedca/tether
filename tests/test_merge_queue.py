@@ -38,13 +38,10 @@ _EPOCH = 1_800_000_000  # the fake GitHub stamps request commits from here, in s
 
 
 def _git(cwd: Path, *args: str, env: dict[str, str] | None = None, check: bool = True) -> str:
+    command = ["git", "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args]
+    merged = {**os.environ, **_WHO, **(env or {})}
     done = subprocess.run(
-        ["git", "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args],
-        cwd=cwd,
-        env={**os.environ, **_WHO, **(env or {})},
-        capture_output=True,
-        encoding="utf-8",
-        check=check,
+        command, cwd=cwd, env=merged, capture_output=True, encoding="utf-8", check=check
     )
     return done.stdout.strip()
 

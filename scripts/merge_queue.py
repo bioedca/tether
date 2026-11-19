@@ -160,13 +160,9 @@ class Git:
         self, *args: str, env: Mapping[str, str] | None = None, ok: Sequence[int] = (0,)
     ) -> subprocess.CompletedProcess[str]:
         """Run ``git`` with ``args``. A status outside ``ok`` raises ``QueueError``."""
+        command, merged = ["git", *args], {**os.environ, **(env or {})}
         done = subprocess.run(  # noqa: S603
-            ["git", *args],  # noqa: S607
-            cwd=self.cwd,
-            env={**os.environ, **(env or {})},
-            capture_output=True,
-            encoding="utf-8",
-            check=False,
+            command, cwd=self.cwd, env=merged, capture_output=True, encoding="utf-8", check=False
         )
         if done.returncode not in ok:
             raise QueueError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
