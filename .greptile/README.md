@@ -8,7 +8,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 `config.json` sets **`"skipReview": "AUTOMATIC"`**, so Greptile never reviews a pull request on its
 own. It still reviews when asked:
 
-```
+```text
 @greptileai review this draft
 ```
 
@@ -78,7 +78,7 @@ sit above it and cannot be overridden here.
 
 Greptile publishes no usage API, so the only programmatic reading is counted from the GitHub side:
 
-```
+```sh
 python3 .agents/bin/greptile_usage.py
 ```
 

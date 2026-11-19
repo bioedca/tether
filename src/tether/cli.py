@@ -481,9 +481,10 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Headless batch runner (FR-BATCH): process each movie into its own\n"
-            ".tether under --out-dir, isolating failures (continue-on-error) and\n"
-            "checkpointing per stage so a re-run resumes only the incomplete stages.\n"
-            "Prints an end-of-run summary and writes a JSONL structured log."
+            ".tether under --out-dir, or every movie into one project with --into,\n"
+            "isolating failures (continue-on-error) and checkpointing per stage so a\n"
+            "re-run resumes only the incomplete stages. Prints an end-of-run summary\n"
+            "and writes a JSONL structured log."
         ),
         epilog=_batch_exit_code_epilog(),
     )
@@ -505,14 +506,25 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         action="store_true",
         help=(
             "print each movie, its output and what the run would do, then exit 0; "
-            "no movie is read and nothing is written"
+            "nothing is written, and no movie is read except to hash it under --into"
         ),
     )
-    batch.add_argument(
+    destination = batch.add_mutually_exclusive_group(required=True)
+    destination.add_argument(
         "-d",
         "--out-dir",
-        required=True,
+        default=None,
         help="directory for the per-movie .tether projects (created if absent)",
+    )
+    destination.add_argument(
+        "--into",
+        default=None,
+        metavar="PROJECT.tether",
+        help=(
+            "append every movie to this one project (created by the first movie if "
+            "absent); a movie already in it is skipped, and correct and idealize run "
+            "once over the whole project"
+        ),
     )
     batch.add_argument(
         "--tmap",
@@ -573,7 +585,10 @@ def _add_batch_parser(subparsers: argparse._SubParsersAction, summary: str) -> N
         "--log",
         default=None,
         metavar="PATH",
-        help="write a JSONL structured log here (default: <out-dir>/batch-log.jsonl)",
+        help=(
+            "write a JSONL structured log here (default: <out-dir>/batch-log.jsonl, or "
+            "<project>-batch-log.jsonl beside the --into project)"
+        ),
     )
     # --- Sidecar supervision (FR-BATCH PR7-B) --------------------------------
     batch.add_argument(
@@ -633,6 +648,7 @@ def _batch_request(args: argparse.Namespace) -> BatchRequest:
     return BatchRequest(
         movies=tuple(args.movies),
         out_dir=args.out_dir,
+        into=args.into,
         tmap=args.tmap,
         tdat=args.tdat,
         policy=args.policy,
