@@ -504,6 +504,8 @@ def test_an_empty_attestation_list_is_refused_visibly(rig: Rig) -> None:
         b"",
         b"[" * 100_000,
     ],
+    # Short ids: the deep-JSON answer would otherwise name a tmp_path too long for Windows.
+    ids=["network", "html", "rate-limit", "not-a-list", "bare-list", "empty", "deep-json"],
 )
 def test_an_answer_that_is_not_usable_is_silent(rig: Rig, answer: object) -> None:
     rig.api.answers[rig.url] = answer
