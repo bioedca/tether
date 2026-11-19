@@ -846,7 +846,7 @@ Each stage has one of these states:
 - `ready`.
 - `not needed`: a project made from imported traces has no movie and no map.
 - `in progress` or `not started`.
-- `stale`: a record it depends on has changed.
+- `stale`: a record it depends on has changed, and the record has not been made again.
 - `blocked`: the correction state is `CALIBRATION_BLOCKED`.
 - `running`: a job of the stage is running now.
 - `not available in this version`: the feature of the stage has not landed yet.
@@ -859,8 +859,8 @@ The corrections stage also names the correction state of the project
 `CORRECTED_REVIEW`, `ANALYSIS_READY` and `CALIBRATION_STALE`.
 
 The next step is, in this order: a failed or interrupted job that no later job of the same
-command finished, else the first stale stage, else the first stage that is not ready. A
-stage that is not available is never the next step.
+command finished, else waiting for a running job, else the first stale stage, else the first
+stage that is not ready. A stage that is not available is never the next step.
 
 ```console
 $ tether status out/movie_010.tether

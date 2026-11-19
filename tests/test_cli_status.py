@@ -236,6 +236,49 @@ def test_a_stale_mark_names_the_record_and_the_reason(tmp_path: Path, capsys) ->
     assert "    Trace generation g1: Map edit (Map m1 changed)\n" in capsys.readouterr().out
 
 
+def test_a_stale_record_made_again_is_no_longer_stale(tmp_path: Path) -> None:
+    """Marks are kept for ever; a record made again from the edited input supersedes one."""
+    path = _store(tmp_path)
+    project = Project(path)
+    with project.write_lock():
+        jobs.record_inputs(project, "trace_generation", "g1", {("map", "m1"): "v1"})
+        jobs.record_inputs(project, "correction_version", "c1", {("trace_generation", "g1"): "h1"})
+        jobs.set_stale_marks(project, "map", "m1", "v2")
+    r = rd.read_project_readiness(path)
+    assert {s.stage for s in r.stale} == {"traces", "corrections"}
+
+    with project.write_lock():  # a new trace generation from the edited map
+        jobs.record_inputs(project, "trace_generation", "g2", {("map", "m1"): "v2"})
+    r = rd.read_project_readiness(path)
+    assert r.stage("traces").state is rd.StageState.READY
+    assert [s.item for s in r.stale] == ["Correction version c1"]  # not made again yet
+    assert main(["status", "--require", "traces", str(path)]) == 0
+
+    with project.write_lock():  # and a new correction version from that generation
+        jobs.record_inputs(project, "correction_version", "c2", {("trace_generation", "g2"): "h2"})
+    assert rd.read_project_readiness(path).stale == ()
+
+
+def test_a_running_job_is_waited_for_and_never_started_again(tmp_path: Path) -> None:
+    path = tmp_path / "new.tether"
+    project = Project.create(path)
+    project.acquire_lock()
+    job = jobs.submit_job(project, ExtractRequest(movie="m.tif", output="m.tether"), ("a",))
+    seen: list[rd.ProjectReadiness] = []
+    jobs.run_job(project, job.job_id, lambda *_: seen.append(rd.read_project_readiness(path)))
+    project.release_lock()
+
+    (during,) = seen
+    wait = f"wait for the running extract job {job.job_id[:8]}"
+    assert during.stage("traces").state is rd.StageState.RUNNING
+    assert during.stage("traces").action == wait
+    assert during.next_step == rd.NextStep("traces", "prepare", wait)
+    # Done: the stage is read from the store again, and nothing is waited for.
+    after = rd.read_project_readiness(path)
+    assert after.stage("traces").state is rd.StageState.NOT_STARTED
+    assert after.next_step.stage == "sources"
+
+
 def test_the_correction_state_is_shown_by_its_name(tmp_path: Path, capsys) -> None:
     path = _store(tmp_path)
     project = Project(path)

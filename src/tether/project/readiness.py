@@ -379,8 +379,47 @@ def _jobs_to_retry(jobs: tuple[JobStatus, ...]) -> list[JobStatus]:
     return pending
 
 
+def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
+    """Keep the stale marks whose record has not been made again (Codex review of #1273).
+
+    Marks are never removed (ADR-0126), and a changed record is a new instance. A mark on
+    ``(node, instance)`` is therefore superseded once an unmarked instance of the same node
+    was made from the record the mark came through: from that same upstream instance at an
+    identity other than the one the marked record holds, or from an instance that in its turn
+    replaced that upstream record.
+    """
+    first: dict[tuple[str, str], Any] = {}
+    for m in marks:
+        first.setdefault((m.node, m.instance), m)
+    identity_of = {
+        (r.node, r.instance, r.upstream_node, r.upstream_instance): r.identity for r in recorded
+    }
+
+    def replacements(node: str, instance: str, seen: frozenset = frozenset()) -> set[str]:
+        mark = first.get((node, instance))
+        if mark is None or (node, instance) in seen:
+            return set()
+        up = (mark.upstream_node, mark.upstream_instance)
+        old = identity_of.get((node, instance, *up))
+        up_new = replacements(*up, seen | {(node, instance)})
+        return {
+            r.instance
+            for r in recorded
+            if r.node == node
+            and r.instance != instance
+            and (r.node, r.instance) not in first
+            and r.upstream_node == up[0]
+            and (
+                (r.upstream_instance == up[1] and r.identity != old)
+                or r.upstream_instance in up_new
+            )
+        }
+
+    return [m for m in marks if not replacements(m.node, m.instance)]
+
+
 def _next_step(stages: tuple[StageReadiness, ...], jobs: tuple[JobStatus, ...]) -> NextStep:
-    """Choose a job to retry first; then the earliest stale stage; then the earliest not done."""
+    """Choose the next step: a job to retry, a running job, a stale stage, a stage not done."""
     section_of = {s.key: s.section for s in stages}
     retry = _jobs_to_retry(jobs)
     if retry:
@@ -391,13 +430,20 @@ def _next_step(stages: tuple[StageReadiness, ...], jobs: tuple[JobStatus, ...]) 
             f"retry the {job.state} {job.command} job {job.job_id[:8]} "
             f"({job.n_completed} of {job.n_parts} parts are complete)",
         )
+    running = [j for j in jobs if j.state == "running"]
+    if running:  # never send the user to start what a job is doing now
+        job = running[0]
+        return NextStep(
+            job.stage,
+            section_of.get(job.stage or ""),
+            f"wait for the running {job.command} job {job.job_id[:8]}",
+        )
     open_stages = [
         s for s in stages if s.state is not StageState.NOT_AVAILABLE and not s.state.done
     ]
     stale = [s for s in open_stages if s.state is StageState.STALE]
     for stage in stale or open_stages:
-        action = stage.action or f"wait for the running job of {stage.name}"
-        return NextStep(stage.key, stage.section, action)
+        return NextStep(stage.key, stage.section, stage.action)
     return NextStep(None, None, "nothing: every stage available in this version is ready")
 
 
@@ -426,7 +472,7 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
             for t in correction_states.read_correction_transitions(store)
         )
         job_records = tuple(_job_status(j) for j in jobs.read_jobs(store))
-        marks = jobs.read_stale_marks(store)
+        marks = _outstanding(jobs.read_stale_marks(store), jobs.read_recorded_inputs(store))
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise ProjectReadinessError(f"{store}: could not be read ({exc})") from exc
 
@@ -472,6 +518,8 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
         state, detail, action = computed[key]
         if key in running:
             state = StageState.RUNNING
+            job = next(j for j in job_records if j.stage == key and j.state == "running")
+            action = f"wait for the running {job.command} job {job.job_id[:8]}"
         elif key in stale_stages and state is not StageState.NOT_NEEDED:
             state = StageState.STALE
             action = action or f"make the stale records of {name} again (listed under stale)"
