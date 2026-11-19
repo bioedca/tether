@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The update verifier (#333): adversarial tests of every step and of the failure taxonomy.
 
-No Qt and no network here. ``gh`` is a scripted stand-in that records every call and the
-environment it was given; the attestations endpoint is a dictionary. Two fixtures are real,
-byte for byte: GitHub's attestations answer for the ``v1.0.0-rc1`` Linux installer and the
-report ``gh`` 2.104.0 printed when it verified that installer offline
-(``tests/fixtures/PROVENANCE.md``). The real ``gh`` against the real installer runs in
-``tests/test_update_verify_live.py``.
+No network here, and Qt only in the one headless ``pytest-qt`` gate at the end. ``gh`` is
+a scripted stand-in that records every call and the environment it was given; the
+attestations endpoint is a dictionary. Two fixtures are real, byte for byte: GitHub's
+attestations answer for the ``v1.0.0-rc1`` Linux installer and the report ``gh`` 2.104.0
+printed when it verified that installer offline (``tests/fixtures/PROVENANCE.md``). The real
+``gh`` against the real installer runs in ``tests/test_update_verify_live.py``.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import email.message
 import hashlib
+import importlib.util
 import io
 import json
 import logging
@@ -977,3 +978,40 @@ def test_the_environment_keeps_os_variables_gh_needs(rig: Rig) -> None:
     rig.run()
     _argv, env, _timeout = rig.gh.call("trusted-root")
     assert env.get("PATH") == os.environ.get("PATH")
+
+
+# --- the GUI gate ----------------------------------------------------------------------------
+
+_HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("pyqtgraph", "PySide6"))
+
+
+@pytest.mark.gui
+@pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not installed")
+def test_the_verifier_gives_the_same_verdicts_inside_the_running_gui(qtbot, rig: Rig) -> None:
+    """Headless pytest-qt gate (AGENTS.md): a running GUI changes no verdict.
+
+    The verifier is Qt-free, but it will be called from inside the application (#331). With
+    the real shell up, the same file still verifies, a wrong digest is still refused, a
+    network failure is still silent, and declining consent still means no ``gh`` call.
+    """
+    from tether.gui.app import create_shell
+
+    _qt_app, shell = create_shell([], splash=False)
+    qtbot.addWidget(shell.window)
+    try:
+        verified = rig.run()
+        assert verified.outcome is Outcome.VERIFIED, verified.reason
+        assert isinstance(verified.installer, VerifiedInstaller)
+
+        rig.gh.answers["verify"] = GhRun(0, _report("0" * 64), b"")
+        _assert_nothing_installable(rig.run())
+
+        rig.api.answers[rig.url] = VerificationUnavailable("URLError")
+        assert rig.run().outcome is Outcome.UNAVAILABLE
+
+        calls = len(rig.gh.calls)
+        app_settings.record_update_consent(False, rig.settings)
+        _assert_nothing_installable(rig.run())
+        assert len(rig.gh.calls) == calls
+    finally:
+        shell.close()
