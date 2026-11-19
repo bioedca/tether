@@ -204,8 +204,9 @@ class ChannelRecipe:
     def parse(cls, text: str) -> ChannelRecipe:
         """Read the text form of [`__str__`][], such as ``"crop 1 1 256 256, rotate 90"``.
 
-        Operations are separated by commas; a flip is ``v``, ``h`` or ``vh``; ``"none"``
-        or an empty string is the identity.
+        Operations are separated by commas; a flip is ``v``, ``h``, ``vh`` or ``none``;
+        ``"none"`` or an empty string is the identity. Every recipe's text form reads
+        back as the same recipe.
         """
         steps: list[tuple[str, Any]] = []
         for part in str(text).split(","):
@@ -214,8 +215,8 @@ class ChannelRecipe:
                 continue
             name, args = words[0], words[1:]
             if name == "flip":
-                if len(args) != 1 or args[0] not in ("v", "h", "vh"):
-                    raise ChannelRecipeError(f"flip takes v, h or vh, got {part.strip()!r}")
+                if len(args) != 1 or args[0] not in ("v", "h", "vh", "none"):
+                    raise ChannelRecipeError(f"flip takes v, h, vh or none, got {part.strip()!r}")
                 steps.append((name, (int("v" in args[0]), int("h" in args[0]))))
                 continue
             try:

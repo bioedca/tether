@@ -121,8 +121,33 @@ def test_a_malformed_recipe_is_refused_with_a_message(steps, message) -> None:
         ChannelRecipe(steps)
 
 
+@pytest.mark.parametrize(
+    "steps",
+    [
+        (("flip", (0, 0)),),
+        (("rotate", 0),),
+        (("translate", (0, 0)), ("flip", (1, 1)), ("rotate", 270)),
+    ],
+)
+def test_identity_steps_survive_the_text_form_and_the_record(steps, tmp_path) -> None:
+    """Every accepted recipe reads back, identity steps included (Codex on PR #1280)."""
+    import h5py  # noqa: PLC0415
+
+    from tether.imaging.layout import write_layout_record  # noqa: PLC0415
+    from tether.io.schema import create_project  # noqa: PLC0415
+
+    recipe = ChannelRecipe(steps)
+    assert ChannelRecipe.parse(str(recipe)) == recipe
+    layout = ChannelLayout(acceptor_recipe=recipe)
+    assert ChannelLayout.from_dict(layout.to_dict()) == layout
+    path = create_project(tmp_path / "p.tether")
+    with h5py.File(path, "r+") as f:
+        write_layout_record(f["movies"], "mov-1", layout)
+    assert read_layout_record(path, "mov-1") == layout
+
+
 def test_the_text_form_refuses_a_bad_flip_or_number() -> None:
-    with pytest.raises(ChannelRecipeError, match="v, h or vh"):
+    with pytest.raises(ChannelRecipeError, match="v, h, vh or none"):
         ChannelRecipe.parse("flip x")
     with pytest.raises(ChannelRecipeError, match="whole numbers"):
         ChannelRecipe.parse("translate 1 a")
