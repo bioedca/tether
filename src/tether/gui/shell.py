@@ -2665,20 +2665,32 @@ class TetherShell:
         return True
 
     def _menu_chords(self) -> dict[tuple[int, int], str]:
-        """Every single-key shortcut a menu command of the window owns, with its name."""
+        """Every single-key shortcut the window's menus own, with the command's name.
+
+        That is each menu command's shortcut and each menu-bar title's mnemonic (Alt+F for
+        File on Windows and Linux; macOS has none), since Qt hands both to the menu before
+        the curation filter sees the key.
+        """
         from pyqtgraph.Qt import QtGui
 
         from tether.gui.curation import _as_int
 
         chords: dict[tuple[int, int], str] = {}
+
+        def add(sequence: Any, name: str) -> None:
+            if sequence.count() != 1:
+                return
+            combined = sequence[0]
+            chord = (_as_int(combined.key()), _as_int(combined.keyboardModifiers()))
+            chords.setdefault(chord, name)
+
         for action in self._window.findChildren(QtGui.QAction):
             name = action.text().replace("&", "").rstrip("…") or "a menu command"
             for sequence in action.shortcuts():
-                if sequence.count() != 1:
-                    continue
-                combined = sequence[0]
-                chord = (_as_int(combined.key()), _as_int(combined.keyboardModifiers()))
-                chords.setdefault(chord, name)
+                add(sequence, name)
+        for action in self._window.menuBar().actions():
+            title = action.text().replace("&", "")
+            add(QtGui.QKeySequence.mnemonic(action.text()), f"{title} menu")
         return chords
 
     def _ready_message(self) -> str:

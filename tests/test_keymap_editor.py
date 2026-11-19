@@ -44,6 +44,8 @@ def _row(key, action, arg=None, modifiers=0):
         ({"bindings": ["accept"]}, "not an object"),
         ({"bindings": [_row(True, "accept")]}, "key code"),
         ({"bindings": [_row(-5, "accept")]}, "key code"),
+        ({"bindings": [_row(2**40, "accept")]}, "key code"),  # QKeySequence would overflow
+        ({"bindings": [_row(_SPACE, "accept", modifiers=0x01)]}, "key code"),  # not a modifier
         ({"bindings": [_row(_SPACE, "no-such-action")]}, "binding 1"),
         ({"bindings": [_row(_SPACE, "assign_category", 0)]}, "binding 1"),
         ({"bindings": [_row(_SPACE, "accept"), _row(_SPACE, "reject")]}, "already uses"),
@@ -249,6 +251,24 @@ def test_a_key_a_menu_command_owns_is_refused(launch, qtbot) -> None:
     qtbot.keyClick(editor.capture_field, key.Key_O, mod.ControlModifier)
     assert "Open project" in editor.message
     assert not editor.assign_button.isEnabled()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_a_menu_titles_mnemonic_is_refused(launch) -> None:
+    from pyqtgraph.Qt import QtGui
+
+    from tether.gui.curation import _as_int
+
+    shell = launch()
+    editor = shell.show_keymap_editor()
+    editor.select(Command(A.ACCEPT))
+    mnemonic = QtGui.QKeySequence.mnemonic("&File")
+    if mnemonic.count() == 0:
+        pytest.skip("this platform has no menu mnemonics (macOS)")
+    chord = mnemonic[0]
+    problem = editor.propose(_as_int(chord.key()), _as_int(chord.keyboardModifiers()))
+    assert problem is not None and "File menu" in problem
 
 
 @pytest.mark.gui

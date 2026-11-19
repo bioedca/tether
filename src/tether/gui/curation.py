@@ -281,6 +281,12 @@ KeyChord = tuple[int, int]
 #: no-ops, tMAVEN's split and collect, so no command may be bound to them with any modifier.
 RESERVED_KEYS = frozenset({0x43, 0x56})
 
+#: The largest Qt key code (``Qt.Key_unknown``) and the modifier bits a chord may carry
+#: (``Shift``, ``Ctrl``, ``Alt``, ``Meta``: the ones the event filter compares), as literals
+#: so a saved file is checked without Qt.
+_MAX_KEY_CODE = 0x01FFFFFF
+_MODIFIER_BITS = 0x02000000 | 0x04000000 | 0x08000000 | 0x10000000
+
 
 class KeymapError(ValueError):
     """A saved keymap that cannot be used: unreadable, not JSON, or breaking a rule (#635)."""
@@ -483,8 +489,15 @@ class Keymap:
         if not isinstance(row, dict):
             raise KeymapError(f"{where} is not an object")
         key, modifiers = row.get("key"), row.get("modifiers", 0)
-        # bool is an int subclass; a true/false key code is a broken file, not key 1.
-        if type(key) is not int or type(modifiers) is not int or key <= 0 or modifiers < 0:
+        # bool is an int subclass; a true/false key code is a broken file, not key 1. A key
+        # code past Qt's range or a modifier outside Shift/Ctrl/Alt/Meta is refused too: such
+        # a chord could never be pressed, and QKeySequence overflows on a value past 32 bits.
+        if (
+            type(key) is not int
+            or type(modifiers) is not int
+            or not 0 < key <= _MAX_KEY_CODE
+            or modifiers & ~_MODIFIER_BITS
+        ):
             raise KeymapError(f"{where} has no valid key code and modifiers")
         try:
             command = Command(CurationAction(row.get("action")), row.get("arg"))
