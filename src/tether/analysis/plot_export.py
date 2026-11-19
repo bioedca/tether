@@ -342,7 +342,9 @@ def _records_plotted(render: Callable[..., Figure]) -> Callable[..., Figure]:
     def wrapper(*args: Any, **kwargs: Any) -> Figure:
         figure = render(*args, **kwargs)
         bound = signature.bind(*args, **kwargs).arguments
-        companions = {k: copy.deepcopy(bound[k]) for k in _COMPANION_ARGS if k in bound}
+        companions = {
+            k: copy.deepcopy(bound[k]) for k in _COMPANION_ARGS if k in bound and k != data_arg
+        }
         data = copy.deepcopy(bound[data_arg])
         setattr(figure, _PLOTTED_ATTR, PlottedData(render.__name__, data, companions))
         return figure
