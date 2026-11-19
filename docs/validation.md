@@ -142,8 +142,9 @@ the export of video 010: the same 250 molecules, positions and raw traces. It ca
 correction factors, which come from a later step in the window. The workstation run also
 compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
 on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
-means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
-from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+means is 0.084. The formulas agree: the gap came from the 3-frame γ level windows Tether
+used then and from few molecules with their own γ (ADR-0115,
+[#1206](https://github.com/bioedca/tether/issues/1206)).
 The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
 
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
@@ -681,7 +682,7 @@ a single-movie project raises rather than inventing a held-out video.
 | `DEFAULT_MIN_WINDOW_FRAMES` | 20 | `src/tether/fret/leakage.py` |
 | `DEFAULT_MIN_QUALIFYING_TRACES` | 10 | `src/tether/fret/leakage.py` |
 | `GAMMA_CEILING` | 5.0 | `src/tether/fret/gamma.py` |
-| `DEFAULT_GAMMA_HALF_WINDOW` | 3 | `src/tether/fret/gamma.py` |
+| `DEFAULT_GAMMA_HALF_WINDOW` | 20 | `src/tether/fret/gamma.py` |
 
 The first three are locked by `tests/test_fret_leakage.py::test_defaults_match_prd_11_2`.
 
@@ -701,6 +702,11 @@ and negative rejection, degenerate donor, median over qualifying traces only, an
 withholding below the minimum qualifying count rather than emitting a factor from too
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
+
+**The γ level windows.** Since [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)
+each level averages 20 frames each side of the step. The parity check runs on that default,
+on the whole segments and on 3 frames. `test_wider_windows_scatter_less_than_three_frames`
+shows that over 200 noise draws the default's spread is under half the 3-frame estimate's.
 
 **Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
 non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is

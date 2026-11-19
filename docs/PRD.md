@@ -553,8 +553,9 @@ it passes iff the relative difference of the two population medians |α_donor-on
 α_tail) ≤ 20% **and** both medians lie in the physical band 0.05–0.2 — the band is a plausibility check only and is
 never a standalone pass path (an OR would let two badly-disagreeing estimates both pass on plausibility alone,
 defeating the oracle; §9 M3, §11.2). γ
-**shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise) over a tolerance
-window (half-width pinned to 3 frames each side, configurable; §11.2), aggregated by population median [McCann2010].
+**shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise), each level averaged
+over a tolerance window (half-width pinned to 20 frames each side, configurable, or the whole segment each side as an
+option; §11.2; ADR-0130), aggregated by population median [McCann2010].
 Manual override of every factor **shall** be available.
 Corrections **shall** not be required to *view* traces: apparent-E analysis and histograms work without any
 photobleaching; only the α/γ corrections require bleach steps.
@@ -1617,7 +1618,7 @@ this section.
 | Donor-side check — event rule (advisory) | a molecule votes when one channel bleaches ≥ **5** frames before the other, the other also bleaches ≥ **5** frames before the trace end, and across the first step the first channel drops **and** the other rises by ≥ **3** standard errors (levels = means of ≤ **10** frames each side; noise = 1.4826·MAD of first differences / √2); vote *consistent* when the dropping channel is the labelled acceptor, *swapped* when it is the labelled donor; the bleach frames come from the bleach-detection row below | Tether (§7.1; ADR-0070); acceptor-bleach dequenching vs. donor-bleach-to-background [Roy2008][McCann2010][Hellenkamp2018]; the second-bleach requirement keeps FRET transitions from voting (measured on the kinSoftChallenge sets, ADR-0070) |
 | Donor-side check — verdict (advisory) | ≥ **15** votes, else *insufficient* ("not enough bleach events to check"); *swapped* when ≥ **80 %** of the votes (⌈0.8·n⌉) are swapped, *consistent* when ≥ 80 % are consistent, else *mixed*; never changes data, never blocks. Measured worst false-alarm rate (one-sided 95 % upper bound) **0.13 %** (kinSoft `level2` at 250 molecules, a small-pool bound with no wrong vote), **0.10 %** for binding-like short movies, all other fixtures and simulated conditions < 0.01 %; the 281-molecule fixture reads *consistent* as stored (150 / 10 votes) and *swapped* with the channels exchanged; of seven real 1,700-frame movies extracted both ways, none warns with the correct side and three warn with the wrong side (two at 20 events) | Tether (§7.1, §7.11; ADR-0070); `scripts/measure_side_check.py`, seed 0 |
 | Bleach detection | native reimplementation of **tMAVEN's Bayesian single-step model** (signal→N(0)), run per channel; priors a = b = β = 1, μ = 1000; per-channel first-bleach validated by reference-formula parity with tMAVEN's formulas + synthesized known-step recovery (ADR-0026, §9.5 (g); the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | [Verma2024]; `tmaven/tmaven/controllers/photobleaching/photobleaching.py`. (Kalafut2008 is a parameter-free *multi-step* method — classical alternative only; the `penalty ≈ 5` is Deep-LASI's `stepFinder` L1 mode, `TRACEdata.m:110`, not a Kalafut parameter) |
-| Correction tolerance window (γ half-width) | 3 frames each side of the bleach step (configurable) | `MASH-FRET/docs/.../panel-factor-corrections.md`; [McCann2010] (§7.2, §9 M3) |
+| Correction tolerance window (γ half-width) | 20 frames each side of the bleach step (configurable; equal to `min_window_frames`, 3 before [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)); `half_window = None` averages the whole segment each side instead, the FRET segment before the step and the donor-only segment after it, up to the donor bleach | Tether, measured against Deep-LASI on the #715 workstation acquisitions (ADR-0130); Deep-LASI `deep_autocorrect_2color.m:108-127` at `d2d348cb` for the whole-segment option; the former 3-frame default from `MASH-FRET/docs/.../panel-factor-corrections.md`; [McCann2010] (§7.2, §9 M3) |
 | γ-agreement tolerance (M3) | γ within ±10% of the Deep-LASI median on the shared-frame, estimator-isolated comparison | Tether (§7.2, §9 M3) |
 | Bleach-frame tolerance (M3) | per-channel first-bleach frame within ±2 frames of a synthesized known step (reframed — ADR-0026: the `.mat` `pacc`/`pdon` field is a constant, not ground truth) | Tether (§8 NFR-VALID (g), §9 M3, §9.5 (g)) |
 | Leakage acceptance ceiling | ≈ 0.3 (Cy3→Cy5 leakage typically 0.05–0.2; empirical median ≈ 0.09) | Tether tightening of Deep-LASI's loose `ct_lim = 1` |
@@ -2366,7 +2367,8 @@ Order (load-bearing): **background → leakage (α) → direct-excitation (δ = 
    excitation signal I_YY, which requires ALEX [Lee2005][Hohlbein2014]; pre-FRET acceptor signal is treated as
    background (already removed). This is the correct single-laser simplification, not an omission.
 4. **Gamma γ** — trace-wise across the **acceptor-bleach step** (acceptor drop / donor rise) on leakage-corrected
-   intensities, averaged over a tolerance window (3 frames each side, configurable; §11.2), on traces where the
+   intensities, averaged over a tolerance window (20 frames each side, configurable, or the whole segments;
+   §11.2; ADR-0130), on traces where the
    acceptor bleaches before the donor; global = **median** [McCann2010]. Formally
    γ = (I_A,spFRET − I_A,after) / (I_D,after − I_D,spFRET) = ΔI_A/ΔI_D
    (`deeplasi/functions/deeplearning/deep_autocorrect_2color.m:118-130`), with the ALEX `de·(da+dd)` term dropped
