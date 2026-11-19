@@ -79,6 +79,13 @@ ALLOWANCE = re.compile(r"set your current allowance at (\d+) reviews? per hour",
 #: a reason to ask: the answer comes from what GitHub shows. Before 2026-11-12 it was a fixed 60
 #: minutes (1 review an hour, the allowance on 2026-11-10). docs/agents/handoff.md, "The CodeRabbit queue".
 MAX_PER_HOUR = 5
+#: The pace reads the allowance and refusals of the last 3 hours only.
+PACE_LOOKBACK = timedelta(hours=3)
+#: Comments are read this far back, so that a refusal whose named wait is longer than the pace's 3
+#: hours still holds the slot until that wait ends (Codex P1 on #1296: a refusal naming 6 hours,
+#: posted 4 hours ago, fell outside a 3-hour read and the script said ASK). On 2026-11-19 the
+#: repository had 445 comments updated in 24 hours, 5 pages of the 20 that gh_all reads.
+REFUSAL_LOOKBACK = timedelta(hours=24)
 SLOW = timedelta(minutes=60)
 #: If the slot is open and the pull request at the head of the queue does not take it, the next
 #: one may take it after this long. Without it, one sleeping thread stops the queue.
@@ -235,6 +242,8 @@ def pace(comments, now: datetime) -> tuple[timedelta, str]:
         if comment["user"]["login"] != BOT:
             continue
         body, when = comment["body"], parse(comment["updated_at"])
+        if now - when > PACE_LOOKBACK:
+            continue
         allowance = ALLOWANCE.search(body)
         # A refusal names the allowance too ("... set your current allowance at 1 review per hour",
         # #670), so test for a refusal first: its allowance line is not a new reading.
@@ -281,7 +290,7 @@ def take_window(open_at: datetime, k: int, mine: int, now: datetime) -> int:
 
 def status(mine: int | None) -> int:
     now = datetime.now(UTC)
-    since = stamp(now - timedelta(hours=3))
+    since = stamp(now - REFUSAL_LOOKBACK)
     try:
         comments = gh_all(
             f"repos/{REPO}/issues/comments", since=since, sort="updated", direction="desc"

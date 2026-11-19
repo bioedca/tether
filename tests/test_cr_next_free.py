@@ -176,3 +176,34 @@ def test_an_unanswered_request_holds_the_slot(
     _github(monkeypatch, [request], {41: [], 42: []})
     assert queue.status(41) == 1
     assert "WAIT" in capsys.readouterr().out
+
+
+def test_a_refusal_older_than_the_pace_lookback_still_holds_its_named_wait(
+    state: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex P1 on #1296: a 6-hour wait named 4 hours ago is still in force."""
+    queue.join(51, "waiting")
+    refusal = _bot(
+        "Review rate limited. Next review available in 6 hours.",
+        datetime.now(UTC) - timedelta(hours=4),
+    )
+    refusal["html_url"] = "https://github.com/bioedca/tether/pull/52#issuecomment-3"
+    seen: dict[str, str] = {}
+
+    def gh_all(path: str, **fields: str) -> list:
+        if path.endswith("/issues/comments"):
+            seen.update(fields)
+            return [refusal]
+        return [{"number": 51, "head": {"sha": f"{51:040x}"}}]
+
+    monkeypatch.setattr(queue, "gh_all", gh_all)
+    monkeypatch.setattr(
+        queue,
+        "gh",
+        lambda path, **_f: (
+            {"check_runs": []} if "/check-runs" in path else {"mergeable_state": "clean"}
+        ),
+    )
+    assert queue.status(51) == 1
+    assert "answer       WAIT" in capsys.readouterr().out
+    assert queue.parse(seen["since"]) <= datetime.now(UTC) - timedelta(hours=5)
