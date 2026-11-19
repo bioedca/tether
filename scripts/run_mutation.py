@@ -529,9 +529,10 @@ class _Imports:
     down the chain of re-exports (every branch of a conditional one). A wildcard
     (``from tether.a import *``) imports what each public name of ``tether.a`` comes from, as
     ``__all__`` lists them when it is a literal of strings (every list a branch may set, when it
-    is set in an ``if`` or ``try``) and else every bound name without a leading ``_``; a
-    wildcard inside a source module (``from .c import *``) passes those names on the same way,
-    and a cycle of such wildcards is followed until nothing more is found.
+    is set in an ``if`` or ``try``) and else every bound name without a leading ``_``, with
+    the names of any literal list a branch may set; a wildcard inside a source module
+    (``from .c import *``) passes those names on the same way, and a cycle of such wildcards
+    is followed until nothing more is found.
     A module alias (``import tether.a.c as backend`` in ``tether.a``) passes on the module
     itself, so ``from tether.a import backend`` imports ``tether.a.c``; ``import tether.a.c``
     binds ``tether``, through which ``tether.a.c`` is read, and passes it on. Every module
@@ -541,20 +542,21 @@ class _Imports:
     def __init__(self, src: Path) -> None:
         self.src = src
         self._reexports: dict[str, dict[str, list[tuple[str, str | None]]]] = {}
-        self._parsed: dict[str, tuple[dict, list[str], set[str], list[str] | None]] = {}
+        self._parsed: dict[str, tuple[dict, list[str], set[str], list[str] | None, list[str]]] = {}
         # While a cycle of wildcards is being resolved: the maps so far, and those already
         # recomputed in this pass.
         self._pending: dict[str, dict[str, list[tuple[str, str | None]]]] | None = None
         self._pass: set[str] = set()
 
-    def _parse(self, module: str) -> tuple[dict, list[str], set[str], list[str] | None]:
-        """(name -> origins, wildcard origins, names bound in place, ``__all__`` or ``None``)."""
+    def _parse(self, module: str) -> tuple[dict, list[str], set[str], list[str] | None, list[str]]:
+        """(name -> origins, wildcard origins, names bound in place, ``__all__`` or ``None``
+        when it is not known, the literal names some branch may still give it then)."""
         if module not in self._parsed:
             names: dict[str, list[tuple[str, str | None]]] = {}
             stars: list[str] = []
             local: set[str] = set()
-            all_: list[str] | None = None
-            unknown = False
+            known: list[str] = []  # the literal names ``__all__`` may hold
+            written = unknown = False
             path = _module_file(self.src, module)
             if path is not None:
                 is_package = path.name == "__init__.py"
@@ -581,17 +583,14 @@ class _Imports:
                     else:
                         if _writes_all(node):  # a change not read leaves ``__all__`` unknown
                             listed = _names_of_all(node)
-                            if listed is None:
-                                all_, unknown = None, True
-                            elif not isinstance(node, ast.AugAssign) and not conditional:
-                                all_, unknown = listed, False
-                            elif not unknown:  # a branch that may run adds to the others
-                                all_ = [
-                                    *(all_ or []),
-                                    *(n for n in listed if n not in (all_ or [])),
-                                ]
+                            if not conditional and not isinstance(node, ast.AugAssign):
+                                known, unknown = [], False  # replaces what came before
+                            # a branch that may run adds to the others
+                            known += [n for n in listed or () if n not in known]
+                            written, unknown = True, unknown or listed is None
                         local |= _bound_names(node) - {"__all__"}
-            self._parsed[module] = (names, stars, local, all_)
+            all_ = known if written and not unknown else None
+            self._parsed[module] = (names, stars, local, all_, known if unknown else [])
         return self._parsed[module]
 
     def reexports(self, module: str) -> dict[str, list[tuple[str, str | None]]]:
@@ -623,7 +622,7 @@ class _Imports:
 
     def _grow(self, module: str, found: dict[str, list[tuple[str, str | None]]]) -> None:
         """Add to *found* what *module* imports, as far as the maps it reads are known."""
-        names, stars, _, _ = self._parse(module)
+        names, stars, _, _, _ = self._parse(module)
         pairs = [(n, o) for n, origins in names.items() for o in origins]
         pairs += [(n, (star, n)) for star in stars for n in sorted(self.public(star))]
         for name, origin in pairs:
@@ -632,10 +631,11 @@ class _Imports:
 
     def public(self, module: str) -> set[str]:
         """The names ``from module import *`` binds."""
-        _, _, local, all_ = self._parse(module)
+        _, _, local, all_, also = self._parse(module)
         if all_ is not None:
             return set(all_)
-        return {n for n in local | set(self.reexports(module)) if not n.startswith("_")}
+        bound = {n for n in local | set(self.reexports(module)) if not n.startswith("_")}
+        return bound | set(also)
 
     def _from(self, module: str, name: str, seen: set[tuple[str, str]]) -> set[str]:
         """The modules that ``from module import name`` loads and that made the value."""

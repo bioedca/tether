@@ -363,6 +363,12 @@ def test_conditional_all_cyclic_wildcards_and_plain_imports(tmp_path: Path) -> N
             "src/pkg/impl.py": "VALUE = 10\n",
             "src/backend.py": "X = 1\n",
             "src/front.py": "import backend\nimport pkg.impl\n",
+            # One branch computes it: the bound names, and the literal of the other branch.
+            "src/cx/__init__.py": (
+                "from .impl import _VALUE, B\nNAMES = ['B']\nif B:\n    __all__ = NAMES\n"
+                "else:\n    __all__ = ['_VALUE']\n"
+            ),
+            "src/cx/impl.py": "_VALUE = 1\nB = 2\n",
             "src/ann/__init__.py": "from .c import _VALUE\n__all__: list[str] = ['_VALUE']\n",
             "src/ann/c.py": "_VALUE = 1\n",
         },
@@ -371,6 +377,7 @@ def test_conditional_all_cyclic_wildcards_and_plain_imports(tmp_path: Path) -> N
     assert of("from ca import *\n") == {"ca", "ca.a", "ca.b"}, "if/else: the union"
     assert of("from ct import *\n") == {"ct", "ct.a", "ct.b"}, "try/except: the union"
     assert of("from cu import *\n") == {"cu", "cu.b"}, "unconditional: the last one"
+    assert rm._Imports(tmp_path / "src").public("cx") == {"B", "NAMES", "_VALUE"}
     every = {"pkg", "pkg.a", "pkg.b", "pkg.impl"}
     assert rm._Imports(tmp_path / "src").of("from pkg.b import VALUE\n") == every
     imports = rm._Imports(tmp_path / "src")
