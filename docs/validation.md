@@ -725,8 +725,11 @@ test-only trace reader of the public Deep-LASI check (#716): the tail estimator 
 bleach as its window, so the gates are the tail estimator's own. The tail α is the median over the
 pooled molecules of the FRET series that sample calibrates (`lab-03` to `lab-08`), with Tether's
 bleach frames. The band's arithmetic and its two limits are checked on the required matrix in the
-same file, against the specification's row. On the workstation, 2026-11-18, the donor-only α was
-0.1200 (89 of 91 molecules qualifying); the series number is recorded by the first workstation run.
+same file, against the specification's row.
+
+**The first run passed** (2026-11-19). The donor-only α was 0.1200 (89 of 91 molecules
+qualifying) and the pooled tail α of the series 0.1012 (260 of 971), a relative difference of
+17.0 % against the 20 % limit, with both medians inside 0.05–0.2.
 
 > Not implemented — the γ leg of this oracle.
 >
@@ -1572,10 +1575,11 @@ evidence about the size of the difference and not a tolerance.
   but never mentions synthetic data, and neither ranker ADR
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all.
-  The specification allows synthesized known-truth fixtures in tests, and it lists these two
-  among its criteria not yet met, as not yet validated on real data
-  ([#546](https://github.com/bioedca/tether/issues/546),
-  [#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
+  The specification allows synthesized known-truth fixtures in tests. (e)'s α is now also checked
+  on real data, by the workstation band above
+  ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md));
+  (d)'s synthetic project file is listed among the criteria not yet met, as not yet validated on
+  real data ([#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
   exist (oracles (a), (b), (c)) stay on real fixtures.
 - A reference that comes from an ALEX data set compares **apparent FRET from the
   donor-excitation channels only** — the donor and acceptor intensities under donor

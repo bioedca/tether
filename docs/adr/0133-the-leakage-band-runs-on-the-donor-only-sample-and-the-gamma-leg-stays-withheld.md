@@ -113,6 +113,16 @@ result.
   adds no product reader of `.tdat` traces.
 - A failing run is a finding reported on the issue. It does not change a limit (PRD §9.4).
 
+**The first run passed** (2026-11-19, the workstation's locked environment, branch head `aa6d8c7`,
+every file verified against its recorded SHA-256). The donor-only α of `donly-01` is **0.1200**
+(89 of 91 molecules qualifying); the tail α of the pooled series is **0.1012** (260 of its 971
+molecules qualifying). The relative difference is **17.0 %**, within the 20 % limit, and both
+medians lie in 0.05–0.2, so the conjunctive band passes. By acquisition the tail α is 0.0997
+(`lab-03`, 70 of 247 qualifying), 0.0986 (`lab-04`, 77 of 197), 0.1014 (`lab-05`, 66 of 233), 0.1209
+(`lab-06`, 14 of 87) and 0.1127 (`lab-07`, 26 of 137); `lab-08` withholds its own median (7 of 70
+qualifying, under `min_qualifying_traces`), and its qualifying molecules still count in the pool.
+These per-acquisition values read the saved states; the #715 values above read the `.mat` exports.
+
 **γ leg: option 4.** No available file holds the two things the estimator-isolated oracle needs,
 Deep-LASI's per-molecule γ and its per-frame classification, and the looser CI-overlap check needs
 the same γ. Option 5 fails on its own terms: `BleachFrame` is empty in every lab state, and where it
@@ -128,7 +138,7 @@ ADR-0074 gains a classify-and-correct task. The shared frame set is then Deep-LA
 ### Consequences
 
 - Good: oracle (e)'s α leg is evidenced on real data (a donor-only sample and its FRET series)
-  rather than on synthesized known-α traces alone.
+  rather than on synthesized known-α traces alone, and its first run passed.
 - Good: the withholding of the γ leg now names its cause in the data and the data that would end it.
 - Bad: the band runs only on the workstation, weekly, like the other private-data checks; the
   required matrix checks its arithmetic, not its data.
