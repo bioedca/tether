@@ -150,7 +150,8 @@ repos/bioedca/tether/pulls/<PR> -F body=@<file>`.
    <short-sha>`; expand that with `git rev-parse` and record both. Unmetered, so uncapped: answer
    each finding and ask again until it reports nothing actionable. A quota refusal is a wait. The
    Codex CLI is an author-side tool and never counts as this leg.
-3. **Load-bearing pull requests** — those that change `AGENTS.md`, `CLAUDE.md` or `docs/PRD.md`, or
+3. **Load-bearing pull requests** — those that change `AGENTS.md`, `CLAUDE.md` or
+   [`docs/PRD.md`](https://github.com/bioedca/tether/blob/main/docs/PRD.md), or
    whose Risk is `high` and whose changed lines are mostly code — take **one Greptile review** in
    CodeRabbit's place, asked only while `<py> .agents/bin/greptile_usage.py --fail-over-share` exits
    `0`. Clean, it is the gate. With findings, they take one CodeRabbit review through the queue below,
