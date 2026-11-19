@@ -22,7 +22,7 @@ order does not depend on the order of registration.
 **No Qt.** This module imports only the standard library, so the registry and its tests run
 without a display and without a ``QApplication``. A factory receives a
 [`SectionHostLike`][], the part of the shell that a section drives. The shell satisfies that
-[`Protocol`][typing.Protocol] by its structure, and a test satisfies it with a small fake object, as
+`Protocol` by its structure, and a test satisfies it with a small fake object, as
 [`MoviePanelLike`][tether.gui.roundtrip.MoviePanelLike] does for the movie panel. [`DockArea`][]
 gives
 the name of each Qt dock area as text ([`DockArea.qt_name`][]); the shell converts that name
@@ -263,7 +263,7 @@ class SectionRegistry:
         return tuple(spec.id for spec in self.sections())
 
     def get(self, section_id: str) -> SectionSpec:
-        """The section with ``section_id``; raise [`KeyError`][] when there is none."""
+        """The section with ``section_id``; raise `KeyError` when there is none."""
         try:
             return self._by_id[section_id]
         except KeyError:

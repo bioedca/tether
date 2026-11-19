@@ -7,7 +7,7 @@ state, how long the system stays there before leaving. From a persisted
 ``/idealization/{model}`` Viterbi state path the runs of constant state are the
 dwells; their **empirical survival function** ``S(τ) = P(dwell > τ)`` is fit to a
 sum of exponentials whose rate constants ``k`` are the state's exit rates
-[Schrangl2024][Qin2004]. This is a faithful port of tMAVEN's dwell pipeline
+[Schrangl2024], [Qin2004]. This is a faithful port of tMAVEN's dwell pipeline
 (``controllers/modeler/dwells.py`` + ``controllers/analysis_plots/survival_dwell.py``)
 so the plot reproduces its tMAVEN counterpart (the §9 M6 parity clause), with the two
 Tether invariants tMAVEN has no analogue for layered on at the store path: **fresh
@@ -231,7 +231,7 @@ def survival_curve(dwell_lengths: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
     Dwell lengths are frame counts and must be ``>= 1``; a non-positive value (which
     would make ``np.bincount`` raise or ``raw[0]`` index out of bounds) is rejected
-    with a clear [`ValueError`][] rather than crashing — this is a re-exported
+    with a clear `ValueError` rather than crashing — this is a re-exported
     public helper, not only reached via [`state_dwells`][].
     """
     d = np.asarray(dwell_lengths, dtype=np.int64).ravel()

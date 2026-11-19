@@ -15,7 +15,7 @@ whose ``P(good)`` sits nearest the ``0.5`` decision boundary, i.e. the one the m
 sure about and so whose human label is most informative [Cho2024]. For a binary quality
 classifier the least-confidence, margin, and Shannon-entropy uncertainty measures are all
 monotone in ``|P(good) - 0.5|`` and so induce the **same** "most informative" ordering
-[Guochen2021][Hein2022]; this module uses the *margin* form [`informativeness`][]
+[Guochen2021], [Hein2022]; this module uses the *margin* form [`informativeness`][]
 (``1 - |2p - 1|`` — bounded ``[0, 1]``, no logarithm), maximal at the boundary.
 
 This module is deliberately **model-free and store-free** (pure NumPy): the gradient-boosting
@@ -29,7 +29,7 @@ returns or mutates an order, so the fixed sweep it annotates is untouched by con
 Never fabricate. Only *uncurated* molecules with a real (finite) score are candidates; a
 molecule the model could not score (a ``NaN`` — never a fabricated ``0``, the
 [`tether.ml.ranking`][] discipline) is excluded from the recommendation but never dropped,
-and when nothing remains to recommend the badge is [`None`][] rather than an invented pick.
+and when nothing remains to recommend the badge is `None` rather than an invented pick.
 
 References
 ----------
@@ -70,7 +70,7 @@ def informativeness(scores: object) -> np.ndarray:
     decision boundary (maximally uncertain, so a human label there is most informative) and
     falling to ``0.0`` at a confident ``p ∈ {0, 1}``. For a binary label it is monotone in the
     least-confidence and Shannon-entropy measures, so it induces the same "most informative
-    next" ordering [Guochen2021][Hein2022]; the margin form is used because it is bounded to
+    next" ordering [Guochen2021], [Hein2022]; the margin form is used because it is bounded to
     ``[0, 1]`` and logarithm-free.
 
     Parameters

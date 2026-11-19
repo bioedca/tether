@@ -100,7 +100,7 @@ retired = 0
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
 long_share = 16.8
-semicolons = 8
+semicolons = 7
 long_paragraphs = 0
 retired = 3
 
@@ -113,14 +113,14 @@ retired = 0
 
 [pages."docs/how-to/apply-corrections.md"]
 kind = "procedure"
-long_share = 35.6
+long_share = 31.8
 semicolons = 5
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/how-to/idealize.md"]
 kind = "procedure"
-long_share = 19.6
+long_share = 14.9
 semicolons = 0
 long_paragraphs = 0
 retired = 1
@@ -190,14 +190,14 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 19.8
+long_share = 18.1
 semicolons = 19
 long_paragraphs = 0
 retired = 6
 
 [pages."docs/reference/exports.md"]
 kind = "descriptive"
-long_share = 21.8
+long_share = 18.8
 semicolons = 22
 long_paragraphs = 1
 retired = 1
@@ -227,6 +227,76 @@ retired = 0
 kind = "descriptive"
 long_share = 30.2
 semicolons = 18
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/index.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/io.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/imaging.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/fret.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/idealize.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/ml.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/analysis.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/project.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/services.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/gui.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
 long_paragraphs = 0
 retired = 0
 
@@ -316,14 +386,14 @@ retired = 0
 
 [pages."docs/maintainers/workstation-runner.md"]
 kind = "procedure"
-long_share = 16.9
-semicolons = 2
+long_share = 17.2
+semicolons = 3
 long_paragraphs = 2
 retired = 0
 
 [pages."docs/maintainers/mutation-testing.md"]
 kind = "descriptive"
-long_share = 6.7
+long_share = 8.0
 semicolons = 2
 long_paragraphs = 1
 retired = 0
