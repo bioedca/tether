@@ -154,7 +154,10 @@ repos/bioedca/tether/pulls/<PR> -F body=@<file>`.
    whose Risk is `high` and whose changed lines are mostly code — take **one Greptile review** in
    CodeRabbit's place, asked only while `<py> .agents/bin/greptile_usage.py --fail-over-share` exits
    `0`. Clean, it is the gate. With findings, they take one CodeRabbit review through the queue below,
-   then the Codex close.
+   then the Codex close. On 2026-11-19 the maintainer added 50 Greptile reviews for Tether outside
+   its share of 45: for a load-bearing pull request, ask while `greptile_usage.py` reads Tether at 64
+   or less, even though `--fail-over-share` then fails, and quote that reading in the pull request.
+   Spend none of them on any other pull request without his word. A standard review only, never TREX.
 4. **Every other pull request**: optionally one Greptile review if the seat has budget, then
    ready-for-review (`gh pr ready <PR>`) if it is still a draft, then **CodeRabbit last**, through
    the queue below and nowhere else.
@@ -252,7 +255,7 @@ deletes a merged branch.
 
 ## The snapshot
 
-[`handoff-snapshot.md`](handoff-snapshot.md) lists every open pull request at 2026-11-19 20:36Z:
+[`handoff-snapshot.md`](handoff-snapshot.md) lists every open pull request at 2026-11-19 20:45Z:
 its stage, its next step and whether it waits on the maintainer. **It is a starting map, not
 state.** Re-read the pull request before every write; where the two differ, GitHub is right.
 

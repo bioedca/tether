@@ -7,15 +7,17 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 The tracked copy of the priority list that `.agents/bin/cr_next_free.py` reads when its state folder
 holds none of its own (`docs/agents/handoff.md`). Copied unchanged from the maintainer's project
-folder on 2026-11-19 at 20:40Z, from the list rewritten there at 17:15Z on his request. The pull
-requests below take their CodeRabbit turns first, in this order; one that is not listed keeps its
-join order behind them, and a listed one that has not joined takes its place when it joins. A
-merged or closed pull request simply never comes up. The list changes no review rule.
+folder on 2026-11-19 at 20:45Z: the list rewritten there at 17:15Z on his request, with the two
+lines added at 20:35Z and 20:41Z. The pull requests below take their CodeRabbit turns first, in
+this order; one that is not listed keeps its join order behind them, and a listed one that has not
+joined takes its place when it joins. A merged or closed pull request simply never comes up. The
+list changes no review rule.
 
 Only a session the maintainer asked to order the queue edits this file. A pull request's own
 session never does. The script reads only lines that start with a pull request number, so no line
 of this header may start with one.
 
+#1295 | #1294 main is red (docs-build: two missing docs/api reference blocks, tether.imaging.recipe and tether.gui.update_verify); every PR that merges main stays red until it lands; +4 lines in docs/api/gui.md and imaging.md; added 20:41Z on the coordinator's word, ahead of everything
 #1273 | #896 tether status (readiness of each stage) -> #897 #898 #923 #1159 directly, 38 open issues through them (the review pages, the G03 GUI #930 #931 #933, the modeler set #936-#950 and on); Codex clean, CI green; added 20:35Z on the coordinator's word; before #1261 #1263 #1274 (small shell.py hunk first, so the larger ones merge main once) and before #1279 (#899 run/approve: cli.py, docs/cli.md, services.md, test_services.py)
 #1261 | #356 napari movie panel and movie switcher -> 13 open issues (#357 #366 #604 #638 and on); draft, takes this place when it joins; before #1263 #1242 #1179 (shell.py, curate-traces.md, _gui_harness.py)
 #1277 | #1266 merge queue part 1, risk high, ADR-0135 -> #1267 #1268 #1269 (the rest of the merge queue); Greptile P1 fixed, so ADR-0099 takes one CodeRabbit review; joins once Codex is clean on c421a9d; added 19:05Z on the coordinator's word; docs/adr/README.md beside #1264 #1165
