@@ -406,37 +406,34 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
     """Keep the stale marks whose record has not been made again (Codex reviews of #1273).
 
     Marks are never removed (ADR-0126), and a changed record is a new instance. A mark on
-    ``(node, instance)`` is therefore superseded once an unmarked instance of the same node
-    was made from the record the mark came through: from that same upstream instance at an
-    identity other than the one the marked record holds, or from an instance that in its turn
-    replaced that upstream record. The new instance must also have the same scope: every
-    other record it was made from is one the marked record was made from too, and the other
-    way round. Two trace generations made from one map and two movies are two scopes, so
-    remaking the first after a map edit leaves the second stale.
+    ``(node, instance)`` is superseded once an unmarked instance of the same node was made
+    in its place, with the same scope. *In its place* means: made from the edited record
+    itself, when the mark came straight from the edit, or else made from an instance that
+    in its turn replaced the record the mark came through. A record made from an edited
+    record and left unmarked was made from it as it is now, since an edit marks every
+    record made from it at another identity; that holds when an edit is undone too.
+    *The same scope* means: the new instance was made from the marked record's other
+    inputs, each of them and nothing else. Two trace generations made from one map and two
+    movies are two scopes, so remaking the first after a map edit leaves the second stale,
+    and a fit made from generations A and B is not replaced by one made from A alone.
     """
     first: dict[tuple[str, str], Any] = {}
     for m in marks:
         first.setdefault((m.node, m.instance), m)
-    identity_of = {
-        (r.node, r.instance, r.upstream_node, r.upstream_instance): r.identity for r in recorded
-    }
     inputs_of: dict[tuple[str, str], set[tuple[str, str]]] = {}
     for r in recorded:
         inputs_of.setdefault((r.node, r.instance), set()).add(
             (r.upstream_node, r.upstream_instance)
         )
 
-    def scope(node: str, instance: str, through: str) -> set[tuple[str, str]]:
-        return {i for i in inputs_of.get((node, instance), set()) if i[0] != through}
-
     def replacements(node: str, instance: str, seen: frozenset = frozenset()) -> set[str]:
         mark = first.get((node, instance))
         if mark is None or (node, instance) in seen:
             return set()
         up = (mark.upstream_node, mark.upstream_instance)
-        old = identity_of.get((node, instance, *up))
-        up_new = replacements(*up, seen | {(node, instance)})
-        same_scope = scope(node, instance, up[0])
+        direct = up == (mark.edited_node, mark.edited_instance)
+        in_place = {up[1]} if direct else replacements(*up, seen | {(node, instance)})
+        others = inputs_of.get((node, instance), set()) - {up}
         return {
             r.instance
             for r in recorded
@@ -444,11 +441,8 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
             and r.instance != instance
             and (r.node, r.instance) not in first
             and r.upstream_node == up[0]
-            and (
-                (r.upstream_instance == up[1] and r.identity != old)
-                or r.upstream_instance in up_new
-            )
-            and scope(r.node, r.instance, up[0]) == same_scope
+            and r.upstream_instance in in_place
+            and inputs_of[(r.node, r.instance)] - {(r.upstream_node, r.upstream_instance)} == others
         }
 
     return [m for m in marks if not replacements(m.node, m.instance)]

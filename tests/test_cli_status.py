@@ -308,6 +308,41 @@ def test_a_record_made_again_for_one_movie_leaves_the_other_stale(tmp_path: Path
     assert rd.read_project_readiness(path).stale == ()
 
 
+def test_a_record_made_again_from_fewer_inputs_leaves_the_mark(tmp_path: Path) -> None:
+    """A correction version made from two generations is not replaced by one made from one."""
+    path = _store(tmp_path)
+    project = Project(path)
+    ins = {("trace_generation", "gA"): "hA", ("trace_generation", "gB"): "hB"}
+    with project.write_lock():
+        jobs.record_inputs(project, "correction_version", "c1", ins)
+        jobs.set_stale_marks(project, "trace_generation", "gA", "hA2")
+        jobs.record_inputs(project, "correction_version", "c2", {("trace_generation", "gA"): "hA2"})
+    assert [s.item for s in rd.read_project_readiness(path).stale] == ["Correction version c1"]
+
+    with project.write_lock():
+        jobs.record_inputs(
+            project,
+            "correction_version",
+            "c3",
+            {("trace_generation", "gA"): "hA2", ("trace_generation", "gB"): "hB"},
+        )
+    assert rd.read_project_readiness(path).stale == ()
+
+
+def test_a_record_made_again_after_an_edit_is_undone_is_not_stale(tmp_path: Path) -> None:
+    """An edited map put back as it was: a generation made from it then is current."""
+    path = _store(tmp_path)
+    project = Project(path)
+    with project.write_lock():
+        jobs.record_inputs(project, "trace_generation", "g1", {("map", "m1"): "v1"})
+        jobs.set_stale_marks(project, "map", "m1", "v2")
+        jobs.set_stale_marks(project, "map", "m1", "v1")  # the edit undone
+        jobs.record_inputs(project, "trace_generation", "g2", {("map", "m1"): "v1"})
+    r = rd.read_project_readiness(path)
+    assert r.stale == ()
+    assert r.stage("traces").state is rd.StageState.READY
+
+
 def test_a_running_job_is_waited_for_and_never_started_again(tmp_path: Path) -> None:
     path = tmp_path / "new.tether"
     project = Project.create(path)
