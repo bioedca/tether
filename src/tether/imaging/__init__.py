@@ -81,6 +81,12 @@ from tether.imaging.layout import (
     ChannelOverlapWarning,
     read_layout_record,
 )
+from tether.imaging.recipe import (
+    RECIPE_OPERATIONS,
+    ChannelRecipe,
+    ChannelRecipeError,
+    check_frame_fits,
+)
 from tether.imaging.register import (
     PairedControlPoints,
     PolyTransform2D,
@@ -110,6 +116,7 @@ __all__ = [
     "LOW_CONFIDENCE_TAG",
     "MAP_FORMAT_VERSION",
     "MOLECULE_KEY_QUANTUM_PX",
+    "RECIPE_OPERATIONS",
     "BeadMapError",
     "BeadMapResult",
     "BeadMapSource",
@@ -117,6 +124,8 @@ __all__ = [
     "ChannelLayout",
     "ChannelLayoutError",
     "ChannelOverlapWarning",
+    "ChannelRecipe",
+    "ChannelRecipeError",
     "ColocalizedMolecules",
     "IntegratedTraces",
     "MapFileError",
@@ -137,6 +146,7 @@ __all__ = [
     "b3_spline_kernel",
     "bead_map",
     "bead_map_from_file",
+    "check_frame_fits",
     "colocalize",
     "detect_spots",
     "detect_spots_bandpass",
