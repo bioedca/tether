@@ -70,12 +70,12 @@ from tether.services.curation import (
     resolved_frame_range,
     resolved_window,
     stored_molecule,
-    stored_molecules,
+    stored_rows,
     summed_bleach_frame,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from os import PathLike
     from typing import Protocol
 
@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
+    from tether.services.curation import StoredMolecule
 
     #: Maps a molecule_key to that molecule's per-frame idealized FRET path (NaN
     #: outside its analysis window), or ``None`` when nothing was produced. The
@@ -2683,7 +2684,15 @@ class TetherShell:
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
             self._status(f"Return-leg import failed: {exc}")
             return None
-        self._status(_applied_summary(applied))
+        summary = _applied_summary(applied)
+        if store_session and applied.windows_applied:
+            # The accepted windows are stored now; show them, as the curation keys do.
+            assert self._session_project is not None  # store_session
+            try:
+                self._show_stored_windows(self._session_project.path, applied.windows_applied)
+            except Exception as exc:  # noqa: BLE001 - the import stands; say what is not shown
+                summary = f"{summary}; the trace view could not reread the windows: {exc}"
+        self._status(summary)
         return applied
 
     def _hand_off_dialog(self) -> None:
@@ -3005,7 +3014,7 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, row, trace = selection
+        project, row, trace, nonce = selection
 
         try:
             writers = {
@@ -3013,6 +3022,7 @@ class TetherShell:
                 CurationAction.REJECT: project.reject,
                 CurationAction.UNREJECT: project.unreject,
             }
+            self._guard_session_write(project, nonce)
             result = writers[action](trace.molecule_key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the write failure
             self._status(f"{verb} failed: {exc}")
@@ -3062,20 +3072,29 @@ class TetherShell:
             "the next trace; Un-reject and the category keys keep the same trace."
         )
 
-    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView] | None:
-        """The writable project, list row and trace a curation write acts on, or ``None``.
+    def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView, str] | None:
+        """The writable project, list row, trace and lock nonce a curation write acts on.
 
         Every per-molecule writer passes these gates in this order, and each refusal is
         a status naming ``verb`` that changes nothing: background idealization owns the
         HDF5 ([`_idealization_blocks_write`][]), the project is read-only (the banner's
-        reason) or none is loaded, or no project molecule is selected.
+        reason) or none is loaded, or no project molecule is selected. The nonce is the
+        retained session's lock epoch; the writer passes it to [`_guard_session_write`][]
+        just before it writes. Returns ``None`` on a refusal.
         """
         if self._idealization_blocks_write(verb):
             return None
         if self._curation_project is not None:
             self._refresh_project_lock()
         project = self._curation_project
-        if project is None:
+        nonce = None
+        if project is not None:
+            try:
+                nonce = project._assert_held_lock()
+            except Exception:  # noqa: BLE001 - fail closed: any doubt about ownership refuses
+                self._refresh_project_lock()
+                project = self._curation_project
+        if project is None or nonce is None:
             reason = self._curation_read_only_reason or "load a writable project first"
             prefix = "project is read-only: " if self._curation_read_only_reason else ""
             self._status(f"{verb} unavailable: {prefix}{reason}")
@@ -3085,7 +3104,22 @@ class TetherShell:
         if trace is None or trace.molecule_key is None:
             self._status(f"{verb} failed: select a project molecule first")
             return None
-        return project, row, trace
+        return project, row, trace, nonce
+
+    def _guard_session_write(self, project: Project, nonce: str) -> None:
+        """Require the lock epoch ``nonce`` [`_writable_selection`][] read, just before a write.
+
+        A curation write reads the store first (``P`` also runs the bleach detector), and
+        the GUI thread cannot run its lock-refresh timer meanwhile. Another writer could
+        take the lock, write and release it in that time; the setters' own identity check
+        allows an unlocked file, so this binds the write to the epoch the gate saw, as the
+        idealizer and the return leg do. A lost lock turns the shell read-only and raises.
+        """
+        try:
+            project._assert_held_lock(expected_nonce=nonce)
+        except Exception:
+            self._refresh_project_lock()
+            raise
 
     def _assign_category(self, integer_class: int) -> None:
         """Store class ``integer_class`` of the molecule's condition list as its category.
@@ -3098,7 +3132,7 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, row, trace = selection
+        project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         try:
@@ -3113,6 +3147,7 @@ class TetherShell:
             return
         name = names[integer_class - 1]
         try:
+            self._guard_session_write(project, nonce)
             project.set_category(key, name, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
@@ -3125,10 +3160,11 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, _row, trace = selection
+        project, _row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         try:
+            self._guard_session_write(project, nonce)
             project.clear_category(key, **self._labeler_kwargs())
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
@@ -3146,7 +3182,7 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, row, trace = selection
+        project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         try:
@@ -3170,6 +3206,7 @@ class TetherShell:
             return
         self._write_window(
             project,
+            nonce,
             row,
             trace,
             lambda: project.set_analysis_window(key, *wanted, **self._labeler_kwargs()),
@@ -3183,11 +3220,12 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, row, trace = selection
+        project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         self._write_window(
             project,
+            nonce,
             row,
             trace,
             lambda: project.reset_analysis_window(key, **self._labeler_kwargs()),
@@ -3212,7 +3250,7 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, row, trace = selection
+        project, row, trace, nonce = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         try:
@@ -3235,6 +3273,7 @@ class TetherShell:
         )
         self._write_window(
             project,
+            nonce,
             row,
             trace,
             lambda: project.set_analysis_window(key, start, bleach, **self._labeler_kwargs()),
@@ -3245,6 +3284,7 @@ class TetherShell:
     def _write_window(
         self,
         project: Project,
+        nonce: str,
         row: int,
         trace: TraceView,
         write: Callable[[], object],
@@ -3256,31 +3296,52 @@ class TetherShell:
         The window is read back from the project rather than assumed from the request,
         so the dock's bounds and overlay always agree with ``/molecules.analysis_window``.
         """
-        from dataclasses import replace
-
         key = trace.molecule_key
         assert key is not None  # every caller passed _writable_selection
         try:
+            self._guard_session_write(project, nonce)
             write()
-            stored = stored_molecules(project.path, key)
+            by_row = self._show_stored_windows(project.path, (key,))
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
-        # The setters write every row that carries the key, each clamped to its own
-        # frame_range, so each listed row of the key takes its own stored window back.
-        selected = next((m for m in stored if m.row == row), stored[0])
-        by_row = {m.row: m for m in stored}
-        for i, listed in enumerate(self._traces):
-            if listed.molecule_key != key:
-                continue
-            mine = by_row.get(i, selected)
-            window = _relative_window(mine.frame_range[0], listed.n_frames, mine.window)
-            self._traces[i] = replace(listed, analysis_window=window)
-            if i == self._molecule_list.currentRow() and self._trace_dock.trace is not None:
-                self._trace_dock.set_analysis_window(window)
         self._queue_open_histogram_refresh()
+        selected = by_row.get(row) or next(iter(by_row.values()))
         start, stop = selected.window
         self._status(f"{done} [{start}, {stop}) for {trace.name or key}")
+
+    def _show_stored_windows(
+        self, path: str | Path, keys: Iterable[str]
+    ) -> dict[int, StoredMolecule]:
+        """Give each listed trace of ``keys`` its stored analysis window; return them by row.
+
+        A window setter writes every row that carries a key, each clamped to its own
+        ``frame_range``, so each listed row takes its own stored window back, and a
+        listed row the store does not hold takes its key's first. The current trace's
+        dock bounds and overlay are redrawn. Raises [`KeyError`][] when no row carries
+        any of ``keys``.
+        """
+        from dataclasses import replace
+
+        stored = stored_rows(path, keys)
+        if not stored:
+            raise KeyError(f"no molecule with any of the molecule_keys in {Path(path).name}")
+        by_row = {m.row: m for m in stored}
+        first: dict[str, StoredMolecule] = {}
+        for m in stored:
+            first.setdefault(m.molecule_key, m)
+        current = self._molecule_list.currentRow()
+        for i, listed in enumerate(self._traces):
+            mine = by_row.get(i)
+            if mine is None or mine.molecule_key != listed.molecule_key:
+                mine = first.get(listed.molecule_key or "")
+            if mine is None:
+                continue
+            window = _relative_window(mine.frame_range[0], listed.n_frames, mine.window)
+            self._traces[i] = replace(listed, analysis_window=window)
+            if i == current and self._trace_dock.trace is not None:
+                self._trace_dock.set_analysis_window(window)
+        return by_row
 
     def _unavailable(self, feature: str, reason: str) -> None:
         """Report a deferred GUI command without claiming it changed project data."""

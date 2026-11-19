@@ -70,3 +70,15 @@ def test_stored_molecule_reads_the_selected_row_of_a_shared_key(tmp_path) -> Non
     assert curation.stored_molecule(project.path, keys[0], row=1).window == (5, 35)
     assert curation.stored_molecule(project.path, keys[0]).window == (2, 30)
     assert curation.stored_molecule(project.path, keys[0], row=7).row == 0  # not its row
+
+
+def test_stored_rows_reads_many_keys_in_row_order_and_skips_unknown_ones(tmp_path) -> None:
+    project, keys = _store(tmp_path, windows=[(2, 30), (4, 20)])
+
+    rows = curation.stored_rows(project.path, [keys[1], "not-a-key", keys[0]])
+
+    assert [(m.row, m.molecule_key, m.window) for m in rows] == [
+        (0, keys[0], (2, 30)),
+        (1, keys[1], (4, 20)),
+    ]
+    assert curation.stored_rows(project.path, ["not-a-key"]) == ()

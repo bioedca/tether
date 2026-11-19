@@ -401,3 +401,73 @@ def test_a_shared_key_edits_from_the_selected_row_and_shows_each_rows_window(
     assert "[21, 50)" in shell.status_message  # the selected row's stored window
     assert shell.trace_dock.analysis_window == (1, 30)
     assert shell._traces[0].analysis_window == (21, 30)
+
+
+# --- the lock epoch and other window writers ----------------------------------------
+
+
+@pytest.mark.parametrize("stolen", ["released", "replaced"])
+def test_p_refuses_to_save_after_the_lock_changed_hands_during_detection(
+    shell, qtbot, tmp_path, monkeypatch, stolen
+) -> None:
+    # P reads and runs the detector before it writes, and the GUI thread cannot refresh
+    # its lock meanwhile. A writer that takes the lock in that time, stores a window and
+    # releases it (or still holds it) must not be overwritten by the stale session.
+    from tether.gui import shell as shell_mod
+    from tether.project import lock
+
+    project, keys = _loaded(shell, tmp_path, windows=[(4, N_FRAMES)] * 3)
+    detect = shell_mod.summed_bleach_frame
+
+    other = lock.LockIdentity(host="OTHER-HOST", user="other", pid=999)
+
+    def steal_during_detection(path, molecule):
+        assert lock.release(path, lock.acquire(path, identity=other, steal=True))
+        project.set_analysis_window(keys[0], 20, 40)  # the other writer's newer window
+        if stolen == "replaced":
+            lock.acquire(path, identity=other, steal=True)
+        return detect(path, molecule)
+
+    monkeypatch.setattr(shell_mod, "summed_bleach_frame", steal_during_detection)
+
+    _press(qtbot, shell, "Key_P")
+
+    assert _window(project, keys[0]) == (20, 40)
+    assert shell.status_message.startswith("Photobleach detection failed")
+    assert shell.curation_project is None
+    assert shell.read_only_reason is not None
+
+
+def test_a_return_leg_import_redraws_the_imported_windows(shell, tmp_path, monkeypatch) -> None:
+    # The dock's window bounds come from the store at load; a window the return leg
+    # accepts is stored by the import, so the listed traces and the dock follow it.
+    from tether.gui import reconcile as reconcile_mod
+    from tether.gui.reconcile import ReconcileDecision
+    from tether.project.handoff import AppliedReconcile
+
+    project, keys = _loaded(shell, tmp_path, windows=[(10, 50)] * 3)
+    monkeypatch.setattr(
+        reconcile_mod.ReconcileDialog,
+        "exec",
+        lambda self: ReconcileDecision(accept_windows=(keys[0], keys[1])),
+    )
+
+    class _Handoff:
+        def preview(self, smd_path, *, model_path=None):
+            return None
+
+        def apply(self, smd_path, decision, *, model_path=None):
+            session = shell._session_project
+            session.set_analysis_window(keys[0], 5, 30)
+            session.set_analysis_window(keys[1], 12, 44)
+            return AppliedReconcile(windows_applied=[keys[0], keys[1]])
+
+    monkeypatch.setattr(reconcile_mod.ReconcileDialog, "__init__", lambda self, *a, **k: None)
+    shell._handoff = _Handoff()
+
+    assert shell.import_return_leg(tmp_path / "return.hdf5") is not None
+
+    assert shell.trace_dock.analysis_window == (5, 30)
+    assert [t.analysis_window for t in shell._traces] == [(5, 30), (12, 44), (10, 50)]
+    shell.molecule_list.setCurrentRow(1)
+    assert shell.trace_dock.analysis_window == (12, 44)

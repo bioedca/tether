@@ -10,7 +10,8 @@ than registered service commands, and they import the core only when they run (A
 
 - [`stored_molecule`][] — the selected row's condition, ``frame_range`` and absolute
   ``analysis_window``, resolved by the rules every windowed reader applies, and
-  [`stored_molecules`][] for every row that shares its key.
+  [`stored_molecules`][] for every row that shares its key, and [`stored_rows`][] for
+  the rows of many keys in one read.
 - [`summed_bleach_frame`][] — the first frame of the summed-intensity photobleach, by the
   detector and priors that
   [`compute_photobleach`][tether.project.photobleach.compute_photobleach] runs.
@@ -20,7 +21,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 __all__ = [
     "StoredMolecule",
@@ -28,6 +32,7 @@ __all__ = [
     "resolved_window",
     "stored_molecule",
     "stored_molecules",
+    "stored_rows",
     "summed_bleach_frame",
 ]
 
@@ -39,8 +44,9 @@ class StoredMolecule:
     Attributes
     ----------
     row
-        The row index in ``/molecules`` (and so in ``/traces``) of the first row that
-        carries the molecule key.
+        The row index in ``/molecules`` (and so in ``/traces``).
+    molecule_key
+        The row's ``molecule_key``.
     condition_id
         The molecule's condition, whose category list the number keys index.
     frame_range
@@ -50,6 +56,7 @@ class StoredMolecule:
     """
 
     row: int
+    molecule_key: str
     condition_id: str
     frame_range: tuple[int, int]
     window: tuple[int, int]
@@ -80,24 +87,24 @@ def _text(value: object) -> str:
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
-def stored_molecules(project_path: str | Path, molecule_key: str) -> tuple[StoredMolecule, ...]:
-    """Read every ``/molecules`` row that carries ``molecule_key``, in row order (read-only).
+def stored_rows(
+    project_path: str | Path, molecule_keys: Iterable[str]
+) -> tuple[StoredMolecule, ...]:
+    """Read every ``/molecules`` row whose key is in ``molecule_keys``, in row order (read-only).
 
-    A key-based setter writes all of them, each clamped to its own ``frame_range``, so a
-    caller that shows rows refreshes each one from here after a write. Raises
-    [`KeyError`][] when no row carries the key.
+    One open of the file serves any number of keys, so a caller that refreshes many rows
+    after one write (a return-leg import) reads once. Keys no row carries are skipped;
+    an empty result is not an error.
     """
     import h5py  # noqa: PLC0415
 
     from tether.io.schema import TABLE  # noqa: PLC0415
 
-    path = Path(project_path)
-    with h5py.File(path, "r") as f:
+    wanted = set(molecule_keys)
+    with h5py.File(Path(project_path), "r") as f:
         table = f["molecules"][TABLE]
         keys = [_text(k) for k in table.fields("molecule_key")[:]]
-        rows = [i for i, key in enumerate(keys) if key == molecule_key]
-        if not rows:
-            raise KeyError(f"no molecule with molecule_key {molecule_key!r} in {path.name}")
+        rows = [i for i, key in enumerate(keys) if key in wanted]
         records = [table[i] for i in rows]
         n_frames = next(
             (int(layer.shape[1]) for layer in f["traces"].values() if layer.ndim == 2), 0
@@ -108,12 +115,28 @@ def stored_molecules(project_path: str | Path, molecule_key: str) -> tuple[Store
         out.append(
             StoredMolecule(
                 row=row,
+                molecule_key=keys[row],
                 condition_id=_text(record["condition_id"]),
                 frame_range=frame_range,
                 window=resolved_window(record["analysis_window"], frame_range),
             )
         )
     return tuple(out)
+
+
+def stored_molecules(project_path: str | Path, molecule_key: str) -> tuple[StoredMolecule, ...]:
+    """Read every ``/molecules`` row that carries ``molecule_key``, in row order (read-only).
+
+    A key-based setter writes all of them, each clamped to its own ``frame_range``, so a
+    caller that shows rows refreshes each one from here after a write. Raises
+    [`KeyError`][] when no row carries the key.
+    """
+    out = stored_rows(project_path, (molecule_key,))
+    if not out:
+        raise KeyError(
+            f"no molecule with molecule_key {molecule_key!r} in {Path(project_path).name}"
+        )
+    return out
 
 
 def stored_molecule(
