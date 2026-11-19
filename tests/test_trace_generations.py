@@ -31,6 +31,7 @@ import numpy as np  # noqa: E402
 import tifffile  # noqa: E402
 
 from tether.imaging.extract import molecule_key, read_molecules, read_traces  # noqa: E402
+from tether.imaging.split import ChannelGeometry, channel_xy_to_frame  # noqa: E402
 from tether.io.generations import (  # noqa: E402
     GENERATION_MATCH_PX,
     active_generation,
@@ -349,3 +350,63 @@ def test_match_previous_is_one_to_one_closest_first() -> None:
     assert match_previous(np.empty((0, 2)), new).tolist() == [-1] * 4
     with pytest.raises(ValueError, match="match_px"):
         match_previous(previous, new, match_px=-1.0)
+
+
+@pytest.mark.parametrize(
+    ("crop_shift", "xy_shift", "carried"),
+    [
+        (20, 0.0, False),  # another crop, same sub-image positions: other camera places
+        (3, -3.0, True),  # another crop, positions moved with it: the same camera places
+    ],
+)
+def test_spots_are_matched_in_the_camera_frame_across_a_changed_crop(
+    tmp_path: Path, crop_shift: int, xy_shift: float, carried: bool
+) -> None:
+    project, movie_a, _ = _project_a_b(tmp_path)
+    movie_a_id, _ = _movie_ids(project)
+    with h5py.File(project, "r+") as f:
+        movies = f["movies"]["table"]
+        movie = movies[0]
+        movie["donor_crop"] = np.asarray(movie["donor_crop"]) + [0, crop_shift, 0, crop_shift]
+        movies[0] = movie
+        table = f["molecules"]["table"]
+        for i in range(len(_DONOR_A)):
+            row = table[i]
+            row["donor_xy"] = np.asarray(row["donor_xy"]) + [xy_shift, 0.0]
+            table[i] = row
+        row = table[0]
+        row["category"] = "folded"
+        table[0] = row
+    keys = [_text(k) for k in read_generation(project, movie_a_id).molecules["molecule_key"]]
+
+    summary = _reextract(project, movie_a)
+
+    new = read_generation(project, movie_a_id)
+    if carried:
+        assert sorted(summary.generation.carried_keys) == sorted(keys)
+        assert _text(new.molecules["category"][0]) == "folded"
+    else:
+        assert summary.generation.carried_keys == ()
+        assert "folded" not in {_text(c) for c in new.molecules["category"]}
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+@pytest.mark.parametrize("flip", [(0, 0), (1, 0), (0, 1), (1, 1)])
+def test_channel_positions_map_back_to_the_camera_pixel_they_came_from(
+    rotation: int, flip: tuple[int, int]
+) -> None:
+    frame = np.arange(7 * 11).reshape(7, 11)
+    whole = ChannelGeometry(rotation_deg=rotation, flip=flip).apply(frame)
+    crop = (2, 3, whole.shape[0] - 1, whole.shape[1] - 1)
+    sub = ChannelGeometry(crop=crop, rotation_deg=rotation, flip=flip).apply(frame)
+    rows, cols = np.mgrid[0 : sub.shape[0], 0 : sub.shape[1]]
+    xy = np.column_stack([cols.ravel(), rows.ravel()]).astype(float)
+    back = channel_xy_to_frame(
+        xy, frame_shape=frame.shape, crop=crop, rotation_deg=rotation, flip=flip
+    )
+    assert np.array_equal(frame[back[:, 1].astype(int), back[:, 0].astype(int)], sub.ravel())
+    # The all-zero stored crop is the whole frame.
+    full = channel_xy_to_frame(
+        xy[:1], frame_shape=frame.shape, crop=(0, 0, 0, 0), rotation_deg=rotation, flip=flip
+    )
+    assert frame[int(full[0, 1]), int(full[0, 0])] == whole[0, 0]

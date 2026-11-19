@@ -82,8 +82,10 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    staged copy published by one atomic replace under the writer lock (ADR-0112), as the append
    does, so a failure leaves the project byte-identical.
 4. **"Did not move"** is a number: a new molecule within **0.5 px** (`GENERATION_MATCH_PX`, PRD
-   §11.2) of a molecule of the previous generation, by `donor_xy`, the two being each other's closest
-   such partner, pairs taken closest first and one-to-one. 0.5 px is five quanta of the key
+   §11.2) of a molecule of the previous generation, by `donor_xy` mapped back to the raw camera
+   frame through each generation's own donor crop, rotation and flip (each `donor_xy` is in its
+   own donor sub-image, so a changed geometry would otherwise compare different places), the two
+   being each other's closest such partner, pairs taken closest first and one-to-one. 0.5 px is five quanta of the key
    (0.1 px, ADR-0016) and a sixteenth of the 8 px detection minimum separation, so two distinct
    molecules never compete for one partner. The value used is stored per generation (`match_px`),
    and `reextract_movie(match_px=…)` takes another.

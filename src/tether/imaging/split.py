@@ -40,6 +40,7 @@ import numpy as np
 
 __all__ = [
     "ChannelGeometry",
+    "channel_xy_to_frame",
     "process_image",
     "split_channels",
 ]
@@ -210,3 +211,44 @@ def split_channels(
     Feed each half straight into [`tether.imaging.detect.detection_image`][].
     """
     return donor.apply(movie), acceptor.apply(movie)
+
+
+def channel_xy_to_frame(
+    xy: np.ndarray,
+    *,
+    frame_shape: tuple[int, int],
+    crop: np.ndarray | tuple[int, ...] | None = None,
+    rotation_deg: int = 0,
+    flip: tuple[int, int] | np.ndarray = (0, 0),
+) -> np.ndarray:
+    """Map ``[x, y]`` positions in a channel sub-image back to the raw camera frame.
+
+    The inverse of [`process_image`][] on positions: ``xy`` is ``(N, 2)`` ``[x, y]`` =
+    ``[col, row]`` in the sub-image that ``rotate -> flip -> crop`` made from a raw frame
+    of ``frame_shape`` ``(H, W)``; the result is the same points in that raw frame, so
+    positions found under two geometries of one movie can be compared (ADR-0136). A
+    pixel centre maps to a pixel centre, and sub-pixel positions map affinely. A crop of
+    ``None`` or the stored all-zero sentinel ``[0, 0, 0, 0]`` is the full frame.
+    """
+    points = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+    if rotation_deg not in _ALLOWED_ROTATIONS:
+        raise ValueError(f"rotation_deg must be one of {_ALLOWED_ROTATIONS}, got {rotation_deg}")
+    k = (-int(rotation_deg) // 90) % 4
+    height, width = (int(v) for v in frame_shape)
+    rotated = (height, width) if k % 2 == 0 else (width, height)
+    row, col = points[:, 1].copy(), points[:, 0].copy()
+    cr = None if crop is None else np.asarray(crop).ravel()
+    if cr is not None and cr.any():
+        row += float(cr[0]) - 1.0
+        col += float(cr[1]) - 1.0
+    flip_arr = np.asarray(flip).ravel()
+    if flip_arr[0] == 1:
+        row = (rotated[0] - 1) - row
+    if flip_arr[1] == 1:
+        col = (rotated[1] - 1) - col
+    # Undo the k counter-clockwise rot90 steps, last first. One step maps an input of
+    # width w to out[i, j] = in[j, w - 1 - i], so out (i, j) came from in (j, w - 1 - i).
+    for step in range(k, 0, -1):
+        w_in = width if (step - 1) % 2 == 0 else height
+        row, col = col, (w_in - 1) - row
+    return np.column_stack([col, row])

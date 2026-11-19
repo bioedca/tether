@@ -767,12 +767,35 @@ def _remove_molecule_block(f: Any, rows: slice) -> None:
             _remove_rows(dataset, rows)
 
 
+def _frame_xy(donor_xy: np.ndarray, movie_row: Any) -> np.ndarray:
+    """Return donor positions in the raw camera frame, by the movie row's donor geometry."""
+    from tether.imaging.split import channel_xy_to_frame  # noqa: PLC0415
+
+    return channel_xy_to_frame(
+        donor_xy,
+        frame_shape=(int(movie_row["height"]), int(movie_row["width"])),
+        crop=np.asarray(movie_row["donor_crop"]),
+        rotation_deg=int(movie_row["donor_rotation_deg"]),
+        flip=np.asarray(movie_row["donor_flip"]),
+    )
+
+
 def _carry_from_previous(
-    previous: np.ndarray, rows: np.ndarray, n_frames: int, match_px: float
+    previous: np.ndarray,
+    rows: np.ndarray,
+    n_frames: int,
+    match_px: float,
+    *,
+    previous_movie: Any,
+    new_movie: Any,
 ) -> list[str]:
     """Give each molecule of ``rows`` that did not move its previous key, label, category, window.
 
     Mutates ``rows`` in place and returns the carried ``molecule_key`` values (ADR-0136).
+    Positions are compared in the raw camera frame: each generation's ``donor_xy`` is in
+    its own donor sub-image, so it is first mapped back through that generation's donor
+    crop, rotation and flip (``previous_movie`` and ``new_movie`` are the two
+    ``/movies`` rows), and a changed geometry does not pair two different molecules.
     When every previous molecule of the movie has one ``condition_id`` (a validated
     condition, a re-keyed one included), the new molecules take it too: the condition is
     a property of the movie, not an input of the extraction.
@@ -782,7 +805,11 @@ def _carry_from_previous(
     carried: list[str] = []
     if not previous.shape[0]:
         return carried
-    pairs = match_previous(previous["donor_xy"], rows["donor_xy"], match_px=match_px)
+    pairs = match_previous(
+        _frame_xy(previous["donor_xy"], previous_movie),
+        _frame_xy(rows["donor_xy"], new_movie),
+        match_px=match_px,
+    )
     for j, i in enumerate(pairs):
         if i < 0:
             continue
@@ -839,9 +866,11 @@ def write_generation(
     reader of those arrays reads the new generation. The movie's ``/movies`` row, layout
     record and settings profile become the new generation's; its ``frame_time`` is kept.
 
-    A new molecule within ``match_px`` of a previous one, the two being each other's
-    closest such partner, "did not move": it keeps that molecule's ``molecule_key`` and
-    its curation label, category and analysis window, and its key is recorded as carried.
+    A new molecule within ``match_px`` of a previous one, in the raw camera frame (each
+    generation's donor position mapped back through its own donor geometry), the two
+    being each other's closest such partner, "did not move": it keeps that molecule's
+    ``molecule_key`` and its curation label, category and analysis window, and its key
+    is recorded as carried.
     Corrections, bleach frames and the ML class start again from their not-computed
     sentinels (ADR-0016). A feature cache with a row for a previous molecule is dropped.
 
@@ -901,7 +930,14 @@ def write_generation(
         movie_row = _build_movie_row(movie)
         movie_row["frame_time"] = stored_movie["frame_time"]
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
-        carried = _carry_from_previous(previous_molecules, rows, traces.n_frames, match_px)
+        carried = _carry_from_previous(
+            previous_molecules,
+            rows,
+            traces.n_frames,
+            match_px,
+            previous_movie=stored_movie,
+            new_movie=movie_row[0],
+        )
         _refuse_repeated_keys(f, project_path, old_rows, rows["molecule_key"])
         profile = _stamp_colocalization(settings, molecules)
         profile_json = json.dumps(profile, sort_keys=True) if profile else None
