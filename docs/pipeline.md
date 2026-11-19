@@ -72,7 +72,10 @@ plan memory for extraction by that rather than by the file size
 
 `tether.imaging.split` cuts each frame into its donor and acceptor channels. The movie's channel
 layout (`tether.imaging.layout`) says where each channel is. It is side by side (the default),
-top and bottom, or one free rectangle for each channel.
+top and bottom, or one free rectangle for each channel. Each channel can also have a recipe
+(`tether.imaging.recipe`, #910): rotate, flip, translate and crop steps, in order, with no
+resampling. The cut and the recipe become one rotate, flip and crop geometry, which the
+movie's row stores.
 
 - **Writes:** the layout record `/movies/layouts/<movie_id>`, with the movie's other records,
   when the movie is extracted.
@@ -99,8 +102,9 @@ confidence rather than silently trusted
 [ADR-0014](adr/0014-registration-map-rms-gate-and-over-gate.md)). If you supply Deep-LASI's own
 `.tmap` instead and its channels need only cropping, Tether uses that map as given: there are
 no paired spots to measure it against, so its residual is recorded as unknown and the gate is
-not applied. A `.tmap` that also rotates or flips a channel is refused for now
-([acquisition geometry](compatibility.md#acquisition-geometry);
+not applied. A `.tmap` that also rotates or flips a channel is applied in Deep-LASI's order:
+rotate, flip, then crop (#559). A movie whose frames cannot hold the map's channel geometry is
+refused, naming both ([acquisition geometry](compatibility.md#acquisition-geometry);
 [`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
 
 A map can also come from a bead slide. `tether.imaging.beadmap` takes one bead image, or a
