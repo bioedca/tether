@@ -68,8 +68,8 @@ you allow it** (below).
   embedded in the project) — so treat shared project files as you would any working
   document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
   shows how to see these fields before you make a file public. To share without the username,
-  export a subset with `curator_alias`: the copy has no movie paths, a model file path keeps
-  only its file name, and each username becomes an alias such as `curator-1`
+  export a subset with `curator_alias`: the copy leaves out the movie table and its paths, a
+  model file path keeps only its file name, and each username becomes an alias such as `curator-1`
   ([Export results](how-to/export-results.md#share-a-subset-without-your-user-name)). The copy
   still has the file name of each source movie.
 - **What the application remembers.** So that you can carry on where you stopped, the

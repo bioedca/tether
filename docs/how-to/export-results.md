@@ -195,7 +195,8 @@ a sample, so read it before you share the copy
 ([User names](../reference/exports.md#3-subset-tether)).
 
 The path of a model file keeps only the file name. A folder name can have your user name
-in it.
+in it. A job record keeps the options of the command that ran. They can hold a full path,
+so read them too.
 
 A project imported for analysis only, from a Deep-LASI `.txt` or a tMAVEN SMD file, has no
 image crops, so it cannot be exported as a subset; the export stops with an error. Use the

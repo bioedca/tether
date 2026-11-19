@@ -30,6 +30,7 @@ from tether.io.filename import ConditionKey  # noqa: E402
 from tether.project import conditions as C  # noqa: E402
 from tether.project import export as E  # noqa: E402
 from tether.project.export import (  # noqa: E402
+    JSON_USER_KEYS,
     PATH_ATTRS,
     USER_NAME_FIELDS,
     export_subset_tether,
@@ -51,6 +52,7 @@ _PATH_ATTR = re.compile(r"path|dir|folder|home")
 #: A folder name that a byte search cannot match by chance.
 _HOME = "dana-pq9-home"
 CAROL = "carol-vb2-curator"
+DAVE = "dave-mw3-curator"
 
 
 def _state_matrix() -> np.ndarray:
@@ -320,6 +322,7 @@ def test_every_field_that_names_a_person_is_aliased(tmp_path):
     """
     project, _ = _source(tmp_path)
     _record_takeovers(project.path)  # written lazily, so the scan must see one
+    _record_jobs(project)  # likewise
     dtypes = [getattr(schema, n) for n in dir(schema) if n.endswith("_DTYPE") and n.isupper()] + [
         C._audit_dtype()
     ]
@@ -335,6 +338,37 @@ def test_every_field_that_names_a_person_is_aliased(tmp_path):
     }
     assert person_fields  # the scan sees labeler, so it is looking in the right place
     assert person_fields <= USER_NAME_FIELDS
+
+
+def test_every_json_key_that_names_a_person_is_aliased(tmp_path):
+    """Guard: a JSON object stored in a compound field must list its person key.
+
+    Scans every string field of every compound dataset of a populated store (with a run
+    job, whose owner is written lazily) for a JSON object with a person-like key, so a
+    later JSON record of a person fails here until JSON_USER_KEYS covers it.
+    """
+    project, _ = _source(tmp_path)
+    _record_takeovers(project.path)
+    _record_jobs(project)
+    found: set[tuple[str, str]] = set()
+
+    def visit(_name, obj) -> None:
+        if not (isinstance(obj, h5py.Dataset) and obj.dtype.names):
+            return
+        for field in obj.dtype.names:
+            for value in obj[field]:
+                text = to_str(value) if isinstance(value, bytes | str) else ""
+                try:
+                    parsed = json.loads(text) if text.startswith("{") else None
+                except ValueError:
+                    continue
+                if isinstance(parsed, dict):
+                    found.update((field, k) for k in parsed if _PERSON_FIELD.search(k))
+
+    with h5py.File(project.path, "r") as f:
+        f.visititems(visit)
+    assert ("owner", "user") in found  # the scan sees the job owner, so it is looking
+    assert found <= set(JSON_USER_KEYS.items())
 
 
 def _record_model(project_path, artifact_path: str) -> str:
@@ -416,6 +450,54 @@ def _record_takeovers(project_path) -> None:
 
     record_takeover(project_path, "take_over", info(BOB), info(CAROL))
     record_takeover(project_path, "recover", info(BOB), None)
+
+
+def _record_jobs(project) -> None:
+    """One job run by this session (owner: the OS login), then one whose owner is Dave."""
+    from tether.project import jobs
+    from tether.services import ExtractRequest
+
+    request = ExtractRequest(movie="m.tif", output="m.tether")
+    project.acquire_lock()
+    try:
+        ran = jobs.submit_job(project, request, ("a",))
+        jobs.run_job(project, ran.job_id, lambda *_: None)
+        other = jobs.submit_job(project, request, ("a",))
+    finally:
+        project.release_lock()
+    owner = {"host": "lab-pc", "nonce": "n", "pid": 7, "user": DAVE}
+    jobs._write_job(project.path, other.job_id, owner=json.dumps(owner, sort_keys=True))
+
+
+def _job_owners(path) -> list[dict]:
+    with h5py.File(path, "r") as f:
+        return [json.loads(to_str(v)) for v in f["settings"]["jobs"]["owner"]]
+
+
+def test_job_owner_names_are_aliased(tmp_path):
+    """A job record keeps its owner object; only the user name in it is aliased."""
+    project, _ = _source(tmp_path)
+    _record_jobs(project)
+    plain = tmp_path / "plain.tether"
+    shared = tmp_path / "shared.tether"
+
+    export_subset_tether(project, plain, include_rejected=True)
+    result = export_subset_tether(project, shared, include_rejected=True, curator_alias="curator")
+
+    source = _job_owners(project.path)
+    owners = _job_owners(shared)
+    # Labels give alice 1, bob 2, the OS login 3; the job run here is the OS login again.
+    assert [o["user"] for o in owners] == ["curator-3", "curator-4"]
+    for got, was in zip(owners, source, strict=True):
+        assert {k: v for k, v in got.items() if k != "user"} == {
+            k: v for k, v in was.items() if k != "user"
+        }
+    assert [o["user"] for o in source] == [default_labeler(), DAVE]
+    assert DAVE.encode() in plain.read_bytes()  # the search can see the name
+    assert DAVE.encode() not in shared.read_bytes()
+    assert default_labeler().encode() not in shared.read_bytes()
+    params = json.loads(result.provenance_path.read_text(encoding="utf-8"))["parameters"]
+    assert params["n_aliased_names"] == 4
 
 
 def _takeovers(path) -> list[tuple[str, str]]:

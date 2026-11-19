@@ -637,10 +637,53 @@ USER_NAME_FIELDS: frozenset[str] = frozenset({"labeler", "holder_user", "ousted_
 #: ``tests/test_export_subset_aliases.py`` fails until it is.
 PATH_ATTRS: frozenset[str] = frozenset({"artifact_path"})
 
+#: Compound-dataset fields that store a **JSON object** with a person's name under one
+#: key (#620), as ``{field: key}``. Today this is the ``owner`` of each
+#: ``/settings/jobs`` row, the writer that last ran the job, whose ``user`` is the OS
+#: login (ADR-0126). With ``curator_alias`` only that key is aliased, so the record keeps
+#: its shape; a JSON field added later that records a person must be added here, and
+#: ``tests/test_export_subset_aliases.py`` fails until it is.
+JSON_USER_KEYS: dict[str, str] = {"owner": "user"}
+
 
 def _name_fields(dtype: np.dtype) -> list[str]:
     """The [`USER_NAME_FIELDS`][] a compound ``dtype`` carries (``[]`` if none)."""
     return [name for name in (dtype.names or ()) if name in USER_NAME_FIELDS]
+
+
+def _json_name_fields(dtype: np.dtype) -> list[str]:
+    """The [`JSON_USER_KEYS`][] fields a compound ``dtype`` carries (``[]`` if none)."""
+    return [name for name in (dtype.names or ()) if name in JSON_USER_KEYS]
+
+
+def _has_names(dtype: np.dtype) -> bool:
+    """Whether a compound ``dtype`` stores a user name, plainly or inside JSON."""
+    return bool(_name_fields(dtype) or _json_name_fields(dtype))
+
+
+def _json_object(text: str) -> dict[str, object] | None:
+    """``text`` parsed as a JSON object, or ``None`` (empty, not JSON, or not an object)."""
+    if not text:
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _row_names(rows: np.ndarray) -> list[str]:
+    """Every user name in compound ``rows``, row by row in field order."""
+    names: list[str] = []
+    fields = _name_fields(rows.dtype)
+    json_fields = _json_name_fields(rows.dtype)
+    for row in rows:
+        names += [_to_str(row[field]) for field in fields]
+        for field in json_fields:
+            obj = _json_object(_to_str(row[field]))
+            if obj is not None and isinstance(obj.get(JSON_USER_KEYS[field]), str):
+                names.append(obj[JSON_USER_KEYS[field]])  # type: ignore[arg-type]
+    return names
 
 
 class _CuratorAliases:
@@ -688,11 +731,24 @@ class _CuratorAliases:
         return len(self._map)
 
     def apply(self, rows: np.ndarray) -> np.ndarray:
-        """Return a copy of compound ``rows`` with every name field aliased."""
+        """Return a copy of compound ``rows`` with every name field aliased.
+
+        A [`JSON_USER_KEYS`][] field keeps its object and only the name under its key
+        changes (written back with sorted keys, as the store writes it).
+        """
         out = rows.copy()
         for field in _name_fields(rows.dtype):
             out[field] = [self._map.get(_to_str(v), _to_str(v)) for v in rows[field]]
+        for field in _json_name_fields(rows.dtype):
+            out[field] = [self._json(_to_str(v), JSON_USER_KEYS[field]) for v in rows[field]]
         return out
+
+    def _json(self, text: str, key: str) -> str:
+        obj = _json_object(text)
+        if obj is None or not isinstance(obj.get(key), str):
+            return text
+        obj[key] = self._map.get(obj[key], obj[key])  # type: ignore[arg-type]
+        return json.dumps(obj, sort_keys=True)
 
 
 def _iter_name_datasets(group: object) -> list[object]:
@@ -702,7 +758,7 @@ def _iter_name_datasets(group: object) -> list[object]:
     found: list[object] = []
 
     def visit(_name: str, obj: object) -> None:
-        if isinstance(obj, h5py.Dataset) and _name_fields(obj.dtype):
+        if isinstance(obj, h5py.Dataset) and _has_names(obj.dtype):
             found.append(obj)
 
     group.visititems(visit)  # type: ignore[attr-defined]
@@ -727,9 +783,7 @@ def _source_user_names(src: object, label_rows: np.ndarray) -> list[str]:
         if grp not in src:  # type: ignore[operator]
             continue
         for ds in _iter_name_datasets(src[grp]):  # type: ignore[index]
-            rows = ds[()]
-            for field in _name_fields(rows.dtype):
-                names += [_to_str(v) for v in rows[field]]
+            names += _row_names(ds[()])
     return names
 
 
@@ -752,12 +806,12 @@ def _copy_group_aliased(src_group: object, dst_parent: object, aliases: _Curator
         if isinstance(item, h5py.Group):
             _copy_group_aliased(item, dst_group, aliases)
         elif isinstance(item, h5py.Dataset) and (
-            _name_fields(item.dtype) or PATH_ATTRS.intersection(item.attrs)
+            _has_names(item.dtype) or PATH_ATTRS.intersection(item.attrs)
         ):
             data = item[()]
             ds = dst_group.create_dataset(
                 member,
-                data=aliases.apply(data) if _name_fields(item.dtype) else data,
+                data=aliases.apply(data) if _has_names(item.dtype) else data,
                 dtype=item.dtype,
                 maxshape=item.maxshape,
                 chunks=item.chunks,
@@ -917,9 +971,10 @@ def export_subset_tether(
     before staging). A ``<out_path>.provenance.json`` sidecar is written and the same
     provenance is stamped into the subset's root attributes.
 
-    Copy for sharing (#620). The ``/labels`` rows, the condition audit log and the
-    lock takeover log record the user name (by default the operating-system login). With
-    ``curator_alias`` set, every stored user name ([`USER_NAME_FIELDS`][]) is
+    Copy for sharing (#620). The ``/labels`` rows, the condition audit log, the
+    lock takeover log and the owner of each job record the user name (by default the
+    operating-system login). With ``curator_alias`` set, every stored user name
+    ([`USER_NAME_FIELDS`][], and the ``user`` of a job owner, [`JSON_USER_KEYS`][]) is
     replaced by ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first
     met, so one person keeps one alias and multi-curator analysis still works. A full
     file path, which can name the user ([`PATH_ATTRS`][]: the model file of each
