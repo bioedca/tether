@@ -33,7 +33,15 @@ def _load(name: str):
 
 
 harness = _load("harness")
-DRIVERS = {m.TOOL: m for m in (_load("smfret_analysis2"), _load("mash_fret"), _load("deep_lasi"))}
+DRIVERS = {
+    m.TOOL: m
+    for m in (
+        _load("smfret_analysis2"),
+        _load("mash_fret"),
+        _load("deep_lasi"),
+        _load("fret_cloud"),
+    )
+}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -137,9 +145,11 @@ def test_a_files_pin_checks_each_script_hash(tmp_path, traces) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     (scripts / "cloud.m").write_text("function cloud\nend\n", encoding="utf-8")
-    pins = {"lab": {"kind": "files", "files": {"cloud.m": harness.sha256(scripts / "cloud.m")}}}
+    digest = harness.sha256(scripts / "cloud.m")
+    pins = {"lab": {"kind": "files", "citation": "A, 2025", "files": {"cloud.m": digest}}}
     assert harness.verify_clone("lab", scripts, pins) == {
         "name": "lab",
+        "citation": "A, 2025",
         "files": pins["lab"]["files"],
     }
     (scripts / "cloud.m").write_text("function cloud\ndisp(1)\nend\n", encoding="utf-8")
@@ -289,6 +299,13 @@ def test_every_committed_output_matches_its_record(record: Path) -> None:
 def test_the_pins_are_full_commits_and_cover_every_driver() -> None:
     pins = harness.load_pins()
     for tool in DRIVERS:
+        if pins[tool]["kind"] == "files":
+            # A tool with no public commit (#710): each script by its SHA-256, and a citation.
+            assert pins[tool]["files"], tool
+            for name, digest in pins[tool]["files"].items():
+                assert re.fullmatch(r"[0-9a-f]{64}", digest), (tool, name)
+            assert pins[tool]["citation"], tool
+            continue
         assert pins[tool]["kind"] == "git"
         assert re.fullmatch(r"[0-9a-f]{40}", pins[tool]["commit"]), tool
         assert pins[tool]["url"].startswith(("https://github.com/", "https://gitlab.com/"))
