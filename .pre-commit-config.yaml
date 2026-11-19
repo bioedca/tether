@@ -49,3 +49,17 @@ repos:
     rev: v6.2.0
     hooks:
       - id: reuse
+
+  # Markdown structure (#185). The settings, and the paths it does not read, are in
+  # .markdownlint-cli2.yaml.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.24.1
+    hooks:
+      - id: markdownlint-cli2
+
+  # Misspellings in prose and code comments (#185). The settings are in .codespellrc;
+  # every suppressed word is in .codespell-ignore.
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.3
+    hooks:
+      - id: codespell

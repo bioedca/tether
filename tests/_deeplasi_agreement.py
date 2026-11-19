@@ -17,6 +17,10 @@ matrix:
   mean corrected FRET of each molecule with Deep-LASI's. It also checks the convention of
   ADR-0028 on real numbers: Tether's formula with ``alpha = b`` and ``gamma = g * (1 + b)``
   must give Deep-LASI's value to rounding.
+  With the factors it records the shape of the acceptor-bleach step behind each of Tether's
+  γ (#1233): why each trace did or did not give one, and how the donor and acceptor changed
+  across its step (:func:`gamma_step_changes`). These numbers are evidence for #546, never
+  a limit.
 * :func:`compare_exports` scores one Deep-LASI export against another with the oracle (a)
   scorer, for the scripted rerun of video 010 against the old export.
 
@@ -39,6 +43,7 @@ __all__ = [
     "EXTRACTION_IDS",
     "FILES",
     "FRET_IDS",
+    "GAMMA_REASONS",
     "PARITY_ATOL",
     "RERUN_ID",
     "STATE",
@@ -46,6 +51,8 @@ __all__ = [
     "compare_exports",
     "deeplasi_corrected_fret",
     "fret_agreement",
+    "gamma_step_changes",
+    "gamma_step_numbers",
     "harness",
     "read_factors",
     "window_export",
@@ -252,6 +259,87 @@ def _pearson(x: np.ndarray, y: np.ndarray) -> float:
     return float(np.corrcoef(x, y)[0, 1])
 
 
+#: Every ``TraceGamma.reason`` that :func:`tether.fret.gamma.trace_gamma` gives. Each is
+#: recorded as ``n_gamma_reason_<reason>`` with ``-`` written ``_``, the workstation recorder's
+#: metric-name rule (``[a-z][a-z0-9_]{0,63}``), so a reason no trace gave still reads 0.
+GAMMA_REASONS: tuple[str, ...] = (
+    "ok",
+    "no-step",
+    "short-pre",
+    "short-post",
+    "degenerate-donor",
+    "out-of-range",
+)
+
+#: The reasons of a trace that passed both segment gates: its step changes were measured.
+_PAST_THE_GATES = frozenset({"ok", "degenerate-donor", "out-of-range"})
+
+#: The percentiles of the raw per-trace ratio ``ΔI_A / ΔI_D`` that are recorded.
+_RATIO_PERCENTILES: tuple[int, ...] = (10, 25, 50, 75, 90)
+
+
+def gamma_step_changes(
+    gamma_est, donors: list[np.ndarray], acceptors: list[np.ndarray], alpha: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(ΔI_D, ΔI_A)`` across the acceptor-bleach step of each trace, before any γ gate.
+
+    Taken over the ``pre_window`` and ``post_window`` that ``gamma_est`` (an
+    :func:`~tether.fret.gamma.estimate_gamma` result) reports for the trace, on the bare donor
+    and on the leakage-corrected acceptor ``A − α·D``, as the estimator measures them:
+    ``ΔI_D`` is the donor's rise and ``ΔI_A`` the acceptor's drop. Their ratio is therefore the
+    estimator's own per-trace γ wherever that trace qualifies. A trace that failed a segment
+    gate (``no-step``, ``short-pre``, ``short-post``) has no measured step and reads NaN.
+    """
+    from tether.fret.leakage import apply_leakage  # noqa: PLC0415
+
+    n = len(gamma_est.per_trace)
+    delta_d = np.full(n, np.nan)
+    delta_a = np.full(n, np.nan)
+    for i, trace in enumerate(gamma_est.per_trace):
+        if trace.reason not in _PAST_THE_GATES:
+            continue
+        donor = np.asarray(donors[i], dtype=np.float64)
+        acc = apply_leakage(donor, acceptors[i], alpha)
+        (p0, p1), (q0, q1) = trace.pre_window, trace.post_window
+        delta_d[i] = float(np.mean(donor[q0:q1])) - float(np.mean(donor[p0:p1]))
+        delta_a[i] = float(np.mean(acc[p0:p1])) - float(np.mean(acc[q0:q1]))
+    return delta_d, delta_a
+
+
+def gamma_step_numbers(
+    gamma_est, donors: list[np.ndarray], acceptors: list[np.ndarray], alpha: float
+) -> dict[str, float]:
+    """Summary numbers of the acceptor-bleach steps behind Tether's γ (#1233).
+
+    Evidence for #546, never a limit: why Tether's γ differs from Deep-LASI's on some
+    acquisitions should be readable off the result files. Gives a count of traces per
+    :data:`GAMMA_REASONS`; ``n_gamma_step_clean``, the traces whose donor rose **and** whose
+    corrected acceptor dropped across the step; and over the traces that passed both segment
+    gates, the medians of ``ΔI_D`` and ``ΔI_A`` and the percentiles of the raw ratio
+    ``ΔI_A / ΔI_D`` before the sign and ceiling gates (a trace with ``ΔI_D = 0`` left out). A
+    quantity with no trace behind it is NaN, never a sentinel.
+    """
+    reasons = [t.reason for t in gamma_est.per_trace]
+    unknown = sorted(set(reasons) - set(GAMMA_REASONS))
+    if unknown:
+        raise ValueError(f"the γ estimator gave a reason this check does not record: {unknown}")
+    numbers: dict[str, float] = {
+        f"n_gamma_reason_{r.replace('-', '_')}": reasons.count(r) for r in GAMMA_REASONS
+    }
+    delta_d, delta_a = gamma_step_changes(gamma_est, donors, acceptors, alpha)
+    measured = np.isfinite(delta_d) & np.isfinite(delta_a)
+    numbers["n_gamma_step_clean"] = int((measured & (delta_d > 0.0) & (delta_a > 0.0)).sum())
+    usable = measured & (delta_d != 0.0)
+    ratio = delta_a[usable] / delta_d[usable]
+    for q in _RATIO_PERCENTILES:
+        numbers[f"gamma_raw_ratio_p{q}"] = (
+            float(np.percentile(ratio, q)) if ratio.size else float("nan")
+        )
+    numbers["gamma_step_delta_donor_median"] = _finite_median(delta_d[measured])
+    numbers["gamma_step_delta_acceptor_median"] = _finite_median(delta_a[measured])
+    return numbers
+
+
 def fret_agreement(export: DeepLasiExport, b: np.ndarray, g: np.ndarray) -> dict[str, float]:
     """Tether's corrected FRET against Deep-LASI's, on the traces of one Deep-LASI export.
 
@@ -268,6 +356,11 @@ def fret_agreement(export: DeepLasiExport, b: np.ndarray, g: np.ndarray) -> dict
     A comparison can be empty for two reasons, and the numbers say which: the export has no
     molecule with both factors (``n_deeplasi_factors`` 0), or Tether withholds a factor by its
     own rule, too few qualifying traces (``alpha_tether`` NaN, or ``n_tether_gamma`` 0).
+
+    Wherever Tether's α is finite, the numbers also carry :func:`gamma_step_numbers` of the
+    same γ estimate, at the estimator's default level window: the reason counts (summing to
+    ``n_molecules``), ``n_gamma_step_clean`` and the step-change medians and raw-ratio
+    percentiles. With α withheld no step was measured, and they are absent.
     """
     from tether.fret.efficiency import corrected_fret  # noqa: PLC0415
     from tether.fret.gamma import estimate_gamma  # noqa: PLC0415
@@ -318,6 +411,7 @@ def fret_agreement(export: DeepLasiExport, b: np.ndarray, g: np.ndarray) -> dict
     diff = np.abs(mean_t[ok] - mean_d[ok])
     gamma_dl = g * (1.0 + b)
     factors = np.isfinite(b) & np.isfinite(g)
+    steps = gamma_step_numbers(gamma_est, d_rows, a_rows, alpha) if gamma_est is not None else {}
     return {
         "n_molecules": n,
         "n_deeplasi_factors": int(factors.sum()),
@@ -332,6 +426,7 @@ def fret_agreement(export: DeepLasiExport, b: np.ndarray, g: np.ndarray) -> dict
         "fret_abs_diff_median": float(np.median(diff)) if diff.size else float("nan"),
         "fret_abs_diff_p90": float(np.percentile(diff, 90)) if diff.size else float("nan"),
         "fret_pearson": _pearson(mean_t[ok], mean_d[ok]),
+        **steps,
     }
 
 

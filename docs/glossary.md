@@ -92,7 +92,8 @@ behavior.
 
 The detection-efficiency / quantum-yield ratio between the channels
 (`tether.fret.gamma`). Estimated across the **acceptor-bleach step** as `ΔI_A / ΔI_D` on
-leakage-corrected intensities, with levels averaged over a 3-frame half-window each side.
+leakage-corrected intensities, with levels averaged over 20 frames each side
+([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)).
 Same `DEFAULT_MIN_WINDOW_FRAMES = 20` / 10-trace parameters as α, but the frame gate is
 **stricter and two-sided**: both the pre-step FRET segment `[0, step)` and the post-step
 donor-only segment `[step, donor_bleach)` must be **strictly longer than** 20 frames (`> 20`,
@@ -190,7 +191,7 @@ These pages never write a bare "window". Each use names one of these kinds:
 2. **aperture window**: the `21 × 21` **pixel** crop side length (`tether.imaging.aperture`,
    `tether.project.extract`). It must be a positive **odd** integer. The CLI flag and the
    stored setting keep the name `window`.
-3. **estimator windows**: the leakage tail window and γ's 3-frame half-window, in frames.
+3. **estimator windows**: the leakage tail window and γ's 20-frame half-window, in frames.
 4. **model window**: the deep model's `window_length`, 500 frames, the input length of the ML
    classifier ([Deep trace classifier](ml/deep-classifier.md)).
 5. **application window**: the Tether desktop window, or tMAVEN's own application window. Its parts
@@ -278,14 +279,25 @@ and write the stored value `corrected` in code formatting only.
 
 ### donor-anchored colocalization
 
-Tether **deliberately breaks** Deep-LASI's rule here. Deep-LASI's `findColoc` keeps a
+One of the two colocalization rules, and the option to the default
+[partner-in-both](#partner-in-both-colocalization) rule. Deep-LASI's `findColoc` keeps a
 molecule only if an independently-detected partner exists within 3 px in *every* channel,
-which silently discards the low-FRET and acceptor-dark population — exactly the molecules a
-FRET histogram must keep. Tether instead anchors on the donor: **every in-frame donor spot
-becomes a molecule**, and acceptor intensity is read at the *mapped* position whether or not
-an acceptor was independently detected. The independent-detection test survives only as the
-informational `ColocalizedMolecules.acceptor_detected` flag and **never drops a molecule**
-(`tether.imaging.coloc`; ADR-0015).
+which discards the low-FRET and acceptor-dark population, the molecules whose acceptor is too
+weak to be detected. The donor-anchored rule keeps them: **every in-frame donor spot becomes a
+molecule**, and acceptor intensity is read at the *mapped* position whether or not an acceptor
+was independently detected. Select it with `--colocalization donor-anchored`. The
+independent-detection result is still stored for each molecule, in
+`/molecules/acceptor_detected` (`tether.imaging.coloc`; ADR-0015, ADR-0127). A project
+extracted before the rule could be chosen reads as donor-anchored.
+
+### partner-in-both colocalization
+
+The default colocalization rule of a new extraction, and Deep-LASI's: a donor spot becomes a
+molecule only when an acceptor spot is detected within the colocalization distance (3 px) of
+its mapped position. The acceptor is still read at the mapped donor position, so a molecule
+kept by both rules has the same traces under both. The rule drops molecules with a dark or
+weak acceptor. Use [donor-anchored](#donor-anchored-colocalization) to keep them
+(ADR-0127).
 
 Two adjacent facts: **the movie is never resampled** — the map is applied to *coordinates*,
 never pixels, to avoid interpolation bias in integrated intensities; and a molecule is

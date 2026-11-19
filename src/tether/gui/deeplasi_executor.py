@@ -179,7 +179,7 @@ def _movie_metadata(path: Path) -> MovieMetadata:
     (must equal ``export.n_frames``), and on-disk geometry/dtype for the ``/movies`` row.
     This replicates the ``MovieMetadata`` assembly in
     [`tether.project.extract.extract_movie`][] without running the extraction, and
-    leaves the channel geometry / calibration unset (reconstruction re-uses the legacy
+    leaves the channel geometry / calibration unset (reconstruction reuses the legacy
     traces, so no split calibration is needed).
     """
     sha256, file_size, mtime = _hash_file(path)

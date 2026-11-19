@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Requests, their text form, and the errors of a service command (ADR-0100).
 
-A *request* is plain data: a frozen, keyword-only dataclass whose fields are ``str``,
-``int``, ``float``, ``bool``, ``None`` or a tuple of ``str``. Each request class names its
-command ([`Request.COMMAND`][]) and the version of its text form
-([`Request.VERSION`][]).
+A *request* is plain data: a frozen, keyword-only dataclass whose fields are ``str``, ``int``,
+``float``, ``bool``, ``None``, or a tuple of ``str`` or of ``int``. Each request class names
+its command ([`Request.COMMAND`][]) and the version of its text form ([`Request.VERSION`][]).
 
 The text form is one JSON object::
 
@@ -92,10 +91,15 @@ def _check(name: str, value: Any, hint: Any) -> Any:
         raise RequestError(f"field {name!r} may not be null")
     if typing.get_origin(base) is tuple:
         args = typing.get_args(base)
-        if len(args) != 2 or args[0] is not str or args[1] is not Ellipsis:
+        if len(args) != 2 or args[0] not in (str, int) or args[1] is not Ellipsis:
             raise TypeError(f"unsupported request field type {base!r}")
-        if not isinstance(value, (list, tuple)) or not all(isinstance(v, str) for v in value):
-            raise RequestError(f"field {name!r} must be a list of strings")
+        item = args[0]
+        # bool is a subclass of int: refuse it where an integer is wanted.
+        if not isinstance(value, (list, tuple)) or not all(
+            isinstance(v, item) and not isinstance(v, bool) for v in value
+        ):
+            kind = "strings" if item is str else "integers"
+            raise RequestError(f"field {name!r} must be a list of {kind}")
         return tuple(value)
     if base not in _SCALARS:
         raise TypeError(f"unsupported request field type {base!r}")

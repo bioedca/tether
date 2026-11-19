@@ -257,8 +257,8 @@ def test_agreement_file_hashes_the_current_bytes_on_each_call(tmp_path, monkeypa
         agree.agreement_file(mapping, "lab-90", "mat")
 
 
-def test_the_documented_roles_keep_the_neutral_ids_public() -> None:
-    """The runner withholds every result that contains a private name (#715, #723)."""
+def _runner():
+    """``scripts/workstation/run_private_checks.py``, loaded by path: it is no package."""
     import importlib.util  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
@@ -268,6 +268,12 @@ def test_the_documented_roles_keep_the_neutral_ids_public() -> None:
     spec = importlib.util.spec_from_file_location("tether_run_private_checks_715", script)
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
+    return runner
+
+
+def test_the_documented_roles_keep_the_neutral_ids_public() -> None:
+    """The runner withholds every result that contains a private name (#715, #723)."""
+    runner = _runner()
     mapping = {
         "lab-02": {
             "window": "deeplasi-window/01/acquisition-export.mat",
@@ -279,3 +285,105 @@ def test_the_documented_roles_keep_the_neutral_ids_public() -> None:
     tokens = runner.private_tokens(mapping)
     assert not any(neutral_id in token for token in tokens for neutral_id in mapping)
     assert agree.STATE != "tdat"
+
+
+def _dimming_acquisition(n: int = 40, frames: int = 600, seed: int = 1233):
+    """Like :func:`_acquisition`, but the donor **dims** at the acceptor step instead of rising.
+
+    No real acceptor bleach does that: a dequenched donor rises. It is the shape the γ
+    diagnostic of #1206 read on the acquisitions whose γ disagrees with Deep-LASI's (#1233).
+    """
+    rng = np.random.default_rng(seed)
+    total = 1000.0
+    efficiency = rng.uniform(0.2, 0.6, n)
+    donor = np.zeros((n, frames))
+    acceptor = np.zeros((n, frames))
+    for i in range(n):
+        t_acc = int(rng.integers(200, 350))
+        t_don = int(rng.integers(t_acc + 120, frames - 40))
+        d = np.zeros(frames)
+        a_true = np.zeros(frames)
+        d[:t_acc] = total * (1.0 - efficiency[i])
+        a_true[:t_acc] = GAMMA * total * efficiency[i]
+        d[t_acc:t_don] = 0.6 * total * (1.0 - efficiency[i])
+        donor[i] = d + rng.normal(0.0, 15.0, frames)
+        acceptor[i] = a_true + ALPHA * d + rng.normal(0.0, 15.0, frames)
+    return donor, acceptor
+
+
+def _passed_the_gates(numbers: dict) -> int:
+    return sum(numbers[f"n_gamma_reason_{r}"] for r in ("ok", "degenerate_donor", "out_of_range"))
+
+
+def test_a_clean_bleach_step_is_counted_clean_and_its_ratio_is_the_gamma() -> None:
+    """On clean steps the step numbers read clean, and the raw ratio is the estimator's γ.
+
+    The numbers are evidence for #546 (#1233), not a limit. ``ΔI_A`` must be taken on the
+    leakage-corrected acceptor ``A − α·D``: on the bare acceptor the ratio is off by about α.
+    """
+    from tether.fret.gamma import estimate_gamma  # noqa: PLC0415
+    from tether.fret.photobleach import detect_photobleach  # noqa: PLC0415
+
+    donor, acceptor, _ = _acquisition()
+    n = donor.shape[0]
+    numbers = agree.fret_agreement(
+        _export(donor, acceptor), np.full(n, ALPHA), np.full(n, GAMMA / (1.0 + ALPHA))
+    )
+    assert np.isfinite(numbers["alpha_tether"])
+    reasons = [f"n_gamma_reason_{r.replace('-', '_')}" for r in agree.GAMMA_REASONS]
+    assert sum(numbers[k] for k in reasons) == numbers["n_molecules"] == n
+    passed = _passed_the_gates(numbers)
+    assert passed > 0
+    assert numbers["n_gamma_step_clean"] == passed
+    assert numbers["gamma_step_delta_donor_median"] > 0.0
+    assert numbers["gamma_step_delta_acceptor_median"] > 0.0
+    assert numbers["gamma_raw_ratio_p10"] > 0.0
+    assert numbers["gamma_raw_ratio_p50"] == pytest.approx(GAMMA, rel=0.05)
+    names = [k for k in numbers if k.startswith(("n_gamma_", "gamma_raw_", "gamma_step_"))]
+    assert len(names) == len(agree.GAMMA_REASONS) + 1 + 5 + 2
+    assert all(_runner().METRIC.fullmatch(k) for k in names)
+
+    # The same estimate fret_agreement makes, trace by trace.
+    rows_d, rows_a = list(donor), list(acceptor)
+    bleach = [detect_photobleach(donor[i], acceptor[i]) for i in range(n)]
+    alpha = numbers["alpha_tether"]
+    est = estimate_gamma(
+        rows_d,
+        rows_a,
+        [alpha] * n,
+        [r.acceptor_pb for r in bleach],
+        [r.donor_pb for r in bleach],
+    )
+    delta_d, delta_a = agree.gamma_step_changes(est, rows_d, rows_a, alpha)
+    qualifying = [i for i, t in enumerate(est.per_trace) if t.qualifies]
+    assert qualifying and est.gamma is not None
+    for i in qualifying:
+        assert delta_a[i] / delta_d[i] == pytest.approx(est.per_trace[i].gamma, rel=1e-12)
+
+
+def test_a_donor_that_dims_at_the_step_shows_in_the_step_numbers() -> None:
+    """A donor that dims at the acceptor step is degenerate, and the numbers say so (#1233).
+
+    The shape the #1206 diagnostic pointed at on the acquisitions whose γ disagrees with
+    Deep-LASI's: ``ΔI_D < 0``, so the raw ratio is negative and no trace gives a γ.
+    Evidence for #546, not a limit.
+    """
+    donor, acceptor = _dimming_acquisition()
+    n = donor.shape[0]
+    numbers = agree.fret_agreement(
+        _export(donor, acceptor), np.full(n, ALPHA), np.full(n, GAMMA / (1.0 + ALPHA))
+    )
+    assert np.isfinite(numbers["alpha_tether"])
+    assert numbers["n_gamma_reason_degenerate_donor"] == _passed_the_gates(numbers) > 0
+    assert numbers["n_gamma_step_clean"] == 0
+    assert numbers["gamma_raw_ratio_p50"] < 0.0
+    assert numbers["gamma_step_delta_donor_median"] < 0.0
+    assert numbers["n_tether_gamma"] == 0
+
+
+def test_the_step_numbers_are_absent_when_alpha_is_withheld() -> None:
+    """With α withheld no step is measured, and nothing stands in for the numbers (#1233)."""
+    donor, acceptor, _ = _acquisition(n=5)
+    numbers = agree.fret_agreement(_export(donor, acceptor), np.full(5, ALPHA), np.ones(5))
+    assert np.isnan(numbers["alpha_tether"])
+    assert not [k for k in numbers if k.startswith(("n_gamma_", "gamma_raw_", "gamma_step_"))]
