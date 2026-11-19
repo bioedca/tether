@@ -520,3 +520,83 @@ def test_guarded_gamma_publish_preserves_successor_data_and_stamp(
         assert np.allclose(canonical["molecules"][TABLE]["gamma"], 2.222)
         assert canonical["settings/gamma"].attrs["successor_sentinel"] == "preserve"
     assert not list(tmp_path.glob(".guarded-gamma.tether.*.gamma.tmp"))
+
+
+# --- clean acceptor-bleach steps and their warning (#1232, ADR-0134) ------------------
+
+
+def _shape_store(path: Path, rows: list[tuple[np.ndarray, np.ndarray]]) -> None:
+    """A store of the step traces of ``test_fret_gamma_clean_steps``, α + bleach set."""
+    from test_fret_gamma_clean_steps import ALPHA, DONOR_BLEACH, STEP  # noqa: PLC0415
+
+    _build_store(path, np.stack([r[0] for r in rows]), np.stack([r[1] for r in rows]))
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        for i in range(len(rows)):
+            table["bleach_frames"][i] = (DONOR_BLEACH, STEP)
+            table["alpha"][i] = ALPHA
+        f["molecules"][TABLE][:] = table
+
+
+def test_few_clean_steps_are_stamped_and_warned_with_gamma_unchanged(tmp_path: Path) -> None:
+    from test_fret_gamma_clean_steps import _no_rise  # noqa: PLC0415
+
+    path = tmp_path / "g.tether"
+    _shape_store(path, [_no_rise(i) for i in range(100)])
+    summary = compute_gamma(path)
+    assert summary.applied
+    assert summary.gamma == pytest.approx(3.127, abs=1e-3)
+    assert (summary.n_step_evaluated, summary.n_step_clean) == (100, 46)
+    assert summary.few_clean_steps is True
+    with h5py.File(path, "r") as f:
+        attrs = f["settings/gamma"].attrs
+        assert attrs["n_step_evaluated"] == 100
+        assert attrs["n_step_clean"] == 46
+        assert float(attrs["min_clean_step_fraction"]) == 0.65
+        assert bool(attrs["few_clean_steps"]) is True
+    warned = read_molecules(path)["gamma"].copy()
+
+    # The warning changes no γ: with the fraction at 0 it never fires, and every stored
+    # value and the dataset median are the same to the bit.
+    silent = compute_gamma(path, min_clean_step_fraction=0.0)
+    assert silent.few_clean_steps is False
+    assert silent.gamma == summary.gamma
+    np.testing.assert_array_equal(read_molecules(path)["gamma"], warned)
+    with h5py.File(path, "r") as f:
+        assert bool(f["settings/gamma"].attrs["few_clean_steps"]) is False
+
+
+def test_clean_steps_are_stamped_without_the_warning(tmp_path: Path) -> None:
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=12, gamma_true=1.2, alpha=0.1)
+    summary = compute_gamma(path)
+    assert (summary.n_step_evaluated, summary.n_step_clean) == (12, 12)
+    assert summary.few_clean_steps is False
+    with h5py.File(path, "r") as f:
+        attrs = f["settings/gamma"].attrs
+        assert (attrs["n_step_evaluated"], attrs["n_step_clean"]) == (12, 12)
+        assert bool(attrs["few_clean_steps"]) is False
+
+
+def test_a_withheld_gamma_is_not_warned_about(tmp_path: Path) -> None:
+    from test_fret_gamma_clean_steps import _no_rise  # noqa: PLC0415
+
+    path = tmp_path / "g.tether"
+    _shape_store(path, [_no_rise(i) for i in range(40)])  # 7 qualify, under 10
+    summary = compute_gamma(path)
+    assert summary.applied is False
+    assert summary.n_step_clean < 0.65 * summary.n_step_evaluated
+    assert summary.few_clean_steps is False
+    with h5py.File(path, "r") as f:
+        assert f["settings/gamma"].attrs["n_step_evaluated"] == 40
+        assert bool(f["settings/gamma"].attrs["few_clean_steps"]) is False
+
+
+@pytest.mark.parametrize("bad", [-0.1, 1.01])
+def test_a_bad_clean_step_fraction_is_refused_before_writing(tmp_path: Path, bad: float) -> None:
+    path = tmp_path / "g.tether"
+    _gamma_store(path, n_mol=12, gamma_true=1.2, alpha=0.1)
+    with pytest.raises(ValueError, match="min_fraction"):
+        compute_gamma(path, min_clean_step_fraction=bad)
+    with h5py.File(path, "r") as f:
+        assert "gamma" not in f["settings"]

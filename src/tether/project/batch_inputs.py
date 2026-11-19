@@ -9,7 +9,7 @@ to show in a dry run:
 * [`expand_movie_arguments`][] makes each argument a list of movie files. A file is used as
   it is. A folder means the movie files directly inside it, or every movie file below it
   when ``recursive`` is set. Anything else is a pattern that Tether expands itself, with
-  the standard-library [`glob`][] module, so ``"data/*.tif"`` gives the same list in
+  the standard-library `glob` module, so ``"data/*.tif"`` gives the same list in
   PowerShell, cmd and bash. A pattern match that is a folder is expanded like a folder
   argument. The whole list is sorted and each movie appears once. An argument that gives
   no movie is refused with a message that names it.
@@ -95,7 +95,7 @@ def _is_movie_file(path: Path) -> bool:
 def _folder_movies(folder: Path, *, recursive: bool) -> list[Path]:
     """List the movie files in ``folder``, leaving out hidden names (a leading ``.``).
 
-    Hidden names are left out because the patterns of [`glob`][] leave them out too, and
+    Hidden names are left out because the patterns of `glob` leave them out too, and
     because macOS writes ``._name.tif`` resource files beside a movie on some drives.
 
     A sub-folder that cannot be listed raises its [`OSError`][] rather than being passed
@@ -303,7 +303,7 @@ def output_stems(movies: Sequence[Path]) -> tuple[str, ...]:
     """Give each movie the stem of its output project, unique without regard to case.
 
     The rule: a movie's output stem is its file stem. While two stems are equal (compared
-    with [`str.casefold`][]), each movie of that group that has a parent folder not yet
+    with `str.casefold`), each movie of that group that has a parent folder not yet
     used puts the next one in front, joined with [`NAME_SEPARATOR`][]. So
     ``day1/movie_010.tif`` and ``day2/movie_010.tif`` become ``day1__movie_010`` and
     ``day2__movie_010``, and a movie whose stem collides with no other keeps its own.

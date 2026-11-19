@@ -76,9 +76,9 @@ tMAVEN [Verma2024]), and population-level histogram/kinetics analysis. Three pro
    metadata slot and its exporter applies the GUI selection mask, so coordinates in a *tMAVEN-written* SMD are not
    trusted or required (§5.3, §7.4).
 
-2. **Model-free lenses are first-class.** Donor–acceptor cross-correlation and the raw successive-frame FRET
-   "cloud" are surfaced prominently. They reveal dynamics *without* committing to an HMM — a capability neither
-   tMAVEN nor Deep-LASI offers.
+2. **Model-free lenses are first-class.** Donor–acceptor cross-correlation and the **successive-frame FRET
+   cloud** (apparent E at frame *i* against apparent E at frame *i* + 1, §7.7) are surfaced prominently. They
+   reveal dynamics *without* committing to an HMM — a capability neither tMAVEN nor Deep-LASI offers.
 
 3. **Statistics derive from provenance.** Because every molecule's contribution is retained, error bars, bootstrap
    confidence intervals [König2013], per-condition splits, and the click-bin → molecules → movie drill-down are
@@ -259,9 +259,10 @@ capability-sequenced, with no schedule commitment anywhere).
   quality, never auto-drop) [Chen2016]; similarity search; active-learning loop; model load / warm-start-retrain /
   save as a portable artifact; deep models later [Thomsen2020].
 - **`tether.analysis`** — histograms with CI [König2013], transition density plots [McKinney2006], the raw FRET
-  cloud, donor–acceptor cross-correlation (vectorized FFT, `tether.analysis.crosscorr`), the anticorrelation-event
-  finder, per-condition population statistics, and the native plot catalogue of
-  Appendix C: every result type this package computes, the seven tMAVEN plot types among them (N3).
+  cloud and the successive-frame FRET cloud, donor–acceptor cross-correlation (vectorized FFT,
+  `tether.analysis.crosscorr`), the anticorrelation-event finder, per-condition population statistics, and the
+  native plot catalogue of Appendix C: every result type this package computes, the seven tMAVEN plot types
+  among them (N3).
 - **`tether.gui`** — the PySide6 shell: one main window whose sections (Prepare, Curate and correct, Analyze;
   Deposit to come) are the pages of one stack ([ADR-0116](adr/0116-the-shell-hosts-its-sections-in-one-stack.md)),
   with curation/labeling, annotation, and plot docks. The embedded napari movie panel
@@ -556,22 +557,27 @@ never a standalone pass path (an OR would let two badly-disagreeing estimates bo
 defeating the oracle; §9 M3, §11.2). γ
 **shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise), each level averaged
 over a tolerance window (half-width pinned to 20 frames each side, configurable, or the whole segment each side as an
-option; §11.2; ADR-0130), aggregated by population median [McCann2010].
+option; §11.2; ADR-0130), aggregated by population median [McCann2010]. Among the molecules whose step passed
+both segment gates, the **clean** steps — donor rose **and** leakage-corrected acceptor dropped — **shall** be
+counted and stamped; when an applied γ rests on fewer than the §11.2 clean-step fraction of them, Tether **shall**
+report it with a warning, which changes no γ value (ADR-0134).
 Manual override of every factor **shall** be available.
 Corrections **shall** not be required to *view* traces: apparent-E analysis and histograms work without any
 photobleaching; only the α/γ corrections require bleach steps.
 
 **Total-correction-failure path.** The min-qualifying-traces gate (§11.2) is applied **before** the population
-median, so an empty qualifying set can never emit a NaN factor. A missing factor never becomes a NaN in E: a missing or
-non-finite α or γ routes the molecule to apparent E. When **no donor-only sample is
+median, so a factor is never computed from an empty or too-small qualifying set. A missing factor never becomes a NaN in
+E: a missing or non-finite α or γ routes the molecule to apparent E. When **no donor-only sample is
 loaded and fewer than `min_qualifying_traces` molecules yield a valid factor** — the *expected* case for the lab's
 typical pure-FRET acquisitions lacking a clean acceptor-bleach step — Tether **shall** retain/display **apparent
 E** (α = δ = 0, γ = 1), stamp provenance `method = "apparent-E (corrections unavailable)"`, show a **non-blocking
 banner**, and offer two recovery actions: load a donor-only sample, or enter manual per-condition α/γ (which stamps
-`method = "manual"`). If the user declines, the project stays in apparent-E. A NaN factor is never written (§9 M3,
-§10). This guarantee is about the factors only. E can still be NaN on a frame whose denominator is zero, because the
-ratio is not defined there: for apparent E that is a frame with zero total intensity, and for corrected E a frame where
-I_A,corr + γ·I_D,corr is zero.
+`method = "manual"`). If the user declines, the project stays in apparent-E. A withheld α or γ is stored as the NaN
+"no factor computed" sentinel in `/molecules.alpha` / `.gamma` (the [glossary](glossary.md) entry "withheld factor / NaN sentinel"),
+and a NaN or other non-finite factor is never applied: the molecule goes to apparent E (§9 M3, §10). This guarantee
+is about the factors only. E can still be NaN on a frame whose denominator is zero, because the ratio is not defined
+there: for apparent E that is a frame with zero total intensity, and for corrected E a frame where I_A,corr + γ·I_D,corr
+is zero.
 
 **Two analysis modes (maintainer decision 2026-11-14, card C2, option B).** An analysis **shall** run in one of two
 named modes. **Apparent E** (α = δ = 0, γ = 1) stays possible as a separate named mode in every correction state.
@@ -647,8 +653,11 @@ Tether **shall** present a multi-movie round-trip browser:
 - **Round-trip navigation:** select a trace → the camera jumps to its spot (resolving each molecule to its own
   movie), with synchronized scrubbing and a neighbor/overlap view (static patch + nearest-neighbour distance; movie
   scrub optional); click a spot → its trace.
-- **Familiar conventions:** donor green / acceptor red / FRET blue; FRET y-axis 0–1; x in seconds (from FrameTime,
-  with a frame-index toggle); idealized path drawn as a step overlay.
+- **Familiar conventions:** donor green / acceptor magenta / FRET blue by default — a color-blind-safe set (Paul Tol
+  "bright" on light, Okabe–Ito on dark), checked under simulated protanopia, deuteranopia and tritanopia — with the
+  classic donor green / acceptor red / FRET blue set as the **View → Trace colors** preference, kept in the
+  application settings store (#636, ADR-0123); FRET y-axis 0–1; x in seconds (from FrameTime, with a frame-index
+  toggle); idealized path drawn as a step overlay.
 - **Keyboard map:** the trace dock inherits tMAVEN's per-trace bindings for overlapping actions (← / → prev/next,
   with `↑`/`↓` as aliases; `1`–`9` assign the first nine editable per-condition categories and **`0` clears the
   category back to the *uncategorized* null state** — distinct from any named category, so `Space` alone yields an
@@ -797,8 +806,15 @@ Tether **shall** provide:
   toggle, computed over the analysis window (rejected traces excluded by default via the toggleable filter, §7.5).
 - Donor–acceptor **cross-correlation**: vectorized FFT with principled Pearson normalization, a population curve,
   and a lag-1 magnitude feeding the anticorrelation-event finder.
-- The **raw FRET cloud**: a consolidated pre-idealization QC view (KDE + highest-density-region percentile contours
-  [Hyndman1996] + alpha-shape + k-vs-RMSE elbow).
+- The **raw FRET cloud** (apparent E against **time**): a consolidated pre-idealization QC view (KDE +
+  highest-density-region percentile contours [Hyndman1996] + alpha-shape + k-vs-RMSE elbow).
+- The **successive-frame FRET cloud** (apparent E at frame *i* against apparent E at frame *i* + 1; #710,
+  ADR-0105): the pairs of successive frames of each molecule, inside its analysis window and never across a
+  masked frame or from one molecule to another, with a fixed-bandwidth Gaussian density, its
+  highest-density-region contours [Hyndman1996] and optional k-means centroids. It is the plot of the laboratory's
+  FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished), and Tether reproduces what
+  they compute on the smfret-analysis2 test traces to measured limits (`docs/validation.md`). It is a different
+  plot from the raw FRET cloud, and neither replaces the other. Its defaults are in §11.2.
 - **Real TDP**: a 2-D before/after idealized-state density (fresh idealizations only) [McKinney2006][Hadzic2018];
   dwell distributions with exponential/rate fits and CIs.
 - **Rate constants with Dirichlet error bounds** from a model's un-normalized transition count matrix and the frame
@@ -1218,7 +1234,7 @@ boundary is explicit: a retry keeps a draft and never publishes it. N5 (§2.2) s
   §9 M8); (d) the per-condition ranker via **held-out cross-validation** (prequential /
   leave-one-video-out, the precision@k protocol of §7.5); (e) the α/γ estimators via **edge-case unit tests**
   (missing/sparse bleach steps, median-fallback paths, and the **total-failure → apparent-E** path that must never
-  emit a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
+  apply a NaN factor) derived from Appendix E Stages 16–18 and §10, plus the **conjunctive two-Tether-estimator α
   agreement** (§7.2, §11.2); (f) round-trip integrity and schema-integrity tests under existing conventions,
   with a schema-migration test from the first schema-version step on (§5.4);
   (g) the photobleaching detector's **per-channel first-bleach frames**, reframed by ADR-0026 (§9.5 (g)):
@@ -1281,9 +1297,10 @@ These hold across every milestone and are never regressed. They are harvested fr
    version bump ([ADR-0005](adr/0005-m0-schema-freeze.md), §5).
 2. **`main` is always green and releasable.** Never advance or summarize over a red or pending check (§12.3).
 3. **A missing factor never makes E NaN.** A missing α or γ routes the molecule to apparent E, and a total correction
-   failure falls to apparent E with a banner; the gate is applied *before* the median, so no NaN factor is ever
-   written (§7.2, [ADR-0003](adr/0003-apparent-e-never-nan.md); the ADR's title refers to the factors). A frame
-   with zero total intensity is still NaN in apparent E, because the ratio is not defined there.
+   failure falls to apparent E with a banner; the gate is applied *before* the median, so no factor is ever
+   computed from too few traces, and a NaN factor is never applied; a withheld factor is stored as the NaN sentinel
+   (§7.2, [glossary](glossary.md), [ADR-0003](adr/0003-apparent-e-never-nan.md); the ADR's title refers to the
+   factors). A frame with zero total intensity is still NaN in apparent E, because the ratio is not defined there.
 4. **Provenance travels with every datum** — coordinates, corrections, app version, parameters. The trace↔movie
    round-trip is a data-model property, recovered by exact intensity matching on any tMAVEN return leg
    ([ADR-0001](adr/0001-provenance-first-data-model.md),
@@ -1352,7 +1369,7 @@ back from. A bar marked *not yet met* is listed in §9.6 with the open issue car
 | **Round-trip browser & curation** (FR-ROUNDTRIP) | Select-trace→camera-jump and click-spot→trace both work across ≥ 2 movies (*not yet met*, §9.6); every accept/reject writes a `/labels` row; headless: the MVP histogram reproduces from the API. | M2 |
 | **Multi-movie project** (§5) | One `.tether` holds many movies, as the M2 multi-movie round-trip browser assumes: a second movie appends into an existing project under its writer lock (*not yet met*, §9.6). | M2 |
 | **File lifecycle** (FR-CONCURRENCY) | The single-writer lock (wall-clock stale-timeout) prevents a second writer, steal-lock recovers, and a cross-machine lock / stale / steal case is exercised. | M2 |
-| **Corrections** (FR-CORRECT, Appendix B) | A pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent E with a banner and never writes a NaN factor**; changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1). Per-channel first-bleach detection **(reframed — [ADR-0026](adr/0026-photobleach-detection-and-window-default.md))**: reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the §11.2 ±2-frame tolerance — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth. The **conjunctive §11.2 leakage-α validation band** (Tether's donor-only α vs its own post-acceptor-bleach-tail α, matched gates, same FRET dataset: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2, §7.2) is a `workstation` check on the lab's Cy3-only donor-only acquisition against the pooled tail α of the FRET series it calibrates ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); it is met: the run of 2026-11-19 recorded a donor-only α of 0.120 (89 of 91 molecules) against a pooled tail α of 0.101 (260 of 971), a relative difference of 17.0 %. Withheld under §9.1 item 8: **γ agreement with the Deep-LASI median within the §11.2 γ-agreement tolerance** (default ±10%) on a shared frame set derived from Deep-LASI's own per-frame classification (estimator-isolated; the §11.2 level windows) plus a looser end-to-end CI-overlap check — no available Deep-LASI file holds Deep-LASI's per-molecule γ or its per-frame classification ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md), [ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); *not yet met* and carried in §9.6. Corrections are a first-class surface of the application (*not yet met*, §9.6). | M3 |
+| **Corrections** (FR-CORRECT, Appendix B) | A pure-FRET dataset with no donor-only sample and < `min_qualifying_traces` valid factors **falls to apparent E with a banner, never computes a factor from too few traces and never applies a NaN factor** (a withheld factor is stored as the NaN sentinel, [glossary](glossary.md)); changing a correction flags only the affected molecules' dependent idealizations STALE and excludes them from TDP (a γ-median shift re-stales fallback molecules only, an α-median shift the whole cohort, §5.1). Per-channel first-bleach detection **(reframed — [ADR-0026](adr/0026-photobleach-detection-and-window-default.md))**: reference-formula parity with tMAVEN's photobleaching model plus recovery of a synthesized known step within the §11.2 ±2-frame tolerance — the `.mat` `pacc`/`pdon` field is a constant (60 for every molecule), not ground truth. The **conjunctive §11.2 leakage-α validation band** (Tether's donor-only α vs its own post-acceptor-bleach-tail α, matched gates, same FRET dataset: relative-median difference ≤ 20% **and** both medians ∈ 0.05–0.2, §7.2) is a `workstation` check on the lab's Cy3-only donor-only acquisition against the pooled tail α of the FRET series it calibrates ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); it is met: the run of 2026-11-19 recorded a donor-only α of 0.120 (89 of 91 molecules) against a pooled tail α of 0.101 (260 of 971), a relative difference of 17.0 %. Withheld under §9.1 item 8: **γ agreement with the Deep-LASI median within the §11.2 γ-agreement tolerance** (default ±10%) on a shared frame set derived from Deep-LASI's own per-frame classification (estimator-isolated; the §11.2 level windows) plus a looser end-to-end CI-overlap check — no available Deep-LASI file holds Deep-LASI's per-molecule γ or its per-frame classification ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md), [ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)); *not yet met* and carried in §9.6. Corrections are a first-class surface of the application (*not yet met*, §9.6). | M3 |
 | **Batch runner** (FR-BATCH) | The batch runner **(i)** isolates a deliberately corrupt movie (continue-on-error) while the rest complete, **(ii)** resumes after a killed movie via per-stage checkpoint, and **(iii)** emits an end-of-run summary naming the failed movie — exercising sidecar timeout/restart. | M3 |
 | **Performance** (NFR-PERF) | The §8 targets — per-trace render+navigate ≈ 100 ms; a ~100-movie condition completes extraction + correction + idealization overnight; a bounded `.tether` size per condition — verified as a light gate over slice-scaled envelopes, not an SLA matrix ([ADR-0032](adr/0032-nfr-perf-budget-verification.md)). | M3 |
 | **Annotation & conditions** (FR-ANNOTATE) | A condition aggregates molecules across ≥ 2 files; category edits persist (*not yet met* from the application, §9.6); provisional `condition_id` values are confirmed or corrected via the validation UI; a mis-parsed `condition_id` re-keys all affected molecules transactionally with an audit entry, and merges are keep-separate-by-default + human-confirmed (§5.1). | M4 |
@@ -1557,8 +1574,9 @@ this section.
 - **Correction factors on sparse bleaching.** Mitigation: trace-wise α/γ with a global-median fallback +
   confidence; a donor-only-sample fallback for α; manual override; do not require photobleaching to *view* traces.
   **Total failure** (no donor-only sample AND fewer than `min_qualifying_traces` valid factors — the *expected*
-  pure-FRET case) applies the gate *before* the median, so no NaN factor is ever emitted: the project falls to
-  **apparent-E with a banner + recovery actions** (load donor-only / manual entry), never a NaN factor (§7.2).
+  pure-FRET case) applies the gate *before* the median, so no factor is ever computed from too few traces: the project
+  falls to **apparent-E with a banner + recovery actions** (load donor-only / manual entry) and never applies a NaN
+  factor; the withheld factor is stored as the NaN sentinel (§7.2, [glossary](glossary.md)).
 - **OneDrive + a single HDF5.** Mitigation: a **one-owner-at-a-time** posture with single-writer `.lock` + a
   **wall-clock stale-timeout** (≈ 30 min) + steal-lock; **detect-and-surface OneDrive conflict-copies**; concurrent
   curation via per-user split files (§7.10), never concurrent writes to one file; a routine open never auto-hydrates
@@ -1626,8 +1644,10 @@ this section.
 | γ acceptance ceiling | γ ≤ 5 | `deeplasi/functions/gui/TracesTab/createTracesPlotLayout.m:172` (in-scope 2-color single-row table; `:157` is the out-of-scope 3-color variant, same values) |
 | `min_window_frames` (per-trace bleach-window minimum) | 20 frames | `createTracesPlotLayout.m:172` (2-color single-row table default) |
 | `min_qualifying_traces` (per-dataset minimum before manual entry) | ≈ 10 molecules | Tether default |
+| γ clean-step warning fraction (`min_clean_step_fraction`) | 0.65 of the measured acceptor-bleach steps clean (donor rose and acceptor dropped), else an applied γ is reported with a warning; warn only, γ unchanged; `0` turns it off | Tether, from the #1233 step counts of the workstation run of 2026-11-19 on `1acd4f0`: clean fraction 0.70–0.77 where γ is within 1.2× Deep-LASI's (`lab-03`–`lab-05`), 0.21–0.58 where it is 2.7–3.0× (`lab-01`, `lab-02`, `lab-06`); about 0.5 when the acceptor drops and the donor change is only noise ([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)) |
 | Analysis window | auto = both-dyes-active (start → first bleach on summed intensity); manual per-trace override | Appendix B step 6 |
 | FRET-histogram bootstrap | 1000 resamples; 95% percentile CI (2.5/97.5); resample unit = **molecule**; default seed = 0 | [König2013] BOBA-FRET (also in MASH-FRET [Börner2018]); cross-sample variability ⇒ molecule is the resampled unit (§7.7, §9 M3) |
+| Successive-frame FRET cloud (§7.7) | grid of 200 × 200 nodes on [0, 1] on both axes; Gaussian kernel bandwidth 0.05 (apparent-E units, both axes); contour coverages 10 %, 20 %, …, 90 %; k-means with 4 centroids, the best of 5 k-means++ starts, at most 100 iterations, seed 0 | FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished (`FRET_cloud_contours_centroids.m`, SHA-256 in `scripts/reference/matlab/pins.toml`); the seed and the iteration cap are Tether's (ADR-0105) |
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Update check (`DEFAULT_TIMEOUT_S`) | **off** until the first-run question is answered yes (ADR-0095 store); then one `GET` of `releases/latest` per application start, queued after the window is built and run on a background thread; timeout **5 s**; no retry; every failure silent | Tether (§7.12; ADR-0060, ADR-0095); `tether.gui.update_check`, #248 |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
@@ -2445,10 +2465,12 @@ Each result type is in the catalogue because N3 makes it a plot to draw. The fiv
 | Raw FRET cloud: the alpha-shape support boundary (§7.7) | `cloud.population_fret_cloud_alpha_shape` | `render_alpha_shape` |
 | Raw FRET cloud: the k-vs-RMSE elbow state-count hint (§7.7) | `cloud.population_fret_cloud_state_number_elbow` | `render_state_number_elbow` |
 | Anticorrelation events of the population (§7.7) | `anticorrelation.population_anticorrelation_events` | `render_population_anticorrelation` |
+| Successive-frame FRET cloud: E at frame *i* against E at frame *i* + 1, density, highest-density-region contours and k-means centroids (§7.7) | `successive.population_successive_frame_cloud` | none yet ([#1085](https://github.com/bioedca/tether/issues/1085)) |
 
 A2's post-synchronized heatmap (A2b, `histogram.population_transition_sync_histogram2d`) is a variant of a tMAVEN type
 and so belongs to the first part; it is the fifth result type that #370 gave a renderer,
-`render_transition_sync_histogram2d`. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
+`render_transition_sync_histogram2d`. The successive-frame FRET cloud, added later, has no renderer yet: #1085
+carries it. Two parts of `tether.analysis` are not plots and are outside the catalogue: the
 condition query (`query`) selects molecules, and the kinSoftChallenge kinetics check (`kinetics`) is a validation
 oracle (§9.5).
 
