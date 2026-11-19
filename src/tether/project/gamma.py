@@ -55,6 +55,7 @@ from tether.fret.gamma import (
     DEFAULT_MIN_QUALIFYING_TRACES,
     DEFAULT_MIN_WINDOW_FRAMES,
     GAMMA_CEILING,
+    _check_half_window,
     estimate_gamma,
 )
 from tether.io.schema import TABLE
@@ -70,6 +71,11 @@ _GAMMA_SETTINGS = "gamma"
 
 #: ``/settings/gamma`` ``source`` value — the acceptor-bleach-step estimator's tag.
 GAMMA_SOURCE_ACCEPTOR_BLEACH_STEP = "acceptor-bleach-step"
+
+#: ``/settings/gamma`` ``level_window`` values (ADR-0130): the levels were averaged over
+#: the whole pre- and post-step segments, or over ``half_window`` frames each side.
+GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT = "whole-segment"
+GAMMA_LEVEL_WINDOW_HALF_WINDOW = "half-window"
 
 
 @dataclass(frozen=True)
@@ -120,7 +126,7 @@ def compute_gamma(
     project_path: str | Path,
     *,
     intensity_quantity: str = "corrected",
-    half_window: int = DEFAULT_GAMMA_HALF_WINDOW,
+    half_window: int | None = DEFAULT_GAMMA_HALF_WINDOW,
     min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
     ceiling: float = GAMMA_CEILING,
     min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,
@@ -140,7 +146,10 @@ def compute_gamma(
         Which ``/traces`` layer to estimate on — ``"corrected"`` (default,
         background-subtracted) or ``"raw"``.
     half_window
-        γ level tolerance half-window each side of the step (PRD §11.2, default 3).
+        Frames averaged each side of the step for the γ levels (PRD §11.2, default
+        20 since ADR-0130). ``None`` averages the whole pre-step FRET segment and the
+        whole post-step donor-only segment instead. A zero or negative value raises
+        ``ValueError``.
     min_window_frames
         Reject unless both step segments are longer than this (PRD §11.2, default 20).
     ceiling
@@ -162,7 +171,8 @@ def compute_gamma(
     Raises
     ------
     ValueError
-        If ``intensity_quantity`` is not a known ``/traces`` layer, or if a molecule's
+        If ``intensity_quantity`` is not a known ``/traces`` layer, ``half_window`` is
+        not a positive integer or ``None``, or if a molecule's
         ``bleach_frames`` are still the undetected sentinel (run
         [`compute_photobleach`][tether.project.photobleach.compute_photobleach] first), or if its
         ``alpha`` is the ``NaN`` "not computed" sentinel (run
@@ -178,6 +188,7 @@ def compute_gamma(
             f"got {intensity_quantity!r}"
         )
     donor_layer, acceptor_layer = INTENSITY_QUANTITY_LAYERS[intensity_quantity]
+    half_window = _check_half_window(half_window)
     path = Path(project_path)
 
     with (
@@ -297,7 +308,7 @@ def _stamp_gamma_settings(
     n_qualifying: int,
     n_fallback: int,
     n_molecules: int,
-    half_window: int,
+    half_window: int | None,
     min_window_frames: int,
     ceiling: float,
     min_qualifying_traces: int,
@@ -321,7 +332,12 @@ def _stamp_gamma_settings(
     grp.attrs["n_qualifying"] = int(n_qualifying)
     grp.attrs["n_fallback"] = int(n_fallback)
     grp.attrs["n_molecules"] = int(n_molecules)
-    grp.attrs["half_window"] = int(half_window)
+    # ``half_window`` stays an int attribute (additive schema): 0 when the whole
+    # segments were averaged, which ``level_window`` names explicitly (ADR-0130).
+    grp.attrs["level_window"] = (
+        GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT if half_window is None else GAMMA_LEVEL_WINDOW_HALF_WINDOW
+    )
+    grp.attrs["half_window"] = 0 if half_window is None else int(half_window)
     grp.attrs["min_window_frames"] = int(min_window_frames)
     grp.attrs["ceiling"] = float(ceiling)
     grp.attrs["min_qualifying_traces"] = int(min_qualifying_traces)
