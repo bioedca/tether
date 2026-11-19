@@ -20,7 +20,7 @@ stopped, and a curation pass over one condition takes many sittings. The curator
 label came from the operating-system user name with no way to change it, so a shared lab
 computer logged every curator under one name.
 
-#628 asks the application to keep four things: the recent projects, the molecule selected when a
+\#628 asks the application to keep four things: the recent projects, the molecule selected when a
 project was closed, the window layout, and a curator name. None of it may go into the project
 file. It asks to build on the application settings store of #330
 ([ADR-0095](0095-application-settings-live-outside-the-install-folder.md)). That store, though,

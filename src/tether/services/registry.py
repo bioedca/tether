@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from tether.services import batch, extract, maps
+from tether.services import batch, extract, idealize, maps
 from tether.services.base import Request, RequestError, request_from_mapping
 
 __all__ = [
@@ -65,6 +65,13 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         result_type=batch.BatchResult,
         run=batch.run,
         summary="run the extract -> correct -> idealize pipeline over many movies",
+    ),
+    ServiceCommand(
+        name="idealize",
+        request_type=idealize.IdealizeRequest,
+        result_type=idealize.IdealizeResult,
+        run=idealize.run,
+        summary="fit the molecules of a .tether project, or refit its stale models",
     ),
     ServiceCommand(
         name="map",
