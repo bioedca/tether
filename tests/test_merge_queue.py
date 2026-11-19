@@ -1,0 +1,366 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Offline tests for ``scripts/merge_queue.py`` (issue #1266, ADR-0135).
+
+Each test builds real git repositories in a temporary directory: a bare ``origin``, a ``dev``
+repository that writes ``main`` and the pull request branches, and a ``runner`` clone that the
+queue works in. GitHub is a fake transport that keeps its refs in that same ``origin``, so a
+request that ``join`` records is a request that ``git fetch`` reads. No test uses the network.
+"""
+
+from __future__ import annotations
+
+import ast
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+_REPO = Path(__file__).resolve().parents[1]
+SCRIPT = _REPO / "scripts" / "merge_queue.py"
+
+_spec = importlib.util.spec_from_file_location("merge_queue", SCRIPT)
+assert _spec is not None and _spec.loader is not None
+mq = importlib.util.module_from_spec(_spec)
+sys.modules["merge_queue"] = mq
+_spec.loader.exec_module(mq)
+
+REPO = "bioedca/tether"
+_KEYS = "AUTHOR_NAME AUTHOR_EMAIL COMMITTER_NAME COMMITTER_EMAIL"
+_WHO = {f"GIT_{key}": "dev@example.org" for key in _KEYS.split()}
+_LINES = "".join(f"line {i}\n" for i in range(1, 11))
+
+
+def _git(cwd: Path, *args: str, env: dict[str, str] | None = None, check: bool = True) -> str:
+    done = subprocess.run(
+        ["git", "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", *args],
+        cwd=cwd,
+        env={**os.environ, **_WHO, **(env or {})},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=check,
+    )
+    return done.stdout.strip()
+
+
+class World:
+    """The three repositories, the pull requests GitHub knows, and the fake transport."""
+
+    def __init__(self, root: Path) -> None:
+        self.origin, self.dev, self.runner = root / "origin.git", root / "dev", root / "runner"
+        _git(root, "init", "--quiet", "--bare", "--initial-branch=main", str(self.origin))
+        _git(root, "init", "--quiet", "--initial-branch=main", str(self.dev))
+        _git(self.dev, "remote", "add", "origin", str(self.origin))
+        self.commit("main", {"shared.txt": _LINES, "README": "tether\n"})
+        _git(root, "clone", "--quiet", str(self.origin), str(self.runner))
+        self.pulls: dict[int, dict] = {}
+        self.calls: list[tuple[str, str]] = []
+        self.clock = 0
+        self.github = mq.GitHub(REPO, self.transport)
+        self.git = mq.Git(self.runner)
+
+    def commit(self, branch: str, files: dict[str, str], start: str = "origin/main") -> str:
+        """Commit ``files`` on ``branch`` in ``dev`` (created from ``start``) and push it."""
+        if _git(self.dev, "branch", "--list", branch):
+            _git(self.dev, "checkout", "--quiet", branch)
+        elif _git(self.dev, "branch", "--list", "main"):  # not the first commit of all
+            _git(self.dev, "checkout", "--quiet", "-B", branch, start)
+        for name, text in files.items():
+            (self.dev / name).write_text(text, encoding="utf-8", newline="\n")
+        _git(self.dev, "add", "--all")
+        _git(self.dev, "commit", "--quiet", "--allow-empty", "-m", f"change {branch}")
+        _git(self.dev, "push", "--quiet", "origin", branch)
+        return _git(self.dev, "rev-parse", "HEAD")
+
+    def pull(self, number: int, files: dict[str, str]) -> str:
+        """Open pull request ``number`` with ``files`` changed, and return its head."""
+        _git(self.dev, "fetch", "--quiet", "origin")
+        head = self.commit(f"pr-{number}", files)
+        self.pulls[number] = {
+            "state": "open",
+            "draft": False,
+            "base": {"ref": "main"},
+            "head": {"sha": head, "repo": {"full_name": REPO}},
+        }
+        return head
+
+    def join(self, number: int, files: dict[str, str]) -> str:
+        head = self.pull(number, files)
+        mq.join(self.github, number, head, f"squash message of #{number}")
+        return head
+
+    def squash(self, *numbers: int) -> list[str]:
+        """Squash-merge the pull requests in order on a scratch branch; return each tree."""
+        _git(self.dev, "fetch", "--quiet", "origin")
+        _git(self.dev, "checkout", "--quiet", "-B", "scratch", "origin/main")
+        trees = []
+        for number in numbers:
+            _git(self.dev, "merge", "--squash", "--quiet", self.pulls[number]["head"]["sha"])
+            _git(self.dev, "commit", "--quiet", "--allow-empty", "-m", f"squash #{number}")
+            trees.append(_git(self.dev, "rev-parse", "HEAD^{tree}"))
+        return trees
+
+    def plan(self) -> dict[int, mq.Step]:
+        self.git.fetch()
+        base = self.git.rev("refs/remotes/origin/main")
+        requests = mq.read_requests(self.git)
+        steps = mq.plan(self.git, base, requests, {r.pr: self.pulls.get(r.pr) for r in requests})
+        self.steps = steps
+        return {step.pr: step for step in steps}
+
+    def origin_ref(self, ref: str) -> str | None:
+        return _git(self.origin, "rev-parse", "--verify", "--quiet", ref, check=False) or None
+
+    def transport(self, method: str, url: str, body: bytes | None) -> tuple[int, bytes]:
+        path = url.removeprefix(f"https://api.github.com/repos/{REPO}")
+        payload = json.loads(body) if body else None
+        self.calls.append((method, path))
+        if method == "GET" and (found := re.fullmatch(r"/pulls/(\d+)", path)):
+            pull = self.pulls.get(int(found[1]))
+            return (200, json.dumps(pull).encode()) if pull else (404, b"{}")
+        if method == "GET" and (found := re.fullmatch(r"/git/commits/([0-9a-f]{40})", path)):
+            tree = _git(self.origin, "rev-parse", f"{found[1]}^{{tree}}")
+            return 200, json.dumps({"tree": {"sha": tree}}).encode()
+        if (method, path) == ("POST", "/git/commits"):
+            self.clock += 1  # GitHub stamps the commit; each request is one second later
+            when = {"GIT_COMMITTER_DATE": f"2026-11-19T12:00:{self.clock:02d}+00:00"}
+            parents = [arg for parent in payload["parents"] for arg in ("-p", parent)]
+            made = ["commit-tree", payload["tree"], *parents, "-m", payload["message"]]
+            return 201, json.dumps({"sha": _git(self.origin, *made, env=when)}).encode()
+        if (method, path) == ("POST", "/git/refs"):
+            if self.origin_ref(payload["ref"]):
+                return 422, b'{"message": "Reference already exists"}'
+            _git(self.origin, "update-ref", payload["ref"], payload["sha"])
+            return 201, b"{}"
+        if method == "DELETE" and path.startswith("/git/refs/"):
+            ref = path.removeprefix("/git/")
+            if not self.origin_ref(ref):
+                return 422, b'{"message": "Reference does not exist"}'
+            _git(self.origin, "update-ref", "-d", ref)
+            return 204, b""
+        return 500, b"{}"
+
+
+@pytest.fixture
+def world(tmp_path: Path) -> World:
+    return World(tmp_path)
+
+
+def main_exit(world: World, *argv: str) -> int:
+    return mq.main(["--repo", REPO, *argv], github=world.github, git=world.git)
+
+
+def test_the_script_imports_only_the_standard_library() -> None:
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert imported <= set(sys.stdlib_module_names), imported - set(sys.stdlib_module_names)
+
+
+def test_join_records_the_request_as_a_ref_and_the_second_join_loses(world: World) -> None:
+    head, message = world.pull(7, {"a.txt": "a\n"}), "feat: a\n\nCloses #1"
+    mq.join(world.github, 7, head, message)
+
+    request = world.origin_ref("refs/merge-queue/pr-7")
+    assert request is not None
+    assert _git(world.origin, "show", "-s", "--format=%P", request) == head
+    assert _git(world.origin, "show", "-s", "--format=%B", request) == message
+    trees = [_git(world.origin, "rev-parse", f"{commit}^{{tree}}") for commit in (request, head)]
+    assert trees[0] == trees[1]
+    with pytest.raises(mq.Refused, match="already has a request"):
+        mq.join(world.github, 7, head, "another message")
+    assert world.origin_ref("refs/merge-queue/pr-7") == request
+
+    world.git.fetch()
+    assert mq.read_requests(world.git) == [
+        mq.Request(7, head, message, "2026-11-19T12:00:01+00:00")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (lambda pull: pull.update(state="closed"), "#7 is not open"),
+        (lambda pull: pull.update(draft=True), "#7 is a draft"),
+        (lambda pull: pull["base"].update(ref="release"), "#7 targets release, not main"),
+        (lambda pull: pull["head"]["repo"].update(full_name="x/tether"), "#7 comes from a fork"),
+        (lambda pull: pull["head"].update(repo=None), "#7 comes from a fork"),
+        (lambda pull: pull["head"].update(sha="f" * 40), "the head of #7 is " + "f" * 40),
+    ],
+    ids=["closed", "draft", "other-base", "fork", "deleted-fork", "moved-head"],
+)
+def test_join_refuses_a_pull_request_that_cannot_merge(world: World, change, reason: str) -> None:
+    head = world.pull(7, {"a.txt": "a\n"})
+    change(world.pulls[7])
+    with pytest.raises(mq.Refused, match=re.escape(reason)):
+        mq.join(world.github, 7, head, "message")
+    assert world.origin_ref("refs/merge-queue/pr-7") is None
+    assert not [call for call in world.calls if call[0] != "GET"]
+
+
+def test_join_refuses_a_short_head_and_an_unknown_number(world: World, tmp_path: Path) -> None:
+    head = world.pull(7, {"a.txt": "a\n"})
+    with pytest.raises(mq.Refused, match="40-hex"):
+        mq.join(world.github, 7, head[:12], "message")
+    with pytest.raises(mq.Refused, match="#8 is not a pull request"):
+        mq.join(world.github, 8, head, "message")
+    (tmp_path / "message.txt").write_text("message\n", encoding="utf-8")
+    asked = ("join", "--pr", "8", "--sha", head, "--message-file", str(tmp_path / "message.txt"))
+    assert main_exit(world, *asked) == 3
+
+
+def test_leave_deletes_the_request_and_the_candidate_and_may_run_twice(world: World) -> None:
+    world.join(7, {"a.txt": "a\n"})
+    world.plan()
+    mq.build(world.git, world.github, world.steps, window=5)
+    assert world.origin_ref("refs/heads/mq/pr-7")
+
+    assert mq.leave(world.github, 7) == {"request": True, "candidate": True}
+    assert world.origin_ref("refs/merge-queue/pr-7") is None
+    assert world.origin_ref("refs/heads/mq/pr-7") is None
+    assert mq.leave(world.github, 7) == {"request": False, "candidate": False}
+
+
+def test_each_candidate_tree_is_the_tree_of_the_squash_merges_in_order(world: World) -> None:
+    world.join(3, {"shared.txt": _LINES.replace("line 2\n", "line two\n")})
+    world.join(1, {"shared.txt": _LINES.replace("line 9\n", "line nine\n"), "b.txt": "b\n"})
+    world.join(2, {"c.txt": "c\n"})
+    world.commit("main", {"README": "tether, moved on\n"})  # `main` moves after the joins
+
+    steps = world.plan()
+
+    assert [step.pr for step in world.steps] == [3, 1, 2]  # join order, not number order
+    assert [step.state for step in world.steps] == [mq.CANDIDATE] * 3
+    assert [steps[n].tree for n in (3, 1, 2)] == world.squash(3, 1, 2)
+    assert _git(world.runner, "rev-parse", f"{steps[1].commit}^") == steps[3].commit  # stacked
+    assert steps == world.plan()  # the same inputs give the same commits
+
+
+def test_a_conflict_with_main_removes_and_the_one_behind_is_built_without_it(world: World) -> None:
+    world.join(1, {"shared.txt": _LINES.replace("line 5\n", "line five\n")})
+    world.join(2, {"c.txt": "c\n"})
+    world.commit("main", {"shared.txt": _LINES.replace("line 5\n", "LINE 5\n")})
+
+    steps = world.plan()
+
+    assert (steps[1].state, steps[1].reason) == (mq.REMOVE, "conflict-with-main")
+    assert steps[1].paths == ("shared.txt",) and steps[1].tree is None and steps[1].commit is None
+    assert (steps[2].state, steps[2].tree) == (mq.CANDIDATE, world.squash(2)[0])
+
+
+def test_a_conflict_with_the_pull_request_ahead_holds_until_that_one_leaves(world: World) -> None:
+    world.join(1, {"shared.txt": _LINES.replace("line 5\n", "line five\n")})
+    world.join(2, {"shared.txt": _LINES.replace("line 5\n", "LINE 5\n")})
+    world.join(3, {"c.txt": "c\n"})
+
+    steps = world.plan()
+
+    assert steps[1].state == mq.CANDIDATE
+    assert (steps[2].state, steps[2].blocked_by, steps[2].paths) == (mq.HELD, 1, ("shared.txt",))
+    assert (steps[3].state, steps[3].tree) == (mq.CANDIDATE, world.squash(1, 3)[1])
+    assert mq.build(world.git, world.github, world.steps, window=2)["pushed"] == [1, 3]
+
+    mq.leave(world.github, 1)
+    steps = world.plan()
+
+    assert [step.pr for step in world.steps] == [2, 3]
+    assert [steps[n].tree for n in (2, 3)] == world.squash(2, 3)
+
+
+def test_a_closed_pull_request_and_a_moved_head_are_removed(world: World) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    world.join(2, {"b.txt": "b\n"})
+    world.join(3, {"c.txt": "c\n"})
+    world.pulls[1]["state"] = "closed"
+    world.pulls[2]["head"]["sha"] = world.commit("pr-2", {"b.txt": "pushed after the join\n"})
+
+    steps = world.plan()
+
+    assert (steps[1].state, steps[1].reason) == (mq.REMOVE, "closed")
+    assert (steps[2].state, steps[2].reason) == (mq.REMOVE, "head-moved")
+    assert (steps[3].state, steps[3].tree) == (mq.CANDIDATE, world.squash(3)[0])
+    del world.pulls[3]  # GitHub answers 404
+    assert world.plan()[3].reason == "closed"
+
+
+def test_build_pushes_the_window_keeps_a_same_tree_and_deletes_the_rest(world: World) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    world.join(2, {"b.txt": "b\n"})
+    world.join(3, {"c.txt": "c\n"})
+    steps = world.plan()
+
+    built = mq.build(world.git, world.github, world.steps, window=2)
+
+    assert built == {"pushed": [1, 2], "kept": [], "deleted": []}
+    assert world.origin_ref("refs/heads/mq/pr-1") == steps[1].commit
+    assert world.origin_ref("refs/heads/mq/pr-3") is None
+    world.plan()
+    again = mq.build(world.git, world.github, world.steps, window=2)
+    assert again == {"pushed": [], "kept": [1, 2], "deleted": []}
+
+    # Pull request 1 merges: `main` takes its squash, and its request goes.
+    world.squash(1)
+    _git(world.dev, "push", "--quiet", "origin", "scratch:main")
+    mq.leave(world.github, 1)
+    _git(world.origin, "update-ref", "refs/heads/mq/pr-1", steps[1].commit)  # a stale branch
+    before = world.origin_ref("refs/heads/mq/pr-2")
+    after = world.plan()
+
+    built = mq.build(world.git, world.github, world.steps, window=2)
+
+    assert after[2].commit != steps[2].commit and after[2].tree == steps[2].tree
+    assert built == {"pushed": [3], "kept": [2], "deleted": [1]}
+    assert world.origin_ref("refs/heads/mq/pr-2") == before  # the tested commit stays
+    assert world.origin_ref("refs/heads/mq/pr-1") is None
+    assert _git(world.origin, "rev-parse", "mq/pr-3^{tree}") == world.squash(2, 3)[1]
+
+
+def test_a_ref_that_join_did_not_write_stops_the_plan(world: World) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    root = _git(world.origin, "rev-list", "--max-parents=0", "main")
+    _git(world.origin, "update-ref", "refs/merge-queue/pr-9", root)
+    world.git.fetch()
+    with pytest.raises(mq.QueueError, match="refs/merge-queue/pr-9 is not a merge-queue request"):
+        mq.read_requests(world.git)
+    assert main_exit(world, "plan") == 2
+
+
+def test_the_commands_print_json_and_write_the_step_summary(
+    world: World,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    head = world.pull(1, {"shared.txt": _LINES.replace("line 5\n", "line five\n")})
+    message = tmp_path / "message.txt"
+    message.write_text("fix: five\n", encoding="utf-8")
+    assert main_exit(world, "join", "--pr", "1", "--sha", head, "--message-file", str(message)) == 0
+    assert json.loads(capsys.readouterr().out) == {"joined": 1, "head": head}
+    world.join(2, {"shared.txt": _LINES.replace("line 5\n", "LINE 5\n")})
+
+    assert main_exit(world, "plan") == 0
+    planned = json.loads(capsys.readouterr().out)
+    assert "built" not in planned and world.origin_ref("refs/heads/mq/pr-1") is None
+    assert [(s["pr"], s["state"]) for s in planned["steps"]] == [(1, "candidate"), (2, "held")]
+
+    assert main_exit(world, "build", "--window", "1") == 0
+    built = json.loads(capsys.readouterr().out)
+    assert built["built"] == {"pushed": [1], "kept": [], "deleted": []}
+    text = summary.read_text(encoding="utf-8")
+    assert "| #1 | candidate |" in text and "| #2 | held | waits for #1 (`shared.txt`) |" in text
+    assert "Candidates pushed: #1" in text
+
+    assert main_exit(world, "leave", "--pr", "2") == 0
+    assert json.loads(capsys.readouterr().out) == {"left": 2, "request": True, "candidate": False}
