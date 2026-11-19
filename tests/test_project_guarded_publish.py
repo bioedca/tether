@@ -12,9 +12,13 @@ publish step fails here (PRJ-F1, PRJ-F2). A guarded run must leave the canonical
 file exactly as the in-place run does, so each test runs the same writer on a twin
 store without a guard and compares the two.
 
-The photobleach writer is not staged: it writes its two columns in place, after a
-second ownership check. Its tests check that a refusal at either check leaves the
-canonical columns unchanged (PRJ-F3).
+The photobleach writer is not staged on its own: it writes its two columns in place,
+after a second ownership check. Its tests check that a refusal at either check leaves
+the canonical columns unchanged (PRJ-F3).
+
+A guarded ``run_correct_stage`` stages once for all four passes (#258): one copy, one
+publish, every writer's own ownership checks kept, and nothing published when a pass
+or the last check fails.
 """
 
 from __future__ import annotations
@@ -356,3 +360,166 @@ def test_guarded_write_refuses_a_canonical_file_replaced_meanwhile(tmp_path: Pat
 
     assert canonical.read_bytes() == b"newer project"
     assert list(tmp_path.glob(".p.tether.*.test.tmp")) == []
+
+
+# --- #258: one staged sibling spans the whole correct stage -------------------
+
+
+def _count_stage_io(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Count the copies and publishes ``guarded_project_write`` makes from here on."""
+    from tether.project import _guarded_publish  # noqa: PLC0415
+
+    counts = {"copies": 0, "publishes": 0}
+    real_copy = _guarded_publish.copy2
+    real_replace = _guarded_publish.os.replace
+
+    def copy2(src, dst, *args, **kwargs):
+        counts["copies"] += 1
+        return real_copy(src, dst, *args, **kwargs)
+
+    def replace(src, dst, *args, **kwargs):
+        counts["publishes"] += 1
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(_guarded_publish, "copy2", copy2)
+    monkeypatch.setattr(_guarded_publish.os, "replace", replace)
+    return counts
+
+
+def _sha256(path: Path) -> str:
+    import hashlib  # noqa: PLC0415
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _no_stage_left(path: Path) -> bool:
+    return not [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_guarded_correct_stage_copies_once_and_publishes_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    guarded, in_place = _twin(tmp_path, lambda p: _step_cohort_extract(None, p))
+    guard = _PassingGuard(guarded, "correct-stage")
+    counts = _count_stage_io(monkeypatch)
+
+    detail = run_correct_stage(guarded, write_guard=guard)
+
+    # Before #258 each of leakage, gamma and corrected FRET copied and published the
+    # whole project on its own: three copies and three publishes.
+    assert counts == {"copies": 1, "publishes": 1}
+    assert guard.saw_stage
+    assert not guard.stages_left()
+    assert _no_stage_left(guarded)
+    assert "α=0.100" in detail and "12 corrected" in detail
+
+    assert run_correct_stage(in_place) == detail
+    assert [m.decode() for m in _column(guarded, "correction_method")] == [METHOD_CORRECTED] * 12
+    _assert_same_columns(guarded, in_place, _CORRECTION_COLUMNS)
+    for group in ("leakage", "gamma", "correction"):
+        _assert_same_stamp(guarded, in_place, group)
+
+
+def test_guarded_correct_stage_keeps_every_writer_guard_check(tmp_path: Path) -> None:
+    # The single stage must not drop any ownership check a writer makes on its own:
+    # every pass still checks before it touches the file and before it persists.
+    path = tmp_path / "x.tether"
+    _step_cohort_extract(None, path)
+    calls: list[None] = []
+
+    run_correct_stage(path, write_guard=lambda: calls.append(None))
+
+    # photobleach 2; leakage, gamma, corrected FRET 2 each in the sibling plus 2
+    # nested-stage checks each; the enclosing stage 3 (before the copy, after it,
+    # before the publish). 17 is also the count before #258, when each of the three
+    # staged writers made its own 3 stage checks.
+    assert len(calls) == 17
+
+
+def test_guarded_correct_stage_failure_publishes_no_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A pass that raises part-way through discards the whole stage: the canonical
+    # project is byte-for-byte what it was, photobleach and leakage included. Before
+    # #258 the photobleach columns (in place) and the leakage alpha (its own publish)
+    # had already reached the canonical file when gamma failed.
+    from tether.project import gamma as gamma_module  # noqa: PLC0415
+
+    path = tmp_path / "x.tether"
+    _step_cohort_extract(None, path)
+    before = _sha256(path)
+
+    def gamma_fails(*_args, **_kwargs):
+        raise RuntimeError("gamma pass failed")
+
+    monkeypatch.setattr(gamma_module, "compute_gamma", gamma_fails)
+    with pytest.raises(RuntimeError, match="gamma pass failed"):
+        run_correct_stage(path, write_guard=lambda: None)
+
+    assert _sha256(path) == before
+    assert _no_stage_left(path)
+
+
+def test_guard_refusal_at_correct_stage_publish_keeps_canonical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tether.project import correct as correct_module  # noqa: PLC0415
+
+    path = tmp_path / "x.tether"
+    _step_cohort_extract(None, path)
+    before = _sha256(path)
+    counts = _count_stage_io(monkeypatch)
+    lost = False
+    real_corrected = correct_module.compute_corrected_fret
+
+    def corrected_then_lose_ownership(*args, **kwargs):
+        nonlocal lost
+        result = real_corrected(*args, **kwargs)
+        lost = True  # every pass is complete in the sibling; the publish is next
+        return result
+
+    def guard() -> None:
+        if lost:
+            raise lock.LockError("destination ownership changed before publish")
+
+    monkeypatch.setattr(correct_module, "compute_corrected_fret", corrected_then_lose_ownership)
+    with pytest.raises(lock.LockError, match="before publish"):
+        run_correct_stage(path, write_guard=guard)
+
+    assert counts == {"copies": 1, "publishes": 0}
+    assert _sha256(path) == before
+    assert _no_stage_left(path)
+
+
+def test_nested_guarded_write_reuses_the_enclosing_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tether.project import _guarded_publish  # noqa: PLC0415
+    from tether.project._guarded_publish import guarded_project_write  # noqa: PLC0415
+
+    path = tmp_path / "x.tether"
+    path.write_bytes(b"canonical")
+    other = tmp_path / "other.tether"
+    other.write_bytes(b"other")
+    counts = _count_stage_io(monkeypatch)
+    calls: list[None] = []
+
+    def guard() -> None:
+        calls.append(None)
+
+    with guarded_project_write(path, write_guard=guard, label="outer") as stage:
+        assert stage != path
+        with guarded_project_write(stage, write_guard=guard, label="inner") as inner:
+            assert inner == stage  # in place: no second copy, no second publish
+            inner.write_bytes(b"updated")
+        # A different project inside the same stage still gets a stage of its own.
+        with guarded_project_write(other, write_guard=guard, label="inner") as own:
+            assert own not in (other, stage)
+        assert path.read_bytes() == b"canonical"  # nothing published before the outer exit
+
+    assert path.read_bytes() == b"updated"
+    assert counts == {"copies": 2, "publishes": 2}
+    assert len(calls) == 3 + 2 + 3
+    # Once published, the old sibling path is not treated as staged any more.
+    assert _guarded_publish._ACTIVE_STAGES.get() == frozenset()
+    assert _no_stage_left(path)
