@@ -243,3 +243,27 @@ def test_a_task_that_cannot_be_cancelled_offers_no_cancel(shell, qtbot) -> None:
     assert shell._tasks.cancel() is False
     gate.set()
     qtbot.waitUntil(lambda: bool(outcomes), timeout=5000)
+
+
+def test_a_log_that_fails_later_keeps_the_window_routed(qapp, qtbot, tmp_path, monkeypatch) -> None:
+    # Codex review on PR #1274: a write that fails after the log opened (a full disk) turns
+    # the log off, and code that holds only the window still reaches the panel and the
+    # sticky status line.
+    from pyqtgraph.Qt import QtWidgets
+
+    window = QtWidgets.QMainWindow()
+    qtbot.addWidget(window)
+    center = messages.MessageCenter(window, log_folder=tmp_path / "logs")
+    center.post("Closed a.tether")
+    assert center.log_file is not None
+
+    def disk_full(_record):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(center._log, "shouldRollover", disk_full)
+    center.post("Closed b.tether")
+    assert center.log_file is None
+    messages.post(window, "Could not save the answer.")
+    assert center.latest.text == "Could not save the answer."
+    assert center.sticky is not None and center.sticky.level is Level.ERROR
+    center.close()

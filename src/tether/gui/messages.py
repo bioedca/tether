@@ -271,8 +271,15 @@ class MessageCenter:
         self._status_bar.showMessage("" if latest is None else latest.text)
 
     def close(self) -> None:
-        """Close the log file. Messages posted later are still shown and kept."""
+        """Close the log file when the window closes.
+
+        Messages posted to this center later are still shown and kept; code that holds only
+        the window ([`post`][tether.gui.messages.post]) reaches its status bar directly.
+        """
         _CENTERS.pop(self._window, None)
+        self._close_log()
+
+    def _close_log(self) -> None:
         if self._log is not None:
             self._log.close()
             self._log = None
@@ -307,8 +314,9 @@ class MessageCenter:
         self._log.handle(record)
         if self._log.failed:
             # A log that cannot be written (a full disk, another copy of Tether rotating the
-            # same file) is turned off for the session; the panel still keeps every message.
-            self.close()
+            # same file) is turned off for the session; the panel still keeps every message,
+            # and the window stays routed here (Codex review on PR #1274).
+            self._close_log()
 
 
 class MessagesPanel:
