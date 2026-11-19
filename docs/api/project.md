@@ -29,6 +29,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.correct
 
+::: tether.project.correction_states
+
 ::: tether.project.deep_dataset
 
 ::: tether.project.dependency_graph
