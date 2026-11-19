@@ -904,7 +904,7 @@ def write_generation(
     ``movie.movie_id`` names the movie, and ``movie.sha256`` must be its content hash:
     a generation is a new extraction of the same bytes. The movie's active generation
     is first copied, unchanged, to ``/generations/archive/<movie_id>/<n>``
-    ([`tether.io.generations.archive_active`][]); its rows then leave ``/molecules``,
+    (`tether.io.generations.archive_active`); its rows then leave ``/molecules``,
     ``/traces`` and ``/patches``, and the new generation's rows are appended, so every
     reader of those arrays reads the new generation. The movie's ``/movies`` row, layout
     record and settings profile become the new generation's; its ``frame_time`` is kept.

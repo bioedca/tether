@@ -32,7 +32,7 @@ Design notes
   schema (PRD Appendix D.2) as additive data.
 * **Version 2 adds ``/generations/table``** (#921, ADR-0136), one row per trace
   generation of a movie. A file stamped 1 lacks it and is still complete
-  ([`_missing_skeleton`][] asks for a table only of the versions that declare it);
+  (`_missing_skeleton` asks for a table only of the versions that declare it);
   [`upgrade_to_generations`][] adds it when a writer records the first generation.
 * **The ``<file>.lock`` single-writer marker is a sidecar file**, part of the §5.4
   concurrency lifecycle (M2), not the in-HDF5 schema — it is not written here.
