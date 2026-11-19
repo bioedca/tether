@@ -1012,12 +1012,17 @@ def write_generation(
 
 
 def _replace_movie_settings(f: Any, movie_id: str, profile_json: str | None) -> None:
-    """Make ``profile_json`` the movie's settings record; the previous one is in its inputs."""
+    """Make ``profile_json`` the movie's settings record; the previous one is in its inputs.
+
+    A generation written with no profile records an empty one (``{}``), so the reader's
+    fallback to the experiment-level stamp of a one-movie store cannot make the new
+    generation claim the first extraction's settings.
+    """
     grp = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS]
     movies = grp.get(_MOVIE_SETTINGS)
     if movies is not None and movie_id in movies.attrs:
         del movies.attrs[movie_id]
-    _write_movie_settings(f, movie_id, profile_json)
+    _write_movie_settings(f, movie_id, "{}" if profile_json is None else profile_json)
 
 
 def _drop_feature_cache(f: Any, molecule_ids: set[str]) -> None:

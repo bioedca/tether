@@ -415,3 +415,22 @@ def test_channel_positions_map_back_to_the_camera_pixel_they_came_from(
         xy[:1], frame_shape=frame.shape, crop=(0, 0, 0, 0), rotation_deg=rotation, flip=flip
     )
     assert frame[int(full[0, 1]), int(full[0, 0])] == whole[0, 0]
+
+
+def test_a_generation_written_without_settings_does_not_claim_the_first_ones(
+    tmp_path: Path,
+) -> None:
+    from tether.imaging.extract import _replace_movie_settings
+    from tether.io.generations import generation_inputs
+
+    project = tmp_path / "experiment.tether"
+    extract_movie(_movie_a(tmp_path), project, options=_options())
+    (movie_id,) = _movie_ids(project)
+    with h5py.File(project, "r+") as f:
+        assert generation_inputs(f, movie_id)["options"]  # the first extraction's profile
+        _replace_movie_settings(f, movie_id, None)
+        # The experiment-level stamp is still there, and is not read as this movie's.
+        assert "profile_json" in f["settings"]["extraction"].attrs
+        inputs = generation_inputs(f, movie_id)
+    assert inputs["options"] == {}
+    assert inputs["colocalization"] == "donor-anchored"
