@@ -26,8 +26,8 @@ application, the command line and a recipe see one state:
 
 The machine does not compute a factor; an edge's action (``estimate gamma``) is the
 caller's next step. The scope is the project; one scope per condition follows #624. The
-single-writer lock is checked through the [`Project`][tether.project.core.Project] handle
-before each write; a read takes no lock.
+single-writer lock must be held through the [`Project`][tether.project.core.Project] handle
+for each write, and an unlocked project is refused; a read takes no lock.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
     from tether.project.core import Project
@@ -442,13 +442,15 @@ def send_event(
     Raises [`CorrectionTransitionError`][] when the event has no edge out of the present
     state, unless it is the event that made the present state: then nothing changes and
     the present status is returned. Raises [`CorrectionGuardError`][] when the edge's guard
-    does not hold. The single-writer lock is required.
+    does not hold. The single-writer lock is required: it must be present and this writer's,
+    and under the open file it is checked again, with the scope's transitions, before the row
+    is written, so a steal or a concurrent transition refuses the write.
     """
     import h5py  # noqa: PLC0415
 
     event = CorrectionEvent(event)
     _check_scope(scope)
-    project._assert_writable()
+    epoch = _held_nonce(project)
     status = read_correction_state(project.path, scope)
     edges = [t for t in TRANSITIONS if t.source is status.state and t.event is event]
     if not edges:
@@ -463,6 +465,7 @@ def send_event(
         raise ValueError("apply correction version names the correction_version it applies")
     with h5py.File(project.path, "r") as f:
         rows = [r for r in _rows(f) if r["scope"] == scope]
+    seen = len(rows)
     chosen, reason = _choose(
         edges,
         project.path,
@@ -506,7 +509,20 @@ def send_event(
         "timestamp": datetime.now(UTC).isoformat(timespec="microseconds"),
         "app_version": _app_version(),
     }
-    _append(project.path, row)
+
+    def check(f: object) -> None:
+        # Under the open file: the lock is still the one this transition started under, and
+        # no transition of the scope landed since the state was read.
+        if _held_nonce(project) != epoch:
+            from tether.project import lock  # noqa: PLC0415
+
+            raise lock.LockedError(lock.read_lock(project.path), path=project.lock_path)
+        if len([r for r in _rows(f) if r["scope"] == scope]) != seen:
+            raise CorrectionTransitionError(
+                f"the correction state of the {scope} changed while {event.value!r} was checked"
+            )
+
+    _append(project.path, row, check)
     return read_correction_state(project.path, scope)
 
 
@@ -552,7 +568,24 @@ def _app_version() -> str:
     return version()
 
 
-def _append(path: Path, row: Mapping[str, str]) -> None:
+def _held_nonce(project: Project) -> str:
+    """Return the nonce of the writer lock this handle holds, or raise ``LockedError``.
+
+    A transition needs the lock to be present and this writer's: an unlocked project is
+    refused, unlike the identity check alone (the ``reconcile_jobs`` rule of ADR-0126).
+    """
+    from tether.project import lock  # noqa: PLC0415
+
+    project._assert_writable()
+    if project._held_lock is not None:  # a retained lock binds to its own nonce
+        return project._assert_held_lock()
+    current = lock.read_lock(project.path)
+    if current is None:
+        raise lock.LockedError(None, path=project.lock_path)
+    return current.nonce
+
+
+def _append(path: Path, row: Mapping[str, str], check: Callable[[object], None]) -> None:
     """Append one row to ``/settings/correction_transitions``, created on first use.
 
     The row is built before the dataset grows, and a failed write shrinks it back, so a
@@ -566,6 +599,7 @@ def _append(path: Path, row: Mapping[str, str]) -> None:
     for name in _FIELDS:
         block[name][0] = row[name]
     with h5py.File(path, "r+") as f:
+        check(f)
         settings = f[_SETTINGS]
         if _TRANSITIONS not in settings:
             settings.create_dataset(_TRANSITIONS, shape=(0,), maxshape=(None,), dtype=dtype)

@@ -393,3 +393,36 @@ def test_the_store_layout_is_on_the_format_page(project: Project) -> None:
     assert "/settings/correction_transitions" in page
     for name in fields:
         assert f"`{name}`" in page
+
+
+def test_a_transition_on_an_unlocked_project_is_refused(tmp_path: Path) -> None:
+    # Greptile P1 on PR #1237: the identity check alone let an unlocked project write.
+    project = Project.create(tmp_path / "p.tether")
+    with pytest.raises(LockedError):
+        _send(project, E.FINISH_INITIAL_CURATION)
+    assert _n_rows(project.path) == 0
+    with project.write_lock():  # a lock held for the session, not retained on the handle
+        assert _send(project, E.FINISH_INITIAL_CURATION).state is S.BLEEDTHROUGH_REQUIRED
+
+
+def test_a_transition_that_lands_while_another_is_checked_refuses_the_second(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _drive(project, S.GAMMA_REVIEW)
+    choose = cs._choose
+    raced: list[bool] = []
+
+    def racing_choose(*args: object, **kwargs: object) -> object:
+        if not raced:  # another writer of the same lock moves the state in between
+            raced.append(True)
+            cs.send_event(project, E.INSUFFICIENT_EVIDENCE, ME)
+        return choose(*args, **kwargs)
+
+    monkeypatch.setattr(cs, "_choose", racing_choose)
+    with pytest.raises(cs.CorrectionTransitionError, match="changed"):
+        _send(project, E.APPROVE)
+    status = cs.read_correction_state(project.path)
+    assert status.state is S.CALIBRATION_BLOCKED
+    assert [r.event for r in cs.read_correction_transitions(project.path)][-1] is (
+        E.INSUFFICIENT_EVIDENCE
+    )

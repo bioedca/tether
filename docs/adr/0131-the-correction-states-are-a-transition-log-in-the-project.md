@@ -70,7 +70,10 @@ and `/settings/lock_takeovers` idiom.
    is the caller's next step.
 3. **The store.** `/settings/correction_transitions`, a lazily created, resizable compound dataset
    of UTF-8 strings: `scope`, `from_state`, `event`, `to_state`, `by`, `actor`, `detail` (JSON),
-   `timestamp` (UTC) and `app_version`. Rows are append-only.
+   `timestamp` (UTC) and `app_version`. Rows are append-only. A transition needs the writer lock
+   to be present and this writer's, so an unlocked project is refused (the `reconcile_jobs` rule of
+   ADR-0126). Under the open file the lock epoch and the scope's rows are checked again before the
+   row is written, so a steal or a transition that landed in between refuses the write.
 4. **The scope** is the project now (`scope = "project"`). When #624 gives each condition its own
    factors, each condition becomes a scope of its own in the same column, an additive change; until
    then any other scope is refused.
