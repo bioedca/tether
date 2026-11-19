@@ -479,6 +479,32 @@ A site that allow-lists only the GitHub endpoints **silently disables verificati
 the rule above, but silently. That is a real operational trap, so the administrator documentation
 must list all three, not two.
 
+**What the implementation measured** (amended 2026-11-19 by
+[#333](https://github.com/bioedca/tether/issues/333), against the bundled `gh` 2.104.0 and the real
+`v1.0.0-rc1` Linux installer). Four facts refine this section without changing a decision:
+
+- **The third endpoint is served from two hosts.** `gh` initialises both the Sigstore public-good
+  and GitHub's own Sigstore instance, so its TUF client contacts `tuf-repo-cdn.sigstore.dev` **and**
+  `tuf-repo.github.com` (recorded through a proxy while verifying without `--custom-trusted-root`;
+  `gh attestation trusted-root --help` says its output covers both). Both are the "Sigstore TUF"
+  row above, and both must be listed for an administrator.
+- **`bundle_url` is never followed.** It names a fourth host
+  (`tmaproduction.blob.core.windows.net`, an Azure storage account) outside this table, so an
+  attestation with `bundle: null` is *could not run*, silent, and nothing is installed (maintainer's
+  decision on #333). Today's answers carry the inline bundle.
+- **`gh` 2.104.0 sends telemetry by default**, a per-command event with a device id. Tether runs it
+  with `GH_TELEMETRY=false` and `DO_NOT_TRACK=1`, with every token variable removed, and with a fresh
+  configuration and cache folder per check, so no fifth endpoint and no persistent identifier appear.
+- **"No attestation for these bytes" is *ran and failed*.** GitHub's HTTP 404, or an empty list, for
+  the file's digest is an answer about the file, not a failure to reach anyone, and a tampered or
+  corrupted download produces exactly it; it is reported. Every other failure in step 1 stays
+  *could not run*. Nothing is installed either way. The verify step also runs with every proxy
+  variable pointed at a closed local port, so "no network left in it" is enforced, not assumed.
+
+The privacy-page amendment (decision 5) lands with the pull request that first *calls* the verifier,
+which is the download and hand-off of #331: #333 adds the code, which nothing reaches yet, and a page
+describing requests the shipped application does not make would be false in the other direction.
+
 **Rate limit.** The unauthenticated attestations API allows **60 requests/hour per IP**. A lab behind
 one NAT can exhaust it, which lands in the silent-no-op branch above.
 
