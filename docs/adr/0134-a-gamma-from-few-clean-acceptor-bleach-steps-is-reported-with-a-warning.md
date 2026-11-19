@@ -52,8 +52,10 @@ measured steps are clean. On `lab-01`, `lab-02` and `lab-06` it is 2.7 to 3.0 ti
 and 21 to 58 % are clean. Where the acceptor drops and the donor change is only noise around
 zero, the expected clean fraction is about one half, which a synthetic dataset of the same
 construction reproduces (46 of 100, `tests/test_fret_gamma_clean_steps.py`). Were the acceptor
-change noise as well, it would be about one quarter; a measured step has a detected acceptor
-bleach, so the one-half case is the one that applies.
+change noise as well, it would be about one quarter. A measured step follows a detected acceptor
+bleach, so its acceptor usually drops and the one-half case is the closer one, but the gates do
+not guarantee that the leakage-corrected acceptor drops: where it does not, the clean fraction
+falls toward one quarter and the warning fires all the more.
 
 The two groups are named by that ratio, not by a tolerance. Under the ±10 % γ tolerance of
 PRD §11.2 only `lab-03` (1.07) and `lab-05` (1.09) agree, and `lab-04` (1.20) does not. In this
