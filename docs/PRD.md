@@ -557,7 +557,10 @@ never a standalone pass path (an OR would let two badly-disagreeing estimates bo
 defeating the oracle; §9 M3, §11.2). γ
 **shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise), each level averaged
 over a tolerance window (half-width pinned to 20 frames each side, configurable, or the whole segment each side as an
-option; §11.2; ADR-0130), aggregated by population median [McCann2010].
+option; §11.2; ADR-0130), aggregated by population median [McCann2010]. Among the molecules whose step passed
+both segment gates, the **clean** steps — donor rose **and** leakage-corrected acceptor dropped — **shall** be
+counted and stamped; when an applied γ rests on fewer than the §11.2 clean-step fraction of them, Tether **shall**
+report it with a warning, which changes no γ value (ADR-0134).
 Manual override of every factor **shall** be available.
 Corrections **shall** not be required to *view* traces: apparent-E analysis and histograms work without any
 photobleaching; only the α/γ corrections require bleach steps.
@@ -650,8 +653,11 @@ Tether **shall** present a multi-movie round-trip browser:
 - **Round-trip navigation:** select a trace → the camera jumps to its spot (resolving each molecule to its own
   movie), with synchronized scrubbing and a neighbor/overlap view (static patch + nearest-neighbour distance; movie
   scrub optional); click a spot → its trace.
-- **Familiar conventions:** donor green / acceptor red / FRET blue; FRET y-axis 0–1; x in seconds (from FrameTime,
-  with a frame-index toggle); idealized path drawn as a step overlay.
+- **Familiar conventions:** donor green / acceptor magenta / FRET blue by default — a color-blind-safe set (Paul Tol
+  "bright" on light, Okabe–Ito on dark), checked under simulated protanopia, deuteranopia and tritanopia — with the
+  classic donor green / acceptor red / FRET blue set as the **View → Trace colors** preference, kept in the
+  application settings store (#636, ADR-0123); FRET y-axis 0–1; x in seconds (from FrameTime, with a frame-index
+  toggle); idealized path drawn as a step overlay.
 - **Keyboard map:** the trace dock inherits tMAVEN's per-trace bindings for overlapping actions (← / → prev/next,
   with `↑`/`↓` as aliases; `1`–`9` assign the first nine editable per-condition categories and **`0` clears the
   category back to the *uncategorized* null state** — distinct from any named category, so `Space` alone yields an
@@ -1638,6 +1644,7 @@ this section.
 | γ acceptance ceiling | γ ≤ 5 | `deeplasi/functions/gui/TracesTab/createTracesPlotLayout.m:172` (in-scope 2-color single-row table; `:157` is the out-of-scope 3-color variant, same values) |
 | `min_window_frames` (per-trace bleach-window minimum) | 20 frames | `createTracesPlotLayout.m:172` (2-color single-row table default) |
 | `min_qualifying_traces` (per-dataset minimum before manual entry) | ≈ 10 molecules | Tether default |
+| γ clean-step warning fraction (`min_clean_step_fraction`) | 0.65 of the measured acceptor-bleach steps clean (donor rose and acceptor dropped), else an applied γ is reported with a warning; warn only, γ unchanged; `0` turns it off | Tether, from the #1233 step counts of the workstation run of 2026-11-19 on `1acd4f0`: clean fraction 0.70–0.77 where γ is within 1.2× Deep-LASI's (`lab-03`–`lab-05`), 0.21–0.58 where it is 2.7–3.0× (`lab-01`, `lab-02`, `lab-06`); about 0.5 when the acceptor drops and the donor change is only noise ([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)) |
 | Analysis window | auto = both-dyes-active (start → first bleach on summed intensity); manual per-trace override | Appendix B step 6 |
 | FRET-histogram bootstrap | 1000 resamples; 95% percentile CI (2.5/97.5); resample unit = **molecule**; default seed = 0 | [König2013] BOBA-FRET (also in MASH-FRET [Börner2018]); cross-sample variability ⇒ molecule is the resampled unit (§7.7, §9 M3) |
 | Successive-frame FRET cloud (§7.7) | grid of 200 × 200 nodes on [0, 1] on both axes; Gaussian kernel bandwidth 0.05 (apparent-E units, both axes); contour coverages 10 %, 20 %, …, 90 %; k-means with 4 centroids, the best of 5 k-means++ starts, at most 100 iterations, seed 0 | FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished (`FRET_cloud_contours_centroids.m`, SHA-256 in `scripts/reference/matlab/pins.toml`); the seed and the iteration cap are Tether's (ADR-0105) |
