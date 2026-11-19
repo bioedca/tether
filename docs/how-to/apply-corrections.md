@@ -112,10 +112,11 @@ Read the printed lines:
 2. `gamma = None` means γ was withheld for the same reason.
 3. The molecule counts after `from` are the molecules each factor rests on. A factor built on
    the bare minimum of 10 is a weaker basis than one built on hundreds.
-4. `warning: gamma rests on few clean bleach steps` means most bleach steps had the wrong
-   shape. On a clean step the donor rises as the acceptor drops. Here fewer than 65 % did. The
-   γ is still stored, but it comes mostly from noise. Report it with that caveat, or use a γ
-   measured another way (step 3). `tether batch` writes the same warning in its log. The
+4. `warning: gamma rests on few clean bleach steps` is a reason to check γ. On a clean step
+   the donor rises as the acceptor drops. Here fewer than 65 % of the measured steps did. On
+   noise alone about half read clean by chance, so this γ may rest largely on noise. It may
+   also be sound: a step whose donor did not rise never enters γ. The γ is still stored. Check
+   it, report it with that caveat, or use a γ measured another way (step 3). `tether batch` writes the same warning in its log. The
    project records it as `few_clean_steps` in `/settings/gamma`
    ([`min_clean_step_fraction`](../reference/parameters.md#correction-factors),
    [ADR-0134](../adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).

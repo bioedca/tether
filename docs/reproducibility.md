@@ -100,8 +100,9 @@ whose leakage-corrected acceptor dropped across the step, the shape an acceptor 
 have. `few_clean_steps` is `True` when γ was applied and fewer than `min_clean_step_fraction`
 of the measured steps were clean
 ([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).
-Such a γ is still stored and is not changed by the flag, but it rests mostly on noise: report
-it with that caveat or enter a factor measured another way. A project from before ADR-0134
+Such a γ is still stored and is not changed by the flag. The flag is a reason to check it, not
+proof that it is wrong: on noise about half the steps read clean by chance, so the γ may rest
+largely on noise. Check it, report it with that caveat, or enter a factor measured another way. A project from before ADR-0134
 has none of these four attributes.
 
 **`/settings/correction`** — `src/tether/project/correct.py`. Rewritten on every correction

@@ -19,7 +19,7 @@ over 20 frames each side. On a clean step the acceptor drops and the donor rises
 
 That gate reads a sign, not a shape. Where the donor does not rise on most molecules, `ΔI_D` is
 noise around zero, and about half of the steps still come out with a positive ratio by chance.
-The gate keeps the ones whose noise fell between `ΔI_A / 5` and `ΔI_A`, so the median follows
+The gate keeps the ones whose noise fell between `ΔI_A / 5` and `ΔI_A`, so the median can follow
 the width of the noise rather than the dyes, and Tether reported that γ with no sign that most
 of its steps did not have the expected shape (#1232).
 
@@ -118,6 +118,9 @@ Chosen option: **A**, warn only, chosen by the maintainer on 2026-11-19 over opt
   one laboratory and one run, at one level window. `lab-06` has only 24 measured steps, where one
   step moves its fraction by 0.04. A new acquisition near the boundary can fall either way, and
   the fraction should be revisited when more acquisitions are recorded.
+- Trade-off: the flag is a reason to check γ, not proof that it is wrong. A step whose donor
+  did not rise counts as measured but never enters the median, so a dataset can fall below the
+  fraction with a sound γ. The warning text and the docs say "check", not "noise".
 - Trade-off: the warning is only as visible as the surface that shows it: today the batch log
   and `/settings/gamma`. The application's correction surface (§9.6, #927) does not show it yet.
 - Withholding γ below the fraction (option B) was considered and not chosen. Revisit it with the

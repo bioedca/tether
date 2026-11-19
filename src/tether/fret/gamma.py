@@ -69,9 +69,9 @@ Definitions and gates (PRD §11.2)
   (``ΔI_D > 0``) **and** the leakage-corrected acceptor dropped (``ΔI_A > 0``) over
   the level windows the estimator used, the shape an acceptor bleach must have. When
   fewer than ``DEFAULT_MIN_CLEAN_STEP_FRACTION`` of the evaluated steps are clean, the
-  ``(0, ceiling]`` gate is keeping the positive tail of what is mostly noise and the
-  median follows that noise, not the dyes. [`few_clean_steps`][] says so; it changes
-  no γ value.
+  ``(0, ceiling]`` gate may be keeping the positive tail of noise, and the median may
+  follow that noise rather than the dyes. [`few_clean_steps`][] flags it as a reason to
+  check γ, not as proof; it changes no γ value.
 
 Unlike leakage α (one per-condition factor applied to every molecule), γ is a
 **per-molecule** quantity with a **population-median fallback**: a qualifying
@@ -395,8 +395,9 @@ def few_clean_steps(
 ) -> bool:
     """``True`` when fewer than ``min_fraction`` of the evaluated steps are clean.
 
-    The γ of such a dataset is the median of the positive tail of mostly noise, so it is
-    reported with a warning (PRD §7.2, ADR-0134); this function changes no γ. With no
+    The γ of such a dataset may be the median of the positive tail of noise, so it is
+    reported with a warning to check it (PRD §7.2, ADR-0134). The flag is not proof: a
+    step whose donor did not rise never enters the median. This function changes no γ. With no
     evaluated step there is nothing to judge and it returns ``False``; such a dataset
     has no qualifying trace and its γ is withheld anyway.
 

@@ -40,8 +40,9 @@ attempt is auditable.
 **Clean steps (ADR-0134).** Of the molecules whose step was measured (both segment
 gates passed), those where the donor rose and the acceptor dropped are counted. When
 an applied γ rests on fewer than ``min_clean_step_fraction`` clean steps, the summary
-and the stamp say so (``few_clean_steps``): the ``(0, ceiling]`` gate then keeps the
-positive tail of mostly noise. The warning changes no γ value.
+and the stamp say so (``few_clean_steps``): the ``(0, ceiling]`` gate may then be keeping
+the positive tail of noise. The warning is a reason to check γ, not proof that it is wrong,
+and it changes no γ value.
 
 The single-writer ``.lock`` is the caller's responsibility, mirroring
 [`tether.project.leakage.compute_leakage_alpha`][] (a low-level ``r+`` writer; the
@@ -116,7 +117,7 @@ class GammaSummary:
         Of those, the steps where the donor rose and the acceptor dropped (ADR-0134).
     few_clean_steps
         ``True`` when γ was applied and fewer than ``min_clean_step_fraction`` of the
-        evaluated steps are clean: the γ is reported, but it rests mostly on noise.
+        evaluated steps are clean: the γ is reported, but may rest largely on noise.
         Always ``False`` when γ was withheld. Changes no γ value.
     """
 
