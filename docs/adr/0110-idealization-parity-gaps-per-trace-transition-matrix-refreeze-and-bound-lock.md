@@ -62,7 +62,7 @@ their options with their own sections.
 
 ## Decision
 
-#545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the
+\#545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the
 issue's size budget). This record carries items 3 and 4, which land first; the transition-matrix
 term (item 2) and per-trace vbFRET (item 1) add their own sections here in the pull requests
 that implement them.

@@ -114,4 +114,4 @@ not a sandbox.
 - [Li2020] Li, Zhang, Johnson-Buck & Walter. "Automatic classification and segmentation of
   single-molecule fluorescence time traces with deep learning." *Nature Communications* (2020).
 - [sklearn-persistence] scikit-learn, "Model persistence."
-  https://scikit-learn.org/stable/model_persistence.html
+  <https://scikit-learn.org/stable/model_persistence.html>

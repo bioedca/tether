@@ -21,7 +21,7 @@ run has no person. Today `tether batch` has one rule of this type: a map above t
 `tether batch` uses the estimated factors with no approval at all.
 
 Which steps need a person, what does a batch run do at each of them, and what does the store record? Issues
-#899 (the recipe runner), #918 (map commands), #925 (correction states), #939 (active fit) and #958 (deposit)
+\#899 (the recipe runner), #918 (map commands), #925 (correction states), #939 (active fit) and #958 (deposit)
 implement this contract.
 
 ## Decision drivers
