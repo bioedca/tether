@@ -412,9 +412,12 @@ An **analysis-only import** has no movie and no coordinates — `molecule_key()`
 in fact raise on its `NaN` `donor_xy` — so it uses a second derivation,
 [`_analysis_only_molecule_key`](https://github.com/bioedca/tether/blob/main/src/tether/project/analysis_import.py) (`src/tether/project/analysis_import.py`), hashing the
 source identity, the molecule's row index and the raw donor/acceptor trace bytes.
-That variant *is* unique by construction. The upshot for a downstream reader: **read
-the stored key, do not recompute it** — the recipe above will not reproduce the keys
-of an analysis-only store.
+That variant *is* unique by construction. A new trace generation adds two more cases
+([ADR-0136](../adr/0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md)). A
+molecule that did not move keeps its earlier key. A new molecule whose key an earlier
+generation held takes the same recipe with `|g<n>` appended to the payload. The upshot
+for a downstream reader: **read the stored key, do not recompute it** — the recipe
+above will not reproduce every key.
 
 ## `/conditions` — the structured experimental conditions
 

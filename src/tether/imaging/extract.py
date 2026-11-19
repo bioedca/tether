@@ -196,6 +196,19 @@ def molecule_key(movie_sha256: str, donor_xy: np.ndarray) -> str:
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _generation_key(movie_sha256: str, donor_xy: np.ndarray, generation: int) -> str:
+    """Return a molecule key that also names its trace generation (ADR-0136).
+
+    For a new molecule whose [`molecule_key`][] an earlier generation of the movie held
+    for another molecule (a changed donor geometry can put another molecule at the same
+    sub-image position): the same recipe with ``|g<generation>`` appended to the payload.
+    """
+    xy = np.asarray(donor_xy, dtype=np.float64).ravel()
+    q = round_half_away(xy / MOLECULE_KEY_QUANTUM_PX).astype(np.int64)
+    payload = f"{movie_sha256}|{int(q[0])}|{int(q[1])}|g{int(generation)}"
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
 # --- movie metadata for the /movies row --------------------------------------
 
 
@@ -788,10 +801,11 @@ def _carry_from_previous(
     *,
     previous_movie: Any,
     new_movie: Any,
-) -> list[str]:
+) -> tuple[list[str], np.ndarray]:
     """Give each molecule of ``rows`` that did not move its previous key, label, category, window.
 
-    Mutates ``rows`` in place and returns the carried ``molecule_key`` values (ADR-0136).
+    Mutates ``rows`` in place and returns the carried ``molecule_key`` values and a mask
+    of the rows that took them (ADR-0136).
     Positions are compared in the raw camera frame: each generation's ``donor_xy`` is in
     its own donor sub-image, so it is first mapped back through that generation's donor
     crop, rotation and flip (``previous_movie`` and ``new_movie`` are the two
@@ -803,8 +817,9 @@ def _carry_from_previous(
     from tether.io.generations import match_previous  # noqa: PLC0415
 
     carried: list[str] = []
+    matched = np.zeros(rows.shape[0], dtype=bool)
     if not previous.shape[0]:
-        return carried
+        return carried, matched
     pairs = match_previous(
         _frame_xy(previous["donor_xy"], previous_movie),
         _frame_xy(rows["donor_xy"], new_movie),
@@ -820,10 +835,38 @@ def _carry_from_previous(
         window = np.clip(np.asarray(old["analysis_window"], dtype=np.int64), 0, n_frames)
         rows["analysis_window"][j] = window if window[0] < window[1] else [0, n_frames]
         carried.append(_decode_key(old["molecule_key"]))
+        matched[j] = True
     conditions = {_decode_key(c) for c in previous["condition_id"]}
     if len(conditions) == 1:
         rows["condition_id"] = conditions.pop()
-    return carried
+    return carried, matched
+
+
+def _retire_held_keys(
+    f: Any,
+    movie: MovieMetadata,
+    rows: np.ndarray,
+    matched: np.ndarray,
+    previous: np.ndarray,
+    generation: int,
+) -> None:
+    """Give a generation-qualified key to each unmatched row whose key an earlier generation held.
+
+    A carried key names the molecule it was given to; an unmatched molecule whose
+    position-derived key equals one that the previous generation or an archived one of
+    the movie held is another molecule (it did not match), so it takes
+    [`_generation_key`][] instead, and no key names two molecules (ADR-0136).
+    """
+    from tether.io.generations import ARCHIVE  # noqa: PLC0415
+
+    held = {_decode_key(k) for k in previous["molecule_key"]}
+    archive = f.get("generations/" + ARCHIVE + "/" + movie.movie_id)
+    if archive is not None:
+        for name in archive:
+            held.update(_decode_key(k) for k in archive[name]["molecules"]["molecule_key"][()])
+    for j in np.flatnonzero(~matched):
+        if _decode_key(rows["molecule_key"][j]) in held:
+            rows["molecule_key"][j] = _generation_key(movie.sha256, rows["donor_xy"][j], generation)
 
 
 def _refuse_repeated_keys(f: Any, project_path: Path, keep_out: slice, keys: np.ndarray) -> None:
@@ -870,7 +913,8 @@ def write_generation(
     generation's donor position mapped back through its own donor geometry), the two
     being each other's closest such partner, "did not move": it keeps that molecule's
     ``molecule_key`` and its curation label, category and analysis window, and its key
-    is recorded as carried.
+    is recorded as carried. A molecule that did not match but whose position-derived key
+    an earlier generation of the movie held takes a key that also names its generation.
     Corrections, bleach frames and the ML class start again from their not-computed
     sentinels (ADR-0016). A feature cache with a row for a previous molecule is dropped.
 
@@ -930,7 +974,7 @@ def write_generation(
         movie_row = _build_movie_row(movie)
         movie_row["frame_time"] = stored_movie["frame_time"]
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
-        carried = _carry_from_previous(
+        carried, matched = _carry_from_previous(
             previous_molecules,
             rows,
             traces.n_frames,
@@ -938,6 +982,7 @@ def write_generation(
             previous_movie=stored_movie,
             new_movie=movie_row[0],
         )
+        _retire_held_keys(f, movie, rows, matched, previous_molecules, previous.generation + 1)
         _refuse_repeated_keys(f, project_path, old_rows, rows["molecule_key"])
         profile = _stamp_colocalization(settings, molecules)
         profile_json = json.dumps(profile, sort_keys=True) if profile else None

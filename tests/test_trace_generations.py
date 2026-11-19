@@ -388,6 +388,11 @@ def test_spots_are_matched_in_the_camera_frame_across_a_changed_crop(
     else:
         assert summary.generation.carried_keys == ()
         assert "folded" not in {_text(c) for c in new.molecules["category"]}
+        # The same sub-image positions would hash to the old keys; another molecule at
+        # one of them takes a key that names its generation, so no key names two.
+        new_keys = {_text(k) for k in new.molecules["molecule_key"]}
+        assert not new_keys & set(keys)
+        assert len(new_keys) == len(keys)
 
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])

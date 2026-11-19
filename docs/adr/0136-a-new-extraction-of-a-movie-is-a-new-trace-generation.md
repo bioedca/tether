@@ -95,7 +95,10 @@ when a project is copied without its siblings, as ADR-0126 found for jobs.
    is the mark "carried" (`carried_molecule_keys`). The `condition_id` of the movie is kept when
    every previous molecule had one: the condition is a property of the movie, not an input of the
    extraction, and a re-keyed condition is not lost. A molecule that moved, or is new, has a fresh
-   key and no labels. Corrections, bleach frames and the ML class start again from their
+   key and no labels. When its position-derived key is one an earlier generation of the movie held
+   (a changed donor geometry can put another molecule at the same sub-image position), the key
+   also names its generation (`|g<n>` appended to the payload), so a key never names two
+   molecules. Corrections, bleach frames and the ML class start again from their
    not-computed sentinels (ADR-0016), and a `/features/table` holding a previous molecule is dropped,
    as the window setters drop it.
 6. **Stale marks.** The `trace_generation` instance of a movie is its `movie_id`, and its identity is
