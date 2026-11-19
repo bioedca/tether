@@ -30,7 +30,6 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +65,7 @@ class Request:
     pr: int
     head: str
     message: str
-    joined: str
+    joined: int  # the committer time of the request commit, in seconds since the epoch
 
 
 @dataclass(frozen=True)
@@ -204,12 +203,12 @@ class Git:
             return lines[0], ()
         return None, tuple(line for line in lines[1:] if line)
 
-    def commit_tree(self, tree: str, parent: str, message: str, date: str) -> str:
-        """Write a commit of ``tree`` on ``parent``, with the queue identity and ``date``."""
+    def commit_tree(self, tree: str, parent: str, message: str, date: int) -> str:
+        """Commit ``tree`` on ``parent`` with the queue identity, at epoch second ``date``."""
         # A fixed identity and date make `plan` repeatable: same inputs, same commits.
         env = {f"GIT_{who}_NAME": _NAME for who in ("AUTHOR", "COMMITTER")}
         env |= {f"GIT_{who}_EMAIL": _EMAIL for who in ("AUTHOR", "COMMITTER")}
-        env |= {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+        env |= {f"GIT_{who}_DATE": f"@{date} +0000" for who in ("AUTHOR", "COMMITTER")}
         return self.run("commit-tree", tree, "-p", parent, "-m", message, env=env).stdout.strip()
 
     def push(self, commit: str, branch: str) -> None:
@@ -236,13 +235,14 @@ def read_requests(git: Git) -> list[Request]:
     requests: list[Request] = []
     for ref, commit in git.refs(REQUEST_PREFIX):
         number = ref[len(REQUEST_PREFIX) :]
-        shown = git.run("show", "-s", "--format=%P%x00%cI%x00%B", commit).stdout
+        # `%ct` is seconds since the epoch. The text of `%cI` differs between git versions.
+        shown = git.run("show", "-s", "--format=%P%x00%ct%x00%B", commit).stdout
         parents, joined, message = shown.split("\x00", 2)
         if not number.isdigit() or len(parents.split()) != 1:
             # Not written by `join`. Stop: a train built around a bad request is not the train.
             raise QueueError(f"{ref} is not a merge-queue request (one parent, numeric name)")
-        requests.append(Request(int(number), parents.strip(), message.rstrip("\n"), joined))
-    return sorted(requests, key=lambda r: (datetime.fromisoformat(r.joined), r.pr))
+        requests.append(Request(int(number), parents.strip(), message.rstrip("\n"), int(joined)))
+    return sorted(requests, key=lambda r: (r.joined, r.pr))
 
 
 def join(github: GitHub, number: int, head: str, message: str) -> None:

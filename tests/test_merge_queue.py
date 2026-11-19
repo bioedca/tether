@@ -34,6 +34,7 @@ REPO = "bioedca/tether"
 _KEYS = "AUTHOR_NAME AUTHOR_EMAIL COMMITTER_NAME COMMITTER_EMAIL"
 _WHO = {f"GIT_{key}": "dev@example.org" for key in _KEYS.split()}
 _LINES = "".join(f"line {i}\n" for i in range(1, 11))
+_EPOCH = 1_800_000_000  # the fake GitHub stamps request commits from here, in seconds
 
 
 def _git(cwd: Path, *args: str, env: dict[str, str] | None = None, check: bool = True) -> str:
@@ -129,7 +130,7 @@ class World:
             return 200, json.dumps({"tree": {"sha": tree}}).encode()
         if (method, path) == ("POST", "/git/commits"):
             self.clock += 1  # GitHub stamps the commit; each request is one second later
-            when = {"GIT_COMMITTER_DATE": f"2026-11-19T12:00:{self.clock:02d}+00:00"}
+            when = {"GIT_COMMITTER_DATE": f"@{_EPOCH + self.clock} +0000"}
             parents = [arg for parent in payload["parents"] for arg in ("-p", parent)]
             made = ["commit-tree", payload["tree"], *parents, "-m", payload["message"]]
             return 201, json.dumps({"sha": _git(self.origin, *made, env=when)}).encode()
@@ -182,9 +183,7 @@ def test_join_records_the_request_as_a_ref_and_the_second_join_loses(world: Worl
     assert world.origin_ref("refs/merge-queue/pr-7") == request
 
     world.git.fetch()
-    assert mq.read_requests(world.git) == [
-        mq.Request(7, head, message, "2026-11-19T12:00:01+00:00")
-    ]
+    assert mq.read_requests(world.git) == [mq.Request(7, head, message, _EPOCH + 1)]
 
 
 @pytest.mark.parametrize(
