@@ -620,6 +620,24 @@ note `<name>_tether_note.txt` (the one accepted MATLAB R2023b error, ADR-0088) a
 `provenance.json`. They are simulated, so they hold no measured data; they are outputs of a
 GPL-3.0 program and carry the repository's licence.
 
+`fret-cloud-scripts/sa2-traces` (#710, ADR-0105) is the output of
+`FRET_cloud_contours_centroids.m` of the FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos
+Chavez, 2025, unpublished), run unchanged once by the `cloud` task of
+`scripts/reference/matlab/fret_cloud.py` on MATLAB R2023b on the maintainer's workstation
+(2026-11-15), on the 76 smfret-analysis2 trace files above (column 4 replaced by
+`acceptor / (acceptor + donor)` in temporary copies). The script is pinned by its SHA-256 and is not
+in the repository. The directory holds `files.csv`, `pairs.csv`, `density.h5`, `thresholds.csv`,
+`centroids.csv`, `toolbox.csv` and `provenance.json`. The values derive from the GPL-3.0-only
+smfret-analysis2 traces, so the outputs carry GPL-3.0-only (`REUSE.toml`, `NOTICE`, manifest ids
+`fret-cloud-*`):
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv`,
+`tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv`.
+
 ## RF2-ArfA data set of the tMAVEN authors (#708, ADR-0079) — **CC-BY-4.0**
 
 External third-party data under a different license, as the kinSoftChallenge sets above: the
@@ -880,7 +898,11 @@ in `REUSE.toml` (an `override` entry) and attributed in `NOTICE`.
   `prmTT`; row 13 (that tag) of the Histogram-analysis results `prmThm` and of the
   Transition-analysis results `prmTDP`, with every other row an empty cell; and the project fields
   above plus `frame_rate` and `molTagNames`, all unchanged. `tests/test_mashfret_analysis.py` and
-  `tests/test_mashfret_analysis_sidecar.py` read it.
+  `tests/test_mashfret_analysis_sidecar.py` read it. Its `prmThm` row also holds MASH-FRET's
+  BOBA-FRET bootstrap of the tag (#713, ADR-0108): the settings `thm_start` (100 samples of 17
+  molecules, weighted) and, in `thm_res{2,2}` and `thm_res{2,3}`, each sample's Gaussian fit and
+  histogram. These stored values, made by MASH-FRET at commit `1a1f465` when its authors saved the
+  project, are the reference of `tests/test_mashfret_bootstrap.py`; no MATLAB run made them.
 
 | Source (in the Zenodo record) | Size | SHA-256 |
 |---|---|---|
@@ -900,3 +922,37 @@ ADR-0073). The archive is
 larger than the 200 MB download limit, so it is a `workstation` entry: the weekly workstation run
 reads it from `$TETHER_PRIVATE_DATA`, verifies the checksum above, makes both extracts again and
 compares them byte for byte with the committed files.
+
+## Weninger laboratory hairpin movie (second `.traces` variant, #798) — **CC0-1.0**
+
+External third-party data under a different licence: the data of Xu *et al.*, J. Mol. Biol.
+435(10):168086 (2023), doi:10.1016/j.jmb.2023.168086, deposited by **Keith Weninger** and
+co-authors at Dryad **doi:10.5061/dryad.ht76hdrkc** and copied to Zenodo
+**doi:10.5281/zenodo.7853531** (published 2023-04-21) under **CC0-1.0**. It is annotated CC0-1.0
+in `REUSE.toml` (an `override` entry) and named in `NOTICE`.
+
+The record's one archive, `10072022_All_hairpin_traces.zip` (891,884,203 B, MD5
+`445a12cafcc4bf6f2a0ddf36516997c5` as the record states, SHA-256
+`f42a3b23f4912fa7e25fdf8904f6d4fba264d47bbec2ea23d2ed7f6f37189044`), holds 2,499 `.traces`
+movies at 10, 15 and 50 ms and the laboratory's MATLAB reader,
+`MATLAB_code_for_opening_dot_traces_files.pdf` (306,717 B, SHA-256
+`357e3e0d193b647bb4b257b636e837d078a36517952dd43f80a95d81c06efd84`; not committed). The archive
+is larger than the download tier allows, so its manifest entry is a `workstation` record (path
+`zenodo-7853531/10072022_All_hairpin_traces.zip` below the data folder; no workstation check
+reads it yet), and the one committed movie was read from it with HTTP range requests (no
+transformation):
+
+| Fixture | Source member | Size | SHA-256 |
+|---|---|---|---|
+| `tests/fixtures/weninger_hairpin/cascade110.traces` | `10072022 All hairpin traces/15msec/(CTG)14/20200125/cascade110.traces` | 47,094 B | `504226b25a5ff895a361b4739c2f55f4163ae00dfc0219f9b868a4be84d11513` |
+
+The movie has 872 frames and 13 molecules (the header says 26 channels; each frame holds one more
+value, the frame index). The second movie that #798 names, `10msec/(CAG)14/20220114/Evo31.traces`
+(1,146,478 B, SHA-256 `f1ae4ed5abdb5041042090bf9b4f01e3cf7b96bc54516c46dc9100edb862f8cd`, also
+checked), is **not** committed: it is larger than the 1,000,000 B limit of the git tier.
+
+**Accessed:** 2026-11-14 (members read from Zenodo by range requests; both SHA-256 values equal
+those of the survey of #721; the whole archive downloaded once to compute its SHA-256 and check
+its MD5). **License:** CC0-1.0 — **not** GPL-3.0. Regenerate by copying the member above out of
+the archive; manifest ids `weninger-hairpin-traces` (the archive) and
+`weninger-hairpin-cascade110`. The weekly `reference-data` job does not download the archive.

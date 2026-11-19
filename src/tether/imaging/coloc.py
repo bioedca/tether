@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Donor-anchored colocalization + apply-map-at-extraction (PRD App. E Stages 11-13; M1 S7).
+"""Colocalization under one of two rules + apply-map-at-extraction (PRD App. E Stages 11-13).
 
 The bridge between spot detection ([`tether.imaging.detect`][]) and Sum
 integration ([`tether.imaging.aperture`][]): given donor (reference) spots, an
@@ -11,20 +11,29 @@ position and decide which molecules can actually be extracted.
 
 What this stage does (and deliberately does *not* do)
 -----------------------------------------------------
-* **Stage 11 -- donor-anchored colocalization.** Deep-LASI's ``findColoc(T, 3)``
-  warps every channel's spots into the reference frame, matches nearest neighbours
-  within 3 px, and keeps a molecule *only if it has an independently-detected
-  partner in every channel* (``mapping/findColoc.m:110``). For single-laser FRET
-  that rule silently discards the low-FRET and acceptor-dark population -- exactly
-  the molecules a FRET-efficiency histogram must keep. Dark/non-FRET acceptor
-  states are a real and substantial fraction of FRET data (Vogel 2012, *PLoS ONE*),
-  so Tether **anchors on the donor**: every in-frame donor spot becomes a molecule
-  and its acceptor intensity is read at the *mapped* position regardless of whether
-  an acceptor was independently detected there (Wanninger 2023, *Nat. Commun.*,
-  Deep-LASI). The independent-detection test is still computed, but only as an
-  informational [`acceptor_detected`][tether.imaging.coloc.ColocalizedMolecules.acceptor_detected]
-  flag -- it never
-  drops a molecule.
+* **Stage 11 -- the colocalization rule (ADR-0127, which replaces ADR-0015).** Every
+  in-frame donor spot is a candidate, and the independently detected acceptor spots
+  are warped into donor coordinates and matched to it within ``coloc_distance_px``
+  (the [`acceptor_detected`][tether.imaging.coloc.ColocalizedMolecules.acceptor_detected]
+  flag). The ``policy`` then decides which candidates are molecules:
+
+  - ``partner-in-both`` (the default for a new extraction): only a candidate with a
+    detected acceptor partner is kept. This is Deep-LASI's rule -- ``findColoc(T, 3)``
+    keeps a molecule only if it has a partner in every channel
+    (``mapping/findColoc.m:110``), the "colocalized molecules only" extraction mode
+    (Asadiatouei 2024, *Biophys. J.*).
+  - ``donor-anchored``: every candidate is kept, detected acceptor or not. The partner
+    rule drops the low-FRET and acceptor-dark molecules, whose acceptor is too weak to
+    be detected as a spot of its own; dark/non-FRET acceptor states are a real and
+    substantial fraction of FRET data (Vogel 2012, *PLoS ONE*), so this rule stays
+    available for weak-acceptor and low-FRET samples.
+
+  Under either rule the acceptor intensity is read at the *mapped donor position*,
+  never at the detected acceptor spot (Deep-LASI places its apertures the same way,
+  Stage 12): the partner only decides whether a molecule is kept. The result carries
+  the molecule count each rule would keep
+  ([`rule_counts`][tether.imaging.coloc.ColocalizedMolecules.rule_counts]), so a caller
+  can show both before it extracts anything.
 
 * **Stage 12 -- apply the map in the coordinate domain.** The donor->acceptor read
   position is [`RegistrationMap.apply_reference_to_moving`][] on the *coordinates*;
@@ -54,11 +63,19 @@ What this stage does (and deliberately does *not* do)
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 
 import numpy as np
 from scipy.spatial import cKDTree
 
+from tether.extract_choices import (
+    COLOCALIZATION_POLICIES,
+    DEFAULT_COLOCALIZATION_POLICY,
+    DONOR_ANCHORED,
+    PARTNER_IN_BOTH,
+)
 from tether.imaging.aperture import (
     _validate_frame_shape,
     _validate_window,
@@ -67,26 +84,31 @@ from tether.imaging.aperture import (
 from tether.imaging.calibrate import RegistrationMap
 
 __all__ = [
+    "COLOCALIZATION_POLICIES",
+    "DEFAULT_COLOCALIZATION_POLICY",
     "DEFAULT_COLOC_DISTANCE_PX",
+    "DONOR_ANCHORED",
+    "PARTNER_IN_BOTH",
     "ColocalizedMolecules",
     "colocalize",
 ]
 
 #: Colocalization nearest-neighbour distance gate, in px (PRD §11.2; Deep-LASI
-#: ``batchExtraction.m:182`` calls ``findColoc(T, 3)``). Used **only** for the
-#: informational `ColocalizedMolecules.acceptor_detected` flag -- the
-#: donor-anchored molecule list does not depend on it.
+#: ``batchExtraction.m:182`` calls ``findColoc(T, 3)``). It sets the
+#: `ColocalizedMolecules.acceptor_detected` flag, which the ``partner-in-both`` rule
+#: keeps molecules by; the ``donor-anchored`` molecule list does not depend on it.
 DEFAULT_COLOC_DISTANCE_PX = 3.0
 
 
 @dataclass(frozen=True)
 class ColocalizedMolecules:
-    """Donor-anchored colocalization result (one row per kept donor molecule).
+    """Colocalization result (one row per kept donor molecule).
 
-    Every field is aligned row-for-row: row ``i`` is one molecule, anchored on the
-    donor spot ``donor_index[i]`` of the input, with its acceptor read at
+    Every array field is aligned row-for-row: row ``i`` is one molecule, anchored on
+    the donor spot ``donor_index[i]`` of the input, with its acceptor read at
     ``acceptor_xy[i]``. Only molecules whose ``window x window`` aperture fits in
-    **both** channels are present (the others are skipped, Stage 13).
+    **both** channels are present (the others are skipped, Stage 13), and under the
+    ``partner-in-both`` rule only those with a detected acceptor partner.
 
     Attributes
     ----------
@@ -99,9 +121,9 @@ class ColocalizedMolecules:
     acceptor_detected:
         ``(N,)`` bool -- whether an independently-detected acceptor spot fell within
         ``coloc_distance_px`` of the donor (the classic findColoc "partner" test,
-        evaluated in donor coordinates). **Informational only**; ``False`` does not
-        drop the molecule (the donor-anchored relaxation). All ``False`` when no
-        acceptor spots are supplied.
+        evaluated in donor coordinates). Under ``partner-in-both`` it is ``True`` on
+        every row; under ``donor-anchored`` a ``False`` row is kept (the dark or
+        low-FRET acceptor). All ``False`` when no acceptor spots are supplied.
     donor_index:
         ``(N,)`` int -- the row of the input ``donor_spots`` each molecule came from.
     acceptor_index:
@@ -110,6 +132,20 @@ class ColocalizedMolecules:
         per-donor nearest-neighbour (not mutual/unique), so two donors within the
         gate of the same acceptor may share an ``acceptor_index`` -- it is not a
         bijection.
+    policy:
+        The colocalization rule that chose these rows, one of
+        [`COLOCALIZATION_POLICIES`][tether.extract_choices.COLOCALIZATION_POLICIES].
+        Defaults to ``donor-anchored`` so a result built by hand from coordinates
+        keeps every row it was given.
+    rule_counts:
+        ``{policy: n_molecules}`` -- how many molecules each rule keeps from the same
+        spots, so the counts can be shown before the run (#920). Empty for a result
+        not built by [`colocalize`][].
+    detection_recorded:
+        Whether ``acceptor_detected`` was measured here from independently detected
+        acceptor spots, so a project may store it (ADR-0127). ``False`` by default,
+        for a result built by hand from coordinates -- a recovered Deep-LASI set, say --
+        whose flag is a placeholder; [`colocalize`][] sets ``True``.
     """
 
     donor_xy: np.ndarray
@@ -117,6 +153,18 @@ class ColocalizedMolecules:
     acceptor_detected: np.ndarray
     donor_index: np.ndarray
     acceptor_index: np.ndarray
+    policy: str = DONOR_ANCHORED
+    rule_counts: Mapping[str, int] = field(default_factory=dict)
+    detection_recorded: bool = False
+
+    def __post_init__(self) -> None:
+        """Check the policy and freeze ``rule_counts`` so a recorded count cannot change."""
+        if self.policy not in COLOCALIZATION_POLICIES:
+            raise ValueError(
+                f"policy must be one of {COLOCALIZATION_POLICIES}, got {self.policy!r}"
+            )
+        counts = {str(k): int(v) for k, v in dict(self.rule_counts).items()}
+        object.__setattr__(self, "rule_counts", MappingProxyType(counts))
 
     def __len__(self) -> int:
         """Number of kept molecules; makes an empty result falsy (``if result:``)."""
@@ -124,7 +172,7 @@ class ColocalizedMolecules:
 
     @property
     def n_molecules(self) -> int:
-        """Number of kept (extractable) donor-anchored molecules."""
+        """Number of kept (extractable) molecules under ``policy``."""
         return len(self)
 
 
@@ -152,8 +200,9 @@ def colocalize(
     acceptor_spots: np.ndarray | None = None,
     window: int = 21,
     coloc_distance_px: float = DEFAULT_COLOC_DISTANCE_PX,
+    policy: str = DEFAULT_COLOCALIZATION_POLICY,
 ) -> ColocalizedMolecules:
-    """Pair donor spots with donor-anchored acceptor positions (Stages 11-13).
+    """Pair donor spots with their mapped acceptor positions under ``policy`` (Stages 11-13).
 
     Parameters
     ----------
@@ -176,7 +225,8 @@ def colocalize(
         [`acceptor_detected`][tether.imaging.coloc.ColocalizedMolecules.acceptor_detected]
         (warped into donor coordinates and nearest-neighbour matched within
         ``coloc_distance_px``); when ``None`` every molecule is flagged undetected.
-        They **never** filter the donor-anchored molecule list.
+        Under ``partner-in-both`` they decide which molecules are kept, so that rule
+        requires them; under ``donor-anchored`` they never filter the list.
     window:
         Odd aperture side length in px (default 21); a molecule is kept only if its
         ``window x window`` crop fits inside both frames (Stage 13).
@@ -185,11 +235,22 @@ def colocalize(
         Strict (``< gate``, matching ``findColoc.m:58``, applied explicitly in NumPy
         so it does not depend on cKDTree's boundary convention): an acceptor at
         exactly the gate distance is not a match.
+    policy:
+        The colocalization rule, one of
+        [`COLOCALIZATION_POLICIES`][tether.extract_choices.COLOCALIZATION_POLICIES]
+        (default ``partner-in-both``, ADR-0127).
 
     Returns
     -------
     ColocalizedMolecules
-        One row per in-frame donor molecule; see the dataclass for the fields.
+        One row per kept molecule, with the count of both rules in
+        [`rule_counts`][tether.imaging.coloc.ColocalizedMolecules.rule_counts].
+
+    Raises
+    ------
+    ValueError
+        For an unknown ``policy``, or ``partner-in-both`` without ``acceptor_spots``
+        (with no acceptor spots that rule would keep no molecule, silently).
     """
     if not isinstance(registration_map, RegistrationMap):
         raise TypeError(
@@ -197,6 +258,13 @@ def colocalize(
         )
     if not (coloc_distance_px > 0):
         raise ValueError(f"coloc_distance_px must be > 0, got {coloc_distance_px}")
+    if policy not in COLOCALIZATION_POLICIES:
+        raise ValueError(f"policy must be one of {COLOCALIZATION_POLICIES}, got {policy!r}")
+    if policy == PARTNER_IN_BOTH and acceptor_spots is None:
+        raise ValueError(
+            "the partner-in-both rule needs acceptor_spots (it keeps only molecules with a "
+            "detected acceptor); pass them, or choose policy='donor-anchored'"
+        )
     # Validate window + shapes up front via the shared aperture validators (not only
     # inside aperture_in_frame) so the contract holds even when donor_spots is empty
     # and the guardrail never runs -- and matches integrate_traces exactly.
@@ -206,7 +274,7 @@ def colocalize(
 
     donor_xy = _as_xy(donor_spots, "donor_spots")
     if donor_xy.shape[0] == 0:
-        return _empty_result()
+        return _empty_result(policy)
 
     # Stage 12: apply the map in the coordinate domain (no movie rewarp). The
     # donor-anchored acceptor read position is the donor warped forward
@@ -224,13 +292,23 @@ def colocalize(
     acceptor_detected, acceptor_index = _annotate_detection(
         donor_xy, acceptor_spots, registration_map, coloc_distance_px
     )
+    counts = {
+        PARTNER_IN_BOTH: int(np.count_nonzero(acceptor_detected)),
+        DONOR_ANCHORED: int(donor_xy.shape[0]),
+    }
 
+    # Stage 11: the rule. Partner-in-both keeps a candidate only with a detected
+    # acceptor partner; the acceptor is still read at the mapped donor position.
+    rows = acceptor_detected if policy == PARTNER_IN_BOTH else np.ones(len(donor_xy), bool)
     return ColocalizedMolecules(
-        donor_xy=donor_xy,
-        acceptor_xy=acceptor_xy,
-        acceptor_detected=acceptor_detected,
-        donor_index=donor_index.astype(np.intp),
-        acceptor_index=acceptor_index,
+        donor_xy=donor_xy[rows],
+        acceptor_xy=acceptor_xy[rows],
+        acceptor_detected=acceptor_detected[rows],
+        donor_index=donor_index[rows].astype(np.intp),
+        acceptor_index=acceptor_index[rows],
+        policy=policy,
+        rule_counts=counts,
+        detection_recorded=acceptor_spots is not None,
     )
 
 
@@ -245,12 +323,13 @@ def _annotate_detection(
     Warps the acceptor spots into donor coordinates (Stage 11, "warp R spots into G
     coords") and nearest-neighbour matches each kept donor within
     ``coloc_distance_px`` (``cKDTree``, strict ``< gate`` per ``findColoc.m:58``).
-    The match is per-donor nearest-acceptor (not mutual or one-to-one) -- a
-    deliberate approximation of findColoc's ``max``-over-gate assignment
-    (``findColoc.m:60``), acceptable because the flag is informational only.
-    Returns ``(acceptor_detected, acceptor_index)`` aligned with ``donor_xy``; an
-    unmatched donor gets ``acceptor_index == -1``. The result never filters the
-    molecule list -- it is the donor-anchored informational flag only.
+    The match is per-donor nearest-acceptor (not mutual or one-to-one), as in
+    findColoc, which takes for each reference spot an other-channel spot within the
+    gate (``findColoc.m:58-60``): whether a donor *has* a partner -- the only thing the
+    ``partner-in-both`` rule reads -- is the same either way, since the nearest acceptor
+    is within the gate exactly when any acceptor is. Returns
+    ``(acceptor_detected, acceptor_index)`` aligned with ``donor_xy``; an unmatched donor
+    gets ``acceptor_index == -1``.
     """
     n = donor_xy.shape[0]
     detected = np.zeros(n, dtype=bool)
@@ -278,7 +357,7 @@ def _annotate_detection(
     return detected, acceptor_index
 
 
-def _empty_result() -> ColocalizedMolecules:
+def _empty_result(policy: str) -> ColocalizedMolecules:
     """An all-empty result with the right shapes/dtypes (no donor molecules)."""
     return ColocalizedMolecules(
         donor_xy=np.empty((0, 2), dtype=np.float64),
@@ -286,4 +365,7 @@ def _empty_result() -> ColocalizedMolecules:
         acceptor_detected=np.empty(0, dtype=bool),
         donor_index=np.empty(0, dtype=np.intp),
         acceptor_index=np.empty(0, dtype=np.intp),
+        policy=policy,
+        rule_counts={PARTNER_IN_BOTH: 0, DONOR_ANCHORED: 0},
+        detection_recorded=True,
     )

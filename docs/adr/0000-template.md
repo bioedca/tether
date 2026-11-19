@@ -24,7 +24,7 @@ scientific, governance)? Two or three sentences, framed as a question.
 
 ## Decision outcome
 
-Chosen option: **"Option A"**, because <justification>.
+Chosen option: **"Option A"**, because \<justification\>.
 
 ### Consequences
 

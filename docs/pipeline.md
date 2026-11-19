@@ -10,7 +10,7 @@ you can say in a paper. You do not need to be a contributor, and nothing here as
 anything. This page is explanation only: for *how* to do something, follow the links to
 [Install Tether](install.md), the [Command line](cli.md), the [Exports](reference/exports.md)
 and [Analysis parameters](reference/parameters.md) references, and the
-[project store](reference/tether-format.md) reference.
+[project file](reference/tether-format.md) reference.
 
 ## The pipeline at a glance
 
@@ -19,7 +19,7 @@ acquisition joins it later: its traces were already integrated, so it is importe
 into a project and skips the split-to-extract stages
 ([Legacy Deep-LASI import](io/legacy-import.md)). The stages that keep a result keep it in one
 [`.tether` project file](reference/tether-format.md), which refers to your movie rather than
-copying its pixels ([the store references your movies](compatibility.md#the-store-references-your-movies-it-does-not-copy-them));
+copying its pixels ([the project file references your movies](compatibility.md#the-project-file-references-your-movies-it-does-not-copy-them));
 some stages write nothing, and exports are new files written where you direct them:
 
 ```text
@@ -47,7 +47,7 @@ does not refuse, and falls back to apparent E when the factors are missing
 [`tether.project.correct`](https://github.com/bioedca/tether/blob/main/src/tether/project/correct.py)).
 
 The batch runner stops at idealization: curation, analysis and export are not part of it.
-Curation in particular is your judgement, made in the app, and it can happen any time after
+Curation in particular is your judgment, made in the app, and it can happen any time after
 extraction.
 
 ## The stages
@@ -70,9 +70,12 @@ plan memory for extraction by that rather than by the file size
 
 ### Split
 
-`tether.imaging.split` cuts each frame into its donor and acceptor halves.
+`tether.imaging.split` cuts each frame into its donor and acceptor channels. The movie's channel
+layout (`tether.imaging.layout`) says where each channel is. It is side by side (the default),
+top and bottom, or one free rectangle for each channel.
 
-- **Writes:** nothing on its own.
+- **Writes:** the layout record `/movies/layouts/<movie_id>`, with the movie's other records,
+  when the movie is extracted.
 
 ### Detect
 
@@ -100,6 +103,16 @@ not applied. A `.tmap` that also rotates or flips a channel is refused for now
 ([acquisition geometry](compatibility.md#acquisition-geometry);
 [`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
 
+A map can also come from a bead slide. `tether.imaging.beadmap` takes one bead image, or a
+bead video reduced to one image over the frames you choose with a `max` or `mean`
+projection, and runs the same detection, prealign, pairing and fit on it. With one image it
+gives the same map as the steps above. It stores the source id, the frame range and the
+projection with the map, and a quality record: the RMS residual, the number of pairs, the
+residual of each pair, and the fraction of the field the pairs cover. A source with fewer
+than six bead spots in either half is refused
+([`min_bead_spots`](reference/parameters.md#registration-and-colocalization)). This is a
+Python entry point only for now: `tether extract` has no option to use such a map yet.
+
 - **Writes:** the registration map under `/calibration`, with its residual and source.
 - **Read more:** [registration](glossary.md#registration-tmap),
   [Analysis parameters](reference/parameters.md#registration-and-colocalization)
@@ -107,13 +120,16 @@ not applied. A `.tmap` that also rotates or flips a channel is refused for now
 ### Colocalize
 
 `tether.imaging.coloc` pairs each donor spot with the acceptor position the registration map
-predicts for it. The donor is the anchor: every donor spot whose extraction window fits
-inside both channels becomes a molecule, whether or not a separate acceptor spot was detected
-there; the ADR records why Tether chose the donor as the anchor
-([donor-anchored colocalization](glossary.md#donor-anchored-colocalization);
-[ADR-0015](adr/0015-donor-anchored-colocalization.md)).
+predicts for it, and keeps the donor spots whose aperture window fits inside both channels.
+By default it keeps only those with an acceptor spot detected near that position
+([partner-in-both](glossary.md#partner-in-both-colocalization)); with
+`--colocalization donor-anchored` it keeps them all
+([donor-anchored](glossary.md#donor-anchored-colocalization)). Either way the acceptor is
+read at the mapped position, and the molecule count of each rule is reported
+([ADR-0127](adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)).
 
-- **Writes:** nothing on its own; the pairs are what extraction integrates.
+- **Writes:** nothing on its own; the pairs are what extraction integrates, and whether each
+  molecule's acceptor was detected is stored with it (`/molecules/acceptor_detected`).
 
 ### Extract
 
@@ -128,6 +144,19 @@ file, and row *i* of every trace array is the same molecule
 - **Read more:** [Command line](cli.md#tether-extract),
   [Legacy Deep-LASI import](io/legacy-import.md) for bringing in traces that were extracted
   elsewhere.
+
+### Preview the stages before a run
+
+`tether.project.preview` runs split, detect, register, colocalize and extract on a movie that is
+already in memory, in the same order and with the same settings as a real extraction, and
+stops before anything is written. It gives one result for each stage: what the stage
+produced, the settings it used, and an outcome. A stage that cannot finish reports `failed`
+with the reason, and a native fit that misses the RMS gate reports `over-gate`. The
+molecules and traces it gives are the same, bit for bit, as the ones a real run makes. This
+is true when both use the same channel geometry and the same registration source. A different
+geometry can give a different result ([`tether.project.preview`](https://github.com/bioedca/tether/blob/main/src/tether/project/preview.py)).
+
+- **Writes:** nothing.
 
 ### Curate
 
@@ -151,7 +180,7 @@ acceptor, and `tether.project.photobleach` writes the result and proposes the an
 ([photobleach frames](glossary.md#photobleach-frames-first-bleach-frame);
 [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)).
 
-- **Writes:** `bleach_frames` and, where the window is still the extraction default,
+- **Writes:** `bleach_frames` and, where the analysis window is still the extraction default,
   `analysis_window` on each molecule.
 - **Read more:** [Analysis parameters](reference/parameters.md#photobleaching-and-the-analysis-window)
 
@@ -203,7 +232,7 @@ fit over a new selection; re-fitting a stale model keeps its original molecules
 
 `tether.project.export` writes a molecule table, a Deep-LASI trace matrix, or a smaller
 self-contained `.tether`, and `tether.analysis.plot_export` writes figures. Each one carries a provenance file
-beside it ([provenance sidecar](reference/exports.md#provenance-sidecar)).
+beside it ([provenance file](reference/exports.md#provenance-file)).
 
 - **Writes:** new files where you direct them; the source project is never modified.
 - **Read more:** [Exports](reference/exports.md)
@@ -238,7 +267,7 @@ missing factor reach any number. The factor's cell holds a `NaN` sentinel meanin
 applied", and the molecule is stamped `apparent-E (corrections unavailable)`, which tells
 every reader to use apparent E instead
 ([ADR-0003](adr/0003-apparent-e-never-nan.md);
-[project store](reference/tether-format.md#molecules-one-row-per-molecule)). The plot looks the same either way, so the
+[project file](reference/tether-format.md#molecules-one-row-per-molecule)). The plot looks the same either way, so the
 plot cannot tell you whether a correction was applied; the molecule's `correction_method` and
 the `/settings/correction` record can ([correction_method](glossary.md#correction_method)).
 
@@ -264,7 +293,7 @@ cross-tool γ comparison has to divide it out
 ([`tether.fret.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/fret/gamma.py);
 [ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
 
-### Why bleach frames come first, and why your window wins
+### Why bleach frames come first, and why your analysis window wins
 
 Both correction factors are read off photobleaching. α comes from the stretch after the
 acceptor has bleached but the donor has not; the estimator assumes that the acceptor-channel
@@ -283,14 +312,14 @@ molecule's full trace and its bleach frames
 ([`tether.project.leakage`](https://github.com/bioedca/tether/blob/main/src/tether/project/leakage.py),
 [`tether.project.gamma`](https://github.com/bioedca/tether/blob/main/src/tether/project/gamma.py)). Photobleach detection
 proposes one, from the start of the trace to the first bleach of the summed donor and acceptor
-signal, but it writes that proposal only where the window is still the untouched extraction
-default. A later detection pass leaves any other window alone, whether you narrowed it by hand or an
+signal, but it writes that proposal only where the analysis window is still the untouched extraction
+default. A later detection pass leaves any other analysis window alone, whether you narrowed it by hand or an
 earlier pass proposed it: manual bounds win over the automatic one, and re-detected bleach
-frames do not move a window that is already set
+frames do not move an analysis window that is already set
 ([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py);
 [ADR-0026](adr/0026-photobleach-detection-and-window-default.md)). The bleach frames
-themselves are re-detected each time the correction stage runs. Changing a window is still a
-change to the inputs, so any idealization fitted on the old window becomes stale (next
+themselves are re-detected each time the correction stage runs. Changing an analysis window is still a
+change to the inputs, so any idealization fitted on the old analysis window becomes stale (next
 section).
 
 ### What provenance-first storage lets you claim
@@ -300,23 +329,23 @@ coordinates and its content-derived identity, the correction factors and the met
 produced them, and the parameters and Tether version of the extraction, leakage, γ and
 correction passes ([ADR-0001](adr/0001-provenance-first-data-model.md);
 [`/settings`](reference/tether-format.md#settings-provenance-of-each-pipeline-stage)).
-Photobleach detection is the exception: it records the bleach frames and window it found, but
+Photobleach detection is the exception: it records the bleach frames and analysis window it found, but
 not the detector settings it used
 ([`tether.project.photobleach`](https://github.com/bioedca/tether/blob/main/src/tether/project/photobleach.py)). The two table exports carry only part
 of it. The Deep-LASI `.txt` trace matrix holds intensities alone; the molecule-table CSV adds
-each molecule's window, α, γ and correction method. The provenance sidecar beside each export
+each molecule's analysis window, α, γ and correction method. The provenance file beside each export
 records the export's own parameters, the Tether version that wrote it and the project it came
 from, but not the parameters of the passes that produced the factors, so only a `.tether`
 file, the project or a subset exported from it (which copies `/settings`), answers all of
 those questions
-([provenance sidecar](reference/exports.md#provenance-sidecar)).
+([provenance file](reference/exports.md#provenance-file)).
 
 Idealization is where this pays off most. By default the model is fitted on the
 background-subtracted donor and acceptor intensities, with no α or γ applied; a fit can be
 asked to use the `raw` layer instead, and the stored model records which in its
 `intensity_quantity`
 ([`tether.project.idealize`](https://github.com/bioedca/tether/blob/main/src/tether/project/idealize.py)), but each fitted molecule carries a
-fingerprint of that trace, its window, and the α and γ in force for it when it was fitted.
+fingerprint of that trace, its analysis window, and the α and γ in force for it when it was fitted.
 Change any of those and the fingerprint no longer matches, the molecule is marked stale, and
 the four staleness-gated analyses above leave it out by default until it is re-fitted. A change in α marks
 every molecule whose E uses the correction stale, because one α applies to all of them; a
@@ -326,7 +355,7 @@ Re-running the estimate and getting the same α changes nothing. A shift in the 
 only the corrected molecules that took that median
 ([ADR-0029](adr/0029-idealization-correction-provenance-hash-and-per-factor-staleness.md);
 [staleness](glossary.md#staleness-stale-fresh-live)). That is what lets you say that a dwell
-time or a transition rate came from exactly the trace, window and correction state
+time or a transition rate came from exactly the trace, analysis window and correction state
 recorded with it, and not from an older version of them. When the result leaves Tether, the
-[provenance sidecar](reference/exports.md#provenance-sidecar) beside each export names the
+[provenance file](reference/exports.md#provenance-file) beside each export names the
 project it came from, which is where the rest of that record stays.

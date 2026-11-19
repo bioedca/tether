@@ -279,6 +279,34 @@ Ha laboratory SAM/SAH riboswitch data  (CC-BY-4.0)  — Liao T-W, Huang L,
     tests/fixtures/ha_sam_sah/test3.dat
     tests/fixtures/ha_sam_sah/counts2.txt
 
+FRET_cloud script output on the smfret-analysis2 test data  (GPL-3.0-only)  —
+  the output of FRET_cloud_contours_centroids.m of the FRET_cloud scripts
+  (FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished), run once in
+  MATLAB on the 76 smfret-analysis2 trace files above (issue #710, ADR-0105).
+  The values derive from those GPL-3.0-only traces, so these files are
+  GPL-3.0-only (see LICENSES/GPL-3.0-only.txt and the REUSE.toml annotation).
+  The script itself is NOT vendored. The files:
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv
+
+Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
+  Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
+  preferred states of complementary trinucleotide repeat DNA hairpins
+  anticorrelates with expansion disease propensity," Journal of Molecular
+  Biology 435(10):168086 (2023), doi:10.1016/j.jmb.2023.168086. Data: Zenodo
+  doi:10.5281/zenodo.7853531, a copy of Dryad doi:10.5061/dryad.ht76hdrkc
+  (CC0-1.0).
+  Tether bundles a verbatim copy of one .traces movie of the record's archive,
+  used only as a test reference for the second .traces variant (#798). It is
+  dedicated to the public domain under CC0-1.0 (see LICENSES/CC0-1.0.txt and the
+  REUSE.toml annotation), NOT GPL-3.0; Tether names the authors as a courtesy:
+    tests/fixtures/weninger_hairpin/cascade110.traces
+
 PySMACKS tutorial traces  (CC0-1.0)  — Molcrette B & Schmid S, "Dataset for the
   PySMACKS tutorial" (v1.0.0), Zenodo doi:10.5281/zenodo.21793247 (CC0-1.0).
   Tether does not bundle the traces: the weekly reference-data job downloads

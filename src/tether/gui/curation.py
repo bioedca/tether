@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CATEGORY_SLOTS",
+    "CURATION_SCOPE",
     "UNCATEGORIZED_CLASS",
     "Command",
     "CurationAction",
@@ -65,6 +66,10 @@ __all__ = [
 #: §7.4): ``Space`` alone yields an accepted-but-uncategorized trace, and ``0``
 #: clears any named category back to it. Named categories are classes ``>= 1``.
 UNCATEGORIZED_CLASS = 0
+
+#: The keymap scope of the curation keys (#342). A section of the shell that declares it
+#: as its [`keymap_scope`][tether.gui.sections.SectionSpec] is where those keys act.
+CURATION_SCOPE = "curation"
 
 #: The number of categories addressable by the ``1``–``9`` hotkeys; categories
 #: beyond this are assigned via the overflow picker (exercised fully once the M4
@@ -418,11 +423,15 @@ class Keymap:
 
     # --- cheat-sheet ---------------------------------------------------------
 
-    def cheatsheet(self) -> list[tuple[str, str]]:
+    def cheatsheet(
+        self, *, unavailable: frozenset[CurationAction] = frozenset()
+    ) -> list[tuple[str, str]]:
         """Ordered ``(key_label, description)`` rows describing the current map.
 
         The shipped help overlay renders these; a test asserts a rebound key is
-        reflected here. Key labels come from ``QKeySequence`` (native text).
+        reflected here. Key labels come from ``QKeySequence`` (native text). A row
+        whose action is in ``unavailable`` gets ``" (unavailable)"`` appended, so a
+        host that has not implemented a command does not advertise it (#345).
         """
         from pyqtgraph.Qt import QtGui
 
@@ -431,7 +440,10 @@ class Keymap:
         for (key, mods), cmd in self.bindings.items():
             label = QtGui.QKeySequence(key | mods).toString(native)
             priority = _ACTION_ORDER.get(cmd.action, len(_ACTION_ORDER))
-            rows.append((priority, mods, key, label, action_description(cmd)))
+            description = action_description(cmd)
+            if cmd.action in unavailable:
+                description += " (unavailable)"
+            rows.append((priority, mods, key, label, description))
         rows.sort()
         return [(label, desc) for _, _, _, label, desc in rows]
 
@@ -510,12 +522,28 @@ class CurationEventFilter:
     scope. After a ``JUMP`` (camera round-trip) focus is returned to the
     registered dock widget, mirroring tMAVEN.
 
+    The keymap can also be scoped to a section of the shell (#342): ``scope_active``
+    is asked on each ``KeyPress`` that would dispatch a command, and while it returns
+    ``False`` the key is not dispatched and not consumed, so it keeps its native
+    meaning. The shell passes a predicate that is ``True`` only while the current
+    section declares the curation keymap scope. ``None`` (the default) keeps the keymap
+    always active.
+
     The exemption is keyed on the **focused** widget, not merely the event's
     target: a focused ``QLineEdit`` that *ignores* a key (e.g. ``Enter``, which it
     leaves for a default button) lets Qt propagate the event up to a non-text
     parent, and an app-level filter is re-invoked for each parent. Checking the
     focus widget (which stays the text field throughout propagation) keeps the
     category field fully exempt, so editing text never fires a curation action.
+
+    A focused push button keeps the keys it owns natively — ``Space``, ``Enter``
+    and ``Return`` (#832) — so the start-page buttons and **Un-reject selected**
+    activate from the keyboard. ``Space`` is passed through to the button. A
+    ``QPushButton`` outside a dialog is not *auto-default*, so Qt itself ignores
+    ``Enter``/``Return`` there; the filter therefore clicks the button and consumes
+    the key, as a dialog's auto-default button does. Every other curation key
+    (``←``/``→``, ``Backspace``, the category digits …) still curates with a button
+    focused.
 
     Install with [`install`][] (defaults to the running ``QApplication``) and
     tear down with [`remove`][] — important under pytest-qt, whose
@@ -530,10 +558,13 @@ class CurationEventFilter:
         focus_dock: QtWidgets.QWidget | None = None,
         scope_window: QtWidgets.QWidget | None = None,
         scope_widgets: tuple[QtWidgets.QWidget, ...] = (),
+        scope_active: Callable[[], bool] | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
         self._controller = controller
+        # The section predicate (#342): while it returns False no chord dispatches.
+        self._scope_active = scope_active
         self._keymap = keymap if keymap is not None else Keymap.default()
         self._focus_dock = focus_dock
         self._scope_window = scope_window
@@ -556,6 +587,11 @@ class CurationEventFilter:
         )
         self._key_press = QtCore.QEvent.Type.KeyPress
         self._key_release = QtCore.QEvent.Type.KeyRelease
+        # The keys a focused push button owns natively (#832): Space presses it,
+        # Enter/Return activates it.
+        key = QtCore.Qt.Key
+        self._space_key = _as_int(key.Key_Space)
+        self._activate_keys = frozenset({_as_int(key.Key_Return), _as_int(key.Key_Enter)})
 
         # Lazily define the QObject subclass so the module stays Qt-free to import.
         outer = self
@@ -582,6 +618,11 @@ class CurationEventFilter:
     def qobject(self) -> QtCore.QObject:
         """The underlying ``QObject`` (what ``installEventFilter`` receives)."""
         return self._qobject
+
+    @property
+    def active(self) -> bool:
+        """Whether a mapped chord dispatches now: ``scope_active()``, or ``True`` without one."""
+        return self._scope_active is None or bool(self._scope_active())
 
     def set_focus_dock(self, widget: QtWidgets.QWidget | None) -> None:
         """Register the dock to refocus after a ``JUMP`` (camera round-trip)."""
@@ -659,10 +700,33 @@ class CurationEventFilter:
         if is_text_entry(watched) or is_text_entry(focus):
             return False
         modifiers = _as_int(event.modifiers()) & self._significant_mask
-        command = self._keymap.command_for(_as_int(event.key()), modifiers)
+        key = _as_int(event.key())
+        # A focused push button keeps Space and Enter/Return (#832). As with the
+        # text exemption, check the target and the focused widget.
+        button = self._push_button(focus) or self._push_button(watched)
+        if button is not None and not modifiers:
+            if key == self._space_key:
+                return False  # QAbstractButton presses on Space, clicks on release
+            if key in self._activate_keys:
+                if not button.autoDefault() and button.isEnabled():
+                    # Qt ignores Enter on a non-auto-default button; click it here.
+                    # Record the key first: a click that opens a modal dialog runs
+                    # its event loop inside this call, and the release must not
+                    # reach that dialog.
+                    self._consumed_press_keys.add(key)
+                    if not event.isAutoRepeat():
+                        button.click()
+                    return True
+                # An auto-default button clicks itself on Enter; a disabled one
+                # takes no action. Neither curates.
+                return False
+        command = self._keymap.command_for(key, modifiers)
         if command is None:
             return False  # unmapped: let the native widget handle it
-        key = _as_int(event.key())
+        if not self.active:
+            # The current section has no curation keys (#342): the key keeps its
+            # native meaning there and never reaches the controller.
+            return False
         # One physical hold must not append repeated accept/reject provenance rows.
         # Navigation still repeats so a curator can keep moving through the list.
         if event.isAutoRepeat() and command.action in {
@@ -678,6 +742,12 @@ class CurationEventFilter:
             self._focus_dock.setFocus()
         self._consumed_press_keys.add(key)
         return True
+
+    def _push_button(self, widget: Any) -> Any:
+        """``widget`` if it is a ``QPushButton``, else ``None`` (#832)."""
+        if isinstance(widget, self._qtwidgets.QPushButton):
+            return widget
+        return None
 
     def _current_focus(self) -> Any:
         """The application's focused widget (``None`` when nothing has focus)."""

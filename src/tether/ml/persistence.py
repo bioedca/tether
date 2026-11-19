@@ -9,9 +9,12 @@ experiment files), reloaded and retrained video-by-video, *not* trapped inside o
 save primitives — kept Qt-free and **store-free** (pure [`tether.ml`][]): it moves a fitted
 [`QualityRanker`][tether.ml.gbranker.QualityRanker] plus its provenance to and from a portable file
 and
-refits it at the video boundary. Wiring the artifact to a project's ``/models`` reference and its
-own single-writer owner-curator lock (PRD §5.1 ``/models``, §7.10) is the store-integration layer
-and lands in a later PR; nothing here touches a ``.tether``.
+refits it at the video boundary. Nothing here touches a ``.tether`` or takes a lock: the
+store-integration layer — the project's ``/models`` reference to the artifact and the artifact's
+own single-writer owner-curator lock (PRD §5.1 ``/models``, §7.10) — is
+[`tether.project.model_artifact`][] (ADR-0119). A curator who saves through
+[`model_writer`][tether.project.model_artifact.model_writer] cannot silently discard another
+curator's retrain; [`save_model`][] alone is the unguarded primitive under it.
 
 The UC3 loop (PRD §7.5) is::
 
@@ -57,6 +60,7 @@ References
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pickle
@@ -66,6 +70,7 @@ from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 from zipfile import BadZipFile, ZipFile
 
 from tether.ml.gbranker import (
@@ -91,6 +96,7 @@ __all__ = [
     "SourceProject",
     "UnsupportedModelFormatError",
     "load_model",
+    "model_version",
     "save_model",
     "train_portable_model",
     "warm_start_retrain",
@@ -210,6 +216,15 @@ class PortableRankerModel:
         The project files the current fit read its labels from, in training-row order
         ([`SourceProject`][]; ADR-0077). Empty for a model fitted on caller-supplied arrays
         with no project record, and for an artifact saved before the field existed.
+    parent_version:
+        The [`model_version`][] of the model this one was retrained from
+        ([`warm_start_retrain`][]); ``None`` for a fresh fit and for an artifact saved before
+        the field existed (ADR-0119). It is what lets a guarded save tell a retrain of the
+        model on disk from a retrain of an older copy.
+    fit_id:
+        A random identifier stamped on every fit and retrain (ADR-0119), so that two fits with
+        the same counts and timestamps still have different [`model_version`][] s. ``None`` for
+        an artifact saved before the field existed.
     """
 
     ranker: QualityRanker
@@ -222,6 +237,8 @@ class PortableRankerModel:
     created_utc: str
     updated_utc: str
     source_projects: tuple[SourceProject, ...] = ()
+    parent_version: str | None = None
+    fit_id: str | None = None
 
     @property
     def feature_names(self) -> tuple[str, ...]:
@@ -310,6 +327,7 @@ def train_portable_model(
         created_utc=stamp,
         updated_utc=stamp,
         source_projects=_source_tuple(source_projects),
+        fit_id=uuid4().hex,
     )
 
 
@@ -331,7 +349,8 @@ def warm_start_retrain(
     label the condition has seen so far, not just the new video's — and returns a **new**
     [`PortableRankerModel`][] that carries ``condition_id`` and ``created_utc`` forward,
     appends ``video_id`` to ``videos_seen`` (deduplicated, so re-curating a video does not
-    double-count it), increments ``n_retrains``, and refreshes ``updated_utc`` and the
+    double-count it), increments ``n_retrains``, records the input model's
+    [`model_version`][] as ``parent_version``, and refreshes ``updated_utc`` and the
     tether/scikit-learn version stamps. The input model is left unchanged (frozen).
 
     ``feature_names`` must match the model's existing schema: the accumulated set is the same
@@ -375,6 +394,8 @@ def warm_start_retrain(
         created_utc=model.created_utc,
         updated_utc=_now_iso(now),
         source_projects=() if source_projects is None else _source_tuple(source_projects),
+        parent_version=model_version(model),
+        fit_id=uuid4().hex,
     )
 
 
@@ -390,6 +411,19 @@ def _source_tuple(sources: Sequence[SourceProject]) -> tuple[SourceProject, ...]
     if len(set(paths)) != len(paths):
         raise ValueError(f"source_projects names a project file more than once: {paths}")
     return out
+
+
+def model_version(model: PortableRankerModel) -> str:
+    """Return the version identity of ``model``: the SHA-256 of its canonical manifest.
+
+    The manifest ([`save_model`][] writes it) holds every provenance field, including the
+    random ``fit_id`` each fit is stamped with, so two fits never share a version even when
+    their counts and timestamps agree, and a model reloaded with [`load_model`][] has the same
+    version as the one saved. [`warm_start_retrain`][]
+    records it as the new model's ``parent_version`` (ADR-0119).
+    """
+    canonical = json.dumps(_manifest(model), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _manifest(model: PortableRankerModel) -> dict[str, object]:
@@ -416,6 +450,8 @@ def _manifest(model: PortableRankerModel) -> dict[str, object]:
             }
             for src in model.source_projects
         ],
+        "parent_version": model.parent_version,
+        "fit_id": model.fit_id,
     }
 
 
@@ -426,6 +462,11 @@ def save_model(model: PortableRankerModel, path: PathRef) -> None:
     destination directory, then [`os.replace`][] s it into place, so a reader never sees a
     half-written artifact and a crash mid-write leaves the previous model intact. The
     ``.tethermodel`` extension is the convention, but any ``path`` is accepted.
+
+    This takes no lock: a second writer that saves to the same path replaces the file. To save as
+    the condition's owner-curator, use
+    [`tether.project.model_artifact.model_writer`][], which holds the file's lock and refuses to
+    overwrite a version it did not open (ADR-0119).
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -545,7 +586,23 @@ def _validated_fields(manifest: dict[str, object]) -> dict[str, object]:
         "created_utc": str(_require(manifest, "created_utc", str)),
         "updated_utc": str(_require(manifest, "updated_utc", str)),
         "source_projects": _sources_from_manifest(manifest),
+        "parent_version": _optional_text(manifest, "parent_version"),
+        "fit_id": _optional_text(manifest, "fit_id"),
     }
+
+
+def _optional_text(manifest: dict[str, object], key: str) -> str | None:
+    """Read an optional string key (``parent_version``, ``fit_id``; ADR-0119).
+
+    An older artifact has none (``None``). The keys are additive and optional like
+    ``source_projects``, so [`MODEL_FORMAT_VERSION`][] stays 1.
+    """
+    value = manifest.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise CorruptModelError(f"manifest.json field {key!r} is the wrong type")
+    return value
 
 
 def _sources_from_manifest(manifest: dict[str, object]) -> tuple[SourceProject, ...]:

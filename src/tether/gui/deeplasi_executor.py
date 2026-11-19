@@ -39,8 +39,10 @@ alignment is future work in [`tether.io.recover`][].
 from __future__ import annotations
 
 import hashlib
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import numpy as np
@@ -62,6 +64,7 @@ from tether.project.analysis_import import (
     AnalysisOnlyImportSummary,
     import_analysis_only_project,
 )
+from tether.project.lock import publish_lock
 from tether.project.reconstruct import ReconstructionSummary, reconstruct_project
 
 __all__ = [
@@ -176,7 +179,7 @@ def _movie_metadata(path: Path) -> MovieMetadata:
     (must equal ``export.n_frames``), and on-disk geometry/dtype for the ``/movies`` row.
     This replicates the ``MovieMetadata`` assembly in
     [`tether.project.extract.extract_movie`][] without running the extraction, and
-    leaves the channel geometry / calibration unset (reconstruction re-uses the legacy
+    leaves the channel geometry / calibration unset (reconstruction reuses the legacy
     traces, so no split calibration is needed).
     """
     sha256, file_size, mtime = _hash_file(path)
@@ -301,6 +304,18 @@ def _read_tdat_best_effort(path: Path | None) -> tuple[Tdat | None, tuple[str, .
         return None, (warning,)
 
 
+def _destination_lock(out: Path, *, overwrite: bool) -> AbstractContextManager[Any]:
+    """Hold ``out``'s writer lock when an import may replace it (#346, ADR-0112).
+
+    Yields the publish check to pass on, or ``None`` when ``overwrite`` is off and the
+    import may only create a new file. A project another writer holds, this shell's
+    own open session included, is refused rather than replaced.
+    """
+    if not overwrite:
+        return nullcontext()
+    return publish_lock(out)
+
+
 def _run_reconstruct(
     plan: PlannedAcquisition, out: Path, *, overwrite: bool, detect_photobleach: bool
 ) -> tuple[ReconstructionSummary, str, tuple[str, ...]]:
@@ -318,17 +333,19 @@ def _run_reconstruct(
     warnings = tdat_warnings + coord_warnings
     curated = _curated_match(fileset, export, recovered) if fileset.smd is not None else None
     movie = _movie_metadata(fileset.movie)
-    summary = reconstruct_project(
-        out,
-        export=export,
-        movie=movie,
-        coordinates=recovered,
-        corrections=corrections,
-        curated_match=curated,
-        categories=plan.categories,
-        detect_photobleach=detect_photobleach,
-        overwrite=overwrite,
-    )
+    with _destination_lock(out, overwrite=overwrite) as guard:
+        summary = reconstruct_project(
+            out,
+            export=export,
+            movie=movie,
+            coordinates=recovered,
+            corrections=corrections,
+            curated_match=curated,
+            categories=plan.categories,
+            detect_photobleach=detect_photobleach,
+            overwrite=overwrite,
+            publish_guard=guard,
+        )
     return summary, recovered.source, warnings
 
 
@@ -347,13 +364,15 @@ def _run_analysis_only(
         raise ValueError(
             f"{plan.key!r} cannot import analysis-only: no SMD or .txt intensity source"
         )
-    return import_analysis_only_project(
-        out,
-        source=source,  # type: ignore[arg-type]  # SMDData | DeepLasiTraces, narrowed above
-        source_name=source_name,
-        categories=plan.categories,
-        overwrite=overwrite,
-    )
+    with _destination_lock(out, overwrite=overwrite) as guard:
+        return import_analysis_only_project(
+            out,
+            source=source,  # type: ignore[arg-type]  # SMDData | DeepLasiTraces, narrowed above
+            source_name=source_name,
+            categories=plan.categories,
+            overwrite=overwrite,
+            publish_guard=guard,
+        )
 
 
 # --------------------------------------------------------------------------- #

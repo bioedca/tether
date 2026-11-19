@@ -277,7 +277,8 @@ def test_overnight_extraction_only_envelope_from_real_extraction(tmp_path: Path)
 
     def run_extract() -> None:
         out = tmp_path / "video10.tether"
-        extract_movie(movie, out, options=ExtractOptions(window=21), overwrite=True)
+        out.unlink(missing_ok=True)  # this test owns the store (ADR-0112)
+        extract_movie(movie, out, options=ExtractOptions(window=21))
 
     per_slice = min_runtime(run_extract, repeats=3)
     per_movie = scale_seconds_to_reference_movie(per_slice, pixels)

@@ -7,7 +7,7 @@ description: "What Tether and this documentation site collect and do not collect
 **Who this page is for.** Anyone who runs Tether or visits this site; no repository access is
 needed to read it or to rely on it.
 
-**Effective date: 30 July 2026**
+**Effective date: 17 November 2026**
 
 This policy describes how the **Tether** project handles data. It covers both the
 **Tether desktop application** and this **documentation website**
@@ -16,11 +16,13 @@ This policy describes how the **Tether** project handles data. It covers both th
 
 In short: **Tether does not transmit or sell your personal data.** The application
 processes your research data locally on your own computer; you choose its persistent
-storage, and temporary idealization files are described below.
+storage, and temporary idealization files are described below. The only network request
+the application can make is an optional check for a newer release, which is **off until
+you allow it** (below).
 
 ## The desktop application
 
-- **Local-only processing.** Tether analyses your microscopy movies and single-molecule
+- **Local-only processing.** Tether analyzes your microscopy movies and single-molecule
   FRET data entirely on your own machine. Your data — image movies, `.tether` project
   files, exported results — stays on your computer (or wherever you choose to save it).
   During idealization, selected traces are copied to your operating system's temporary
@@ -29,20 +31,53 @@ storage, and temporary idealization files are described below.
 - **No telemetry or analytics.** The application contains no usage tracking, no analytics,
   no crash/telemetry reporting, no advertising, and no account or login. It makes **no
   network connection** as part of normal analysis; it neither sends your data to us or to
-  any third party, nor "phones home".
+  any third party, nor "phones home". The one exception is the optional check for a newer
+  release described next, and it is off until you allow it.
+- **Optional check for a newer release (off by default).** At its first start, the
+  application asks in a bar at the top of the window whether it may check for a newer
+  release. **Until you answer yes, it makes no network request at all.** If you never
+  answer, it never makes one. If you answer yes, it sends **one** request to GitHub each
+  time it starts:
+  `GET https://api.github.com/repos/bioedca/tether/releases/latest`. The request is
+  unauthenticated HTTPS. GitHub necessarily sees your computer's **IP address**, the time
+  and the user-agent `Tether`. The GitHub General Privacy Statement linked below applies to
+  it, and the Tether project does not receive its data. Tether adds **nothing** to the
+  request: no account, no installation id, no version number, no usage data and no
+  telemetry. It sends nothing about your computer, your projects or your data. From the
+  answer it reads only the version number of the newest release. If that is newer than your
+  copy, a notice links to the Releases page. It **downloads nothing and installs nothing**.
+  You download a new release yourself. If the request fails, for example with no network or
+  a timeout, nothing is shown. The request uses your proxy settings (`HTTPS_PROXY`).
+- **Turning the check off.** Untick **Help → Check for new releases at startup**, or answer
+  **Don't check** to the first question. Your answer is kept in a small settings file
+  outside the install folder, so a newer release you install keeps it. An administrator can
+  turn the check off for every user of a computer.
+  [Install Tether](install.md#settings-tether-keeps-outside-the-install-folder) says where
+  that file and the settings file are.
 - **Local provenance metadata.** For scientific reproducibility and to coordinate
   one-writer-at-a-time editing, Tether records technical metadata **inside your own local
-  files**. The `.tether` project store records the application version, your analysis
+  files**. The `.tether` project file records the application version, your analysis
   parameters, and your operating-system username (as the curator, or "labeler", of your
-  annotations). A separate sidecar `.lock` file records your computer's hostname, username
+  annotations). If you set a curator name in the application, new annotations record that
+  name instead. A separate lock file (`.lock`) records your computer's hostname, username
   and process id while a project is open, so that a second copy of the application can tell
   who currently holds the write-lock. This information is stored only in files at the
   location you choose and is **never transmitted by Tether** to the project or to any third
   party. If you share a `.tether` file with a collaborator it carries your OS username and
-  the source movie paths you selected (the `.lock` sidecar is a separate file and is not
+  the source movie paths you selected (the lock file is a separate file and is not
   embedded in the project) — so treat shared project files as you would any working
   document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
   shows how to see these fields before you make a file public.
+- **What the application remembers.** So that you can carry on where you stopped, the
+  desktop application keeps a small file, `preferences.json`, in your own settings folder.
+  It holds the paths of the last ten projects you opened. For up to 50 projects it also
+  holds the path and the molecule you last selected there. A path can therefore stay in the
+  file after it has left **Open recent**. It also holds the window layout, and the curator
+  name if you set one. This file
+  is never written into a `.tether` file and is **never transmitted by Tether**. Delete it
+  and the application forgets these things.
+  [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)
+  lists the folder on each system.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
   PySide6, and the tMAVEN reference tool) and, optionally, local machine-learning models.
   These run locally, and Tether does not configure them to collect or transmit your data.
@@ -86,5 +121,5 @@ page with a new effective date.
 
 ## Contact
 
-Questions about privacy or this policy can be sent to **bioedca@u.northwestern.edu**, or
+Questions about privacy or this policy can be sent to **<bioedca@u.northwestern.edu>**, or
 raised via the project's [issue tracker](https://github.com/bioedca/tether/issues).
