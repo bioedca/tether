@@ -42,8 +42,10 @@ name, no path and no project data is written, and [`record_update_consent`][] is
 only writer.
 
 **Every failure is off.** A missing, empty, truncated or foreign file reads as *unset*,
-never as an error and never as consent. An override file that exists but cannot be
-examined counts as present. Reading never creates a file or a folder.
+never as an error and never as consent. So does a path that is not a regular file (a
+folder, a FIFO or a device): it is opened without waiting and never read. An override
+file that exists but cannot be examined counts as present. Reading never creates a file
+or a folder.
 
 The module imports only the standard library, so a read at startup costs one small
 file read and no Qt, NumPy or HDF5 import.
@@ -55,6 +57,7 @@ import contextlib
 import enum
 import json
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -93,6 +96,16 @@ _APP = "Tether"
 # Files larger than this are not a settings file this module wrote; they read as unset
 # rather than being parsed.
 _MAX_BYTES = 4096
+
+# Read-only, never waiting on a FIFO or a device and never taking a terminal as the
+# controlling one. O_NONBLOCK and O_NOCTTY do not exist on Windows, where no FIFO can
+# sit at a file path; O_BINARY exists only there.
+_READ_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_NOCTTY", 0)
+    | getattr(os, "O_BINARY", 0)
+)
 
 
 class UpdateCheckState(enum.Enum):
@@ -179,7 +192,24 @@ def _override_present(path: Path) -> bool:
 def _stored_answer(path: Path) -> str | None:
     """Return the stored ``update_check`` value, or ``None`` for anything that is not one."""
     try:
-        with path.open("rb") as handle:
+        # A non-blocking open, then a check on the open descriptor: a FIFO opens at once
+        # instead of waiting for a writer (#1116), and the file tested is the file read,
+        # so nothing swapped in after the check can be read.
+        fd = os.open(path, _READ_FLAGS)
+    except OSError:
+        return None
+    try:
+        handle = os.fdopen(fd, "rb") if stat.S_ISREG(os.fstat(fd).st_mode) else None
+    except OSError:
+        handle = None
+    if handle is None:
+        # Not a regular file, or the descriptor could not be examined or wrapped: the
+        # descriptor is still ours to close (os.fdopen does not close it on failure).
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        return None
+    try:
+        with handle:
             raw = handle.read(_MAX_BYTES + 1)
     except OSError:
         return None

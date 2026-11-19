@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Embedded napari movie panel — the FR-ROUNDTRIP movie surface (PRD §4.1, §7.3).
 
-[`NapariMoviePanel`][] wraps a single [`napari.Viewer`][] that displays a
+[`NapariMoviePanel`][] wraps a single `napari.Viewer` that displays a
 lazy TIRF movie ([`tether.io.movie.MovieReader`][]) as a 2-D image layer with
 **donor/acceptor spot points + integration-aperture overlays**, and switches
 between **multiple movies** for a multi-movie experiment (PRD §7.3: "an embedded
@@ -16,7 +16,7 @@ overlays, with a movie switcher for multi-movie experiments").
   donor/acceptor spot coordinates — and
   [`set_active_movie`][tether.gui.movie_panel.NapariMoviePanel.set_active_movie] switches which is
   shown; [`switcher`][tether.gui.movie_panel.NapariMoviePanel.switcher] is a ready
-  [`QComboBox`][qtpy.QtWidgets.QComboBox] a host can
+  `QComboBox` a host can
   place to drive the switch. The napari Qt window is exposed as
   [`qt_window`][tether.gui.movie_panel.NapariMoviePanel.qt_window]
   so the Tether shell can embed it (the shell embed lands in #356).
@@ -303,7 +303,7 @@ class NapariMoviePanel:
 
     @property
     def viewer(self) -> napari.Viewer:
-        """The underlying [`napari.Viewer`][]."""
+        """The underlying `napari.Viewer`."""
         return self._viewer
 
     @property
@@ -365,7 +365,7 @@ class NapariMoviePanel:
 
     @property
     def switcher(self) -> QComboBox:
-        """A [`QComboBox`][qtpy.QtWidgets.QComboBox] that switches the active movie.
+        """A `QComboBox` that switches the active movie.
 
         Lazily created and kept in sync with [`add_movie`][] /
         [`set_active_movie`][]; selecting an entry calls [`set_active_movie`][].

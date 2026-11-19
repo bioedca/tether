@@ -78,7 +78,7 @@ class MovieMetadataRecord:
 
 
 def positive_value(value: float, name: str) -> float:
-    """Return ``value`` as a float; [`ValueError`][] unless finite and positive."""
+    """Return ``value`` as a float; `ValueError` unless finite and positive."""
     number = float(value)
     if not (math.isfinite(number) and number > 0.0):
         raise ValueError(f"{name} must be a finite positive number, got {value!r}")

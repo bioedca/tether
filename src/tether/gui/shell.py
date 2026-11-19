@@ -170,7 +170,8 @@ _IDEALIZE_POLL_MS = 25
 _LOCK_RELEASE_RETRY_MS = 1000
 
 #: Upper bound (ms) on one wait before the shell judges a refused lock again (#626).
-#: A foreign holder can refresh while the shell waits, so the wait is re-armed.
+#: A foreign holder can refresh while the shell waits, so the wait is re-armed. A running
+#: holder on this computer has no due time and is judged again at this interval (#1123).
 _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
@@ -679,6 +680,9 @@ class TetherShell:
         self._trace_dock = TraceDock()
         # The path of the project load_project opened, or None (no project open).
         self._project_path: Path | None = None
+        # The intensity_quantity that open used, so a lock recovery reopens the same
+        # trace layer rather than load_project's default (#1097).
+        self._intensity_quantity = "corrected"
         self._start_page = StartPage(
             on_open=lambda: self._open_project_dialog(),
             on_tutorial=self.open_tutorial,
@@ -1011,6 +1015,14 @@ class TetherShell:
         return self._window
 
     @property
+    def channel_map(self) -> Any:
+        """The Calibration menu's actions.
+
+        A [`ChannelMapActions`][tether.gui.calibration.ChannelMapActions] (#353).
+        """
+        return self._channel_map
+
+    @property
     def trace_dock(self) -> Any:
         """The `TraceDock` on the page of the Curate and correct section."""
         return self._trace_dock
@@ -1166,9 +1178,10 @@ class TetherShell:
         project in later work (#352 publishes an extraction into it; analysis results are
         stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
 
-        Each section also declares its menus (#342): Import in Prepare; Curation, Hand-off
-        and Conditions in Curate and correct; Analysis in Analyze. Only Curate and correct
-        declares the curation keymap scope, so the curation keys act only there.
+        Each section also declares its menus (#342): Import and Calibration (#353) in
+        Prepare; Curation, Hand-off and Conditions in Curate and correct; Analysis in
+        Analyze. Only Curate and correct declares the curation keymap scope, so the
+        curation keys act only there.
         """
         browser_panel = self._browser_panel
         return SectionRegistry(
@@ -1188,6 +1201,11 @@ class TetherShell:
                             id="import",
                             title="&Import",
                             populate=lambda _host, menu: self._populate_import_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="calibration",
+                            title="Ca&libration",
+                            populate=lambda _host, menu: self._populate_calibration_menu(menu),
                         ),
                     ),
                 ),
@@ -1257,6 +1275,27 @@ class TetherShell:
         self._legacy_menu = menu
         self._act_import_deeplasi = menu.addAction("&Deep-LASI bundle…")
         self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+
+    def _populate_calibration_menu(self, menu: Any) -> None:
+        """Prepare's Calibration menu (#353): make, choose and apply a channel map file.
+
+        Make a channel map from a bead video or image, or choose a saved one, and extract
+        a later movie with it. Each action is a service command (map, extract), run on a
+        background worker of its own so the window stays live; the mapping page itself is
+        #917.
+        """
+        from tether.gui.calibration import ChannelMapActions
+
+        self._channel_map = ChannelMapActions(
+            status=self._status, open_project=self.load_project, window=self._window
+        )
+        self._calibration_menu = menu
+        self._act_make_map = menu.addAction("&Make channel map…")
+        self._act_make_map.triggered.connect(self._channel_map.make_map_dialog)
+        self._act_choose_map = menu.addAction("&Choose channel map…")
+        self._act_choose_map.triggered.connect(self._channel_map.choose_map_dialog)
+        self._act_extract_with_map = menu.addAction("&Extract a movie with the channel map…")
+        self._act_extract_with_map.triggered.connect(self._channel_map.extract_with_map_dialog)
 
     def _populate_curation_menu(self, menu: Any) -> None:
         """Curate and correct's Curation menu: the cheat-sheet and the overflow picker."""
@@ -1982,6 +2021,7 @@ class TetherShell:
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
         self._movie_switcher.setEnabled(True)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
@@ -2025,12 +2065,19 @@ class TetherShell:
         action = None if recovery is None else recovery.action
         self._recover_button.setVisible(action is RecoveryAction.RECOVER)
         self._take_over_button.setVisible(action is RecoveryAction.TAKE_OVER)
-        if recovery is not None and recovery.available_at is not None:
+        if recovery is None:
+            return
+        if recovery.available_at is not None:
             from datetime import UTC, datetime
 
             wait_s = (recovery.available_at - datetime.now(UTC)).total_seconds()
             wait_ms = int(max(0.0, wait_s) * 1000) + 1000
             self._lock_recovery_timer.start(min(wait_ms, _LOCK_RECOVERY_RECHECK_MAX_MS))
+        elif recovery.holder_running:
+            # A running holder has no due time, but it can stop (or crash) at any
+            # moment; judge it again at the cap so Recover appears once it has (#1123).
+            # recover_lock() probes the process again before it takes anything.
+            self._lock_recovery_timer.start(_LOCK_RECOVERY_RECHECK_MAX_MS)
 
     def _recheck_lock_recovery(self) -> None:
         """Judge the refused lock again and refresh the banner and its actions."""
@@ -2059,8 +2106,10 @@ class TetherShell:
         The banner's one-click **Recover** (#626). It is available only when
         [`lock_recovery`][] reports
         [`RecoveryAction.RECOVER`][tether.project.lock.RecoveryAction]: the lock names
-        this computer and this user, and its process no longer runs. Returns the
-        reopened writable project, or ``None`` with a status message.
+        this computer and this user, and its process no longer runs. The reopen uses
+        the ``intensity_quantity`` of the open that was refused, so the traces under
+        curation keep their layer. Returns the reopened writable project, or ``None``
+        with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -2075,8 +2124,9 @@ class TetherShell:
         computer, another user or a corrupt lock, idle past the staleness timeout
         (PRD §11.2). ``confirmation`` is the typed text; ``None`` asks for it in a
         dialog that warns that the holder's unsaved work can be lost. The text must
-        equal the project file name. Returns the reopened writable project, or
-        ``None`` with a status message.
+        equal the project file name. The reopen uses the ``intensity_quantity`` of
+        the open that was refused, as [`recover_project_lock`][] does. Returns the
+        reopened writable project, or ``None`` with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -2114,8 +2164,9 @@ class TetherShell:
         except OSError as exc:
             self._status(f"{label} failed: {exc}")
             return None
-        # Re-run the open path so every write seam binds to the new session.
-        opened = self.load_project(path)
+        # Re-run the open path so every write seam binds to the new session, over the
+        # same trace layer the refused open showed (#1097).
+        opened = self.load_project(path, intensity_quantity=self._intensity_quantity)
         if opened is None or self._curation_project is None:
             # The reopen is not writable; give back the lock just taken. The release
             # is nonce-checked, so a session lock the reopen took and still holds is
@@ -3187,6 +3238,9 @@ class TetherShell:
         # A running fit is abandoned (its result is discarded): the service stops its
         # poll timer and restores the wait cursor it set, so it never leaks past close.
         self._tasks.abandon()
+        # The same for a running channel-map command (#353): its outcome is not applied
+        # to a closed shell, and its worker stops once the command ends.
+        self._channel_map.close()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
@@ -3411,7 +3465,7 @@ def _applied_summary(applied: AppliedReconcile) -> str:
 
 
 class _StoreHandoff:
-    """Store-backed [`HandoffSeam`][] over [`tether.project.handoff`][].
+    """Store-backed `HandoffSeam` over [`tether.project.handoff`][].
 
     Binds one project + intensity quantity so all three legs use the same ``/traces``
     layer; see [`make_store_handoff`][]. Each op imports its ``handoff`` function
@@ -3497,7 +3551,7 @@ def make_store_handoff(
     model_name: str | None = None,
     overwrite: bool = False,
 ) -> HandoffSeam:
-    """Build the store-backed [`HandoffSeam`][] for a [`TetherShell`][].
+    """Build the store-backed `HandoffSeam` for a [`TetherShell`][].
 
     Binds one ``.tether`` project + intensity quantity across all three legs so the
     outbound SMD and the return-leg intensity match use the **same** ``/traces`` layer

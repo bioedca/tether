@@ -476,7 +476,7 @@ def read_mat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | No
     [`read_tdat_movie_reference`][] sibling: returns ``None`` when the set carries no
     ``.mat``, the export recorded no movie name, or the ``.mat`` cannot be read as a
     Deep-LASI export (a renamed or corrupted file makes [`read_deeplasi_mat`][] raise
-    [`ValueError`][]) — this advisory cross-check degrades cleanly, and the
+    `ValueError`) — this advisory cross-check degrades cleanly, and the
     authoritative [`read_deeplasi_mat`][] load still surfaces the error when the
     acquisition is actually opened.
     """
@@ -502,7 +502,7 @@ def read_tdat_movie_reference(fileset: AcquisitionFileSet) -> MovieReference | N
     sibling: returns ``None`` when the set carries no ``.tdat``, the ``TIRFdata``
     records no usable file path (a slimmed or movie-less ``.tdat``), or the ``.tdat``
     is not a readable ``TIRFdata`` container (a renamed or corrupted file makes
-    [`read_movie_reference`][tether.io.tdat.read_movie_reference] raise [`ValueError`][]) — this
+    [`read_movie_reference`][tether.io.tdat.read_movie_reference] raise `ValueError`) — this
     advisory cross-check degrades cleanly, and the authoritative
     [`read_tdat`][tether.io.tdat.read_tdat] load still surfaces the error when the
     acquisition is actually opened.
