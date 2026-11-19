@@ -43,7 +43,6 @@ def _git(cwd: Path, *args: str, env: dict[str, str] | None = None, check: bool =
         cwd=cwd,
         env={**os.environ, **_WHO, **(env or {})},
         capture_output=True,
-        text=True,
         encoding="utf-8",
         check=check,
     )
@@ -61,6 +60,7 @@ class World:
         self.commit("main", {"shared.txt": _LINES, "README": "tether\n"})
         _git(root, "clone", "--quiet", str(self.origin), str(self.runner))
         self.pulls: dict[int, dict] = {}
+        self.locked: set[str] = set()  # refs whose delete GitHub rejects
         self.calls: list[tuple[str, str]] = []
         self.clock = 0
         self.github = mq.GitHub(REPO, self.transport)
@@ -83,12 +83,8 @@ class World:
         """Open pull request ``number`` with ``files`` changed, and return its head."""
         _git(self.dev, "fetch", "--quiet", "origin")
         head = self.commit(f"pr-{number}", files)
-        self.pulls[number] = {
-            "state": "open",
-            "draft": False,
-            "base": {"ref": "main"},
-            "head": {"sha": head, "repo": {"full_name": REPO}},
-        }
+        pull = {"state": "open", "draft": False, "base": {"ref": "main"}}
+        self.pulls[number] = pull | {"head": {"sha": head, "repo": {"full_name": REPO}}}
         return head
 
     def join(self, number: int, files: dict[str, str]) -> str:
@@ -131,8 +127,8 @@ class World:
         if (method, path) == ("POST", "/git/commits"):
             self.clock += 1  # GitHub stamps the commit; each request is one second later
             when = {"GIT_COMMITTER_DATE": f"@{_EPOCH + self.clock} +0000"}
-            parents = [arg for parent in payload["parents"] for arg in ("-p", parent)]
-            made = ["commit-tree", payload["tree"], *parents, "-m", payload["message"]]
+            (parent,) = payload["parents"]
+            made = ["commit-tree", payload["tree"], "-p", parent, "-m", payload["message"]]
             return 201, json.dumps({"sha": _git(self.origin, *made, env=when)}).encode()
         if (method, path) == ("POST", "/git/refs"):
             if self.origin_ref(payload["ref"]):
@@ -141,10 +137,14 @@ class World:
             return 201, b"{}"
         if method == "DELETE" and path.startswith("/git/refs/"):
             ref = path.removeprefix("/git/")
-            if not self.origin_ref(ref):
-                return 422, b'{"message": "Reference does not exist"}'
+            if not self.origin_ref(ref) or ref in self.locked:
+                return 422, b'{"message": "Reference does not exist, or a rule rejects the delete"}'
             _git(self.origin, "update-ref", "-d", ref)
             return 204, b""
+        if method == "GET" and path.startswith("/git/matching-refs/"):
+            prefix = "refs/" + path.removeprefix("/git/matching-refs/")
+            names = _git(self.origin, "for-each-ref", "--format=%(refname)").splitlines()
+            return 200, json.dumps([{"ref": n} for n in names if n.startswith(prefix)]).encode()
         return 500, b"{}"
 
 
@@ -158,14 +158,10 @@ def main_exit(world: World, *argv: str) -> int:
 
 
 def test_the_script_imports_only_the_standard_library() -> None:
-    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
-    imported = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported |= {alias.name.split(".")[0] for alias in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
-    assert imported <= set(sys.stdlib_module_names), imported - set(sys.stdlib_module_names)
+    nodes = list(ast.walk(ast.parse(SCRIPT.read_text(encoding="utf-8"))))
+    names = [alias.name for node in nodes if isinstance(node, ast.Import) for alias in node.names]
+    names += [node.module for node in nodes if isinstance(node, ast.ImportFrom) and node.module]
+    assert {name.split(".")[0] for name in names} <= set(sys.stdlib_module_names), names
 
 
 def test_join_records_the_request_as_a_ref_and_the_second_join_loses(world: World) -> None:
@@ -228,6 +224,17 @@ def test_leave_deletes_the_request_and_the_candidate_and_may_run_twice(world: Wo
     assert world.origin_ref("refs/merge-queue/pr-7") is None
     assert world.origin_ref("refs/heads/mq/pr-7") is None
     assert mq.leave(world.github, 7) == {"request": False, "candidate": False}
+
+
+def test_a_delete_that_github_rejects_is_an_error_and_not_an_absent_ref(world: World) -> None:
+    world.join(1, {"a.txt": "a\n"})
+    world.join(12, {"b.txt": "b\n"})
+    world.locked.add("refs/merge-queue/pr-12")
+    assert [mq.leave(world.github, 1)["request"] for _ in range(2)] == [True, False]  # 12 stays
+    with pytest.raises(mq.QueueError, match="did not delete refs/merge-queue/pr-12"):
+        mq.leave(world.github, 12)
+    assert main_exit(world, "leave", "--pr", "12") == 2
+    assert world.origin_ref("refs/merge-queue/pr-12")
 
 
 def test_each_candidate_tree_is_the_tree_of_the_squash_merges_in_order(world: World) -> None:
@@ -335,15 +342,12 @@ def test_a_ref_that_join_did_not_write_stops_the_plan(world: World) -> None:
 
 
 def test_the_commands_print_json_and_write_the_step_summary(
-    world: World,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
+    world: World, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    summary = tmp_path / "summary.md"
+    summary = world.origin.parent / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     head = world.pull(1, {"shared.txt": _LINES.replace("line 5\n", "line five\n")})
-    message = tmp_path / "message.txt"
+    message = world.origin.parent / "message.txt"
     message.write_text("fix: five\n", encoding="utf-8")
     assert main_exit(world, "join", "--pr", "1", "--sha", head, "--message-file", str(message)) == 0
     assert json.loads(capsys.readouterr().out) == {"joined": 1, "head": head}

@@ -3,7 +3,8 @@
 """Record merge-queue requests and build the train of candidates (issue #1266, ADR-0135).
 
 This is part 1 of the merge queue of ``main``. It writes request refs and candidate branches.
-It writes nothing to a pull request and nothing to ``main``. ADR-0135 has the design.
+It writes nothing to a pull request and nothing to ``main``. ADR-0135 has the design. It runs
+on the bare runner Python, so it imports the standard library only.
 
 **A request is a ref.** ``refs/merge-queue/pr-N`` points at a commit whose only parent is the
 pinned head and whose message is the squash message. To create the ref is the mutex: ``201``
@@ -14,8 +15,6 @@ date, which orders the train, is server time.
 <candidate ahead> <head>``, which is the tree a squash merge puts on ``main`` (80 of the last 80
 merges, checked 2026-11-19). A candidate is pushed to ``mq/pr-N`` only when that branch does not
 already hold the same tree, so the evidence follows the tree.
-
-The interpreter is the bare runner Python, so this module imports the standard library only.
 """
 
 from __future__ import annotations
@@ -90,14 +89,11 @@ def urllib_transport(token: str | None) -> Transport:
     """Return the transport that calls the GitHub REST API with ``token``."""
 
     def send(method: str, url: str, body: bytes | None) -> tuple[int, bytes]:
-        request = urllib.request.Request(url, data=body, method=method)  # noqa: S310
-        request.add_header("Accept", "application/vnd.github+json")
-        request.add_header("X-GitHub-Api-Version", "2022-11-28")
-        request.add_header("User-Agent", "tether-merge-queue")
-        if body is not None:
-            request.add_header("Content-Type", "application/json")
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "tether-merge-queue"}
+        headers |= {"X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json"}
         if token:
-            request.add_header("Authorization", f"Bearer {token}")
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(url, data=body, headers=headers, method=method)  # noqa: S310
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
                 return response.status, response.read()
@@ -112,11 +108,9 @@ def urllib_transport(token: str | None) -> Transport:
 class GitHub:
     """The few GitHub calls the queue makes. Every call of the module goes through here."""
 
-    def __init__(
-        self, repo: str, transport: Transport, api_url: str = "https://api.github.com"
-    ) -> None:
+    def __init__(self, repo: str, transport: Transport) -> None:
         self.repo = repo
-        self._base = f"{api_url.rstrip('/')}/repos/{repo}"
+        self._base = f"https://api.github.com/repos/{repo}"
         self._transport = transport
 
     def _call(
@@ -146,7 +140,13 @@ class GitHub:
 
     def delete_ref(self, ref: str) -> bool:
         """Delete ``ref`` (``refs/...``). ``False`` means it did not exist."""
-        return self._call("DELETE", f"/git/{ref}", accept=(204, 404, 422))[0] == 204
+        if self._call("DELETE", f"/git/{ref}", accept=(204, 404, 422))[0] == 204:
+            return True
+        # GitHub answers 422 for an absent ref and also for a delete that it rejects, so look.
+        left = self._call("GET", f"/git/matching-refs/{ref.removeprefix('refs/')}")[1]
+        if any(found.get("ref") == ref for found in left or ()):
+            raise QueueError(f"GitHub did not delete {ref}")
+        return False
 
 
 class Git:
@@ -165,7 +165,6 @@ class Git:
             cwd=self.cwd,
             env={**os.environ, **(env or {})},
             capture_output=True,
-            text=True,
             encoding="utf-8",
             check=False,
         )
@@ -275,10 +274,8 @@ def join(github: GitHub, number: int, head: str, message: str) -> None:
 
 def leave(github: GitHub, number: int) -> dict[str, bool]:
     """Delete the request and the candidate of pull request ``number``, if they exist."""
-    return {
-        "request": github.delete_ref(f"{REQUEST_PREFIX}{number}"),
-        "candidate": github.delete_ref(f"refs/heads/{CANDIDATE_PREFIX}{number}"),
-    }
+    refs = {"request": REQUEST_PREFIX, "candidate": f"refs/heads/{CANDIDATE_PREFIX}"}
+    return {name: github.delete_ref(f"{prefix}{number}") for name, prefix in refs.items()}
 
 
 def plan(
