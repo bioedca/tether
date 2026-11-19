@@ -53,10 +53,14 @@ _QT_MODULES = (
 _SAMPLE_ARGV: dict[str, list[str]] = {
     "extract": ["extract", "movie.tif", "-o", "out.tether"],
     "batch": ["batch", "a.tif", "b.tif", "-d", "out"],
+    "idealize": ["idealize", "p.tether"],
+    "map": ["map", "create", "beads.tif", "-o", "beads.npz"],
 }
 _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
     "extract": {"movie": "movie.tif", "output": "out.tether"},
     "batch": {"movies": ("a.tif", "b.tif"), "out_dir": "out"},
+    "idealize": {"project": "p.tether"},
+    "map": {"source": "beads.tif", "output": "beads.npz"},
 }
 
 
@@ -65,7 +69,7 @@ _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
 
 def test_the_registry_names_each_command_once_with_its_types() -> None:
     names = [entry.name for entry in services.COMMANDS]
-    assert names == ["extract", "batch"]
+    assert names == ["extract", "batch", "idealize", "map"]
     assert len(set(names)) == len(names)
     for entry in services.COMMANDS:
         assert issubclass(entry.request_type, base.Request)

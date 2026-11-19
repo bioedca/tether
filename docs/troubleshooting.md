@@ -44,16 +44,19 @@ tether extract: error: argument --donor-side: invalid choice: 'middle' (choose f
 …but a *valid-but-wrong* value is accepted without an error. All `donor_side` does is choose which
 half the default side-by-side layout names donor (`resolve_channel_layout` in
 `tether.project.extract`), and detection
-is [donor-anchored](glossary.md#donor-anchored-colocalization) — so the swapped run still
+is anchored on the donor half — so the swapped run still
 colocalizes and still registers. Since apparent E is `A / (D + A)`, swapping the two channels
 gives exactly `1 − E`.
 
-The molecule count is *not* a control here. Donor-anchoring makes the molecule set exactly
+The molecule count is *not* a control here. Under the
+[donor-anchored](glossary.md#donor-anchored-colocalization) rule the molecule set is exactly
 the detections in the half you **labeled** donor, so swapping the label swaps which half is
 counted. The two counts agree only when both halves detect the same number of spots — true of
 a symmetric synthetic movie, and not something to rely on with real data, where the
-acceptor-dark and low-FRET population ADR-0015 exists to preserve is precisely the set present
-in one half and not the other.
+acceptor-dark and low-FRET population that rule exists to preserve is precisely the set present
+in one half and not the other. Under the default
+[partner-in-both](glossary.md#partner-in-both-colocalization) rule the count is of spots found
+in both halves, which a swap changes too.
 
 Two related traps:
 
@@ -258,8 +261,8 @@ batch runner intentionally does not recompute an accepted completed extraction.
 
 Deleting is not enough if the parameter you fixed is an **extract** tunable
 (`--donor-side`, `--detection-mode`, `--detection-threshold`, `--min-separation`, `--window`,
-`--pair-tol`, `--rms-gate`). `tether batch` exposes none of them and never builds an
-`ExtractOptions`, so a clean re-run silently re-applies the same defaults
+`--pair-tol`, `--rms-gate`). `tether batch` exposes none of them (its one extraction flag is
+`--colocalization`), so a clean re-run silently re-applies the same defaults
 (see [every efficiency is mirrored](#every-efficiency-is-mirrored-when-donor-side-is-backwards)).
 Run those movies through `tether extract --overwrite` one at a time, or drive
 `run_batch(..., extract_options=ExtractOptions(...))` from the library, which *does* forward
@@ -348,15 +351,21 @@ ADR-0022).
 field, or thousands on a sparse one. **No error is raised**; molecule count is not gated.
 
 **Cause.** Detection sensitivity. There is no absolute-count check anywhere in
-`tether.project.extract`, and remember that colocalization is
-[donor-anchored](glossary.md#donor-anchored-colocalization) — *every* in-frame donor spot
-becomes a molecule, whether or not an acceptor was independently detected, so the count
-tracks donor detections alone. Molecules whose full `21 × 21` aperture would fall outside
-the frame in either channel are dropped rather than zero-filled, which also trims edge spots.
+`tether.project.extract`, and edge spots are trimmed: molecules whose full `21 × 21`
+aperture would fall outside the frame in either channel are dropped rather than zero-filled.
+
+Remember which colocalization rule ran. The default,
+[partner-in-both](glossary.md#partner-in-both-colocalization), keeps only the donor spots with
+an acceptor spot at the mapped position. A movie with many dark or weak acceptors then
+gives far fewer molecules. [Donor-anchored](glossary.md#donor-anchored-colocalization) keeps
+*every* in-frame donor spot, so the count tracks donor detections alone. The
+`colocalization:` line of `tether extract` gives both counts. `--count-only` prints them
+without writing a project.
 
 > **Signature.** `/settings/extraction.attrs["profile_json"]` records every tunable verbatim
 > (`detection_mode`, `detection_threshold`, `min_separation`, `window`, `pair_tol`,
-> `coloc_distance`, `rms_gate`, `donor_side`). Compare it against a run you trust; the
+> `coloc_distance`, `colocalization`, `rms_gate`, `donor_side`). Compare it against a run you
+> trust; the
 > parameters, not the code, will differ.
 
 **Remedy.** Adjust `--detection-mode` / `--detection-threshold` / `--min-separation` and
@@ -813,6 +822,28 @@ This record is per user. If two users open the same file through two different n
 has its own `.lock` and each user has their own record, so Tether does not stop the second user,
 and an `--overwrite` by one of them does not stop with `is locked` either. Give a shared project
 one name only.
+
+### A warning names a possible OneDrive/SharePoint conflict copy
+
+**Symptom.** When you open a project, the GUI Browser shows a caution banner, or
+`tether extract`, `tether batch`, `tether info`, `tether metadata` or `tether export` writes
+a stderr line with the same text:
+
+```text
+Warning: 2 possible OneDrive/SharePoint conflict copies beside exp.tether: exp (1).tether, exp-DESKTOP-AB12.tether. Tether does not merge or delete them; compare and reconcile by hand.
+```
+
+**Cause.** The project's folder holds a file whose name matches a sync-conflict copy of the
+project: `<stem>-<COMPUTERNAME>.tether`, which OneDrive writes when a second machine saved a
+change at the same time, or `<stem> (<...>).tether`, the numbered and "conflicted copy"
+form. Tether detects these copies and does not try to prevent them. The match is
+by name only, so a sibling you named that way on purpose (`exp-donoronly.tether`) is also
+listed.
+
+**Remedy.** The open is not blocked and nothing is changed. Find out which file holds the
+work you want to keep: open each one in Tether, or compare their modification times. Then
+move or delete the other file yourself, outside Tether. Tether never reconciles, merges or
+deletes a conflict copy for you.
 
 ### The spot and overlap views are unavailable
 

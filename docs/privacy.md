@@ -125,5 +125,5 @@ page with a new effective date.
 
 ## Contact
 
-Questions about privacy or this policy can be sent to **bioedca@u.northwestern.edu**, or
+Questions about privacy or this policy can be sent to **<bioedca@u.northwestern.edu>**, or
 raised via the project's [issue tracker](https://github.com/bioedca/tether/issues).

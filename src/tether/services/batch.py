@@ -8,9 +8,12 @@ defaults, and the extraction options of an extraction profile
 [`MovieJob`][tether.project.batch.MovieJob] for each movie and calls
 [`tether.project.batch.run_batch`][] with the
 [`ExtractOptions`][tether.project.extract.ExtractOptions] those options name. [`plan`][] builds
-the same jobs and says what a run would do with each, reading no movie and writing nothing
-(``tether batch --dry-run``). A movie argument may be a file, a folder or a pattern, and each
-movie's output name follows the rule of [`tether.project.batch_inputs.output_stems`][] (#653).
+the same jobs and says what a run would do with each, writing nothing and reading no movie
+except to hash one under ``into`` (``tether batch --dry-run``). A movie argument may be a
+file, a folder or a pattern, and each movie's output name follows the rule of
+[`tether.project.batch_inputs.output_stems`][] (#653).
+With ``into``, every movie goes into that one project instead
+([`tether.project.batch.run_batch_into`][], #1151).
 The core is imported when the command runs, not when this module is imported (ADR-0100).
 """
 
@@ -39,11 +42,14 @@ class BatchRequest(ExtractionFields, Request):
     The fields are the options of ``tether batch`` (``docs/cli.md``) with the same
     defaults, and the
     [`ExtractionFields`][tether.services.profile.ExtractionFields] applied to every movie,
-    which ``tether batch --profile`` sets (none of them has a flag of its own). Each of
-    ``movies`` is a file, a folder or a pattern; ``recursive`` makes a folder include its
-    sub-folders. Two flags are stated positively: ``--no-idealize`` is ``idealize=False``
-    and ``--no-defer`` is ``defer_if_unavailable=False``. ``None`` in a supervision field
-    means the
+    which ``tether batch --profile`` sets. Only ``colocalization``, the colocalization rule
+    of every movie's extraction (ADR-0127), also has a flag of its own,
+    ``--colocalization``. Each of ``movies`` is a file, a folder or a pattern;
+    ``recursive`` makes a folder include its sub-folders. Exactly one of ``out_dir`` (a
+    project for each movie) and ``into`` (every movie appended to that one project, #1151)
+    is given. Two flags are stated positively:
+    ``--no-idealize`` is ``idealize=False`` and ``--no-defer`` is
+    ``defer_if_unavailable=False``. ``None`` in a supervision field means the
     [`SidecarSupervision`][tether.idealize.supervisor.SidecarSupervision] default (§11.2).
     """
 
@@ -51,7 +57,8 @@ class BatchRequest(ExtractionFields, Request):
     VERSION: ClassVar[int] = 1
 
     movies: tuple[str, ...]
-    out_dir: str
+    out_dir: str | None = None
+    into: str | None = None
     tmap: str | None = None
     tdat: str | None = None
     policy: str = "warn"
@@ -84,21 +91,39 @@ class PlannedMovie:
 
 @dataclasses.dataclass(frozen=True)
 class BatchPlan:
-    """What a ``batch`` request would do, found without reading a movie or writing a file."""
+    """What a ``batch`` request would do, found without writing a file.
+
+    No movie is read, except that with ``into`` a movie is hashed when the project holds
+    a movie of the same size.
+    """
 
     movies: tuple[PlannedMovie, ...]
     out_dir: Path
     log_path: Path
     settings: str
     sidecar: str
+    #: The one project of an ``--into`` run, and what its correct and idealize stages
+    #: would do (#1151); ``None`` and empty for a project for each movie.
+    into: Path | None = None
+    project_stages: str = ""
 
     def format_plan(self) -> str:
         """Format the dry-run report: one line for each movie, then the settings and the sidecar."""
-        lines = [
-            f"Batch plan (dry run): {len(self.movies)} movie(s) into {self.out_dir}; "
-            "no movie was read and nothing was written"
-        ]
+        if self.into is None:
+            header = (
+                f"Batch plan (dry run): {len(self.movies)} movie(s) into {self.out_dir}; "
+                "no movie was read and nothing was written"
+            )
+        else:
+            header = (
+                f"Batch plan (dry run): {len(self.movies)} movie(s) into the one project "
+                f"{self.into}; nothing was written (a movie is read only to hash it, when "
+                "the project holds a movie of its size)"
+            )
+        lines = [header]
         lines.extend(f"  {m.movie} -> {m.output}  [{m.action}]" for m in self.movies)
+        if self.into is not None:
+            lines.append(f"Project: {self.project_stages}")
         lines.append(f"Settings: {self.settings}")
         lines.append(f"Structured log: {self.log_path}")
         lines.append(f"Sidecar: {self.sidecar}")
@@ -130,6 +155,16 @@ def _settings(request: BatchRequest) -> tuple[ExtractOptions, SidecarSupervision
 
     if not request.movies:
         raise RequestRefused("a batch needs at least one movie")
+    if (request.out_dir is None) == (request.into is None):
+        raise RequestRefused(
+            "give exactly one of --out-dir (a project for each movie) and --into (every "
+            "movie in one project)"
+        )
+    if request.into is not None and request.overwrite:
+        raise RequestRefused(
+            "--overwrite cannot be combined with --into: a movie already in the project is "
+            "skipped, never replaced"
+        )
     if request.policy not in POLICIES:
         raise RequestRefused(f"policy must be one of {POLICIES}, got {request.policy!r}")
     # A .tdat supplies the detection mode and threshold; a choice of either beside it is
@@ -170,7 +205,8 @@ def _jobs(request: BatchRequest, out_dir: Path) -> list[MovieJob]:
     Two movies that would write one output would make the checkpoint treat the second as
     already done with the first one's data, so their output names take parent folder names
     until they differ ([`output_stems`][tether.project.batch_inputs.output_stems]); a
-    collision that no folder name resolves is refused.
+    collision that no folder name resolves is refused. With ``into`` every job writes that
+    project, and the same names tell the movies apart in the log and the summary.
     """
     from tether.project.batch import MovieJob
     from tether.project.batch_inputs import (
@@ -185,6 +221,17 @@ def _jobs(request: BatchRequest, out_dir: Path) -> list[MovieJob]:
         stems = output_stems(movies)
     except (MovieArgumentError, OutputNameCollision) as exc:
         raise RequestRefused(str(exc)) from exc
+    if request.into is not None:
+        return [
+            MovieJob(
+                movie_path=movie,
+                output_path=Path(request.into),
+                tmap=request.tmap,
+                tdat=request.tdat,
+                name=stem,
+            )
+            for movie, stem in zip(movies, stems, strict=True)
+        ]
     return [
         MovieJob(
             movie_path=movie,
@@ -196,8 +243,20 @@ def _jobs(request: BatchRequest, out_dir: Path) -> list[MovieJob]:
     ]
 
 
+def _out_dir(request: BatchRequest) -> Path:
+    """Where the run writes: ``out_dir``, or the folder of the ``into`` project."""
+    if request.into is not None:
+        return Path(request.into).parent
+    return Path(str(request.out_dir))
+
+
 def _log_path(request: BatchRequest, out_dir: Path) -> Path:
-    return Path(request.log) if request.log else out_dir / "batch-log.jsonl"
+    if request.log:
+        return Path(request.log)
+    if request.into is not None:
+        # Beside the project and named by it, so two projects in one folder keep two logs.
+        return out_dir / f"{Path(request.into).stem}-batch-log.jsonl"
+    return out_dir / "batch-log.jsonl"
 
 
 def _sidecar_status(supervision: SidecarSupervision | None) -> str:
@@ -219,30 +278,54 @@ def _sidecar_status(supervision: SidecarSupervision | None) -> str:
 
 
 def plan(request: BatchRequest) -> BatchPlan:
-    """Say what [`run`][] would do with *request*, reading no movie and writing nothing.
+    """Say what [`run`][] would do with *request*, writing nothing.
 
     Raises [`RequestRefused`][tether.services.base.RequestRefused] for the same requests
     that [`run`][] refuses. An existing output project is opened read-only to read its
-    checkpoint; the output directory is not created.
+    checkpoint; the output directory is not created. With ``into``, a movie is hashed to
+    find out whether it is already in the project, but only when the project holds a
+    movie of the same size.
     """
-    from tether.project.batch_inputs import describe_checkpoint
+    from tether.project.batch_inputs import (
+        describe_append,
+        describe_checkpoint,
+        describe_project_stages,
+    )
 
     _, supervision = _settings(request)
-    out_dir = Path(request.out_dir)
+    out_dir = _out_dir(request)
     jobs = _jobs(request, out_dir)
-    movies = tuple(
-        PlannedMovie(
-            movie=job.movie_path,
-            output=job.output_path,
-            action=describe_checkpoint(
-                job.output_path,
-                policy=request.policy,
-                overwrite=request.overwrite,
-                idealize=request.idealize,
-            ),
+    into = Path(request.into) if request.into is not None else None
+    project_stages = ""
+    if into is None:
+        movies = tuple(
+            PlannedMovie(
+                movie=job.movie_path,
+                output=job.output_path,
+                action=describe_checkpoint(
+                    job.output_path,
+                    policy=request.policy,
+                    overwrite=request.overwrite,
+                    idealize=request.idealize,
+                ),
+            )
+            for job in jobs
         )
-        for job in jobs
-    )
+    else:
+        movies = tuple(
+            PlannedMovie(
+                movie=job.movie_path,
+                output=into,
+                action=describe_append(into, job.movie_path, first=index == 0),
+            )
+            for index, job in enumerate(jobs)
+        )
+        appending = any(
+            m.action == "will be appended" or m.action.startswith("new project") for m in movies
+        )
+        project_stages = describe_project_stages(
+            into, idealize=request.idealize, appending=appending
+        )
     settings = ", ".join(
         (
             f"policy={request.policy}",
@@ -265,6 +348,8 @@ def plan(request: BatchRequest) -> BatchPlan:
         log_path=_log_path(request, out_dir),
         settings=settings,
         sidecar=_sidecar_status(supervision),
+        into=into,
+        project_stages=project_stages,
     )
 
 
@@ -280,14 +365,15 @@ def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchRes
     and before anything is written when the policy, the supervision settings or the
     extraction options are invalid, when a ``tdat`` comes with a ``detection_mode`` or
     ``detection_threshold``, when a movie argument gives no movie, or when two movies would
-    write the same project and no parent folder name tells them apart. Raises
+    write the same project and no parent folder name tells them apart; also when it gives
+    both or neither of ``out_dir`` and ``into``, or ``overwrite`` with ``into``. Raises
     [`CommandFailed`][tether.services.base.CommandFailed] when the output directory or the
     log cannot be written. A failed stage is not an error: it is in the summary.
     """
-    from tether.project.batch import BatchLog, run_batch
+    from tether.project.batch import BatchLog, run_batch, run_batch_into
 
     extract_options, supervision = _settings(request)
-    out_dir = Path(request.out_dir)
+    out_dir = _out_dir(request)
     jobs = _jobs(request, out_dir)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -298,7 +384,7 @@ def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchRes
         with contextlib.suppress(Exception):
             progress.run_started(
                 n_movies=len(jobs),
-                out_dir=out_dir,
+                out_dir=out_dir if request.into is None else Path(request.into),
                 policy=request.policy,
                 idealize=request.idealize,
             )
@@ -314,16 +400,28 @@ def run(request: BatchRequest, *, progress: _Progress | None = None) -> BatchRes
                     status="mapped",
                     detail=f"{job.movie_path} -> {job.output_path}",
                 )
-            summary = run_batch(
-                jobs,
-                policy=request.policy,
-                extract_options=extract_options,
-                idealize=request.idealize,
-                supervision=supervision,
-                overwrite=request.overwrite,
-                log=log,
-                progress=progress,
-            )
+            if request.into is not None:
+                summary = run_batch_into(
+                    jobs,
+                    request.into,
+                    policy=request.policy,
+                    extract_options=extract_options,
+                    idealize=request.idealize,
+                    supervision=supervision,
+                    log=log,
+                    progress=progress,
+                )
+            else:
+                summary = run_batch(
+                    jobs,
+                    policy=request.policy,
+                    extract_options=extract_options,
+                    idealize=request.idealize,
+                    supervision=supervision,
+                    overwrite=request.overwrite,
+                    log=log,
+                    progress=progress,
+                )
     except OSError as exc:
         raise CommandFailed(f"cannot write the batch output or log {log_path}: {exc}") from exc
     return BatchResult(summary=summary, log_path=log_path)
