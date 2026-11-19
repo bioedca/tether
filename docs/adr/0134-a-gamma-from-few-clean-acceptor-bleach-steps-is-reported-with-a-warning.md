@@ -19,7 +19,7 @@ over 20 frames each side. On a clean step the acceptor drops and the donor rises
 
 That gate reads a sign, not a shape. Where the donor does not rise on most molecules, `ΔI_D` is
 noise around zero, and about half of the steps still come out with a positive ratio by chance.
-The gate keeps the ones whose noise fell between `ΔI_A / 5` and `ΔI_A`, so the median can follow
+The gate keeps the ones whose noise came out at `ΔI_A / 5` or more, so the median can follow
 the width of the noise rather than the dyes, and Tether reported that γ with no sign that most
 of its steps did not have the expected shape (#1232).
 
