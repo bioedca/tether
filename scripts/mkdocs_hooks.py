@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """MkDocs build hooks for the documentation site (the ``hooks:`` setting of ``mkdocs.yml``).
 
-One hook lives here today: **source links follow the release** (#600). Pages link Tether's source
+Two hooks live here.
+
+**Source links follow the release** (#600). Pages link Tether's source
 as ``https://github.com/bioedca/tether/blob/main/...`` (or ``tree/main/...``), and authors keep
 writing them that way. When the build is a release deployment, ``docs.yml`` sets
 ``TETHER_DOCS_SOURCE_TAG`` to the tag it checked out and builds from, and this hook rewrites every
@@ -12,8 +14,15 @@ value" then reaches the code that shipped in ``1.0``, not today's file on ``main
 With the variable unset or empty -- a local ``mkdocs build --strict``, the required ``docs-build``
 gate, and the ``dev`` deployment dispatched from ``main`` -- the links stay on ``main``.
 
-The module is stdlib-only, so ``tests/test_docs_source_links.py`` runs it in the base test matrix,
-which has no MkDocs.
+**The project schema is served** (#612). ``schema/schema_frozen.json``, the machine-checked manifest
+that ``scripts/dump_schema.py --check`` guards, lives outside ``docs/``. :func:`on_files` adds it to
+the site as ``reference/tether-schema.json``, so each versioned build serves the schema of the
+version it documents, at a stable address beside the column dictionary and the provenance schema
+(which are committed under ``docs/reference/`` and need no hook). The file is copied byte for byte.
+
+The module is stdlib-only at import time -- :func:`on_files` imports MkDocs only when MkDocs calls
+it -- so ``tests/test_docs_source_links.py`` and ``tests/test_docs_published_data.py`` run it in the
+base test matrix, which has no MkDocs.
 """
 
 from __future__ import annotations
@@ -21,7 +30,15 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
+
+_REPO = Path(__file__).resolve().parent.parent
+
+#: Files outside ``docs/`` that the site serves, as ``{site path: repository file}`` (#612).
+PUBLISHED_FILES: dict[str, Path] = {
+    "reference/tether-schema.json": _REPO / "schema" / "schema_frozen.json",
+}
 
 #: The environment variable ``docs.yml`` sets to the release tag it builds from.
 SOURCE_TAG_ENV = "TETHER_DOCS_SOURCE_TAG"
@@ -78,3 +95,18 @@ def on_config(config: Any, **kwargs: Any) -> Any:
 def on_page_markdown(markdown: str, **kwargs: Any) -> str:
     """Rewrite the page's source links to the release tag of a release build."""
     return rewrite_source_links(markdown, source_tag())
+
+
+def on_files(files: Any, config: Any, **kwargs: Any) -> Any:
+    """Add every :data:`PUBLISHED_FILES` entry to the site, copied unchanged.
+
+    A missing source file raises :class:`FileNotFoundError`, which stops the build rather than
+    publishing a page that links to nothing.
+    """
+    from mkdocs.structure.files import File  # MkDocs is present whenever MkDocs calls this
+
+    for site_path, source in PUBLISHED_FILES.items():
+        if not source.is_file():
+            raise FileNotFoundError(f"{source} is missing; the site cannot serve {site_path}")
+        files.append(File.generated(config, site_path, abs_src_path=str(source)))
+    return files

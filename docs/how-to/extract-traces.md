@@ -100,6 +100,13 @@ Molecules in movie.tif under each colocalization rule (nothing written):
   `--donor-side` is ignored when you pass one. Tether reads only the crop of each channel
   from the map, so a map that also rotates or flips a channel stops the extraction with an
   error; use native registration for that movie instead.
+- **A saved Tether map:** make a map once from a bead slide with
+  `tether map create beads.tif -o beads.npz`. In the application, use **Calibration → Make
+  channel map…**. Then add `--map beads.npz` to extract each later movie with it. The map
+  keeps its own channel layout. So `--donor-side` is ignored here too.
+
+Pass one map at most. Tether refuses `--tmap` and `--map` together. The
+[command reference](../cli.md#registration-one-map-source) gives the full rule.
 
 ## 4. Run the extraction
 
@@ -173,8 +180,8 @@ starting `detection: mode`, naming what was applied. Then check three things:
 
 ## Many movies at once
 
-`tether batch` extracts a whole folder of movies into one project each. Then it corrects and
-idealizes them. Give it the folder:
+`tether batch` extracts a whole folder of movies, either into one project each or all into
+one project. Then it corrects and idealizes them. Give it the folder:
 
 ```bash
 tether batch data -d projects
@@ -196,9 +203,18 @@ Two movies can have the same file name in different day folders. Each one then g
 own project, with the folder name in front, such as `day1__movie_010.tether`. [Command
 line](../cli.md#output-names-when-two-movies-have-the-same-file-name) states the rule.
 
-One project for each movie is how the command writes, not a limit of the project, which can
-hold several movies of one experiment ([`.tether` project](../glossary.md#tether-project)).
-No command adds a movie to an existing project yet.
+To put every movie of the experiment into one project, give `--into` in place of `-d`:
+
+```bash
+tether batch data --recursive --into experiment.tether
+```
+
+The first movie creates the project if it does not exist, and each other movie is added to
+it. A movie that is already in the project is skipped, so you can run the same command
+again after a new day's movies land in the folder: only the new movies are added. Then the
+project is corrected and idealized again, over every movie in it. `--dry-run` shows which
+movies are new to the project. [Command line](../cli.md#every-movie-into-one-project-into)
+gives the details.
 
 From Python, `tether.project.extract.add_movie_to_project` adds one. It extracts the movie with the same
 steps as `tether extract`. Then it appends the movie to the project. Hold the project's writer

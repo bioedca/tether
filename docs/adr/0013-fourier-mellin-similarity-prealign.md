@@ -41,6 +41,7 @@ This ADR records how S5b resolves both.
 ## Considered options
 
 **180°/sign/scale-direction disambiguation.**
+
 - **A. Hand-derived sign convention** (closed-form rotation = ±recovered_angle,
   scale = recovered or 1/recovered). Rejected: the correct convention flipped
   between test constructions and the real pair (argument-order dependent) — a

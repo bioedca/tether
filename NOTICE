@@ -279,6 +279,21 @@ Ha laboratory SAM/SAH riboswitch data  (CC-BY-4.0)  — Liao T-W, Huang L,
     tests/fixtures/ha_sam_sah/test3.dat
     tests/fixtures/ha_sam_sah/counts2.txt
 
+FRET_cloud script output on the smfret-analysis2 test data  (GPL-3.0-only)  —
+  the output of FRET_cloud_contours_centroids.m of the FRET_cloud scripts
+  (FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished), run once in
+  MATLAB on the 76 smfret-analysis2 trace files above (issue #710, ADR-0105).
+  The values derive from those GPL-3.0-only traces, so these files are
+  GPL-3.0-only (see LICENSES/GPL-3.0-only.txt and the REUSE.toml annotation).
+  The script itself is NOT vendored. The files:
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/centroids.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/density.h5
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/files.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/pairs.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/provenance.json
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/thresholds.csv
+  tests/fixtures/reference/fret-cloud-scripts/sa2-traces/toolbox.csv
+
 Weninger laboratory trinucleotide-repeat hairpin data  (CC0-1.0)  — Xu P,
   Zhang J, Pan F, Mahn C, Roland C, Sagui C & Weninger K, "Frustration between
   preferred states of complementary trinucleotide repeat DNA hairpins
