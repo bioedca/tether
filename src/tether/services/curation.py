@@ -8,8 +8,9 @@ needs three facts about the selected molecule, and these functions read them. Th
 never write, so, like [`tether.services.notices`][], they are plain functions here rather
 than registered service commands, and they import the core only when they run (ADR-0100).
 
-- [`stored_molecule`][] — the molecule's row, condition, ``frame_range`` and absolute
-  ``analysis_window``, resolved by the rules every windowed reader applies.
+- [`stored_molecule`][] — the selected row's condition, ``frame_range`` and absolute
+  ``analysis_window``, resolved by the rules every windowed reader applies, and
+  [`stored_molecules`][] for every row that shares its key.
 - [`summed_bleach_frame`][] — the first frame of the summed-intensity photobleach, by the
   detector and priors that
   [`compute_photobleach`][tether.project.photobleach.compute_photobleach] runs.
@@ -26,6 +27,7 @@ __all__ = [
     "resolved_frame_range",
     "resolved_window",
     "stored_molecule",
+    "stored_molecules",
     "summed_bleach_frame",
 ]
 
@@ -78,10 +80,12 @@ def _text(value: object) -> str:
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
-def stored_molecule(project_path: str | Path, molecule_key: str) -> StoredMolecule:
-    """Read the first ``/molecules`` row that carries ``molecule_key`` (read-only).
+def stored_molecules(project_path: str | Path, molecule_key: str) -> tuple[StoredMolecule, ...]:
+    """Read every ``/molecules`` row that carries ``molecule_key``, in row order (read-only).
 
-    Raises [`KeyError`][] when no row carries the key.
+    A key-based setter writes all of them, each clamped to its own ``frame_range``, so a
+    caller that shows rows refreshes each one from here after a write. Raises
+    [`KeyError`][] when no row carries the key.
     """
     import h5py  # noqa: PLC0415
 
@@ -91,20 +95,38 @@ def stored_molecule(project_path: str | Path, molecule_key: str) -> StoredMolecu
     with h5py.File(path, "r") as f:
         table = f["molecules"][TABLE]
         keys = [_text(k) for k in table.fields("molecule_key")[:]]
-        if molecule_key not in keys:
+        rows = [i for i, key in enumerate(keys) if key == molecule_key]
+        if not rows:
             raise KeyError(f"no molecule with molecule_key {molecule_key!r} in {path.name}")
-        row = keys.index(molecule_key)
-        record = table[row]
+        records = [table[i] for i in rows]
         n_frames = next(
             (int(layer.shape[1]) for layer in f["traces"].values() if layer.ndim == 2), 0
         )
-    frame_range = resolved_frame_range(record["frame_range"], n_frames)
-    return StoredMolecule(
-        row=row,
-        condition_id=_text(record["condition_id"]),
-        frame_range=frame_range,
-        window=resolved_window(record["analysis_window"], frame_range),
-    )
+    out = []
+    for row, record in zip(rows, records, strict=True):
+        frame_range = resolved_frame_range(record["frame_range"], n_frames)
+        out.append(
+            StoredMolecule(
+                row=row,
+                condition_id=_text(record["condition_id"]),
+                frame_range=frame_range,
+                window=resolved_window(record["analysis_window"], frame_range),
+            )
+        )
+    return tuple(out)
+
+
+def stored_molecule(
+    project_path: str | Path, molecule_key: str, *, row: int | None = None
+) -> StoredMolecule:
+    """Read row ``row`` of ``/molecules`` if it carries ``molecule_key``, else the first that does.
+
+    Pass the row the curator selected: two rows can share a key (the same file extracted
+    twice) with different frame ranges and windows, and an edit starts from the selected
+    one. Read-only; raises [`KeyError`][] when no row carries the key.
+    """
+    matches = stored_molecules(project_path, molecule_key)
+    return next((m for m in matches if m.row == row), matches[0])
 
 
 def summed_bleach_frame(project_path: str | Path, molecule: StoredMolecule) -> int:

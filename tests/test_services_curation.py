@@ -55,3 +55,18 @@ def test_summed_bleach_frame_finds_the_step_or_the_trace_end(tmp_path) -> None:
 
     assert curation.summed_bleach_frame(project.path, steady) == 40
     assert abs(curation.summed_bleach_frame(project.path, bleached) - 25) <= 2
+
+
+def test_stored_molecule_reads_the_selected_row_of_a_shared_key(tmp_path) -> None:
+    import h5py
+
+    project, keys = _store(tmp_path, windows=[(2, 30), (5, 35)])
+    with h5py.File(project.path, "r+") as f:
+        table = f["molecules"]["table"][:]
+        table["molecule_key"][1] = table["molecule_key"][0]
+        f["molecules"]["table"][:] = table
+
+    assert [m.row for m in curation.stored_molecules(project.path, keys[0])] == [0, 1]
+    assert curation.stored_molecule(project.path, keys[0], row=1).window == (5, 35)
+    assert curation.stored_molecule(project.path, keys[0]).window == (2, 30)
+    assert curation.stored_molecule(project.path, keys[0], row=7).row == 0  # not its row

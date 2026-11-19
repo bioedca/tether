@@ -372,3 +372,32 @@ def test_edits_are_refused_on_a_read_only_project(qapp, qtbot, tmp_path, key_nam
     assert _window(project, keys[0]) == (10, 50)
     assert _category(project, keys[0]) == ""
     assert project.read_molecule_audit().shape[0] == 0
+
+
+def test_a_shared_key_edits_from_the_selected_row_and_shows_each_rows_window(
+    shell, qtbot, tmp_path
+) -> None:
+    # Two rows can share a molecule_key (the same file extracted twice) with different
+    # frame ranges. A nudge starts from the selected row, and each listed row of the
+    # key shows its own stored window afterwards (the setters clamp per row).
+    import h5py
+
+    project, keys = _store(tmp_path, windows=[(0, 30), (20, 50), (0, N_FRAMES)])
+    with h5py.File(project.path, "r+") as f:
+        table = f["molecules"]["table"][:]
+        table["molecule_key"][1] = table["molecule_key"][0]
+        table["frame_range"][0] = (0, 30)
+        table["frame_range"][1] = (20, 50)
+        f["molecules"]["table"][:] = table
+    assert shell.load_project(project.path) is not None
+    shell.molecule_list.setCurrentRow(1)
+    assert shell.trace_dock.analysis_window == (0, 30)  # frames 20-50, trace-relative
+
+    _press(qtbot, shell, "Key_Equal")  # row 1's start 20 -> 21
+
+    with h5py.File(project.path, "r") as f:
+        windows = [tuple(int(v) for v in w) for w in f["molecules"]["table"]["analysis_window"]]
+    assert windows[:2] == [(21, 30), (21, 50)]
+    assert "[21, 50)" in shell.status_message  # the selected row's stored window
+    assert shell.trace_dock.analysis_window == (1, 30)
+    assert shell._traces[0].analysis_window == (21, 30)

@@ -70,6 +70,7 @@ from tether.services.curation import (
     resolved_frame_range,
     resolved_window,
     stored_molecule,
+    stored_molecules,
     summed_bleach_frame,
 )
 
@@ -2585,7 +2586,7 @@ class TetherShell:
         if project is None or trace is None or trace.molecule_key is None:
             return list(self._categories)
         try:
-            stored = stored_molecule(project.path, trace.molecule_key)
+            stored = stored_molecule(project.path, trace.molecule_key, row=row)
             return list(project.category_list(stored.condition_id).categories)
         except Exception:  # noqa: BLE001 - the picker still opens; assignment reports errors
             return list(self._categories)
@@ -3097,11 +3098,11 @@ class TetherShell:
         selection = self._writable_selection(verb)
         if selection is None:
             return
-        project, _row, trace = selection
+        project, row, trace = selection
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         try:
-            stored = stored_molecule(project.path, key)
+            stored = stored_molecule(project.path, key, row=row)
             names = project.category_list(stored.condition_id).categories
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
@@ -3149,7 +3150,7 @@ class TetherShell:
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         try:
-            stored = stored_molecule(project.path, key)
+            stored = stored_molecule(project.path, key, row=row)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
@@ -3215,7 +3216,7 @@ class TetherShell:
         key = trace.molecule_key
         assert key is not None  # _writable_selection requires a project molecule
         try:
-            stored = stored_molecule(project.path, key)
+            stored = stored_molecule(project.path, key, row=row)
             bleach = summed_bleach_frame(project.path, stored)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
@@ -3261,16 +3262,24 @@ class TetherShell:
         assert key is not None  # every caller passed _writable_selection
         try:
             write()
-            stored = stored_molecule(project.path, key)
+            stored = stored_molecules(project.path, key)
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
-        window = _relative_window(stored.frame_range[0], trace.n_frames, stored.window)
-        self._traces[row] = replace(trace, analysis_window=window)
-        if self._molecule_list.currentRow() == row and self._trace_dock.trace is not None:
-            self._trace_dock.set_analysis_window(window)
+        # The setters write every row that carries the key, each clamped to its own
+        # frame_range, so each listed row of the key takes its own stored window back.
+        selected = next((m for m in stored if m.row == row), stored[0])
+        by_row = {m.row: m for m in stored}
+        for i, listed in enumerate(self._traces):
+            if listed.molecule_key != key:
+                continue
+            mine = by_row.get(i, selected)
+            window = _relative_window(mine.frame_range[0], listed.n_frames, mine.window)
+            self._traces[i] = replace(listed, analysis_window=window)
+            if i == self._molecule_list.currentRow() and self._trace_dock.trace is not None:
+                self._trace_dock.set_analysis_window(window)
         self._queue_open_histogram_refresh()
-        start, stop = stored.window
+        start, stop = selected.window
         self._status(f"{done} [{start}, {stop}) for {trace.name or key}")
 
     def _unavailable(self, feature: str, reason: str) -> None:
