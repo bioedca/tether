@@ -337,15 +337,17 @@ than a silent pass.
 ## `tether batch`
 
 Process many movies unattended (FR-BATCH). Give it a folder of movies, a pattern or the
-movie files themselves. Each movie becomes its own `<out-dir>/<stem>.tether`. That is how the command writes, not a limit of the project
-file, which can hold several movies of one experiment
-([`.tether` project](glossary.md#tether-project)). Failures are isolated — one bad movie
+movie files themselves. With `--out-dir`, each movie becomes its own
+`<out-dir>/<stem>.tether`. With `--into PROJECT.tether`, every movie goes into that one
+project, which can hold several movies of one experiment
+([`.tether` project](glossary.md#tether-project), [see
+below](#every-movie-into-one-project-into)). Give one of the two. Failures are isolated — one bad movie
 does not stop the run — and each stage is checkpointed, so re-running the same command
 resumes only the incomplete stages instead of redoing finished work.
 
 ```text
-tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PATH]
-             [--profile PATH] [--policy {warn,fail}]
+tether batch [-h] [--recursive] [--dry-run] (-d OUT_DIR | --into PROJECT.tether)
+             [--tmap PATH] [--tdat PATH] [--profile PATH] [--policy {warn,fail}]
              [--colocalization {partner-in-both,donor-anchored}] [--no-idealize]
              [--overwrite] [--log PATH] [--max-restarts N] [--sidecar-timeout SECONDS]
              [--sidecar-python PATH] [--no-defer] [--quiet | --verbose]
@@ -356,16 +358,17 @@ tether batch [-h] [--recursive] [--dry-run] -d OUT_DIR [--tmap PATH] [--tdat PAT
 |---|---|---|
 | `movies` | *(required, one or more)* | dual-channel TIFF movies: each one a movie file, a folder or a quoted pattern ([see below](#which-movies-a-folder-or-a-pattern-gives)) |
 | `--recursive` | off | a folder argument also includes the movies in its sub-folders |
-| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. No movie is read and nothing is written ([see below](#check-a-batch-before-it-runs-dry-run)) |
-| `-d OUT_DIR`, `--out-dir OUT_DIR` | *(required)* | directory for the per-movie `.tether` projects (created if absent) |
+| `--dry-run` | off | print each movie, its output project and what the run would do with it, then exit `0`. Nothing is written, and no movie is read except to hash it under `--into` ([see below](#check-a-batch-before-it-runs-dry-run)) |
+| `-d OUT_DIR`, `--out-dir OUT_DIR` | *(this or `--into`)* | directory for the per-movie `.tether` projects (created if absent) |
+| `--into PROJECT.tether` | *(this or `--out-dir`)* | append every movie to this one project, which the first movie creates if it is absent. A movie already in it is skipped, and correct and idealize run once over the whole project ([see below](#every-movie-into-one-project-into)) |
 | `--tmap PATH` | none | a shared imported Deep-LASI `.tmap` applied to every movie |
 | `--tdat PATH` | none | a shared Deep-LASI `.tdat` detection config applied to every movie. It sets `detection_mode` and `detection_threshold` and no other option, and it is refused with a `--profile` that sets either ([the rule](#detection-settings-pick-one-source)) |
 | `--profile PATH` | none | extract every movie with the options of an [extraction profile](#extraction-profiles). An option the file leaves out keeps its default, and without a profile every option but `--colocalization` is at its default. It cannot be combined with `--colocalization` |
 | `--policy {warn,fail}` | `warn` | over-gate registration policy: `warn` keeps an over-gate movie with a flag; `fail` records that movie's extract stage as failed — the inspectable project file is still written, and the saved residual is re-evaluated on resume ([see below](#how-policy-fail-behaves-on-resume)) |
 | `--colocalization {partner-in-both,donor-anchored}` | `partner-in-both` | the colocalization rule of every movie's extraction; see [`tether extract`](#choose-the-colocalization-rule) |
 | `--no-idealize` | off | skip the idealization stage (extract + correct only) |
-| `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip |
-| `--log PATH` | `<out-dir>/batch-log.jsonl` | write a JSONL structured log here |
+| `--overwrite` | off | re-extract an incomplete output, or a completed extraction that the current `fail` policy rejects; accepted completed checkpoints still skip. Not with `--into` |
+| `--log PATH` | `<out-dir>/batch-log.jsonl`, or `<project>-batch-log.jsonl` beside the `--into` project | write a JSONL structured log here |
 | `--max-restarts N` | `3` | auto-restart a movie's idealization up to N times on a transient sidecar failure (crash/timeout). `0` disables restarts |
 | `--sidecar-timeout SECONDS` | `1800` | per-idealization-call sidecar timeout in seconds |
 | `--sidecar-python PATH` | `$TETHER_SIDECAR_PYTHON` | sidecar interpreter for idealization |
@@ -439,10 +442,61 @@ batch that had only `day1/movie_010.tif`, the day 1 movie's output becomes
 `day1__movie_010` and the old `movie_010.tether` is not resumed. Run the batch with
 `--dry-run` first when you change what it holds.
 
+### Every movie into one project (`--into`)
+
+`--into PROJECT.tether` writes the movies of one experiment into one project, so the
+conditions, the population views and the ranker see them together:
+
+```bash
+tether batch data --recursive --into experiment.tether
+```
+
+- **Each movie is appended.** The first movie creates the project when it does not exist.
+  Each later one is appended under the project's writer lock, so a failed append leaves the
+  project as it was and the run goes on with the next movie. Every movie must use the
+  window, radii and background window of the project's first movie. A movie extracted
+  with other values fails.
+- **A movie already in the project is skipped.** A movie is known by its content, not its
+  name. So the same command run again appends no movie twice. Two copies of one file go in
+  once. Tether hashes a movie to check this only when the project holds a movie of
+  the same file size.
+- **Correct and idealize run once, over the whole project,** after the last append. The
+  dataset α and γ then come from every movie's molecules. A run that appends a movie runs
+  both again, over every movie in the project. The idealization model is then fitted
+  again in place of the stored one. A run that appends nothing skips them. The exception
+  is an earlier `--into` run that left them unfinished, for example with idealization
+  deferred. A project that no `--into` run has written keeps its correction and model
+  when it gains no movie.
+- **The summary still has one line for each movie.** A movie's name is the one
+  [the output name rule](#output-names-when-two-movies-have-the-same-file-name) would give
+  its own project. So movies with one file name stay apart. Each movie in the project shows
+  the project's correct and idealize results. A movie that is not in it has them `blocked`.
+  The progress lines and the structured log give those two stages once, as `tether batch:`
+  run lines and `(batch)` events.
+- **`--policy fail` keeps an over-gate movie out.** Its extract stage is `failed` and
+  nothing of it is written, so it is not in the project. A later run tries it again.
+- `--into` with `--out-dir` is a usage error (exit `2`). So is `--into` with
+  `--overwrite`, because a movie in the project is skipped, never replaced.
+
+`--dry-run --into` prints one line for each movie. The line names the project and says
+whether the movie is new to it. A `Project:` line for correct and idealize comes last:
+
+```text
+Batch plan (dry run): 3 movie(s) into the one project experiment.tether; nothing was written (a movie is read only to hash it, when the project holds a movie of its size)
+  data/day1/movie_010.tif -> experiment.tether  [already in the project as movie 'a3f1c2d4e5b6': will be skipped]
+  data/day1/movie_011.tif -> experiment.tether  [will be appended]
+  data/day2/movie_010.tif -> experiment.tether  [will be appended]
+Project: correct and idealize will run over every movie in the project after the appends
+```
+
+A project that does not exist yet shows `new project: will be created with this movie` on
+the first movie's line.
+
 ### Check a batch before it runs (`--dry-run`)
 
 `--dry-run` prints the plan and exits `0`. It reads no movie, creates no folder and writes
-no file. It prints one line for each movie with its output project and what the run would
+no file ([with `--into`](#every-movie-into-one-project-into) it may read a movie to hash
+it). It prints one line for each movie with its output project and what the run would
 do with it, then the settings, the log path and whether a sidecar interpreter was found:
 
 ```text
