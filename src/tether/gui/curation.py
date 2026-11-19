@@ -630,6 +630,19 @@ class CurationEventFilter:
 
     # --- install / remove ----------------------------------------------------
 
+    def add_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Let the curation keys act in ``widget`` when it is a floating top-level window.
+
+        For a shell-owned dock built after this filter, such as the movie dock (#356):
+        docked, it is inside the main window already; floated, it is its own window.
+        """
+        if not any(widget is w for w in self._scope_widgets):
+            self._scope_widgets = (*self._scope_widgets, widget)
+
+    def remove_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Undo [`add_scope_widget`][tether.gui.curation.CurationEventFilter.add_scope_widget]."""
+        self._scope_widgets = tuple(w for w in self._scope_widgets if w is not widget)
+
     def install(self, app: QtCore.QCoreApplication | None = None) -> None:
         """Install on ``app`` (default: the running ``QApplication``)."""
         from pyqtgraph.Qt import QtWidgets

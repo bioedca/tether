@@ -133,6 +133,30 @@ def test_opening_a_project_docks_the_movie_panel_in_curate(section_shell, tmp_pa
 
 @needs_napari
 @needs_gl
+def test_the_curation_keys_act_in_a_floating_movie_dock(section_shell, tmp_path) -> None:
+    from pyqtgraph.Qt import QtCore, QtGui
+
+    shell = _open(section_shell, _store(tmp_path))
+    dock = shell.movie_dock
+    space = QtGui.QKeyEvent(
+        QtCore.QEvent.Type.KeyPress, QtCore.Qt.Key.Key_Space, QtCore.Qt.KeyboardModifier.NoModifier
+    )
+    # Float it, decide one key, and dock it again before the event loop runs: a floating
+    # napari canvas cannot draw under xvfb, and the decision is synchronous.
+    dock.setFloating(True)
+    try:
+        assert dock.window() is dock  # floated: its own top-level window
+        consumed = shell._event_filter.filter_event(dock, space, focus_widget=dock)
+    finally:
+        dock.setFloating(False)
+    assert consumed
+    # Accepted, and the selection moved on (#631).
+    assert shell.status_message.startswith("Accepted ")
+    assert shell.status_message.endswith("; Molecule mol-1 (2/3)")
+
+
+@needs_napari
+@needs_gl
 def test_the_switcher_lists_the_movies_table_and_the_shell_owns_it(section_shell, tmp_path) -> None:
     from pyqtgraph.Qt import QtCore
 
@@ -331,6 +355,48 @@ def test_a_platform_without_gl_opens_the_project_without_a_panel(
     assert shell.movie_switcher.count() == 1
     assert shell.curation_project is not None
     assert shell.status_message.endswith("; movie panel unavailable: no OpenGL here")
+
+
+def test_a_movie_the_panel_cannot_prepare_is_disabled_and_its_reader_closed(
+    section_shell, tmp_path, monkeypatch
+) -> None:
+    # A float TIFF with NaN in its first frame opens, then fails the panel's contrast step:
+    # the open still finishes, on the new project's molecules (#356 review).
+    from tether.gui import shell as shell_mod
+    from tether.services import movies as movies_mod
+
+    class _Panel:
+        closed = False
+
+        def add_movie(self, *_args, **_kwargs) -> int:
+            raise ValueError("cannot convert float NaN to integer")
+
+        def close(self) -> None:
+            _Panel.closed = True
+
+    opened: list[object] = []
+    real_open = movies_mod.open_project_movie
+
+    def _open_and_keep(movie):
+        reader = real_open(movie)
+        opened.append(reader)
+        return reader
+
+    monkeypatch.setattr(shell_mod, "_movie_panel_unavailable", lambda: None)
+    monkeypatch.setattr(shell_mod, "_new_movie_panel", _Panel)
+    monkeypatch.setattr(movies_mod, "open_project_movie", _open_and_keep)
+
+    shell = _open(section_shell, _store(tmp_path))
+
+    assert shell.status_message == "Opened m.tether — 3 molecule(s); 1 of 1 movie(s) not shown"
+    assert shell.molecule_list.count() == 3
+    assert shell.movie_panel is None
+    assert _Panel.closed
+    switcher = shell.movie_switcher
+    assert switcher.itemText(0) == f"{MOVIE_FIXTURE.name} (cannot be opened)"
+    assert not switcher.model().item(0).isEnabled()
+    (reader,) = opened
+    assert reader._closed
 
 
 def test_a_failed_panel_build_is_reported_not_raised(section_shell, tmp_path, monkeypatch) -> None:

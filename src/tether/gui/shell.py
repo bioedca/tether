@@ -1659,8 +1659,9 @@ class TetherShell:
     def _add_movies(self, panel: Any, rows: list[int], radius: float) -> list[Any]:
         """Open the movie of each switcher row in ``rows`` into ``panel``; return the failures.
 
-        A movie that does not open (a file the reader refuses) is disabled in the switcher
-        with the reason, and the others are still shown.
+        A movie that does not open (a file the reader refuses) or that the panel cannot
+        prepare (its first frame cannot be displayed) is disabled in the switcher with the
+        reason, its reader is closed, and the others are still shown.
         """
         from tether.gui.movie_panel import MovieOverlay
         from tether.services.movies import open_project_movie
@@ -1668,23 +1669,30 @@ class TetherShell:
         failed: list[Any] = []
         for row in rows:
             movie = self._project_movies[row]
+            reader = None
             try:
                 reader = open_project_movie(movie)
-            except Exception:  # noqa: BLE001 - one unreadable movie must not fail the open
+                # A movie whose spots cannot be placed on the frame is shown without any.
+                overlay = (
+                    None
+                    if movie.no_spots
+                    else MovieOverlay(
+                        donor_xy=movie.donor_xy,
+                        acceptor_xy=movie.acceptor_xy,
+                        aperture_radius=radius,
+                    )
+                )
+                index = panel.add_movie(reader, overlay=overlay, name=movie.movie_id)
+            except Exception:  # noqa: BLE001 - one unshowable movie must not fail the open
+                if reader is not None:
+                    with suppress(Exception):
+                        reader.close()
                 failed.append(movie)
                 self._movie_switcher.setItemText(row, f"{movie.name} (cannot be opened)")
                 self._disable_movie_row(row)
                 continue
             self._movie_readers.append(reader)
-            # A movie whose spots cannot be placed on the frame is shown without any.
-            overlay = (
-                None
-                if movie.no_spots
-                else MovieOverlay(
-                    donor_xy=movie.donor_xy, acceptor_xy=movie.acceptor_xy, aperture_radius=radius
-                )
-            )
-            self._movie_rows[row] = panel.add_movie(reader, overlay=overlay, name=movie.movie_id)
+            self._movie_rows[row] = index
         return failed
 
     def _attach_movie_panel(self, panel: Any) -> None:
@@ -1704,6 +1712,8 @@ class TetherShell:
         self._movie_dock_widget = self._attach_section_dock(
             CURATE_SECTION, "Movie", window, DockArea.RIGHT
         )
+        # Floated, the dock is its own window; the curation keys still act there.
+        self._event_filter.add_scope_widget(self._movie_dock_widget)
         first_row = min(self._movie_rows, key=self._movie_rows.__getitem__)
         self._movie_switcher.blockSignals(True)
         self._movie_switcher.setCurrentIndex(first_row)
@@ -1734,6 +1744,7 @@ class TetherShell:
         self._movie_panel = None
         self._movie_dock_widget = None
         if dock_widget is not None:
+            self._event_filter.remove_scope_widget(dock_widget)
             self._detach_section_dock(dock_widget)
         if panel is not None:
             # Take napari's window out of the dock first, so the viewer closes its own
