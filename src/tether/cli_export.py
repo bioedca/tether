@@ -17,7 +17,7 @@ write over the source project, and exit codes (0 written, 1 failed, 2 usage).
 An export only reads the source project. It takes no writer lock and never touches the
 project's ``<file>.lock``, so it works on a project another user holds open.
 
-Only [`argparse`][] is imported at module level: ``tether.cli.build_parser`` registers
+Only `argparse` is imported at module level: ``tether.cli.build_parser`` registers
 these parsers on the ``tether --version`` path, which must stay free of the HDF5 stack.
 The export functions are imported inside [`run_export`][tether.cli_export.run_export].
 """
@@ -329,6 +329,8 @@ def run_export(args: argparse.Namespace) -> int:
             print(f"{prog}: {exc}", file=sys.stderr)
             return 1
 
+    from tether.services.notices import conflict_copy_warning
+
     failed = 0
     for source, out in targets:
         try:
@@ -341,4 +343,9 @@ def run_export(args: argparse.Namespace) -> int:
             failed += 1
             continue
         print(f"Exported {result.n_molecules} molecule(s) -> {result.path}")
+        # The same advisory stderr line as tether info: a sync-conflict copy beside the
+        # source is named, never read or changed (PRD §5.4).
+        warning = conflict_copy_warning(source)
+        if warning is not None:
+            print(f"  warning: {warning}.", file=sys.stderr)
     return 1 if failed else 0

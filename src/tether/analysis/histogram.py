@@ -411,7 +411,7 @@ def bootstrap_histogram_ci(
         Central interval width in ``(0, 1)`` (default [`DEFAULT_CI_LEVEL`][]
         = 0.95 → the 2.5/97.5 percentiles).
     seed
-        Seed for [`numpy.random.default_rng`][] (default [`DEFAULT_SEED`][]),
+        Seed for `numpy.random.default_rng` (default [`DEFAULT_SEED`][]),
         making the interval reproducible.
 
     Returns

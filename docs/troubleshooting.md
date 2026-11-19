@@ -747,7 +747,10 @@ case. The banner shows an action button only when an action is safe. Do not dele
   other writer can lose work in this case, so no confirmation is asked.
 - **The lock names a Tether that still runs on this computer** — another application window
   has the project open. The banner shows no action, and Tether never takes this lock. Close
-  the other application window.
+  the other application window. Tether checks that process again about once a minute. If it
+  closes normally, it releases the lock and the banner says so: open the project again to
+  write. If it stops without releasing the lock (for example, it crashes), the banner changes
+  to the first case and shows **Recover**.
 - **No `; stale` suffix** (another computer or another login) — a live writer, or one that
   stopped less than ≈30 minutes ago. The banner shows no action and says when a takeover
   becomes possible. Close the other Tether application window, or ask the named
@@ -822,6 +825,28 @@ This record is per user. If two users open the same file through two different n
 has its own `.lock` and each user has their own record, so Tether does not stop the second user,
 and an `--overwrite` by one of them does not stop with `is locked` either. Give a shared project
 one name only.
+
+### A warning names a possible OneDrive/SharePoint conflict copy
+
+**Symptom.** When you open a project, the GUI Browser shows a caution banner, or
+`tether extract`, `tether batch`, `tether info`, `tether metadata` or `tether export` writes
+a stderr line with the same text:
+
+```text
+Warning: 2 possible OneDrive/SharePoint conflict copies beside exp.tether: exp (1).tether, exp-DESKTOP-AB12.tether. Tether does not merge or delete them; compare and reconcile by hand.
+```
+
+**Cause.** The project's folder holds a file whose name matches a sync-conflict copy of the
+project: `<stem>-<COMPUTERNAME>.tether`, which OneDrive writes when a second machine saved a
+change at the same time, or `<stem> (<...>).tether`, the numbered and "conflicted copy"
+form. Tether detects these copies and does not try to prevent them. The match is
+by name only, so a sibling you named that way on purpose (`exp-donoronly.tether`) is also
+listed.
+
+**Remedy.** The open is not blocked and nothing is changed. Find out which file holds the
+work you want to keep: open each one in Tether, or compare their modification times. Then
+move or delete the other file yourself, outside Tether. Tether never reconciles, merges or
+deletes a conflict copy for you.
 
 ### The spot and overlap views are unavailable
 

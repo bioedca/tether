@@ -20,13 +20,13 @@ Two layers:
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from _gui_harness import needs_gl as _needs_gl
 from tether.gui.movie_panel import (
     MovieOverlay,
     NapariMoviePanel,
@@ -49,15 +49,10 @@ _HAS_NAPARI_QT = all(importlib.util.find_spec(m) is not None for m in ("napari",
 _needs_napari = pytest.mark.skipif(not _HAS_NAPARI_QT, reason="napari/qtpy not installed")
 
 # Instantiating a real napari Viewer also needs an OpenGL context for its vispy
-# canvas. macOS CI provides none under ``QT_QPA_PLATFORM=offscreen`` (the cocoa GL
-# backend segfaults), so the Viewer-instantiating smokes are skipped on that exact
-# combo — they still run headless on Linux (xvfb) and Windows, and the panel is
-# live-verified on a real display. A macOS dev with a real display is unaffected.
-_NO_HEADLESS_GL = sys.platform == "darwin" and os.environ.get("QT_QPA_PLATFORM") == "offscreen"
-_needs_gl = pytest.mark.skipif(
-    _NO_HEADLESS_GL,
-    reason="napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)",
-)
+# canvas, which macOS offscreen Qt does not provide (it segfaults). ``_needs_gl`` is the
+# guard of the offscreen GUI harness (#344), so every Viewer test skips on the same
+# condition: still headless on Linux (xvfb) and Windows, and live-verified on a real
+# display.
 
 
 def _is_native(dtype: np.dtype) -> bool:
@@ -219,8 +214,20 @@ def test_validate_xy_empty_and_readonly() -> None:
 
 # --- multi-movie overlays + switcher (headless GUI) --------------------------
 
-_GREEN = (0.0, 0.667, 0.0, 1.0)  # donor #00aa00
-_RED = (0.863, 0.176, 0.176, 1.0)  # acceptor #dc2d2d
+
+def _trace_rgba(token: str) -> tuple[float, ...]:
+    """The active theme's colour of ``token`` as 0-1 RGBA (the default palette, #636)."""
+    from tether.gui import theme
+
+    return tuple(c / 255 for c in theme.rgba(theme.current().trace(token)))
+
+
+def _donor() -> tuple[float, ...]:
+    return _trace_rgba("donor")
+
+
+def _acceptor() -> tuple[float, ...]:
+    return _trace_rgba("acceptor")
 
 
 def _write_native_movie(path: Path, frames: np.ndarray) -> Path:
@@ -237,7 +244,7 @@ def _assert_acceptor_rings(panel, overlay) -> None:
     np.testing.assert_array_equal(layer.data, expected)
     assert np.allclose(np.asarray(layer.size), 2 * overlay.aperture_radius)
     for i in range(len(expected)):
-        assert np.allclose(layer.border_color[i], _RED, atol=5e-3)
+        assert np.allclose(layer.border_color[i], _acceptor(), atol=5e-3)
         assert np.allclose(layer.face_color[i], [0.0, 0.0, 0.0, 0.0])
 
 
@@ -291,8 +298,8 @@ def test_overlays_present_for_multiple_movies(qtbot, tmp_path) -> None:
         np.testing.assert_array_equal(panel.donor_aperture_layer.data, ov0.donor_xy[:, ::-1])
         assert np.allclose(np.asarray(panel.donor_aperture_layer.size), 2 * 3.0)
         # familiar smFRET channel colours; the aperture face is transparent
-        assert np.allclose(panel.donor_layer.border_color[0], _GREEN, atol=5e-3)
-        assert np.allclose(panel.acceptor_layer.border_color[0], _RED, atol=5e-3)
+        assert np.allclose(panel.donor_layer.border_color[0], _donor(), atol=5e-3)
+        assert np.allclose(panel.acceptor_layer.border_color[0], _acceptor(), atol=5e-3)
         assert np.allclose(panel.donor_aperture_layer.face_color[0], [0.0, 0.0, 0.0, 0.0])
         assert tuple(panel.movie_layer.data.shape) == m0.shape
         # the acceptor rings: at the ACCEPTOR centres, PSF-disk diameter, acceptor

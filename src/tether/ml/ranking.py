@@ -9,7 +9,7 @@ produces the scores*:
 * **precision@k** ([`precision_at_k`][]) — the M5 success metric (PRD §7.5): the
   fraction of *good* (human-accepted) traces among the first ``k`` reviewed, where ``k``
   is a curation sitting's budget (≈ 20–50 traces at ~1–2 s each). It is the standard
-  information-retrieval ranking-quality metric [Manzhos2025][Divekar2026]; the M5 §9 gate
+  information-retrieval ranking-quality metric [Manzhos2025], [Divekar2026]; the M5 §9 gate
   is a precision@k **uplift over the file-/extraction-order baseline**
   ([`precision_at_k_uplift`][]), whose prequential median-across-videos protocol lands
   in its own later PR.

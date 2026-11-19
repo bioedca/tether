@@ -163,7 +163,7 @@ def probe_sidecar(
     ``available=False`` with an actionable ``detail``.
 
     ``_run`` is an injectable subprocess launcher (test seam); it defaults to
-    [`subprocess.run`][].
+    `subprocess.run`.
     """
     try:
         py = resolve_sidecar_python(sidecar_python)
