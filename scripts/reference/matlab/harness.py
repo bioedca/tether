@@ -39,6 +39,7 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import os
 import platform
 import re
 import shutil
@@ -122,15 +123,28 @@ def _ignored(tool: str, clone: Path, pins: dict) -> dict[str, str]:
     """SHA-256 of each file that a git clone ignores, keyed by POSIX path; ``{}`` for a files pin.
 
     ``git status`` leaves these out, so :func:`verify_clone` cannot see a run that writes one
-    (#1193). A symbolic link is recorded by its target, not followed.
+    (#1193). A symbolic link is recorded by its target, not followed. Git lists an ignored
+    checkout inside the clone as one folder (``dep/``) and does not look into it, so every file
+    under such a folder is recorded too.
     """
     if pins[tool]["kind"] != "git":
         return {}
+
+    def entry(path: Path) -> str:
+        return f"symlink:{path.readlink()}" if path.is_symlink() else sha256(path)
+
     listed = _git(clone, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
     found = {}
     for name in filter(None, listed.split("\0")):
         path = clone / name
-        found[name] = f"symlink:{path.readlink()}" if path.is_symlink() else sha256(path)
+        if not name.endswith("/") or path.is_symlink():
+            found[name.rstrip("/")] = entry(path)
+            continue
+        for folder, dirs, files in os.walk(path):
+            here = Path(folder)
+            # A link to a folder is recorded by its target and not walked, like any other link.
+            for item in [*files, *(d for d in dirs if (here / d).is_symlink())]:
+                found[(here / item).relative_to(clone).as_posix()] = entry(here / item)
     return dict(sorted(found.items()))
 
 

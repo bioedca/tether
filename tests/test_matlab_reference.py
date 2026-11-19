@@ -501,3 +501,23 @@ def test_a_freeze_whose_source_changes_during_the_copy_is_refused(tmp_path, monk
             "deep-lasi", saved=[saved], out=tmp_path / "f", tool_version="1", matlab_release="2023b"
         )
     assert not (tmp_path / "f" / harness.RECORD).exists()
+
+
+def test_a_run_that_writes_into_an_ignored_checkout_in_the_clone_is_refused(
+    tmp_path, clone
+) -> None:
+    # Git lists an ignored checkout as one folder ("dep/") and does not look into it (#1193).
+    clone = _ignoring_clone(clone)
+    (clone[0] / ".gitignore").write_text("*.mat\ndep/\n", encoding="utf-8")
+    _git(clone[0], "add", ".gitignore")
+    _git(clone[0], "commit", "-q", "-m", "ignore dep")
+    clone = clone[0], _git(clone[0], "rev-parse", "HEAD").strip()
+    dep = clone[0] / "dep"
+    dep.mkdir()
+    _git(dep, "init", "-q")
+    (dep / "lib.m").write_text("function lib\nend\n", encoding="utf-8")
+    assert "dep/" in _git(clone[0], "ls-files", "--others", "--ignored", "--exclude-standard")
+    record = json.loads(_run_touching(tmp_path / "a", clone, None).read_text(encoding="utf-8"))
+    assert record["tool"]["commit"] == clone[1]
+    with pytest.raises(harness.HarnessError, match=r"ignored files .*dep/settings\.txt"):
+        _run_touching(tmp_path / "b", clone, "dep/settings.txt")
