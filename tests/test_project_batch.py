@@ -2021,10 +2021,28 @@ def test_sidecar_unavailable_defers_idealization(tmp_path: Path) -> None:
         assert r.stages[STAGE_CORRECT].status == STATUS_DONE
         assert r.stages[STAGE_IDEALIZE].status == STATUS_DEFERRED
         assert r.ok  # deferred is not a movie failure
+        assert r.deferred == [STAGE_IDEALIZE]
     assert summary.n_failed == 0
+    assert summary.n_deferred == 2  # #647: the count `tether batch` exits 3 on
+    assert summary.deferred_by_stage() == {STAGE_IDEALIZE: 2}
     report = summary.format_report()
     assert "idealize=deferred" in report
+    assert "Deferred: idealize in 2 of 2 movie(s)" in report
     assert "FAIL" not in report
+
+
+def test_idealize_not_requested_is_never_counted_deferred(tmp_path: Path) -> None:
+    """A stage the user did not ask for is ``not-requested``, not ``deferred`` (#647)."""
+    summary = _run(
+        _jobs(tmp_path, "a"),
+        idealize=False,
+        supervision=SidecarSupervision(),
+        _probe=_probe_unavailable,
+        _idealize=_raising_idealize,
+    )
+    assert summary.n_deferred == 0
+    assert summary.deferred_by_stage() == {}
+    assert "Deferred:" not in summary.format_report()
 
 
 def test_deferred_idealization_resumes_when_sidecar_returns(tmp_path: Path) -> None:

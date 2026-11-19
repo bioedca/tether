@@ -11,13 +11,15 @@ command-line page once *prepended* it (``export PATH="<install-root>/bin:$PATH"`
 PowerShell forms), so a reader who followed that page got the bootstrap ``python`` ahead of
 their own. The same instruction had been typed twice, and the two copies disagreed.
 
-The fix gives the instruction one home, install step 4, and the command-line page links to it.
+The fix gives the instruction one home, the optional PATH section of install step 4, and the
+command-line page links to it. Step 4 itself opens a terminal where ``tether`` works without the
+PATH edit (the Windows "Tether Command Prompt", or the launcher's full path; #666).
 This module guards both halves:
 
 * no page under ``docs/`` and no line of ``README.md`` writes a ``PATH`` value in which the
   Tether ``bin`` folder comes before the existing ``PATH`` (``$PATH``, ``${PATH}``,
   ``$env:PATH``, ``%PATH%`` or ``[Environment]::GetEnvironmentVariable("PATH", …)``);
-* ``docs/cli.md`` carries no ``PATH`` command of its own and links to install step 4.
+* ``docs/cli.md`` carries no ``PATH`` command of its own and links to that section.
 
 The match is on the *text* of a command, so it is a model of the forms the pages use, not a
 shell parser. The self-tests below pin it on the exact lines #585 removed and on the append
@@ -39,8 +41,8 @@ README = _REPO / "README.md"
 CLI = DOCS / "cli.md"
 INSTALL = DOCS / "install.md"
 
-#: The one home of the PATH instruction.
-INSTALL_STEP_4 = "install.md#4-put-tethers-launcher-folder-on-your-path"
+#: The one home of the PATH instruction: the optional section of install step 4 (#666).
+INSTALL_PATH_SECTION = "install.md#optional-put-the-launcher-folder-on-your-path"
 
 #: Tether's launcher folder as the pages spell it: the ``<install-root>`` placeholder, or a
 #: concrete install folder named ``tether``/``Tether`` (``$HOME/tether``,
@@ -129,7 +131,9 @@ def test_no_page_prepends_the_launcher_folder(page: Path) -> None:
 
 def test_install_step_4_holds_the_append_instruction() -> None:
     text = INSTALL.read_text(encoding="utf-8")
-    assert "## 4. Put Tether's launcher folder on your PATH" in text
+    step_4 = text.split("## 4. Open a terminal where `tether` works", 1)[1].split("\n## 5.", 1)[0]
+    assert "### Optional: put the launcher folder on your PATH" in step_4
+    text = step_4.split("### Optional: put the launcher folder on your PATH", 1)[1]
     assert 'export PATH="$PATH:$HOME/tether/bin"' in text
     assert 'export PATH="$PATH:$HOME/Tether/bin"' in text
 
@@ -139,4 +143,26 @@ def test_cli_page_links_to_install_step_4_instead_of_repeating_it() -> None:
     assert not _SETS_PATH.search(text), (
         "docs/cli.md sets PATH itself again; link to install step 4 instead (#585)."
     )
-    assert f"]({INSTALL_STEP_4})" in text
+    assert f"]({INSTALL_PATH_SECTION})" in text
+
+
+def test_install_step_4_works_without_a_path_edit_on_every_system() -> None:
+    """Step 4 opens a working terminal before, and without, the optional PATH edit (#666).
+
+    On Windows that is the "Tether Command Prompt" shortcut (the next release) or the
+    launcher's full path (rc3, which has no shortcut); on macOS and Linux it is one line, the
+    launcher's absolute path, in both the rc3 ``bin`` and the ADR-0094 ``launchers`` form.
+    """
+    text = INSTALL.read_text(encoding="utf-8")
+    step_4 = text.split("## 4. Open a terminal where `tether` works", 1)[1]
+    before_optional = step_4.split("### Optional: put the launcher folder on your PATH", 1)[0]
+    assert "**Tether Command Prompt**" in before_optional
+    assert '& "$env:USERPROFILE\\Tether\\bin\\tether.bat" --version' in before_optional
+    for line in (
+        "~/Tether/bin/tether --version",
+        "~/tether/bin/tether --version",
+        "~/Tether/launchers/tether --version",
+        "~/tether/launchers/tether --version",
+    ):
+        assert line in before_optional, line
+    assert not _SETS_PATH.search(before_optional), "step 4's first route must not edit PATH"
