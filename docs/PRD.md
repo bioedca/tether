@@ -650,8 +650,11 @@ Tether **shall** present a multi-movie round-trip browser:
 - **Round-trip navigation:** select a trace → the camera jumps to its spot (resolving each molecule to its own
   movie), with synchronized scrubbing and a neighbor/overlap view (static patch + nearest-neighbour distance; movie
   scrub optional); click a spot → its trace.
-- **Familiar conventions:** donor green / acceptor red / FRET blue; FRET y-axis 0–1; x in seconds (from FrameTime,
-  with a frame-index toggle); idealized path drawn as a step overlay.
+- **Familiar conventions:** donor green / acceptor magenta / FRET blue by default — a color-blind-safe set (Paul Tol
+  "bright" on light, Okabe–Ito on dark), checked under simulated protanopia, deuteranopia and tritanopia — with the
+  classic donor green / acceptor red / FRET blue set as the **View → Trace colors** preference, kept in the
+  application settings store (#636, ADR-0123); FRET y-axis 0–1; x in seconds (from FrameTime, with a frame-index
+  toggle); idealized path drawn as a step overlay.
 - **Keyboard map:** the trace dock inherits tMAVEN's per-trace bindings for overlapping actions (← / → prev/next,
   with `↑`/`↓` as aliases; `1`–`9` assign the first nine editable per-condition categories and **`0` clears the
   category back to the *uncategorized* null state** — distinct from any named category, so `Space` alone yields an

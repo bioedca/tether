@@ -80,7 +80,7 @@ CATEGORY_SLOTS = 9
 class CurationAction(StrEnum):
     """A single curation action the keymap can dispatch to the controller.
 
-    A [`StrEnum`][enum.StrEnum] so an action round-trips through JSON as its value
+    A `StrEnum` so an action round-trips through JSON as its value
     (the keymap is user-persistable) and reads cleanly in logs/tests.
     """
 
