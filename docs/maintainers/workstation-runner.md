@@ -322,6 +322,26 @@ changing other checks:
 - The saved state has the role `deeplasi_state`, not `tdat`. The speed check gives a `tdat`
   role to its extraction. Thus a `tdat` role on a `speed` id changes what that check measures.
 
+## The leakage-α band on the donor-only sample
+
+The weekly run also checks the conjunctive leakage-α band of oracle (e)
+(`tests/test_leakage_alpha_band.py`, ADR-0133). Tether's donor-only α of the Cy3-only
+calibration acquisition must agree with the tail α of the FRET series it calibrates, `lab-03`
+to `lab-08` pooled: a relative difference of the two medians of at most 20 %, and both medians
+within 0.05–0.2. The numbers are `alpha_donor_only`, `alpha_tail_series`,
+`relative_difference` and the counts under `donly-01`, and `tail_alpha` for each series id. A
+failure is a finding for its issue. Do not change a limit, and do not change the series to make
+the check pass.
+
+The check needs one more id in the mapping file:
+
+| Neutral id | Role | File |
+|---|---|---|
+| `donly-01` | `donor_only` | the saved Deep-LASI state (`.tdat`) of the Cy3-only calibration acquisition |
+
+The series ids use their `deeplasi_state` role. The check refuses a file whose SHA-256 is not
+the one in `tests/_leakage_band.py` or `tests/_deeplasi_agreement.py`.
+
 `tests/_deeplasi_agreement.py` pins the SHA-256 and size of each Deep-LASI file. A check fails
 with the id and the role when a file is not the pinned one.
 
