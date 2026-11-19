@@ -137,6 +137,6 @@ repository. The measurements are from 2026-11-12, on `main` at `46fb76b`, with 4
 mutmut is faster for each mutant, because it forks one process and does not import again. It
 could not use the whole test tier, and it needed a hand-made list of test files. cosmic-ray has
 no way to run only the covering tests. The in-repository runner uses the per-test contexts that
-#725 asks for, adds no package, and runs the whole target set in about an hour with four workers.
+\#725 asks for, adds no package, and runs the whole target set in about an hour with four workers.
 No function in the targets is Numba-compiled today (the one Numba function is in
 `_sidecar_runner.py`, which is excluded).

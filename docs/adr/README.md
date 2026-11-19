@@ -180,5 +180,5 @@ else would make it a worse historical record in exchange for a working link.
 
 <!-- gen:adr-index end -->
 
-_Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
-by the PRs that implement them._
+*Later decisions (the rest of the PRD §12.7 backfill set) are homed incrementally
+by the PRs that implement them.*
