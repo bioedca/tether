@@ -157,7 +157,7 @@ class StageReadiness:
     issue: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """The JSON form."""
+        """Return the JSON form."""
         return {
             "key": self.key,
             "name": self.name,
@@ -178,7 +178,7 @@ class StaleItem:
     reason: str
 
     def to_dict(self) -> dict[str, Any]:
-        """The JSON form."""
+        """Return the JSON form."""
         return {"stage": self.stage, "item": self.item, "reason": self.reason}
 
 
@@ -195,7 +195,7 @@ class JobStatus:
     error: str
 
     def to_dict(self) -> dict[str, Any]:
-        """The JSON form."""
+        """Return the JSON form."""
         return {
             "job_id": self.job_id,
             "command": self.command,
@@ -216,7 +216,7 @@ class NextStep:
     action: str
 
     def to_dict(self) -> dict[str, Any]:
-        """The JSON form."""
+        """Return the JSON form."""
         return {"stage": self.stage, "section": self.section, "action": self.action}
 
 
@@ -240,7 +240,7 @@ class ProjectReadiness:
         raise KeyError(f"no stage {key!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        """The documented JSON layout of one project (``docs/cli.md``)."""
+        """Return the documented JSON layout of one project (``docs/cli.md``)."""
         return {
             "path": self.path,
             "stages": [s.to_dict() for s in self.stages],
@@ -252,7 +252,7 @@ class ProjectReadiness:
 
 
 def _node_name(graph: Any, key: str) -> str:
-    """The name of a dependency-graph node, or the key itself for a node it does not know."""
+    """Return the name of a dependency-graph node, or the key of a node it does not know."""
     try:
         return str(graph.node(key).name)
     except KeyError:
@@ -315,9 +315,7 @@ def _curation_stage(
     summary: ProjectSummary, initial_curation_finished: bool
 ) -> tuple[StageState, str, str]:
     counts = summary.curation
-    detail = (
-        f"{counts.accepted} accepted, {counts.rejected} rejected, {counts.undecided} undecided"
-    )
+    detail = f"{counts.accepted} accepted, {counts.rejected} rejected, {counts.undecided} undecided"
     if summary.n_molecules == 0:
         return StageState.NOT_STARTED, "no molecules", "extract the traces first"
     if initial_curation_finished or counts.undecided == 0:
@@ -349,7 +347,11 @@ def _fits_stage(summary: ProjectSummary) -> tuple[StageState, str, str]:
         return StageState.NOT_STARTED, "no fit", "fit the molecules (tether idealize PROJECT)"
     detail = _plural(len(models), "model")
     if any(m.stale for m in models):
-        return StageState.STALE, detail, "refit the stale models (tether idealize PROJECT --stale-only)"
+        return (
+            StageState.STALE,
+            detail,
+            "refit the stale models (tether idealize PROJECT --stale-only)",
+        )
     return StageState.READY, detail, ""
 
 
@@ -378,7 +380,7 @@ def _jobs_to_retry(jobs: tuple[JobStatus, ...]) -> list[JobStatus]:
 
 
 def _next_step(stages: tuple[StageReadiness, ...], jobs: tuple[JobStatus, ...]) -> NextStep:
-    """A job to retry first; then the earliest stale stage; then the earliest not done."""
+    """Choose a job to retry first; then the earliest stale stage; then the earliest not done."""
     section_of = {s.key: s.section for s in stages}
     retry = _jobs_to_retry(jobs)
     if retry:
@@ -389,7 +391,9 @@ def _next_step(stages: tuple[StageReadiness, ...], jobs: tuple[JobStatus, ...]) 
             f"retry the {job.state} {job.command} job {job.job_id[:8]} "
             f"({job.n_completed} of {job.n_parts} parts are complete)",
         )
-    open_stages = [s for s in stages if s.state is not StageState.NOT_AVAILABLE and not s.state.done]
+    open_stages = [
+        s for s in stages if s.state is not StageState.NOT_AVAILABLE and not s.state.done
+    ]
     stale = [s for s in open_stages if s.state is StageState.STALE]
     for stage in stale or open_stages:
         action = stage.action or f"wait for the running job of {stage.name}"
@@ -462,9 +466,7 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
     for key, name, section, issue in STAGES:
         if issue is not None:
             stages.append(
-                StageReadiness(
-                    key, name, section, StageState.NOT_AVAILABLE, f"#{issue}", "", issue
-                )
+                StageReadiness(key, name, section, StageState.NOT_AVAILABLE, f"#{issue}", "", issue)
             )
             continue
         state, detail, action = computed[key]

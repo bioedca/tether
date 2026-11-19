@@ -70,9 +70,7 @@ def test_an_open_reads_the_function_tether_status_prints(shell, tmp_path, monkey
     assert shell.refresh_readiness() is None
 
 
-def test_a_readiness_that_cannot_be_read_never_fails_the_open(
-    shell, tmp_path, monkeypatch
-) -> None:
+def test_a_readiness_that_cannot_be_read_never_fails_the_open(shell, tmp_path, monkeypatch) -> None:
     from tether.project import readiness as rd
 
     def broken(_path):

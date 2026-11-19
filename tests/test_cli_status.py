@@ -105,7 +105,7 @@ def test_the_command_prints_what_the_function_returns(tmp_path: Path, monkeypatc
 
 
 def test_the_require_choices_are_the_stages() -> None:
-    assert cli._STATUS_STAGES == tuple(key for key, *_ in rd.STAGES)
+    assert tuple(key for key, *_ in rd.STAGES) == cli._STATUS_STAGES
     assert [s for s, _ in rd.SECTIONS] == ["prepare", "curate", "analyze", "deposit"]
 
 
@@ -148,8 +148,7 @@ def test_a_project_with_a_stale_fit(tmp_path: Path, capsys) -> None:
         rd.StaleItem(
             "fits",
             "fit vbconhmm",
-            "1 of 4 molecules changed since the fit "
-            "(their traces, window or correction factors)",
+            "1 of 4 molecules changed since the fit (their traces, window or correction factors)",
         ),
     )
     # A stale result comes before a stage that is only not started yet.
