@@ -154,7 +154,11 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
     status = shell.window.statusBar()
     try:
         lst = shell.molecule_list
-        assert status.currentMessage() == OPEN_LINE
+        # The page quotes what a display shows. Without OpenGL (macOS offscreen in CI) the
+        # shell builds no movie panel and says why at the end of the same line (#356).
+        no_panel = shell_module._movie_panel_unavailable()
+        tail = f"; movie panel unavailable: {no_panel}" if no_panel else ""
+        assert status.currentMessage() == OPEN_LINE + tail
         assert [lst.item(i).text() for i in range(lst.count())] == ["mol-0", "mol-1", "mol-2"]
         assert lst.currentRow() == 0
 
