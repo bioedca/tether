@@ -204,11 +204,13 @@ def create_shell(
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui.curation import default_keymap_path
         from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
 
-        # The application remembers the session on this computer (#628, ADR-0122).
-        shell = TetherShell(preferences_file=preferences_path())
+        # The application remembers the session on this computer (#628, ADR-0122), and
+        # starts with the keyboard shortcuts the user saved (#635).
+        shell = TetherShell(preferences_file=preferences_path(), keymap_file=default_keymap_path())
         if args.project is not None:
             shell.load_project(args.project)
         # The opt-in update notice (#248): the first-run question, or one check on a
