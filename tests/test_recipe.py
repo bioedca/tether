@@ -568,7 +568,7 @@ def test_a_running_job_of_the_step_is_not_taken_over(tmp_path, calibrate) -> Non
     assert len(read_jobs(project)) == 2
 
 
-def test_two_steps_in_one_project_each_have_their_job_and_save_keeps_a_request_once(
+def test_two_steps_in_one_project_each_have_their_job_and_save_keeps_each_in_place(
     tmp_path, capsys, calibrate
 ):
     policy = {"step": "gamma.approve", "rule": "value", "gamma": 1.1, "source": "lab note"}
@@ -579,8 +579,9 @@ def test_two_steps_in_one_project_each_have_their_job_and_save_keeps_a_request_o
     assert "  approval step gamma.approve: policy {" in capsys.readouterr().out
     assert main(["run", str(path)]) == 0
     assert [j.state for j in read_jobs(project)] == [JobState.DONE] * 2
-    # The same request twice is one step of the saved recipe.
-    assert len(rc.recipe_from_project(project)) == 1
+    # A request that a later job repeats is kept again: a job between the two could have
+    # changed what the repeat does.
+    assert len(rc.recipe_from_project(project)) == 2
 
 
 def test_a_dry_run_names_an_approval_step_that_stops_for_a_person(tmp_path, capsys, calibrate):
@@ -663,3 +664,58 @@ def test_approve_fails_when_the_lock_or_the_write_fails(tmp_path, monkeypatch) -
     monkeypatch.setattr(Project, "acquire_lock", no_lock)
     with pytest.raises(CommandFailed, match="cannot take the lock"):
         ap.run(request)
+
+
+def test_a_step_with_a_deferred_stage_is_not_complete_and_resume_runs_it_again(
+    tmp_path, capsys, calibrate, monkeypatch
+):
+    from types import SimpleNamespace
+
+    ran: list[str] = []
+
+    def batch_like(n_deferred: int):  # noqa: ANN202
+        def run(request, *, approvals):  # noqa: ANN001, ANN202
+            ran.append(request.report)
+            return SimpleNamespace(summary=SimpleNamespace(n_failed=0, n_deferred=n_deferred))
+
+        return run
+
+    (tmp_path / "later.json").write_text("{}", encoding="utf-8")
+    later = _step("calibrate", project="exp.tether", report="later.json")
+    path = _write(tmp_path, _recipe(_calibrate_step(), later))
+    project = tmp_path / "exp.tether"
+    _replace_run(monkeypatch, "calibrate", batch_like(1))
+    assert main(["run", str(path)]) == 3
+    assert "a stage was deferred" in capsys.readouterr().out
+    assert [j.stored_state for j in read_jobs(project)] == [JobState.FAILED] * 2
+    with pytest.raises(rc.RecipeError, match="no completed job"):
+        rc.recipe_from_project(project)
+
+    # Only the first step deferred this time: the second is complete and is skipped later.
+    _replace_run(monkeypatch, "calibrate", batch_like(0))
+    assert main(["run", str(path), "--resume"]) == 0
+    assert [j.stored_state for j in read_jobs(project)] == [JobState.DONE] * 2
+    ran.clear()
+    assert main(["run", str(path), "--resume"]) == 0
+    assert ran == []
+
+
+def test_a_relative_sidecar_interpreter_is_read_from_the_recipe_folder(tmp_path) -> None:
+    from tether.services import BatchRequest
+
+    idealize = _step("idealize", project="m.tether", sidecar_python="env/bin/python")
+    batch = _step("batch", movies=["a.tif"], sidecar_python="env/bin/python")
+    steps = rc.read_recipe(_write(tmp_path, _recipe(idealize, batch))).steps
+    for step in steps:
+        assert step.request.sidecar_python == str(tmp_path / "env" / "bin" / "python")
+    assert isinstance(steps[1].request, BatchRequest)
+    saved = rc.write_recipe(tmp_path / "saved.json", [s.request for s in steps])
+    for step in json.loads(saved.read_text(encoding="utf-8"))["steps"]:
+        assert step["fields"]["sidecar_python"] == "env/bin/python"
+
+
+def test_resume_skips_a_step_that_stores_no_job_up_to_the_checkpoint(tmp_path) -> None:
+    step = _step("map", source="beads.tif", output="beads.npz")
+    recipe = rc.read_recipe(_write(tmp_path, _recipe(step)))
+    assert rc._skipped(recipe, recipe.steps[0], 1)
+    assert not rc._skipped(recipe, recipe.steps[0], 0)

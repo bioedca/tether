@@ -698,7 +698,12 @@ the step writes (the `output` of `extract`, the `project` of `idealize`, the `in
 `batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
 its number, so `--resume` finds where the last run ended. A step that writes no single
 project (`map`, a `batch` without `into`) stores no job. The run stops at the first step
-that fails. A relative path in the recipe is read from the folder of the recipe file.
+that fails.
+
+A step that ran with a stage deferred is not complete. Its job is stored
+`failed`, and `--resume` runs that step again, so that the command's own checkpoint does
+just the deferred stage. A relative path in the recipe is read from the folder of the
+recipe file.
 
 A recipe is refused before anything runs when it is not valid: an unknown command, field
 or version, a value of the wrong type, a policy with a missing value, a **publish step**

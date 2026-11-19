@@ -466,6 +466,20 @@ def _checkpoint(recipe: Recipe) -> int:
     return 0
 
 
+def _skipped(recipe: Recipe, step: RecipeStep, start: int) -> bool:
+    """Whether ``--resume`` skips ``step``, given the checkpoint ``start``.
+
+    A step up to the checkpoint is skipped, unless the project that stores its job holds
+    it not done: a step whose stage was deferred runs again.
+    """
+    if step.number > start:
+        return False
+    project = _project_of(step.request)
+    if not project or not Path(project).is_file():
+        return True
+    return recipe_part(recipe, step.number) in _done_parts(project)
+
+
 class _StepFailed(Exception):  # noqa: N818 - stored as the job's error text
     pass
 
@@ -610,6 +624,10 @@ class RecipeRun:
         return any(s.deferred for s in self.steps)
 
 
+#: The message of a step that ran with a stage deferred (``tether batch`` exit 3).
+_DEFERRED = "a stage was deferred; run the recipe again with --resume to finish it"
+
+
 def _result_outcome(result: Any) -> tuple[str, bool]:
     """``(failure text, deferred)`` from a command's result (a ``batch`` summary)."""
     summary = getattr(result, "summary", None)
@@ -642,9 +660,14 @@ def _run_step(recipe: Recipe, step: RecipeStep) -> tuple[StepOutcome, ApprovalSt
     else:
         message, deferred = _result_outcome(result)
         state = "failed" if message else "done"
+        if deferred and not message:
+            message = _DEFERRED
+    # A deferred stage is not complete: its job is stored *failed*, so --resume runs the
+    # step again and the command's own checkpoint resumes just that stage.
+    stored = "failed" if deferred else state
     if project and Path(project).is_file():
         try:
-            _record(project, request, part, state, message)
+            _record(project, request, part, stored, message)
         except _STORE_ERRORS as exc:
             # The command ran; without its job a later --resume would run it again.
             state, stop = "failed", None
@@ -676,7 +699,7 @@ def run_recipe(
     outcomes: list[StepOutcome] = []
     stop: ApprovalStop | None = None
     for step in recipe.steps:
-        if step.number <= start:
+        if _skipped(recipe, step, start):
             outcome = StepOutcome(step.number, step.request.COMMAND, "skipped")
         else:
             outcome, stop = _run_step(recipe, step)
@@ -715,7 +738,7 @@ def plan_recipe(recipe: Recipe, *, resume: bool = False) -> list[str]:
     for step in recipe.steps:
         request = step.request
         entry = registry.command(request.COMMAND)
-        done = " (done; skipped by --resume)" if step.number <= start else ""
+        done = " (done; skipped by --resume)" if _skipped(recipe, step, start) else ""
         lines.append(f"step {step.number}/{total}: tether {request.COMMAND}{done}")
         for name in request.PATH_FIELDS:
             value = getattr(request, name)
@@ -735,18 +758,17 @@ def plan_recipe(recipe: Recipe, *, resume: bool = False) -> list[str]:
 def recipe_from_project(path: str | Path) -> list[Request]:
     """Return the requests of a project's completed jobs, oldest first (**Save as recipe**).
 
-    These are the actions that made the present state of the project. A request that a
-    later job repeats exactly is kept once, at its first place.
+    These are the actions that made the present state of the project, each in its place:
+    a request that a later job repeats is kept again, since a job between the two can
+    change what the repeat does.
     """
     from tether.project.jobs import JobState, read_jobs  # noqa: PLC0415
 
     registry = _registry()
-    seen: set[str] = set()
     requests: list[Request] = []
     for job in read_jobs(path):
-        if job.stored_state is not JobState.DONE or job.request in seen:
+        if job.stored_state is not JobState.DONE:
             continue
-        seen.add(job.request)
         try:
             requests.append(registry.request_from_text(job.request))
         except RequestError as exc:
