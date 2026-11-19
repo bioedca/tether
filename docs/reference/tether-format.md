@@ -754,7 +754,7 @@ apparent-E analysis is never refused.
 `fit.select`), `subject` (the map, the condition or the analysis set), `by` (`person` or
 `policy`), `actor` (the person's name, or the policy text exactly as the recipe gives it),
 `recipe_sha256` and `recipe_version` (the identity of the recipe whose run asked for the
-approval; `""` and `0` for an approval that no recipe run asked for), `report` (a JSON object of
+approval, or `""` and `0` for an approval that no recipe run asked for), `report` (a JSON object of
 each evidence file name, the report's JSON and its PNG images, to its SHA-256), `timestamp`
 (ISO-8601 UTC) and `app_version`. Only an approval writes a row: a policy whose rule does not
 approve writes none. The rows are append-only.

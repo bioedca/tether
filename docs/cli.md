@@ -681,7 +681,7 @@ records this version rule.
 Run a recipe file: a list of service requests, the same requests that `tether extract`,
 `tether batch`, `tether idealize` and `tether map create` send
 ([service commands](#service-commands)). The application writes one with
-**File → Save as recipe…**; the [recipe guide](how-to/run-a-recipe.md) shows a full one.
+**File → Save as recipe…**. The [recipe guide](how-to/run-a-recipe.md) shows a full one.
 
 ```text
 tether run [-h] [--dry-run] [--resume] recipe
@@ -696,7 +696,7 @@ tether run [-h] [--dry-run] [--resume] recipe
 Each step runs through its service command, in order, as a job stored in the project that
 the step writes (the `output` of `extract`, the `project` of `idealize`, the `into` of
 `batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
-its number, so `--resume` finds where the last run ended; a step that writes no single
+its number, so `--resume` finds where the last run ended. A step that writes no single
 project (`map`, a `batch` without `into`) stores no job. The run stops at the first step
 that fails. A relative path in the recipe is read from the folder of the recipe file.
 
