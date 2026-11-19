@@ -19,7 +19,9 @@ overlays, with a movie switcher for multi-movie experiments").
   [`QComboBox`][qtpy.QtWidgets.QComboBox] a host can
   place to drive the switch. The napari Qt window is exposed as
   [`qt_window`][tether.gui.movie_panel.NapariMoviePanel.qt_window]
-  so the Tether shell can embed it (the shell embed lands in #356).
+  so the Tether shell can embed it: the shell docks it in Curate and correct and drives
+  [`set_active_movie`][tether.gui.movie_panel.NapariMoviePanel.set_active_movie] from its own
+  movie switcher, so it never builds this one (#356).
 * [`center_on`][tether.gui.movie_panel.NapariMoviePanel.center_on] and
   [`connect_spot_click`][tether.gui.movie_panel.NapariMoviePanel.connect_spot_click] are the napari
   half of the trace↔movie round-trip (PRD §7.3, §5.2; the shell wiring lands in #357):
@@ -247,8 +249,7 @@ class NapariMoviePanel:
     [`set_movie`][] a single [`MovieReader`][] or [`add_movie`][] several
     (each optionally with a [`MovieOverlay`][]) and [`set_active_movie`][]
     between them. Use as a context manager or call [`close`][]. The napari Qt
-    main window is exposed as [`qt_window`][] for embedding into the Tether shell
-    (#356).
+    main window is exposed as [`qt_window`][], which the Tether shell docks (#356).
     """
 
     def __init__(self, *, title: str = "Tether — movie", show: bool = False) -> None:
@@ -369,7 +370,9 @@ class NapariMoviePanel:
 
         Lazily created and kept in sync with [`add_movie`][] /
         [`set_active_movie`][]; selecting an entry calls [`set_active_movie`][].
-        A host (the Tether shell, #356) places it in its chrome.
+        A host without a switcher of its own can place it in its chrome. The Tether
+        shell does not: its browser panel's switcher drives [`set_active_movie`][]
+        (#356), so the shell never builds this one.
         """
         from qtpy.QtWidgets import QComboBox
 

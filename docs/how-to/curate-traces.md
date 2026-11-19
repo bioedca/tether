@@ -49,6 +49,19 @@ Opened movie.tether — 412 molecule(s)
 If that line ends in `(read-only)` after the file name, another writer holds the project and
 nothing you mark will be saved. Close the other writer and open the project again.
 
+The **Movie** box above the list names each movie of the project, by its file name. The
+**Movie** panel on the right shows the chosen movie. A green dot marks each donor spot and a
+red dot each acceptor spot, and the ring around each dot is the integration aperture, at the
+radius the extraction used. To show another movie, choose it in the **Movie** box.
+
+Tether finds a movie file at the path recorded when the traces were extracted. A movie whose
+file was moved or deleted shows grayed out with `(file missing)`, and the status line ends
+with, for example, `1 of 1 movie(s) not shown`. Tether does not download a movie that is
+only in the cloud, such as a OneDrive file that is not on this computer: it shows
+`(file not on this disk)`. Make the file available on this computer, then open the project
+again. A project imported without spot coordinates (an analysis-only import) has no movie
+panel.
+
 A project you opened before on this computer opens at the molecule you last had selected in it.
 
 ## 2. Move from trace to trace
