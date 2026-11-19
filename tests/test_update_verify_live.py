@@ -44,21 +44,23 @@ from tether.gui.update_verify import (
     verify_provenance,
 )
 
-pytestmark = pytest.mark.large
-
 _GH = os.environ.get("TETHER_LIVE_GH", "")
 _INSTALLER = os.environ.get("TETHER_LIVE_INSTALLER", "")
 _ROOT_OVERRIDE = os.environ.get("TETHER_LIVE_TRUSTED_ROOT", "")
 _FOREIGN = os.environ.get("TETHER_LIVE_FOREIGN", "")
+
+# A marker and not a module-level skip: a skip at import fires before `-m "not large"` can
+# deselect these, and would count against every required leg's skip budget.
+pytestmark = [
+    pytest.mark.large,
+    pytest.mark.skipif(
+        not (_GH and _INSTALLER),
+        reason="set TETHER_LIVE_GH and TETHER_LIVE_INSTALLER to run the live verifier tests",
+    ),
+]
 # The v1.0.0-rc3 Linux installer's digest, from the release's asset list (2026-11-19): a
 # genuine bundle of a DIFFERENT release, for the wrong-release test.
 _OTHER_RELEASE_DIGEST = "64179845dae7cd2fd0a96e3cb3fb281de62d1fed96f3f7323bc62970a2ccb1f3"
-
-if not (_GH and _INSTALLER):
-    pytest.skip(
-        "set TETHER_LIVE_GH and TETHER_LIVE_INSTALLER to run the live verifier tests",
-        allow_module_level=True,
-    )
 
 _NAME = re.compile(r"Tether-(?P<version>[0-9][^-]*(?:-rc[0-9]+)?)-(?P<tag>.+)")
 
