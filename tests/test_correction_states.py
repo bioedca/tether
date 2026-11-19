@@ -426,3 +426,28 @@ def test_a_transition_that_lands_while_another_is_checked_refuses_the_second(
     assert [r.event for r in cs.read_correction_transitions(project.path)][-1] is (
         E.INSUFFICIENT_EVIDENCE
     )
+
+
+def test_a_transition_that_lands_after_the_state_is_read_refuses_the_second(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The state and the row count are one snapshot: a transition that lands after the state
+    # was read cannot be counted as seen, so the edge from the old state is not appended.
+    _drive(project, S.GAMMA_REVIEW)
+    snapshot = cs._snapshot
+    raced: list[bool] = []
+
+    def racing_snapshot(*args: object, **kwargs: object) -> object:
+        result = snapshot(*args, **kwargs)
+        if not raced:  # another writer of the same lock moves the state right after the read
+            raced.append(True)
+            cs.send_event(project, E.INSUFFICIENT_EVIDENCE, ME)
+        return result
+
+    monkeypatch.setattr(cs, "_snapshot", racing_snapshot)
+    with pytest.raises(cs.CorrectionTransitionError, match="changed"):
+        _send(project, E.APPROVE)
+    records = cs.read_correction_transitions(project.path)
+    assert records[-1].to_state is S.CALIBRATION_BLOCKED
+    for before, after in zip(records, records[1:], strict=False):
+        assert after.from_state is before.to_state  # the log has no gap

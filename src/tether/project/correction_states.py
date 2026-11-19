@@ -366,18 +366,23 @@ def read_correction_state(path: str | Path, scope: str = PROJECT_SCOPE) -> Corre
     With no stored transition the scope is in its start state: GAMMA_REVIEW when the
     project holds factors from an earlier pass, otherwise APPARENT_REVIEW.
     """
+    _check_scope(scope)
+    return _snapshot(path, scope)[0]
+
+
+def _snapshot(path: str | Path, scope: str) -> tuple[CorrectionStatus, list[dict[str, str]]]:
+    """Return the status of ``scope`` and its rows, both read under one open file."""
     import h5py  # noqa: PLC0415
 
-    _check_scope(scope)
     with h5py.File(path, "r") as f:
         rows = [r for r in _rows(f) if r["scope"] == scope]
         factors = _stored_factors(f)
     proposal = factors or {"alpha": None, "gamma": None}
     if rows:
         last = _record(rows[-1])
-        return CorrectionStatus(scope, last.to_state, True, proposal, last)
+        return CorrectionStatus(scope, last.to_state, True, proposal, last), rows
     start = CorrectionState.GAMMA_REVIEW if factors is not None else INITIAL_STATE
-    return CorrectionStatus(scope, start, False, proposal, None)
+    return CorrectionStatus(scope, start, False, proposal, None), rows
 
 
 def require_analysis_mode(
@@ -446,12 +451,13 @@ def send_event(
     and under the open file it is checked again, with the scope's transitions, before the row
     is written, so a steal or a concurrent transition refuses the write.
     """
-    import h5py  # noqa: PLC0415
-
     event = CorrectionEvent(event)
     _check_scope(scope)
     epoch = _held_nonce(project)
-    status = read_correction_state(project.path, scope)
+    # The state and the row count come from one read, so the count checked before the
+    # append is the count the state was derived from.
+    status, rows = _snapshot(project.path, scope)
+    seen = len(rows)
     edges = [t for t in TRANSITIONS if t.source is status.state and t.event is event]
     if not edges:
         if status.last is not None and status.last.event is event:
@@ -463,9 +469,6 @@ def send_event(
         raise ValueError("an approval names the factor_version that it freezes")
     if event is CorrectionEvent.APPLY_CORRECTION and not correction_version.strip():
         raise ValueError("apply correction version names the correction_version it applies")
-    with h5py.File(project.path, "r") as f:
-        rows = [r for r in _rows(f) if r["scope"] == scope]
-    seen = len(rows)
     chosen, reason = _choose(
         edges,
         project.path,
