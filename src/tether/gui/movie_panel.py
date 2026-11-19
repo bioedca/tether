@@ -432,7 +432,18 @@ class NapariMoviePanel:
             self._switcher.addItem(entry.name)
             self._switcher.blockSignals(False)
         if self._active_index < 0:
-            self.set_active_movie(index)
+            try:
+                self.set_active_movie(index)
+            except Exception:
+                # A movie that cannot be shown leaves no trace: it is not registered and
+                # not active, so the next movie added becomes the active one.
+                self._movies.pop()
+                self._active_index = -1
+                if self._switcher is not None:
+                    self._switcher.blockSignals(True)
+                    self._switcher.removeItem(index)
+                    self._switcher.blockSignals(False)
+                raise
         return index
 
     def set_active_movie(self, index: int):

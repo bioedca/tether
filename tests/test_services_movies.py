@@ -169,6 +169,39 @@ def test_a_movie_whose_signature_cannot_be_read_is_unreadable(tmp_path, monkeypa
     assert movie.unavailable == "file missing"
 
 
+def test_a_movie_folder_that_cannot_be_read_does_not_fail_the_read(tmp_path, monkeypatch) -> None:
+    # A relative uri under a folder the user may not list raises PermissionError from the
+    # first metadata call; the movie is then unreadable, and the project still reads.
+    from pathlib import Path
+
+    path = _store(tmp_path, uri="raw/m.tif")
+    real_exists, real_is_file = Path.exists, Path.is_file
+
+    def _refused(self, *args, **kwargs):
+        if self.name == "m.tif":
+            raise PermissionError("folder refused")
+        return real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", _refused)
+    (movie,) = read_project_movies(path).movies
+    assert movie.path == tmp_path / "raw" / "m.tif"
+    assert movie.unavailable == "file missing"
+
+    # A file whose attributes read but whose kind cannot be told is unreadable.
+    movie_file = tmp_path / "raw" / "m.tif"
+    movie_file.parent.mkdir()
+    movie_file.write_bytes(b"four")
+
+    def _kind_refused(self, *args, **kwargs):
+        if self.name == "m.tif":
+            raise PermissionError("kind refused")
+        return real_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_file", _kind_refused)
+    (movie,) = read_project_movies(path).movies
+    assert movie.unavailable == "file unreadable"
+
+
 @pytest.mark.parametrize("changed", ["file_size", "mtime"])
 def test_a_movie_whose_fast_signature_differs_is_flagged(tmp_path, changed) -> None:
     # PRD §5.4: a routine open checks size + mtime (no byte read); a mismatch is flagged

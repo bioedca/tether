@@ -251,6 +251,37 @@ def test_a_movie_switch_replaces_the_image_without_piling_up_layers(
 
 @needs_napari
 @needs_gl
+def test_a_first_movie_the_panel_cannot_show_leaves_the_next_one_shown_and_selected(
+    section_shell, tmp_path, monkeypatch
+) -> None:
+    # The switcher names the movie the viewer shows, not a movie that failed (#356 review).
+    from tether.gui.movie_panel import NapariMoviePanel
+
+    real_render = NapariMoviePanel._render_overlay
+    calls: list[object] = []
+
+    def _fails_once(self, overlay) -> None:
+        calls.append(overlay)
+        if len(calls) == 1:
+            raise ValueError("cannot draw the spots")
+        real_render(self, overlay)
+
+    monkeypatch.setattr(NapariMoviePanel, "_render_overlay", _fails_once)
+    shell = _open(section_shell, _store(tmp_path, second=_second_movie(tmp_path)))
+
+    panel = shell.movie_panel
+    switcher = shell.movie_switcher
+    assert panel.n_movies == 1
+    assert panel.active_index == 0
+    assert panel.movie_layer.data.shape == (5, 40, 48)
+    assert switcher.currentIndex() == 1
+    assert switcher.itemText(0) == f"{MOVIE_FIXTURE.name} (cannot be opened)"
+    assert not switcher.model().item(0).isEnabled()
+    assert shell.status_message.endswith("; 1 of 2 movie(s) not shown")
+
+
+@needs_napari
+@needs_gl
 def test_closing_the_project_removes_the_panel_and_its_readers(section_shell, tmp_path) -> None:
     from pyqtgraph.Qt import QtCore
 

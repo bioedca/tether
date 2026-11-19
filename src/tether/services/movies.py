@@ -237,8 +237,11 @@ def _unavailable(path: Path | None, file_size: int, mtime: float) -> str | None:
         return "file missing"
     except OSError:
         return "file unreadable"
-    if not path.is_file():
-        return "file missing"
+    try:
+        if not path.is_file():
+            return "file missing"
+    except OSError:
+        return "file unreadable"
     if attributes & _OFFLINE_ATTRIBUTES:
         return "file not on this disk"
     try:
@@ -265,7 +268,12 @@ def _resolve(uri: str, project_dir: Path, file_size: int, mtime: float) -> Path 
     if path.is_absolute():
         return path
     in_project = project_dir / path
-    if in_project.exists():
+    try:
+        # A folder that cannot be read raises here; the file is then classified as
+        # unreadable by ``_unavailable`` rather than failing the project's open.
+        if in_project.exists():
+            return in_project
+    except OSError:
         return in_project
     try:
         found = (

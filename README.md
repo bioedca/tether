@@ -61,8 +61,10 @@ brings it to the application.
   projects.
 - **Population histogram.** The apparent-FRET histogram of the project, with rejected
   molecules left out.
-- **Movie panel.** A **napari** movie panel in the application window shows each movie of
-  the project with its donor and acceptor spots. A movie switcher lists the project's movies.
+- **Movie panel.** A **napari** movie panel in the application window shows the project's
+  movies with their donor and acceptor spots. A movie switcher lists the project's movies; one
+  whose file is missing or has changed since extraction is listed but not shown, and one with
+  no recorded channel geometry is shown without spots.
 
 ### From the command line today
 

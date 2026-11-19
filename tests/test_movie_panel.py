@@ -353,6 +353,39 @@ def test_switcher_changes_active_movie(qtbot, tmp_path) -> None:
 @pytest.mark.gui
 @_needs_napari
 @_needs_gl
+def test_a_movie_that_cannot_be_shown_leaves_no_trace(qtbot, tmp_path, monkeypatch) -> None:
+    # A first movie whose display fails is neither registered nor active, so the next one
+    # added becomes the active movie and the image shown is that movie's (#356 review).
+    frames = (np.arange(6 * 40 * 24).reshape(6, 40, 24) % 300).astype("<u2")
+    second = _write_native_movie(tmp_path / "movie2.tif", frames)
+
+    with open_movie(FIXTURE) as m0, open_movie(second) as m1, NapariMoviePanel() as panel:
+        combo = panel.switcher
+        real_render = panel._render_overlay
+        calls: list[object] = []
+
+        def _fails_once(overlay) -> None:
+            calls.append(overlay)
+            if len(calls) == 1:
+                raise ValueError("cannot draw the spots")
+            real_render(overlay)
+
+        monkeypatch.setattr(panel, "_render_overlay", _fails_once)
+        with pytest.raises(ValueError, match="cannot draw the spots"):
+            panel.add_movie(m0, name="A")
+        assert panel.n_movies == 0
+        assert panel.active_index == -1
+        assert combo.count() == 0
+
+        assert panel.add_movie(m1, name="B") == 0
+        assert panel.active_index == 0
+        assert panel.movie_names == ["B"]
+        assert tuple(panel.movie_layer.data.shape) == m1.shape
+
+
+@pytest.mark.gui
+@_needs_napari
+@_needs_gl
 def test_set_movie_stays_single_image_layer(qtbot) -> None:
     # The M0 single-movie contract survives the multi-movie refactor: set_movie
     # shows exactly one image layer and no overlay layers.

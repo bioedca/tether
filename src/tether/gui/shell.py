@@ -1763,7 +1763,9 @@ class TetherShell:
         )
         # Floated, the dock is its own window; the curation keys still act there.
         self._event_filter.add_scope_widget(self._movie_dock_widget)
-        first_row = min(self._movie_rows, key=self._movie_rows.__getitem__)
+        # Select the row of the movie the panel shows, so the switcher names that movie.
+        active = [row for row, index in self._movie_rows.items() if index == panel.active_index]
+        first_row = active[0] if active else min(self._movie_rows, key=self._movie_rows.__getitem__)
         self._movie_switcher.blockSignals(True)
         self._movie_switcher.setCurrentIndex(first_row)
         self._movie_switcher.blockSignals(False)
