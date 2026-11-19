@@ -118,24 +118,49 @@ def test_a_relative_uri_from_the_extraction_folder_is_found_there_too(
 ) -> None:
     # `tether extract raw/m.tif -o out/m.tether` records "raw/m.tif", relative to the folder
     # the command ran in rather than to the project (#356 review).
-    (tmp_path / "raw").mkdir()
-    (tmp_path / "raw" / "m.tif").write_bytes(b"four")
+    movie_file = tmp_path / "raw" / "m.tif"
+    movie_file.parent.mkdir()
+    movie_file.write_bytes(b"four")
     (tmp_path / "out").mkdir()
     path = _store(tmp_path / "out", uri="raw/m.tif")
     monkeypatch.chdir(tmp_path)
+    st = movie_file.stat()
 
-    (movie,) = read_project_movies(path).movies
-    assert movie.path == tmp_path / "raw" / "m.tif"
-    assert movie.available
-
-    # Only a file of the recorded size is taken from the current folder.
-    _set_movie_row(path, file_size=5)
+    # A row with no fast signature cannot vouch for a file found elsewhere.
     (movie,) = read_project_movies(path).movies
     assert movie.path == tmp_path / "out" / "raw" / "m.tif"
     assert movie.unavailable == "file missing"
-    _set_movie_row(path, file_size=4)
+
+    # The whole recorded signature (size and modification time) must match.
+    _set_movie_row(path, file_size=st.st_size, mtime=st.st_mtime)
+    (movie,) = read_project_movies(path).movies
+    assert movie.path == movie_file
+    assert movie.available
+    _set_movie_row(path, mtime=st.st_mtime + 60.0)
+    (movie,) = read_project_movies(path).movies
+    assert movie.path == tmp_path / "out" / "raw" / "m.tif"
+    assert movie.unavailable == "file missing"
+
+
+@pytest.mark.parametrize("changed", ["file_size", "mtime"])
+def test_a_movie_whose_fast_signature_differs_is_flagged(tmp_path, changed) -> None:
+    # PRD §5.4: a routine open checks size + mtime (no byte read); a mismatch is flagged
+    # and never silently trusted (#356 review).
+    movie_file = tmp_path / "m.tif"
+    movie_file.write_bytes(b"four")
+    path = _store(tmp_path, uri=str(movie_file))
+    st = movie_file.stat()
+    _set_movie_row(path, file_size=st.st_size, mtime=st.st_mtime)
     (movie,) = read_project_movies(path).movies
     assert movie.available
+
+    _set_movie_row(path, **{changed: {"file_size": 5, "mtime": st.st_mtime - 1.0}[changed]})
+    (movie,) = read_project_movies(path).movies
+
+    assert not movie.available
+    assert movie.unavailable == "file changed since extraction"
+    with pytest.raises(ValueError, match="file changed since extraction"):
+        open_project_movie(movie)
 
 
 def test_a_movie_with_no_channel_geometry_has_no_spots(tmp_path) -> None:

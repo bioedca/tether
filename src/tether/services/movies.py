@@ -36,7 +36,9 @@ spots on the wrong half ([`ProjectMovie.no_spots`][tether.services.movies.Projec
 ``uri`` is looked up in the project's folder first. The extraction writer records the path
 it was given, which can be relative to the folder the command ran in instead; when the
 project-relative file does not exist, the same relative path is tried from the current
-folder, and taken only when its size matches the recorded ``file_size``.
+folder, and taken only when it matches the recorded fast signature (size and
+modification time). Every movie file's size and modification time are checked against that
+signature before it is shown; a mismatch is flagged, never trusted (PRD §5.4).
 """
 
 from __future__ import annotations
@@ -84,12 +86,13 @@ class ProjectMovie:
         when no ``uri`` is recorded.
     path:
         The movie file, the ``uri`` resolved against the project's folder (or, for a
-        relative ``uri`` not found there, a size-matching file at that path from the current
-        folder), or ``None`` when the row records no ``uri``.
+        relative ``uri`` not found there, a file at that path from the current folder that
+        matches the recorded fast signature), or ``None`` when the row records no ``uri``.
     unavailable:
         ``None`` when the file can be opened; otherwise a short reason in plain words:
-        ``"file missing"``, ``"file not on this disk"``, ``"file unreadable"`` or
-        ``"no movie file recorded"``.
+        ``"file missing"``, ``"file not on this disk"``, ``"file unreadable"``,
+        ``"file changed since extraction"`` (its size or modification time differs from the
+        recorded fast signature, PRD §5.4) or ``"no movie file recorded"``.
     donor_xy, acceptor_xy:
         ``(N, 2)`` ``[x, y]`` spot centres of this movie's molecules, in pixels of the
         whole camera frame (see [`subimage_to_frame`][]). A molecule whose stored
@@ -209,8 +212,20 @@ def _to_frame(xy: np.ndarray, row: np.void, channel: str) -> np.ndarray:
     )
 
 
-def _unavailable(path: Path | None) -> str | None:
-    """Why ``path`` cannot be opened now, or ``None``. Reads attributes only (PRD §5.4)."""
+def _signature_matches(path: Path, file_size: int, mtime: float) -> bool:
+    """Whether ``path``'s size and modification time equal the recorded fast signature.
+
+    PRD §5.4: a routine open checks only the metadata signature, with no byte read. A field
+    the row does not record (zero) is not compared.
+    """
+    st = path.stat()
+    if file_size > 0 and int(st.st_size) != file_size:
+        return False
+    return not (mtime > 0 and float(st.st_mtime) != mtime)
+
+
+def _unavailable(path: Path | None, file_size: int, mtime: float) -> str | None:
+    """Why ``path`` cannot be shown now, or ``None``. Reads metadata only (PRD §5.4)."""
     # The offline test of the retrain's project check: one definition of "not on this disk".
     from tether.project.condition_model import _OFFLINE_ATTRIBUTES, _file_attributes
 
@@ -226,16 +241,23 @@ def _unavailable(path: Path | None) -> str | None:
         return "file missing"
     if attributes & _OFFLINE_ATTRIBUTES:
         return "file not on this disk"
+    try:
+        if not _signature_matches(path, file_size, mtime):
+            # PRD §5.4: a mismatch is flagged and never silently trusted.
+            return "file changed since extraction"
+    except OSError:
+        return "file unreadable"
     return None
 
 
-def _resolve(uri: str, project_dir: Path, file_size: int) -> Path | None:
+def _resolve(uri: str, project_dir: Path, file_size: int, mtime: float) -> Path | None:
     """Return the movie file ``uri`` names: project-relative first (PRD §5.1).
 
     A relative ``uri`` whose project-relative file does not exist is tried from the current
-    folder too, where the extraction writer's caller may have meant it, but only a file
-    whose size equals the recorded ``file_size`` (when one is recorded) is taken there.
-    Only ``stat`` is read, never the file's bytes.
+    folder too, where the extraction writer's caller may have meant it. A file there is
+    taken only when the row records a fast signature and the file matches all of it (size
+    and modification time); anything else would be a relink, which needs the content
+    hash. Only ``stat`` is read, never the file's bytes.
     """
     if not uri:
         return None
@@ -246,12 +268,15 @@ def _resolve(uri: str, project_dir: Path, file_size: int) -> Path | None:
     if in_project.exists():
         return in_project
     try:
-        size = path.stat().st_size if path.is_file() else None
+        found = (
+            file_size > 0
+            and mtime > 0
+            and path.is_file()
+            and _signature_matches(path, file_size, mtime)
+        )
     except OSError:
-        size = None
-    if size is not None and (file_size <= 0 or size == file_size):
-        return path.absolute()
-    return in_project
+        found = False
+    return path.absolute() if found else in_project
 
 
 def _geometry_recorded(row: np.void) -> bool:
@@ -317,7 +342,8 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
     for row in movies:
         movie_id = _to_str(row["movie_id"])
         uri = _to_str(row["uri"])
-        resolved = _resolve(uri, project_path.parent, int(row["file_size"]))
+        file_size, mtime = int(row["file_size"]), float(row["mtime"])
+        resolved = _resolve(uri, project_path.parent, file_size, mtime)
         mine = mol_movie == movie_id
         donor = donor_all[mine]
         acceptor = acceptor_all[mine]
@@ -333,7 +359,7 @@ def read_project_movies(path: str | PathLike[str]) -> ProjectMovies:
                 movie_id=movie_id,
                 name=_movie_name(uri) if uri else movie_id,
                 path=resolved,
-                unavailable=_unavailable(resolved),
+                unavailable=_unavailable(resolved, file_size, mtime),
                 donor_xy=donor_xy,
                 acceptor_xy=acceptor_xy,
                 no_spots=no_spots,

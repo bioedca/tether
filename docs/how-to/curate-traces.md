@@ -56,7 +56,8 @@ radius the extraction used. To show another movie, choose it in the **Movie** bo
 
 Tether looks for each movie file at the path recorded when the traces were extracted. A
 relative path is looked up in the project's folder first. A movie whose file was moved or
-deleted shows grayed out, with `(file missing)`. The status
+deleted shows grayed out, with `(file missing)`. A movie file whose size or modification time
+changed since extraction shows grayed out, with `(file changed since extraction)`. The status
 line then ends with, for example, `1 of 1 movie(s) not shown`.
 
 Tether does not download a movie that is only in the cloud, such as a OneDrive file. Such a
