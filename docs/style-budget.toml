@@ -113,7 +113,7 @@ retired = 0
 
 [pages."docs/how-to/apply-corrections.md"]
 kind = "procedure"
-long_share = 35.6
+long_share = 31.8
 semicolons = 5
 long_paragraphs = 0
 retired = 0
