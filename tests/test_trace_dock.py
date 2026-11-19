@@ -521,3 +521,219 @@ def test_dock_marginals_draw_the_histograms_of_the_trace(qtbot) -> None:
             np.testing.assert_allclose(
                 np.asarray(opts["y"]), 0.5 * (ref_edges[:-1] + ref_edges[1:])
             )
+
+
+# --- cross-correlation panel (#363) -------------------------------------------
+
+
+def _anticorrelated(n_frames: int, *, frame_time: float | None = 0.1) -> TraceView:
+    """A noisy two-level trace whose donor and acceptor move in anti-phase."""
+    rng = np.random.default_rng(363)
+    level = np.where((np.arange(n_frames) // 25) % 2 == 0, 0.3, 0.7)
+    total = 1000.0
+    acceptor = level * total + rng.normal(0.0, 20.0, n_frames)
+    donor = (1.0 - level) * total + rng.normal(0.0, 20.0, n_frames)
+    return TraceView(donor=donor, acceptor=acceptor, frame_time=frame_time)
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_crosscorr_panel_draws_the_library_curve(qtbot) -> None:
+    from tether.analysis.crosscorr import cross_correlation
+    from tether.gui.trace_dock import DEFAULT_CROSSCORR_MAX_LAG, TraceDock
+
+    trace = _anticorrelated(400)
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        # The panel is the grid's third row, under the time-series column.
+        assert dock.graphics.ci.getItem(2, 0) is dock.crosscorr_plot
+        dock.set_trace(trace)
+
+        expected = cross_correlation(trace.donor, trace.acceptor, max_lag=DEFAULT_CROSSCORR_MAX_LAG)
+        cc = dock.crosscorr
+        assert cc is not None
+        assert dock.crosscorr_message is None
+        np.testing.assert_array_equal(cc.lags, expected.lags)
+        np.testing.assert_allclose(cc.values, expected.values)
+        assert cc.lag0 < 0  # anti-phase channels: the honest sign survives display
+        x, y = dock.crosscorr_curve.getData()
+        np.testing.assert_allclose(y, expected.values)
+        np.testing.assert_allclose(x, expected.lags * 0.1)  # seconds mode by default
+        assert x[0] == pytest.approx(-DEFAULT_CROSSCORR_MAX_LAG * 0.1)
+        # The Pearson axis is pinned to [-1, 1].
+        ymin, ymax = dock.crosscorr_plot.getViewBox().viewRange()[1]
+        assert (ymin, ymax) == (pytest.approx(-1.0), pytest.approx(1.0))
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_crosscorr_is_driven_by_the_analysis_function(qtbot, monkeypatch) -> None:
+    import tether.analysis.crosscorr as crosscorr
+    from tether.gui.trace_dock import TraceDock
+
+    calls: list[int | None] = []
+    real = crosscorr.cross_correlation
+
+    def spy(donor, acceptor, **kwargs):
+        calls.append(kwargs.get("max_lag"))
+        return real(donor, acceptor, **kwargs)
+
+    monkeypatch.setattr(crosscorr, "cross_correlation", spy)
+    with TraceDock(crosscorr_max_lag=7) as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(_anticorrelated(100))
+        assert calls == [7]
+        assert dock.crosscorr is not None
+        assert dock.crosscorr.lags[0] == -7
+        # A time-mode toggle re-lays the axis; it does not recompute the curve.
+        dock.set_time_mode("frames")
+        assert calls == [7]
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_crosscorr_lag_axis_follows_time_mode(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock(crosscorr_max_lag=10) as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(_anticorrelated(200, frame_time=0.05))
+        axis = dock.crosscorr_plot.getAxis("bottom")
+        assert axis.labelText == "Lag"
+        assert axis.labelUnits == "s"
+        np.testing.assert_allclose(dock.crosscorr_curve.getData()[0], np.arange(-10, 11) * 0.05)
+        assert dock.crosscorr_plot.getViewBox().viewRange()[0] == [
+            pytest.approx(-0.5),
+            pytest.approx(0.5),
+        ]
+
+        dock.time_checkbox.setChecked(False)  # the user's frame-index toggle
+        assert axis.labelUnits == "frames"
+        np.testing.assert_allclose(dock.crosscorr_curve.getData()[0], np.arange(-10, 11))
+        assert dock.crosscorr_plot.getViewBox().viewRange()[0] == [
+            pytest.approx(-10.0),
+            pytest.approx(10.0),
+        ]
+
+        # A trace with no frame_time can only show lags in frames.
+        dock.set_time_mode("seconds")
+        dock.set_trace(_anticorrelated(200, frame_time=None))
+        assert axis.labelUnits == "frames"
+        np.testing.assert_allclose(dock.crosscorr_curve.getData()[0], np.arange(-10, 11))
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_crosscorr_is_not_x_linked_to_the_time_series(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock() as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(_anticorrelated(400))
+        vb = dock.crosscorr_plot.getViewBox()
+        assert vb.linkedView(vb.XAxis) is None
+        # Zooming the time series leaves the lag axis where it was.
+        before = vb.viewRange()[0]
+        dock.fret_plot.setXRange(10.0, 20.0, padding=0)
+        assert vb.viewRange()[0] == before
+
+
+@pytest.mark.gui
+@_needs_qt
+@pytest.mark.parametrize("n_frames", [1, 2, 10, 50])
+def test_dock_crosscorr_too_short_trace_shows_empty_state(qtbot, n_frames: int) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock(crosscorr_max_lag=50) as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(_anticorrelated(n_frames))  # must not raise
+        assert dock.crosscorr is None
+        assert dock.crosscorr_message is not None
+        assert "too short" in dock.crosscorr_message
+        assert f"{n_frames} frame" in dock.crosscorr_message
+        assert (
+            dock.crosscorr_curve.getData()[1] is None or dock.crosscorr_curve.getData()[1].size == 0
+        )
+        assert dock.crosscorr_plot.listDataItems() == [dock.crosscorr_curve]
+        # The note is drawn in the panel, and the other panels still show the trace.
+        assert dock._crosscorr_text.isVisible()
+        assert dock._crosscorr_text.textItem.toPlainText() == dock.crosscorr_message
+        assert dock.donor_curve.getData()[1].size == n_frames
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_crosscorr_exactly_long_enough_draws(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock(crosscorr_max_lag=50) as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(_anticorrelated(51))
+        assert dock.crosscorr is not None
+        assert dock.crosscorr.lags.tolist() == list(range(-50, 51))
+        assert not dock._crosscorr_text.isVisible()
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_crosscorr_non_finite_and_flat_traces_show_empty_state(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock(crosscorr_max_lag=5) as dock:
+        qtbot.addWidget(dock.widget)
+        gappy = np.full(100, 500.0) + np.arange(100.0)
+        gappy[40] = np.nan
+        dock.set_trace(TraceView(donor=gappy, acceptor=np.arange(100.0)))
+        assert dock.crosscorr is None
+        assert "non-finite" in (dock.crosscorr_message or "")
+
+        dock.set_trace(TraceView(donor=np.full(100, 300.0), acceptor=np.arange(100.0)))
+        assert dock.crosscorr is None
+        assert "constant" in (dock.crosscorr_message or "")
+
+
+@pytest.mark.gui
+@_needs_qt
+def test_dock_crosscorr_new_trace_replaces_and_clear_blanks(qtbot) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with TraceDock(crosscorr_max_lag=20) as dock:
+        qtbot.addWidget(dock.widget)
+        dock.set_trace(_anticorrelated(300))
+        assert dock.crosscorr is not None
+        dock.set_trace(_anticorrelated(5))  # a stale curve must not survive
+        assert dock.crosscorr is None
+        assert (
+            dock.crosscorr_curve.getData()[1] is None or dock.crosscorr_curve.getData()[1].size == 0
+        )
+        dock.set_trace(_anticorrelated(300))
+        assert dock.crosscorr is not None
+        assert not dock._crosscorr_text.isVisible()
+
+        dock.clear()
+        assert dock.crosscorr is None
+        assert dock.crosscorr_message is None
+        assert not dock._crosscorr_text.isVisible()
+        assert (
+            dock.crosscorr_curve.getData()[1] is None or dock.crosscorr_curve.getData()[1].size == 0
+        )
+
+
+@pytest.mark.gui
+@_needs_qt
+@pytest.mark.parametrize("bad", [0, -3, True, 2.5, "10"])
+def test_dock_crosscorr_max_lag_must_be_a_positive_integer(qtbot, bad: object) -> None:
+    from tether.gui.trace_dock import TraceDock
+
+    with pytest.raises(ValueError, match="crosscorr_max_lag"):
+        TraceDock(crosscorr_max_lag=bad)  # type: ignore[arg-type]
+
+
+def test_curation_guide_states_the_crosscorr_lag_default() -> None:
+    """The how-to page prints the panel's lag span; keep it equal to the constant."""
+    from tether.gui.trace_dock import DEFAULT_CROSSCORR_MAX_LAG
+
+    page = Path(__file__).resolve().parents[1] / "docs" / "how-to" / "curate-traces.md"
+    text = " ".join(page.read_text(encoding="utf-8").split())
+    assert f"spans {DEFAULT_CROSSCORR_MAX_LAG} frames either side of 0" in text
+    assert f"shorter than {DEFAULT_CROSSCORR_MAX_LAG + 1} frames" in text
