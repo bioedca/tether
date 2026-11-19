@@ -84,14 +84,27 @@ Methods paragraph). The `gamma`
 attribute here is the population median of those values, which the `n_fallback` molecules
 that failed the gates receive instead; it follows the same `withheld` rule. The rest are
 `n_qualifying`, `n_fallback`, `n_molecules`, `level_window`, `half_window`,
-`min_window_frames`, `ceiling`, `min_qualifying_traces`, `intensity_quantity`, `app_version`
-and `created_utc`.
+`min_window_frames`, `ceiling`, `min_qualifying_traces`, `intensity_quantity`,
+`n_step_evaluated`, `n_step_clean`, `min_clean_step_fraction`, `few_clean_steps`,
+`app_version` and `created_utc`.
 
 `level_window` names the frames each γ level was averaged over. It reads `half-window` when
 `half_window` frames each side were used, 20 by default
 ([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)). It reads `whole-segment`
 when the whole segments were used, and then `half_window` is `0`. A project from before
 ADR-0130 has no `level_window`.
+
+`n_step_evaluated` counts the molecules whose acceptor-bleach step was measured, because
+both of its segments were long enough, and `n_step_clean` those of them whose donor rose and
+whose leakage-corrected acceptor dropped across the step, the shape an acceptor bleach must
+have. `few_clean_steps` is `True` when γ was applied and fewer than `min_clean_step_fraction`
+of the measured steps were clean
+([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).
+Such a γ is still stored and is not changed by the flag. The flag is a reason to check it, not
+proof that it is wrong: noise alone can make many steps read clean by chance (ADR-0134 states
+the noise model), so the γ may rest largely on noise. Check it, report it with
+that caveat, or enter a factor measured another way. A project from before ADR-0134 has none of
+these four attributes.
 
 **`/settings/correction`** — `src/tether/project/correct.py`. Rewritten on every correction
 pass (`source` = `accurate-fret`). The pass decides, per molecule, whether its α and γ are
@@ -308,15 +321,19 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   app_version = <your version>
   ceiling = 5.0
   created_utc = <time of the run>
+  few_clean_steps = False
   gamma = 1.002771186368295
   half_window = 20
   intensity_quantity = corrected
   level_window = half-window
+  min_clean_step_fraction = 0.65
   min_qualifying_traces = 10
   min_window_frames = 20
   n_fallback = 1
   n_molecules = 16
   n_qualifying = 15
+  n_step_clean = 15
+  n_step_evaluated = 15
   source = acceptor-bleach-step
   withheld = False
 [/settings/correction]
