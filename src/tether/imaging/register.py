@@ -578,6 +578,12 @@ class TmapChannel:
     local* coordinate to a *this-channel-local* coordinate. To place a point in
     the raw, un-split movie use [`reference_to_channel_image`][], which folds in
     the per-channel crop [`origin`][].
+
+    The stored ``Rotation`` / ``Flip`` decode to [`rotation_deg`][] and
+    [`flip_vh`][], which the imported path applies before the crop, in
+    ``processImage`` order (``rotate -> flip -> crop``, [`tether.imaging.split`][];
+    #559). The crop is then in the rotated/flipped frame, so [`origin`][] is a
+    raw-frame position only for a channel with [`has_simple_geometry`][].
     """
 
     channel_id: int
@@ -585,29 +591,63 @@ class TmapChannel:
     map_particles: np.ndarray  # (M, 2) bead control points, as stored
     ref_to_channel: PolyTransform2D  # decoded MapToReference; apply: reference -> channel
     channel_to_ref: PolyTransform2D  # decoded MapFromReference; apply: channel -> reference
-    # processImage applies rotate -> flip -> crop; Tether's imported-.tmap path
-    # honors only the crop so far (the rotation/flip *apply* is deferred to a
-    # follow-up). These carry the stored values so a non-identity geometry can be
-    # refused loudly (see `has_simple_geometry`) rather than silently
-    # mis-split. Empty arrays (the UCKOPSB .tmap's value) and all-zeros mean "none".
+    # The stored processImage Rotation / Flip, as decoded (no interpretation yet):
+    # empty arrays (the UCKOPSB .tmap's value) and all-zeros mean "none". The
+    # rotation_deg / flip_vh properties validate and decode them.
     rotation: np.ndarray = field(default_factory=lambda: np.array([]))
     flip: np.ndarray = field(default_factory=lambda: np.array([]))
+
+    @property
+    def rotation_deg(self) -> int:
+        """The stored ``Rotation`` as one of ``{0, 90, 180, 270}`` degrees.
+
+        Deep-LASI's ``TIRFdata`` stores a channel's rotation as one value in
+        ``{0, 90, 180, 270}`` (PRD Appendix E Stage 1); ``processImage`` applies it
+        as ``imrotate(I, -Rotation)``, which [`tether.imaging.split.process_image`][]
+        ports. An empty or all-zero field is ``0``. Any other value (several
+        different values, a non-integer, or an angle outside the set) raises
+        [`ValueError`][], because the channel split would be undefined.
+        """
+        rot = np.asarray(self.rotation, dtype=np.float64).ravel()
+        if rot.size == 0 or bool(np.all(rot == 0)):
+            return 0
+        if rot.size != 1 or not np.isfinite(rot[0]) or rot[0] not in (90.0, 180.0, 270.0):
+            raise ValueError(
+                f"channel {self.channel_id} Rotation must be one of 0, 90, 180 or 270 "
+                f"degrees, got {np.asarray(self.rotation).tolist()}"
+            )
+        return int(rot[0])
+
+    @property
+    def flip_vh(self) -> tuple[int, int]:
+        """The stored ``Flip`` as ``(v, h)``, each ``0`` or ``1``.
+
+        ``processImage`` reverses the rows when ``Flip(1) == 1`` (``flipud``) and the
+        columns when ``Flip(2) == 1`` (``fliplr``), after the rotation; see
+        [`tether.imaging.split.process_image`][]. An empty or all-zero field is
+        ``(0, 0)``. Any other shape or value raises [`ValueError`][].
+        """
+        flip = np.asarray(self.flip, dtype=np.float64).ravel()
+        if flip.size == 0 or bool(np.all(flip == 0)):
+            return (0, 0)
+        if flip.size != 2 or not bool(np.isin(flip, (0.0, 1.0)).all()):
+            raise ValueError(
+                f"channel {self.channel_id} Flip must be two values [v, h], each 0 or 1, "
+                f"got {np.asarray(self.flip).tolist()}"
+            )
+        return (int(flip[0]), int(flip[1]))
 
     @property
     def has_simple_geometry(self) -> bool:
         """True iff splitting this channel needs only its crop (no rotation/flip).
 
-        Deep-LASI's ``processImage`` rotates and flips before cropping; Tether's
-        imported-``.tmap`` path applies only the crop so far, so a channel whose
-        stored ``Rotation``/``Flip`` are empty or all-zero is the supported case.
-        A non-trivial rotation/flip would make the imported map split at the wrong
-        frame, so callers must refuse such a ``.tmap`` rather than mis-extract.
+        Deep-LASI's ``processImage`` rotates and flips before cropping. The imported
+        path applies both (#559), so this no longer gates extraction; it says
+        whether the crop alone places the channel in the raw frame, which
+        [`origin`][] and [`reference_to_channel_image`][] need. A stored value
+        that does not decode raises [`ValueError`][] (see [`rotation_deg`][]).
         """
-        rot = np.asarray(self.rotation).ravel()
-        flip = np.asarray(self.flip).ravel()
-        rot_ok = rot.size == 0 or bool(np.all(rot == 0))
-        flip_ok = flip.size == 0 or bool(np.all(flip == 0))
-        return rot_ok and flip_ok
+        return self.rotation_deg == 0 and self.flip_vh == (0, 0)
 
     @property
     def origin(self) -> np.ndarray:
@@ -618,7 +658,16 @@ class TmapChannel:
         inclusive; ``tools/processImage.m:23-30``). The sub-image's top-left pixel
         is therefore full-frame ``(x1, y1)``; returned 0-based as ``[x1-1, y1-1]``,
         so a channel-local ``[x, y]`` plus this origin is the full-frame position.
+
+        That holds only when the crop is taken from the raw frame. For a channel
+        with a rotation or flip the crop is in the rotated/flipped frame, so this
+        raises [`ValueError`][] rather than return a wrong raw-frame position.
         """
+        if not self.has_simple_geometry:
+            raise ValueError(
+                f"channel {self.channel_id} has a rotation/flip, so its crop origin is "
+                "not a raw-frame position"
+            )
         flat = np.asarray(self.crop, dtype=np.float64).ravel()
         if flat.size != 4:
             raise ValueError(

@@ -50,7 +50,7 @@ release**, not the binaries, and it is unaffected by any of the above.
    consequences follow. A tag cut seconds after a merge is refused until the post-merge run
    finishes on that commit. And because the producing workflows cancel an in-flight run
    when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
-   were cancelled by a following merge can never be released — release from a later commit
+   were canceled by a following merge can never be released — release from a later commit
    whose checks ran to completion instead.
 2. **Read every user page before the tag, and record the read.** A named person does this
    step. An AI tool cannot do this step. AI tools draft the user pages, and the review lane of a
@@ -501,7 +501,7 @@ and users get a SmartScreen or Gatekeeper warning on Windows and macOS.
 [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records
 the decision and the priced alternatives so they are not re-researched. In short:
 
-- **SignPath Foundation declined** `bioedca/tether` on 2026-07-26 — the programme wants
+- **SignPath Foundation declined** `bioedca/tether` on 2026-07-26 — the program wants
   public-visibility signals (stars, forks, contributors, external references, institutional
   backing) a pre-1.0 project by one maintainer does not have. A paid subscription was offered.
 - **Apple Developer ID** is out of budget at $99/yr, and enabling it was never one setting
