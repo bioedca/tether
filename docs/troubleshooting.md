@@ -999,18 +999,22 @@ are on the [Deep trace classifier](ml/deep-classifier.md#gpu-cuda-setup) page.
 **Symptom.** The desktop application showed something in the status bar at the bottom of the
 window, and the next action replaced it before you read it.
 
-**Cause and what to do.** Every message the status bar shows is kept, with its time and its
-level (information, warning or error), in the **Messages** panel: open it with
-**View → Messages**. Select the rows you want, or none for all of them, and press **Copy** to
-put them on the clipboard as text for a bug report. A warning or an error also stays in the
-status bar until you press **Dismiss** beside it or the next warning or error arrives, so a
-later information line such as `Molecule mol-3 (4/40)` does not hide it. A running background
-task shows its name at the right of the status bar, its progress when it reports one, and a
-**Cancel** button when it can be stopped. The one-click idealize cannot: its sidecar may still
-be writing to the project. Module: `tether.gui.messages`.
+**Cause and what to do.** Every message the status bar shows is kept in the **Messages**
+panel, with its time and its level: information, warning or error. Open the panel with
+**View → Messages**. Select the rows you want, or none for all of them, and press **Copy**.
+The messages go to the clipboard as text, ready for a bug report.
 
-**The log file.** The same lines go to a log file, `tether.log`, which
-**Help → Open log folder** opens:
+A warning or an error also stays in the status bar until you press **Dismiss** beside it.
+The next warning or error replaces it too. A later information line, such as
+`Molecule mol-3 (4/40)`, does not hide it.
+
+A running background task shows its name at the right of the status bar. It also shows its
+progress when it reports one, and a **Cancel** button when it can be stopped. The one-click
+idealize cannot be stopped, because its sidecar may still be writing to the project. Module:
+`tether.gui.messages`.
+
+**The log file.** The same lines go to a log file, `tether.log`. **Help → Open log folder**
+opens its folder:
 
 - Windows: `%LOCALAPPDATA%\MondragonLab\Tether\logs\`
 - macOS: `~/Library/Application Support/MondragonLab/Tether/logs/`
@@ -1018,11 +1022,12 @@ be writing to the project. Module: `tether.gui.messages`.
   variable is set
 
 Each line is the time, the level and the message as the status bar showed it. The log holds
-no trace data and no file contents; a path is in it only where a message showed that path.
+no trace data and no file contents. A path is in it only where a message showed that path.
+
 When the file passes about 1 MB it is renamed `tether.log.1`, and the three newest old files
 are kept. The environment variable `TETHER_LOG_DIR` moves the folder. If the file cannot be
-written, the application stops writing it for that session and the Messages panel still
-keeps every message.
+written, the application stops writing it for that session. The Messages panel still keeps
+every message.
 
 ---
 

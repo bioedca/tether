@@ -78,12 +78,12 @@ you allow it** (below).
   and the application forgets these things.
   [What the application remembers](how-to/curate-traces.md#what-the-application-remembers-on-this-computer)
   lists the folder on each system.
-- **The message log.** The desktop application writes the messages its status bar shows to a
-  log file, `tether.log`, in your own application data folder, so that you can read them
-  again or copy them into a bug report. Each line holds the time, the level and the text of
-  one message. The log holds no trace data and no file contents, but a message that shows a
-  file path, such as the project you opened, keeps that path. It keeps at most about 4 MB in
-  four files. It is **never transmitted by Tether**; delete the folder and it is gone.
+- **The message log.** The desktop application writes the messages of its status bar to a
+  log file, `tether.log`, in your own application data folder. You can then read them again
+  or copy them into a bug report. Each line holds the time, the level and the text of one
+  message. The log holds no trace data and no file contents. A message that shows a file
+  path, such as the project you opened, keeps that path. The log keeps at most about 4 MB in
+  four files. It is **never transmitted by Tether**. Delete the folder and it is gone.
   [Troubleshooting](troubleshooting.md#i-missed-a-message-in-the-status-bar) lists the folder
   on each system, and **Help → Open log folder** opens it.
 - **Bundled components.** The installers bundle open-source libraries (for example napari,
