@@ -20,7 +20,7 @@ gives a project's movie metadata with its origin — see
 [`tether.project.movie_metadata`][]. ``tether export`` writes the molecule table, the
 trace text file or a subset project — see [`tether.cli_export`][].
 
-The CLI deliberately uses the standard-library [`argparse`][] rather than a
+The CLI deliberately uses the standard-library `argparse` rather than a
 third-party framework: a base ``conda-lock`` regeneration to add click/typer is
 not justified by the current command surface (the pin-and-hold invariant). The
 heavy imaging/IO stack is imported only when a service command runs, so that

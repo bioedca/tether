@@ -123,7 +123,7 @@ class IdealizeResult:
 
 
 def parse_nstates_grid(text: str) -> tuple[int, ...]:
-    """Read ``"1,2,3,4"`` as ``(1, 2, 3, 4)``; raise [`ValueError`][] if it is not one.
+    """Read ``"1,2,3,4"`` as ``(1, 2, 3, 4)``; raise `ValueError` if it is not one.
 
     Every entry must be a positive integer, and an entry may appear only once.
     """

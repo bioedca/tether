@@ -850,7 +850,7 @@ class CategoryList:
     def code_of(self, category: str) -> int:
         """The integer code (0-based position) of ``category``.
 
-        Raises [`KeyError`][] if ``category`` is not in the list.
+        Raises `KeyError` if ``category`` is not in the list.
         """
         try:
             return self.categories.index(category)
@@ -982,7 +982,7 @@ def set_category_list(path: str | Path, condition_id: str, categories: object) -
     The general editor — set, reorder (pass a permutation), or clear (pass ``[]``) a
     condition's vocabulary in one write. Names are stripped and must be non-empty and
     unique; order defines the integer codes. Requires ``condition_id`` to be a
-    materialized ``/conditions`` row ([`KeyError`][] otherwise). Returns the
+    materialized ``/conditions`` row (`KeyError` otherwise). Returns the
     resulting [`CategoryList`][].
     """
     import h5py  # noqa: PLC0415
@@ -999,8 +999,8 @@ def add_category(path: str | Path, condition_id: str, name: str) -> CategoryList
     """Append one category to a condition's list; return the updated list (PRD §5.1).
 
     The new category's integer code is the (previous) list length. Rejects a name
-    that (after stripping) is empty or already present ([`ValueError`][]), and an
-    unregistered ``condition_id`` ([`KeyError`][]).
+    that (after stripping) is empty or already present (`ValueError`), and an
+    unregistered ``condition_id`` (`KeyError`).
     """
     import h5py  # noqa: PLC0415
 
@@ -1023,7 +1023,7 @@ def rename_category(path: str | Path, condition_id: str, old: str, new: str) -> 
     unchanged) but does **not** rewrite the ``/molecules.category`` values that
     reference ``old`` — re-labeling molecules is a separate explicit step (never
     silent, §5.1). Rejects an absent ``old`` or an already-present ``new``
-    ([`KeyError`][] / [`ValueError`][]), and an unregistered condition.
+    (`KeyError` / `ValueError`), and an unregistered condition.
     """
     import h5py  # noqa: PLC0415
 
@@ -1046,7 +1046,7 @@ def remove_category(path: str | Path, condition_id: str, name: str) -> CategoryL
 
     A list-level edit only: later categories shift down one code, and molecules that
     referenced ``name`` keep their stored ``/molecules.category`` string (they are
-    not silently re-labeled, §5.1). Rejects an absent ``name`` ([`KeyError`][])
+    not silently re-labeled, §5.1). Rejects an absent ``name`` (`KeyError`)
     and an unregistered condition.
     """
     import h5py  # noqa: PLC0415
@@ -1119,7 +1119,7 @@ def _read_held_category_names(path: str | Path, condition_id: str, role: str) ->
     """Read a condition's list from a project that must hold the condition.
 
     Unlike the lenient [`read_category_list`][], a cross-project read refuses a
-    project with no ``/conditions`` row for ``condition_id`` ([`KeyError`][]
+    project with no ``/conditions`` row for ``condition_id`` (`KeyError`
     naming the file, ADR-0068): an empty list read from a project that does not
     hold the condition would otherwise copy as a clear or compare as "every
     category missing".
@@ -1147,7 +1147,7 @@ def copy_category_list(
     The destination's previous list is replaced; an empty source list empties it.
 
     Both projects must hold ``condition_id`` as a ``/conditions`` row: a copy from
-    or into a project that does not is refused with a [`KeyError`][] that names
+    or into a project that does not is refused with a `KeyError` that names
     the file. Like the other list edits, molecules' stored ``/molecules.category``
     names in the destination are not rewritten. Returns the destination's list.
     """
@@ -1173,7 +1173,7 @@ def compare_category_lists(
     Reports each category whose name or integer code differs: a name only one
     project holds, or a name both hold at different codes. Two equal lists report
     nothing ([`CategoryListComparison.equal`][]). Both projects must hold
-    ``condition_id`` ([`KeyError`][] naming the file otherwise).
+    ``condition_id`` (`KeyError` naming the file otherwise).
     """
     _require_safe_condition_id(condition_id)
     a = CategoryList(condition_id, _read_held_category_names(path_a, condition_id, "first"))

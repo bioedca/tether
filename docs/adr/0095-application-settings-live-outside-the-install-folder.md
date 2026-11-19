@@ -6,7 +6,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # 0095 — Application settings live outside the install folder
 
 - **Status:** accepted (merging the pull request that lands this record is the maintainer's
-  sign-off)
+  sign-off); amended by [ADR-0123](0123-the-settings-store-also-keeps-the-trace-colors.md) on
+  what the settings file stores: it also keeps the trace colors
 - **Date:** 2026-11-14
 - **Deciders:** bioedca
 - **PRD anchor:** §7.12 FR-UPDATE (consent, and the requirement that the answer survives an

@@ -6,8 +6,9 @@ Every test gets its own per-user lock directory (``XDG_STATE_HOME`` and ``LOCALA
 point into its temporary tree), so the identity locks of ADR-0112 never touch the real user
 directory and never leak between tests, and its own GUI preferences file
 (``TETHER_PREFERENCES_FILE``, ADR-0122). ``XDG_CONFIG_HOME`` points there too (and, on
-macOS, ``HOME``), so the update-check consent of ADR-0095 is read from that tree and not
-from the real one. Subprocesses a test starts inherit all of them.
+macOS, ``HOME``), so the application settings of ADR-0095 (the update-check answer and
+the trace colours) are read from that tree and not from the real one. Subprocesses a test
+starts inherit all of them.
 
 A test marked ``workstation`` needs private laboratory data. It runs in no CI job, on purpose:
 ``scripts/workstation/run_private_checks.py`` runs it from a scheduled task on the maintainer's

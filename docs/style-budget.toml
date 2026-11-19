@@ -237,6 +237,76 @@ semicolons = 18
 long_paragraphs = 0
 retired = 0
 
+[pages."docs/api/index.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/io.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/imaging.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/fret.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/idealize.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/ml.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/analysis.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/project.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/services.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
+[pages."docs/api/gui.md"]
+kind = "descriptive"
+long_share = 0.0
+semicolons = 0
+long_paragraphs = 0
+retired = 0
+
 [pages."docs/glossary.md"]
 kind = "descriptive"
 long_share = 23.1

@@ -67,6 +67,25 @@ extra_css:
   - assets/brand/brand.css
   - stylesheets/site.css
 
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            allow_inspection: false
+            docstring_style: numpy
+            scoped_crossrefs: true
+            show_if_no_docstring: true
+            filters: public
+            show_root_heading: true
+            show_root_full_path: true
+            show_source: false
+            heading_level: 2
+            members_order: source
+
 nav:
   # Two top-level groups, decided on #181 (2026-07-27, confirmed 2026-07-31): what a lab
   # scientist needs, and what only the project and its maintainers act on. Every page under
@@ -106,6 +125,17 @@ nav:
           - Project file format (.tether HDF5 schema): reference/tether-format.md
           - Application window themes and trace colors: reference/gui-theme.md
           - Reproducibility & reporting: reproducibility.md
+      - API reference:
+          - Overview: api/index.md
+          - tether.io: api/io.md
+          - tether.imaging: api/imaging.md
+          - tether.fret: api/fret.md
+          - tether.idealize: api/idealize.md
+          - tether.ml: api/ml.md
+          - tether.analysis: api/analysis.md
+          - tether.project: api/project.md
+          - tether.services: api/services.md
+          - tether.gui: api/gui.md
       - Glossary: glossary.md
       - Troubleshooting: troubleshooting.md
       - Citing: citing.md

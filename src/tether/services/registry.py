@@ -95,7 +95,7 @@ COMMANDS: tuple[ServiceCommand, ...] = (
 
 
 def command(name: str) -> ServiceCommand:
-    """Return the registered command called *name*; raise [`KeyError`][] if none."""
+    """Return the registered command called *name*; raise `KeyError` if none."""
     for entry in COMMANDS:
         if entry.name == name:
             return entry

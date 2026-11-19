@@ -1148,7 +1148,7 @@ def add_movie_to_project(
     ----------
     project_path:
         An existing, compatible ``.tether`` project
-        ([`create_project`][tether.project.create_project] or [`extract_movie`][]).
+        ([`create_project`][tether.io.schema.create_project] or [`extract_movie`][]).
     movie_path:
         The movie to append; see [`extract_movie`][].
     options, tmap, tdat, map_path:
