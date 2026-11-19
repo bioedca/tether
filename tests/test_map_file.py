@@ -1,0 +1,737 @@
+# SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The native ``.npz`` map file applied at extraction (#353).
+
+``save_map`` -> ``load_map`` -> ``extract_movie(map_path=...)`` must give the same
+molecules as the in-memory [`RegistrationMap`][] it was saved from; the precedence of
+the three registration sources (native fit, ``.tmap``, map file) is one source per run;
+``/calibration`` and ``/settings/extraction`` record which file produced the map; and
+the map file carries a ``format_version`` and still reads with ``allow_pickle=False``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("numpy")
+pytest.importorskip("scipy")
+pytest.importorskip("skimage")
+pytest.importorskip("h5py")
+tifffile = pytest.importorskip("tifffile")
+
+import h5py  # noqa: E402
+import numpy as np  # noqa: E402
+
+from tether.cli import build_parser, main  # noqa: E402
+from tether.imaging import calibrate  # noqa: E402
+from tether.imaging.calibrate import (  # noqa: E402
+    MAP_FORMAT_VERSION,
+    MapFileError,
+    RegistrationMap,
+    load_map,
+    read_calibration,
+    save_map,
+)
+from tether.imaging.extract import read_molecules, read_traces  # noqa: E402
+from tether.project import extract as project_extract  # noqa: E402
+from tether.project.extract import (  # noqa: E402
+    ExtractionError,
+    ExtractOptions,
+    _run_pipeline,
+    add_movie_to_project,
+    count_molecules_by_rule,
+    extract_movie,
+)
+from tether.project.lock import publish_lock  # noqa: E402
+
+_BG = 80.0
+_AMP = 400.0
+_SIGMA = 1.5
+_SHAPE = (64, 96)  # two 48-px halves
+_N_FRAMES = 12
+_WINDOW = 21
+_DONOR = np.array([[12.0, 12.0], [24.0, 40.0], [16.0, 52.0]])
+_ACCEPTOR = _DONOR + np.array([49.0, 0.0])  # +1 px in x inside the right half
+
+
+def _write_movie(path: Path, *, acceptor_amp: float = _AMP) -> Path:
+    centers = np.vstack([_DONOR, _ACCEPTOR])
+    amps = np.concatenate([np.full(len(_DONOR), _AMP), np.full(len(_ACCEPTOR), acceptor_amp)])
+    frame = np.full(_SHAPE, _BG)
+    rows, cols = np.mgrid[0 : _SHAPE[0], 0 : _SHAPE[1]]
+    for (x, y), amp in zip(centers, amps, strict=True):
+        frame += amp * np.exp(-((rows - y) ** 2 + (cols - x) ** 2) / (2.0 * _SIGMA**2))
+    stack = np.ascontiguousarray(np.broadcast_to(frame, (_N_FRAMES, *_SHAPE)), dtype=">u2")
+    tifffile.imwrite(path, stack, photometric="minisblack", byteorder=">")
+    return path
+
+
+def _profile(project: Path) -> dict:
+    with h5py.File(project, "r") as f:
+        raw = f["/settings/extraction"].attrs["profile_json"]
+    return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+
+def _calibration_provenance(project: Path, calibration_id: str) -> dict:
+    with h5py.File(project, "r") as f:
+        raw = f[f"/calibration/{calibration_id}"].attrs["provenance_json"]
+    return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+
+@pytest.fixture
+def fitted(tmp_path) -> tuple[RegistrationMap, Path]:
+    """A map fitted natively on a calibration movie, and that map saved to ``.npz``."""
+    calibration_movie = _write_movie(tmp_path / "calibration.tif")
+    out = tmp_path / "calibration.tether"
+    summary = extract_movie(calibration_movie, out, options=ExtractOptions(window=_WINDOW))
+    reg_map = read_calibration(out, summary.calibration_id)
+    return reg_map, save_map(reg_map, tmp_path / "channel-map.npz")
+
+
+def _same_molecules(project: Path, extracted) -> None:
+    mols = read_molecules(project)
+    traces = read_traces(project)
+    assert np.array_equal(mols["donor_xy"], extracted.molecules.donor_xy)
+    assert np.array_equal(mols["acceptor_xy"], extracted.molecules.acceptor_xy)
+    donor, acceptor = extracted.traces.donor.intensity, extracted.traces.acceptor.intensity
+    n = donor.shape[1]
+    assert np.array_equal(traces["donor_corrected"][:, :n], donor)
+    assert np.array_equal(traces["acceptor_corrected"][:, :n], acceptor)
+
+
+# --- AC 1: save_map -> load_map -> extract_movie == in-memory map ---------------
+
+
+def test_a_saved_map_extracts_the_same_molecules_as_the_in_memory_map(tmp_path, fitted) -> None:
+    reg_map, map_file = fitted
+    later = _write_movie(tmp_path / "later_movie_002.tif", acceptor_amp=250.0)
+    options = ExtractOptions(window=_WINDOW)
+
+    in_memory = _run_pipeline(later, options, reg_map)
+    out = tmp_path / "later.tether"
+    summary = extract_movie(later, out, options=options, map_path=map_file)
+
+    assert summary.n_molecules == len(in_memory.molecules.donor_xy) == 3
+    _same_molecules(out, in_memory)
+    # The loaded map is the saved one: same coefficients, residual and geometry.
+    stored = read_calibration(out, summary.calibration_id)
+    for name in ("ref_to_moving", "moving_to_ref"):
+        for part in ("a", "b", "norm_xy", "norm_uv"):
+            assert np.array_equal(
+                getattr(getattr(stored, name), part), getattr(getattr(reg_map, name), part)
+            )
+    assert stored.rms_residual == reg_map.rms_residual
+    assert stored.reference_geometry == reg_map.reference_geometry
+    assert stored.moving_geometry == reg_map.moving_geometry
+
+
+def test_a_map_file_appends_a_later_movie_to_a_project(tmp_path, fitted) -> None:
+    _reg_map, map_file = fitted
+    first = _write_movie(tmp_path / "first_001.tif")
+    project = tmp_path / "experiment.tether"
+    extract_movie(first, project, options=ExtractOptions(window=_WINDOW), map_path=map_file)
+    later = _write_movie(tmp_path / "later_002.tif", acceptor_amp=250.0)
+    with publish_lock(project) as guard:
+        summary = add_movie_to_project(
+            project,
+            later,
+            options=ExtractOptions(window=_WINDOW),
+            map_path=map_file,
+            publish_guard=guard,
+        )
+    assert summary.registration_source == "map-file"
+    assert summary.n_molecules == 3
+    assert len(read_molecules(project)) == 6
+
+
+# --- AC 2: precedence among native fit, .tmap and map file ---------------------
+
+
+def test_a_map_file_replaces_the_native_fit_and_ignores_donor_side(tmp_path, fitted) -> None:
+    reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_003.tif")
+    in_memory = _run_pipeline(movie, ExtractOptions(window=_WINDOW), reg_map)
+    out = tmp_path / "right.tether"
+    # donor_side="right" would swap the halves of a native fit; the map's geometry wins.
+    extract_movie(
+        movie, out, options=ExtractOptions(window=_WINDOW, donor_side="right"), map_path=map_file
+    )
+    _same_molecules(out, in_memory)
+
+
+def test_a_count_with_a_map_file_counts_the_molecules_that_map_extracts(tmp_path, fitted) -> None:
+    """``--count-only`` with ``--map`` uses the map, not a native fit (#353 with #920)."""
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_012.tif")
+    # donor_side="right" would swap the halves of a native fit, so a count that ignored
+    # the map would not match the extraction with it.
+    options = ExtractOptions(window=_WINDOW, donor_side="right")
+    counts = count_molecules_by_rule(movie, options=options, map_path=map_file)
+    summary = extract_movie(movie, tmp_path / "count.tether", options=options, map_path=map_file)
+    assert counts[summary.colocalization] == summary.n_molecules > 0
+    assert counts == dict(summary.rule_counts)
+
+
+def test_the_cli_counts_with_a_map_file(tmp_path, fitted, capsys) -> None:
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_013.tif")
+    out = tmp_path / "never.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--map", str(map_file), "--count-only"])
+    assert rc == 0, capsys.readouterr().err
+    assert "(selected)" in capsys.readouterr().out
+    assert not out.exists()
+
+
+def test_a_tmap_and_a_map_file_together_are_refused_before_any_work(tmp_path) -> None:
+    out = tmp_path / "never.tether"
+    with pytest.raises(ExtractionError, match="--tmap and --map cannot be combined"):
+        # Neither the movie nor either map exists: the conflict is reported first.
+        extract_movie(tmp_path / "m.tif", out, tmap="a.tmap", map_path="b.npz")
+    assert not out.exists()
+
+
+def test_the_cli_refuses_tmap_with_map(tmp_path, capsys) -> None:
+    rc = main(["extract", "m.tif", "-o", str(tmp_path / "o.tether"), "--tmap", "a", "--map", "b"])
+    assert rc == 1
+    assert "--tmap and --map cannot be combined" in capsys.readouterr().err
+
+
+def test_the_cli_help_states_the_precedence() -> None:
+    parser = build_parser()
+    sub = next(a for a in parser._actions if a.dest == "command")
+    text = " ".join(sub.choices["extract"].format_help().split())
+    assert "--map PATH" in text
+    assert "the native fit runs only when neither --tmap nor --map is given" in text
+    assert "--tdat sets detection only" in text
+
+
+def test_the_docs_state_the_precedence() -> None:
+    page = (Path(__file__).resolve().parents[1] / "docs" / "cli.md").read_text(encoding="utf-8")
+    assert "| `--map PATH` |" in page
+    assert "### Registration: one map source" in page
+
+
+def test_the_cli_extracts_with_a_map_file(tmp_path, fitted, capsys) -> None:
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "cli_004.tif")
+    out = tmp_path / "cli.tether"
+    rc = main(["extract", str(movie), "-o", str(out), "--map", str(map_file)])
+    assert rc == 0, capsys.readouterr().err
+    assert f"registration: map file {map_file}" in capsys.readouterr().out
+    assert _profile(out)["map_source"] == map_file.name
+
+
+def test_a_missing_or_bad_map_file_is_a_clean_error(tmp_path) -> None:
+    movie = _write_movie(tmp_path / "movie_005.tif")
+    with pytest.raises(ExtractionError, match="map file not found"):
+        extract_movie(movie, tmp_path / "a.tether", map_path=tmp_path / "none.npz")
+    junk = tmp_path / "junk.npz"
+    junk.write_bytes(b"not a zip archive")
+    with pytest.raises(ExtractionError, match="could not use --map junk.npz"):
+        extract_movie(movie, tmp_path / "b.tether", map_path=junk)
+
+
+def test_a_map_without_channel_geometry_is_refused(tmp_path, fitted) -> None:
+    from dataclasses import replace
+
+    reg_map, _ = fitted
+    bare = save_map(replace(reg_map, reference_geometry=None), tmp_path / "bare.npz")
+    movie = _write_movie(tmp_path / "movie_006.tif")
+    with pytest.raises(ExtractionError, match="no channel geometry"):
+        extract_movie(movie, tmp_path / "c.tether", map_path=bare)
+
+
+# --- AC 3: provenance records which source produced the map -------------------
+
+
+def test_calibration_and_settings_record_the_map_file(tmp_path, fitted) -> None:
+    reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_007.tif")
+    out = tmp_path / "prov.tether"
+    summary = extract_movie(movie, out, options=ExtractOptions(window=_WINDOW), map_path=map_file)
+
+    assert summary.registration_source == "map-file"
+    provenance = _calibration_provenance(out, summary.calibration_id)
+    assert provenance["map_file"] == {
+        "name": map_file.name,
+        "sha256": hashlib.sha256(map_file.read_bytes()).hexdigest(),
+    }
+    # The transform's own origin is kept: this map was fitted natively.
+    assert read_calibration(out, summary.calibration_id).source == reg_map.source == "native"
+    profile = _profile(out)
+    assert profile["registration_source"] == "map-file"
+    assert profile["map_source"] == map_file.name
+    assert profile["tmap_source"] is None
+
+
+def test_the_recorded_digest_names_the_map_actually_applied(monkeypatch, tmp_path, fitted) -> None:
+    """A map file replaced while extraction starts cannot pair two files (Codex P2)."""
+    reg_map, map_file = fitted
+    first_bytes = map_file.read_bytes()
+    real_load_map = project_extract.load_map
+
+    def replace_then_load(path, **kwargs):
+        # Another session's ``tether map create --overwrite`` lands here, after the read.
+        save_map(replace(reg_map, rms_residual=0.123), tmp_path / "other.npz")
+        (tmp_path / "other.npz").replace(map_file)
+        return real_load_map(path, **kwargs)
+
+    monkeypatch.setattr(project_extract, "load_map", replace_then_load)
+    out = tmp_path / "snapshot.tether"
+    summary = extract_movie(
+        _write_movie(tmp_path / "movie_009.tif"),
+        out,
+        options=ExtractOptions(window=_WINDOW),
+        map_path=map_file,
+    )
+
+    assert map_file.read_bytes() != first_bytes  # the file on disk did change
+    digest = _calibration_provenance(out, summary.calibration_id)["map_file"]["sha256"]
+    assert digest == hashlib.sha256(first_bytes).hexdigest()
+    assert read_calibration(out, summary.calibration_id).rms_residual == reg_map.rms_residual
+
+
+def test_the_profile_records_the_saved_maps_own_rms_gate(tmp_path, fitted) -> None:
+    """The map is judged against its own gate, so the profile records that gate (Codex P2)."""
+    reg_map, _map_file = fitted
+    strict_gate = reg_map.rms_residual / 2  # this map is over a gate half its residual
+    strict = save_map(replace(reg_map, gate_px=strict_gate), tmp_path / "strict.npz")
+    out = tmp_path / "strict.tether"
+    summary = extract_movie(
+        _write_movie(tmp_path / "movie_010.tif"),
+        out,
+        options=ExtractOptions(window=_WINDOW),  # default rms_gate 0.5
+        map_path=strict,
+    )
+
+    assert summary.low_confidence_registration
+    profile = _profile(out)
+    assert profile["rms_gate"] == strict_gate
+    assert profile["registration_rms_px"] > profile["rms_gate"]
+
+
+def test_the_cli_warning_names_the_saved_maps_own_gate(tmp_path, fitted, capsys) -> None:
+    """The over-gate warning prints the gate the map was judged against (Greptile P2)."""
+    reg_map, _map_file = fitted
+    strict_gate = reg_map.rms_residual / 2
+    strict = save_map(replace(reg_map, gate_px=strict_gate), tmp_path / "strict.npz")
+    movie = _write_movie(tmp_path / "cli_011.tif")
+    out = tmp_path / "strict_cli.tether"
+    assert main(["extract", str(movie), "-o", str(out), "--map", str(strict)]) == 0
+    err = capsys.readouterr().err
+    assert f"exceeds the {strict_gate:g} px gate" in err
+    assert "exceeds the 0.5 px gate" not in err
+
+
+def test_a_native_fit_records_no_map_file(tmp_path) -> None:
+    out = tmp_path / "native.tether"
+    summary = extract_movie(
+        _write_movie(tmp_path / "movie_008.tif"), out, options=ExtractOptions(window=_WINDOW)
+    )
+    assert summary.registration_source == "native"
+    assert "map_file" not in _calibration_provenance(out, summary.calibration_id)
+    assert _profile(out)["map_source"] is None
+
+
+# --- the map file: format version, allow_pickle=False -------------------------
+
+
+def test_save_map_writes_the_format_version(fitted) -> None:
+    _reg_map, map_file = fitted
+    with np.load(map_file, allow_pickle=False) as data:
+        assert int(data["format_version"]) == MAP_FORMAT_VERSION == 1
+
+
+def _rewrite(src: Path, dst: Path, **changes) -> Path:
+    with np.load(src, allow_pickle=False) as data:
+        arrays = {k: data[k] for k in data.files}
+    for key, value in changes.items():
+        if value is None:
+            arrays.pop(key)
+        else:
+            arrays[key] = value
+    np.savez(dst, **arrays)
+    return dst
+
+
+def test_a_map_file_without_a_version_reads_as_version_zero(tmp_path, fitted) -> None:
+    reg_map, map_file = fitted
+    legacy = _rewrite(map_file, tmp_path / "legacy.npz", format_version=None)
+    loaded = load_map(legacy)
+    assert loaded.rms_residual == reg_map.rms_residual
+    assert loaded.moving_geometry == reg_map.moving_geometry
+
+
+def test_a_newer_map_file_version_is_refused(tmp_path, fitted) -> None:
+    _reg_map, map_file = fitted
+    newer = _rewrite(
+        map_file, tmp_path / "newer.npz", format_version=np.array(MAP_FORMAT_VERSION + 1)
+    )
+    with pytest.raises(MapFileError, match="newer than this Tether reads"):
+        load_map(newer)
+
+
+def test_an_object_valued_format_version_is_refused(tmp_path, fitted) -> None:
+    """A pickled format_version is a MapFileError naming the file (Greptile P2)."""
+    _reg_map, map_file = fitted
+    pickled = _rewrite(
+        map_file, tmp_path / "pickled_version.npz", format_version=np.array([1], dtype=object)
+    )
+    with pytest.raises(MapFileError, match="pickled_version.npz: format_version"):
+        load_map(pickled)
+
+
+def test_a_truncated_archive_is_refused(tmp_path, fitted) -> None:
+    """A cut-off .npz is a MapFileError, not a raw zipfile error (CodeRabbit)."""
+    _reg_map, map_file = fitted
+    whole = map_file.read_bytes()
+    cut = tmp_path / "cut.npz"
+    cut.write_bytes(whole[: len(whole) // 2])
+    with pytest.raises(MapFileError, match="cut.npz is not a readable .npz map file"):
+        load_map(cut)
+
+
+def test_a_damaged_format_version_member_is_refused(tmp_path, fitted) -> None:
+    """A member whose bytes fail the archive's CRC is a MapFileError (CodeRabbit)."""
+    _reg_map, map_file = fitted
+    data = bytearray(map_file.read_bytes())
+    member = data.index(b"format_version.npy")  # the member's local header
+    descr = data.index(b"'descr'", member)  # inside the member's stored bytes
+    data[descr + 1] ^= 0x20  # 'd' -> 'D': same length, wrong CRC
+    damaged = tmp_path / "damaged.npz"
+    damaged.write_bytes(bytes(data))
+    with pytest.raises(MapFileError, match="damaged.npz: format_version could not be read"):
+        load_map(damaged)
+
+
+def test_a_provenance_that_is_not_an_object_is_refused(tmp_path, fitted) -> None:
+    """``provenance_json`` holding a bare JSON value is a MapFileError (CodeRabbit)."""
+    _reg_map, map_file = fitted
+    bare = _rewrite(map_file, tmp_path / "bare.npz", provenance_json=np.array("5"))
+    with pytest.raises(MapFileError, match="provenance_json must hold one JSON object, not int"):
+        load_map(bare)
+
+
+def test_the_cli_names_the_map_file_when_the_halves_look_swapped(
+    tmp_path, fitted, capsys, monkeypatch
+) -> None:
+    """A --map run's swapped-halves remedy names the map, never --tmap (CodeRabbit)."""
+    from tether import cli
+    from tether.imaging.side_check import VERDICT_SWAPPED, DonorSideCheck
+
+    _reg_map, map_file = fitted
+    real_run = cli.run_service
+
+    def swapped_run(request):
+        result = real_run(request)
+        check = DonorSideCheck(verdict=VERDICT_SWAPPED, n_swapped=9, n_consistent=1)
+        return replace(result, summary=replace(result.summary, donor_side_check=check))
+
+    monkeypatch.setattr(cli, "run_service", swapped_run)
+    movie = _write_movie(tmp_path / "cli_012.tif")
+    out = tmp_path / "swapped.tether"
+    assert main(["extract", str(movie), "-o", str(out), "--map", str(map_file)]) == 0
+    err = capsys.readouterr().err
+    assert f"check the channel order of the map file {map_file.name}" in err
+    assert "without --map" in err
+    assert "--tmap" not in err
+
+
+def test_a_map_file_that_lacks_an_array_is_refused(tmp_path, fitted) -> None:
+    _reg_map, map_file = fitted
+    broken = _rewrite(map_file, tmp_path / "broken.npz", gate_px=None)
+    with pytest.raises(MapFileError, match="lacks \\['gate_px'\\]"):
+        load_map(broken)
+
+
+def test_a_pickled_object_never_enters_the_map(tmp_path, fitted) -> None:
+    _reg_map, map_file = fitted
+    with np.load(map_file, allow_pickle=False) as data:
+        arrays = {k: data[k] for k in data.files}
+    arrays["source"] = np.array([{"payload": "pickled"}], dtype=object)
+    pickled = tmp_path / "pickled.npz"
+    np.savez(pickled, **arrays)  # np.savez pickles an object array
+    with pytest.raises(MapFileError, match="not a usable map file"):
+        load_map(pickled)
+
+
+def test_load_map_reads_with_allow_pickle_false(monkeypatch, fitted) -> None:
+    _reg_map, map_file = fitted
+    seen: list[object] = []
+    real_load = np.load
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("allow_pickle"))
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(calibrate.np, "load", spy)
+    load_map(map_file)
+    load_map(map_file, content=map_file.read_bytes())  # the bytes a caller already read
+    assert seen == [False, False]
+
+
+# --- tether map create: the service command the GUI action runs ----------------
+
+_BEADS = np.array([[x, y] for x in (8.0, 22.0, 36.0) for y in (10.0, 30.0, 50.0)])
+
+
+def _write_beads(path: Path) -> Path:
+    """One bead image: nine beads in the donor half, each +1 px in x in the acceptor half."""
+    centers = np.vstack([_BEADS, _BEADS + np.array([49.0, 0.0])])
+    frame = np.full(_SHAPE, _BG)
+    rows, cols = np.mgrid[0 : _SHAPE[0], 0 : _SHAPE[1]]
+    for x, y in centers:
+        frame += _AMP * np.exp(-((rows - y) ** 2 + (cols - x) ** 2) / (2.0 * _SIGMA**2))
+    tifffile.imwrite(path, np.ascontiguousarray(frame, dtype=">u2"), byteorder=">")
+    return path
+
+
+def test_map_create_writes_a_map_file_a_later_movie_extracts_with(tmp_path, capsys) -> None:
+    beads = _write_beads(tmp_path / "beads.tif")
+    map_file = tmp_path / "beads.npz"
+    assert main(["map", "create", str(beads), "-o", str(map_file)]) == 0
+    printed = capsys.readouterr().out
+    assert f"Map -> {map_file}" in printed and "9 bead pair(s)" in printed
+
+    reg_map = load_map(map_file)
+    assert reg_map.n_control_points == 9
+    assert reg_map.provenance["bead_file"] == "beads.tif"
+    movie = _write_movie(tmp_path / "later_009.tif")
+    out = tmp_path / "later.tether"
+    summary = extract_movie(movie, out, options=ExtractOptions(window=_WINDOW), map_path=map_file)
+    assert summary.n_molecules == 3
+    assert summary.registration_source == "map-file"
+
+
+def test_map_create_refuses_an_existing_output_and_a_bad_name(tmp_path, capsys) -> None:
+    beads = _write_beads(tmp_path / "beads.tif")
+    existing = tmp_path / "taken.npz"
+    existing.write_bytes(b"keep")
+    assert main(["map", "create", str(beads), "-o", str(existing)]) == 1
+    assert "output exists" in capsys.readouterr().err
+    assert existing.read_bytes() == b"keep"
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "m.dat")]) == 1
+    assert "must end in .npz" in capsys.readouterr().err
+    assert main(["map", "create", str(beads), "-o", str(existing), "--overwrite"]) == 0
+    assert load_map(existing).n_control_points == 9
+
+
+@pytest.mark.parametrize("hard_links", [True, False])
+def test_map_create_keeps_a_map_saved_meanwhile_without_overwrite(
+    monkeypatch, tmp_path, capsys, hard_links
+) -> None:
+    """A map saved at the output while this one is fitted is kept (Codex P2)."""
+    from tether.imaging import beadmap
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    output = tmp_path / "shared.npz"
+    real_fit = beadmap.bead_map_from_file
+
+    def another_session_saves_first(*args, **kwargs):
+        result = real_fit(*args, **kwargs)
+        output.write_bytes(b"the other session's map")
+        return result
+
+    monkeypatch.setattr(beadmap, "bead_map_from_file", another_session_saves_first)
+    if not hard_links:  # a file system without hard links takes the "xb" copy
+        monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    assert main(["map", "create", str(beads), "-o", str(output)]) == 1
+    assert "output exists" in capsys.readouterr().err
+    assert output.read_bytes() == b"the other session's map"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", "shared.npz"]
+
+
+def test_map_create_writes_a_map_where_there_are_no_hard_links(monkeypatch, tmp_path) -> None:
+    from tether.services import maps
+
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    output = tmp_path / "copied.npz"
+    assert (
+        main(["map", "create", str(_write_beads(tmp_path / "beads.tif")), "-o", str(output)]) == 0
+    )
+    assert load_map(output).n_control_points == 9
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif", "copied.npz"]
+
+
+def test_a_failed_copy_without_hard_links_leaves_no_file(monkeypatch, tmp_path, capsys) -> None:
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+
+    def disk_full(self):
+        raise OSError(28, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", disk_full)
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "full.npz")]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
+
+
+def _disk_full_after(monkeypatch, then) -> None:
+    """Make the copy of the temporary map fail with ENOSPC, after running *then*."""
+
+    def disk_full(self):
+        then()
+        raise OSError(28, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", disk_full)
+
+
+def _stat_of_output(monkeypatch, output: Path, stat) -> None:
+    """Make ``os.stat(output)`` call *stat*, as another session's change would.
+
+    Simulated rather than done: Windows refuses to replace or remove a file that is
+    still open, so the race exists only where the name can move under an open file.
+    """
+    import os
+
+    real_stat = os.stat
+
+    def patched(path, *args, **kwargs):
+        if Path(path) == output:
+            return stat()
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", patched)
+
+
+def test_a_failed_copy_keeps_a_map_another_writer_published(monkeypatch, tmp_path, capsys) -> None:
+    """Cleanup removes only the file this call made, never a map replaced over it (Greptile P1)."""
+    import os
+
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    output = tmp_path / "shared.npz"
+    other = tmp_path / "other.npz"
+    other.write_bytes(b"the other session's map")
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    # Another session publishes with --overwrite while this copy runs: the name now
+    # points to that session's file.
+    real_stat = os.stat
+    _disk_full_after(
+        monkeypatch, lambda: _stat_of_output(monkeypatch, output, lambda: real_stat(other))
+    )
+    assert main(["map", "create", str(beads), "-o", str(output)]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert "shared.npz" in os.listdir(tmp_path)  # the name was left to its new owner
+
+
+def test_a_failed_copy_removes_its_own_file_only(monkeypatch, tmp_path, capsys) -> None:
+    """With the name still this call's file, the failed copy removes it."""
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+    _disk_full_after(monkeypatch, lambda: None)
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "own.npz")]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
+
+
+def test_a_failed_copy_whose_file_is_gone_still_reports(monkeypatch, tmp_path, capsys) -> None:
+    """Cleanup of a file another session already removed is not a second error."""
+    from tether.services import maps
+
+    beads = _write_beads(tmp_path / "beads.tif")
+    output = tmp_path / "gone.npz"
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+
+    def gone():
+        raise FileNotFoundError(2, "No such file or directory", str(output))
+
+    _disk_full_after(monkeypatch, lambda: _stat_of_output(monkeypatch, output, gone))
+    assert main(["map", "create", str(beads), "-o", str(output)]) == 1
+    assert "No space left" in capsys.readouterr().err
+
+
+def test_a_failed_flush_without_hard_links_leaves_no_file(monkeypatch, tmp_path, capsys) -> None:
+    """A disk-full error at close, after the write returned, is a failed write (Codex P2)."""
+    import builtins
+
+    from tether.services import maps
+
+    class _FullOnClose:
+        def __init__(self, f):
+            self._f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+        def write(self, data):
+            return self._f.write(data)
+
+        def fileno(self):
+            return self._f.fileno()
+
+        def close(self):
+            self._f.close()
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(maps.os, "link", _no_hard_links)
+
+    def open_full_on_close(*args, **kwargs):
+        return _FullOnClose(builtins.open(*args, **kwargs))  # noqa: SIM115 - closed by the wrapper
+
+    monkeypatch.setattr(maps, "open", open_full_on_close, raising=False)
+    beads = _write_beads(tmp_path / "beads.tif")
+    assert main(["map", "create", str(beads), "-o", str(tmp_path / "full.npz")]) == 1
+    assert "No space left" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["beads.tif"]
+
+
+def _no_hard_links(src, dst):
+    raise PermissionError(1, "hard links are not supported here", str(dst))
+
+
+def test_a_failed_map_leaves_no_file(tmp_path, capsys) -> None:
+    blank = tmp_path / "blank.tif"
+    tifffile.imwrite(blank, np.full(_SHAPE, 80, dtype=">u2"), byteorder=">")
+    out = tmp_path / "blank.npz"
+    assert main(["map", "create", str(blank), "-o", str(out)]) == 1
+    assert "bead" in capsys.readouterr().err
+    assert list(tmp_path.glob("*.npz")) == []
+
+
+def test_map_create_takes_a_frame_range_of_a_video(tmp_path) -> None:
+    from tether.services import MapCreateRequest, run
+
+    still = tifffile.imread(_write_beads(tmp_path / "still.tif"))
+    video = tmp_path / "beads-video.tif"
+    tifffile.imwrite(
+        video, np.ascontiguousarray(np.stack([still] * 4), dtype=">u2"), photometric="minisblack"
+    )
+    result = run(
+        MapCreateRequest(
+            source=str(video), output=str(tmp_path / "v.npz"), frame_start=1, frame_stop=3
+        )
+    )
+    source = load_map(result.path).provenance["bead_source"]
+    assert (source["frame_start"], source["frame_stop"], source["projection"]) == (1, 3, "max")
+    with pytest.raises(Exception, match="pass both or neither"):
+        run(MapCreateRequest(source=str(video), output=str(tmp_path / "w.npz"), frame_start=1))
+
+
+def test_a_channel_layout_beside_a_map_file_is_refused(tmp_path, fitted) -> None:
+    from tether.imaging.layout import ChannelLayout
+
+    _reg_map, map_file = fitted
+    movie = _write_movie(tmp_path / "movie_010.tif")
+    layout = ChannelLayout(kind="top-bottom")
+    with pytest.raises(ExtractionError, match="channel_layout and map_path"):
+        extract_movie(
+            movie,
+            tmp_path / "d.tether",
+            options=ExtractOptions(window=_WINDOW, channel_layout=layout),
+            map_path=map_file,
+        )

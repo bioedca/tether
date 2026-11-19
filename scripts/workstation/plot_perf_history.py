@@ -8,7 +8,9 @@ Usage::
 
 Three panels, one point per record of ``main``: the time of each stage (summed over the
 acquisitions), the largest peak memory of each stage, and the projection for a condition of
-100 movies with the overnight window of ADR-0032. Run it with the Tether environment, which has
+100 movies with the overnight window of ADR-0032. The time and the peak-memory lines of a stage are
+separate: each has a gap (NaN, no marker), not a zero, at a record that lacks its value on any
+acquisition or has no acquisition. Run it with the Tether environment, which has
 ``matplotlib-base``.
 """
 
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import math
 from pathlib import Path
 
 STAGES = ("extract", "correct", "idealize", "analysis", "save", "export")
@@ -28,6 +31,23 @@ def _history_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def stage_values(records: list[dict], stage: str) -> tuple[list[float], list[float]]:
+    """The time of *stage* summed over the acquisitions of each record, and its largest peak
+    memory in GiB. A record that lacks the value on any acquisition, or that has no acquisition,
+    gives NaN, which matplotlib draws as a gap: a partial sum or a zero would read as a speed-up.
+    """
+
+    def total(record: dict, metric: str, combine) -> float:
+        values = [a.get(f"{stage}_{metric}") for a in record["acquisitions"].values()]
+        if not values or any(v is None for v in values):
+            return math.nan
+        return combine(values)
+
+    times = [total(r, "s", sum) for r in records]
+    peaks = [total(r, "peak_bytes", max) / 2**30 for r in records]
+    return times, peaks
 
 
 def plot(history: Path, out: Path) -> Path:
@@ -43,12 +63,7 @@ def plot(history: Path, out: Path) -> Path:
     runs = range(1, len(records) + 1)
     fig, (times, peaks, proj) = plt.subplots(3, 1, figsize=(9, 10), sharex=True)
     for stage in STAGES:
-        t = [sum(a.get(f"{stage}_s", 0) for a in r["acquisitions"].values()) for r in records]
-        m = [
-            max((a.get(f"{stage}_peak_bytes", 0) for a in r["acquisitions"].values()), default=0)
-            / 2**30
-            for r in records
-        ]
+        t, m = stage_values(records, stage)
         times.plot(runs, t, marker="o", label=stage)
         peaks.plot(runs, m, marker="o", label=stage)
     hours = [r["projection"]["condition_hours"] if r["projection"] else None for r in records]

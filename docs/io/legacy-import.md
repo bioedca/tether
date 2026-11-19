@@ -202,7 +202,8 @@ acquisition — **reconstruct** (needs a movie **and** a `.mat` trace source), e
 validated mutators that raise `WizardError` on an unsupported change. `finalize()` freezes a
 `WizardPlan` once at least one acquisition is runnable with no output-name collision, and
 `execute_plan` writes one `.tether` per acquisition (fail-soft by default, continuing past a
-bad file). The **Import → Deep-LASI bundle…** shell action (the menu was named "Legacy" before #629) runs the dialog, reports the
+bad file). The **Import → Deep-LASI bundle…** shell action (a menu of the Prepare section, shown while that
+section is open, and named "Legacy" before #629) runs the dialog, reports the
 written paths, and — when exactly one project was produced — opens it live via
 `TetherShell.load_project` for browse / curate / idealize; `load_project` does every fallible
 read before mutating shell state, so a bad open leaves the prior project in place.
