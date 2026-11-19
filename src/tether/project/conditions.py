@@ -1010,7 +1010,7 @@ def read_class_lookup(path: str | Path, condition_id: str) -> ClassLookup:
     The single source the tMAVEN hand-off and its return leg read
     ([`ClassLookup`][]). Lenient about the id, like [`read_category_list`][]: a
     condition with no list yet answers a lookup holding only class 0. Raises
-    [`ValueError`][] when the persisted lookup is malformed or disagrees with the
+    `ValueError` when the persisted lookup is malformed or disagrees with the
     category list beside it.
     """
     import h5py  # noqa: PLC0415
