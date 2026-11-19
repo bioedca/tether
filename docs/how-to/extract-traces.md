@@ -182,7 +182,14 @@ starting `detection: mode`, naming what was applied. Then check three things:
 
 A project can hold several movies of one experiment
 ([`.tether` project](../glossary.md#tether-project)). `tether extract` writes a project of one
-movie. To add a second movie, run a short Python script. No `tether` command adds one.
+movie. To add a second movie, give it to `tether batch --into`. That also corrects and
+idealizes the whole project again ([Many movies at once](#many-movies-at-once)):
+
+```bash
+tether batch movie_2.tif --into movie.tether
+```
+
+To add the movie without correcting and idealizing again, run a short Python script instead.
 
 Close the project in the desktop application first. The script needs the project's writer lock.
 
@@ -247,8 +254,8 @@ The script stops with an error, and leaves the project unchanged, in these cases
 
 ## Many movies at once
 
-`tether batch` extracts a whole folder of movies into one project each. Then it corrects and
-idealizes them. Give it the folder:
+`tether batch` extracts a whole folder of movies, either into one project each or all into
+one project. Then it corrects and idealizes them. Give it the folder:
 
 ```bash
 tether batch data -d projects
@@ -270,8 +277,21 @@ Two movies can have the same file name in different day folders. Each one then g
 own project, with the folder name in front, such as `day1__movie_010.tether`. [Command
 line](../cli.md#output-names-when-two-movies-have-the-same-file-name) states the rule.
 
-One project for each movie is how the command writes, not a limit of the project. To put
-several movies in one project, [add each movie to a project](#add-another-movie-to-a-project).
+To put every movie of the experiment into one project, give `--into` in place of `-d`:
+
+```bash
+tether batch data --recursive --into experiment.tether
+```
+
+The first movie creates the project if it does not exist, and each other movie is added to
+it. A movie that is already in the project is skipped, so you can run the same command
+again after a new day's movies land in the folder: only the new movies are added. Then the
+project is corrected and idealized again, over every movie in it. `--dry-run` shows which
+movies are new to the project. [Command line](../cli.md#every-movie-into-one-project-into)
+gives the details.
+
+To add one movie from Python, with extraction only, see
+[Add another movie to a project](#add-another-movie-to-a-project).
 
 `tether batch` has no `--donor-side`, `--detection-mode` or `--detection-threshold` option, so every
 movie is extracted with the donor on the left and the default detector. A shared `--tdat`

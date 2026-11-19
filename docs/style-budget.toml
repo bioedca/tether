@@ -99,7 +99,7 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 14.4
+long_share = 13.7
 semicolons = 8
 long_paragraphs = 0
 retired = 3
@@ -190,7 +190,7 @@ retired = 0
 
 [pages."docs/cli.md"]
 kind = "descriptive"
-long_share = 18.4
+long_share = 18.1
 semicolons = 19
 long_paragraphs = 0
 retired = 6

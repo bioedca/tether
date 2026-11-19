@@ -51,7 +51,7 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # it. Positionals (`movie`, `movies`) are checked separately below.
 _EXPECTED_OPTION_COUNTS = {
     "extract": 18,
-    "batch": 17,
+    "batch": 18,
     "map create": 6,
     "info": 2,
     "idealize": 12,
