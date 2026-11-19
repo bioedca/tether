@@ -43,10 +43,9 @@ class TaskService:
         The interval of the main-thread poll, in milliseconds.
     indicator : object, optional
         The busy indicator, an object with ``start(name)`` and ``stop()`` such as
-        [`BusyIndicator`][tether.gui.indicators.BusyIndicator]. When it also has
-        ``offer_cancel(callback)`` and ``set_progress(fraction)``, the service offers the
-        cancel of a cancellable task and shows the progress of a task that reports it. The
-        default is ``None``, no indicator.
+        `BusyIndicator`. When it also has ``offer_cancel(callback)`` and
+        ``set_progress(fraction)``, the service offers the cancel of a cancellable task and
+        shows the progress of a task that reports it. The default is ``None``, no indicator.
     """
 
     def __init__(self, *, poll_ms: int, indicator: Any = None) -> None:

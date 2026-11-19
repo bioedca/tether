@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The opt-in update notice in the shell: the first-run question and the "newer release" bar (#248).
 
-**Off until the user says yes.** At startup [`UpdateNotice.start`][] reads the consent answer
+**Off until the user says yes.** At startup `UpdateNotice.start` reads the consent answer
 ([`tether.gui.app_settings.update_check_state`][], ADR-0095). Only *allowed* starts a check.
 
 ============================  ===============================================================
@@ -20,7 +20,7 @@ The answer can be changed at any time with **Help → Check for new releases at 
 Ticking it there, or pressing **Check for new releases** on the question, stores *allowed* and
 runs the check at once; unticking it stores *declined*.
 
-**Never on the GUI thread, never in the way.** [`UpdateNotice.start`][] reads one small file
+**Never on the GUI thread, never in the way.** `UpdateNotice.start` reads one small file
 and, when allowed, starts a daemon thread; it returns at once. The thread runs
 [`tether.gui.update_check.check_for_update`][] and hands the result back to the GUI thread
 through a queued Qt signal. Whatever goes wrong there, the user sees nothing: no dialog, no

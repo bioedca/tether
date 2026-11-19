@@ -113,7 +113,7 @@ _LABELS = "labels"
 class CurationLabel(IntEnum):
     """The signed curation-label codec shared by ``curation_label`` + ``label_value``.
 
-    An [`IntEnum`][enum.IntEnum] so a member writes straight into the frozen ``<i4``
+    An `IntEnum` so a member writes straight into the frozen ``<i4``
     fields and reads back comparably as a plain int (ADR-0023).
     """
 
@@ -461,7 +461,7 @@ def unreject(
     with the optional ``note`` to ``/labels/reject_log``. On any other current state it
     is a **no-op returning ``None``** (nothing written) — so it never clobbers an
     accept (§7.5 "never silently drop") and never pollutes the append-only ML log
-    with spurious clear rows. Raises [`KeyError`][] if ``molecule_key`` is absent.
+    with spurious clear rows. Raises `KeyError` if ``molecule_key`` is absent.
     """
     _check_note(note)
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
@@ -509,7 +509,7 @@ def reject_record_of(path: str | Path, molecule_key: str) -> np.ndarray | None:
     written straight through [`set_curation_label`][], or a crash between the two
     writes, or two human rejects of the molecule that share the same ``labeler`` and
     ``timestamp``, so the join cannot tell them apart) — an earlier reject's reason is
-    never returned for a later decision. Raises [`KeyError`][] if ``molecule_key`` is absent.
+    never returned for a later decision. Raises `KeyError` if ``molecule_key`` is absent.
     """
     if curation_label_of(path, molecule_key) != CurationLabel.REJECT:
         return None
