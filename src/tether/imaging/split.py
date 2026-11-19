@@ -14,7 +14,7 @@ Conventions
 -----------
 * **Rotation** is one of ``{0, 90, 180, 270}`` degrees. ``processImage`` applies
   ``imrotate(I, -rotation_deg)``; for 90-degree multiples that is a lossless
-  [`numpy.rot90`][] (MATLAB ``imrotate(I, 90*k) == rot90(I, k)``, and MATLAB's
+  `numpy.rot90` (MATLAB ``imrotate(I, 90*k) == rot90(I, k)``, and MATLAB's
   ``rot90`` shares NumPy's counter-clockwise convention on ``[row, col]`` arrays),
   so a positive ``rotation_deg`` rotates the image *clockwise* by that angle.
 * **Flip** is ``[v, h]`` in ``{0, 1}``: ``v`` -> ``flipud`` (reverse rows),
