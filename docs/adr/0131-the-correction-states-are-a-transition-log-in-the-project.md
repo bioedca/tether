@@ -73,7 +73,8 @@ and `/settings/lock_takeovers` idiom.
    `timestamp` (UTC) and `app_version`. Rows are append-only. A transition needs the writer lock
    to be present and this writer's, so an unlocked project is refused (the `reconcile_jobs` rule of
    ADR-0126). Under the open file the lock epoch and the scope's rows are checked again before the
-   row is written, so a steal or a transition that landed in between refuses the write.
+   row is written, so a steal or a transition that landed in between refuses the write. *Finish
+   review* also reads the stale marks again there, since a mark changes neither.
 4. **The scope** is the project now (`scope = "project"`). When #624 gives each condition its own
    factors, each condition becomes a scope of its own in the same column, an additive change; until
    then any other scope is refused.

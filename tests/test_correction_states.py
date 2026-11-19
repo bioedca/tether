@@ -248,6 +248,26 @@ def test_finishing_the_review_needs_current_dependencies(project: Project) -> No
     assert cs.read_correction_state(project.path).state is S.CORRECTED_REVIEW
 
 
+def test_a_stale_mark_that_lands_after_the_guard_refuses_the_review(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A stale mark moves neither the lock nor the log, so the guard is read again under the
+    # file the row is written to.
+    _drive(project, S.CORRECTED_REVIEW)
+    jobs.record_inputs(project, "correction_version", "cv1", {("factor_version", "fv1"): "h1"})
+    choose = cs._choose
+
+    def choose_then_mark(*args: object, **kwargs: object) -> object:
+        result = choose(*args, **kwargs)
+        jobs.set_stale_marks(project, "factor_version", "fv1", "h2")  # marks cv1
+        return result
+
+    monkeypatch.setattr(cs, "_choose", choose_then_mark)
+    with pytest.raises(cs.CorrectionGuardError, match="all dependencies current"):
+        _send(project, E.FINISH_REVIEW)
+    assert cs.read_correction_state(project.path).state is S.CORRECTED_REVIEW
+
+
 def test_a_mark_on_another_instance_does_not_block_the_review(project: Project) -> None:
     _drive(project, S.CORRECTED_REVIEW)
     jobs.record_inputs(project, "correction_version", "cv0", {("factor_version", "fv0"): "h1"})

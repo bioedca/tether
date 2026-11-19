@@ -65,6 +65,7 @@ __all__ = [
 ]
 
 _SETTINGS = "settings"
+_STALE_MARKS = "stale_marks"  # the dataset of ADR-0126 under /settings
 _TRANSITIONS = "correction_transitions"
 _FIELDS = (
     "scope",
@@ -401,14 +402,24 @@ def require_analysis_mode(
     return status
 
 
-def _dependencies_current(path: Path, rows: Sequence[Mapping[str, str]]) -> tuple[bool, str]:
+def _dependencies_current(
+    path: Path,
+    rows: Sequence[Mapping[str, str]],
+    marks: Sequence[Mapping[str, str]] | None = None,
+) -> tuple[bool, str]:
     """Whether the factor and correction versions the scope approved and applied are current.
 
     They are the ``factor_version`` of the last approval and the ``correction_version`` of
     the last application; each is current while it has no stale mark (ADR-0103, ADR-0126).
+    ``marks`` are the stale marks as rows already read, else they are read from ``path``.
     """
-    from tether.project.jobs import read_stale_marks  # noqa: PLC0415
+    if marks is None:
+        from tether.project.jobs import read_stale_marks  # noqa: PLC0415
 
+        marks = [
+            {"node": m.node, "instance": m.instance, "event": m.event}
+            for m in read_stale_marks(path)
+        ]
     wanted: dict[str, str] = {}
     for row in rows:
         detail = json.loads(row["detail"]) if row["detail"] else {}
@@ -416,10 +427,20 @@ def _dependencies_current(path: Path, rows: Sequence[Mapping[str, str]]) -> tupl
             wanted["factor_version"] = str(detail.get("factor_version", ""))
         elif row["event"] == CorrectionEvent.APPLY_CORRECTION:
             wanted["correction_version"] = str(detail.get("correction_version", ""))
-    for mark in read_stale_marks(path):
-        if wanted.get(mark.node) == mark.instance:
-            return False, f"{mark.node} {mark.instance!r} is stale ({mark.event})"
+    for mark in marks:
+        if wanted.get(mark["node"]) == mark["instance"]:
+            return False, f"{mark['node']} {mark['instance']!r} is stale ({mark['event']})"
     return True, ""
+
+
+def _stale_mark_rows(f: object) -> list[dict[str, str]]:
+    """Return the stale marks of the open project file ``f`` as rows (ADR-0126)."""
+    settings = f.get(_SETTINGS)  # type: ignore[attr-defined]
+    if settings is None or _STALE_MARKS not in settings:
+        return []
+    data = settings[_STALE_MARKS][()]
+    names = data.dtype.names or ()
+    return [{n: _text(row[n]) for n in names} for row in data]
 
 
 def send_event(
@@ -449,7 +470,8 @@ def send_event(
     the present status is returned. Raises [`CorrectionGuardError`][] when the edge's guard
     does not hold. The single-writer lock is required: it must be present and this writer's,
     and under the open file it is checked again, with the scope's transitions, before the row
-    is written, so a steal or a concurrent transition refuses the write.
+    is written, so a steal or a concurrent transition refuses the write. *finish review* reads
+    the stale marks again there too.
     """
     event = CorrectionEvent(event)
     _check_scope(scope)
@@ -524,6 +546,15 @@ def send_event(
             raise CorrectionTransitionError(
                 f"the correction state of the {scope} changed while {event.value!r} was checked"
             )
+        if chosen.guard == _G_CURRENT:
+            # A stale mark moves neither the lock nor the log, so the dependencies are read
+            # again here, from the file the row is written to.
+            ok, why = _dependencies_current(project.path, rows, _stale_mark_rows(f))
+            if not ok:
+                raise CorrectionGuardError(
+                    f"the event {event.value!r} in the state {status.state} needs "
+                    f"[{chosen.guard}]: {why}"
+                )
 
     _append(project.path, row, check)
     return read_correction_state(project.path, scope)
