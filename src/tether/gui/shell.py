@@ -1692,7 +1692,12 @@ class TetherShell:
                 except Exception as exc:  # noqa: BLE001 - no movie panel is not a failed open
                     reason = str(exc) or type(exc).__name__
             if panel is None:
-                notes.append(f"movie panel unavailable: {reason}")
+                note = f"movie panel unavailable: {reason}"
+                notes.append(note)
+                # A row that cannot show its movie is not offered as if it could.
+                for row in openable:
+                    switcher.setItemData(row, note, QtCore.Qt.ItemDataRole.ToolTipRole)
+                    self._disable_movie_row(row)
             else:
                 not_shown += self._add_movies(panel, openable, movies.aperture_radius)
                 self._attach_movie_panel(panel)

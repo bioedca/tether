@@ -342,6 +342,8 @@ def test_a_missing_movie_file_is_listed_disabled_and_said(section_shell, tmp_pat
 def test_a_platform_without_gl_opens_the_project_without_a_panel(
     section_shell, tmp_path, monkeypatch
 ) -> None:
+    from pyqtgraph.Qt import QtCore
+
     from tether.gui import shell as shell_mod
 
     monkeypatch.setattr(shell_mod, "_movie_panel_unavailable", lambda: "no OpenGL here")
@@ -355,6 +357,11 @@ def test_a_platform_without_gl_opens_the_project_without_a_panel(
     assert shell.movie_switcher.count() == 1
     assert shell.curation_project is not None
     assert shell.status_message.endswith("; movie panel unavailable: no OpenGL here")
+    # The row is not offered as if selecting it would show the movie (#356 review).
+    assert not shell.movie_switcher.model().item(0).isEnabled()
+    assert shell.movie_switcher.itemData(0, QtCore.Qt.ItemDataRole.ToolTipRole) == (
+        "movie panel unavailable: no OpenGL here"
+    )
 
 
 def test_a_movie_the_panel_cannot_prepare_is_disabled_and_its_reader_closed(
@@ -413,6 +420,7 @@ def test_a_failed_panel_build_is_reported_not_raised(section_shell, tmp_path, mo
     assert shell.movie_panel is None
     assert shell.curation_project is not None
     assert shell.status_message.endswith("; movie panel unavailable: no GL context")
+    assert not shell.movie_switcher.model().item(0).isEnabled()
 
 
 @needs_napari
