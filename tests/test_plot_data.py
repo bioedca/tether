@@ -441,8 +441,8 @@ def test_every_column_of_every_table_is_documented_with_its_unit(projects, resul
         pe.render_transition_density(smooth_transition_density(results["tdp"][0], interp_res=8)),
         pe.render_transition_prob(results["tprob"][0]),
     ]
-    section = EXPORTS_MD.read_text(encoding="utf-8").split('<a id="figure-data"></a>', 1)[1]
-    section = section.split("\n## ", 1)[0]
+    section = EXPORTS_MD.read_text(encoding="utf-8").split("### The numbers behind a figure", 1)[1]
+    section = section.split("\n## ", 1)[0].split("\n### ", 1)[0]
     documented = set(re.findall(r"`([a-z_0-9]+)`", section))
     for i, fig in enumerate(figures):
         for name, path in _export(fig, tmp_path / f"f{i}").data_paths.items():

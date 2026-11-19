@@ -41,7 +41,7 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.project.export.export_molecule_table_csv` | `<name>.csv` + `<name>.csv.provenance.json` | You want one row per molecule for a spreadsheet, R/pandas, Prism or Origin — the per-molecule inventory and its apparent-E summary |
 | `tether.project.export.export_deeplasi_txt` | `<name>.txt` + `<name>.txt.provenance.json` | You want the per-frame intensity traces themselves, in the Deep-LASI `…-donc-accc-w.txt` matrix a downstream Deep-LASI-compatible tool reads |
 | `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, background-subtracted traces, idealization models — without shipping the movie |
-| `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json`, and with `data_csv=True` the numbers as `<stem>.csv` (+ `<stem>.<name>.csv`) | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped, optionally with the [numbers behind it](#figure-data) |
+| `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json`, and with `data_csv=True` the numbers as `<stem>.csv` (+ `<stem>.<name>.csv`) | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped, optionally with the [numbers behind it](#the-numbers-behind-a-figure) |
 
 > **The first three also have a command.** `tether export table`, `tether export traces`
 > and `tether export subset` call `export_molecule_table_csv`, `export_deeplasi_txt` and
@@ -435,7 +435,7 @@ A plot export is stamped **three** ways:
    `write_provenance_sidecar`. `export_figure` merges three keys of its own into your
    `parameters`: `formats` (canonical order), `dpi`, and `outputs` (`{format: basename}` —
    basenames, not paths). With `data_csv=True` it also adds `data_tables`
-   ([below](#figure-data)). A figure drawn from several series also adds `series`, and a
+   ([below](#the-numbers-behind-a-figure)). A figure drawn from several series also adds `series`, and a
    figure that records how it was drawn adds `display` (both below). The provenance file is
    written even when `stamp=False`.
 2. **A visible on-figure footer**, when `stamp=True` (the default): two 6-point,
@@ -591,13 +591,11 @@ To add your own keys to a series, such as the selection
 and its version, pass `parameters["series"]` as a list of one dict per series. A key that
 contradicts what was drawn raises `ValueError`. ADR-0132 records these choices.
 
-<a id="figure-data"></a>
-
 ### The numbers behind a figure
 
-Pass `data_csv=True` to `export_figure` to write the numbers the figure shows beside it, so that
-you can replot them in your own style, compare them in another program, or deposit them as a
-journal's source data. The figure files are the same bytes with or without the option.
+Pass `data_csv=True` to `export_figure` to write the numbers the figure shows beside it. Use
+them to replot in your own style, to compare in another program, or as a journal's source data.
+The figure files are the same bytes with or without the option.
 
 ```python
 result = export_figure(
@@ -611,23 +609,25 @@ result = export_figure(
 print(result.data_paths)         # {'data': PosixPath('figures/a1-histogram.csv')}
 ```
 
-The numbers come from the result the `render_*` helper drew, which it records on the figure, so
-they are the values plotted and not a second computation. A figure you drew yourself carries no
+Each `render_*` helper records on the figure the result it drew. The tables come from that
+result, so they are the values plotted and not a second computation. A figure you drew yourself carries no
 such record, and `data_csv=True` raises `ValueError` before it writes any file.
 `tether.analysis.plot_data` builds and writes the tables.
 
 **Files.** The marks of the figure (its bars, cells, points or segments) are the main table,
-`<stem>.csv`. A curve drawn over them, the parameters of a fit, a density surface and its contour
-levels each have their own grid, so each is a table of its own, `<stem>.<name>.csv`.
+`<stem>.csv`. Other parts of a figure have a grid of their own: a curve drawn over the marks, the
+parameters of a fit, a density surface and its contour levels. Each of them is a table of its
+own, `<stem>.<name>.csv`.
 `result.data_paths` maps each table's name to its file, and the provenance file lists them under
 `parameters.data_tables` (`{name: basename}`).
 
 **Layout.** Every table is in long form: one row per bin, cell, point or segment. A 2-D result
-gives one row per cell, `x_low, x_high, y_low, y_high, value`, with `x` varying slowest. A figure
-of several series gives one table with a first column, `series`, that holds each row's series
-label. Its rows are in figure order. A figure of a bare result has no `series` column. A column
-that one series has and another lacks, such as the bootstrap interval of one histogram among
-plain ones, is blank in the rows of the series without it.
+gives one row per cell, `x_low, x_high, y_low, y_high, value`, with `x` varying slowest.
+
+A figure of several series gives one table, in figure order. Its first column, `series`, holds
+each row's series label. A figure of a bare result has no `series` column. Sometimes one series
+has a column that another lacks, such as the bootstrap interval of one histogram among plain
+ones. That column is blank in the rows of the series without it.
 
 **Header.** Every file starts with `#` comment lines, so that a file found alone can be traced:
 
@@ -644,18 +644,21 @@ bin_left,bin_right,value
 ```
 
 `selection` is the `selection` key of your `parameters`, as JSON (`null` when you gave none). A
-figure of several series adds one `# series N:` line per series, a JSON object with its `label`
-and, when you gave one in `parameters["series"]`, its `selection`. `units` names the unit of each
+figure of several series adds one `# series N:` line per series. The line is a JSON object with
+the series `label` and the `selection` you gave in `parameters["series"]`.
+
+`units` names the unit of each
 column. A time axis is in seconds when the result has a frame time other than `1.0` and in frames
-otherwise, as on the figure. Read a table with `pandas.read_csv(path, comment="#")`; add
+otherwise, as on the figure. Read a table with `pandas.read_csv(path, comment="#")`. Add
 `float_precision="round_trip"` to get back the exact values written.
 
-**Cells.** A float is written as its shortest representation that reads back to the same number
-(Python `repr`), so a table read back equals the result exactly. NaN and infinity are blank
-cells, as in the molecule-table CSV. Every text cell is quoted, so a `#` in a series label is
-never read as the start of a comment. The values are the stored values: the survival markers that
-the figure clips at 10⁻⁶ for its log axis, and the cloud points that it may thin to `max_points`,
-are written in full.
+**Cells.** A float is written by Python `repr`, the shortest text that reads back to the same
+number. So a table read back equals the result exactly. NaN and infinity are blank cells, as in
+the molecule-table CSV. Every text cell is quoted, so a `#` in a series label is never read as
+the start of a comment.
+
+The values are the stored values. The figure clips the survival markers at 10⁻⁶ for its log
+axis, and it may thin the cloud points to `max_points`. The tables hold them in full.
 
 The tables of each plot:
 
@@ -682,10 +685,10 @@ The tables of each plot:
 | `render_state_number_elbow` | `data` | `k`: the number of clusters. `rmse`: the within-cluster RMSE of *E*. `elbow`: `1` for the suggested *k*, otherwise `0` |
 | `render_population_anticorrelation` | `data` | One row per event. `row`: the molecule's row on the figure, from 0. `molecule_key`. `start`, `stop`: the event's first frame and the frame after its last, in the analysis window. `peak_frame`: in frames. `peak_magnitude`: the peak \|lag-0\| Pearson correlation (dimensionless). A molecule with no event has no rows |
 
-The result snapshot of [#943](https://github.com/bioedca/tether/issues/943), the figure footer
-of [#946](https://github.com/bioedca/tether/issues/946) and the interval method of
-[#947](https://github.com/bioedca/tether/issues/947) are not in these files yet; each of those
-adds its part when it lands.
+Three later additions are not in these files yet: the result snapshot of
+[#943](https://github.com/bioedca/tether/issues/943), the figure footer of
+[#946](https://github.com/bioedca/tether/issues/946) and the interval method of
+[#947](https://github.com/bioedca/tether/issues/947). Each of those issues adds its part when it lands.
 
 <a id="provenance-sidecar"></a>
 
