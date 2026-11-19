@@ -38,6 +38,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -45,7 +46,6 @@ from tether.project import dependency_graph as graph
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-    from pathlib import Path
 
     from tether.project.core import Project
     from tether.services.base import Request
@@ -58,6 +58,7 @@ __all__ = [
     "JobState",
     "RecordedInput",
     "StaleMark",
+    "mark_stale_in",
     "read_job",
     "read_jobs",
     "read_recorded_inputs",
@@ -749,10 +750,28 @@ def set_stale_marks(
     Returns the new marks.
     """
     project._assert_writable()
+    return mark_stale_in(project.path, node_key, instance, identity, guards_hold=guards_hold)
+
+
+def mark_stale_in(
+    path: str | Path,
+    node_key: str,
+    instance: str,
+    identity: str,
+    *,
+    guards_hold: Iterable[int] = (),
+) -> list[StaleMark]:
+    """[`set_stale_marks`][] on the store at ``path``, for a writer that owns it already.
+
+    A writer that holds the project's lock through a staged copy (``reextract_movie``,
+    ADR-0136) marks the copy it is about to publish, so the marks and the edit that made
+    them are published together. The rules are those of [`set_stale_marks`][].
+    """
+    path = Path(path)
     _input_key(node_key, instance)
     guards = frozenset(int(g) for g in guards_hold)
-    recorded = read_recorded_inputs(project.path)
-    already = {(m.node, m.instance) for m in read_stale_marks(project.path)}
+    recorded = read_recorded_inputs(path)
+    already = {(m.node, m.instance) for m in read_stale_marks(path)}
     made_from: dict[tuple[str, str], list[RecordedInput]] = {}
     for r in recorded:
         made_from.setdefault((r.upstream_node, r.upstream_instance), []).append(r)
@@ -794,5 +813,5 @@ def set_stale_marks(
         }
         for m in new
     ]
-    _append(project.path, _MARKS, _MARK_FIELDS, rows)
+    _append(path, _MARKS, _MARK_FIELDS, rows)
     return new

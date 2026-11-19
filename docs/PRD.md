@@ -344,6 +344,12 @@ uses the three words only in these meanings:
   window, corrections, or idealization.**
 - **`/patches`** — per-molecule local image patch (e.g. 21×21) cached at extraction/import, enabling movie-less
   curation and the static overlap view.
+- **`/generations`** (table, `schema_version` 2) — one row per **trace generation** of a movie: each extraction of
+  a movie writes one (its id, the inputs that made it, the time). The movie's **active** generation is its newest,
+  and its molecules are the movie's rows of `/molecules`, `/traces` and `/patches`; an earlier one is archived
+  unchanged under `/generations/archive` and stays readable. An extraction never overwrites or deletes a
+  generation; molecules that did not move (§11.2) keep their `molecule_key`, and their labels, category and
+  analysis window are carried and marked so (ADR-0136).
 - **`/idealization/{model}`** — state path, levels (means), transition matrix, dwell table, and model evidence
   (ELBO) per molecule, stamped with a **per-molecule provenance hash of the inputs the corrected-FRET was computed
   from** — the molecule's *effective applied* α and γ, the apparent-E toggle, the analysis-window bounds, and the
@@ -1619,6 +1625,7 @@ this section.
 | Per-frame background | 10-frame uniform temporal moving average, ring mean | `deeplasi/functions/traces/extractTracesC.m:13-22` |
 | Integration | Sum (top-hat): I = TOT − bg·N_psf | `deeplasi/functions/traces/extractTracesC.m:20-33` |
 | Molecule-key quantization | 0.1 px (`donor_xy` quantized before the cross-file content hash `molecule_key`) | Tether (§5.1/§7.10; below the 8 px detection min-separation so no collision; ADR-0016) |
+| Trace-generation match distance (`GENERATION_MATCH_PX`) | 0.5 px — a molecule of a new trace generation "did not move" when its `donor_xy` is within this distance of a molecule of the movie's previous generation, the two being each other's closest such partner (one-to-one, closest first); it then keeps that `molecule_key` and its label, category and analysis window are carried. Recorded per generation as `/generations.match_px`; `reextract_movie(match_px=…)` | Tether (#921, ADR-0136); five key quanta and 1/16 of the 8 px detection min-separation |
 | Registration prealign | phase-correlation, 4-DOF similarity (translation, S5a; rotation+scale via Fourier-Mellin log-polar, S5b, ADR-0012/ADR-0013); sub-pixel `upsample_factor` = 10; band-pass `low_sigma` = 1 / `high_sigma` = 20 px (S5b; low cut 3 → 1 px, ADR-0089) | `deeplasi/functions/mapping/createMapPhaseCorr.m:6-16`; [Crocker1996] (bandpass alt.); `upsample_factor` / `low_sigma` / `high_sigma` = `skimage.registration.phase_cross_correlation` + `skimage.filters.difference_of_gaussians` (ADR-0013, ADR-0089) |
 | NN pairing tolerance | 2 px (fit on original, un-prealigned coords); 4 px legacy | `deeplasi/functions/mapping/findPairs.m:15-24`, `createMap.m:53` |
 | Polynomial map degree | 2 (retry 3; similarity fallback if < ~6 points); 4 legacy | `deeplasi/functions/mapping/createMapPhaseCorr.m:20-47`, `createMap.m:57-58` |

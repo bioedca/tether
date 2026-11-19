@@ -76,13 +76,20 @@ from tether.imaging.aperture import (
 )
 from tether.imaging.calibrate import RegistrationMap
 from tether.imaging.coloc import ColocalizedMolecules
-from tether.imaging.layout import ChannelLayout, check_layout_slot, write_layout_record
+from tether.imaging.layout import (
+    LAYOUTS_GROUP,
+    ChannelLayout,
+    check_layout_slot,
+    write_layout_record,
+)
 from tether.imaging.split import ChannelGeometry
+from tether.io.generations import append_record
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from tether.io.filename import ParsedFilename
+    from tether.io.generations import Generation
 
 __all__ = [
     "ACCEPTOR_DETECTED_NOT_RECORDED",
@@ -99,6 +106,7 @@ __all__ = [
     "read_patches",
     "read_traces",
     "write_extraction",
+    "write_generation",
 ]
 
 #: Sub-pixel quantum (px) the ``donor_xy`` is rounded to before hashing into the
@@ -695,21 +703,257 @@ def write_extraction(
             write_layout_record(f["movies"], movie.movie_id, movie.channel_layout)
         _write_settings_once(f, traces, profile_json)
         _write_movie_settings(f, movie.movie_id, profile_json)
-        if molecules.n_molecules:
-            n_existing = int(f["molecules"][TABLE].shape[0])
-            _append_compound_rows(f["molecules"][TABLE], rows)
-            _append_acceptor_detected(f[_MOLECULES_GROUP], n_existing, molecules)
-            traces_grp = f[_TRACES_GROUP]
-            patches_grp = f[_PATCHES_GROUP]
-            for channel in _CHANNELS:
-                integrated: IntegratedTraces = getattr(traces, channel)
-                for quantity, attr in _QUANTITIES:
-                    _append_padded_2d(
-                        traces_grp, f"{channel}_{quantity}", getattr(integrated, attr)
-                    )
-            _append_patches(patches_grp, "donor", traces.donor_patches)
-            _append_patches(patches_grp, "acceptor", traces.acceptor_patches)
+        _append_molecule_block(f, rows, molecules, traces)
+        append_record(f, movie.movie_id, generation=1)
     return mol_ids
+
+
+def _append_molecule_block(
+    f: Any, rows: np.ndarray, molecules: ColocalizedMolecules, traces: MoleculeTraces
+) -> None:
+    """Append one movie's molecules to ``/molecules`` and every row-aligned array."""
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    if not molecules.n_molecules:
+        return
+    n_existing = int(f["molecules"][TABLE].shape[0])
+    _append_compound_rows(f["molecules"][TABLE], rows)
+    _append_acceptor_detected(f[_MOLECULES_GROUP], n_existing, molecules)
+    traces_grp = f[_TRACES_GROUP]
+    patches_grp = f[_PATCHES_GROUP]
+    for channel in _CHANNELS:
+        integrated: IntegratedTraces = getattr(traces, channel)
+        for quantity, attr in _QUANTITIES:
+            _append_padded_2d(traces_grp, f"{channel}_{quantity}", getattr(integrated, attr))
+    _append_patches(patches_grp, "donor", traces.donor_patches)
+    _append_patches(patches_grp, "acceptor", traces.acceptor_patches)
+
+
+#: Rows moved per write while a movie's old block is taken out of an array.
+_SHIFT_ROWS = 1024
+
+
+def _remove_rows(dataset: Any, rows: slice) -> None:
+    """Take ``rows`` out of a dataset whose first axis is the molecule, keeping order.
+
+    The rows after the block move up by its length, a few at a time, and the dataset
+    then shrinks. A dataset shorter than the block's start (an acceptor-flag column
+    whose tail rows were never recorded) is left as it is.
+    """
+    n = int(dataset.shape[0])
+    start, stop = rows.start, min(rows.stop, n)
+    if start >= n or stop <= start:
+        return
+    width = stop - start
+    for src in range(stop, n, _SHIFT_ROWS):
+        end = min(src + _SHIFT_ROWS, n)
+        dataset[src - width : end - width] = dataset[src:end]
+    dataset.resize((n - width, *dataset.shape[1:]))
+
+
+def _remove_molecule_block(f: Any, rows: slice) -> None:
+    """Take one movie's rows out of ``/molecules`` and every row-aligned array."""
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    if rows.stop <= rows.start:
+        return
+    _remove_rows(f["molecules"][TABLE], rows)
+    flags = f[_MOLECULES_GROUP].get(_ACCEPTOR_DETECTED)
+    if flags is not None:
+        _remove_rows(flags, rows)
+    for group, name in _layer_names():
+        dataset = f[group].get(name)
+        if dataset is not None:
+            _remove_rows(dataset, rows)
+
+
+def _carry_from_previous(
+    previous: np.ndarray, rows: np.ndarray, n_frames: int, match_px: float
+) -> list[str]:
+    """Give each molecule of ``rows`` that did not move its previous key, label, category, window.
+
+    Mutates ``rows`` in place and returns the carried ``molecule_key`` values (ADR-0136).
+    When every previous molecule of the movie has one ``condition_id`` (a validated
+    condition, a re-keyed one included), the new molecules take it too: the condition is
+    a property of the movie, not an input of the extraction.
+    """
+    from tether.io.generations import match_previous  # noqa: PLC0415
+
+    carried: list[str] = []
+    if not previous.shape[0]:
+        return carried
+    pairs = match_previous(previous["donor_xy"], rows["donor_xy"], match_px=match_px)
+    for j, i in enumerate(pairs):
+        if i < 0:
+            continue
+        old = previous[i]
+        rows["molecule_key"][j] = old["molecule_key"]
+        rows["curation_label"][j] = old["curation_label"]
+        rows["category"][j] = old["category"]
+        window = np.clip(np.asarray(old["analysis_window"], dtype=np.int64), 0, n_frames)
+        rows["analysis_window"][j] = window if window[0] < window[1] else [0, n_frames]
+        carried.append(_decode_key(old["molecule_key"]))
+    conditions = {_decode_key(c) for c in previous["condition_id"]}
+    if len(conditions) == 1:
+        rows["condition_id"] = conditions.pop()
+    return carried
+
+
+def _refuse_repeated_keys(f: Any, project_path: Path, keep_out: slice, keys: np.ndarray) -> None:
+    """Refuse new keys that another movie's molecule, or another new molecule, holds."""
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    decoded = [_decode_key(k) for k in keys]
+    if len(set(decoded)) != len(decoded):
+        raise ValueError("two molecules of the new generation share one molecule_key")
+    stored = f["molecules"][TABLE]["molecule_key"][()] if f["molecules"][TABLE].shape[0] else []
+    others = {
+        _decode_key(v) for i, v in enumerate(stored) if not keep_out.start <= i < keep_out.stop
+    }
+    repeated = sum(1 for key in decoded if key in others)
+    if repeated:
+        raise ValueError(
+            f"{repeated} molecule(s) of the new generation have a molecule_key another movie "
+            f"of {project_path.name} holds"
+        )
+
+
+def write_generation(
+    project_path: str | Path,
+    *,
+    movie: MovieMetadata,
+    molecules: ColocalizedMolecules,
+    traces: MoleculeTraces,
+    parsed: ParsedFilename,
+    registration_map: RegistrationMap | None = None,
+    settings: Mapping[str, Any] | None = None,
+    match_px: float | None = None,
+) -> tuple[Generation, list[str]]:
+    """Write a new generation of a movie the project already holds (#921, ADR-0136).
+
+    ``movie.movie_id`` names the movie, and ``movie.sha256`` must be its content hash:
+    a generation is a new extraction of the same bytes. The movie's active generation
+    is first copied, unchanged, to ``/generations/archive/<movie_id>/<n>``
+    ([`tether.io.generations.archive_active`][]); its rows then leave ``/molecules``,
+    ``/traces`` and ``/patches``, and the new generation's rows are appended, so every
+    reader of those arrays reads the new generation. The movie's ``/movies`` row, layout
+    record and settings profile become the new generation's; its ``frame_time`` is kept.
+
+    A new molecule within ``match_px`` of a previous one, the two being each other's
+    closest such partner, "did not move": it keeps that molecule's ``molecule_key`` and
+    its curation label, category and analysis window, and its key is recorded as carried.
+    Corrections, bleach frames and the ML class start again from their not-computed
+    sentinels (ADR-0016). A feature cache with a row for a previous molecule is dropped.
+
+    Every check runs before the first write, as for [`write_extraction`][]; the store is
+    not transactional, so callers write into a staged copy (``reextract_movie`` does).
+
+    Returns
+    -------
+    tuple[Generation, list[str]]
+        The new generation's record and the fresh ``molecule_id`` of each molecule.
+
+    Raises
+    ------
+    ValueError
+        If the movie is not in the project or has other bytes, the aperture parameters
+        differ from the project's, the arrays are misaligned, the movie's rows are not
+        one block, or a new key repeats another movie's (or another new molecule's).
+    """
+    import json  # noqa: PLC0415
+
+    import h5py  # noqa: PLC0415
+
+    from tether.io.generations import (  # noqa: PLC0415
+        GENERATION_MATCH_PX,
+        archive_active,
+        generations_in,
+        molecule_rows,
+        movie_row_index,
+    )
+    from tether.io.schema import TABLE, assert_is_compatible_project  # noqa: PLC0415
+
+    match_px = GENERATION_MATCH_PX if match_px is None else float(match_px)
+    project_path = Path(project_path)
+    assert_is_compatible_project(project_path)
+    _validate_alignment(movie, molecules, traces)
+    tags = ",".join(registration_map.molecule_tags) if registration_map is not None else ""
+
+    with h5py.File(project_path, "r+") as f:
+        _assert_layers_aligned(f, project_path)
+        _check_parameters(f, project_path, traces)
+        try:
+            row_index = movie_row_index(f, movie.movie_id)
+        except KeyError:
+            raise ValueError(
+                f"movie_id {movie.movie_id!r} is not in {project_path.name}; a new movie "
+                "is appended, not given a generation"
+            ) from None
+        stored_movie = f["movies"][TABLE][row_index]
+        if _decode_key(stored_movie["sha256"]) != movie.sha256:
+            raise ValueError(
+                f"movie {movie.movie_id!r} in {project_path.name} has other bytes "
+                "(sha256 differs); a generation is a new extraction of the same movie"
+            )
+        old_rows = molecule_rows(f, movie.movie_id)
+        previous = next(g for g in generations_in(f, movie.movie_id) if g.active)
+        previous_molecules = f["molecules"][TABLE][old_rows]
+        movie_row = _build_movie_row(movie)
+        movie_row["frame_time"] = stored_movie["frame_time"]
+        rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
+        carried = _carry_from_previous(previous_molecules, rows, traces.n_frames, match_px)
+        _refuse_repeated_keys(f, project_path, old_rows, rows["molecule_key"])
+        profile = _stamp_colocalization(settings, molecules)
+        profile_json = json.dumps(profile, sort_keys=True) if profile else None
+
+        if not previous.recorded:  # a store from before generations: record its gen 1 first
+            append_record(f, movie.movie_id, generation=1, created_utc="")
+        archive_active(f, previous)
+        _remove_molecule_block(f, old_rows)
+        f["movies"][TABLE][row_index] = movie_row[0]
+        layouts = f["movies"].get(LAYOUTS_GROUP)
+        if layouts is not None and movie.movie_id in layouts:
+            del layouts[movie.movie_id]  # archived with the previous generation
+        if movie.channel_layout is not None:
+            write_layout_record(f["movies"], movie.movie_id, movie.channel_layout)
+        _write_settings_once(f, traces, profile_json)
+        _replace_movie_settings(f, movie.movie_id, profile_json)
+        _append_molecule_block(f, rows, molecules, traces)
+        _drop_feature_cache(f, {_decode_key(m) for m in previous_molecules["molecule_id"]})
+        record = append_record(
+            f,
+            movie.movie_id,
+            generation=previous.generation + 1,
+            carried_keys=tuple(carried),
+            match_px=match_px,
+        )
+    return record, mol_ids
+
+
+def _replace_movie_settings(f: Any, movie_id: str, profile_json: str | None) -> None:
+    """Make ``profile_json`` the movie's settings record; the previous one is in its inputs."""
+    grp = f[_SETTINGS_GROUP][_EXTRACTION_SETTINGS]
+    movies = grp.get(_MOVIE_SETTINGS)
+    if movies is not None and movie_id in movies.attrs:
+        del movies.attrs[movie_id]
+    _write_movie_settings(f, movie_id, profile_json)
+
+
+def _drop_feature_cache(f: Any, molecule_ids: set[str]) -> None:
+    """Delete ``/features/table`` when it holds a row of a previous molecule.
+
+    The table is a recomputable cache of each molecule's traces; the window setters drop
+    it the same way (``tether.project.molecule_edits``), so the ranker never serves
+    features of traces that are no longer the active generation's.
+    """
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    group = f.get("features")
+    if not molecule_ids or group is None or TABLE not in group:
+        return
+    featured = {_decode_key(mid) for mid in group[TABLE]["molecule_id"]}
+    if featured & molecule_ids:
+        del group[TABLE]
 
 
 def _stamp_colocalization(
@@ -963,8 +1207,14 @@ def _check_against_existing(
     if _movie_id_present(f["movies"][TABLE], movie.movie_id):
         raise ValueError(
             f"movie_id {movie.movie_id!r} already in {project_path} "
-            "(movies are write-once; extraction is not idempotent here)"
+            "(movies are write-once; a new extraction of it is a new generation, "
+            "write_generation)"
         )
+    _check_parameters(f, project_path, traces)
+
+
+def _check_parameters(f: Any, project_path: Path, traces: MoleculeTraces) -> None:
+    """Refuse aperture/integration parameters that differ from the project's first ones."""
     stored = f[_SETTINGS_GROUP].get(_EXTRACTION_SETTINGS)
     if stored is None:
         return  # first extraction: nothing to be consistent with yet

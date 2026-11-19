@@ -74,7 +74,9 @@ the signature of swapped donor and acceptor halves ([`tether.imaging.side_check`
 
 [`add_movie_to_project`][] runs the same stages on another movie and appends it to an
 existing project under its writer lock, as one atomic replace of a staged copy (#347,
-ADR-0117).
+ADR-0117). [`reextract_movie`][] runs them again on a movie the project already holds
+and writes a new trace generation of it the same way; the previous generation stays
+readable and its labels move to the molecules that did not move (#921, ADR-0136).
 
 Scope note (M1 S9 split): the extraction-vs-Deep-LASI acceptance oracle (recall /
 Pearson / RMS, PRD §8 NFR-VALID(a)) lands in the follow-up PR (S9 PR-C), with the
@@ -122,6 +124,7 @@ from tether.imaging.extract import (
     assert_appendable,
     extract_molecules,
     write_extraction,
+    write_generation,
 )
 from tether.imaging.layout import (
     LAYOUT_SIDE_BY_SIDE,
@@ -137,6 +140,7 @@ from tether.imaging.register import (
 from tether.imaging.side_check import VERDICT_NOT_RUN, DonorSideCheck, check_donor_side
 from tether.imaging.split import ChannelGeometry, split_channels
 from tether.io.filename import parse_filename
+from tether.io.generations import Generation
 from tether.io.movie import open_movie
 from tether.io.tdat import read_detection_settings
 from tether.project._guarded_publish import (
@@ -145,6 +149,7 @@ from tether.project._guarded_publish import (
     require_publish_guard,
 )
 from tether.project.core import Project
+from tether.project.jobs import mark_stale_in
 from tether.project.lock import PublishGuardRequiredError
 
 if TYPE_CHECKING:
@@ -807,6 +812,40 @@ def _persist(
     """
     movie_id = f"mov-{uuid4()}"
     calibration_id = f"cal-{uuid4()}"
+    movie, settings = _movie_and_settings(
+        extracted, movie_path, movie_id, calibration_id, tmap=tmap, tdat=tdat, map_path=map_path
+    )
+    write_calibration(project_path, extracted.reg_map, calibration_id=calibration_id)
+    molecule_ids = write_extraction(
+        project_path,
+        movie=movie,
+        molecules=extracted.molecules,
+        traces=extracted.traces,
+        parsed=parse_filename(movie_path.name),
+        registration_map=extracted.reg_map,
+        settings=settings,
+    )
+    _write_metadata_origins(
+        project_path,
+        movie_id,
+        extracted.frame_time,
+        extracted.pixel_size_um,
+        roles_from_file=tmap is not None or map_path is not None,
+    )
+    return movie_id, calibration_id, molecule_ids
+
+
+def _movie_and_settings(
+    extracted: _Extracted,
+    movie_path: Path,
+    movie_id: str,
+    calibration_id: str,
+    *,
+    tmap: str | os.PathLike[str] | None,
+    tdat: str | os.PathLike[str] | None,
+    map_path: str | os.PathLike[str] | None,
+) -> tuple[MovieMetadata, dict]:
+    """Build the ``/movies`` row provenance and the settings profile of one extracted movie."""
     reg_map = extracted.reg_map
     movie = MovieMetadata(
         movie_id=movie_id,
@@ -835,24 +874,7 @@ def _persist(
         tdat_source=Path(tdat).name if tdat is not None else None,
         donor_side_check=extracted.side_check,
     )
-    write_calibration(project_path, reg_map, calibration_id=calibration_id)
-    molecule_ids = write_extraction(
-        project_path,
-        movie=movie,
-        molecules=extracted.molecules,
-        traces=extracted.traces,
-        parsed=parse_filename(movie_path.name),
-        registration_map=reg_map,
-        settings=settings,
-    )
-    _write_metadata_origins(
-        project_path,
-        movie_id,
-        extracted.frame_time,
-        extracted.pixel_size_um,
-        roles_from_file=tmap is not None or map_path is not None,
-    )
-    return movie_id, calibration_id, molecule_ids
+    return movie, settings
 
 
 def _summary(
@@ -1225,3 +1247,169 @@ def add_movie_to_project(
     return _summary(
         project_path, extracted, movie_id, calibration_id, molecule_ids, map_path=map_path
     )
+
+
+@dataclass(frozen=True)
+class GenerationSummary:
+    """The outcome of one [`reextract_movie`][] run.
+
+    ``extraction`` is the run's [`ExtractionSummary`][], whose ``movie_id`` is the movie
+    that gained the generation; ``generation`` is its new record
+    ([`tether.io.generations.Generation`][]), active, with the carried keys.
+    """
+
+    extraction: ExtractionSummary
+    generation: Generation
+
+    @property
+    def n_carried(self) -> int:
+        """How many molecules kept their key, labels, category and window."""
+        return len(self.generation.carried_keys)
+
+
+#: The node of ADR-0103 a new generation edits, and the guarded edge into the factor
+#: version that it always crosses: every trace of the movie is integrated again, so the
+#: intensities of any alpha or gamma contributor in it change (edge 7's guard).
+_GENERATION_NODE = "trace_generation"
+_CONTRIBUTOR_INTENSITIES_CHANGE = 7
+
+
+def reextract_movie(
+    project_path: str | os.PathLike[str],
+    movie_path: str | os.PathLike[str],
+    *,
+    options: ExtractOptions | None = None,
+    tmap: str | os.PathLike[str] | None = None,
+    tdat: str | os.PathLike[str] | None = None,
+    map_path: str | os.PathLike[str] | None = None,
+    publish_guard: Callable[[], None] | None,
+    refuse_over_gate: bool = False,
+    match_px: float | None = None,
+) -> GenerationSummary:
+    """Extract a movie the project already holds again, as a new trace generation.
+
+    The movie is found by its content hash. Stages 1-15 run as for [`extract_movie`][]
+    (a new map, geometry, layout or options may be given), and the result is written by
+    [`write_generation`][tether.imaging.extract.write_generation]: the generation that
+    was active is copied, unchanged, to the project's generation archive and stays
+    readable ([`tether.io.generations.read_generation`][]), and the new one becomes
+    active. Molecules within ``match_px`` of a previous molecule
+    ([`GENERATION_MATCH_PX`][tether.io.generations.GENERATION_MATCH_PX] by default) keep
+    its ``molecule_key``, curation label, category and analysis window, marked carried;
+    fits and corrections of the movie are marked stale through the ``trace_generation``
+    node of ADR-0103 ([`tether.project.jobs.mark_stale_in`][]). The movie's frame time
+    and other metadata are kept. No generation is overwritten or deleted (ADR-0136).
+
+    The update is written to a sibling copy of the project and published by one atomic
+    replace under the project's writer lock, exactly as [`add_movie_to_project`][] is.
+
+    Parameters
+    ----------
+    project_path:
+        An existing, compatible ``.tether`` project that holds the movie.
+    movie_path:
+        The movie file; its bytes must be the ones the project recorded.
+    options, tmap, tdat, map_path, refuse_over_gate:
+        As for [`add_movie_to_project`][]; the aperture parameters must equal the
+        project's.
+    publish_guard:
+        **Required.** The check yielded by
+        [`publish_lock`][tether.project.lock.publish_lock] held on ``project_path``.
+    match_px:
+        The "did not move" distance in pixels; ``None`` is ``GENERATION_MATCH_PX``.
+
+    Returns
+    -------
+    GenerationSummary
+        The extraction outcome and the new generation's record.
+
+    Raises
+    ------
+    ExtractionError
+        Every failure [`add_movie_to_project`][] reports, and a movie whose content is
+        not in the project (append it instead).
+    """
+    options = options or ExtractOptions()
+    project_path = Path(project_path)
+    movie_path = Path(movie_path)
+
+    _check_inputs(movie_path, tmap, tdat, map_path)
+    if not project_path.is_file():
+        raise ExtractionError(f"project not found: {project_path}")
+    try:
+        assert_appendable(project_path)
+    except Exception as exc:  # not HDF5, not a .tether, a newer schema, misaligned layers
+        raise ExtractionError(f"cannot extract into {project_path.name}: {exc}") from exc
+    if publish_guard is None:
+        raise ExtractionError(
+            f"a new generation in {project_path.name} needs its writer lock "
+            "(hold tether.project.lock.publish_lock and pass its check as publish_guard)"
+        )
+
+    options, imported_map = _resolve_sources(options, tmap, tdat, map_path)
+    try:
+        identity = _hash_movie(movie_path)
+    except Exception as exc:
+        raise ExtractionError(f"could not extract from {movie_path.name}: {exc}") from exc
+    movie_id = _held_movie_id(project_path, identity[0], movie_path)
+
+    extracted = _run_pipeline(movie_path, options, imported_map, identity=identity)
+    _check_gate(extracted, refuse_over_gate=refuse_over_gate)
+
+    calibration_id = f"cal-{uuid4()}"
+    try:
+        with guarded_project_write(
+            project_path, write_guard=publish_guard, label="generation"
+        ) as stage:
+            # The copy is the state that will be published: find the movie in it.
+            if _held_movie_id(stage, extracted.sha256, movie_path) != movie_id:
+                raise ExtractionError(f"{movie_path.name} changed identity in {project_path.name}")
+            movie, settings = _movie_and_settings(
+                extracted,
+                movie_path,
+                movie_id,
+                calibration_id,
+                tmap=tmap,
+                tdat=tdat,
+                map_path=map_path,
+            )
+            write_calibration(stage, extracted.reg_map, calibration_id=calibration_id)
+            record, molecule_ids = write_generation(
+                stage,
+                movie=movie,
+                molecules=extracted.molecules,
+                traces=extracted.traces,
+                parsed=parse_filename(movie_path.name),
+                registration_map=extracted.reg_map,
+                settings=settings,
+                match_px=match_px,
+            )
+            mark_stale_in(
+                stage,
+                _GENERATION_NODE,
+                movie_id,
+                record.generation_id,
+                guards_hold=(_CONTRIBUTOR_INTENSITIES_CHANGE,),
+            )
+    except ExtractionError:
+        raise
+    except Exception as exc:  # aperture mismatch, lost lock, IO failure
+        raise ExtractionError(
+            f"failed to write a new generation into {project_path.name}: {exc}"
+        ) from exc
+
+    summary = _summary(
+        project_path, extracted, movie_id, calibration_id, molecule_ids, map_path=map_path
+    )
+    return GenerationSummary(extraction=summary, generation=record)
+
+
+def _held_movie_id(project_path: Path, sha256: str, movie_path: Path) -> str:
+    """Return the ``movie_id`` the project holds ``sha256`` under; refuse a movie it lacks."""
+    existing = _movie_ids_with_sha256(project_path, sha256)
+    if not existing:
+        raise ExtractionError(
+            f"{movie_path.name} is not in {project_path.name} (no movie with its sha256); "
+            "append it with add_movie_to_project"
+        )
+    return existing[0]

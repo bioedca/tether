@@ -179,6 +179,7 @@ else would make it a worse historical record in exchange for a working link.
 | [0131](0131-the-correction-states-are-a-transition-log-in-the-project.md) | The correction states of G03 are a transition log stored in the project | accepted | §7.2 (FR-CORRECT, the correction states), Appendix B, §7.13 (FR-WORKFLOW), §5 (data model) |
 | [0132](0132-several-series-on-one-figure-one-color-cycle-small-multiples-and-one-grid.md) | Several series on one figure: one color cycle, small multiples where an overlay has no meaning, and one grid | accepted | §7.7 FR-PLOT (a plot is a layer list), §7.9 FR-EXPORT (per-series provenance) |
 | [0133](0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md) | The leakage-α band runs on the donor-only sample; the γ-vs-Deep-LASI leg stays withheld | accepted | §7.2, §9.1 item 8, §9.3 (Corrections), §9.5 oracle (e), §9.6, §11.2 (leakage-α validation band, γ-agreement tolerance) |
+| [0136](0136-a-new-extraction-of-a-movie-is-a-new-trace-generation.md) | A new extraction of a movie is a new trace generation, and the previous one is archived unchanged | accepted | §5 (data model), §9.1 (additive-only schema), §7.1, §7.5 (FR-ML), §11.2 |
 
 <!-- gen:adr-index end -->
 

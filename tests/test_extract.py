@@ -555,12 +555,12 @@ def test_write_extraction_bad_settings_profile_rejected_before_mutating(tmp_path
 
 
 def test_write_extraction_returns_compatible_project(tmp_path: Path) -> None:
-    from tether.io.schema import assert_is_compatible_project
+    from tether.io.schema import SCHEMA_VERSION, assert_is_compatible_project
 
     project = tmp_path / "p.tether"
     create_project(project)
     _extract_into(project, movie_id="m", sha="s", donor=np.array([[20.0, 20.0]]))
-    assert assert_is_compatible_project(project) == 1  # still a valid, current project
+    assert assert_is_compatible_project(project) == SCHEMA_VERSION  # still a valid, current project
 
 
 def _as_str(value: object) -> str:
