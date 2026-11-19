@@ -427,7 +427,8 @@ total-intensity curve, a seconds/frames x-axis toggle and the cross-correlation 
 
 **Parity evidence.** [`tests/test_trace_dock.py`](https://github.com/bioedca/tether/blob/main/tests/test_trace_dock.py) — the D1 display **contract** that mirrors
 `multi_plot` conventions (not a numeric oracle): the 2×2 block of intensity + FRET time-series
-left and marginals right; donor green, acceptor red, FRET blue, total neutral gray; the FRET
+left and marginals right; by default the color-blind-safe donor green, acceptor magenta, FRET blue and a
+neutral total, with tMAVEN's donor green, acceptor red, FRET blue as the **View → Trace colors** option (#636); the FRET
 axis labeled "apparent E" and pinned to 0–1; the FRET curve `== A/(D+A)` on finite frames
 with a `connect="finite"` gap at zero-total frames; the idealization overlay is
 `stepMode="center"`, drawn only over the finite frames of the analysis window, re-laid on the seconds/frames toggle,
