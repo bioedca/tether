@@ -139,6 +139,12 @@ def _qt():
     return QtCore.Qt.Key, QtCore.Qt.KeyboardModifier
 
 
+def _label(key) -> str:
+    from tether.gui.keymap_editor import chord_label
+
+    return chord_label(int(key))
+
+
 def _cheatsheet(shell) -> dict[str, str]:
     shell.cheatsheet.refresh()
     return dict(shell.cheatsheet.rows)
@@ -183,13 +189,13 @@ def test_a_binding_changed_in_the_editor_acts_at_once_and_after_a_restart(
     assert shell.controller.history == [Command(A.ACCEPT)]
     rows = _cheatsheet(shell)
     assert rows.get("A") == "Accept trace"
-    assert "Space" not in rows
+    assert _label(key.Key_Space) not in rows
     shell.close()
 
     # And after a restart.
     restarted = launch(path)
     assert restarted.keymap_error is None
-    assert restarted.status_message == "Ready — A accept · Backspace reject"
+    assert restarted.status_message == f"Ready — A accept · {_label(key.Key_Backspace)} reject"
     assert _cheatsheet(restarted).get("A") == "Accept trace"
     qtbot.keyClick(restarted.molecule_list, key.Key_A)
     assert restarted.controller.history == [Command(A.ACCEPT)]
@@ -354,7 +360,9 @@ def test_an_invalid_keymap_file_starts_with_the_defaults_and_one_message(
 def test_no_keymap_file_starts_with_the_defaults_silently(launch, tmp_path) -> None:
     shell = launch(tmp_path / "absent.json")
     assert shell.keymap_error is None
-    assert shell.status_message == "Ready — Space accept · Backspace reject"
+    key, _ = _qt()
+    backspace = _label(key.Key_Backspace)  # the native text: "⌫" on macOS
+    assert shell.status_message == f"Ready — {_label(key.Key_Space)} accept · {backspace} reject"
     assert not (tmp_path / "absent.json").exists()
 
 
