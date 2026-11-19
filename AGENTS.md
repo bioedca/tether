@@ -16,6 +16,9 @@ is conditional in the same way and required for work-item work (§Outcome and au
 the peer-worker procedure — claim, worktree, handoff — and by its own first line neither restates
 nor relaxes anything here.
 
+**During a Codex handoff, read [`docs/agents/handoff.md`](docs/agents/handoff.md) before any write
+to an open PR**: identity, security, the CodeRabbit queue and the handoff log.
+
 **`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Naming
 one of them in this file would strand the other lane, so every command below writes `<py>` and you
 substitute it as you read. `gh` and `git` need no such rule; they resolve from `PATH` in both shells.
