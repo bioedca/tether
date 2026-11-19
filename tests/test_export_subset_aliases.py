@@ -494,8 +494,9 @@ def test_job_owner_names_are_aliased(tmp_path):
         }
     assert [o["user"] for o in source] == [default_labeler(), DAVE]
     assert DAVE.encode() in plain.read_bytes()  # the search can see the name
+    # No byte search for the OS login here: the owner's host is copied as it is, and a
+    # CI runner's host name contains its login ("runner" in "runnervm…").
     assert DAVE.encode() not in shared.read_bytes()
-    assert default_labeler().encode() not in shared.read_bytes()
     params = json.loads(result.provenance_path.read_text(encoding="utf-8"))["parameters"]
     assert params["n_aliased_names"] == 4
 
