@@ -82,6 +82,7 @@ from tether.fret.photobleach import (
 
 if TYPE_CHECKING:
     from tether.imaging.layout import ChannelLayout
+    from tether.imaging.recipe import ChannelRecipe
 
 __all__ = [
     "EVENT_CONSISTENT",
@@ -355,18 +356,32 @@ def _layout_remedy(layout: ChannelLayout) -> str:
 
     A half layout takes its other half as the donor; a ``rectangles`` layout
     exchanges its two rectangles. Neither is a ``--donor-side`` value, which applies
-    only when no layout is given.
+    only when no layout is given. A recipe (#910) belongs to the channel's optical
+    path, so a layout with one exchanges ``donor_recipe`` and ``acceptor_recipe`` too.
     """
     if layout.donor_rect is not None and layout.acceptor_rect is not None:
-        return (
+        remedy = (
             "extract this movie again with donor_rect and acceptor_rect exchanged in the "
             f"{layout.kind} channel layout (now donor_rect {list(layout.donor_rect)}, "
             f"acceptor_rect {list(layout.acceptor_rect)})"
         )
+    else:
+        remedy = (
+            f"extract this movie again with a {layout.kind} channel layout whose donor is "
+            f"{layout.acceptor}, not {layout.donor}"
+        )
+    if layout.donor_recipe is None and layout.acceptor_recipe is None:
+        return remedy
     return (
-        f"extract this movie again with a {layout.kind} channel layout whose donor is "
-        f"{layout.acceptor}, not {layout.donor}"
+        f"{remedy}, and with donor_recipe and acceptor_recipe exchanged as well (now "
+        f"donor_recipe {_recipe_text(layout.donor_recipe)}, acceptor_recipe "
+        f"{_recipe_text(layout.acceptor_recipe)})"
     )
+
+
+def _recipe_text(recipe: ChannelRecipe | None) -> str:
+    """A recipe in its text form, quoted, or ``none`` for a channel without one."""
+    return "none" if recipe is None else f"'{recipe}'"
 
 
 def check_donor_side(

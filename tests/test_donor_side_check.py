@@ -191,6 +191,7 @@ def test_correct_labels_are_silent_and_swapped_labels_warn() -> None:
 def test_with_a_channel_layout_the_remedy_changes_the_layout_not_donor_side() -> None:
     """#1157: a layout names its own donor, so the remedy must not say --donor-side."""
     from tether.imaging.layout import ChannelLayout
+    from tether.imaging.recipe import ChannelRecipe
 
     donor, acceptor = _population(np.random.default_rng(7), 25)
     flipped = check_donor_side(acceptor, donor)
@@ -212,6 +213,19 @@ def test_with_a_channel_layout_the_remedy_changes_the_layout_not_donor_side() ->
     for message in (top, bottom, side, rects):
         assert message.startswith("25 of 25 bleach events are consistent with swapped")
         assert "--donor-side" not in message
+
+    # A recipe follows its channel's optics, so it is exchanged with the channel (#910).
+    turned = flipped.describe(
+        channel_layout=ChannelLayout(
+            kind="top-bottom", donor_recipe=ChannelRecipe.parse("rotate 180")
+        )
+    )
+    assert "a top-bottom channel layout whose donor is bottom, not top" in turned
+    assert "donor_recipe and acceptor_recipe exchanged as well" in turned
+    assert "now donor_recipe 'rotate 180', acceptor_recipe none" in turned
+    for message in (top, bottom, side, rects):
+        assert "recipe" not in message
+    assert "--donor-side" not in turned
 
     # A layout changes only the swapped remedy; the other verdicts read as before.
     ok = check_donor_side(donor, acceptor)
