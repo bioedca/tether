@@ -265,7 +265,9 @@ def test_a_menu_titles_mnemonic_is_refused(launch) -> None:
     editor.select(Command(A.ACCEPT))
     mnemonic = QtGui.QKeySequence.mnemonic("&File")
     if mnemonic.count() == 0:
-        pytest.skip("this platform has no menu mnemonics (macOS)")
+        # macOS has no menu mnemonics, so no menu title claims a key there.
+        assert "File menu" not in shell._menu_chords().values()
+        return
     chord = mnemonic[0]
     problem = editor.propose(_as_int(chord.key()), _as_int(chord.keyboardModifiers()))
     assert problem is not None and "File menu" in problem
