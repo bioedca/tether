@@ -97,7 +97,7 @@ def install_file_open_handler(app: Any) -> Any:
     runs: macOS delivers the event inside that loop, and the code that opened the dialog
     continues on the open project after the dialog returns (the tMAVEN reconciliation
     dialog, for one, applies the changes it showed). Then the path waits, and the object
-    looks again every [`FILE_OPEN_RETRY_MS`][] milliseconds until the loop has ended.
+    looks again every `FILE_OPEN_RETRY_MS` milliseconds until the loop has ended.
     """
     from PySide6 import QtCore, QtWidgets
 
@@ -172,7 +172,9 @@ def create_shell(
     shows, before the import of [`tether.gui.shell`][], which is the slow part; it
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
-    ``False`` decides it explicitly.
+    ``False`` decides it explicitly. Before the shell is built, the trace colors stored
+    by **View → Trace colors** ([`tether.gui.app_settings`][]) are applied, so the
+    choice survives a restart (#636).
 
     A file-open event (macOS, [`install_file_open_handler`][]) is caught from the moment the
     ``QApplication`` exists. It opens its project after the shell is built, and after the
@@ -204,9 +206,13 @@ def create_shell(
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui import app_settings, theme
         from tether.gui.curation import default_keymap_path
         from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
+
+        # The stored View -> Trace colors choice (#636, ADR-0123); unset is the default.
+        theme.set_trace_palette(app_settings.stored_trace_colors() or theme.DEFAULT_TRACE_PALETTE)
 
         # The application remembers the session on this computer (#628, ADR-0122), and
         # starts with the keyboard shortcuts the user saved (#635).

@@ -9,3 +9,9 @@
 mkdocs==1.6.1
 mkdocs-material==9.8.1
 mike==2.2.0
+# The API reference generator (#179, ADR-0093, ADR-0111). Griffe reads src/ statically and
+# never imports tether, so these four need no part of the conda stack.
+mkdocstrings[python]==1.0.8
+mkdocstrings-python==2.0.11
+mkdocs-autorefs==1.4.5
+griffelib==2.4.1

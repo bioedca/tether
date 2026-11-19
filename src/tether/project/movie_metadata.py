@@ -78,7 +78,7 @@ class MovieMetadataRecord:
 
 
 def positive_value(value: float, name: str) -> float:
-    """Return ``value`` as a float; [`ValueError`][] unless finite and positive."""
+    """Return ``value`` as a float; `ValueError` unless finite and positive."""
     number = float(value)
     if not (math.isfinite(number) and number > 0.0):
         raise ValueError(f"{name} must be a finite positive number, got {value!r}")
@@ -161,9 +161,9 @@ def update_movie_metadata(
     ``frame_time`` (seconds) and ``pixel_size_um`` record a given value (origin
     ``user``); a given frame time is never verified. ``confirm_frame_time`` verifies
     the frame time the store holds when the file is opened, so it cannot be combined
-    with ``frame_time`` ([`ValueError`][]): the confirmation is a separate action.
+    with ``frame_time`` (`ValueError`): the confirmation is a separate action.
     Every check runs inside the one read-write open, before anything is written, so
-    a refused call ([`KeyError`][] for an unknown movie, [`ValueError`][] for a
+    a refused call (`KeyError` for an unknown movie, `ValueError` for a
     value that is not finite and positive or an unknown frame time) changes nothing.
     """
     import h5py  # noqa: PLC0415
@@ -208,7 +208,7 @@ def set_frame_time(path: str | Path, movie_id: str, seconds: float) -> MovieMeta
 def confirm_frame_time(path: str | Path, movie_id: str) -> MovieMetadataRecord:
     """Mark a movie's frame time as verified by the user (the separate action).
 
-    Refuses ([`ValueError`][]) when the frame time is unknown.
+    Refuses (`ValueError`) when the frame time is unknown.
     """
     return update_movie_metadata(path, movie_id, confirm_frame_time=True)
 
