@@ -10,7 +10,7 @@ It is applied additively,
 
     I_A,corr = I_A* − α · I_D*,
 
-on the background-subtracted (``corrected``) intensities [Lee2005][Hellenkamp2018].
+on the background-subtracted (``corrected``) intensities [Lee2005], [Hellenkamp2018].
 
 Estimating α needs a *donor-only* condition — frames where the donor emits but the
 acceptor does not, so any acceptor-channel signal is pure leakage. A dedicated

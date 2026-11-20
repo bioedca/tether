@@ -35,6 +35,10 @@ On Windows and Linux you can also start Tether from the Start menu or applicatio
 application window then shows the start page. Click **Open project…** there, choose **File → Open
 project…**, or drop the `.tether` file on the application window. A dropped file of a different type does
 not open, and the status bar says why.
+
+**File → Open recent** lists the last ten projects you opened on this computer. A project
+whose file was moved or deleted shows grayed out, with its path.
+
 When the project opens, the status bar at the bottom of the application window names it and its molecule
 count:
 
@@ -45,17 +49,53 @@ Opened movie.tether — 412 molecule(s)
 If that line ends in `(read-only)` after the file name, another writer holds the project and
 nothing you mark will be saved. Close the other writer and open the project again.
 
+The **Movie** box above the list names each movie of the project by its file name. The
+**Movie** panel on the right shows the chosen movie. A green dot marks each donor spot, and a
+red dot marks each acceptor spot. The ring around each dot is the integration aperture, at the
+radius the extraction used. To show another movie, choose it in the **Movie** box.
+
+Tether looks for each movie file at the path recorded when the traces were extracted. A
+relative path is looked up in the project's folder first. A movie whose file was moved or
+deleted shows grayed out, with `(file missing)`. A movie file whose size or modification time
+changed since extraction shows grayed out, with `(file changed since extraction)`. The status
+line then ends with, for example, `1 of 1 movie(s) not shown`.
+
+Tether does not download a movie that is only in the cloud, such as a OneDrive file. Such a
+movie shows `(file not on this disk)`. Make the file available on this computer, then open the
+project again. A project imported without spot coordinates has no movie panel.
+
+A [round-trip reconstruction](../io/legacy-import.md#round-trip-reconstruction) of a
+Deep-LASI export does not record where each channel sits in the frame. Its movie shows
+without dots, marked `(spot positions not recorded)`.
+
+A project you opened before on this computer opens at the molecule you last had selected in it.
+
 ## 2. Move from trace to trace
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
-underneath.
+(green), acceptor (magenta) and their total (gray) on top, its apparent FRET efficiency (blue)
+underneath. Readers with a red-green color-vision deficiency can tell these colors apart. For a
+red acceptor, select **View → Trace colors → Classic green and red**. See
+[Trace colors](../reference/gui-theme.md#select-the-trace-colors).
+
+The bottom panel shows the donor–acceptor cross-correlation of the trace. While the total
+intensity stays about constant, a change in FRET raises one channel and lowers the other.
+The cross-correlation at lag 0 is then below zero. A change in the total intensity can make
+it positive even when FRET changes too.
+
+The lag axis uses the unit of the time axis, seconds or frames. It spans 50 frames either
+side of 0. A trace shorter than 51 frames shows a note in that panel instead of a curve.
+So does a trace with a missing value or a constant channel.
 
 1. Press **Right arrow** or **Down arrow** for the next molecule.
 2. Press **Left arrow** or **Up arrow** for the previous one.
 3. Or click a name in the list.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
+
+The curation keys act only in the **Curate and correct** section. In **Prepare** and
+**Analyze** they change no molecule. There, **Help → Keyboard shortcuts…** lists no key. To
+curate again, choose **View → Section → Curate and correct**.
 
 The menu commands use your operating system's standard keys. Each key includes a modifier
 key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
@@ -137,10 +177,16 @@ for review ([curation label](../glossary.md#curation-label-category-quality-clas
 ## Who made each decision
 
 Every row in the curation log records a `labeler`: the name of the curator who made the
-decision. The desktop application fills it in with your login name on the computer you curate
-on, and has no field to change it.
+decision. The desktop application fills it in with your login name on this computer, unless
+you set a curator name. The status bar shows the name for new decisions, for example
+`Curator: ana`.
 
-To record a different name, make the change from Python instead, with
+To use a different name, choose **File → Curator name…** and type it. Do this on a lab
+computer that several people share under one login. Decisions you make after that carry the
+new name. Decisions already recorded keep their name. Leave the field empty to go back to your
+login name. The application keeps the name for your next session on this computer.
+
+From a script, pass the name with
 `labeler=`. For example, this script un-rejects every rejected molecule in the project and
 credits the change to `your-name`. Close the Tether application window first, then run it with the Python
 that came with Tether (`~/tether/envs/tether/bin/python` on Linux,
@@ -156,6 +202,31 @@ for key in sorted(project.rejected_molecule_keys()):
 ```
 
 `project.accept(key, labeler=…)` and `project.reject(key, labeler=…)` work the same way.
+
+## What the application remembers on this computer
+
+Between sessions the desktop application keeps these things for your user account on this
+computer:
+
+- The last ten projects you opened, for **File → Open recent**.
+- For each project, the molecule you had selected when you closed it.
+- The size of the window and the positions of its panels.
+- The curator name, if you set one.
+
+**View → Reset layout** puts the window and its panels back in their first positions. It also
+forgets the saved positions.
+
+The application writes none of this into the `.tether` file, so a project you share carries
+none of it. It keeps it in a file named `preferences.json` in your own settings folder:
+
+- Windows: `%LOCALAPPDATA%\MondragonLab\Tether\`
+- macOS: `~/Library/Application Support/MondragonLab/Tether/`
+- Linux: `~/.config/tether/`, or `$XDG_CONFIG_HOME/tether/` when that variable is set
+
+Delete that file and the application forgets all of it. Nothing else changes. Beside it sits
+an empty file, `preferences.json.lock`. It lets two open Tether windows take turns saving, so
+neither loses what the other saved. To use another
+file, set the environment variable `TETHER_PREFERENCES_FILE` to its full path.
 
 ## Next
 

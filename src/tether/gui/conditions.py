@@ -29,7 +29,7 @@ Design notes (mirroring the other [`tether.gui`][] dialogs, e.g.
 [`tether.gui.reconcile.ReconcileDialog`][]):
 
 * **Composition wrapper.** It *holds* a ``QDialog`` rather than subclassing one, and
-  imports Qt lazily inside ``__init__`` (via [`pyqtgraph.Qt`][]), so importing this
+  imports Qt lazily inside ``__init__`` (via `pyqtgraph.Qt`), so importing this
   module costs no Qt. A live ``QApplication`` (the shell / ``qtbot``) must exist to
   construct it.
 * **Writes go through the [`Project`][tether.project.core.Project]** handle, so the §5.4
@@ -94,7 +94,7 @@ def _fmt_num(value: float | None) -> str:
 def _parse_num(text: str) -> float | None:
     """Parse an editor numeric cell back to ``float | None`` (blank → ``None``).
 
-    Raises [`ValueError`][] on a non-empty, non-numeric value so a typo cannot be
+    Raises `ValueError` on a non-empty, non-numeric value so a typo cannot be
     silently coerced into the id (the never-silent contract).
     """
     stripped = text.strip()
@@ -127,7 +127,7 @@ class ConditionKeyEditor:
 
     The eight identity fields as line edits (numerics blank-for-absent). Prefilled from
     the current key when correcting a materialized condition; blank for a dangling one.
-    [`key`][] builds the edited key, raising [`ValueError`][] on a bad numeric.
+    [`key`][] builds the edited key, raising `ValueError` on a bad numeric.
     """
 
     def __init__(
@@ -231,6 +231,7 @@ class ConditionValidationDialog:
         *,
         confirm_merge: Callable[[RekeyPreview], bool] | None = None,
         writer_guard: Callable[[], object] | None = None,
+        labeler: str | None = None,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
@@ -244,6 +245,9 @@ class ConditionValidationDialog:
         #: Optional retained-session assertion supplied by TetherShell. Standalone
         #: dialogs keep the Project mutators' normal identity-only guard.
         self._writer_guard = writer_guard
+        #: The curator name a re-key's audit entry carries (#628); ``None`` lets the
+        #: project default it to the operating-system user, as before.
+        self._labeler = labeler
         #: ``condition_id`` per table row, in row order (the table shows summaries).
         self._row_ids: list[str] = []
 
@@ -357,6 +361,7 @@ class ConditionValidationDialog:
             from_condition_id,
             to_key,
             confirm=preview.is_merge,
+            labeler=self._labeler,
             reason="GUI condition validation",
         )
         self.refresh()

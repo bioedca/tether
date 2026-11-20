@@ -19,7 +19,7 @@ to `PATH`. On Linux and macOS that folder is not Tether's. It is the `bin` of co
 **base** env, the python + conda bootstrap of
 [ADR-0049](0049-m9-packaging-constructor-architecture.md), and on an rc1 Linux install it held
 121 entries: `python`, `python3`, `pip`, `conda`, `activate`, `openssl` and the rest (issue
-#492). A user who put the folder first on `PATH`, the usual way to write that line, got the
+\#492). A user who put the folder first on `PATH`, the usual way to write that line, got the
 bootstrap's `python`, `pip` and `conda` in place of their own. A user who put it last and had
 none of their own got the bootstrap's copies under those names. The install guide told users to
 append the folder and said why; that was a mitigation, not a fix.

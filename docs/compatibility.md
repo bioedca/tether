@@ -89,9 +89,23 @@ stacked and not rotated, with the donor `top` or `bottom`. A `rectangles` layout
 size, so a layout that gives two different sizes is refused. A rectangle outside the frame is
 refused too, and overlapping rectangles give a warning.
 
-Each movie's layout is stored as `/movies/layouts/<movie_id>` in the project. There is no
-command-line option for a layout yet, and no rotation or flip of a channel; a movie whose two
-channels are separate files is not supported yet either.
+A channel that the optics turn or mirror takes a recipe (#910,
+`tether.imaging.recipe.ChannelRecipe`): `ChannelLayout(donor_recipe=…, acceptor_recipe=…)`. A recipe is an ordered list of steps
+that run on the channel's cut: `rotate` by 90, 180 or 270 degrees clockwise, `flip` the rows
+(`v`), the columns (`h`) or both, `translate` by whole pixels, and `crop`. No step resamples a
+pixel. A `translate` leaves part of the channel empty, so a later `crop` must remove that part,
+or the recipe is refused. After the recipes the two channels must be the same size. With a
+recipe, two `rectangles` of different size are allowed when the recipes make the channels equal.
+
+Each movie's layout, with its recipes, is stored as `/movies/layouts/<movie_id>` in the project.
+There is no command-line option for a layout or a recipe yet, and an extraction profile cannot
+hold a recipe yet; a movie whose two channels are separate files is not supported yet either.
+
+A movie whose frames cannot hold the channel geometry of its `--tmap` or `--map` is refused
+before it is split, and the message names the movie's frame size and the geometry of both
+channels of the map. That is how a movie turned by 90 degrees against a map made on non-square
+frames is caught (#887). A square movie turned by 90 degrees has the same frame size as its map,
+so this check cannot see it.
 
 **`--donor-side` is a `tether extract` flag only.** The headless batch runner (`tether
 batch`) does not expose it: its service command, [`tether.services.batch.run`](https://github.com/bioedca/tether/blob/main/src/tether/services/batch.py), builds its `MovieJob`s without an `ExtractOptions`,
@@ -100,26 +114,30 @@ donor on the right, run it through `tether extract` per movie, supply a `.tmap` 
 reference channel then defines donor), or drive `tether.project.batch.run_batch` from Python
 with `extract_options=ExtractOptions(donor_side="right")`.
 
-With `--tmap`, the split instead comes from an imported Deep-LASI map's own per-channel
-crops, and `--donor-side` is ignored — donor is the map's reference channel. **Crop is the
-only geometry imported.** Deep-LASI's `processImage` rotates and flips *before* cropping,
-and the imported path does not apply either yet, so
-[`tether.project.extract._imported_registration_map`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py) refuses a `.tmap` whose channels carry
-a non-identity `Rotation` or `Flip` rather than splitting at the wrong frame — the
-`ExtractionError` names the channels and says the imported path "does not yet apply (only
-crop geometry is honored); re-run without `--tmap` to use a native fit"
-([`tests/test_extract_cli.py::test_extract_imported_tmap_nonidentity_geometry_refused`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
-covers both axes). Empty or all-zero `Rotation`/`Flip` — what the reference UCKOPSB map
-stores — is the supported case (`RegistrationChannel.has_simple_geometry` in
-`tether.imaging.register`).
+With `--tmap`, the split comes from the imported Deep-LASI map's own per-channel geometry
+instead. `--donor-side` is ignored, because donor is the map's reference channel.
+Deep-LASI's `processImage` turns each channel by its `Rotation` (0, 90, 180 or 270
+degrees, clockwise). It then mirrors the channel by its `Flip` (`[v, h]`: rows, then
+columns) and crops it in that turned frame. The `.tmap` polynomials were fitted in that
+frame. Tether splits the movie in the same three steps and records each channel's
+rotation and flip in `/movies` next to its crop.
+
+So a turned movie gives the same molecules as an unturned movie of the same scene
+([`tests/test_extract_cli.py::test_extract_imported_tmap_applies_rotation_and_flip`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
+covers every rotation and flip, on either channel; #559). A `Rotation` or `Flip` that
+`processImage` could not have applied is refused with "could not use --tmap". That is an
+angle other than 0, 90, 180 or 270, or a flip value other than 0 or 1. Empty or all-zero
+values, which the reference UCKOPSB map stores, split by the crop alone. This is tested
+on synthetic movies only, since the reference data holds no real `.tmap` with a rotation
+or a flip.
 
 > ### Getting `--donor-side` backwards raises no error, and relabeling afterwards will not fix it
 >
 > **A wrong `--donor-side` raises no error during extraction.** Both values are legal, so
 > extraction succeeds and every trace looks plausible.
 >
-> It is worse than a mislabeling. Spot detection is **donor-anchored**: Tether finds spots
-> in the half you called donor and colocalizes the other channel against them. Get it
+> It is worse than a mislabeling. Spot detection is **anchored on the donor half**: Tether
+> finds spots in the half you called donor and colocalizes the other channel against them. Get it
 > backwards and you have anchored on the acceptor half, so the molecule *set* itself is
 > different. You cannot repair the project by swapping the column names afterwards, and you
 > cannot repair the efficiencies by taking `1 − E` — that is only a clean mirror for the

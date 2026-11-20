@@ -31,7 +31,7 @@ from tether.analysis.selection import MoleculeSelection, resolve_selection  # no
 
 REPO = Path(__file__).resolve().parents[1]
 
-#: The fifteen population entry points (#369).
+#: The population entry points: the fifteen of #369, and the successive-frame cloud (#710).
 ENTRY_POINTS = (
     "population_apparent_e_histogram",
     "population_apparent_e_histogram_ci",
@@ -48,6 +48,7 @@ ENTRY_POINTS = (
     "population_transition_prob_histogram",
     "population_transition_sync_histogram2d",
     "population_model_gaussian_overlay",
+    "population_successive_frame_cloud",
 )
 
 #: The six that read ``/idealization`` and so take ``include_stale``.
@@ -137,7 +138,7 @@ def test_the_fifteen_are_every_population_entry_point() -> None:
         n for n in ta.__all__ if n.startswith("population_") or n.startswith("per_condition_")
     }
     assert exported == set(ENTRY_POINTS)
-    assert len(ENTRY_POINTS) == 15
+    assert len(ENTRY_POINTS) == 16
     assert set(ENTRY_POINTS) >= READS_IDEALIZATION and len(READS_IDEALIZATION) == 6
 
 

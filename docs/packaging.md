@@ -22,8 +22,7 @@ required at install time.
 - The **Tether application environment** (installed under `envs/tether`) — the PySide6 shell,
   the pyqtgraph trace docks and the compute/IO stack — pinned to Tether's committed lock so
   every install is byte-for-byte reproducible. It also holds [napari](https://napari.org) for
-  the movie panel, which reaches the application with the planned
-  [trace curation section](https://github.com/bioedca/tether/milestone/18).
+  the application's movie panel.
 - An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`), which runs
   every idealization fit: the application's one-trace fit on the **I** key, the
   whole-project consensus VB-HMM fit of [`tether batch`](cli.md#tether-batch), and the
@@ -34,7 +33,7 @@ required at install time.
 - Two **launchers**, `tether` and `tether-gui` (`tether.bat` and `tether-gui.bat` on Windows),
   in a `launchers` folder in the install root. That folder holds nothing else, so it is the one
   folder you add to your `PATH`
-  ([Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)).
+  ([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)).
   Installers up to and including 1.0.0-rc3 put the launchers in the install root's `bin`
   folder instead. On Linux and macOS that folder also holds the bootstrap's own `python`, `pip`
   and `conda`

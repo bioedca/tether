@@ -45,7 +45,7 @@ brings it to the application.
 
 - **Open and browse.** **File → Open project…** opens a `.tether` project. A **pyqtgraph**
   trace dock shows each molecule's donor, acceptor and total intensity over its apparent FRET
-  efficiency, with marginal histograms. The movie list holds one fixed entry.
+  efficiency, with marginal histograms.
 - **Curation.** Keyboard-driven accept, reject and un-reject. Each decision is written to the
   project with who made it and when.
 - **Neighbor view.** The selected molecule's cached image patch and the distance to its
@@ -61,6 +61,10 @@ brings it to the application.
   projects.
 - **Population histogram.** The apparent-FRET histogram of the project, with rejected
   molecules left out.
+- **Movie panel.** A **napari** movie panel in the application window shows the project's
+  movies with their donor and acceptor spots. A movie switcher lists the project's movies. A
+  missing or changed movie file is listed but not shown. A movie with no recorded geometry has
+  no spots.
 
 ### From the command line today
 
@@ -102,8 +106,6 @@ links a how-to guide, that guide shows the script; the quality ranker has no how
 
 ### Not in Tether yet
 
-- **Movie panel.** A **napari** movie panel in the application window, with a movie switcher
-  filled from the project ([#356](https://github.com/bioedca/tether/issues/356), M16).
 - **Trace ⇄ movie round trip.** Click a trace → jump to its spot, click a spot → open its
   trace, across many movies ([#357](https://github.com/bioedca/tether/issues/357), M16). The
   project already stores the spot each trace came from.
@@ -154,6 +156,9 @@ The installer does **not** edit your `PATH`. It writes both launchers into
 also adds a **Tether** entry to the Start Menu or applications menu. From the next release
 the launchers are in `<install-root>/launchers/` instead, a folder that holds only them
 ([#492](https://github.com/bioedca/tether/issues/492)); read `launchers` for `bin` below.
+From the next release the Windows Start Menu also has **Tether Command Prompt**, a console in
+which `tether` works with no `PATH` change
+([#666](https://github.com/bioedca/tether/issues/666)).
 
 Open the desktop application from that menu entry, or run the application-window launcher:
 
@@ -180,7 +185,7 @@ every other flag, and `tether batch`.
 
 ## Documentation
 
-- **User manual:** https://bioedca.github.io/tether/ — use the version selector to
+- **User manual:** <https://bioedca.github.io/tether/> — use the version selector to
   match your installed release.
 - **First run:** [Your first analysis](https://bioedca.github.io/tether/latest/tutorial/) —
   a guided tutorial on a sample movie, from extraction to an exported table.

@@ -1916,7 +1916,7 @@ def test_run_correct_stage_carries_guard_into_every_writer(tmp_path: Path, monke
 
     def gamma_stub(project_path, *, write_guard=None):
         observed.append(("gamma", write_guard))
-        return SimpleNamespace(applied=True, gamma=1.2)
+        return SimpleNamespace(applied=True, gamma=1.2, few_clean_steps=False)
 
     def corrected_stub(project_path, *, write_guard=None):
         observed.append(("corrected", write_guard))
@@ -1940,6 +1940,49 @@ def test_run_correct_stage_carries_guard_into_every_writer(tmp_path: Path, monke
         ("corrected", guard),
     ]
     assert "3 corrected" in detail
+
+
+@pytest.mark.parametrize("few", [True, False])
+def test_correct_stage_detail_flags_a_gamma_from_few_clean_steps(
+    tmp_path: Path, monkeypatch, few: bool
+) -> None:
+    """A γ resting on few clean steps is named in the stage detail and flagged (ADR-0134)."""
+    from tether.project import correct as correct_module
+    from tether.project import gamma as gamma_module
+    from tether.project import leakage as leakage_module
+    from tether.project import photobleach as photobleach_module
+
+    path = tmp_path / "shape.tether"
+    create_project(path)
+    monkeypatch.setattr(
+        photobleach_module,
+        "compute_photobleach",
+        lambda p, **kw: SimpleNamespace(n_donor_bleached=1, n_acceptor_bleached=1),
+    )
+    monkeypatch.setattr(
+        leakage_module,
+        "compute_leakage_alpha",
+        lambda p, **kw: SimpleNamespace(applied=True, alpha=0.1),
+    )
+    monkeypatch.setattr(
+        gamma_module,
+        "compute_gamma",
+        lambda p, **kw: SimpleNamespace(
+            applied=True, gamma=1.873, few_clean_steps=few, n_step_clean=20, n_step_evaluated=45
+        ),
+    )
+    monkeypatch.setattr(
+        correct_module,
+        "compute_corrected_fret",
+        lambda p, **kw: SimpleNamespace(total_failure=False, apparent_e_only=False, n_corrected=3),
+    )
+    detail = run_correct_stage(path)
+    assert "γ=1.873" in detail
+    if few:
+        assert "γ from few clean steps: 20 of 45 (flagged)" in detail
+    else:
+        assert "clean steps" not in detail
+        assert "(flagged)" not in detail
 
 
 def test_integration_real_correct_stage_withheld_alpha(tmp_path: Path) -> None:
@@ -2021,10 +2064,28 @@ def test_sidecar_unavailable_defers_idealization(tmp_path: Path) -> None:
         assert r.stages[STAGE_CORRECT].status == STATUS_DONE
         assert r.stages[STAGE_IDEALIZE].status == STATUS_DEFERRED
         assert r.ok  # deferred is not a movie failure
+        assert r.deferred == [STAGE_IDEALIZE]
     assert summary.n_failed == 0
+    assert summary.n_deferred == 2  # #647: the count `tether batch` exits 3 on
+    assert summary.deferred_by_stage() == {STAGE_IDEALIZE: 2}
     report = summary.format_report()
     assert "idealize=deferred" in report
+    assert "Deferred: idealize in 2 of 2 movie(s)" in report
     assert "FAIL" not in report
+
+
+def test_idealize_not_requested_is_never_counted_deferred(tmp_path: Path) -> None:
+    """A stage the user did not ask for is ``not-requested``, not ``deferred`` (#647)."""
+    summary = _run(
+        _jobs(tmp_path, "a"),
+        idealize=False,
+        supervision=SidecarSupervision(),
+        _probe=_probe_unavailable,
+        _idealize=_raising_idealize,
+    )
+    assert summary.n_deferred == 0
+    assert summary.deferred_by_stage() == {}
+    assert "Deferred:" not in summary.format_report()
 
 
 def test_deferred_idealization_resumes_when_sidecar_returns(tmp_path: Path) -> None:

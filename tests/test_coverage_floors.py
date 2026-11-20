@@ -216,3 +216,24 @@ def test_the_documented_coverage_command_selects_the_ci_tests():
     docs = pattern.findall((_REPO / "CONTRIBUTING.md").read_text(encoding="utf-8"))
     assert len(ci) == 1 and len(docs) == 1
     assert docs == ci
+
+
+def test_the_documented_matrix_commands_select_the_ci_tests():
+    """Issue #882: every marker expression CONTRIBUTING.md documents excludes what CI excludes.
+
+    The two "exactly what the required ``test`` matrix runs" commands must equal the ``test``
+    job's expression, and the skip-Qt command must be that expression with ``not gui`` in front,
+    so a tier added to (or dropped from) the CI exclusion fails here until the docs follow.
+    """
+    ci_text = (_REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    ci = set(re.findall(r'pytest -v -m "([^"]+)"', ci_text))
+    assert len(ci) == 1, f"the test job's pytest lines disagree: {sorted(ci)}"
+    (expected,) = ci
+    docs = re.findall(
+        r'pytest -m "([^"]+)"', (_REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    )
+    matrix = [e for e in docs if e.startswith("not large ")]
+    skip_qt = [e for e in docs if e.startswith("not gui ")]
+    assert len(matrix) == 3, docs  # setup block, Test tiers block, Coverage floors block
+    assert matrix == [expected] * 3
+    assert skip_qt == [f"not gui and {expected}"]

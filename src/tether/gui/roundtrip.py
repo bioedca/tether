@@ -209,7 +209,7 @@ class RoundTripIndex:
 class MoviePanelLike(Protocol):
     """The slice of `NapariMoviePanel` the navigator drives.
 
-    Declared as a [`Protocol`][typing.Protocol] so [`RoundTripNavigator`][] stays
+    Declared as a `Protocol` so [`RoundTripNavigator`][] stays
     Qt-free and testable with a lightweight fake, while the real napari panel
     satisfies it structurally.
     """

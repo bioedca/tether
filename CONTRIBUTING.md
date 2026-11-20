@@ -95,8 +95,14 @@ never merge, release, or declare a PR ready while required checks are red or pen
   pre-commit run --all-files
   ```
 
-  Hooks include `ruff` (lint + format), `reuse lint` (SPDX/REUSE licensing), and
-  secret/large-file guards (PRD §12.6, §12.9).
+  Hooks include `ruff` (lint + format), `reuse lint` (SPDX/REUSE licensing),
+  secret/large-file guards (PRD §12.6, §12.9), and two documentation linters:
+  `markdownlint-cli2` for the Markdown structure (settings in `.markdownlint-cli2.yaml`)
+  and `codespell` for misspellings in prose and code comments (settings in `.codespellrc`).
+  When `codespell` flags a word that is correct, such as a name, an abbreviation or an
+  identifier, add the word in lowercase on its own line in `.codespell-ignore` and keep
+  the list sorted. Do not rename an identifier for it, and do not add a per-line ignore
+  comment.
 - Run the **small-fixture** test suite locally; GUI tests run headless with
   `QT_QPA_PLATFORM=offscreen`:
 
@@ -110,7 +116,7 @@ never merge, release, or declare a PR ready while required checks are red or pen
   python -m pip install "pytest==9.1.1" "pytest-qt==4.5.0" "markdown-it-py==4.2.0"
 
   # exactly what the required `test` matrix runs (see Test tiers below)
-  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation"
+  QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
   ```
 
   Large/gated fixtures are exercised only by the scheduled `large-fixtures.yml`
@@ -120,8 +126,8 @@ never merge, release, or declare a PR ready while required checks are red or pen
 
 A bare `pytest` runs **everything**, marked included — `-m` is a filter, not a default.
 The required matrix is therefore an explicit *exclusion*: it runs unmarked **and** `gui`
-tests, and excludes only the four tiers that need something CI does not have. Three of
-those have their own workflow; the fourth runs in no CI job at all:
+tests, and excludes only the five tiers that need something CI does not have. Four of
+those have their own workflow; the fifth runs in no CI job at all:
 
 | marker | needs | where it runs |
 |---|---|---|
@@ -130,25 +136,34 @@ those have their own workflow; the fourth runs in no CI job at all:
 | `sidecar` | a live tMAVEN env (`$TETHER_SIDECAR_PYTHON`) | `sidecar.yml` — never the required matrix |
 | `deep` | the isolated torch stack (`deep/conda-lock.yml`) | `deep.yml` / `deep-gpu.yml` — advisory |
 | `large` | the gated large-fixture tier | `large-fixtures.yml` — scheduled |
+| `reference_download` | network access to download the `download` tier of `tests/reference_data/manifest.toml` | `reference-data.yml` — weekly, the required matrix makes no network call ([ADR-0073](docs/adr/0073-one-manifest-for-reference-data-sets.md)) |
 | `workstation` | private laboratory data (`$TETHER_PRIVATE_DATA`) | no CI job — `scripts/workstation/run_private_checks.py` on the maintainer's workstation ([ADR-0071](docs/adr/0071-private-data-checks-run-from-a-workstation-task.md)) |
 
 ```bash
 # The required matrix, verbatim — ci.yml runs this on all three OSes
 # (Linux wraps it in `xvfb-run -a`; QT_QPA_PLATFORM=offscreen is the local equivalent).
-QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation"
+QT_QPA_PLATFORM=offscreen pytest -m "not large and not sidecar and not deep and not workstation and not reference_download"
 
 QT_QPA_PLATFORM=offscreen pytest -m gui    # just the GUI tier
 
 # Skip Qt. The optional tiers must be excluded here too — `not gui` on its own still
-# selects deep/sidecar/large, and the deep tests import torch, which the base lock
-# does not carry.
-pytest -m "not gui and not large and not sidecar and not deep and not workstation"
+# selects deep/sidecar/large/reference_download, and the deep tests import torch, which
+# the base lock does not carry.
+pytest -m "not gui and not large and not sidecar and not deep and not workstation and not reference_download"
 ```
 
 The shell keyboard-shortcut tests in `tests/test_shell_basics.py` need a window that
 the platform plugin activates. Where it does not, they skip, unless
 `TETHER_REQUIRE_WINDOW_ACTIVATION=1` is set: then they fail. The required `test` job sets
 it on all three operating systems, so that gate cannot go green without the key path (#855).
+
+A GUI test that needs a shell asks for the `section_shell` fixture (`tests/conftest.py`,
+built on `tests/_gui_harness.py`): `section_shell("analyze")` returns a shell showing that
+section over a writable temporary `.tether`, and `project=False` gives a bare one. When the
+test ends the fixture closes every shell it built and fails the teardown if a session lock,
+the curation event filter or a `_GUI_PROJECT_OWNERS` entry survived. A new section joins
+`SECTION_IDS` there, so `tests/test_gui_section_contract.py` runs on it, and joins
+`VIEWER_SECTIONS` too if it builds a napari `Viewer`, which macOS offscreen cannot draw (#344).
 
 `--strict-markers` rejects an *unregistered* marker, which catches `-m deepp`. It does
 **not** protect a negated expression: `-m "not largge"` is a perfectly valid filter that
@@ -255,7 +270,7 @@ cannot see, on all three operating systems:
   them. An unlisted form it can detect, and that could change its verdict, fails with
   `unsupported Markdown form, the checker cannot vouch for it` and the file and line:
   rewrite the page in a listed form. Any other unlisted form is not guaranteed; known
-  gaps are tracked in #515.
+  gaps are tracked in #1013.
 - `tests/test_docs_examples.py` checks that every `from tether…` / `import tether…` line
   in a `python` fence names a real module and object, by reading the source — it never
   imports, so a deep-stack example resolves without torch. The fence must open and close
@@ -340,6 +355,9 @@ modes are silent:
   under embargo into a third-party service, confirm your group's policy *and* that
   service's data-retention terms. This repository is public, but not everything in your
   working tree is.
+
+Fill the `AI assistance:` line of the pull-request template: write `none`, or the tool that
+drafted the change and its model where the tool reports it.
 
 Cloud reviewers process PR diffs according to the review lane in `AGENTS.md`; this is
 third-party processing. Do not open a PR until its contents are safe to send.
