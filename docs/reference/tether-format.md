@@ -230,11 +230,19 @@ additive rule in practice: your reader should expect unknown root attributes.
 ## `/movies` — one row per source movie
 
 Group holding `/movies/table`, a resizable 1-D compound dataset (`MOVIES_DTYPE`,
-20 fields). Rows are appended by `write_extraction`; re-appending an existing
-`movie_id` is refused. A new trace generation of a movie (`write_generation`) changes the
-movie's row in place to the new generation's inputs and keeps its `frame_time`. The
-previous row is kept in [the generation archive](#generations-the-trace-generations-of-each-movie). `file_size` + `mtime` + `offline_flag` are the
-**metadata-only fast signature**: a relocation/staleness check that reads zero bytes
+20 fields). `write_extraction` appends one row per movie. `extract_movie` writes the first row
+of a new project, and `add_movie_to_project` (`src/tether/project/extract.py`) appends each
+later movie. A Deep-LASI acquisition goes in through `reconstruct_project` and
+`add_reconstruction_to_project` (`src/tether/project/reconstruct.py`).
+
+Re-appending an existing `movie_id` is refused. `add_movie_to_project` also refuses a movie
+whose `sha256` is already in a row, and `write_extraction` refuses any molecule whose
+`molecule_key` is already in `/molecules`
+([ADR-0117](../adr/0117-a-movie-is-appended-to-a-project-once-under-its-writer-lock.md)).
+For a new trace generation, `write_generation` updates the movie's row in place
+with the new inputs and keeps its `frame_time`. The previous row stays in
+[the generation archive](#generations-the-trace-generations-of-each-movie).
+`file_size` + `mtime` + `offline_flag` are the **metadata-only fast signature**: a relocation/staleness check that reads zero bytes
 of the movie and therefore never hydrates a cloud placeholder.
 
 | Field | Type | Shape | Meaning / units |

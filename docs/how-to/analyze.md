@@ -21,9 +21,8 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
 - The molecules of one experimental condition. Each plot pools every molecule the analysis
   admits, whatever its condition, so a plot of one condition needs a project, or a
   `molecule_keys` selection, that holds only the molecules of that condition. A project can
-  hold more than one condition. A project made by `tether extract` or `tether batch` holds
-  one movie, and every molecule in it gets the one provisional condition parsed from the
-  movie's filename, so make sure that the movie holds molecules of one condition only. Run
+  hold more than one condition. Every molecule gets the provisional condition parsed from its
+  movie's filename, so make sure that each movie holds molecules of one condition only. Run
   the script for each project in that project's own folder, so one project's figures do not
   overwrite another's.
 - Your movie's frame time in seconds. Dwell times and rates come out **per frame** unless
@@ -53,10 +52,7 @@ Save this as `plots.py` beside the project, set `dt` to your frame time, and run
 Tether's Python. Each analysis takes its settings from one dictionary, and the same
 dictionary goes into the figure's provenance file, so the record names every setting that
 made the plot. `molecule_keys=None` means every molecule the analysis admits; to analyze only
-some, put their keys there, so the record names them too. A key selects every molecule that
-carries it, and a movie file added to the project twice gives both copies the same keys, so
-there a key counts the molecule twice and the record cannot show it. Select by key only in a
-project that holds each movie file once:
+some, put their keys there, so the record names them too:
 
 ```python
 from tether.analysis.dwell import population_dwell_times
@@ -167,10 +163,10 @@ the molecules. The resampling is seeded, so the band is the same every time the 
    `dt = 1` ([`dt`](../reference/parameters.md#param-dt)). With a frame time of exactly
    1 second the axis still says frames, but the numbers are the same, and the printed rates
    are per second either way. One `dt` applies to every molecule, so it
-   is right only when they all come from movies recorded at that frame time. A project from
-   one `tether extract` run holds one movie; if yours combines movies recorded at different
-   frame times, run the script once per frame time, with that frame time as `dt` and those
-   molecules as `molecule_keys` in `dwell_settings`. Give each run's dwell files names of
+   is right only when they all come from movies recorded at that frame time. If your project
+   holds movies recorded at different frame times, run the script once per frame time, with
+   that frame time as `dt` and those molecules as `molecule_keys` in `dwell_settings`. Give
+   each run's dwell files names of
    their own, for example `f"dwell-100ms-state-{state}"` in place of `f"dwell-state-{state}"`,
    because a run that reuses a name overwrites the files the earlier run wrote.
 4. The script prints one rate for each state whose fit succeeded, from the
