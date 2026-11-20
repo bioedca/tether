@@ -483,8 +483,8 @@ def export_figure(
         ``"series"``: one record for each series, in figure order, with its ``label``,
         its ``result`` type, the ``parameters`` that result carries and its ``display``
         record. To record more for each series (the selection, its levers, its frame
-        time), pass ``parameters["series"]`` as a list of one dict per series. Each dict
-        is merged into the record of its series, and may not contradict it.
+        time), pass ``parameters["series"]`` as one dict per series in a list or tuple.
+        Each dict is merged into the record of its series and may not contradict it.
     title : str or None, optional
         The title in the document metadata. The default ``None`` uses
         ``tether_export``.
@@ -492,8 +492,8 @@ def export_figure(
         The formats to write, a subset of ``("pdf", "svg", "png")``. The default
         [`DEFAULT_PLOT_FORMATS`][] writes all three.
     dpi : int, optional
-        The PNG resolution, in dots per inch. The vector formats ignore it. The default
-        is [`DEFAULT_EXPORT_DPI`][] (200 dots per inch).
+        The resolution in dots per inch for PNG and rasterized content within PDF or SVG.
+        The default is [`DEFAULT_EXPORT_DPI`][] (200 dots per inch).
     stamp : bool, optional
         Whether to draw the visible provenance footer on the figure. The default is
         ``True``.
@@ -513,10 +513,10 @@ def export_figure(
     ------
     ValueError
         If ``formats`` is empty or names a format other than ``"pdf"``, ``"svg"`` or
-        ``"png"``; if ``parameters["display"]`` is not a dict or contradicts how the
-        figure was drawn; or, for a figure of several series, if
-        ``parameters["series"]`` is not a list of one dict per drawn series or one of
-        its dicts contradicts the record of its series.
+        ``"png"``. A non-``None`` ``parameters["display"]`` value must be a dict and
+        agree with the figure. For a named-series figure, ``parameters["series"]``
+        must be ``None`` or a list or tuple with one dict per drawn series.
+        Each dict must agree with that series as drawn.
 
     Examples
     --------
@@ -966,8 +966,8 @@ def render_histogram1d(
     overlay : ModelGaussianOverlay or None, or sequence of them, optional
         A [`ModelGaussianOverlay`][tether.analysis.histogram.ModelGaussianOverlay] to draw
         over the histogram: the Gaussian of each state of the idealized model, and their
-        sum. For several series, a sequence of one overlay (or ``None``) per series, in
-        series order. The default ``None`` draws no overlay.
+        sum. With a series sequence, pass one overlay (or ``None``) per series,
+        in series order. The default ``None`` draws no overlay.
     title : str, optional
         The axes title. The default is ``"FRET-efficiency histogram (A1)"``.
     figsize : tuple of float or None, optional
@@ -983,12 +983,12 @@ def render_histogram1d(
     Raises
     ------
     ValueError
-        If ``hist`` is an empty sequence, or a series label is empty or used twice, or if
-        two series differ in their bin edges, value range or density normalization, or one
-        overlay is given for several series.
+        If the series sequence is empty, a label is blank, repeated or not a string, or
+        bin edges, value ranges, or density normalization differ. An overlay sequence
+        must have one entry per series. One overlay cannot serve several series.
     TypeError
         If ``hist`` is neither a histogram nor an ordered sequence of ``(label, histogram)``
-        pairs.
+        pairs, or ``overlay`` is outside the types described above.
 
     Examples
     --------
@@ -2752,7 +2752,7 @@ def render_alpha_shape(
         The [`RawFretCloud`][tether.analysis.cloud.RawFretCloud] that the shape was
         computed from. When it is given, its points are drawn underneath (thinned to
         ``max_points``), its ranges set the axis limits, and its ``time_dt`` sets the
-        time unit. For several series, a sequence of one cloud (or ``None``) per series,
+        time unit. With a series sequence, pass one cloud (or ``None``) per series,
         in series order. The default ``None`` draws the boundary alone.
     time_dt : float or None, optional
         The frame duration of the time coordinate of the shape, in seconds per frame.
@@ -2777,12 +2777,12 @@ def render_alpha_shape(
     Raises
     ------
     ValueError
-        If ``shape`` is an empty sequence, or a series label is empty or used twice, or if
-        ``time_dt`` is given and is not the ``time_dt`` of a given ``cloud``; or, for
-        several series, one cloud is given for all of them, or two series differ in their
-        frame time or (where both have a cloud) their time or signal range.
+        If the series sequence is empty, a label is blank, repeated or not a string, or
+        ``time_dt`` contradicts a cloud. A cloud sequence must match the series count,
+        and a single cloud cannot serve several series. Series must share a frame time.
+        Any two series with clouds must also share time and signal ranges.
     TypeError
-        If ``shape`` is neither a shape nor an ordered sequence of ``(label, shape)`` pairs.
+        If ``shape`` or ``cloud`` is outside the types described above.
 
     Examples
     --------
