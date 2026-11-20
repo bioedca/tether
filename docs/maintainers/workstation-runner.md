@@ -160,6 +160,13 @@ cron starts a command with a short `PATH`, so give the full path of `micromamba`
 cron runs only while the WSL distribution runs and its cron service is on (`systemd=true` in
 `/etc/wsl.conf`, or `sudo service cron start`). The Windows task is the more reliable method.
 
+### Checking the deep interpreter
+
+Pass `--deep-python <path to Python>` to check CUDA in an existing isolated deep environment.
+The runner records `deep/cuda` as failed when PyTorch sees no CUDA device and as an error if it
+cannot run the probe. This option also works with `--dry-run`. The base and sidecar environments
+do not run the probe, and the committed `deep/conda-lock.yml` selects CPU-only PyTorch.
+
 ## Read a result
 
 Each run writes `<state>/results/<UTC time>-<commit>.json`. To see the newest one:
