@@ -717,9 +717,9 @@ class Project:
         >>> import tempfile
         >>> from pathlib import Path
         >>> import h5py
-        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-        >>> project = Project.create(path)
-        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
         ...     table = f["movies/table"]
         ...     table.resize((1,))
         ...     row = table[0]
@@ -755,7 +755,7 @@ class Project:
         Raises
         ------
         tether.project.lock.LockedError
-            If another writer holds the file (§5.4).
+            If the project's writer lock blocks the operation (§5.4).
         KeyError
             If no ``/movies`` row has ``movie_id``.
         ValueError
@@ -766,9 +766,9 @@ class Project:
         >>> import tempfile
         >>> from pathlib import Path
         >>> import h5py
-        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-        >>> project = Project.create(path)
-        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
         ...     table = f["movies/table"]
         ...     table.resize((1,))
         ...     row = table[0]
@@ -803,7 +803,7 @@ class Project:
         Raises
         ------
         tether.project.lock.LockedError
-            If another writer holds the file (§5.4).
+            If the project's writer lock blocks the operation (§5.4).
         KeyError
             If no ``/movies`` row has ``movie_id``.
         ValueError
@@ -814,9 +814,9 @@ class Project:
         >>> import tempfile
         >>> from pathlib import Path
         >>> import h5py
-        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-        >>> project = Project.create(path)
-        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
         ...     table = f["movies/table"]
         ...     table.resize((1,))
         ...     row = table[0]
@@ -839,12 +839,12 @@ class Project:
         pixel_size_um: float | None = None,
         confirm_frame_time: bool = False,
     ) -> MovieMetadataRecord:
-        """Apply several metadata changes to one movie in one all-or-nothing write.
+        """Apply several metadata changes to one movie.
 
         Delegates to
         [`movie_metadata.update_movie_metadata`][tether.project.movie_metadata.update_movie_metadata]
         after the single-writer check. A given value gets the origin ``user``, and a
-        given frame time is never verified; a refused call changes nothing.
+        given frame time starts unverified. A validation error leaves the record untouched.
 
         Parameters
         ----------
@@ -867,7 +867,7 @@ class Project:
         Raises
         ------
         tether.project.lock.LockedError
-            If another writer holds the file (§5.4).
+            If the project's writer lock blocks the operation (§5.4).
         KeyError
             If no ``/movies`` row has ``movie_id``.
         ValueError
@@ -880,9 +880,9 @@ class Project:
         >>> import tempfile
         >>> from pathlib import Path
         >>> import h5py
-        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-        >>> project = Project.create(path)
-        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
         ...     table = f["movies/table"]
         ...     table.resize((1,))
         ...     row = table[0]
@@ -926,7 +926,7 @@ class Project:
         Raises
         ------
         tether.project.lock.LockedError
-            If another writer holds the file (§5.4).
+            If the project's writer lock blocks the operation (§5.4).
         KeyError
             If no ``/movies`` row has ``movie_id``.
         ValueError
@@ -937,9 +937,9 @@ class Project:
         >>> import tempfile
         >>> from pathlib import Path
         >>> import h5py
-        >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-        >>> project = Project.create(path)
-        >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+        >>> from tether.project.core import Project
+        >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+        >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
         ...     table = f["movies/table"]
         ...     table.resize((1,))
         ...     row = table[0]

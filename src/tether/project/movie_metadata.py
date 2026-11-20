@@ -160,15 +160,15 @@ def read_movie_metadata(path: str | Path) -> dict[str, MovieMetadataRecord]:
     >>> from pathlib import Path
     >>> import h5py
     >>> from tether.project.core import Project
-    >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-    >>> project = Project.create(path)
-    >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+    >>> from tether.project.movie_metadata import read_movie_metadata
+    >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+    >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
     ...     table = f["movies/table"]
     ...     table.resize((1,))
     ...     row = table[0]
     ...     row["movie_id"] = "mov-1"
     ...     table[0] = row
-    >>> records = read_movie_metadata(path)
+    >>> records = read_movie_metadata(project.path)
     >>> sorted(records)
     ['mov-1']
     >>> records["mov-1"].frame_time, records["mov-1"].frame_time_origin
@@ -188,14 +188,14 @@ def update_movie_metadata(
     pixel_size_um: float | None = None,
     confirm_frame_time: bool = False,
 ) -> MovieMetadataRecord:
-    """Apply a user's changes to one movie in a single write, all or nothing.
+    """Apply a user's metadata changes to one movie.
 
     A given ``frame_time`` or ``pixel_size_um`` gets the origin ``user``, and a given
     frame time is never verified. ``confirm_frame_time`` verifies the frame time
     that the store holds when the file is opened, so it cannot be combined with
-    ``frame_time``: the confirmation is a separate action. Every check runs inside
-    the one read-write open, before anything is written, so a refused call changes
-    nothing.
+    ``frame_time``. The function checks the supplied values before opening the
+    file. It checks the movie ID and stored frame time inside the read-write
+    open. A validation error leaves the record untouched.
 
     Parameters
     ----------
@@ -232,20 +232,21 @@ def update_movie_metadata(
     >>> from pathlib import Path
     >>> import h5py
     >>> from tether.project.core import Project
-    >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-    >>> project = Project.create(path)
-    >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+    >>> from tether.project.movie_metadata import update_movie_metadata
+    >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+    >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
     ...     table = f["movies/table"]
     ...     table.resize((1,))
     ...     row = table[0]
     ...     row["movie_id"] = "mov-1"
     ...     table[0] = row
-    >>> record = update_movie_metadata(path, "mov-1", frame_time=0.05, pixel_size_um=0.16)
+    >>> record = update_movie_metadata(
+    ...     project.path, "mov-1", frame_time=0.05, pixel_size_um=0.16)
     >>> record.frame_time, record.frame_time_origin, record.frame_time_verified
     (0.05, 'user', False)
     >>> record.pixel_size_um, record.pixel_size_origin
     (0.16, 'user')
-    >>> update_movie_metadata(path, "mov-1", confirm_frame_time=True).frame_time_verified
+    >>> update_movie_metadata(project.path, "mov-1", confirm_frame_time=True).frame_time_verified
     True
     """
     import h5py  # noqa: PLC0415
@@ -312,15 +313,15 @@ def set_frame_time(path: str | Path, movie_id: str, seconds: float) -> MovieMeta
     >>> from pathlib import Path
     >>> import h5py
     >>> from tether.project.core import Project
-    >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-    >>> project = Project.create(path)
-    >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+    >>> from tether.project.movie_metadata import set_frame_time
+    >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+    >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
     ...     table = f["movies/table"]
     ...     table.resize((1,))
     ...     row = table[0]
     ...     row["movie_id"] = "mov-1"
     ...     table[0] = row
-    >>> record = set_frame_time(path, "mov-1", 0.05)
+    >>> record = set_frame_time(project.path, "mov-1", 0.05)
     >>> record.frame_time, record.frame_time_origin, record.frame_time_verified
     (0.05, 'user', False)
     """
@@ -355,16 +356,16 @@ def confirm_frame_time(path: str | Path, movie_id: str) -> MovieMetadataRecord:
     >>> from pathlib import Path
     >>> import h5py
     >>> from tether.project.core import Project
-    >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-    >>> project = Project.create(path)
-    >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+    >>> from tether.project.movie_metadata import confirm_frame_time, set_frame_time
+    >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+    >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
     ...     table = f["movies/table"]
     ...     table.resize((1,))
     ...     row = table[0]
     ...     row["movie_id"] = "mov-1"
     ...     table[0] = row
-    >>> record = set_frame_time(path, "mov-1", 0.05)
-    >>> confirm_frame_time(path, "mov-1").frame_time_verified
+    >>> record = set_frame_time(project.path, "mov-1", 0.05)
+    >>> confirm_frame_time(project.path, "mov-1").frame_time_verified
     True
     """
     return update_movie_metadata(path, movie_id, confirm_frame_time=True)
@@ -401,15 +402,15 @@ def set_pixel_size(path: str | Path, movie_id: str, micrometres: float) -> Movie
     >>> from pathlib import Path
     >>> import h5py
     >>> from tether.project.core import Project
-    >>> path = Path(tempfile.mkdtemp()) / "demo.tether"
-    >>> project = Project.create(path)
-    >>> with h5py.File(path, "r+") as f:  # one /movies row, as extraction writes it
+    >>> from tether.project.movie_metadata import set_pixel_size
+    >>> project = Project.create(Path(tempfile.mkdtemp()) / "demo.tether")
+    >>> with h5py.File(project.path, "r+") as f:  # one /movies row, as extraction writes it
     ...     table = f["movies/table"]
     ...     table.resize((1,))
     ...     row = table[0]
     ...     row["movie_id"] = "mov-1"
     ...     table[0] = row
-    >>> record = set_pixel_size(path, "mov-1", 0.16)
+    >>> record = set_pixel_size(project.path, "mov-1", 0.16)
     >>> record.pixel_size_um, record.pixel_size_origin
     (0.16, 'user')
     """

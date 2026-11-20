@@ -346,8 +346,8 @@ def test_each_movie_metadata_call_documents_its_sections_in_order(obj) -> None:
             assert unit in doc, (quantity, unit)
 
 
-def _run_examples(obj: object, globs: dict[str, object]) -> doctest.TestResults:
-    (test,) = doctest.DocTestFinder().find(obj, globs=globs)
+def _run_examples(obj: object) -> doctest.TestResults:
+    (test,) = doctest.DocTestFinder().find(obj, globs={})
     assert test.examples, obj
     runner = doctest.DocTestRunner()
     runner.run(test)
@@ -358,6 +358,5 @@ def _run_examples(obj: object, globs: dict[str, object]) -> doctest.TestResults:
 def test_each_movie_metadata_example_runs(obj, tmp_path, monkeypatch) -> None:
     """#1173: each Examples section runs, in a temporary folder, and shows its result."""
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    globs = {**vars(mm), "Project": Project}
-    result = _run_examples(obj, globs)
+    result = _run_examples(obj)
     assert result.failed == 0
