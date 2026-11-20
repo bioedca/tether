@@ -46,6 +46,7 @@ from tether.services.base import (
     request_from_mapping,
     request_to_mapping,
 )
+from tether.services.extract import ExtractRequest
 
 __all__ = [
     "APPROVAL_STEPS",
@@ -444,6 +445,8 @@ def stopped_recipe(path: str | Path) -> tuple[str, int] | None:
 
 
 def _project_of(request: Request) -> str | None:
+    if isinstance(request, ExtractRequest) and request.count_only:
+        return None
     field = request.PROJECT_FIELD
     value = getattr(request, field) if field else None
     return value if isinstance(value, str) and value else None

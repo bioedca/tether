@@ -231,6 +231,25 @@ def test_tether_run_runs_each_step_as_a_stored_job_and_resume_skips_it(tmp_path,
     assert len(read_jobs(tmp_path / "m.tether")) == 1
 
 
+def test_count_only_recipe_step_leaves_an_existing_project_untouched(tmp_path, capsys):
+    _make_movie(tmp_path, name="m.tif")
+    project = tmp_path / "m.tether"
+    Project.create(project)
+    original = project.read_bytes()
+    step = _step(movie="m.tif", output="m.tether", count_only=True)
+    path = _write(tmp_path, _recipe(step))
+
+    assert main(["run", str(path)]) == 0
+    assert "step 1/1 extract: done" in capsys.readouterr().out
+    assert project.read_bytes() == original
+    assert read_jobs(project) == []
+
+    assert main(["run", str(path), "--dry-run", "--resume"]) == 0
+    plan = capsys.readouterr().out
+    assert "tether extract (done; skipped by --resume)" in plan
+    assert "job stored in: (no project; not stored)" in plan
+
+
 def test_resume_with_no_completed_step_runs_from_the_first_step(tmp_path, capsys) -> None:
     # A changed recipe is a new recipe, and a first step that stores no job leaves nothing
     # to find: --resume then starts again from the first step.

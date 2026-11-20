@@ -701,6 +701,9 @@ its number. Tether also records progress in its per-user state for the recipe's 
 contents. This includes successful steps that write no single project, such as `map` or
 `batch` without `into`. The run stops at the first failed step.
 
+A count-only extraction records progress in the recipe checkpoint and leaves the named
+project untouched.
+
 Running without `--resume` starts a new checkpoint. `--resume` retries the first unfinished
 step and runs every step after it again, since those steps can depend on its results.
 When no step is complete, as for a changed recipe, `--resume` starts from the first step.
