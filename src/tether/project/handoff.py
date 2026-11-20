@@ -32,7 +32,9 @@ Return leg — [`read_return_leg`][] (preview) + [`apply_reconcile`][] (commit)
     diff** the caller accepts or rejects — never a silent overwrite. An accepted
     analysis-window change is written to ``/molecules.analysis_window``, which
     **re-stales** that molecule's dependent idealizations (their input-provenance hash
-    was computed over the old window; §5.1, [`tether.project.idealize.stale_molecule_keys`][]).
+    was computed over the old window; §5.1, [`tether.project.idealize.stale_molecule_keys`][])
+    and deletes ``/features/table`` when that table holds the molecule's row
+    (``tether.project.features.invalidate_features``).
     tMAVEN's integer ``classes`` map onto Tether's free-text per-condition ``category``
     through the persisted integer↔category lookup of each molecule's condition
     ([`tether.project.conditions.read_class_lookups`][]): class ``0`` ↔ uncategorized,
@@ -689,6 +691,7 @@ def apply_reconcile(
         report=report,
         accept_win_ids=accept_win_ids,
         accept_cls_ids=accept_cls_ids,
+        writer_guard=writer_guard,
     )
     return AppliedReconcile(
         windows_applied=windows_applied,
@@ -882,9 +885,19 @@ def _commit_store_edits(
     report: ReconcileReport,
     accept_win_ids: set[str],
     accept_cls_ids: set[str],
+    writer_guard: Callable[[], object] | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
-    """Write accepted window / class edits to ``/molecules`` (one r+ pass)."""
+    """Write accepted window / class edits to ``/molecules`` (one r+ pass).
+
+    An accepted window edit that changes a row ``/features/table`` holds deletes that
+    table first (``tether.project.features.invalidate_features``), under
+    ``WINDOW_WRITE_GUARD``, so the ranker never reads features from the old frames.
+    ``writer_guard`` is checked again once that guard is held, because the wait for it
+    is time in which the project lock can change owners.
+    """
     import h5py
+
+    from tether.project.features import WINDOW_WRITE_GUARD, invalidate_features
 
     windows_applied: list[str] = []
     classes_applied: list[str] = []
@@ -892,9 +905,25 @@ def _commit_store_edits(
     if not accept_win_ids and not accept_cls_ids:
         return windows_applied, classes_applied, stale_after
 
+    def _open_checked() -> h5py.File:
+        if writer_guard is not None:
+            writer_guard()
+        return h5py.File(path, "r+")
+
     by_id = {t.molecule_id: t for t in report.matched}
-    with h5py.File(path, "r+") as f:
+    # The open (and its ownership check) runs only once WINDOW_WRITE_GUARD is held.
+    with WINDOW_WRITE_GUARD, _open_checked() as f:
         table = f["molecules"][TABLE]
+        stored = table["analysis_window"]
+        invalidate_features(
+            f,
+            {
+                mid
+                for mid in accept_win_ids
+                if (change := by_id[mid].window_change) is not None
+                and tuple(int(x) for x in stored[by_id[mid].store_row]) != tuple(change.new)
+            },
+        )
         for mid in sorted(accept_win_ids | accept_cls_ids):
             trace = by_id[mid]
             rec = table[trace.store_row]  # a mutable np.void copy of the row
