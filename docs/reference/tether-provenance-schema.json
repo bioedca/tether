@@ -176,7 +176,6 @@
               "n_idealization_models",
               "n_label_rows",
               "n_molecules",
-              "n_reject_log_rows",
               "n_trace_layers",
               "skipped_idealization_models",
               "trace_layers"
@@ -222,7 +221,7 @@
                 "minimum": 0
               },
               "n_reject_log_rows": {
-                "description": "The /labels/reject_log rows copied with the exported molecules.",
+                "description": "The number of /labels/reject_log rows copied. Absent in subset exports made before this count was recorded.",
                 "type": "integer",
                 "minimum": 0
               },
