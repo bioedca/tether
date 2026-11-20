@@ -9,7 +9,7 @@ which conformational transitions a system makes and how often. Tether builds the
 change contributes one ``(initial_E, final_E)`` point taken ``nskip`` frames apart,
 and the pooled points are binned into a square ``E × E`` grid the GUI and the plot
 export ([`tether.analysis.plot_export.render_transition_density`][]) render
-log-normalized [McKinney2006][Hadzic2018].
+log-normalized [McKinney2006], [Hadzic2018].
 
 Two invariants distinguish it from a naive 2-D histogram:
 
@@ -169,7 +169,7 @@ def transition_density(
     signal_range
         ``(lo, hi)`` E range for both axes (``hi > lo``).
     density
-        If ``True``, normalize like [`numpy.histogram2d`][] ``density`` (the 2-D
+        If ``True``, normalize like `numpy.histogram2d` ``density`` (the 2-D
         integral is 1); else raw counts.
 
     Returns
@@ -301,9 +301,9 @@ def smooth_transition_density(
     Three steps on ``tdp.counts``, in the order and with the calls of the ``checkTDP.py``
     published with Campos-Chavez et al. 2024 (doi:10.1038/s41467-024-50885-x):
 
-    1. [`scipy.ndimage.gaussian_filter`][] with ``sigma = smooth`` (in bins, its default
+    1. `scipy.ndimage.gaussian_filter` with ``sigma = smooth`` (in bins, its default
        ``reflect`` boundary);
-    2. a [`scipy.interpolate.RectBivariateSpline`][] (bicubic, interpolating) through the
+    2. a `scipy.interpolate.RectBivariateSpline` (bicubic, interpolating) through the
        bin centres, evaluated on ``interp_res`` evenly spaced points from ``signal_range[0]``
        to ``signal_range[1]`` on each axis, with negative values set to 0 — skipped when
        ``interp_res`` is 0, which keeps the bin-centre grid;

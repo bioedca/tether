@@ -4,7 +4,7 @@
 
 Deep-LASI snaps spot coordinates to pixel indices with MATLAB's ``round``, which
 rounds halves **away from zero** (``round(0.5) == 1``, ``round(2.5) == 3``,
-``round(-0.5) == -1``). Python's built-in [`round`][] and [`numpy.round`][]
+``round(-0.5) == -1``). Python's built-in `round` and `numpy.round`
 round halves **to even** (banker's rounding: ``round(0.5) == 0``,
 ``round(2.5) == 2``), so an exact ``*.5`` coordinate would otherwise snap to a
 different pixel than Deep-LASI. `round_half_away` restores the MATLAB

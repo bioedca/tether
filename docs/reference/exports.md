@@ -215,6 +215,13 @@ The order is frozen in `tether.project.export.MOLECULE_TABLE_COLUMNS`, annotated
 source as *"the per-molecule CSV column order (frozen; a reader may key on these names)"*.
 [`tests/test_docs_export_columns.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_export_columns.py) fails if this table and that tuple ever disagree. The
 underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
+The same columns are in a file you can download,
+[`molecule-table-columns.csv`](molecule-table-columns.csv): one row per column, with its
+name, CSV type, unit, whether it can be blank, and a one-line meaning (see
+[Put these files in your deposit](#put-these-files-in-your-deposit)).
+[`tests/test_docs_published_data.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_published_data.py)
+fails if that file and the tuple differ, or if its type, unit or blank entry for a column
+disagrees with this table.
 
 | Column | CSV type | Unit / domain | Blank when |
 |---|---|---|---|
@@ -331,6 +338,7 @@ result = export_subset_tether(
     include_rejected=False,
     include_raw=False,
     overwrite=False,
+    curator_alias=None,        # or a prefix such as "curator"; see below
 )
 ```
 
@@ -361,8 +369,44 @@ row counts consistent, both patch channels present) **before** anything is writt
 | Raw **and** background traces, when `include_raw=False` | They ride as a set of four. Because `corrected = raw − background` exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too |
 | Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the provenance file's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
+**User names (`curator_alias`).** A project records a person's user name in
+the `labeler` of each `/labels` row, the `labeler` of each `/settings/condition_audit`
+row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
+`/settings/lock_takeovers` row (a lock that was recovered or taken over). Each
+`/settings/jobs` row stores the last writer's name in the `user` key of its `owner` object.
+A `/settings/correction_transitions` row stores a user name in `actor` when `by` is
+`person`. The `actor` of a `policy` row contains policy text and keeps its value.
+By default each user name is the operating-system login.
+
+The plain fields are listed in `tether.project.export.USER_NAME_FIELDS`. The JSON fields
+that hold a name under one key are listed in `tether.project.export.JSON_USER_KEYS`.
+Only that key changes, so the record keeps its shape.
+
+| `curator_alias` | Result |
+|---|---|
+| `None` (default) | The names are copied as they are. The output is the same as before the option existed |
+| A prefix, for example `"curator"` | Each distinct name becomes `curator-1`, `curator-2`, … in the order the copy first writes it: the `/labels` rows in store order, then the `/settings` logs. One person keeps one alias in every table, so a multi-curator analysis still works on the copy. An alias that contains a name in the source is skipped (so a copy whose names are already `curator-1`, … never gets `curator-10`), and a prefix that contains a name in the source raises `ValueError`. An empty name stays empty. The source project does not change |
+
+A path can name the user too, for example a model file in a home folder. With the option,
+each path in `tether.project.export.PATH_ATTRS` keeps only its file name. Today that is the
+`artifact_path` of each `/models/<condition_id>` reference, so the copy's reference names
+the model file but not its folder.
+
+A name-bearing table is written directly from its aliased rows so those fields store only
+their new values. The count covers the names in the records selected for export. A name
+whose only labels stay behind, for example on a rejected molecule, is excluded from the count.
+A blank prefix raises `ValueError`.
+
+The option does **not** remove `source_filename` or `tether_subset_of`. They are file
+names, not paths, and they are the origin record of each molecule. A file name can
+identify a sample, so read them before you share the copy. Free text such as an audit
+`reason`, a correction transition's `detail`, and the text of a correction policy is
+copied as it is. So are the computer names (`holder_host`,
+`ousted_host`) of a lock takeover row and the `host` of a job owner. The `request` and
+`error` text of a job row are copied as they are too, and they can hold a full file path.
+
 **Embedded provenance.** Besides the provenance file, the subset stamps four root attributes
-(readable with `h5py`):
+(readable with `h5py`), and two more with `curator_alias`:
 
 | Attribute | Value |
 |---|---|
@@ -370,6 +414,8 @@ row counts consistent, both patch channels present) **before** anything is writt
 | `tether_subset_created_utc` | Offset-aware ISO-8601 UTC — byte-identical to the provenance file's `created_utc` |
 | `tether_subset_include_raw` | `0` or `1` — an integer, not a bool |
 | `tether_subset_n_molecules` | The exported count |
+| `tether_subset_names_aliased` | `1`, only with `curator_alias` |
+| `tether_subset_n_aliased_names` | The count of distinct names replaced, only with `curator_alias`. No name is recorded |
 
 The root also carries `create_project`'s own `format="tether-project"`, `schema_version`
 and `app_version`; the last is the version of the build that performed the *export*, not
@@ -377,11 +423,14 @@ the source's.
 
 **Refusals.** `FileExistsError` when `out_path` exists and `overwrite=False`; `ValueError`
 when the output resolves to (or is a hard link of) the source, when the selection is
-empty, or when the preflight fails.
+empty, when the preflight fails, or when `curator_alias` is blank, contains a user name
+stored in the source, or leaves no alias that is free of every source user name.
 
 Provenance-file `parameters` for this export: `include_raw`, `include_rejected`, `molecule_keys`,
 `n_molecules`, `trace_layers` and `n_trace_layers`, `idealization_models` and
-`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`.
+`n_idealization_models`, `skipped_idealization_models`, `n_label_rows`. With
+`curator_alias` also `curator_alias` (the prefix), `names_aliased` (`true`) and
+`n_aliased_names`. It never records the names.
 
 ## 4. Plot export (PDF + SVG + PNG)
 
@@ -593,6 +642,9 @@ full filename, so the original extension survives: `molecules.csv.provenance.jso
 `traces.txt.provenance.json`, `subset.tether.provenance.json`. Plot exports pass the
 extension-less stem, so theirs is `<stem>.provenance.json`.
 
+[`tether-provenance-schema.json`](tether-provenance-schema.json) states the keys below as a
+JSON Schema, with the `parameters` of each export.
+
 The payload is `json.dumps(payload, indent=2, sort_keys=True) + "\n"`, UTF-8 — which is
 why the keys read alphabetically:
 
@@ -628,12 +680,27 @@ The provenance file exists because flat text has no metadata slot and the Deep-L
 stay header-free — so the stamp travels beside the file rather than inside it (ADR-0001). Keep it with the data file when you move or share the export. For
 the CSV and the `.txt` it is the **only** record of which build, which project and which
 parameters produced those numbers. A subset `.tether` and a plot export also carry a stamp
-*inside* the file — the subset's four `tether_subset_*` root attributes plus
+*inside* the file — the subset's `tether_subset_*` root attributes plus
 `create_project`'s `app_version`, and a plot's on-figure footer plus its embedded document
 metadata (both above) — but only the provenance file carries the full parameter set.
 
 To read a provenance file back next to the stamps inside the project, and to turn both into a
 Methods paragraph, see [Reproducibility and reporting](../reproducibility.md).
+
+## Put these files in your deposit
+
+A CSV or `.txt` export is flat text. To let another person read it correctly, put these
+files beside your data when you deposit it. Download them from the documentation of the
+Tether version that wrote your exports, so that they describe that version:
+
+| File | What it describes |
+|---|---|
+| [`tether-schema.json`](tether-schema.json) | The frozen skeleton of a `.tether` file: its groups, its four compound tables and its root attributes. It is `schema/schema_frozen.json` from the repository, unchanged ([format reference](tether-format.md)). |
+| [`molecule-table-columns.csv`](molecule-table-columns.csv) | The data dictionary of the molecule-table CSV: one row per column, with `name`, `type`, `unit`, `can_be_blank` and `description` ([columns](#molecule-table-columns)). |
+| [`tether-provenance-schema.json`](tether-provenance-schema.json) | A JSON Schema (draft 2020-12) of the `<file>.provenance.json` provenance file ([above](#provenance-file)). Any JSON Schema validator can check a provenance file against it. |
+
+These three files are licensed **CC0-1.0**, so you can copy them into a deposit with no
+conditions. The program code keeps its GPL-3.0-or-later license.
 
 ## Reading the exports elsewhere
 
