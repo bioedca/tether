@@ -487,32 +487,49 @@ def test_labels_travel_only_for_exported_molecules(tmp_path):
     assert keys[2] not in label_keys  # a non-exported molecule's label is not carried
 
 
-def test_reject_reasons_travel_only_for_exported_molecules(tmp_path):
+@pytest.mark.parametrize("curator_alias", [None, "reviewer"])
+def test_reject_reasons_travel_only_for_exported_molecules(tmp_path, curator_alias):
     # #1051: the /labels/reject_log rows of the exported molecules travel with their /labels rows,
     # and no other molecule's row does, so a reason reads the same in the subset.
     project, keys = _source(tmp_path)
-    project.reject(keys[0], labeler="tester", reason="other", note="two spots")
-    project.unreject(keys[0], labeler="tester", note="one spot after all")
-    project.reject(keys[0], labeler="tester", reason="threshold", value=0.25)
-    project.reject(keys[2], labeler="tester", reason="multiple-molecules")
+    labeler = "invented-q7z-reviewer"
+    other_labeler = "invented-n4k-reviewer"
+    project.reject(keys[0], labeler=labeler, reason="other", note="two spots")
+    project.unreject(keys[0], labeler=labeler, note="one spot after all")
+    project.reject(keys[0], labeler=labeler, reason="threshold", value=0.25)
+    project.reject(keys[2], labeler=other_labeler, reason="multiple-molecules")
     out = tmp_path / "subset.tether"
 
-    export_subset_tether(project, out, molecule_keys=[keys[0], keys[1]], include_rejected=True)
+    result = export_subset_tether(
+        project,
+        out,
+        molecule_keys=[keys[0], keys[1]],
+        include_rejected=True,
+        curator_alias=curator_alias,
+    )
 
     source_log = read_reject_log(project.path)
     sub_log = read_reject_log(out)
     assert {to_str(k) for k in sub_log["molecule_key"]} == {keys[0]}
     expected = source_log[[to_str(k) == keys[0] for k in source_log["molecule_key"]]]
     assert sub_log.shape == (3,)
-    for field in ("molecule_key", "event", "reason", "note", "labeler", "timestamp"):
+    for field in ("molecule_key", "event", "reason", "note", "timestamp"):
         assert [to_str(v) for v in sub_log[field]] == [to_str(v) for v in expected[field]]
     np.testing.assert_array_equal(sub_log["value"], expected["value"])  # NaN-aware
+    expected_labeler = labeler if curator_alias is None else f"{curator_alias}-1"
+    assert {to_str(v) for v in sub_log["labeler"]} == {expected_labeler}
+    assert {to_str(v) for v in Project.open(out).read_labels()["labeler"]} == {expected_labeler}
     record = reject_record_of(out, keys[0])
     assert record is not None
     assert to_str(record["reason"]) == "threshold"
     assert float(record["value"]) == 0.25
-    with open(str(out) + ".provenance.json", encoding="utf-8") as fh:
-        assert json.load(fh)["parameters"]["n_reject_log_rows"] == 3
+    parameters = json.loads(result.provenance_path.read_text(encoding="utf-8"))["parameters"]
+    assert parameters["n_reject_log_rows"] == 3
+    if curator_alias is not None:
+        assert parameters["n_aliased_names"] == 1
+        data = out.read_bytes()
+        assert labeler.encode() not in data
+        assert other_labeler.encode() not in data
 
 
 def test_no_reject_log_in_the_subset_when_no_exported_molecule_has_one(tmp_path):
