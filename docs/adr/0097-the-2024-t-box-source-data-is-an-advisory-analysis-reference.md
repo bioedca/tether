@@ -158,7 +158,7 @@ column keeps no weekly test. A read-only check of the authors' per-run trace fil
 
 - Molecules 1 to 138 of the column are the three runs joined in order (66, 8 and 64 molecules).
   Each block of 400 values is `A / (D + A)` of the first 400 frames of its molecule, the file read
-  with `skiprows=1` as the notebook reads it, to 1e-6 (measured largest 9.1e-12).
+  with `skiprows=1` as the notebook reads it, to 1e-6.
 - Molecules 139 to 163 (25) agree with no molecule of those files at any start frame (to 1e-4).
   No file has 163 molecules.
 
