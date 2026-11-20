@@ -149,6 +149,13 @@ def test_overflow_picker_lists_and_assigns_beyond_nine(shell) -> None:
         "11: cat 11",
         "12: cat 12",
     ]
+    # ... and that pairing is the persisted tMAVEN class lookup's, class for class (ADR-0125).
+    from tether.project.conditions import ClassLookup
+
+    lookup = ClassLookup.from_categories("", categories)
+    assert [shown.item(i).text() for i in range(shown.count())] == [
+        f"{cls}: {lookup.category_of(cls)}" for cls in picker.overflow_classes
+    ]
     picker.choose(12)
     assert picker.selected_class() == 12
     from tether.gui.curation import Command, CurationAction
@@ -221,7 +228,15 @@ def test_show_overflow_picker_dispatches_selected_class(shell, monkeypatch) -> N
     monkeypatch.setattr(shell_mod.OverflowCategoryPicker, "exec", lambda self: 11)
     shell.show_overflow_picker()
     assert shell.controller.last == Command(CurationAction.ASSIGN_CATEGORY, 11)
-    assert "Category 11" in shell.status_message
+    # class 11 names the eleventh category, as the persisted class lookup does (ADR-0125)
+    assert "Category 11 (category 11)" in shell.status_message
+
+
+def test_category_hotkey_class_outside_the_lookup_is_named_unknown(shell) -> None:
+    from tether.gui.curation import Command, CurationAction
+
+    shell.controller.dispatch(Command(CurationAction.ASSIGN_CATEGORY, 13))  # 12 categories
+    assert "Category 13 (?)" in shell.status_message
 
 
 def test_show_overflow_picker_cancel_dispatches_nothing(shell, monkeypatch) -> None:

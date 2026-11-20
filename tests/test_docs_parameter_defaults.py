@@ -687,6 +687,10 @@ def _registry() -> list[_Entry]:
             ("DEFAULT_GAMMA_HALF_WINDOW",),
             module_constant("tether.fret.gamma", "DEFAULT_GAMMA_HALF_WINDOW"),
         ),
+        (
+            ("DEFAULT_MIN_CLEAN_STEP_FRACTION",),
+            module_constant("tether.fret.gamma", "DEFAULT_MIN_CLEAN_STEP_FRACTION"),
+        ),
         # Idealization.
         (("MODEL_TYPE_DEFAULT",), module_constant("tether.project.idealize", "MODEL_TYPE_DEFAULT")),
         (
@@ -1578,6 +1582,12 @@ _CONSTANT_BACKED_SURFACES = [
     (
         "tether.project.gamma",
         "compute_gamma",
+        "min_clean_step_fraction",
+        "DEFAULT_MIN_CLEAN_STEP_FRACTION",
+    ),
+    (
+        "tether.project.gamma",
+        "compute_gamma",
         "min_qualifying_traces",
         "DEFAULT_MIN_QUALIFYING_TRACES",
     ),
@@ -1728,6 +1738,7 @@ tether.fret.gamma
     estimate_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
     estimate_gamma min_qualifying_traces DEFAULT_MIN_QUALIFYING_TRACES
     estimate_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
+    few_clean_steps min_fraction DEFAULT_MIN_CLEAN_STEP_FRACTION
     trace_gamma ceiling GAMMA_CEILING
     trace_gamma half_window DEFAULT_GAMMA_HALF_WINDOW
     trace_gamma min_window_frames DEFAULT_MIN_WINDOW_FRAMES
