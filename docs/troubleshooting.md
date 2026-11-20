@@ -818,7 +818,9 @@ one file for your user: while one name is open for writing, opening the other na
 `is locked` and names the lock of the first name. Tether keeps a small record of which name owns
 each file in your per-user lock folder (`%LOCALAPPDATA%\tether\locks` on Windows,
 `~/.local/state/tether/locks` on Linux, `~/Library/Caches/tether/locks` on macOS). A steal through
-either name takes the file from the other name too. If Tether cannot make that folder, it refuses
+either name takes the file from the other name too. **Recover** and **Take over…** work through
+either name in the same way: they judge the lock of the name that holds the file, and the takeover
+takes both names. If Tether cannot make that folder, it refuses
 to open the project for writing: `cannot create the per-user lock directory`. Fix the folder's
 permissions, or set `XDG_STATE_HOME` (Linux, macOS) to a folder you can write.
 This record is per user. If two users open the same file through two different names, each name

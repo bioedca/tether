@@ -41,6 +41,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.gui.indicators
 
+::: tether.gui.keymap_editor
+
 ::: tether.gui.macos_app
 
 ::: tether.gui.messages

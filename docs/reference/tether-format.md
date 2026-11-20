@@ -515,6 +515,13 @@ no row. `reject_record_of` returns the `reject` row that joins the molecule's
 latest human `/labels` event when that event is a reject, or `None` (also for a store
 written before this log existed).
 
+The rows travel with their `/labels` rows. A subset export copies the rows of the exported
+molecules, and the split-file merge-back (`merge_labels`, `src/tether/project/merge.py`)
+appends the rows that join a `/labels` row it pulls, under the owner's `condition_id`, unless
+the owner already holds them. A second pull of the same file appends nothing. A join that names
+two pulled rejects (or two restores) copies no reason, since it cannot say which one the reason
+belongs to.
+
 | Field | Type | Shape | Meaning / units |
 |---|---|---|---|
 | `molecule_key` | `str:utf-8` | scalar | Join key into `/molecules.molecule_key`. |
