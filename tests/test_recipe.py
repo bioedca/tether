@@ -423,6 +423,72 @@ def test_tether_approve_refuses_a_bad_report_or_step_before_any_write(tmp_path, 
     assert "an approval needs its report" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("change", [{"step": []}, {"rule": {}}])
+def test_run_refuses_non_string_policy_keys(tmp_path, capsys, calibrate, change) -> None:
+    policy = {"step": "gamma.approve", "rule": "value", "otherwise": "stop", **change}
+    path = _write(tmp_path, _recipe(_calibrate_step(**policy)))
+
+    assert main(["run", str(path)]) == 2
+    assert "step 1:" in capsys.readouterr().err
+    assert approvals.read_approvals(tmp_path / "exp.tether") == []
+
+
+def test_tether_approve_refuses_unreadable_png_evidence(tmp_path, capsys, calibrate, monkeypatch):
+    sha256 = approvals._sha256
+
+    def hash_readable_files(path: Path) -> str:
+        if path.suffix == ".png":
+            raise PermissionError("evidence is unreadable")
+        return sha256(path)
+
+    monkeypatch.setattr(approvals, "_sha256", hash_readable_files)
+    project = tmp_path / "exp.tether"
+    assert (
+        main(
+            [
+                "approve",
+                str(project),
+                "gamma.approve",
+                "--subject",
+                "c1",
+                "--report",
+                str(calibrate),
+            ]
+        )
+        == 2
+    )
+    assert "evidence is unreadable" in capsys.readouterr().err
+    assert approvals.read_approvals(project) == []
+
+
+def test_record_approval_refuses_a_released_retained_lock(tmp_path, calibrate, monkeypatch):
+    from tether.project import lock
+
+    project = Project.open(tmp_path / "exp.tether")
+    held = project.acquire_lock()
+    report_files = approvals.report_files
+
+    def read_report_after_lock_loss(path: Path) -> dict[str, str]:
+        files = report_files(path)
+        assert lock.release(project.path, held)
+        return files
+
+    monkeypatch.setattr(approvals, "report_files", read_report_after_lock_loss)
+    try:
+        with pytest.raises(lock.LockedError):
+            approvals.record_approval(
+                project,
+                step="gamma.approve",
+                subject="c1",
+                by="person",
+                actor="Ana",
+                report=calibrate,
+            )
+    finally:
+        project.release_lock()
+    assert approvals.read_approvals(project.path) == []
+
+
 def test_an_approval_by_no_recipe_run_records_no_recipe(tmp_path) -> None:
     project = tmp_path / "exp.tether"
     Project.create(project)

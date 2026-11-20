@@ -95,7 +95,7 @@ def report_files(report: str | Path) -> dict[str, str]:
 
     The images are the PNG files beside the JSON whose names start with its stem
     (``gamma.png``, ``gamma-steps.png`` for ``gamma.json``). Raise ``ValueError`` when
-    the report is not a readable JSON file: an approval with no report is refused.
+    the report is not readable JSON or when an evidence file cannot be read.
     """
     path = Path(report)
     if path.suffix.lower() != ".json" or not path.is_file():
@@ -104,10 +104,16 @@ def report_files(report: str | Path) -> dict[str, str]:
         json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"the report {report} is not readable JSON: {exc}") from exc
-    files = {path.name: _sha256(path)}
+    evidence = [path]
     for image in sorted(path.parent.glob(f"{path.stem}*.png")):
         if image.stem == path.stem or image.stem.startswith(f"{path.stem}-"):
-            files[image.name] = _sha256(image)
+            evidence.append(image)
+    files = {}
+    for item in evidence:
+        try:
+            files[item.name] = _sha256(item)
+        except OSError as exc:
+            raise ValueError(f"cannot read approval evidence {item}: {exc}") from exc
     return files
 
 
@@ -134,12 +140,15 @@ def record_approval(
 ) -> Approval:
     """Append one approval to ``/settings/approvals`` and return it.
 
-    Needs the single-writer lock of ``project``. Refuses (``ValueError``) a step that is
-    not one of [`APPROVAL_STEPS`][], an empty subject or actor, a ``by`` that is not
-    ``person`` or ``policy``, and a report that [`report_files`][] cannot read.
+    Needs a single-writer lock retained by ``project`` until the approval is stored.
+    Accepts a step in [`APPROVAL_STEPS`][], a nonempty subject and actor, ``person`` or
+    ``policy`` as ``by``, and readable evidence from [`report_files`][]. Invalid values
+    raise ``ValueError``.
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
+
+    from tether.project import lock  # noqa: PLC0415
 
     if step not in APPROVAL_STEPS:
         raise ValueError(f"unknown approval step {step!r} (known: {', '.join(APPROVAL_STEPS)})")
@@ -149,8 +158,10 @@ def record_approval(
         raise ValueError(f"an approval is by a 'person' or a 'policy', not {by!r}")
     if not actor.strip():
         raise ValueError(f"a {by} approval needs a name or a policy text")
+    nonce = project._assert_held_lock()
+    held = project._held_lock
+    assert held is not None  # established by _assert_held_lock
     files = report_files(report)
-    project._assert_writable()
     approval = Approval(
         step=step,
         subject=subject,
@@ -171,18 +182,21 @@ def record_approval(
     block = np.zeros(1, dtype=dtype)
     for name in _FIELDS:
         block[name][0] = row[name]
-    with h5py.File(project.path, "r+") as f:
-        settings = f[_SETTINGS]
-        if _DATASET not in settings:
-            settings.create_dataset(_DATASET, shape=(0,), maxshape=(None,), dtype=dtype)
-        ds = settings[_DATASET]
-        n0 = ds.shape[0]
-        ds.resize((n0 + 1,))
-        try:
-            ds[n0:] = block
-        except BaseException:
-            ds.resize((n0,))
-            raise
+    with lock.holding(project.path, held):
+        project._assert_writable()
+        with h5py.File(project.path, "r+") as f:
+            project._assert_held_lock(expected_nonce=nonce)
+            settings = f[_SETTINGS]
+            if _DATASET not in settings:
+                settings.create_dataset(_DATASET, shape=(0,), maxshape=(None,), dtype=dtype)
+            ds = settings[_DATASET]
+            n0 = ds.shape[0]
+            ds.resize((n0 + 1,))
+            try:
+                ds[n0:] = block
+            except BaseException:
+                ds.resize((n0,))
+                raise
     return approval
 
 

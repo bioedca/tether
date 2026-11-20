@@ -211,11 +211,11 @@ def check_policy(data: Any) -> Policy:
     if not isinstance(data, dict):
         raise RecipeError("a policy must be a JSON object")
     step = data.get("step")
-    if step not in _POLICIES:
+    if not isinstance(step, str) or step not in _POLICIES:
         raise RecipeError(f"a policy names an unknown approval step {step!r}")
     rules, otherwise = _POLICIES[step]
     rule = data.get("rule")
-    if rule not in rules:
+    if not isinstance(rule, str) or rule not in rules:
         raise RecipeError(f"the {step} policy has no rule {rule!r} (rules: {', '.join(rules)})")
     needed = rules[rule]
     expected = {"step", "rule", "otherwise", *needed}
