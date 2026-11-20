@@ -140,6 +140,7 @@ def test_the_two_export_routes_count_as_one_acquisition() -> None:
 def test_the_vendor_route_acquisitions_are_turned_back_to_their_map() -> None:
     """#887: the vendor-route TIFFs of one series are turned against the map of that series."""
     turned = _lab_golden.TURNED_AGAINST_MAP
+    assert turned == {"lab-10", "lab-12"}
     assert turned <= set(_lab_golden.LAB_ACQUISITIONS)
     assert set(_lab_golden.EXPORT_ROUTES) <= turned  # the route whose turn was measured
     assert not turned & set(_lab_golden.EXPORT_ROUTES.values())  # a direct route is not turned
