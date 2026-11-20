@@ -600,6 +600,97 @@ def test_apply_window_edit_updates_store_and_restales(tmp_path):
     assert keys[0] not in stale_molecule_keys(proj, "prior")
 
 
+def _has_features(path) -> bool:
+    from tether.io.schema import TABLE
+
+    with h5py.File(path, "r") as f:
+        return "features" in f and TABLE in f["features"]
+
+
+def _window_edit_return_leg(tmp_path, donor, acceptor, *, row: int = 1):
+    """A returning SMD that trims molecule ``row``'s window to ``(0, 25)`` (40 frames)."""
+    n = donor.shape[0]
+    pre = np.zeros(n, dtype="int64")
+    post = np.full(n, 40, dtype="int64")
+    post[row] = 25
+    return _returning_smd(tmp_path / "ret.hdf5", donor, acceptor, pre=pre, post=post)
+
+
+def test_apply_window_edit_invalidates_the_feature_cache(tmp_path):
+    """An accepted window edit makes the cached features stale (#1112).
+
+    ``/features/table`` was sliced to the old window; the merge-back deletes it so the
+    ranker reads "run compute_features first" instead of features from old frames.
+    """
+    from tether.project.features import compute_features, feature_matrix
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    compute_features(proj)
+    assert _has_features(proj.path)
+
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor)
+    assert apply_reconcile(proj, ret, accept_windows=True).windows_applied
+
+    assert not _has_features(proj.path)
+    with pytest.raises(KeyError, match="compute_features"):
+        feature_matrix(proj)
+    assert compute_features(proj).n_molecules == 3  # recompute works on the new window
+
+
+def test_apply_reconcile_keeps_the_cache_when_no_featured_window_changes(tmp_path):
+    from tether.project.features import compute_features
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    compute_features(proj, molecule_keys=[keys[0]])  # molecule 1 has no feature row
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor, row=1)
+
+    apply_reconcile(proj, ret, accept_windows=False)  # the edit is shown, not accepted
+    assert _has_features(proj.path)
+    assert apply_reconcile(proj, ret, accept_windows=True).windows_applied
+    assert _has_features(proj.path)  # the edited molecule was never featured
+
+
+def test_apply_reconcile_rechecks_ownership_after_the_window_guard(tmp_path, monkeypatch):
+    """A lock stolen while the merge-back waits for ``WINDOW_WRITE_GUARD`` must not write.
+
+    #1112 makes the store write wait for the in-process window guard; ownership is
+    checked again once the guard is held, so a steal during that wait is refused.
+    """
+    from contextlib import contextmanager, suppress
+
+    from tether.project import features as _features
+    from tether.project import lock as _lock
+    from tether.project.lock import LockedError, LockIdentity
+
+    donor, acceptor = _step_trace(3, 40), _step_trace(3, 40) * 0.5
+    proj, _keys = _build_store(tmp_path / "p.tether", donor, acceptor)
+    ret = _window_edit_return_leg(tmp_path, donor, acceptor)
+    real_guard = _features.WINDOW_WRITE_GUARD
+
+    @contextmanager
+    def _steal_while_waiting():
+        foreign = _lock.acquire(
+            proj.path, identity=LockIdentity(host="OTHER-HOST", user="other", pid=999), steal=True
+        )
+        assert _lock.release(proj.path, foreign)
+        with real_guard:
+            yield
+
+    proj.acquire_lock()
+    try:
+        before = read_molecules(proj.path)["analysis_window"].copy()
+        monkeypatch.setattr(_features, "WINDOW_WRITE_GUARD", _steal_while_waiting())
+        with pytest.raises(LockedError):
+            proj.apply_reconcile(ret, accept_windows=True, require_held_lock=True)
+    finally:
+        with suppress(Exception):
+            proj.release_lock()
+
+    np.testing.assert_array_equal(read_molecules(proj.path)["analysis_window"], before)
+
+
 def test_apply_reconcile_refuses_a_steal_during_reconcile(tmp_path, monkeypatch):
     """A lock stolen while ``_reconcile`` runs must not reach the store (§5.4).
 
