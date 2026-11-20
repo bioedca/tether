@@ -156,7 +156,7 @@ def ranker_prequential_uplift(
         The percentage-point median-uplift threshold to ship (default
         [`tether.ml.prequential.DEFAULT_SHIP_BAR_PTS`][], the PRD §11.2 value).
     hyperparams:
-        Override the ranker's [`tether.ml.gbranker.DEFAULT_HYPERPARAMS`][] (PRD §11.2).
+        Override the ranker's `tether.ml.gbranker.DEFAULT_HYPERPARAMS` (PRD §11.2).
 
     Returns
     -------
@@ -210,7 +210,7 @@ def ranker_leave_one_video_out_uplift(
         The percentage-point median-uplift threshold (default
         [`tether.ml.prequential.DEFAULT_SHIP_BAR_PTS`][], the PRD §11.2 value).
     hyperparams:
-        Override the ranker's [`tether.ml.gbranker.DEFAULT_HYPERPARAMS`][] (PRD §11.2).
+        Override the ranker's `tether.ml.gbranker.DEFAULT_HYPERPARAMS` (PRD §11.2).
 
     Returns
     -------

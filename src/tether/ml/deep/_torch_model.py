@@ -10,7 +10,7 @@ base-importable public surface is [`tether.ml.deep.model`][], which imports this
 [`tether.ml.deep.model`][] never pulls torch, so the "CPU base app unaffected" invariant
 (§9 M8) cannot silently regress.
 
-Architecture (DeepFRET/Deep-LASI-style [Thomsen2020][Wanninger2023]): a 1-D CNN feature
+Architecture (DeepFRET/Deep-LASI-style [Thomsen2020], [Wanninger2023]): a 1-D CNN feature
 extractor over the ``(donor, acceptor)`` intensity channels feeds a (bi)LSTM. Padded frames
 are excluded from the recurrent summary via a packed sequence — a masked pooling, never
 treating zero-padding as observed data (the never-fabricate discipline the substrate already
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 
 class DeepTraceTorchDataset(Dataset):
-    """A ``torch`` [`Dataset`][torch.utils.data.Dataset] view over a [`DeepTraceDataset`][].
+    """A ``torch`` `Dataset` view over a [`DeepTraceDataset`][].
 
     Holds the substrate's already-normalized, fixed-length tensors as torch tensors and yields
     one ``(X, length, y, weight)`` sample per row (row ``i`` = ``molecule_ids[i]``). No copy of
@@ -160,7 +160,7 @@ def _optimize(
     Adam optimizer is built over **only the parameters with ``requires_grad``**, so a frozen
     submodule (e.g. the conv feature extractor during transfer fine-tuning) is left untouched; for a
     fully-trainable fresh model that filter is exactly ``model.parameters()`` in order, so
-    `train` is numerically unchanged. A separately-seeded [`torch.Generator`][] fixes the
+    `train` is numerically unchanged. A separately-seeded `torch.Generator` fixes the
     ``DataLoader`` shuffle order (single-process, ``num_workers = 0``); the loss is a per-sample
     **weighted** ``BCEWithLogitsLoss`` (``reduction="none"`` then ``Σ wᵢ·ℓᵢ / Σ wᵢ``), so the M5
     cold-start provisional weights (``w₀ / (1 + n_human)``) carry into the deep model (§7.5).

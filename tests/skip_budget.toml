@@ -25,27 +25,28 @@
 
 [jobs."test (ubuntu-latest)"]
 min_collected = 4011
-max_skipped = 18
+max_skipped = 19
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 32
+max_skipped = 48
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 35
+max_skipped = 37
 
 [jobs."sidecar / parity"]
 min_collected = 26
 max_skipped = 0
 
 [jobs."deep / smoke"]
-min_collected = 17
+# 33 since #759 added the PySMACKS reference (tests/test_pysmacks_classifier_deep.py).
+min_collected = 33
 max_skipped = 2
 
 [jobs."large-fixtures"]
 min_collected = 12
-max_skipped = 1
+max_skipped = 11
 
 # --- Expected skips on the three required legs ---------------------------------------------
 
@@ -94,6 +95,14 @@ jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
 why = """The test reads the built site, and the test legs build no site. The docs-build job sets \
 TETHER_BUILT_SITE after `mkdocs build` and runs it there (#599). It is one test for all pages, so \
 it costs each leg one skip; max_skipped of the three legs is one higher for it."""
+
+[[skip]]
+test = "tests/test_docs_published_data.py::test_built_site_serves_the_three_files"
+reason = "TETHER_BUILT_SITE is not set; the docs-build job sets it after the build"
+jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
+why = """The test reads the built site, and the test legs build no site. The docs-build job sets \
+TETHER_BUILT_SITE after `mkdocs build` and runs it there (#612). It is one test for the three \
+served files, so it costs each leg one skip; max_skipped of the three legs is one higher for it."""
 
 [[skip]]
 test = "tests/test_docs_validation_numbers.py::test_the_fence_rule_is_python_markdowns"
@@ -252,6 +261,13 @@ why = """Both parametrized cases plant a FIFO at the lock lifecycle guard path (
 no os.mkfifo. test (ubuntu-latest) and test (macos-latest) run them."""
 
 [[skip]]
+test = "tests/test_app_settings.py::test_a_fifo_where_the_file_should_be_reads_as_unset_without_blocking"
+reason = "os.mkfifo is not available here"
+jobs = ["test (windows-latest)"]
+why = """The test plants a FIFO at the settings file path (#1116); Windows has no os.mkfifo and no \
+FIFO can sit at a file path there. test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
 test = "tests/test_lock.py::test_second_user_steals_a_stale_lock_in_a_shared_project"
 reason = "needs root to run two real POSIX users"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
@@ -283,12 +299,37 @@ macOS gives none (the cocoa GL backend crashes). test (ubuntu-latest) under xvfb
 test (windows-latest) run the test."""
 
 [[skip]]
+test = "tests/test_gui_trace_colors.py::test_the_movie_panel_spots_follow_the_trace_colors"
+reason = "napari Viewer needs Qt + a GL context"
+jobs = ["test (macos-latest)"]
+why = """The trace-color twin of the napari theme test above (#636), behind the same gate: a \
+napari Viewer needs an OpenGL context, which macOS offscreen Qt does not give. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run the test."""
+
+[[skip]]
 test = "tests/test_movie_panel.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
-why = """The six movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
+why = """The seven movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
 under QT_QPA_PLATFORM=offscreen on macOS does not give. test (ubuntu-latest) under xvfb and \
 test (windows-latest) run them."""
+
+[[skip]]
+test = "tests/test_shell_movie_panel.py::*"
+reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
+jobs = ["test (macos-latest)"]
+why = """The nine tests that dock the shell's napari movie panel (#356) open a napari Viewer, \
+which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not give. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run them. The module's tests of an \
+unwired panel run on macOS too."""
+
+[[skip]]
+test = "tests/test_gui_section_contract.py::*[[]curate]"
+reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
+jobs = ["test (macos-latest)"]
+why = """Curate and correct is a VIEWER_SECTIONS entry since its movie dock holds the napari \
+movie panel (#356), so the four contract tests of that section carry needs_gl. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
 
 [[skip]]
 test = "tests/test_roundtrip.py::*"
@@ -339,6 +380,16 @@ stand-in lsregister. The macOS installer runs both under sh, and Windows has \
 no POSIX shell in the test environment. The Linux and macOS legs run them."""
 
 # --- large-fixtures -------------------------------------------------------------------------
-# Its one skip is the torch module above. The oracle (a) test and the two intake tests on the
-# private bundle of video 010 are `workstation` tests since #699 (ADR-0071): no CI job collects
-# them, and the workstation runner, where a skip fails, runs them.
+# Its skips are the torch module above and the ten live update-verifier tests at the end of
+# this file. The oracle (a) test and the two intake tests on the private bundle of video 010
+# are `workstation` tests since #699 (ADR-0071): no CI job collects them, and the workstation
+# runner, where a skip fails, runs them.
+
+[[skip]]
+test = "tests/test_update_verify_live.py::*"
+reason = "set TETHER_LIVE_GH and TETHER_LIVE_INSTALLER to run the live verifier tests"
+jobs = ["large-fixtures"]
+why = """The live update-verifier tests (#333) need a real gh and an ~800 MB release installer \
+downloaded by hand; the gated fixture tier holds neither, and an installer is far too large to \
+add to it. They are run by hand on a workstation with both set (PR #1262 records a run). The \
+required legs deselect them with `-m "not large"`, so they skip only here."""

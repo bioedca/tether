@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tether export provenance file",
+  "description": "The <file>.provenance.json file that every Tether export writes beside its output (tether.project.export.write_provenance_sidecar). The three store exports write fixed parameters; a figure export (tether.analysis.plot_export.export_figure) writes the caller's parameters plus formats, dpi and outputs. Licensed CC0-1.0.",
+  "type": "object",
+  "required": [
+    "app_version",
+    "created_utc",
+    "parameters",
+    "source_project",
+    "tether_export"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "app_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The Tether version that wrote the export; 0.0.0+unknown when it cannot be read."
+    },
+    "created_utc": {
+      "type": "string",
+      "minLength": 1,
+      "description": "When the export was written, as ISO-8601 text. The store exports write UTC with a +00:00 offset; a figure export may carry a time its caller pinned."
+    },
+    "parameters": {
+      "type": "object",
+      "description": "The export's own settings. Their keys depend on tether_export."
+    },
+    "source_project": {
+      "type": "string",
+      "description": "The source project's file name for the store exports; for a figure, what its caller passed."
+    },
+    "tether_export": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which export wrote the file: deeplasi-txt, molecule-table-csv, subset-tether, or a caller-chosen kind for a figure."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "tether_export": {
+            "const": "molecule-table-csv"
+          }
+        },
+        "required": [
+          "tether_export"
+        ]
+      },
+      "then": {
+        "properties": {
+          "created_utc": {
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?\\+00:00$"
+          },
+          "parameters": {
+            "type": "object",
+            "required": [
+              "include_rejected",
+              "intensity_quantity",
+              "n_molecules"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "include_rejected": {
+                "type": "boolean"
+              },
+              "intensity_quantity": {
+                "type": "string",
+                "description": "The /traces layer pair the export read, for example corrected or raw."
+              },
+              "n_molecules": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tether_export": {
+            "const": "deeplasi-txt"
+          }
+        },
+        "required": [
+          "tether_export"
+        ]
+      },
+      "then": {
+        "properties": {
+          "created_utc": {
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?\\+00:00$"
+          },
+          "parameters": {
+            "type": "object",
+            "required": [
+              "frame_range",
+              "include_rejected",
+              "intensity_quantity",
+              "molecule_keys",
+              "n_frames",
+              "n_molecules"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "frame_range": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[lo, hi], zero-based and half-open: the absolute frames the file covers."
+              },
+              "include_rejected": {
+                "type": "boolean"
+              },
+              "intensity_quantity": {
+                "type": "string",
+                "description": "The /traces layer pair the export read, for example corrected or raw."
+              },
+              "molecule_keys": {
+                "description": "null for every molecule the selection kept, otherwise the requested molecule_key values.",
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "n_frames": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "n_molecules": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tether_export": {
+            "const": "subset-tether"
+          }
+        },
+        "required": [
+          "tether_export"
+        ]
+      },
+      "then": {
+        "properties": {
+          "created_utc": {
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?\\+00:00$"
+          },
+          "parameters": {
+            "type": "object",
+            "required": [
+              "idealization_models",
+              "include_raw",
+              "include_rejected",
+              "molecule_keys",
+              "n_idealization_models",
+              "n_label_rows",
+              "n_molecules",
+              "n_trace_layers",
+              "skipped_idealization_models",
+              "trace_layers"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "idealization_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "include_raw": {
+                "type": "boolean"
+              },
+              "include_rejected": {
+                "type": "boolean"
+              },
+              "molecule_keys": {
+                "description": "null for every molecule the selection kept, otherwise the requested molecule_key values.",
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "n_idealization_models": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "n_label_rows": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "n_molecules": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "n_trace_layers": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "skipped_idealization_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "trace_layers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tether_export": {
+            "not": {
+              "enum": [
+                "deeplasi-txt",
+                "molecule-table-csv",
+                "subset-tether"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tether_export"
+        ]
+      },
+      "then": {
+        "properties": {
+          "parameters": {
+            "required": [
+              "dpi",
+              "formats",
+              "outputs"
+            ],
+            "properties": {
+              "dpi": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "formats": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "pdf",
+                    "svg",
+                    "png"
+                  ]
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "propertyNames": {
+                  "enum": [
+                    "pdf",
+                    "svg",
+                    "png"
+                  ]
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -27,14 +27,19 @@ Three kinds ([`LAYOUT_KINDS`][]):
 
 Validation. The two channels must have the same size, because the registration
 prealign and colocalization compare the two channel images pixel for pixel. A
-``rectangles`` layout whose rectangles differ in size is refused when it is made;
-a rectangle outside the frame, or a frame too small to cut in two, is refused by
+``rectangles`` layout whose rectangles differ in size is refused when it is made
+(with a channel recipe, the sizes after the recipes are compared instead); a
+rectangle outside the frame, or a frame too small to cut in two, is refused by
 [`ChannelLayout.geometries`][] with [`ChannelLayoutError`][]. Rectangles that
 overlap are allowed, because some optical layouts share pixels at an edge, but they
 give a [`ChannelOverlapWarning`][]: the overlapping pixels feed both channels.
 
-Rotation and flip of a channel are out of scope here (#910), as is a layout with two
-movie files (#909); a layout always gives identity rotation and flip.
+Each channel can also carry a [`ChannelRecipe`][tether.imaging.recipe.ChannelRecipe]
+(#910): rotate, flip, translate and crop steps that run on the channel's cut, in
+order. [`ChannelLayout.geometries`][] folds the cut and the recipe into one
+rotate -> flip -> crop geometry, and refuses a recipe that leaves the two channels
+at different sizes. Without a recipe a layout gives identity rotation and flip. A
+layout with two movie files (#909) is out of scope here.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ import warnings
 from dataclasses import dataclass
 from typing import Any
 
+from tether.imaging.recipe import ChannelRecipe, ChannelRecipeError
 from tether.imaging.split import ChannelGeometry
 
 __all__ = [
@@ -78,7 +84,9 @@ _HALF_POSITIONS: dict[str, dict[str, str]] = {
 }
 
 #: Version of the ``/movies/layouts/<movie_id>`` attribute set (`write_layout_record`).
-_RECORD_VERSION = 1
+#: Version 2 adds the channel recipes (#910); a record without recipes stays version 1,
+#: so a build from before #910 still reads it.
+_RECORD_VERSION = 2
 
 #: The ``/movies`` child group that holds one layout record per movie.
 LAYOUTS_GROUP = "layouts"
@@ -147,7 +155,12 @@ class ChannelLayout:
     donor_rect, acceptor_rect:
         For ``rectangles`` only (both required there, refused otherwise): the donor
         and the acceptor rectangle, ``[y1, x1, y2, x2]`` with 1-based inclusive
-        bounds. They must have the same size.
+        bounds. They must have the same size, unless a channel has a recipe; then
+        the two channel images after the recipes must be.
+    donor_recipe, acceptor_recipe:
+        Optional [`ChannelRecipe`][tether.imaging.recipe.ChannelRecipe] for each
+        channel (#910): rotate, flip, translate and crop steps that run on the
+        channel's cut, in order. ``None`` leaves the cut as it is.
 
     Raises
     ------
@@ -162,9 +175,17 @@ class ChannelLayout:
     donor: str | None = None
     donor_rect: tuple[int, int, int, int] | None = None
     acceptor_rect: tuple[int, int, int, int] | None = None
+    donor_recipe: ChannelRecipe | None = None
+    acceptor_recipe: ChannelRecipe | None = None
 
     def __post_init__(self) -> None:
         """Refuse a malformed layout and fill in the default donor of a half layout."""
+        for name in ("donor_recipe", "acceptor_recipe"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, ChannelRecipe):
+                raise ChannelLayoutError(
+                    f"{name} must be a ChannelRecipe or None, got {type(value).__name__}"
+                )
         if self.kind not in LAYOUT_KINDS:
             raise ChannelLayoutError(
                 f"channel layout kind must be one of {LAYOUT_KINDS}, got {self.kind!r}"
@@ -181,7 +202,9 @@ class ChannelLayout:
                 )
             donor_rect = _rect(self.donor_rect, "donor_rect")
             acceptor_rect = _rect(self.acceptor_rect, "acceptor_rect")
-            if _size(donor_rect) != _size(acceptor_rect):
+            # With a recipe the sizes are compared after it, by ``geometries`` (#910).
+            no_recipe = self.donor_recipe is None and self.acceptor_recipe is None
+            if no_recipe and _size(donor_rect) != _size(acceptor_rect):
                 raise ChannelLayoutError(
                     "the donor and the acceptor rectangle must be the same size (height x "
                     f"width): donor_rect {list(donor_rect)} is "
@@ -255,13 +278,16 @@ class ChannelLayout:
     def geometries(self, height: int, width: int) -> tuple[ChannelGeometry, ChannelGeometry]:
         """Return the ``(donor, acceptor)`` [`ChannelGeometry`][] for one frame size.
 
-        Each geometry is a crop with identity rotation and flip. Overlapping
-        ``rectangles`` give a [`ChannelOverlapWarning`][] and are still returned.
+        Without recipes each geometry is a crop with identity rotation and flip. With
+        a recipe, the channel's cut and its recipe fold into one rotate -> flip -> crop
+        geometry that gives the same pixels (#910). Overlapping ``rectangles`` give a
+        [`ChannelOverlapWarning`][] and are still returned.
 
         Raises
         ------
         ChannelLayoutError
-            As [`rectangles`][].
+            As [`rectangles`][]; also when a recipe does not fit its channel, or the
+            two channel images after the recipes differ in size.
         """
         donor_rect, acceptor_rect = self.rectangles(height, width)
         if _overlaps(donor_rect, acceptor_rect):
@@ -271,7 +297,30 @@ class ChannelLayout:
                 ChannelOverlapWarning,
                 stacklevel=2,
             )
-        return ChannelGeometry(crop=donor_rect), ChannelGeometry(crop=acceptor_rect)
+        if self.donor_recipe is None and self.acceptor_recipe is None:
+            return ChannelGeometry(crop=donor_rect), ChannelGeometry(crop=acceptor_rect)
+        out = []
+        for name, rect, recipe in (
+            ("donor", donor_rect, self.donor_recipe),
+            ("acceptor", acceptor_rect, self.acceptor_recipe),
+        ):
+            full = ChannelRecipe((("crop", rect),)).then(recipe or ChannelRecipe())
+            try:
+                out.append((full.canonical((height, width)), full.view_shape((height, width))))
+            except ChannelRecipeError as exc:
+                raise ChannelLayoutError(
+                    f"the {name} recipe does not fit its channel: {exc}"
+                ) from exc
+        (donor_geom, donor_shape), (acceptor_geom, acceptor_shape) = out
+        if donor_shape != acceptor_shape:
+            raise ChannelLayoutError(
+                "after the recipes the two channel images must be the same size (height x "
+                f"width): donor {donor_shape[0]}x{donor_shape[1]} "
+                f"({self.donor_recipe or ChannelRecipe()}), acceptor "
+                f"{acceptor_shape[0]}x{acceptor_shape[1]} "
+                f"({self.acceptor_recipe or ChannelRecipe()})"
+            )
+        return donor_geom, acceptor_geom
 
     def to_dict(self) -> dict[str, Any]:
         """Return the record as a JSON-ready dict (rectangles as lists, ``None`` when unused)."""
@@ -281,16 +330,23 @@ class ChannelLayout:
             "acceptor": self.acceptor,
             "donor_rect": None if self.donor_rect is None else list(self.donor_rect),
             "acceptor_rect": None if self.acceptor_rect is None else list(self.acceptor_rect),
+            "donor_recipe": None if self.donor_recipe is None else str(self.donor_recipe),
+            "acceptor_recipe": None if self.acceptor_recipe is None else str(self.acceptor_recipe),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ChannelLayout:
         """Rebuild a layout from [`to_dict`][] output (``acceptor`` is derived, not read)."""
+        recipes = {
+            name: None if data.get(name) is None else ChannelRecipe.parse(data[name])
+            for name in ("donor_recipe", "acceptor_recipe")
+        }
         return cls(
             kind=data.get("kind", LAYOUT_SIDE_BY_SIDE),
             donor=data.get("donor"),
             donor_rect=data.get("donor_rect"),
             acceptor_rect=data.get("acceptor_rect"),
+            **recipes,
         )
 
 
@@ -322,7 +378,10 @@ def write_layout_record(movies_group: Any, movie_id: str, layout: ChannelLayout)
 
     The record is an empty group whose attributes are ``version`` (``1``), ``kind``,
     ``donor`` and ``acceptor`` (``""`` for ``rectangles``) and, for ``rectangles``
-    only, ``donor_rect`` and ``acceptor_rect`` (``int32[4]``, 1-based inclusive). The
+    only, ``donor_rect`` and ``acceptor_rect`` (``int32[4]``, 1-based inclusive). A
+    layout with a channel recipe (#910) is written as ``version`` ``2`` with
+    ``donor_recipe`` and/or ``acceptor_recipe``, the text form of each recipe the
+    layout has. The
     ``layouts`` group is made on first use, like ``/conditions/categories``; it is not
     part of the frozen skeleton, so ``schema/schema_frozen.json`` does not change.
 
@@ -341,13 +400,17 @@ def write_layout_record(movies_group: Any, movie_id: str, layout: ChannelLayout)
         else movies_group.create_group(LAYOUTS_GROUP, track_order=True)
     )
     record = group.create_group(movie_id, track_order=True)
-    record.attrs["version"] = _RECORD_VERSION
+    has_recipes = layout.donor_recipe is not None or layout.acceptor_recipe is not None
+    record.attrs["version"] = _RECORD_VERSION if has_recipes else 1
     record.attrs["kind"] = layout.kind
     record.attrs["donor"] = layout.donor or ""
     record.attrs["acceptor"] = layout.acceptor or ""
     if layout.donor_rect is not None and layout.acceptor_rect is not None:
         record.attrs["donor_rect"] = np.asarray(layout.donor_rect, dtype=np.int32)
         record.attrs["acceptor_rect"] = np.asarray(layout.acceptor_rect, dtype=np.int32)
+    for name in ("donor_recipe", "acceptor_recipe"):
+        if getattr(layout, name) is not None:
+            record.attrs[name] = str(getattr(layout, name))
 
 
 def _text(value: Any) -> str:
@@ -383,10 +446,15 @@ def read_layout_record(project_path: Any, movie_id: str) -> ChannelLayout | None
             )
         kind = _text(attrs["kind"])
         donor = _text(attrs.get("donor", "")) or None
+        recipes = {
+            name: ChannelRecipe.parse(_text(attrs[name])) if name in attrs else None
+            for name in ("donor_recipe", "acceptor_recipe")
+        }
         if kind == LAYOUT_RECTANGLES:
             return ChannelLayout(
                 kind=kind,
                 donor_rect=tuple(int(v) for v in attrs["donor_rect"]),
                 acceptor_rect=tuple(int(v) for v in attrs["acceptor_rect"]),
+                **recipes,
             )
-        return ChannelLayout(kind=kind, donor=donor)
+        return ChannelLayout(kind=kind, donor=donor, **recipes)

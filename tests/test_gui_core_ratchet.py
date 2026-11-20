@@ -31,6 +31,9 @@ _NOT_CORE = ("tether.gui", "tether.services", "tether._version", "tether.__versi
 
 # Made by this module's scan on main at f8bec93 (#892), plus the imports that #1096 and #1095
 # added on main before this test merged. Only ever remove entries.
+# One exception, approved by the maintainer on 2026-11-17 for #363: the trace dock's
+# cross-correlation panel calls the per-trace display function the issue names, the same kind
+# of Qt-free value call as apparent_fret beside it, not a workflow action.
 ALLOWED: dict[str, int] = {
     "gui/about.py: tether.idealize.driver.SIDECAR_ENV_VAR": 1,
     "gui/about.py: tether.idealize.driver.bundled_sidecar_python": 1,
@@ -85,6 +88,7 @@ ALLOWED: dict[str, int] = {
     "gui/shell.py: tether.project.lock.file_identity": 1,
     "gui/shell.py: tether.project.lock.lock_recovery": 1,
     "gui/shell.py: tether.project.trace_layers.INTENSITY_QUANTITY_LAYERS": 1,
+    "gui/trace_dock.py: tether.analysis.crosscorr.cross_correlation": 1,
     "gui/trace_dock.py: tether.fret.efficiency.apparent_fret": 1,
 }
 

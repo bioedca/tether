@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tether.idealize.parity import SpreadSummary
+from tether.idealize.parity import FREEZE_RESOLUTION, ParityMetrics, SpreadSummary
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO_ROOT / "scripts" / "measure_parity.py"
@@ -243,16 +243,24 @@ def test_probe_sidecar_build_invalid_or_empty_output_is_unrecorded(
 def _configure_main(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    *,
+    transition_deltas: tuple[float, ...] = (0.0,),
 ) -> Path:
+    n_runs = len(transition_deltas)
     spread = {
-        "state_count_fraction": SpreadSummary("state_count_fraction", "floor", [1.0]),
-        "state_mean_abs_delta": SpreadSummary("state_mean_abs_delta", "ceiling", [0.0]),
-        "viterbi_agreement": SpreadSummary("viterbi_agreement", "floor", [1.0]),
-        "relative_elbo": SpreadSummary("relative_elbo", "ceiling", [0.0]),
+        "state_count_fraction": SpreadSummary("state_count_fraction", "floor", [1.0] * n_runs),
+        "state_mean_abs_delta": SpreadSummary("state_mean_abs_delta", "ceiling", [0.0] * n_runs),
+        "viterbi_agreement": SpreadSummary("viterbi_agreement", "floor", [1.0] * n_runs),
+        "relative_elbo": SpreadSummary("relative_elbo", "ceiling", [0.0] * n_runs),
     }
 
+    compared = [
+        ParityMetrics(1.0, 0.0, 1.0, 0.0, 2, 2, transition_matrix_abs_delta=delta)
+        for delta in transition_deltas
+    ]
+
     def fake_measure_spread(*_args, **_kwargs):
-        return spread, [object()]
+        return spread, compared
 
     monkeypatch.setattr(measure, "measure_spread", fake_measure_spread)
     monkeypatch.setenv("TETHER_SIDECAR_PYTHON", _SIDECAR_PYTHON)
@@ -263,7 +271,7 @@ def _configure_main(
         [
             str(_SCRIPT),
             "--n-runs",
-            "1",
+            str(n_runs),
             "--fixtures",
             "smd_4mol",
             "--out",
@@ -300,7 +308,42 @@ def test_main_serializes_build_provenance_without_interpreter_path(
     assert artifact["method"]["sidecar_python_version"] == "3.12.13"
     assert artifact["method"]["tmaven_commit"] == _TMAVEN_COMMIT
     assert artifact["method"]["build_provenance"].strip()
+    # The transition-matrix term is frozen with the resolution floor of ADR-0110.
+    term = artifact["transition_matrix"]
+    assert term["model_type"] == "vbconhmm"
+    assert term["transition_matrix_abs_delta_max"] == FREEZE_RESOLUTION
+    assert term["pooled_worst"] == {"transition_matrix_abs_delta": 0.0}
     _assert_path_absent(serialized)
+
+
+def test_main_preserves_unfrozen_transition_evidence_as_strict_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out_path = _configure_main(monkeypatch, tmp_path, transition_deltas=(0.01, float("inf")))
+    monkeypatch.setattr(measure, "probe_sidecar_build", lambda _path: {})
+
+    assert measure.main() == 0
+
+    def refuse_constant(token: str) -> None:
+        pytest.fail(f"Non-standard JSON token {token}")
+
+    artifact = json.loads(out_path.read_text(encoding="utf-8"), parse_constant=refuse_constant)
+    term = artifact["transition_matrix"]
+    assert term["transition_matrix_abs_delta_max"] is None
+    assert term["freeze_status"] == "not_frozen"
+    assert term["pooled_worst"] == {"transition_matrix_abs_delta": None}
+    metrics = term["spread_by_fixture"]["smd_4mol"]["metrics"]["transition_matrix_abs_delta"]
+    assert metrics == {
+        "direction": "ceiling",
+        "n": 2,
+        "min": 0.01,
+        "max": None,
+        "mean": None,
+        "worst": None,
+        "values": [0.01, None],
+    }
+    assert artifact["tolerance"] == artifact["provisional"]
 
 
 def test_main_preserves_python_version_when_commit_is_unrecorded(

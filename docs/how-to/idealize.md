@@ -20,7 +20,9 @@ dwell-time analyses read.
   `TETHER_SIDECAR_PYTHON` to the interpreter it prints. If a fit says it cannot find the
   sidecar, see [Idealization cannot find the sidecar
   interpreter](../troubleshooting.md#idealization-cannot-find-the-sidecar-interpreter).
-- For a whole-project fit, the Python that came with Tether:
+- For a whole-project fit, a terminal where the `tether` command runs
+  ([Command line](../cli.md#launching-tether-after-an-installer-install)). For a Python
+  script instead, the Python that came with Tether:
   `~/tether/envs/tether/bin/python` on Linux, `~/Tether/envs/tether/bin/python` on macOS, or
   `$env:USERPROFILE\Tether\envs\tether\python.exe` on Windows, at the default install
   locations. Close the project in the desktop application before running a script on it.
@@ -65,7 +67,40 @@ before, so it never builds up a population fit.
 
 ## Fit the whole project
 
-Save this as `idealize.py` beside the project and run it with Tether's Python:
+Close the project in the desktop application, then run:
+
+```console
+tether idealize movie.tether
+```
+
+It fits every molecule that is not rejected and stores the result as the `vbconhmm` model.
+Tether tries one to four states and keeps the count the data support best. The command
+prints the method and the state count it kept. It also prints the ELBO of each state count
+it tried and the number of molecules it fitted. To fix the count yourself, add `--nstates`
+([`nstates`](../reference/parameters.md#param-idealize-nstates)):
+
+```console
+tether idealize movie.tether --nstates 2
+```
+
+For ebFRET, add `--method ebhmm`
+([`model_type`](../reference/parameters.md#param-model-type)). It is stored as the `ebhmm`
+model, beside any consensus fit:
+
+```console
+tether idealize movie.tether --method ebhmm
+```
+
+A fit refuses to replace a model of the same name that is already in the project. To fit
+again, add `--overwrite`. Add `--seed` and a number to make the fit repeatable. The same
+project, options and seed then give the same model.
+
+[`tether idealize`](../cli.md#tether-idealize)
+lists every option and the exit codes. Code `3` means the sidecar could not start. The
+project is then not changed.
+
+The command is the same fit as `idealize_molecules` in Python. To fit from a script, save
+this as `idealize.py` beside the project. Run it with Tether's Python:
 
 ```python
 from tether.project.idealize import idealize_molecules
@@ -75,25 +110,8 @@ print(f"{stored.model_name}: {stored.nstates} states over {len(stored.molecule_k
 print("state levels:", stored.means)
 ```
 
-It fits every molecule that is not rejected and stores the result as the `vbconhmm` model.
-Tether tries one to four states and keeps the count the data support best. To fix the count
-yourself, pass `nstates=`
-([`nstates`](../reference/parameters.md#param-idealize-nstates)):
-
-```python
-stored = idealize_molecules("movie.tether", nstates=2)
-```
-
-For ebFRET, pass `model_type="ebhmm"`
-([`model_type`](../reference/parameters.md#param-model-type)). It is stored as the `ebhmm`
-model, beside any consensus fit:
-
-```python
-stored = idealize_molecules("movie.tether", model_type="ebhmm")
-```
-
-A fit refuses to replace a model of the same name that is already in the project. To fit
-again, add `overwrite=True`.
+The options are arguments there: `nstates=2`, `model_type="ebhmm"`, `overwrite=True` and
+`seed=1`.
 
 A large project can take a long time, and the first fit of a session is slow. If a fit is
 stopped for running too long, see [Idealization times out, or is restarted
@@ -102,8 +120,8 @@ repeatedly](../troubleshooting.md#idealization-times-out-or-is-restarted-repeate
 
 ## Check that it worked
 
-1. The script prints the model name, its state count and how many molecules it covers. The
-   molecule count should match the molecules you did not reject.
+1. The command, or the script, prints the model name, its state count and how many molecules
+   it covers. The molecule count should match the molecules you did not reject.
 2. The state levels are the FRET efficiencies of the states. They should sit where the plateaus
    in your traces sit.
 3. With `tether batch`, read the end-of-run summary: an `idealize` stage reported `deferred`
@@ -114,7 +132,17 @@ repeatedly](../troubleshooting.md#idealization-times-out-or-is-restarted-repeate
 
 If you changed α or γ since the fit, for example by running the corrections again, the
 affected molecules are now *stale*, and the transition and dwell-time analyses leave them out. Fit the same molecules
-again with `reidealize`:
+again:
+
+```console
+tether idealize movie.tether --stale-only
+```
+
+For each model the command prints how many molecules were stale and how many current. It
+refits each model that has a stale molecule, with the settings stored in the model. It
+refits all the molecules of that model. A consensus or ebFRET model is one fit over all of
+them. A model with no stale molecule is left as it is. From Python, the same refit of one
+model is `reidealize`:
 
 ```python
 from tether.project.idealize import reidealize
@@ -126,10 +154,10 @@ This works for a model fitted in Tether. A model you imported through the
 [standalone-tMAVEN hand-off](../idealize/standalone-tmaven-handoff.md) cannot be refitted this
 way, so hand the molecules to tMAVEN again and import the new fit.
 
-If you rejected or un-rejected molecules since the fit, `reidealize` is not enough, because it
-keeps the molecules the model was first fitted on. Run the fit you made in
+If you rejected or un-rejected molecules since the fit, `--stale-only` and `reidealize` are
+not enough, because they keep the molecules the model was first fitted on. Run the fit you made in
 [Fit the whole project](#fit-the-whole-project) again, with the same settings and
-`overwrite=True` added. A call without them falls back to the defaults, so it fits a different
+`--overwrite` (or `overwrite=True`) added. A call without them falls back to the defaults, so it fits a different
 model, or replaces the `vbconhmm` model while leaving the one you fitted untouched:
 
 ```python

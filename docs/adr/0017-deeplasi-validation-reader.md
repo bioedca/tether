@@ -48,6 +48,7 @@ The open questions this PR settles:
 ## Considered options
 
 **Field scope.**
+
 - **A. Parse only the M1-oracle fields: `fret_pairs` → 0-based donor/acceptor
   coordinates + the six raw/corrected/background `(N, T)` trace arrays + movie
   provenance.** Chosen. The recall/RMS gates need coordinates; the intensity-Pearson
@@ -65,6 +66,7 @@ The open questions this PR settles:
   fields M1 never reads.
 
 **Coordinate convention.**
+
 - **C. `fret_pairs` columns are `[x_donor, y_donor, x_acc, y_acc]` with `x` = col,
   `y` = row, **1-based** (MATLAB); subtract 1 → Tether 0-based `[x = col,
   y = row]`.** Chosen — the convention the M0.5 aperture oracle already validated
@@ -73,6 +75,7 @@ The open questions this PR settles:
   `float64` (kept sub-pixel, not rounded — the recall gate is @ 1 px, RMS sub-pixel).
 
 **`.txt` ↔ `.mat`.**
+
 - **D. The `.txt` is donor-first, per-molecule-interleaved (`donc₀ accc₀ donc₁
   accc₁ …`); its columns equal the `.mat` `donc`/`accc` to the text's 5-decimal
   rounding.** Chosen — **empirically verified across all 250 molecules** of the
@@ -80,6 +83,7 @@ The open questions this PR settles:
   on the full files; the committed slice inherits it by construction.
 
 **scipy in the package import path.**
+
 - **E. Import scipy *lazily* inside `read_deeplasi_mat`** (module scope stays
   numpy-only). Chosen — `tether.io.__init__` re-exports the reader (API
   consistency with `read_tdat`), but `schema-guard` imports `tether.io.schema`
@@ -101,7 +105,7 @@ non-MAT/garbage/bare-HDF5 with a clean `ValueError` (wrapping
 Chosen **A + C + D + E** in a new `tether.io.deeplasi` module:
 
 - `read_deeplasi_mat(path) -> DeepLasiExport` — 0-based donor/acceptor coordinates
-  + the six `(N, T)` trace arrays + provenance: `movie_name` (the source-movie
+  \+ the six `(N, T)` trace arrays + provenance: `movie_name` (the source-movie
   *filename*) and `movie_path` (its *directory*) are two distinct Deep-LASI fields
   (PRD §6 / Appendix A), plus `exported_by`. v7.3 input is rejected with a clean
   `NotImplementedError`; non-MAT/garbage input (incl. `matfile_version`'s

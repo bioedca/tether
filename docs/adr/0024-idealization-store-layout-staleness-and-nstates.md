@@ -38,6 +38,7 @@ requires each model be "stamped with a per-molecule provenance hash of the input
 ## Considered options
 
 **Model persistence**
+
 - **A — one additive subgroup `/idealization/{model_name}`** holding the model summary
   (`mean`/`var`/`tmatrix`/`norm_tmatrix`/`elbo`), the `(n, T)` `idealized` levels +
   int64 `state_path`, and per-molecule `molecule_key` / `molecule_id` / `input_hash`,
@@ -47,6 +48,7 @@ requires each model be "stamped with a per-molecule provenance hash of the input
   models §7.4/§6 need (vbFRET vs consensus vs a re-import).
 
 **Staleness stamp (the per-molecule input hash)**
+
 - **A — SHA-256 of the exact windowed input intensities** (donor+acceptor over each
   molecule's analysis window, cast to `float64`, folded with the quantity name).
 - **B — hash the correction parameters / app-version only**: misses an input-value
@@ -55,6 +57,7 @@ requires each model be "stamped with a per-molecule provenance hash of the input
   cannot detect a change made outside the app.
 
 **State-count selection**
+
 - **A — auto = maximum ELBO over a small grid** (`nstates ∈ {1,2,3,4}`), with an
   explicit `nstates` as a manual override.
 - **B — fixed `nstates` only**: no one-click "just idealize it" path.

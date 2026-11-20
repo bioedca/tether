@@ -284,3 +284,66 @@ def test_dark_summed_trace_leaves_default_window(tmp_path: Path) -> None:
     table = read_molecules(path)
     assert tuple(int(x) for x in table["analysis_window"][0]) == (0, n)  # default, not (0, 0)
     assert tuple(int(x) for x in table["bleach_frames"][0]) == (0, 0)  # bleached from frame 0
+
+
+# --- the features cache (#1112) -------------------------------------------------
+
+
+def _has_features(path: Path) -> bool:
+    with h5py.File(path, "r") as f:
+        return "features" in f and TABLE in f["features"]
+
+
+def test_an_auto_window_invalidates_the_feature_cache(tmp_path: Path) -> None:
+    """Photobleach narrows a featured default window, so the cached features are stale.
+
+    #1112: ``/features/table`` was sliced to the extraction-default window; after the
+    auto window lands, the ranker must read "run compute_features first", not old frames.
+    """
+    from tether.project.features import compute_features, feature_matrix
+
+    donor, acceptor, _, _ = _traces_with_known_bleach()
+    path = tmp_path / "pb.tether"
+    _build_store(path, donor, acceptor)
+    compute_features(path)
+    assert _has_features(path)
+
+    assert compute_photobleach(path).n_windows_autoset == 4
+
+    assert not _has_features(path)
+    with pytest.raises(KeyError, match="compute_features"):
+        feature_matrix(path)
+    assert compute_features(path).n_molecules == 4  # recompute works on the new windows
+
+
+def test_photobleach_keeps_the_cache_when_no_featured_window_changes(tmp_path: Path) -> None:
+    from tether.project.features import compute_features
+
+    donor, acceptor, _, _ = _traces_with_known_bleach()
+    path = tmp_path / "pb.tether"
+    _, keys = _build_store(path, donor, acceptor)
+    # Molecule 0 carries a manual window, which photobleach leaves alone; it alone is
+    # featured, so the auto windows written on the other three change no featured row.
+    with h5py.File(path, "r+") as f:
+        table = f["molecules"][TABLE][:]
+        table["analysis_window"][0] = (5, 30)
+        f["molecules"][TABLE][:] = table
+    compute_features(path, molecule_keys=[keys[0]])
+
+    assert compute_photobleach(path).n_windows_autoset == 3
+
+    assert _has_features(path)
+
+
+def test_a_second_photobleach_pass_keeps_the_cache(tmp_path: Path) -> None:
+    from tether.project.features import compute_features
+
+    donor, acceptor, _, _ = _traces_with_known_bleach()
+    path = tmp_path / "pb.tether"
+    _build_store(path, donor, acceptor)
+    compute_photobleach(path)
+    compute_features(path)
+
+    compute_photobleach(path)  # the windows are no longer the default: nothing changes
+
+    assert _has_features(path)

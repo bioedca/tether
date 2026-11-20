@@ -346,12 +346,23 @@ not been measured yet.
 
 ## Settings Tether keeps outside the install folder
 
-Tether keeps one application setting outside any `.tether` project: your answer to the
-question whether Tether may check for a newer release. Tether does not ask this question yet,
-and makes no network connection. The setting exists now so that your answer, once you give it,
-is not lost when you install a newer release over the old one.
+Tether keeps two application settings outside any `.tether` project:
 
-The answer is in a small file in your own settings folder, **not** in the install folder. An
+- Your answer to the question whether Tether may check for a newer release.
+- Your selection in **View → Trace colors**: color-blind safe (the default) or classic. See
+  [Trace colors](reference/gui-theme.md#select-the-trace-colors).
+
+The first time the application starts, it asks in a bar at the top of the window: **Check
+for new releases** or **Don't check**. Until you answer yes, Tether makes no network
+connection. If you answer yes, Tether asks GitHub once at each start whether a newer release
+exists. If one does, a notice links to the
+[Releases page](https://github.com/bioedca/tether/releases). Tether downloads nothing.
+
+To change the answer, use **Help → Check for new releases at startup**. The
+[privacy policy](privacy.md) says exactly what the request sends.
+
+The settings are kept outside the install folder so that they are not lost when you install a
+newer release over the old one. They are in a small file in your own settings folder. An
 installer can replace or delete the install folder, so a file there could be lost on an update.
 
 | Your computer | Settings file |
@@ -360,10 +371,17 @@ installer can replace or delete the install folder, so a file there could be los
 | macOS | `~/Library/Application Support/MondragonLab/Tether/settings.json` |
 | Linux | `~/.config/tether/settings.json` (or `$XDG_CONFIG_HOME/tether/settings.json` if you set `XDG_CONFIG_HOME` to an absolute path) |
 
-The file holds only two values: a format number and your answer, `allowed` or `declined`. It
-holds no name, no computer name, no time, no file path and no project data. If the file is
-missing, empty or damaged, Tether reads it as *no answer yet*: it makes no network connection
-and the answer stays unset. Tether never reads a damaged file as *allowed*.
+The file holds at most three values. They are a format number, your answer (`allowed` or
+`declined`) and your trace colors (`safe` or `classic`). Each value is there only after you give
+it. The file holds no name, no computer name, no time, no file path and no project data.
+
+If the file is missing, empty or damaged (unreadable, not JSON, or another format number),
+Tether reads it as *no answer yet*. It makes no network connection, and the traces use the
+default colors. Tether never reads a damaged file as *allowed*.
+
+In a readable file, Tether reads each value on its own. An unknown trace-color value gives the
+default colors and keeps a valid answer to the update question. An unknown answer keeps the
+trace colors. A change of trace colors never writes an answer to the update question.
 
 ### For a site administrator: turn the update check off for every user
 
@@ -377,7 +395,8 @@ computer, whatever each user answers. Create an empty file with this name:
 | Linux | `/etc/tether/disable-update-check` |
 
 The file can be empty; Tether does not read what is in it. While it is there, Tether makes no
-update request and does not ask the question. If Tether cannot examine the file, for example
+update request and does not ask the question. **Help → Check for new releases at startup**
+is greyed out. If Tether cannot examine the file, for example
 because a folder permission stops it, Tether also turns the check off. This file can only turn
 the check off. Nothing lets an administrator turn the check on for a user who did not agree.
 

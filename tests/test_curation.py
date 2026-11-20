@@ -190,6 +190,13 @@ def test_uncategorized_class_is_zero_and_nine_slots() -> None:
     assert CATEGORY_SLOTS == 9
 
 
+def test_uncategorized_class_is_the_lookup_pin() -> None:
+    """The hotkey ``0`` pin is the one the persisted class lookup holds (ADR-0125)."""
+    from tether.project import conditions
+
+    assert UNCATEGORIZED_CLASS == conditions.UNCATEGORIZED_CLASS
+
+
 def test_is_text_entry_false_for_none_and_plain_object() -> None:
     # The exemption predicate is Qt-free for the non-widget path (no Qt import).
     assert is_text_entry(None) is False

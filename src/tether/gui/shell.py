@@ -7,9 +7,11 @@ contract: it hosts the pyqtgraph trace dock ([`tether.gui.trace_dock`][]) plus
 the focus surfaces the curation keys must reach past — a molecule list, a movie
 switcher, and the **editable category field** (a text-entry that is exempt from
 the keymap, §7.6) — and installs the application-level
-[`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. The embedded napari movie panel
-(#356) and the real round-trip navigation (#357) are not wired in yet; this shell
-is deliberately small so those issues extend it.
+[`CurationEventFilter`][tether.gui.curation.CurationEventFilter]. An opened project's movies fill
+the movie switcher from ``/movies``, and the embedded napari movie panel
+([`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel]) shows the chosen one with its
+donor and acceptor spots as a dock of Curate and correct (#356). The real round-trip
+navigation between a trace and its spot (#357) is not wired in yet.
 
 Two companion dialogs complete the §7.3 contract:
 
@@ -27,6 +29,13 @@ section is current.
 [`TetherShell.set_section`][tether.gui.shell.TetherShell.set_section] switches; a
 switch never touches the session lock of ADR-0055.
 
+The menu bar and the curation keymap follow the section too (#342). The menus of each
+section are built from its [`MenuSpec`][tether.gui.sections.MenuSpec]s and show only while
+the section is current, between the window's own File menu and its View and Help menus.
+The curation keys act only in a section whose ``keymap_scope`` is
+[`CURATION_SCOPE`][tether.gui.curation.CURATION_SCOPE] (Curate and correct): elsewhere the
+event filter lets them through to the native widgets, and the cheat-sheet lists no key.
+
 The shell also carries the desktop basics (#629): File → Close project and Quit
 with the platform's standard keys, a Help menu (documentation, the cheat-sheet, the
 log folder, and the About box of [`tether.gui.about`][]), opening a dropped
@@ -41,7 +50,6 @@ from __future__ import annotations
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from threading import Lock
@@ -50,6 +58,7 @@ from typing import TYPE_CHECKING, Any
 from tether.gui import preferences
 from tether.gui.curation import (
     CATEGORY_SLOTS,
+    CURATION_SCOPE,
     Command,
     CurationAction,
     CurationController,
@@ -57,7 +66,8 @@ from tether.gui.curation import (
     CurationHandlers,
     Keymap,
 )
-from tether.gui.sections import DockArea, DockSpec, SectionRegistry, SectionSpec
+from tether.gui.sections import DockArea, DockSpec, MenuSpec, SectionRegistry, SectionSpec
+from tether.gui.task_service import TaskService
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -70,6 +80,7 @@ if TYPE_CHECKING:
     from tether.analysis.histogram import Histogram1D
     from tether.analysis.overlap import OverlapInfo
     from tether.gui.reconcile import ReconcileDecision
+    from tether.gui.tasks import TaskOutcome
     from tether.gui.trace_dock import TraceView
     from tether.project.core import Project
     from tether.project.handoff import AppliedReconcile, HandoffManifest, ReconcileReport
@@ -161,7 +172,8 @@ _IDEALIZE_POLL_MS = 25
 _LOCK_RELEASE_RETRY_MS = 1000
 
 #: Upper bound (ms) on one wait before the shell judges a refused lock again (#626).
-#: A foreign holder can refresh while the shell waits, so the wait is re-armed.
+#: A foreign holder can refresh while the shell waits, so the wait is re-armed. A running
+#: holder on this computer has no due time and is judged again at this interval (#1123).
 _LOCK_RECOVERY_RECHECK_MAX_MS = 60_000
 
 #: Coalesce rapid curation keystrokes before recomputing a project-wide histogram.
@@ -253,6 +265,33 @@ def _set_standard_shortcuts(action: Any, standard_key: Any, fallback: str) -> No
     if all(key.toString() != extra.toString() for key in keys):
         keys.append(extra)
     action.setShortcuts(keys)
+
+
+def _movie_panel_unavailable() -> str | None:
+    """Why no napari movie panel can be built in this process, or ``None`` (#356).
+
+    A napari ``Viewer`` needs an OpenGL context for its canvas, and the offscreen Qt
+    platform on macOS has none: building one there ends the process, which no ``except``
+    can catch. That one combination is refused up front; elsewhere the panel is built
+    and a failure is reported by the caller.
+    """
+    import importlib.util
+    import sys
+
+    from pyqtgraph.Qt import QtGui
+
+    if importlib.util.find_spec("napari") is None:
+        return "napari is not installed"
+    if sys.platform == "darwin" and QtGui.QGuiApplication.platformName() == "offscreen":
+        return "the offscreen display platform on macOS has no OpenGL"
+    return None
+
+
+def _new_movie_panel() -> Any:
+    """A new headless [`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel] to dock."""
+    from tether.gui.movie_panel import NapariMoviePanel
+
+    return NapariMoviePanel(title="Tether — movie", show=False)
 
 
 def _local_paths(mime: Any) -> list[Path]:
@@ -368,6 +407,11 @@ class CheatSheetOverlay:
     keymap so a rebinding is reflected the next time it is shown. Each action in
     ``unavailable`` (the shell passes [`DEFERRED_ACTIONS`][tether.gui.shell.DEFERRED_ACTIONS]) is
     marked ``(unavailable)``, so the sheet never advertises a key the shell cannot honour.
+
+    ``live`` scopes the sheet to a section (#342): while it returns ``False`` the
+    keymap is not active, so the table has no rows and ``inactive_text`` shows in their
+    place. The shell passes the same predicate as its event filter, so the sheet lists
+    exactly the keys that act in the current section. ``None`` keeps every row.
     """
 
     def __init__(
@@ -377,6 +421,8 @@ class CheatSheetOverlay:
         parent: QtWidgets.QWidget | None = None,
         unavailable: frozenset[CurationAction] = frozenset(),
         note: str | None = None,
+        live: Callable[[], bool] | None = None,
+        inactive_text: str = "No keyboard shortcuts act in this section.",
     ) -> None:
         from pyqtgraph.Qt import QtWidgets
 
@@ -384,6 +430,8 @@ class CheatSheetOverlay:
         self._unavailable = frozenset(unavailable)
         self._rows: list[tuple[str, str]] = []
         self._note = note
+        self._live = live
+        self._note_label: Any | None = None
         self._dialog = QtWidgets.QDialog(parent)
         self._dialog.setWindowTitle("Keyboard shortcuts")
         layout = QtWidgets.QVBoxLayout(self._dialog)
@@ -392,12 +440,16 @@ class CheatSheetOverlay:
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self._table)
+        # Shown in place of the rows while the keymap is not active (#342).
+        self._inactive_label = QtWidgets.QLabel(inactive_text)
+        self._inactive_label.setWordWrap(True)
+        layout.addWidget(self._inactive_label)
         if note:
             # A behavior the key rows cannot carry, such as the advance-after-curation
             # preference (#631): shown under the table, never as a key row.
-            label = QtWidgets.QLabel(note)
-            label.setWordWrap(True)
-            layout.addWidget(label)
+            self._note_label = QtWidgets.QLabel(note)
+            self._note_label.setWordWrap(True)
+            layout.addWidget(self._note_label)
         self.refresh()
 
     @property
@@ -415,11 +467,26 @@ class CheatSheetOverlay:
         """The text shown under the key table, or ``None`` when there is none."""
         return self._note
 
+    @property
+    def live(self) -> bool:
+        """Whether the keymap is active now, so the table lists its bindings (#342)."""
+        return self._live is None or bool(self._live())
+
+    @property
+    def inactive_label(self) -> QtWidgets.QLabel:
+        """The text shown in place of the rows while the keymap is not active."""
+        return self._inactive_label
+
     def refresh(self) -> None:
-        """Re-read the keymap and repopulate the table (reflects rebindings)."""
+        """Re-read the keymap and repopulate the table (reflects rebindings and the section)."""
         from pyqtgraph.Qt import QtWidgets
 
-        self._rows = self._keymap.cheatsheet(unavailable=self._unavailable)
+        live = self.live
+        self._rows = self._keymap.cheatsheet(unavailable=self._unavailable) if live else []
+        # The advance note (#631) is about curation, so it shows only with the rows.
+        self._inactive_label.setHidden(live)
+        if self._note_label is not None:
+            self._note_label.setHidden(not live)
         self._table.setRowCount(len(self._rows))
         for row, (key_label, description) in enumerate(self._rows):
             self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(key_label))
@@ -493,7 +560,8 @@ class TetherShell:
     ([`make_store_overlap`][]), a right-hand static overlap dock shows the selected
     molecule's cached patch + nearest-neighbour distance, refreshed on selection
     (§7.3). The trace dock and the Browser belong to the Curate and correct section,
-    one of the sections [`set_section`][] switches between (#341). After a stored
+    one of the sections [`set_section`][] switches between (#341); the curation keys and
+    the Curation, Hand-off and Conditions menus act only there (#342). After a stored
     accept or reject the next listed molecule is selected, so one key both decides
     and moves on; ``advance_after_curation=False`` keeps the selection in place
     instead. Use as a context manager or call [`close`][].
@@ -585,6 +653,18 @@ class TetherShell:
         self._overlap_seam = overlap
         self._overlap_dock: Any | None = None
         self._overlap_dock_widget: Any | None = None
+        # The embedded napari movie panel (#356, PRD §7.3). It is built when an opened
+        # project has a movie whose file can be opened, docked in Curate and correct, and
+        # torn down with the project, so a bare shell never builds a napari Viewer. The
+        # shell's movie switcher, not the panel's own, chooses the movie: the shell owns
+        # the switcher (it is a focus surface of the curation keys), and the panel's
+        # ``switcher`` property is never built. ``_movie_rows`` maps a switcher row to the
+        # panel's index of that movie; a movie that cannot be shown has no entry.
+        self._movie_panel: Any | None = None
+        self._movie_dock_widget: Any | None = None
+        self._movie_readers: list[Any] = []
+        self._project_movies: list[Any] = []
+        self._movie_rows: dict[int, int] = {}
         # The condition-validation seam: the .tether Project whose provisional
         # per-molecule condition_ids the &Conditions menu confirms/corrects (§7.6).
         # None (no project) makes the menu report that a project must be loaded; a real
@@ -593,17 +673,10 @@ class TetherShell:
         # The currently open modal wrapper, retained so timer-detected lock loss can
         # reject it before its stale Project handle reaches another write action.
         self._active_conditions_dialog: Any | None = None
-        # The fit runs on a background worker (the sidecar can block for a cold-JIT
-        # first run); a main-thread QTimer polls the future so the GUI stays live and
-        # the overlay draw + status update always happen on the main thread.
-        self._idealize_executor = ThreadPoolExecutor(max_workers=1)
-        self._idealize_future: Any | None = None
         # A fit abandoned by shell close remains a writer until its Future settles.
         # Keep that Future separate from the visible idealization state so the
         # nonce-safe release timer waits for the writer and retries teardown errors.
         self._session_release_future: Any | None = None
-        self._idealize_timer: Any | None = None
-        self._idealize_key: str | None = None
         # What this computer remembers between launches (#628, ADR-0122): recent
         # projects, the molecule selected at close, the layout and the curator name.
         # None (a bare or test shell) remembers nothing; tether-gui passes the per-user
@@ -648,6 +721,11 @@ class TetherShell:
         self._trace_dock = TraceDock()
         # The path of the project load_project opened, or None (no project open).
         self._project_path: Path | None = None
+        # The readiness of each stage of the open project (#896), read on each open.
+        self._readiness: Any | None = None
+        # The intensity_quantity that open used, so a lock recovery reopens the same
+        # trace layer rather than load_project's default (#1097).
+        self._intensity_quantity = "corrected"
         self._start_page = StartPage(
             on_open=lambda: self._open_project_dialog(),
             on_tutorial=self.open_tutorial,
@@ -664,12 +742,16 @@ class TetherShell:
         # field. The category field is the text-entry exempt from the keymap.
         panel = QtWidgets.QWidget()
         vbox = QtWidgets.QVBoxLayout(panel)
+        # No invented movie id: the box lists the open project's /movies rows (#356),
+        # stays empty, and is disabled while no project is open (#1031).
         self._movie_switcher = QtWidgets.QComboBox()
-        self._movie_switcher.addItems(["movie-0"])
+        self._movie_switcher.setAccessibleName("Movie")
+        self._movie_switcher.setEnabled(False)
+        self._movie_switcher.currentIndexChanged.connect(self._on_movie_switched)
         self._molecule_list = QtWidgets.QListWidget()
         self._molecule_list.currentRowChanged.connect(self._on_list_row_changed)
         self._category_field = QtWidgets.QLineEdit()
-        self._category_field.setPlaceholderText("category name (text-entry — keymap exempt)")
+        self._category_field.setPlaceholderText("Type a category name")
         self._category_field.setProperty("tetherTextEntry", True)
         self._unreject_button = QtWidgets.QPushButton("Un-reject selected")
         self._unreject_button.setToolTip(
@@ -681,6 +763,15 @@ class TetherShell:
         # The theme's style sheet draws it in the "caution" state token.
         self._read_only_banner.setProperty("tetherRole", "caution")
         self._read_only_banner.hide()
+        # OneDrive/SharePoint sync-conflict siblings of the open project (PRD §5.4,
+        # detect-and-surface): a non-blocking warning, never a dialog or a refusal.
+        self._conflict_copy_banner = QtWidgets.QLabel()
+        self._conflict_copy_banner.setAccessibleName("Sync-conflict copy warning")
+        self._conflict_copy_banner.setWordWrap(True)
+        # File names are shown as written: a name holding "<b>" must not become markup.
+        self._conflict_copy_banner.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self._conflict_copy_banner.setProperty("tetherRole", "caution")
+        self._conflict_copy_banner.hide()
         # The banner's lock actions (#626), shown only when the lock allows one.
         self._recover_button = QtWidgets.QPushButton("Recover")
         self._recover_button.setAccessibleName("Recover the project lock")
@@ -713,6 +804,7 @@ class TetherShell:
         lock_actions.addWidget(self._take_over_button)
         lock_actions.addStretch(1)
         vbox.addLayout(lock_actions)
+        vbox.addWidget(self._conflict_copy_banner)
         vbox.addWidget(molecules_title)
         vbox.addWidget(self._molecule_list, stretch=1)
         vbox.addWidget(category_title)
@@ -738,6 +830,8 @@ class TetherShell:
         # after the restore reads it too (#628).
         self._stored_section_hidden: set[str] = set()
         self._section: str = _DEFAULT_SECTION
+        # The menus of each section (#342), filled when the menu bar is built below.
+        self._section_menus: dict[str, list[Any]] = {spec.id: [] for spec in self._sections}
         dock_widgets: dict[tuple[str, str], Any] = {}
         for spec in self._sections:
             page = spec.central(self)
@@ -771,6 +865,8 @@ class TetherShell:
             focus_dock=self._trace_dock.widget,
             scope_window=self._window,
             scope_widgets=(self._browser_dock,),
+            # The curation keys act only in a section with the curation scope (#342).
+            scope_active=self._curation_keys_active,
         )
         self._event_filter.install()
         self._closed = False
@@ -839,48 +935,32 @@ class TetherShell:
         self._act_quit.setMenuRole(QtGui.QAction.MenuRole.QuitRole)
         self._act_quit.triggered.connect(self.quit)
 
-        # Help / overflow actions (menu + the shipped cheat-sheet).
+        # The shipped cheat-sheet: it lists the keys that act in the current section (#342).
         self._cheatsheet = CheatSheetOverlay(
             self._keymap,
             parent=self._window,
             unavailable=DEFERRED_ACTIONS,
             note=self._advance_note(),
+            live=self._curation_keys_active,
+            inactive_text=(
+                "The curation keys act only in the "
+                f"{self._sections.get(CURATE_SECTION).title} section. To use them, choose "
+                f"View → Section → {self._sections.get(CURATE_SECTION).title}."
+            ),
         )
-        menu = self._window.menuBar().addMenu("&Curation")
-        act_help = menu.addAction("Keyboard &shortcuts…")
-        act_help.triggered.connect(self.show_cheatsheet)
-        act_pick = menu.addAction("Assign category (&overflow)…")
-        self._act_assign_category = act_pick
-        act_pick.triggered.connect(self.show_overflow_picker)
 
-        # Hand-off menu: the standalone-tMAVEN round trip (§7.4) — export the
-        # selection as an SMD, and re-import a returning SMD (+ optional model)
-        # through the per-trace reconcile prompt.
-        self._handoff_menu = self._window.menuBar().addMenu("&Hand-off")
-        self._act_hand_off = self._handoff_menu.addAction("Hand to &tMAVEN…")
-        self._act_hand_off.triggered.connect(self._hand_off_dialog)
-        self._act_import = self._handoff_menu.addAction("&Import return leg…")
-        self._act_import.triggered.connect(self._import_dialog)
-
-        # Analysis menu: the population apparent-E histogram (§7.7, Appendix C A1).
-        self._analysis_menu = self._window.menuBar().addMenu("&Analysis")
-        self._act_histogram = self._analysis_menu.addAction("Population &histogram…")
-        self._act_histogram.triggered.connect(self.show_histogram)
-
-        # Conditions menu: the M4 annotation step — confirm/correct the provisional
-        # per-molecule condition_id, with the transactional re-key + human-confirmed
-        # merge (§5.1/§7.6).
-        self._conditions_menu = self._window.menuBar().addMenu("&Conditions")
-        self._act_validate_conditions = self._conditions_menu.addAction("Validate &conditions…")
-        self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
-
-        # Import menu (FR-LEGACY in the PRD and the code): the M7 Deep-LASI
-        # re-analysis entry point — import a folder of Deep-LASI acquisition files
-        # (movie + .tdat/.mat/.txt/SMD) into round-trip or analysis-only .tether
-        # projects through the wizard (§7.8). Named for what it does (#629).
-        self._legacy_menu = self._window.menuBar().addMenu("&Import")
-        self._act_import_deeplasi = self._legacy_menu.addAction("&Deep-LASI bundle…")
-        self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+        # The menus of the sections (#342): built from each section's MenuSpec, in the
+        # order of the registry, between the window's own File menu and its View and Help
+        # menus. A section's menus show only while that section is current.
+        menu_bar = self._window.menuBar()
+        for spec in self._sections:
+            for menu_spec in spec.menus:
+                section_menu = menu_bar.addMenu(menu_spec.title)
+                section_menu.setObjectName(f"{spec.id}-{menu_spec.id}-menu")
+                if menu_spec.populate is not None:
+                    menu_spec.populate(self, section_menu)
+                self._section_menus[spec.id].append(section_menu)
+        self._sync_section_menus()
 
         # View menu: View -> Theme -> System / Light / Dark (#675). The choice lasts
         # for the session until the settings store (#330) can keep it.
@@ -916,6 +996,25 @@ class TetherShell:
         self._act_reset_layout = self._view_menu.addAction("&Reset layout")
         self._act_reset_layout.triggered.connect(self.reset_layout)
 
+        # View -> Trace colors (#636): the colour-blind-safe set is the default; the
+        # classic green and red set is the option. The choice is kept in the settings
+        # store (ADR-0123) and create_shell applies it at the next start.
+        self._trace_colors_menu = self._view_menu.addMenu("Trace &colors")
+        self._trace_colors_group = QtGui.QActionGroup(self._window)
+        self._trace_colors_actions: dict[str, Any] = {}
+        for value, label in (
+            ("safe", "Color-blind &safe (default)"),
+            ("classic", "&Classic green and red"),
+        ):
+            action = self._trace_colors_menu.addAction(label)
+            action.setCheckable(True)
+            action.setData(value)
+            self._trace_colors_group.addAction(action)
+            action.triggered.connect(lambda _checked=False, v=value: self.set_trace_colors(v))
+            self._trace_colors_actions[value] = action
+        self._trace_colors_menu.aboutToShow.connect(self._sync_trace_colors_menu)
+        self._sync_trace_colors_menu()
+
         # Help menu (#629): the installed version's documentation, the shortcut
         # cheat-sheet (the same action as Curation's), the log folder once a log
         # exists, and the About box with the build a bug report needs.
@@ -923,8 +1022,7 @@ class TetherShell:
         self._act_documentation = self._help_menu.addAction("&Documentation")
         _set_standard_shortcuts(self._act_documentation, std.HelpContents, "F1")
         self._act_documentation.triggered.connect(self.open_documentation)
-        self._act_shortcuts = act_help
-        self._help_menu.addAction(act_help)
+        self._help_menu.addAction(self._act_shortcuts)
         self._act_log_folder = self._help_menu.addAction("Open &log folder")
         self._act_log_folder.triggered.connect(self.open_log_folder)
         self._help_menu.aboutToShow.connect(self._sync_help_menu)
@@ -957,6 +1055,11 @@ class TetherShell:
 
         self._busy_indicator = BusyIndicator()
         self._window.statusBar().addPermanentWidget(self._busy_indicator)
+        # The fit runs on the background-task service (#343): one worker thread (the
+        # sidecar can block for a cold-JIT first run), polled by a main-thread QTimer so
+        # the GUI stays live and the overlay draw + status update happen on the main
+        # thread. The service sets the wait cursor and drives the busy indicator.
+        self._tasks = TaskService(poll_ms=_IDEALIZE_POLL_MS, indicator=self._busy_indicator)
         self._curator_label = QtWidgets.QLabel()
         self._curator_label.setAccessibleName("Curator name")
         self._window.statusBar().addPermanentWidget(self._curator_label)
@@ -974,6 +1077,14 @@ class TetherShell:
     def window(self) -> QtWidgets.QMainWindow:
         """The wrapped ``QMainWindow`` hosting the docks, menu bar, and status bar."""
         return self._window
+
+    @property
+    def channel_map(self) -> Any:
+        """The Calibration menu's actions.
+
+        A [`ChannelMapActions`][tether.gui.calibration.ChannelMapActions] (#353).
+        """
+        return self._channel_map
 
     @property
     def trace_dock(self) -> Any:
@@ -1024,6 +1135,36 @@ class TetherShell:
             return
         self._show_section(section_id)
         self._section_actions[section_id].setChecked(True)
+        # An open cheat-sheet follows the section, so it never lists keys that do not act.
+        self._cheatsheet.refresh()
+
+    def section_menus(self, section_id: str) -> list[QtWidgets.QMenu]:
+        """The menu-bar menus of ``section_id``, in the order of its `MenuSpec`s (#342).
+
+        They show on the menu bar only while ``section_id`` is current; File, View and Help
+        are the window's own menus and are in no section's list. Raise `KeyError` if unknown.
+        """
+        self._sections.get(section_id)
+        return list(self._section_menus[section_id])
+
+    @property
+    def keymap_active(self) -> bool:
+        """Whether the curation keys act now: the current section has the curation scope (#342).
+
+        While it is ``False`` a curation key keeps its native meaning and never reaches the
+        [`controller`][], and the cheat-sheet lists no key.
+        """
+        return self._curation_keys_active()
+
+    def _curation_keys_active(self) -> bool:
+        """The section predicate of the event filter and the cheat-sheet (#342)."""
+        return self._sections.get(self._section).keymap_scope == CURATION_SCOPE
+
+    def _sync_section_menus(self) -> None:
+        """Show the menus of the current section on the menu bar and hide every other one."""
+        for section_id, menus in self._section_menus.items():
+            for menu in menus:
+                menu.menuAction().setVisible(section_id == self._section)
 
     def _show_section(self, section_id: str) -> None:
         """Make ``section_id`` current: its page in the stack, its docks shown, others hidden.
@@ -1045,6 +1186,7 @@ class TetherShell:
                 dock_widget.show()
         self._section_stack.setCurrentWidget(self._section_pages[section_id])
         self._section = section_id
+        self._sync_section_menus()
 
     def _attach_section_dock(
         self, section_id: str, title: str, widget: Any, area: DockArea
@@ -1099,6 +1241,11 @@ class TetherShell:
         registry adds no second owner of any widget. Prepare and Analyze write to the open
         project in later work (#352 publishes an extraction into it; analysis results are
         stamped into it), so each declares ``writes_project=True``, as Curate and correct does.
+
+        Each section also declares its menus (#342): Import and Calibration (#353) in
+        Prepare; Curation, Hand-off and Conditions in Curate and correct; Analysis in
+        Analyze. Only Curate and correct declares the curation keymap scope, so the
+        curation keys act only there.
         """
         browser_panel = self._browser_panel
         return SectionRegistry(
@@ -1113,6 +1260,18 @@ class TetherShell:
                         "Import → Deep-LASI bundle…. The project opens in this window.",
                     ),
                     writes_project=True,
+                    menus=(
+                        MenuSpec(
+                            id="import",
+                            title="&Import",
+                            populate=lambda _host, menu: self._populate_import_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="calibration",
+                            title="Ca&libration",
+                            populate=lambda _host, menu: self._populate_calibration_menu(menu),
+                        ),
+                    ),
                 ),
                 SectionSpec(
                     id=CURATE_SECTION,
@@ -1128,7 +1287,24 @@ class TetherShell:
                             factory=lambda _host: browser_panel,
                         ),
                     ),
-                    keymap_scope="curation",
+                    menus=(
+                        MenuSpec(
+                            id="curation",
+                            title="&Curation",
+                            populate=lambda _host, menu: self._populate_curation_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="hand-off",
+                            title="&Hand-off",
+                            populate=lambda _host, menu: self._populate_handoff_menu(menu),
+                        ),
+                        MenuSpec(
+                            id="conditions",
+                            title="&Conditions",
+                            populate=lambda _host, menu: self._populate_conditions_menu(menu),
+                        ),
+                    ),
+                    keymap_scope=CURATION_SCOPE,
                 ),
                 SectionSpec(
                     id=ANALYZE_SECTION,
@@ -1140,9 +1316,85 @@ class TetherShell:
                         "Analysis → Population histogram…. It shows below this text.",
                     ),
                     writes_project=True,
+                    menus=(
+                        MenuSpec(
+                            id="analysis",
+                            title="&Analysis",
+                            populate=lambda _host, menu: self._populate_analysis_menu(menu),
+                        ),
+                    ),
                 ),
             ]
         )
+
+    # --- the menus of the sections (#342) --------------------------------------
+
+    def _populate_import_menu(self, menu: Any) -> None:
+        """Prepare's Import menu (FR-LEGACY): the M7 Deep-LASI re-analysis entry point.
+
+        It imports a folder of Deep-LASI acquisition files (movie + .tdat/.mat/.txt/SMD)
+        into round-trip or analysis-only .tether projects through the wizard (§7.8). It is
+        named for what it does (#629).
+        """
+        self._legacy_menu = menu
+        self._act_import_deeplasi = menu.addAction("&Deep-LASI bundle…")
+        self._act_import_deeplasi.triggered.connect(self._import_deeplasi_dialog)
+
+    def _populate_calibration_menu(self, menu: Any) -> None:
+        """Prepare's Calibration menu (#353): make, choose and apply a channel map file.
+
+        Make a channel map from a bead video or image, or choose a saved one, and extract
+        a later movie with it. Each action is a service command (map, extract), run on a
+        background worker of its own so the window stays live; the mapping page itself is
+        #917.
+        """
+        from tether.gui.calibration import ChannelMapActions
+
+        self._channel_map = ChannelMapActions(
+            status=self._status, open_project=self.load_project, window=self._window
+        )
+        self._calibration_menu = menu
+        self._act_make_map = menu.addAction("&Make channel map…")
+        self._act_make_map.triggered.connect(self._channel_map.make_map_dialog)
+        self._act_choose_map = menu.addAction("&Choose channel map…")
+        self._act_choose_map.triggered.connect(self._channel_map.choose_map_dialog)
+        self._act_extract_with_map = menu.addAction("&Extract a movie with the channel map…")
+        self._act_extract_with_map.triggered.connect(self._channel_map.extract_with_map_dialog)
+
+    def _populate_curation_menu(self, menu: Any) -> None:
+        """Curate and correct's Curation menu: the cheat-sheet and the overflow picker."""
+        self._act_shortcuts = menu.addAction("Keyboard &shortcuts…")
+        self._act_shortcuts.triggered.connect(self.show_cheatsheet)
+        self._act_assign_category = menu.addAction("Assign category (&overflow)…")
+        self._act_assign_category.triggered.connect(self.show_overflow_picker)
+
+    def _populate_handoff_menu(self, menu: Any) -> None:
+        """Curate and correct's Hand-off menu: the standalone-tMAVEN round trip (§7.4).
+
+        It exports the selection as an SMD, and re-imports a returning SMD (+ optional
+        model) through the per-trace reconcile prompt.
+        """
+        self._handoff_menu = menu
+        self._act_hand_off = menu.addAction("Hand to &tMAVEN…")
+        self._act_hand_off.triggered.connect(self._hand_off_dialog)
+        self._act_import = menu.addAction("&Import return leg…")
+        self._act_import.triggered.connect(self._import_dialog)
+
+    def _populate_conditions_menu(self, menu: Any) -> None:
+        """Curate and correct's Conditions menu: the M4 annotation step (§5.1/§7.6).
+
+        It confirms or corrects the provisional per-molecule condition_id, with the
+        transactional re-key and the human-confirmed merge.
+        """
+        self._conditions_menu = menu
+        self._act_validate_conditions = menu.addAction("Validate &conditions…")
+        self._act_validate_conditions.triggered.connect(self._validate_conditions_dialog)
+
+    def _populate_analysis_menu(self, menu: Any) -> None:
+        """Analyze's Analysis menu: the population apparent-E histogram (§7.7, Appendix C A1)."""
+        self._analysis_menu = menu
+        self._act_histogram = menu.addAction("Population &histogram…")
+        self._act_histogram.triggered.connect(self.show_histogram)
 
     @property
     def molecule_list(self) -> QtWidgets.QListWidget:
@@ -1151,8 +1403,28 @@ class TetherShell:
 
     @property
     def movie_switcher(self) -> QtWidgets.QComboBox:
-        """The browser-panel ``QComboBox`` of movie ids (a keymap-reachable focus surface)."""
+        """The browser-panel ``QComboBox`` of the open project's movies (#356).
+
+        One item per ``/movies`` row, in table order, labelled with the movie's file name;
+        the item data is the ``movie_id``. A movie that cannot be shown is listed disabled,
+        with the reason. Choosing a movie shows it in the [`movie_panel`][]. It is a
+        keymap-reachable focus surface of the curation keys.
+        """
         return self._movie_switcher
+
+    @property
+    def movie_panel(self) -> Any | None:
+        """The embedded [`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel], or ``None``.
+
+        ``None`` while no project is open, for an analysis-only project, and for a project
+        none of whose movies can be opened here (#356).
+        """
+        return self._movie_panel
+
+    @property
+    def movie_dock(self) -> QtWidgets.QDockWidget | None:
+        """The Curate and correct dock holding the movie panel's window, or ``None``."""
+        return self._movie_dock_widget
 
     @property
     def browser_dock(self) -> QtWidgets.QDockWidget:
@@ -1171,13 +1443,33 @@ class TetherShell:
 
     @property
     def view_menu(self) -> QtWidgets.QMenu:
-        """The ``&View`` menu; its ``&Theme`` submenu selects System, Light or Dark."""
+        """The ``&View`` menu: ``&Theme`` (System, Light, Dark) and ``Trace &colors``."""
         return self._view_menu
 
     @property
     def theme_actions(self) -> dict[str, Any]:
         """The checkable **View → Theme** actions, by mode (``system``/``light``/``dark``)."""
         return dict(self._theme_actions)
+
+    @property
+    def trace_colors_actions(self) -> dict[str, Any]:
+        """The checkable **View → Trace colors** actions, by palette (``safe``/``classic``)."""
+        return dict(self._trace_colors_actions)
+
+    def set_trace_colors(self, name: str) -> None:
+        """Draw the traces in the palette ``name`` now and keep the choice for later starts.
+
+        The plots change at once. If the settings store cannot be written, the choice
+        still holds for this session and the status bar says it was not kept.
+        """
+        from tether.gui import app_settings, theme
+
+        theme.set_trace_palette(name)
+        self._sync_trace_colors_menu()
+        try:
+            app_settings.record_trace_colors(name)
+        except OSError as exc:
+            self._status(f"Trace colors changed for this session only; not saved: {exc}")
 
     @property
     def section_titles(self) -> list[QtWidgets.QLabel]:
@@ -1209,10 +1501,26 @@ class TetherShell:
 
         self._theme_actions[theme.mode()].setChecked(True)
 
+    def _sync_trace_colors_menu(self) -> None:
+        from tether.gui import theme
+
+        self._trace_colors_actions[theme.trace_palette()].setChecked(True)
+
     @property
     def read_only_banner(self) -> QtWidgets.QLabel:
         """The persistent Browser warning shown while the loaded project is browse-only."""
         return self._read_only_banner
+
+    @property
+    def conflict_copy_banner(self) -> QtWidgets.QLabel:
+        """The Browser warning naming possible sync-conflict copies of the open project.
+
+        [`load_project`][] fills it from
+        [`conflict_copy_warning`][tether.services.notices.conflict_copy_warning] and hides
+        it when the project's directory holds none; closing the project clears it. It only
+        reports: Tether never reconciles, deletes or merges a conflict copy (§5.4).
+        """
+        return self._conflict_copy_banner
 
     @property
     def recover_button(self) -> QtWidgets.QPushButton:
@@ -1333,6 +1641,181 @@ class TetherShell:
         self._overlap_dock_widget = self._attach_section_dock(
             CURATE_SECTION, "Overlap", self._overlap_dock.widget, DockArea.RIGHT
         )
+
+    # --- the embedded napari movie panel (#356, PRD §7.3) -----------------------
+
+    def _wire_movies(self, movies: Any) -> str | None:
+        """Fill the movie switcher from ``movies`` and show the openable ones in a movie panel.
+
+        ``movies`` is the project's [`ProjectMovies`][tether.services.movies.ProjectMovies]:
+        its rows, in ``/movies`` order, and the aperture radius. An analysis-only project
+        passes none, which leaves the switcher empty and disabled and builds no panel. Each
+        movie whose file opens is added to one
+        [`NapariMoviePanel`][tether.gui.movie_panel.NapariMoviePanel] with a
+        [`MovieOverlay`][tether.gui.movie_panel.MovieOverlay] of its own molecules at that
+        radius (the stored extraction ``disk_radius``, or the documented default when the
+        project stores none). The panel's Qt window becomes a dock of Curate and correct.
+
+        Returns a note for the open's status message when a recorded movie file cannot be
+        shown, or the panel cannot be built here, else ``None``. A movie whose ``uri`` is
+        empty records no file, so it is listed (disabled) without a note. A movie whose
+        spots cannot be placed (no channel geometry recorded) is shown without spots, and
+        its switcher entry says so.
+        """
+        from pyqtgraph.Qt import QtCore
+
+        self._project_movies = list(movies.movies)
+        switcher = self._movie_switcher
+        switcher.blockSignals(True)
+        try:
+            switcher.clear()
+            for row, movie in enumerate(self._project_movies):
+                why = movie.unavailable or movie.no_spots
+                label = f"{movie.name} ({why})" if why else movie.name
+                switcher.addItem(label, movie.movie_id)
+                tooltip = str(movie.path) if movie.path is not None else movie.unavailable
+                switcher.setItemData(row, tooltip, QtCore.Qt.ItemDataRole.ToolTipRole)
+                if not movie.available:
+                    self._disable_movie_row(row)
+        finally:
+            switcher.blockSignals(False)
+        switcher.setEnabled(bool(self._project_movies))
+
+        recorded = [m for m in self._project_movies if m.path is not None]
+        not_shown = [m for m in recorded if not m.available]
+        openable = [row for row, m in enumerate(self._project_movies) if m.available]
+        notes: list[str] = []
+        if openable:
+            reason = _movie_panel_unavailable()
+            panel = None
+            if reason is None:
+                try:
+                    panel = _new_movie_panel()
+                except Exception as exc:  # noqa: BLE001 - no movie panel is not a failed open
+                    reason = str(exc) or type(exc).__name__
+            if panel is None:
+                note = f"movie panel unavailable: {reason}"
+                notes.append(note)
+                # A row that cannot show its movie is not offered as if it could.
+                for row in openable:
+                    switcher.setItemData(row, note, QtCore.Qt.ItemDataRole.ToolTipRole)
+                    self._disable_movie_row(row)
+            else:
+                not_shown += self._add_movies(panel, openable, movies.aperture_radius)
+                self._attach_movie_panel(panel)
+        if not_shown:
+            notes.insert(0, f"{len(not_shown)} of {len(recorded)} movie(s) not shown")
+        return "; ".join(notes) or None
+
+    def _add_movies(self, panel: Any, rows: list[int], radius: float) -> list[Any]:
+        """Open the movie of each switcher row in ``rows`` into ``panel``; return the failures.
+
+        A movie that does not open (a file the reader refuses) or that the panel cannot
+        prepare (its first frame cannot be displayed) is disabled in the switcher with the
+        reason, its reader is closed, and the others are still shown.
+        """
+        from tether.gui.movie_panel import MovieOverlay
+        from tether.services.movies import open_project_movie
+
+        failed: list[Any] = []
+        for row in rows:
+            movie = self._project_movies[row]
+            reader = None
+            try:
+                reader = open_project_movie(movie)
+                # A movie whose spots cannot be placed on the frame is shown without any.
+                overlay = (
+                    None
+                    if movie.no_spots
+                    else MovieOverlay(
+                        donor_xy=movie.donor_xy,
+                        acceptor_xy=movie.acceptor_xy,
+                        aperture_radius=radius,
+                    )
+                )
+                index = panel.add_movie(reader, overlay=overlay, name=movie.movie_id)
+            except Exception:  # noqa: BLE001 - one unshowable movie must not fail the open
+                if reader is not None:
+                    with suppress(Exception):
+                        reader.close()
+                failed.append(movie)
+                self._movie_switcher.setItemText(row, f"{movie.name} (cannot be opened)")
+                self._disable_movie_row(row)
+                continue
+            self._movie_readers.append(reader)
+            self._movie_rows[row] = index
+        return failed
+
+    def _attach_movie_panel(self, panel: Any) -> None:
+        """Dock ``panel``'s Qt window in Curate and correct and select its active movie.
+
+        napari's own menu bar is hidden: inside the Tether window its actions would carry
+        shortcuts (``Ctrl+W``, ``Ctrl+Q``) that collide with the File menu's, and a hidden
+        menu bar's actions do not fire. The viewer itself (canvas, layer list, layer
+        controls) shows as it does in napari.
+        """
+        if not self._movie_rows:
+            panel.close()
+            return
+        self._movie_panel = panel
+        window = panel.qt_window
+        window.menuBar().hide()
+        self._movie_dock_widget = self._attach_section_dock(
+            CURATE_SECTION, "Movie", window, DockArea.RIGHT
+        )
+        # Floated, the dock is its own window; the curation keys still act there.
+        self._event_filter.add_scope_widget(self._movie_dock_widget)
+        # Select the row of the movie the panel shows, so the switcher names that movie.
+        active = [row for row, index in self._movie_rows.items() if index == panel.active_index]
+        first_row = active[0] if active else min(self._movie_rows, key=self._movie_rows.__getitem__)
+        self._movie_switcher.blockSignals(True)
+        self._movie_switcher.setCurrentIndex(first_row)
+        self._movie_switcher.blockSignals(False)
+
+    def _disable_movie_row(self, row: int) -> None:
+        """Make switcher row ``row`` unselectable (its movie cannot be shown)."""
+        item = self._movie_switcher.model().item(row)
+        if item is not None:
+            item.setEnabled(False)
+
+    def _on_movie_switched(self, row: int) -> None:
+        """Show the movie of switcher row ``row`` in the movie panel (#356)."""
+        panel = self._movie_panel
+        index = self._movie_rows.get(row)
+        if panel is None or index is None:
+            return
+        try:
+            panel.set_active_movie(index)
+        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
+            self._status(f"Movie switch failed: {exc}")
+            return
+        self._status(f"Movie {self._project_movies[row].name}")
+
+    def _reset_movie_panel(self) -> None:
+        """Close the movie panel and its readers, remove its dock, and empty the switcher."""
+        panel, dock_widget = self._movie_panel, self._movie_dock_widget
+        self._movie_panel = None
+        self._movie_dock_widget = None
+        if dock_widget is not None:
+            self._event_filter.remove_scope_widget(dock_widget)
+            self._detach_section_dock(dock_widget)
+        if panel is not None:
+            # Take napari's window out of the dock first, so the viewer closes its own
+            # top-level window, as it does outside Tether.
+            panel.qt_window.setParent(None)
+            panel.close()
+        if dock_widget is not None:
+            dock_widget.deleteLater()
+        for reader in self._movie_readers:
+            with suppress(Exception):
+                reader.close()
+        self._movie_readers.clear()
+        self._movie_rows.clear()
+        self._project_movies = []
+        self._movie_switcher.blockSignals(True)
+        self._movie_switcher.clear()
+        self._movie_switcher.blockSignals(False)
+        self._movie_switcher.setEnabled(False)
 
     # --- what this computer remembers between launches (#628, ADR-0122) -------
 
@@ -1563,6 +2046,15 @@ class TetherShell:
             self._read_only_banner.show()
         self._sync_project_write_controls()
 
+    def _set_conflict_copy_warning(self, warning: str | None) -> None:
+        """Show ``warning`` in the sync-conflict banner, or clear and hide it for ``None``."""
+        if warning is None:
+            self._conflict_copy_banner.clear()
+            self._conflict_copy_banner.hide()
+        else:
+            self._conflict_copy_banner.setText(f"Warning: {warning}.")
+            self._conflict_copy_banner.show()
+
     def _sync_project_write_controls(self) -> None:
         """Enable source-project writers only for an idle writable GUI session.
 
@@ -1614,15 +2106,25 @@ class TetherShell:
         never crashes on an open. Returns the opened [`Project`][tether.project.core.Project]
         (``None`` on failure).
 
-        The curation category vocabulary, the movie switcher, and the napari movie panel
-        / round-trip navigation are **not** re-wired here (the movie panel lands in #356
-        and the round-trip in #357, and the per-condition category list is edited through the
-        ``&Conditions`` dialog); this loader wires the trace-level curate + analyze
-        surfaces the produced project supports today.
+        A successful open also looks for OneDrive/SharePoint sync-conflict siblings of
+        the file ([`conflict_copy_warning`][tether.services.notices.conflict_copy_warning],
+        PRD §5.4 detect-and-surface) and names any in the non-blocking
+        [`conflict_copy_banner`][]; with none, the banner is hidden. The open never
+        waits on, refuses over, or changes a conflict copy.
+
+        The movie switcher lists the project's ``/movies`` rows, and the movies whose files
+        can be opened are shown in the embedded napari movie panel, a dock of Curate and
+        correct, with each movie's donor and acceptor spots at the stored aperture radius
+        (#356; [`movie_panel`][]). An analysis-only import leaves the panel unbuilt and the
+        switcher empty. The curation category vocabulary and the trace↔movie round-trip
+        navigation are **not** re-wired here (the round-trip lands in #357, and the
+        per-condition category list is edited through the ``&Conditions`` dialog).
         """
         from tether.project.analysis_import import read_analysis_only_marker
         from tether.project.core import Project
         from tether.project.lock import LockedError
+        from tether.services.movies import ProjectMovies, read_project_movies
+        from tether.services.notices import conflict_copy_warning
 
         if self._idealize_future is not None:
             self._status("Open project unavailable: wait for idealization to finish")
@@ -1662,6 +2164,14 @@ class TetherShell:
             traces = traces_from_store(project, intensity_quantity=intensity_quantity)
             histogram = make_store_histogram(project)
             overlap = None if analysis_only else make_store_overlap(project)
+            # The movie panel's data (#356): the /movies rows with their spots, and the
+            # stored aperture radius the overlap view uses too. An analysis-only project
+            # leaves the panel unwired (PRD §7.8), whatever /movies holds.
+            movies = (
+                ProjectMovies(movies=(), aperture_radius=0.0)
+                if analysis_only
+                else read_project_movies(proj_path)
+            )
             idealizer_candidate = make_store_idealizer(project, require_held_lock=True)
             # Export is read-only with respect to the source project, so retain this
             # seam even when the canonical store must open browse-only.
@@ -1806,7 +2316,10 @@ class TetherShell:
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self.refresh_readiness()
+        self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
+        movie_note = self._wire_movies(movies)
         # set_molecules selects row 0 → _on_list_row_changed refreshes the overlap dock
         # and sets a per-molecule status; overwrite it with the open outcome afterwards.
         self.set_molecules(traces)
@@ -1828,8 +2341,14 @@ class TetherShell:
         ]
         mode_suffix = f" ({', '.join(modes)})" if modes else ""
         detail = marker.banner if analysis_only else f"{len(traces)} molecule(s)"
+        if movie_note is not None:
+            detail = f"{detail}; {movie_note}"
         if read_only_reason is not None:
             detail = f"{detail}; {read_only_reason}"
+        # Detect-and-surface (§5.4): look for OneDrive/SharePoint conflict siblings on
+        # every successful open, writable or browse-only. Advisory only — the helper
+        # swallows a directory-listing failure, so this can never fail the open.
+        self._set_conflict_copy_warning(conflict_copy_warning(proj_path))
         self._status(f"Opened {name}{mode_suffix} — {detail}")
         return project
 
@@ -1844,12 +2363,19 @@ class TetherShell:
         action = None if recovery is None else recovery.action
         self._recover_button.setVisible(action is RecoveryAction.RECOVER)
         self._take_over_button.setVisible(action is RecoveryAction.TAKE_OVER)
-        if recovery is not None and recovery.available_at is not None:
+        if recovery is None:
+            return
+        if recovery.available_at is not None:
             from datetime import UTC, datetime
 
             wait_s = (recovery.available_at - datetime.now(UTC)).total_seconds()
             wait_ms = int(max(0.0, wait_s) * 1000) + 1000
             self._lock_recovery_timer.start(min(wait_ms, _LOCK_RECOVERY_RECHECK_MAX_MS))
+        elif recovery.holder_running:
+            # A running holder has no due time, but it can stop (or crash) at any
+            # moment; judge it again at the cap so Recover appears once it has (#1123).
+            # recover_lock() probes the process again before it takes anything.
+            self._lock_recovery_timer.start(_LOCK_RECOVERY_RECHECK_MAX_MS)
 
     def _recheck_lock_recovery(self) -> None:
         """Judge the refused lock again and refresh the banner and its actions."""
@@ -1878,8 +2404,10 @@ class TetherShell:
         The banner's one-click **Recover** (#626). It is available only when
         [`lock_recovery`][] reports
         [`RecoveryAction.RECOVER`][tether.project.lock.RecoveryAction]: the lock names
-        this computer and this user, and its process no longer runs. Returns the
-        reopened writable project, or ``None`` with a status message.
+        this computer and this user, and its process no longer runs. The reopen uses
+        the ``intensity_quantity`` of the open that was refused, so the traces under
+        curation keep their layer. Returns the reopened writable project, or ``None``
+        with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -1894,8 +2422,9 @@ class TetherShell:
         computer, another user or a corrupt lock, idle past the staleness timeout
         (PRD §11.2). ``confirmation`` is the typed text; ``None`` asks for it in a
         dialog that warns that the holder's unsaved work can be lost. The text must
-        equal the project file name. Returns the reopened writable project, or
-        ``None`` with a status message.
+        equal the project file name. The reopen uses the ``intensity_quantity`` of
+        the open that was refused, as [`recover_project_lock`][] does. Returns the
+        reopened writable project, or ``None`` with a status message.
         """
         from tether.project.lock import RecoveryAction
 
@@ -1933,8 +2462,9 @@ class TetherShell:
         except OSError as exc:
             self._status(f"{label} failed: {exc}")
             return None
-        # Re-run the open path so every write seam binds to the new session.
-        opened = self.load_project(path)
+        # Re-run the open path so every write seam binds to the new session, over the
+        # same trace layer the refused open showed (#1097).
+        opened = self.load_project(path, intensity_quantity=self._intensity_quantity)
         if opened is None or self._curation_project is None:
             # The reopen is not writable; give back the lock just taken. The release
             # is nonce-checked, so a session lock the reopen took and still holds is
@@ -2169,8 +2699,9 @@ class TetherShell:
             return True
 
     def _reset_store_docks(self) -> None:
-        """Discard the lazily-built histogram / overlap docks so a re-open rebuilds them."""
+        """Discard the lazily-built histogram / overlap / movie docks so a re-open rebuilds them."""
         self._histogram_refresh_timer.stop()
+        self._reset_movie_panel()
         for dock_attr, widget_attr in (
             ("_histogram_dock", "_histogram_dock_widget"),
             ("_overlap_dock", "_overlap_dock_widget"),
@@ -2216,6 +2747,29 @@ class TetherShell:
         """The path of the open project, or ``None`` when no project is open."""
         return self._project_path
 
+    @property
+    def readiness(self) -> Any | None:
+        """The readiness record of the open project, or ``None`` (#896).
+
+        It is [`project_status`][tether.services.status.project_status], the function that
+        ``tether status`` prints, read when the project opened or at the last
+        [`refresh_readiness`][]. ``None`` when no project is open or the read failed.
+        """
+        return self._readiness
+
+    def refresh_readiness(self) -> Any | None:
+        """Read the readiness of the open project again and return it (#896)."""
+        from tether.services.status import project_status
+
+        if self._project_path is None:
+            self._readiness = None
+        else:
+            try:
+                self._readiness = project_status(self._project_path)
+            except Exception:  # noqa: BLE001 - an open never fails on this read
+                self._readiness = None
+        return self._readiness
+
     def close_project(self) -> bool:
         """Close the open project and release its session lock; show the start page.
 
@@ -2236,6 +2790,7 @@ class TetherShell:
         self._lock_refresh_timer.stop()
         self._curation_project = None
         self._set_read_only_reason(None)
+        self._set_conflict_copy_warning(None)
         self._idealizer = None
         self._handoff = None
         self._histogram_seam = None
@@ -2243,6 +2798,7 @@ class TetherShell:
         self._conditions = None
         self._reset_store_docks()
         self._project_path = None
+        self._readiness = None
         self._act_close_project.setEnabled(False)
         self.set_molecules([])
         # The start page is the page of Curate and correct, so show that section.
@@ -2654,7 +3210,7 @@ class TetherShell:
         try:
             dock.set_histogram(hist)
         except Exception as exc:  # noqa: BLE001 - a malformed result must not crash
-            # Mirrors _poll_idealize: an injected seam returning a shape-invalid
+            # Mirrors _finish_idealize: an injected seam returning a shape-invalid
             # Histogram1D surfaces as a status message, never an uncaught exception
             # out of the &Analysis menu action. A dock that fails its very first draw
             # is discarded, so no blank dock is ever adopted/attached to the window
@@ -2844,7 +3400,13 @@ class TetherShell:
     @property
     def is_idealizing(self) -> bool:
         """Whether a background one-click-idealize fit is currently running."""
-        return self._idealize_future is not None
+        return self._tasks.busy
+
+    @property
+    def _idealize_future(self) -> Any | None:
+        # The Future of the in-flight fit, held by the background-task service. Every
+        # source-project writer gate reads it: None means idealization owns no HDF5.
+        return self._tasks.future
 
     def _idealize_current(self) -> None:
         """One-click idealize the selected molecule and draw its step overlay (``I``, §7.4).
@@ -2859,8 +3421,6 @@ class TetherShell:
         selection, no wired idealizer, an already-running fit, an empty result, or a
         failing/length-mismatched fit each surface as a status message, never a crash.
         """
-        from pyqtgraph.Qt import QtCore, QtWidgets
-
         if self._idealize_future is not None:
             self._status("Idealize: a fit is already running")
             return
@@ -2890,31 +3450,33 @@ class TetherShell:
                     "Idealize unavailable: selected molecule is rejected; un-reject it first"
                 )
                 return
-        self._idealize_key = key
         self._status(f"Idealizing {key} (one-click vbFRET)…")
         # The indicator names the molecule as the list shows it (``trace.name`` or
-        # ``mol-<i>``); the key stays for the idealizer and the status message.
-        self._busy_indicator.start(f"Idealizing {self._molecule_list.item(row).text()}")
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-        self._idealize_future = self._idealize_executor.submit(self._idealizer, key)
+        # ``mol-<i>``); the key stays for the idealizer and the status message. The fit
+        # is not cancellable (#343): its sidecar may still commit HDF5 data.
+        self._tasks.start(
+            self._idealizer,
+            key,
+            context=key,
+            label=f"Idealizing {self._molecule_list.item(row).text()}",
+            on_finished=self._finish_idealize,
+        )
         self._sync_project_write_controls()
-        self._idealize_timer = QtCore.QTimer()
-        self._idealize_timer.setInterval(_IDEALIZE_POLL_MS)
-        self._idealize_timer.timeout.connect(self._poll_idealize)
-        self._idealize_timer.start()
 
-    def _poll_idealize(self) -> None:
-        """Main-thread poll: when the background fit is done, draw it or report why."""
-        future = self._idealize_future
-        if future is None or not future.done():
+    def _finish_idealize(self, outcome: TaskOutcome) -> None:
+        """Apply a finished fit on the main thread: draw it, or report why not."""
+        from tether.gui.tasks import TaskState
+
+        # The service has already stopped the timer, restored the cursor and stopped the
+        # indicator, and holds no task: the write gates below see an idle shell.
+        key = outcome.context
+        self._sync_project_write_controls()
+        if self._curation_project is None:
+            self._retry_session_release()
+        if outcome.state is not TaskState.DONE:
+            self._status(f"Idealize failed for {key}: {outcome.error}")
             return
-        key = self._idealize_key
-        self._finish_idealize()  # stop the timer, clear state, restore the cursor
-        try:
-            idealized = future.result()
-        except Exception as exc:  # noqa: BLE001 - keep the GUI alive, report the cause
-            self._status(f"Idealize failed for {key}: {exc}")
-            return
+        idealized = outcome.value
         if idealized is None:
             self._status(f"Idealize: no idealization produced for {key}")
             return
@@ -2931,21 +3493,6 @@ class TetherShell:
             self._status(f"Idealize failed for {key}: {exc}")
             return
         self._status(f"Idealized {key} (one-click vbFRET)")
-
-    def _finish_idealize(self) -> None:
-        """Tear down the poll timer + fit state and restore the wait cursor."""
-        from pyqtgraph.Qt import QtWidgets
-
-        if self._idealize_timer is not None:
-            self._idealize_timer.stop()
-            self._idealize_timer = None
-        self._idealize_future = None
-        self._idealize_key = None
-        self._busy_indicator.stop()
-        self._sync_project_write_controls()
-        QtWidgets.QApplication.restoreOverrideCursor()
-        if self._curation_project is None:
-            self._retry_session_release()
 
     def _step(self, delta: int) -> None:
         if not self._traces:
@@ -2977,8 +3524,6 @@ class TetherShell:
         lock is retained until that future completes and releases it from its done
         callback. With no active writer, the lock is released immediately.
         """
-        from pyqtgraph.Qt import QtWidgets
-
         from tether.gui import theme
 
         if self._closed:
@@ -3011,14 +3556,13 @@ class TetherShell:
                 writable_project.refresh_lock()
         self._curation_project = None
         self._set_read_only_reason(None)
-        if self._idealize_timer is not None:
-            self._idealize_timer.stop()
-            self._idealize_timer = None
-        if future is not None:
-            # A running fit is abandoned (its result is discarded), and the wait
-            # cursor it set is restored so it never leaks past close.
-            self._idealize_future = None
-            QtWidgets.QApplication.restoreOverrideCursor()
+        self._set_conflict_copy_warning(None)
+        # A running fit is abandoned (its result is discarded): the service stops its
+        # poll timer and restores the wait cursor it set, so it never leaks past close.
+        self._tasks.abandon()
+        # The same for a running channel-map command (#353): its outcome is not applied
+        # to a closed shell, and its worker stops once the command ends.
+        self._channel_map.close()
         self._busy_indicator.stop()
         theme.unsubscribe(self._apply_menu_icons)
         self._start_page.close()
@@ -3040,11 +3584,12 @@ class TetherShell:
             # nonce is released. A transient unlink failure is retried by the timer
             # even though the visible shell has already closed.
             self._retry_session_release()
-        self._idealize_executor.shutdown(wait=False)
+        self._tasks.shutdown()
         if self._histogram_dock is not None:
             self._histogram_dock.close()
         if self._overlap_dock is not None:
             self._overlap_dock.close()
+        self._reset_movie_panel()
         self._trace_dock.close()
         if close_window:
             self._window.close()
@@ -3243,7 +3788,7 @@ def _applied_summary(applied: AppliedReconcile) -> str:
 
 
 class _StoreHandoff:
-    """Store-backed [`HandoffSeam`][] over [`tether.project.handoff`][].
+    """Store-backed `HandoffSeam` over [`tether.project.handoff`][].
 
     Binds one project + intensity quantity so all three legs use the same ``/traces``
     layer; see [`make_store_handoff`][]. Each op imports its ``handoff`` function
@@ -3329,7 +3874,7 @@ def make_store_handoff(
     model_name: str | None = None,
     overwrite: bool = False,
 ) -> HandoffSeam:
-    """Build the store-backed [`HandoffSeam`][] for a [`TetherShell`][].
+    """Build the store-backed `HandoffSeam` for a [`TetherShell`][].
 
     Binds one ``.tether`` project + intensity quantity across all three legs so the
     outbound SMD and the return-leg intensity match use the **same** ``/traces`` layer

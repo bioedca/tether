@@ -13,8 +13,8 @@ Two sources feed it:
   selection and plot tokens of each theme, and the ``accept``/``reject``/``caution``/
   ``info`` state tokens;
 * the **data colours** below ([`TRACE_PALETTES`][]), which are not brand colours and
-  so are not in ``tokens.json``. ``classic`` keeps today's green/red/blue convention;
-  ``safe`` is the colour-blind-safe set that #636 will make the default.
+  so are not in ``tokens.json``. ``safe`` is the colour-blind-safe set and the default
+  (#636); ``classic`` keeps the older green/red/blue convention as a preference.
 
 How the theme reaches the window:
 
@@ -24,6 +24,9 @@ How the theme reaches the window:
   ``"system"``.
 * [`set_mode`][] is what **View → Theme** calls (``system``/``light``/``dark``). The
   choice lasts for the session until the settings store (#330) can keep it.
+* [`set_trace_palette`][] is what **View → Trace colors** calls (``safe``/``classic``).
+  The shell stores that choice in the settings store and applies it at the next start
+  (#636, ADR-0123); this module itself reads and writes no file.
 * Plots and the napari viewer are not drawn from the ``QPalette``, so each dock
   [`subscribe`][]\\ s and re-colours itself; [`style_graphics`][] does the
   pyqtgraph part.
@@ -70,10 +73,12 @@ __all__ = [
     "relative_luminance",
     "rgba",
     "set_mode",
+    "set_trace_palette",
     "style_graphics",
     "subscribe",
     "system_theme_name",
     "theme",
+    "trace_palette",
     "unsubscribe",
 ]
 
@@ -103,7 +108,8 @@ TRACE_PALETTES: Mapping[str, Mapping[str, Mapping[str, str]]] = MappingProxyType
         # (0, 170, 0), acceptor red (220, 45, 45), FRET blue (40, 90, 220), total
         # grey (140, 140, 140). Only the idealized line changes: the old near-black
         # (20, 20, 20) was invisible on a dark plot (#617), so it is ink on light and
-        # chalk on dark. Not colour-blind safe (green against red); #636 owns that.
+        # chalk on dark. Not colour-blind safe (green against red), so since #636 it is
+        # the preference and not the default.
         "classic": {
             "light": _palette_row("#00aa00", "#dc2d2d", "#285adc", "#8c8c8c", "#121417"),
             "dark": _palette_row("#00aa00", "#dc2d2d", "#285adc", "#8c8c8c", "#f2f4f5"),
@@ -121,8 +127,8 @@ TRACE_PALETTES: Mapping[str, Mapping[str, Mapping[str, str]]] = MappingProxyType
         },
     }
 )
-#: The palette the window draws until #636 makes ``safe`` the default.
-DEFAULT_TRACE_PALETTE = "classic"
+#: The palette a new installation draws (#636): the colour-blind-safe set.
+DEFAULT_TRACE_PALETTE = "safe"
 
 
 @cache
@@ -198,7 +204,13 @@ def contrast_ratio(first: str, second: str) -> float:
 
 # --- session state ----------------------------------------------------------------
 
-_state: dict[str, Any] = {"mode": "system", "app": None, "applied": None}
+_state: dict[str, Any] = {
+    "mode": "system",
+    "trace_palette": DEFAULT_TRACE_PALETTE,
+    "app": None,
+    # The (theme name, trace palette) last applied and announced to subscribers.
+    "applied": None,
+}
 _subscribers: list[Callable[[], Callable[[Theme], None] | None]] = []
 #: Where the heading font files are read from (a test points it at an empty folder).
 _FONT_DIR = resources.files("tether.gui") / "assets" / "brand" / "fonts"
@@ -209,6 +221,11 @@ _fonts: dict[str, Any] = {}
 def mode() -> str:
     """The selected mode: ``"system"``, ``"light"`` or ``"dark"``."""
     return str(_state["mode"])
+
+
+def trace_palette() -> str:
+    """The selected trace palette: ``"safe"`` (the default) or ``"classic"``."""
+    return str(_state["trace_palette"])
 
 
 def system_theme_name() -> str:
@@ -229,7 +246,10 @@ def system_theme_name() -> str:
 def current() -> Theme:
     """The active [`Theme`][], resolved from [`mode`][]."""
     selected = mode()
-    return theme(system_theme_name() if selected == "system" else selected)
+    return theme(
+        system_theme_name() if selected == "system" else selected,
+        trace_palette=trace_palette(),
+    )
 
 
 def subscribe(callback: Callable[[Theme], None]) -> None:
@@ -273,12 +293,25 @@ def set_mode(selected: str) -> Theme:
     return _refresh()
 
 
+def set_trace_palette(name: str) -> Theme:
+    """Select the trace palette ``"safe"`` or ``"classic"`` and re-colour every open plot.
+
+    Only the data colours change: subscribers are called with the new [`Theme`][], and
+    the window palette stays as it is. Storing the choice is the caller's part.
+    """
+    if name not in TRACE_PALETTES:
+        raise ValueError(f"trace palette must be one of {tuple(TRACE_PALETTES)}, got {name!r}")
+    _state["trace_palette"] = name
+    return _refresh()
+
+
 def _refresh() -> Theme:
     active = current()
-    if active.name != _state["applied"]:
-        if _state["app"] is not None:
+    key = (active.name, active.trace_palette)
+    if key != _state["applied"]:
+        if _state["app"] is not None and (_state["applied"] or (None,))[0] != active.name:
             _apply(active)
-        _state["applied"] = active.name
+        _state["applied"] = key
         _notify(active)
     return active
 
@@ -302,7 +335,7 @@ def install(app: Any | None = None) -> Theme:
         load_fonts()
         app.styleHints().colorSchemeChanged.connect(_on_system_scheme_changed)
         _apply(active)
-        _state["applied"] = active.name
+        _state["applied"] = (active.name, active.trace_palette)
         _notify(active)
     return active
 

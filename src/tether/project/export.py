@@ -36,9 +36,9 @@ stamp travels in the sidecar rather than inline.
 
 The table exports are the orchestration layer: they read the store, derive E, and
 feed pure serializers ([`tether.io.deeplasi.write_deeplasi_txt`][], the stdlib
-[`csv`][]) — mirroring how [`tether.project.handoff`][] drives the SMD
+`csv`) — mirroring how [`tether.project.handoff`][] drives the SMD
 [`tether.idealize.write_smd`][] primitive. They are read-only on the store. The
-subset export is a filtered store-to-store copy ([`h5py`][]), also read-only on
+subset export is a filtered store-to-store copy (`h5py`), also read-only on
 the source.
 """
 
@@ -331,7 +331,7 @@ def export_molecule_table_csv(
 ) -> ExportResult:
     """Export one CSV row per molecule (the ``/molecules`` scalars + derived E).
 
-    Columns are [`MOLECULE_TABLE_COLUMNS`][]. Each row carries the stored
+    Columns are `MOLECULE_TABLE_COLUMNS`. Each row carries the stored
     per-molecule fields (identity, condition, correction factors α/γ/δ, photobleach
     frames, frame range, curation label, category, ML ``quality_class``, tags) plus a
     derived apparent-E summary — mean/median of ``A / (D + A)`` over the molecule's
@@ -486,6 +486,35 @@ def _copy_molecule_rows(src: object, dst: object, rows: list[int]) -> None:
     table = dst["molecules"][TABLE]
     table.resize((selected.shape[0],))
     table[:] = selected
+    _copy_acceptor_detected(src, dst, rows)
+
+
+def _copy_acceptor_detected(src: object, dst: object, rows: list[int]) -> None:
+    """Carry the per-molecule acceptor-detection flag into the subset (#920, ADR-0127).
+
+    The flag follows the rule of
+    [`read_acceptor_detected`][tether.imaging.extract.read_acceptor_detected]: rows past
+    the end of a shorter source column were never recorded. It is written only when the
+    source has the column, so a subset of a project extracted before #920 gains no
+    column, as its source has none.
+    """
+    from tether.imaging.extract import ACCEPTOR_DETECTED_NOT_RECORDED  # noqa: PLC0415
+
+    flags = src["molecules"].get("acceptor_detected")
+    if flags is None:
+        return
+    column = np.full(len(rows), ACCEPTOR_DETECTED_NOT_RECORDED, dtype=np.int8)
+    n_flags = int(flags.shape[0])
+    stored = [i for i, row in enumerate(rows) if row < n_flags]
+    if stored:
+        column[stored] = flags[[rows[i] for i in stored]]
+    dst["molecules"].create_dataset(
+        "acceptor_detected",
+        data=column,
+        maxshape=(None,),
+        chunks=(4096,),
+        fillvalue=ACCEPTOR_DETECTED_NOT_RECORDED,
+    )
 
 
 def _copy_trace_layers(src: object, dst: object, rows: list[int], include_raw: bool) -> list[str]:

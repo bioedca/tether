@@ -17,6 +17,8 @@ Deep-LASI's window saved it and on which date (``harness.py freeze``, ADR-0074).
   traces of each Deep-LASI export, against Deep-LASI's corrected FRET with its own factors in
   the ``(1 + α)`` convention of ADR-0028. The numbers are recorded and only the convention
   parity is asserted: no agreement limit exists, and setting one is a maintainer decision.
+  The numbers include the shape of the acceptor-bleach step behind each of Tether's γ (#1233,
+  :func:`_deeplasi_agreement.gamma_step_numbers`), as evidence for #546 and never a limit.
 * **The scripted rerun of video 010**: the frozen output of
   ``scripts/reference/matlab/deep_lasi.py`` (ADR-0074) is checked against its provenance record,
   and compared with the old export, so that the old export has a repeatable origin.
