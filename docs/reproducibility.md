@@ -83,8 +83,28 @@ nothing in Tether applies γ to a displayed or exported value (see the note unde
 Methods paragraph). The `gamma`
 attribute here is the population median of those values, which the `n_fallback` molecules
 that failed the gates receive instead; it follows the same `withheld` rule. The rest are
-`n_qualifying`, `n_fallback`, `n_molecules`, `half_window`, `min_window_frames`, `ceiling`,
-`min_qualifying_traces`, `intensity_quantity`, `app_version` and `created_utc`.
+`n_qualifying`, `n_fallback`, `n_molecules`, `level_window`, `half_window`,
+`min_window_frames`, `ceiling`, `min_qualifying_traces`, `intensity_quantity`,
+`n_step_evaluated`, `n_step_clean`, `min_clean_step_fraction`, `few_clean_steps`,
+`app_version` and `created_utc`.
+
+`level_window` names the frames each γ level was averaged over. It reads `half-window` when
+`half_window` frames each side were used, 20 by default
+([ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)). It reads `whole-segment`
+when the whole segments were used, and then `half_window` is `0`. A project from before
+ADR-0130 has no `level_window`.
+
+`n_step_evaluated` counts the molecules whose acceptor-bleach step was measured, because
+both of its segments were long enough, and `n_step_clean` those of them whose donor rose and
+whose leakage-corrected acceptor dropped across the step, the shape an acceptor bleach must
+have. `few_clean_steps` is `True` when γ was applied and fewer than `min_clean_step_fraction`
+of the measured steps were clean
+([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).
+Such a γ is still stored and is not changed by the flag. The flag is a reason to check it, not
+proof that it is wrong: noise alone can make many steps read clean by chance (ADR-0134 states
+the noise model), so the γ may rest largely on noise. Check it, report it with
+that caveat, or enter a factor measured another way. A project from before ADR-0134 has none of
+these four attributes.
 
 **`/settings/correction`** — `src/tether/project/correct.py`. Rewritten on every correction
 pass (`source` = `accurate-fret`). The pass decides, per molecule, whether its α and γ are
@@ -281,7 +301,7 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   disk_radius = 3.0
   molecule_key_quantum_px = 0.1
   n_psf = 29
-  profile_json = {"app_version": "<your version>", "bg_window": 10, "coloc_distance": 3.0, "detection_block": 50, "detection_mode": "wavelet", "detection_threshold": null, "disk_radius": 3.0, "donor_side": "left", "donor_side_check": {"level_frames": 10, "majority": 0.8, "min_events": 15, "min_frames": 5, "n_consistent": 10, "n_events": 10, "n_molecules": 16, "n_swapped": 0, "n_together": 1, "reason": "", "step_z": 3.0, "verdict": "insufficient"}, "min_separation": null, "n_control_points": 16, "pair_tol": 2.0, "pipeline": "native", "prealign": "translation", "prealign_high_sigma": 20.0, "prealign_low_sigma": 3.0, "prealign_upsample": 10, "registration_rms_px": 3.901419122093834e-14, "registration_source": "native", "ring_inner": 6.0, "ring_outer": 8.0, "rms_gate": 0.5, "tdat_source": null, "tmap_source": null, "window": 21}
+  profile_json = {"app_version": "<your version>", "bg_window": 10, "channel_layout": null, "coloc_distance": 3.0, "colocalization": "partner-in-both", "detection_block": 50, "detection_mode": "wavelet", "detection_threshold": null, "disk_radius": 3.0, "donor_side": "left", "donor_side_check": {"level_frames": 10, "majority": 0.8, "min_events": 15, "min_frames": 5, "n_consistent": 10, "n_events": 10, "n_molecules": 16, "n_swapped": 0, "n_together": 1, "reason": "", "step_z": 3.0, "verdict": "insufficient"}, "map_source": null, "min_separation": null, "n_control_points": 16, "pair_tol": 2.0, "pipeline": "native", "prealign": "translation", "prealign_high_sigma": 20.0, "prealign_low_sigma": 3.0, "prealign_upsample": 10, "registration_rms_px": 3.901419122093834e-14, "registration_source": "native", "ring_inner": 6.0, "ring_outer": 8.0, "rms_gate": 0.5, "tdat_source": null, "tmap_source": null, "window": 21}
   ring_inner = 6.0
   ring_outer = 8.0
   window = 21
@@ -301,14 +321,19 @@ leave only the `<model>.__writing__` staging group, which the script skips. If
   app_version = <your version>
   ceiling = 5.0
   created_utc = <time of the run>
-  gamma = 0.9980667956196859
-  half_window = 3
+  few_clean_steps = False
+  gamma = 1.002771186368295
+  half_window = 20
   intensity_quantity = corrected
+  level_window = half-window
+  min_clean_step_fraction = 0.65
   min_qualifying_traces = 10
   min_window_frames = 20
   n_fallback = 1
   n_molecules = 16
   n_qualifying = 15
+  n_step_clean = 15
+  n_step_evaluated = 15
   source = acceptor-bleach-step
   withheld = False
 [/settings/correction]
@@ -401,7 +426,7 @@ have:
   straight from a source tree that was never installed.
 
 To see the version you have installed, run `tether --version` once Tether's launcher folder
-is on your PATH ([Install Tether, step 4](install.md#4-put-tethers-launcher-folder-on-your-path)),
+is on your PATH ([Install Tether, step 4](install.md#optional-put-the-launcher-folder-on-your-path)),
 or run the launcher by its full path as that page shows. For results already on disk, read
 the stamps above instead: they record the version that actually ran each step, which may not
 be the one installed today.
@@ -483,7 +508,7 @@ your own values and drop what you did
 not run. The citations are the ones [Citing Tether](citing.md) gives for each step.
 
 > Single-molecule FRET movies were processed with Tether version `<your version>`
-> (https://doi.org/10.5281/zenodo.23306397). Donor and acceptor intensities were integrated
+> (<https://doi.org/10.5281/zenodo.23306397>). Donor and acceptor intensities were integrated
 > over a 3.0-pixel-radius disk inside a 21-pixel aperture window, with the local background taken from
 > an annulus between 6.0 and 8.0 pixels and averaged over 10 frames (Wanninger et al., 2023).
 > Correction factors were estimated as described by McCann et al. (2010) and Hellenkamp et

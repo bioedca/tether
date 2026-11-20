@@ -5,7 +5,8 @@
 Mirrors the Deep-LASI extraction pipeline (PRD Appendix E): per-channel split,
 moving-average max-projection detection image, à trous wavelet spot detection,
 a 21x21 aperture (PSF disk r=3) with annular background, and Sum integration.
-Plus registration: native bead control-points, phase-correlation prealign,
+Plus registration: a map from a bead video or one image ([`tether.imaging.beadmap`][]),
+native bead control-points, phase-correlation prealign,
 nearest-neighbour pairing, a degree-2 polynomial map (forward + inverse with a
 numeric RMS-residual gate) or an imported ``.tmap``; and donor-anchored
 colocalization.
@@ -19,9 +20,23 @@ from tether.imaging.aperture import (
     aperture_masks,
     integrate_traces,
 )
+from tether.imaging.beadmap import (
+    BEAD_PROJECTIONS,
+    DEFAULT_MIN_BEAD_SPOTS,
+    BeadMapError,
+    BeadMapResult,
+    BeadMapSource,
+    MapQuality,
+    bead_map,
+    bead_map_from_file,
+    map_quality,
+    project_frames,
+)
 from tether.imaging.calibrate import (
     DEFAULT_RMS_GATE_PX,
     LOW_CONFIDENCE_TAG,
+    MAP_FORMAT_VERSION,
+    MapFileError,
     OverGateRegistrationWarning,
     RegistrationMap,
     RegistrationOverGateError,
@@ -58,6 +73,20 @@ from tether.imaging.extract import (
     read_traces,
     write_extraction,
 )
+from tether.imaging.layout import (
+    DEFAULT_CHANNEL_LAYOUT,
+    LAYOUT_KINDS,
+    ChannelLayout,
+    ChannelLayoutError,
+    ChannelOverlapWarning,
+    read_layout_record,
+)
+from tether.imaging.recipe import (
+    RECIPE_OPERATIONS,
+    ChannelRecipe,
+    ChannelRecipeError,
+    check_frame_fits,
+)
 from tether.imaging.register import (
     PairedControlPoints,
     PolyTransform2D,
@@ -78,13 +107,29 @@ from tether.imaging.split import (
 )
 
 __all__ = [
+    "BEAD_PROJECTIONS",
+    "DEFAULT_CHANNEL_LAYOUT",
     "DEFAULT_COLOC_DISTANCE_PX",
+    "DEFAULT_MIN_BEAD_SPOTS",
     "DEFAULT_RMS_GATE_PX",
+    "LAYOUT_KINDS",
     "LOW_CONFIDENCE_TAG",
+    "MAP_FORMAT_VERSION",
     "MOLECULE_KEY_QUANTUM_PX",
+    "RECIPE_OPERATIONS",
+    "BeadMapError",
+    "BeadMapResult",
+    "BeadMapSource",
     "ChannelGeometry",
+    "ChannelLayout",
+    "ChannelLayoutError",
+    "ChannelOverlapWarning",
+    "ChannelRecipe",
+    "ChannelRecipeError",
     "ColocalizedMolecules",
     "IntegratedTraces",
+    "MapFileError",
+    "MapQuality",
     "MoleculeTraces",
     "MovieMetadata",
     "OverGateRegistrationWarning",
@@ -99,6 +144,9 @@ __all__ = [
     "aperture_masks",
     "atrous_wavelet_planes",
     "b3_spline_kernel",
+    "bead_map",
+    "bead_map_from_file",
+    "check_frame_fits",
     "colocalize",
     "detect_spots",
     "detect_spots_bandpass",
@@ -112,12 +160,15 @@ __all__ = [
     "fit_registration_map",
     "integrate_traces",
     "load_map",
+    "map_quality",
     "molecule_key",
     "pair_control_points",
     "point_rms",
     "poly_basis_deg2",
     "process_image",
+    "project_frames",
     "read_calibration",
+    "read_layout_record",
     "read_molecules",
     "read_patches",
     "read_tmap",

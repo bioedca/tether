@@ -43,11 +43,13 @@ Four export entry points are public. The first three live in `tether.project.exp
 | `tether.project.export.export_subset_tether` | `<name>.tether` (HDF5) + `<name>.tether.provenance.json` | You want a portable, self-contained re-analysis of a *selection* — coordinates, patches, background-subtracted traces, idealization models — without shipping the movie |
 | `tether.analysis.plot_export.export_figure` | `<stem>.pdf`, `<stem>.svg`, `<stem>.png` + `<stem>.provenance.json` | You want a publication figure of an analysis plot: vector PDF **and** vector SVG **and** raster PNG, all stamped |
 
-> **There is no CLI or GUI export command, and this page will not invent one.**
-> `tether.cli` registers three subcommands, `extract`, `batch` and `info`, and none of
-> them exports; no module
-> under `src/tether/gui/` references any of the four functions above. They are a Python
-> API today. Every snippet on this page is therefore the call you actually run.
+> **The first three also have a command.** `tether export table`, `tether export traces`
+> and `tether export subset` call `export_molecule_table_csv`, `export_deeplasi_txt` and
+> `export_subset_tether`, with one flag for each parameter
+> ([`tether export`](../cli.md#tether-export)), and the file is the same. `export_figure` has no
+> command, and no module under `src/tether/gui/` references any of the four functions above.
+> Every snippet on this page is the Python call. The [how-to
+> page](../how-to/export-results.md) gives the commands first.
 
 The tMAVEN hand-off (`tether.project.handoff.hand_off_to_tmaven`, reachable from the GUI)
 also writes a file — an SMD-HDF5 — but it is an *interchange* leg with a return path, not
@@ -213,6 +215,13 @@ The order is frozen in `tether.project.export.MOLECULE_TABLE_COLUMNS`, annotated
 source as *"the per-molecule CSV column order (frozen; a reader may key on these names)"*.
 [`tests/test_docs_export_columns.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_export_columns.py) fails if this table and that tuple ever disagree. The
 underlying field types are the frozen `tether.io.schema.MOLECULES_DTYPE`.
+The same columns are in a file you can download,
+[`molecule-table-columns.csv`](molecule-table-columns.csv): one row per column, with its
+name, CSV type, unit, whether it can be blank, and a one-line meaning (see
+[Put these files in your deposit](#put-these-files-in-your-deposit)).
+[`tests/test_docs_published_data.py`](https://github.com/bioedca/tether/blob/main/tests/test_docs_published_data.py)
+fails if that file and the tuple differ, or if its type, unit or blank entry for a column
+disagrees with this table.
 
 | Column | CSV type | Unit / domain | Blank when |
 |---|---|---|---|
@@ -387,8 +396,11 @@ Provenance-file `parameters` for this export: `include_raw`, `include_rejected`,
 a bare `matplotlib.figure.Figure` and writes nothing; `export_figure` is the only function
 that touches disk. Figures are built with the object-oriented `Figure` API rather than
 `pyplot`, so no GUI backend is selected and the base environment stays `matplotlib-base`
-(ADR-0044). The module is deliberately **not** re-exported from `tether.analysis`, so
-importing the package does not pull in Matplotlib.
+(ADR-0044). `tether.analysis` re-exports the module and its public names **lazily**: a
+module-level `__getattr__` ([PEP 562](https://peps.python.org/pep-0562/)) imports
+`plot_export` on the first access to one of them. `from tether.analysis import export_figure`
+therefore works, and `import tether.analysis` alone still does not pull in Matplotlib. The
+names are not in `tether.analysis.__all__`, so a star import does not pull it in either.
 
 ```python
 from tether.analysis.histogram import population_apparent_e_histogram
@@ -422,7 +434,9 @@ A plot export is stamped **three** ways:
 1. **The provenance file** `<stem>.provenance.json`, written by the same
    `write_provenance_sidecar`. `export_figure` merges three keys of its own into your
    `parameters`: `formats` (canonical order), `dpi`, and `outputs` (`{format: basename}` —
-   basenames, not paths). The provenance file is written even when `stamp=False`.
+   basenames, not paths). A figure drawn from several series also adds `series`, and a
+   figure that records how it was drawn adds `display` (both below). The provenance file is
+   written even when `stamp=False`.
 2. **A visible on-figure footer**, when `stamp=True` (the default): two 6-point,
    55 %-opacity texts at the bottom of the figure — `Tether <version> · <kind>` on the
    left and the ISO timestamp on the right.
@@ -436,19 +450,24 @@ A plot export is stamped **three** ways:
 > object, so exporting the *same* figure twice with `stamp=True` leaves two overlapping
 > footers with two different timestamps. Re-render before re-exporting.
 
-The eight renderers, and the plot each produces (Appendix-C ids as used in the
+The thirteen renderers, and the plot each produces (Appendix-C ids as used in the
 [seven-plot parity gallery](../analysis/parity-gallery.md)):
 
 | Renderer | Input dataclass | Plot | x-axis unit |
 |---|---|---|---|
 | `render_histogram1d` | `Histogram1D` or `HistogramBootstrapCI` (+ optional `ModelGaussianOverlay`) | A1 population histogram | Apparent FRET efficiency *E* (dimensionless) |
 | `render_histogram2d` | `Histogram2D` | A2 time-vs-signal heatmap | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
-| `render_transition_density` | `TransitionDensityPlot` | B1 transition-density plot | Initial *E* (dimensionless) |
+| `render_transition_density` | `TransitionDensityPlot` or `SmoothedTransitionDensity` | B1 transition-density plot | Initial *E* (dimensionless) |
 | `render_dwell_survival` | `DwellTimeAnalysis` | B2 survival curve (+ residual panel when a fit succeeded) | `Dwell time (s)` when `dt != 1.0`, otherwise `Dwell time (frames)` |
 | `render_transition_prob` | `TransitionProbHistogram` | B3 transition-probability histogram | Probability per molecule (dimensionless) |
 | `render_state_number` | `StateNumberCounts` | C1 state-number distribution | Number of occupied states (a count) |
 | `render_raw_fret_cloud` | `RawFretCloud` | QC raw FRET cloud | `Time (s)` when `time_dt != 1.0`, otherwise `Frame` |
 | `render_cross_correlation` | `CrossCorrelation` | Donor–acceptor cross-correlation | `Lag (frames)` — always frames; there is no seconds variant |
+| `render_per_condition_histograms` | `PerConditionHistograms` | Per-condition overlay: each condition's A1 histogram on one shared axis | Apparent FRET efficiency *E* (dimensionless) |
+| `render_transition_sync_histogram2d` | `TransitionSyncHistogram2D` | A2b post-synchronized heatmap | `Time from transition (s)` when `time_dt != 1.0`, otherwise `Frames from transition` |
+| `render_alpha_shape` | `AlphaShape` (+ optional `RawFretCloud`) | Alpha-shape support boundary of the raw FRET cloud | `Time (s)` when the frame duration is not `1.0`, otherwise `Frame` |
+| `render_state_number_elbow` | `StateNumberElbow` | k-vs-RMSE elbow state-count hint | Number of clusters *k* (a count) |
+| `render_population_anticorrelation` | `PopulationAnticorrelation` | Anticorrelation events, one row per molecule | `Frame (analysis window)` — always frames |
 
 `render_transition_density` draws the B1 color scale as `color_scale="log"` by default, the
 log-normalized TDP that the product specification names. Use `color_scale="linear"` for a
@@ -460,10 +479,42 @@ to a frequent one. The scale is display-only: the drawn array is the stored hist
 not have to pass it. If you pass a `display` entry that does not agree with the figure,
 `export_figure` raises `ValueError`.
 
+To draw the TDP as published figures show it, pass the smoothed view instead of the counts:
+`render_transition_density(smooth_transition_density(tdp))`. The view is the counts
+Gaussian-filtered, interpolated onto an 800 × 800 grid and normalized to their maximum, with the
+settings of the `checkTDP.py` published by Campos-Chavez et al. 2024 (see the
+[parameter reference](parameters.md)). It is drawn as an image on that grid. On the log scale its
+floor is 10⁻⁴ of the peak, the color floor of `checkTDP.py`. `export_figure` writes the smoothing
+settings to the provenance file as `parameters.display.smoothing`. The counts are not changed.
+
 > **A time axis says seconds only if you supplied a frame duration.** `dt` / `time_dt`
 > default to `1.0`, and at that default the renderer labels the axis in frames. The same
 > applies to rates read off a B2 survival fit: `tether.analysis.dwell` reports them in
 > `1 / (frames · dt)`, i.e. **per frame** at the default.
+
+`render_per_condition_histograms` draws every condition as an unfilled outline on the
+overlay's one shared bin grid, in the overlay's own order, and labels each curve with its
+condition id and molecule count. A condition binned on another grid raises `ValueError`
+rather than being drawn with its bins in the wrong place.
+
+`render_transition_sync_histogram2d` draws time relative to the selected transition: the
+axis runs negative before it, and a dotted line marks relative time zero. The note names
+the selected states, with `any` for `-1`.
+
+`render_alpha_shape` draws the boundary segments and nothing else of the shape. When there
+is no boundary, it draws no line and the note tells you why: the cloud spans no 2-D region,
+or the alpha was too small to keep a triangle. Pass `cloud=` to draw the points underneath
+and take the axis limits and time unit from the cloud. Without a cloud, pass `time_dt=` for
+a time axis in seconds.
+
+`render_state_number_elbow` draws the RMSE curve, the chord from its first to its last
+point, and the elbow when there is one. The elbow is a hint and the figure says so: the
+state count of record is the model's.
+
+`render_population_anticorrelation` gives each scanned molecule one row, in store order. An
+event is a bar over its frames, colored by its peak `|lag-0|`, with a tick at its peak
+frame. A molecule with no event keeps its empty row. The rows carry the `molecule_key` up
+to 30 molecules and an index above that.
 
 `render_raw_fret_cloud` decimates its scatter overlay when the population exceeds
 `max_points` (default 20 000) to keep the vector file manageable; the density surface
@@ -474,6 +525,71 @@ un-clipped apparent-E outliers cannot inflate the bandwidth. The excluded count 
 `n_out_of_range`; the on-figure annotation reports only `n_samples` and `n_molecules`,
 so read it off the dataclass.
 
+### Several series on one figure
+
+Every renderer also takes an ordered sequence of `(label, result)` pairs. These are the series of
+one composed plot (FR-PLOT). Each label must be a distinct, non-empty string. A sequence of one
+series draws exactly the figure of the bare result, byte for byte. Its label goes only to the
+provenance file.
+
+```python
+from tether.analysis.histogram import population_apparent_e_histogram
+from tether.analysis.plot_export import export_figure, render_histogram1d
+
+wild_type = population_apparent_e_histogram("wt.tether", bins=151)
+mutant = population_apparent_e_histogram("mutant.tether", bins=151)
+figure = render_histogram1d([("WT", wild_type), ("mutant", mutant)])
+export_figure(
+    figure,
+    "figures/a1-wt-vs-mutant",
+    tether_export="plot:a1",
+    source="wt.tether, mutant.tether",
+    parameters={"series": [{"selection": "WT v1"}, {"selection": "mutant v1"}]},
+)
+```
+
+- **Overlay.** Seven renderers draw all series on one axis, with a legend entry for each: the 1-D
+  histogram, the dwell survival, the transition probability, the state-number chart (as grouped
+  bars), the cross-correlation, the alpha shape and the elbow. The series take their colors from
+  one cycle, `SERIES_COLOR_CYCLE = "okabe-ito-4"`. It has four colors of the Okabe–Ito set: blue,
+  vermilion, bluish green and reddish purple. After them come the same four with the next line
+  style (`--`, `-.`, `:`), so 16 series differ. Where a series can be drawn as points alone, its
+  marker (`o`, `s`, `^`, `D`) steps with the line style, as the dwell survival markers do. `series_style(k)` returns the style of series `k`.
+  Each color reaches 3 : 1 against the white background. Every two colors also stay apart under
+  simulated protanopia, deuteranopia and tritanopia, the check the [trace colors](gui-theme.md)
+  pass.
+- **Small multiples.** Where one series would hide another, each series gets its own panel, titled
+  with its label. This applies to the time-vs-signal heatmap, the transition-density plot, the raw
+  FRET cloud, the transition-synchronized heatmap, the per-condition overlay and the
+  anticorrelation raster. The panels share their axes. The anticorrelation panels share only the
+  frame axis: each has its own molecule rows, so one row position is not one molecule across
+  panels. The heatmaps and the raster share one color scale and one color bar, so a color means
+  the same value in every panel. In the per-condition
+  panels, a condition keeps its color in every panel.
+- **One grid.** Two series that are not on one grid are refused with a `ValueError`. It names the
+  series, what differs and both values. Tether never resamples one series onto another. What must
+  agree depends on the plot. Examples are the bin edges, value range and density normalization of
+  a histogram, the frame time of anything with a time axis, the `init → final` pair of a
+  transition-probability histogram and the lags of a cross-correlation. A lever of the series, such
+  as per-molecule equal weight, may differ.
+
+`export_figure` writes one record per series to `parameters.series`, in figure order. A record
+holds the `label`, the `result` type, the `parameters` that result carries and its `display`. The
+parameters are the scalars, ranges and grid of the result, never its data. The display is the color
+and line style, or the panel. A one-series figure is the bare result's figure, so its record says
+`{"as_bare_result": true}`. The layout goes to `parameters.display` (`series_layout`, and
+`series_cycle` or `series_color_scale`).
+
+A model drawn with a series keeps its own parameters in the record. Examples are the Gaussian
+means, variances and weights, or the fitted rates. Its sampled curve is data and is left out. A
+series drawn without its model overlay or cloud records `null` for it.
+A parameter that is NaN or infinite, such as the `alpha` of an empty alpha shape, is recorded as
+`null`, so the file stays strict JSON. So is one in a key you add.
+
+To add your own keys to a series, such as the selection
+and its version, pass `parameters["series"]` as a list of one dict per series. A key that
+contradicts what was drawn raises `ValueError`. ADR-0132 records these choices.
+
 <a id="provenance-sidecar"></a>
 
 ## Provenance file
@@ -483,6 +599,9 @@ Every one of the four exports writes `<file>.provenance.json` beside its output,
 full filename, so the original extension survives: `molecules.csv.provenance.json`,
 `traces.txt.provenance.json`, `subset.tether.provenance.json`. Plot exports pass the
 extension-less stem, so theirs is `<stem>.provenance.json`.
+
+[`tether-provenance-schema.json`](tether-provenance-schema.json) states the keys below as a
+JSON Schema, with the `parameters` of each export.
 
 The payload is `json.dumps(payload, indent=2, sort_keys=True) + "\n"`, UTF-8 — which is
 why the keys read alphabetically:
@@ -525,6 +644,21 @@ metadata (both above) — but only the provenance file carries the full paramete
 
 To read a provenance file back next to the stamps inside the project, and to turn both into a
 Methods paragraph, see [Reproducibility and reporting](../reproducibility.md).
+
+## Put these files in your deposit
+
+A CSV or `.txt` export is flat text. To let another person read it correctly, put these
+files beside your data when you deposit it. Download them from the documentation of the
+Tether version that wrote your exports, so that they describe that version:
+
+| File | What it describes |
+|---|---|
+| [`tether-schema.json`](tether-schema.json) | The frozen skeleton of a `.tether` file: its groups, its four compound tables and its root attributes. It is `schema/schema_frozen.json` from the repository, unchanged ([format reference](tether-format.md)). |
+| [`molecule-table-columns.csv`](molecule-table-columns.csv) | The data dictionary of the molecule-table CSV: one row per column, with `name`, `type`, `unit`, `can_be_blank` and `description` ([columns](#molecule-table-columns)). |
+| [`tether-provenance-schema.json`](tether-provenance-schema.json) | A JSON Schema (draft 2020-12) of the `<file>.provenance.json` provenance file ([above](#provenance-file)). Any JSON Schema validator can check a provenance file against it. |
+
+These three files are licensed **CC0-1.0**, so you can copy them into a deposit with no
+conditions. The program code keeps its GPL-3.0-or-later license.
 
 ## Reading the exports elsewhere
 

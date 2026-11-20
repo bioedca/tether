@@ -147,7 +147,7 @@ def _resolve_provenance(labeler: str | None, timestamp: str | None, reason: str)
 
 
 def _matched_rows(table: np.ndarray, molecule_key: str, path: Path) -> list[int]:
-    """Row indices carrying ``molecule_key``; [`KeyError`][] when there are none."""
+    """Row indices carrying ``molecule_key``; `KeyError` when there are none."""
     from tether.project.labels import _match_indices  # noqa: PLC0415
 
     idx = _match_indices(table["molecule_key"], molecule_key)
@@ -331,7 +331,7 @@ def clear_category(
     """Clear a molecule's category to ``""``, the "no category" value (§5.1).
 
     Same matching, provenance and no-op rule as [`set_category`][]; returns the
-    appended audit rows. Raises [`KeyError`][] for an unknown ``molecule_key``.
+    appended audit rows. Raises `KeyError` for an unknown ``molecule_key``.
     """
     return _write_category(
         path,

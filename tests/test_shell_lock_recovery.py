@@ -80,6 +80,10 @@ def _foreign():
     return LockIdentity(host=f"{local_identity().host}-OTHER", user="alice", pid=4242)
 
 
+def _text(value: object) -> str:
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
 def _assert_write_seams_work(shell, qtbot, project) -> None:
     """Accept the selected molecule and see the row land in ``/labels``."""
     from pyqtgraph.Qt import QtCore
@@ -125,6 +129,10 @@ def test_crash_case_recovers_with_one_click(shell, qtbot, tmp_path, caplog) -> N
     assert lock.read_lock(project.path).identity == me
     assert "Recover: took the lock" in shell.status_message
     assert any("recover" in r.getMessage() for r in caplog.records)
+    # The durable record went in under the new lock (#1099).
+    rows = shell.curation_project.read_lock_takeovers()
+    assert [_text(a) for a in rows["action"]] == ["recover"]
+    assert int(rows[0]["ousted_pid"]) == crashed.pid
     _assert_write_seams_work(shell, qtbot, project)
 
 
@@ -148,6 +156,40 @@ def test_running_process_on_this_computer_offers_nothing(shell, tmp_path, runnin
     assert "unavailable" in shell.status_message
     assert lock.read_lock(project.path) == held
     assert shell.curation_project is None
+
+
+def test_banner_offers_recover_once_the_running_holder_stops(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    """A running-holder verdict is judged again, so Recover appears after it stops (#1123)."""
+    from tether.gui import shell as shell_module
+    from tether.project import lock
+    from tether.project.lock import LockIdentity, RecoveryAction, local_identity
+
+    monkeypatch.setattr(shell_module, "_LOCK_RECOVERY_RECHECK_MAX_MS", 200)
+    project = _store(tmp_path)
+    me = local_identity()
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=child.pid))
+        assert shell.load_project(project.path) is not None
+        assert shell.lock_recovery.action is RecoveryAction.NONE
+        assert shell.lock_recovery.holder_running
+        assert shell.recover_button.isHidden()
+
+        qtbot.wait(500)  # several re-checks while it still runs: nothing is offered
+        assert shell.recover_button.isHidden()
+        assert "running Tether process on this computer" in shell.read_only_banner.text()
+    finally:
+        child.kill()
+        child.wait()
+
+    qtbot.waitUntil(lambda: not shell.recover_button.isHidden(), timeout=5_000)
+
+    assert shell.lock_recovery.action is RecoveryAction.RECOVER
+    assert "Recover" in shell.read_only_banner.text()
+    assert shell.recover_project_lock() is not None
+    assert lock.read_lock(project.path).identity == me
 
 
 def test_foreign_lock_that_is_not_stale_cannot_be_taken(shell, tmp_path) -> None:
@@ -199,6 +241,11 @@ def test_stale_foreign_lock_needs_the_typed_confirmation(shell, qtbot, tmp_path)
     assert lock.read_lock(project.path).identity == lock.local_identity()
     assert "alice@" in shell.status_message
     assert "unsaved work is not merged" in shell.status_message
+    rows = opened.read_lock_takeovers()
+    assert rows.shape == (1,)  # the refused attempts above recorded nothing
+    assert _text(rows[0]["action"]) == "take_over"
+    assert _text(rows[0]["ousted_user"]) == "alice"
+    assert _text(rows[0]["ousted_timestamp"]) == held.timestamp
     _assert_write_seams_work(shell, qtbot, project)
 
 
@@ -246,6 +293,7 @@ def test_take_over_refused_when_the_holder_came_back(shell, tmp_path) -> None:
     # The banner was judged again: the refreshed lock is no longer stale.
     assert shell.take_over_button.isHidden()
     assert "takeover becomes possible at" in shell.read_only_banner.text()
+    assert project.read_lock_takeovers().shape == (0,)  # a refusal records nothing
 
 
 def test_banner_offers_take_over_once_the_lock_turns_stale(shell, qtbot, tmp_path) -> None:
@@ -313,6 +361,7 @@ def test_failed_reopen_keeps_retrying_the_release_of_the_taken_lock(
     taken = lock.read_lock(project.path)
     assert taken is not None and taken.identity == me
     assert shell.lock_release_pending  # the timer owns the taken lock now
+    assert project.read_lock_takeovers().shape == (0,)  # a failed reopen records nothing
 
     # Opening another project would stop that timer, so it waits for the release.
     monkeypatch.undo()
@@ -384,6 +433,7 @@ def test_read_only_reopen_is_not_reported_as_writable(shell, tmp_path, monkeypat
     assert "Recover failed" in shell.status_message
     assert "writable" not in shell.status_message.replace("not writable", "")
     monkeypatch.undo()
+    assert project.read_lock_takeovers().shape == (0,)  # a read-only reopen records nothing
 
 
 def test_recheck_describes_the_current_holder(shell, tmp_path) -> None:
@@ -406,3 +456,73 @@ def test_recheck_describes_the_current_holder(shell, tmp_path) -> None:
         assert shell.lock_recovery.owner == winner
     finally:
         lock.release(project.path, winner)
+
+
+def test_recover_keeps_the_opened_intensity_layer(shell, qtbot, tmp_path) -> None:
+    # #1097: the reopen after a recovery must use the quantity of the refused open,
+    # not load_project's "corrected" default, or the traces under curation change.
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import traces_from_store
+    from tether.project import lock
+    from tether.project.lock import LockIdentity, local_identity
+
+    project = _store(tmp_path)
+    raw = traces_from_store(project, intensity_quantity="raw")
+    corrected = traces_from_store(project, intensity_quantity="corrected")
+    assert not np.allclose(raw[0].donor, corrected[0].donor)  # the layers differ here
+    me = local_identity()
+    lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=_dead_pid()))
+
+    assert shell.load_project(project.path, intensity_quantity="raw") is not None
+    assert shell.curation_project is None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+
+    qtbot.mouseClick(shell.recover_button, QtCore.Qt.MouseButton.LeftButton)
+
+    assert shell.curation_project is not None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+    np.testing.assert_array_equal(shell.trace_dock.trace.acceptor, raw[0].acceptor)
+
+
+def test_take_over_keeps_the_opened_intensity_layer(shell, tmp_path) -> None:
+    from tether.gui.shell import traces_from_store
+    from tether.project import lock
+
+    project = _store(tmp_path)
+    raw = traces_from_store(project, intensity_quantity="raw")
+    lock.acquire(project.path, identity=_foreign(), now=_stale_now())
+
+    assert shell.load_project(project.path, intensity_quantity="raw") is not None
+    assert shell.take_over_project_lock(confirmation=project.path.name) is not None
+
+    assert shell.curation_project is not None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+    np.testing.assert_array_equal(shell.trace_dock.trace.acceptor, raw[0].acceptor)
+
+
+def test_takeover_stands_when_its_record_cannot_be_written(shell, tmp_path, monkeypatch) -> None:
+    """A record that fails to write is reported; the lock taken is kept (#1099)."""
+    from tether.project import lock
+    from tether.project.core import Project
+    from tether.project.lock import LockIdentity, local_identity
+
+    project = _store(tmp_path)
+    me = local_identity()
+    lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=_dead_pid()))
+    assert shell.load_project(project.path) is not None
+
+    def record_fails(_self, *_a):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Project, "record_lock_takeover", record_fails)
+
+    opened = shell.recover_project_lock()
+
+    assert opened is not None
+    assert shell.curation_project is opened
+    assert lock.read_lock(project.path).identity == me
+    assert "is writable" in shell.status_message
+    assert "the takeover record was not written (disk full)" in shell.status_message
+    monkeypatch.undo()
+    assert project.read_lock_takeovers().shape == (0,)
