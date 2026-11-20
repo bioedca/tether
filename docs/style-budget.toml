@@ -211,7 +211,7 @@ retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 24.1
+long_share = 21.7
 semicolons = 29
 long_paragraphs = 0
 retired = 0
