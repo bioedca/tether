@@ -134,7 +134,7 @@ retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
-long_share = 27.0
+long_share = 23.6
 semicolons = 3
 long_paragraphs = 0
 retired = 0
@@ -337,7 +337,7 @@ retired = 0
 
 [pages."docs/privacy.md"]
 kind = "descriptive"
-long_share = 9.7
+long_share = 7.6
 semicolons = 6
 long_paragraphs = 0
 retired = 0

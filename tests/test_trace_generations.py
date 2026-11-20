@@ -285,13 +285,14 @@ def test_carried_labels_train_only_after_a_human_reviews_the_current_extraction(
     _assert_rows_equal(labels.read_labels(project)[: len(original)], original)
 
     subset = tmp_path / "confirmed-subset.tether"
-    export_subset_tether(project, subset, molecule_keys=[accept_key], include_raw=True)
+    export_subset_tether(project, subset, molecule_keys=[accept_key], curator_alias="Curator")
     compute_features(subset)
     assert weighted_training_set(subset).molecule_ids == [accepted_id]
     with h5py.File(subset, "r") as f:
         review = f["generations/label_reviews"][0]
         assert int(review["label_event"]) == 1
-        assert _text(f["labels/table"][1]["labeler"]) == "reviewer"
+        assert _text(f["labels/table"][1]["labeler"]) == "Curator-2"
+    assert b"reviewer" not in subset.read_bytes()
 
     _reextract(project, movie_a)
     compute_features(project)
