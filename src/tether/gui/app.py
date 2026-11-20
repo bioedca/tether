@@ -29,6 +29,11 @@ already running; [`create_shell`][] gives each such event to
 [`load_project`][tether.gui.shell.TetherShell.load_project], the path of
 ``&File -> &Open project...``. An event that arrives before the shell exists waits for it,
 and an event that arrives while a dialog is open waits until the dialog has closed.
+
+Once the shell exists, [`create_shell`][] installs the opt-in update notice
+([`tether.gui.update_notice`][], #248). It asks its first-run question, or starts one
+check on a background thread when the user allowed it, after the event loop starts; it
+makes no network request without that stored consent.
 """
 
 from __future__ import annotations
@@ -92,7 +97,7 @@ def install_file_open_handler(app: Any) -> Any:
     runs: macOS delivers the event inside that loop, and the code that opened the dialog
     continues on the open project after the dialog returns (the tMAVEN reconciliation
     dialog, for one, applies the changes it showed). Then the path waits, and the object
-    looks again every [`FILE_OPEN_RETRY_MS`][] milliseconds until the loop has ended.
+    looks again every `FILE_OPEN_RETRY_MS` milliseconds until the loop has ended.
     """
     from PySide6 import QtCore, QtWidgets
 
@@ -167,7 +172,9 @@ def create_shell(
     shows, before the import of [`tether.gui.shell`][], which is the slow part; it
     closes when the shell window is shown, or before the error propagates when the start
     fails. ``splash=None`` shows it unless the Qt platform is headless; ``True`` or
-    ``False`` decides it explicitly.
+    ``False`` decides it explicitly. Before the shell is built, the trace colors stored
+    by **View → Trace colors** ([`tether.gui.app_settings`][]) are applied, so the
+    choice survives a restart (#636).
 
     A file-open event (macOS, [`install_file_open_handler`][]) is caught from the moment the
     ``QApplication`` exists. It opens its project after the shell is built, and after the
@@ -175,7 +182,9 @@ def create_shell(
 
     The shell remembers the session in the per-user preferences file
     ([`preferences_path`][tether.gui.preferences.preferences_path], #628): recent projects,
-    the molecule selected at close, the layout and the curator name.
+    the molecule selected at close, the layout and the curator name. Last, the update
+    notice is installed ([`tether.gui.update_notice.install_update_notice`][]); its start
+    is queued for the event loop.
     """
     args = build_parser().parse_args(argv)
 
@@ -197,13 +206,23 @@ def create_shell(
     wanted = not startup.is_headless(app) if splash is None else splash
     screen = startup.open_splash(app) if wanted else None
     try:
+        from tether.gui import app_settings, theme
         from tether.gui.preferences import preferences_path
         from tether.gui.shell import TetherShell
+
+        # The stored View -> Trace colors choice (#636, ADR-0123); unset is the default.
+        theme.set_trace_palette(app_settings.stored_trace_colors() or theme.DEFAULT_TRACE_PALETTE)
 
         # The application remembers the session on this computer (#628, ADR-0122).
         shell = TetherShell(preferences_file=preferences_path())
         if args.project is not None:
             shell.load_project(args.project)
+        # The opt-in update notice (#248): the first-run question, or one check on a
+        # background thread once the user allowed it. Queued for the event loop, so it
+        # never delays the window, and it makes no request without the stored consent.
+        from tether.gui.update_notice import install_update_notice
+
+        install_update_notice(shell.window, help_menu=shell.help_menu)
     except BaseException:
         app.removeEventFilter(file_open)
         if screen is not None:

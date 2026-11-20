@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from tether.services import batch, extract
+from tether.services import batch, extract, idealize, maps
 from tether.services.base import Request, RequestError, request_from_mapping
 
 __all__ = [
@@ -66,23 +66,41 @@ COMMANDS: tuple[ServiceCommand, ...] = (
         run=batch.run,
         summary="run the extract -> correct -> idealize pipeline over many movies",
     ),
+    ServiceCommand(
+        name="idealize",
+        request_type=idealize.IdealizeRequest,
+        result_type=idealize.IdealizeResult,
+        run=idealize.run,
+        summary="fit the molecules of a .tether project, or refit its stale models",
+    ),
+    ServiceCommand(
+        name="map",
+        request_type=maps.MapCreateRequest,
+        result_type=maps.MapCreateResult,
+        run=maps.run,
+        summary="make a channel map file (.npz) from a bead video or image",
+    ),
 )
 
 
 def command(name: str) -> ServiceCommand:
-    """Return the registered command called *name*; raise [`KeyError`][] if none."""
+    """Return the registered command called *name*; raise `KeyError` if none."""
     for entry in COMMANDS:
         if entry.name == name:
             return entry
     raise KeyError(name)
 
 
-def run(request: Request) -> Any:
-    """Run *request* through its registered command and return the command's result."""
+def run(request: Request, **observers: Any) -> Any:
+    """Run *request* through its registered command and return the command's result.
+
+    Keyword arguments go to the command unchanged. They watch the run, such as the
+    ``progress`` of the ``batch`` command, and are not part of the request.
+    """
     entry = command(request.COMMAND)
     if type(request) is not entry.request_type:
         raise TypeError(f"expected {entry.request_type.__name__}, got {type(request).__name__}")
-    return entry.run(request)
+    return entry.run(request, **observers)
 
 
 def request_from_text(text: str) -> Request:

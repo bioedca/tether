@@ -97,12 +97,14 @@ Which tier each oracle's *headline* assertion lives in:
 | (b) Idealization parity vs tMAVEN | `sidecar` — required, but only actually fits when a pull request touches an idealization path | the frozen artifact is checked against its own recorded evidence |
 | (c) kinSoftChallenge kinetics | `large` — and **advisory**, never a gate | reference loader + synthetic rate recovery; the level-2 and level-3 truth against the simulator settings files |
 | (d) Ranker held-out cross-validation | required matrix | yes (synthetic project files only) |
-| (e) α / γ estimators | required matrix | yes |
+| (e) α / γ estimators | required matrix; the α band on the lab's donor-only sample is `workstation` | yes (the band's arithmetic and limits) |
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
+| Successive-frame FRET cloud vs the FRET_cloud script | required matrix | yes (committed frozen MATLAB output) |
 | (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 | MASH-FRET analyses: histogram, states, rates | required matrix (exact histogram) and `sidecar` (state limits), on a committed extract | the 37 stored histograms of the archive are checked by the workstation run |
+| Histogram bootstrap vs MASH-FRET | required matrix, on a committed extract | yes |
 | RF2-ArfA data set of the tMAVEN authors | required matrix (import, kinetics) and `sidecar` (fit, 2-D histogram), on a committed extract | the whole archive and Table 1 run weekly under `reference_download` |
 | Campos-Chavez et al. 2024: the tMAVEN fits | `reference_download` — weekly, with the sidecar env; **advisory** | the settings, the windows, the comparison and the limit rule; the stored models are checked by the workstation run |
 | Ha-laboratory SAM/SAH snapshot histogram | required matrix | yes (committed verbatim reference files) |
@@ -141,8 +143,9 @@ the export of video 010: the same 250 molecules, positions and raw traces. It ca
 correction factors, which come from a later step in the window. The workstation run also
 compares Tether's corrected FRET on each export, with no limit, with the γ-corrected formula
 on Deep-LASI's exported factors. On video 010 the median absolute difference of the molecule
-means is 0.084. The formulas agree: the gap comes from Tether's 3-frame γ level windows and
-from few molecules with their own γ (ADR-0115, [#1206](https://github.com/bioedca/tether/issues/1206)).
+means is 0.084. The formulas agree: the gap came from the 3-frame γ level windows Tether
+used then and from few molecules with their own γ (ADR-0115,
+[#1206](https://github.com/bioedca/tether/issues/1206)).
 The corrected FRET saved in Deep-LASI's state does not depend on γ, so it is not the reference.
 
 **Frozen tolerance.** Module constants in `src/tether/project/oracle.py`, not a JSON file:
@@ -172,10 +175,14 @@ the specification's original extraction gate asked for 1 px recall and r ≥ 0.9
 
 ADR-0022 records the reasons each reframed bar is science rather than a lowered
 standard: 1 px recall is a localizer-*identity* test between two independent sub-pixel
-localizers on human-curated picks; Tether is donor-anchored
+localizers on human-curated picks; the oracle extraction is donor-anchored
 ([ADR-0015](adr/0015-donor-anchored-colocalization.md)), so the acceptor is read at the
 mapped donor position and its Pearson carries the map's molecule-domain scatter; and a
-bidirectional colocalization filter was measured to collapse recall to ≈0.66.
+bidirectional colocalization filter was measured to collapse recall to ≈0.66. A new
+extraction defaults to that filter, the partner-in-both rule
+([ADR-0127](adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)),
+so the oracle test and `scripts/run_m1_oracle.py` select `donor-anchored` by name and keep
+the frozen numbers.
 
 **Enforcing tests.** `tests/test_oracle.py::test_extraction_meets_m1_acceptance_on_uckopsb`
 — `@pytest.mark.workstation`, so no CI job collects it
@@ -327,7 +334,8 @@ means the same tMAVEN commit on the same CPython, not an identical dependency se
 > such gap: it was measured on this build from the start. The script writes a full replacement of its `--out` file, so it was pointed at a
 > scratch file and only the re-measured `method`, `spread_by_fixture` and `pooled_worst` were
 > carried into the artifact; everything else in it — the per-method blocks, `$.coverage` with
-> its committed `"vbconhmm (vb Consensus HMM)"` quoted below — was kept by hand.
+> its committed `"vbconhmm (vb Consensus HMM)"` quoted below, and `$.transition_matrix` — was
+> kept by hand.
 
 **When upstream tMAVEN changes.** The parity tests use the pinned commit.
 `.github/workflows/sidecar-upstream.yml` runs the same tests each week with tMAVEN at the newest
@@ -347,7 +355,8 @@ the required `sidecar / parity` job — which executes them on every nightly run
 pull request touching an idealization path, and reports a "not applicable" pass otherwise):
 `test_281mol_fresh_fit_matches_reference_within_frozen_tolerance`,
 `test_4mol_cross_seed_matches_within_frozen_tolerance`,
-`test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`. On the required matrix,
+`test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`, which also assert the
+transition-matrix term (below). On the required matrix,
 `tests/test_parity.py` checks the artifact against itself:
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
 value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
@@ -387,27 +396,44 @@ bounds (below); nothing pins `$.provisional` to its committed values.
 What the suite does still enforce against loosening is the *shape* of a tolerance block rather
 than the magnitude of any bound inside it, plus one ordering between two blocks:
 
-* Every block must carry exactly the four bound keys — checked by
+- Every block must carry exactly the four bound keys — checked by
   `test_load_frozen_tolerance_returns_the_four_bounds` for `$.tolerance` and by
   `test_per_method_tolerances_cover_their_own_measured_evidence` for each
   `$.tolerance_by_method` entry — so a bound cannot be loosened by deleting it. Deleting any
   one of the eight fails at least two tests.
-* The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
+- The four `$.tolerance` values must additionally be finite, so an infinite ceiling there also
   fails `test_load_frozen_tolerance_returns_the_four_bounds`. The per-method bounds carry no
   finiteness check: `$.tolerance_by_method.ebhmm.relative_elbo_max` set to infinity passes.
-* `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
+- `test_load_frozen_tolerance_selects_per_method` asserts ebFRET's state-count floor is strictly
   below the default one, so it fails once `$.tolerance.state_count_min_fraction` is dropped to
   ebFRET's frozen `0.5249` or below (0.5249 and 0.40 fail; 0.5250 and 0.60 pass).
 
 Widening any of the eight bounds to some *other* finite value was caught by nothing until #545,
 as long as the default state-count floor stayed above `0.5249`. Now
 `test_frozen_bounds_match_the_accepted_copy` holds a literal copy of every frozen bound — the
-eight above — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+eight above and the two transition-matrix ceilings — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
 `tests/test_parity.py`, outside the file, and fails on any difference; it names a widened bound
 `WIDENED`. `test_widening_any_one_frozen_bound_fails` widens each bound alone by 1e-4 and checks
 that it is reported. A deliberate re-freeze changes both copies in one pull request, under an ADR
 ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md)).
 
+**Transition matrix.** Consensus VB-HMM and ebFRET are also compared on their transition
+matrix: `transition_matrix_abs_delta` is the largest `|Δ|` between the two row-normalized
+matrices (`norm_tmatrix`, the per-frame transition probabilities), both in canonical
+mean-sorted order, and `inf` when the state counts differ or a matrix is missing. It is frozen
+apart from the four-bound rows, under `$.transition_matrix`, because the specification gives no
+provisional default for it: the measured worst case × 1.5, rounded up to the four decimal places
+of the other bounds and never below `0.0001` (`freeze_transition_matrix`).
+
+| Method | Evidence | Pooled worst | Frozen `transition_matrix_abs_delta_max` |
+| --- | --- | --- | --- |
+| `vbconhmm` | the re-measure above: 19 cross-seed comparisons on `smd_4mol`, 20 against `model_281mol.hdf5` | 3.915569757317883e-09 | 0.0001 |
+| `ebhmm` | 20 unseeded fits of `smd_281mol`, 19 cross-seed comparisons (2026-11-15) | 0.029381270392564246 | 0.0441 |
+
+The ebFRET four-bound row is not re-measured by this. Its 2026-07-08 evidence is unchanged.
+The three population arms of `tests/test_parity_sidecar.py` assert the term against these
+ceilings, and `test_transition_matrix_block_covers_its_own_evidence` checks the block against its
+own recorded runs on the required matrix.
 
 **Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
 also assert a second bound, much tighter than the frozen default row: a state-mean difference of
@@ -676,7 +702,7 @@ a single-movie project raises rather than inventing a held-out video.
 | `DEFAULT_MIN_WINDOW_FRAMES` | 20 | `src/tether/fret/leakage.py` |
 | `DEFAULT_MIN_QUALIFYING_TRACES` | 10 | `src/tether/fret/leakage.py` |
 | `GAMMA_CEILING` | 5.0 | `src/tether/fret/gamma.py` |
-| `DEFAULT_GAMMA_HALF_WINDOW` | 3 | `src/tether/fret/gamma.py` |
+| `DEFAULT_GAMMA_HALF_WINDOW` | 20 | `src/tether/fret/gamma.py` |
 
 The first three are locked by `tests/test_fret_leakage.py::test_defaults_match_prd_11_2`.
 
@@ -697,8 +723,18 @@ withholding below the minimum qualifying count rather than emitting a factor fro
 little data. `tests/test_fret_leakage.py::test_estimate_empty_qualifying_never_medians_empty`
 turns any `RuntimeWarning` into a failure so an empty median can never leak through.
 
-**Total failure → apparent E, never NaN.** `tests/test_project_correct.py` covers the path
-that the specification singles out: `test_total_failure_falls_to_apparent_never_nan`,
+**The γ level windows.** Since [ADR-0130](adr/0130-the-gamma-levels-are-averaged-over-20-frames-each-side.md)
+each level averages 20 frames each side of the step. The parity check runs on that default,
+on the whole segments and on 3 frames. `test_wider_windows_scatter_less_than_three_frames`
+shows that over 200 noise draws the default's spread is under half the 3-frame estimate's.
+
+**Total failure → apparent E, so a missing factor never gives a NaN E.** A missing or
+non-finite α or γ routes the molecule to apparent E. A frame with zero total intensity is
+still NaN in apparent E, because the ratio is not defined there. That is not a correction
+failure.
+
+`tests/test_project_correct.py` covers the path that the specification singles out:
+`test_total_failure_falls_to_apparent_never_nan`,
 `test_fresh_store_nan_factors_is_total_failure`, `test_zero_gamma_boundary_is_total_failure`,
 `test_negative_gamma_is_total_failure`, `test_manual_override_rescues_total_failure`,
 `test_partial_alpha_override_without_gamma_stays_apparent`, and
@@ -706,20 +742,32 @@ that the specification singles out: `test_total_failure_falls_to_apparent_never_
 `inf`). The design rule is [ADR-0003](adr/0003-apparent-e-never-nan.md). All of these run on
 the required matrix.
 
-> Not implemented — the two deferred legs of this oracle.
+**The conjunctive α band on real data (workstation).** The band of the specification
+(relative-median difference ≤ 20 % *and* both medians within 0.05–0.2, never the band alone) is
+`tests/test_leakage_alpha_band.py`, a `workstation` test
+([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)).
+The donor-only α comes from the lab's Cy3-only calibration acquisition (`donly-01`), read with the
+test-only trace reader of the public Deep-LASI check (#716): the tail estimator with every frame before the donor
+bleach as its window, so the gates are the tail estimator's own. The tail α is the median over the
+pooled molecules of the FRET series that sample calibrates (`lab-03` to `lab-08`), with Tether's
+bleach frames. The band's arithmetic and its two limits are checked on the required matrix in the
+same file, against the specification's row.
+
+**The first run passed** (2026-11-19). The donor-only α was 0.1200 (89 of 91 molecules
+qualifying) and the pooled tail α of the series 0.1012 (260 of 971), a relative difference of
+17.0 % against the 20 % limit, with both medians inside 0.05–0.2.
+
+> Not implemented — the γ leg of this oracle.
 >
-> 1. The **conjunctive two-estimator α agreement** band of the specification (relative-median
->    difference ≤ 20 % *and* both medians within 0.05–0.2) has no code and no test. The
->    donor-only-sample estimator it needs cannot be built from the committed
->    `cy3-donor-only-calibration` `.tdat`, whose traces sit in an undecoded MCOS
->    `FileWrapper__` blob; deferred in
->    [ADR-0027](adr/0027-leakage-alpha-tail-estimator.md) gated on an MCOS trace decoder.
->    Until then the tail α is the applied factor and the band is not gated against a
->    fabricated value.
-> 2. The **γ within ±10 % of the Deep-LASI median** oracle of the specification is deferred: the
->    vendored export carries no per-frame classification, so the shared-frame,
->    estimator-isolated comparison cannot be constructed
->    ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)).
+> The **γ within ±10 % of the Deep-LASI median** oracle of the specification, and its looser
+> CI-overlap check, stay deferred. They need Deep-LASI's per-molecule γ and its per-frame
+> classification, and no available file holds them: not the vendored export
+> ([ADR-0028](adr/0028-gamma-acceptor-bleach-step-estimator.md)), not the lab's saved Deep-LASI
+> states, and not the public Figure 3 state
+> ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md)).
+> Deep-LASI's γ uses its per-frame classes, not its `BleachFrame`, so the shared frame set is
+> those classes once a state is saved after Deep-LASI's classification and automatic correction
+> ([#1244](https://github.com/bioedca/tether/issues/1244)).
 
 ## (f) Round-trip integrity and schema migration
 
@@ -867,7 +915,7 @@ significant digits, and the rest is float64 round-off of the FFT and of the sums
 0.37 and 0.38 bins; with N / (N − k) as the only factor the cross-correlation misses by more
 than 1e-4.
 
-**Out of scope.** The successive-frame cloud (#710), the smoothed and filtered histogram
+**Out of scope.** The successive-frame cloud (the next section), the smoothed and filtered histogram
 columns, the heat map, trace selection and background subtraction. The files under
 `test-data/ground-truth/` of the same commit are not used: the commit's scripts do not
 reproduce them.
@@ -877,6 +925,53 @@ reproduce them.
 `test_tether_cross_correlation_equals_total_xc`,
 `test_the_lag_factor_alone_does_not_reach_the_file` and
 `test_the_fixtures_are_the_pinned_commit_of_smfret_analysis2`.
+
+### Successive-frame FRET cloud vs the FRET_cloud script
+
+**What is compared.** The successive-frame FRET cloud plots apparent E at frame *i* against
+apparent E at frame *i* + 1 ([#710](https://github.com/bioedca/tether/issues/710)). It is the plot of
+the laboratory's FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished).
+[ADR-0105](adr/0105-the-successive-frame-fret-cloud-and-its-script-reference.md) records the
+analysis and the reference.
+
+**Reference data.** The scripts are not public and are not in the repository.
+`scripts/reference/matlab/pins.toml` pins `FRET_cloud_contours_centroids.m` by its SHA-256, and
+`scripts/reference/matlab/fret_cloud.py` ran it unchanged, one time, in MATLAB R2023b (Statistics
+and Machine Learning Toolbox 23.2) on the 76 trace files of section (h), on 2026-11-15. The frozen
+output is under `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/`: the 3800 pairs, the
+200 × 200 density, the nine contour levels, the four k-means centroids and the toolbox version,
+with a `provenance.json` that holds the citation, the script hash and the input hashes.
+
+The script reads column 4 of each file as E. Column 4 of these files is zero, so the run gave the script
+copies whose column 4 is `acceptor / (acceptor + donor)`, Tether's apparent E. The script uses the
+first 50 pairs of each file, so the test gives Tether the first 51 frames of each trace.
+
+**Results** (measured 2026-11-15. Each limit is the measurement rounded up to the next power of
+ten):
+
+| Quantity | Measured | Limit |
+|---|---|---|
+| Pairs | equal, bit for bit | equal |
+| Density, MATLAB's kernel cut applied, relative to the peak | 2.5e-15 | 1e-14 |
+| Contour levels from that density, relative | 2.2e-15 | 1e-14 |
+| Tether's density (no cut), relative to the peak | 1.1e-4 | 1e-3 |
+| Tether's contour levels (no cut), relative | 3.2e-4 | 1e-3 |
+| MATLAB's centroids after one Lloyd step of Tether | 0 | 1e-12 |
+| Within-cluster sum of squares, Tether's best run against MATLAB's, relative | 4.5e-7 | 1e-6 |
+| Centroids, Tether against MATLAB, in E | 8.0e-4 | 1e-3 |
+
+MATLAB's `mvksdensity` leaves out the part of each kernel that is more than 4 bandwidths from the
+pair on either axis. Tether keeps the whole Gaussian. With that cut applied in the test, the two
+densities agree to round-off, and the 5216 nodes where MATLAB's density is 0 are the nodes that no
+cut kernel reaches. So the cut is the whole difference. The k-means starts are random in both
+programs and come from different generators. MATLAB's run ended in a local minimum with a slightly
+smaller sum of squares than Tether's run with seed 0, so the centroid limits are not round-off.
+
+**Out of scope.** The scripts' heat map, their concatenated FRET-against-time plot and their R² of
+the centroids to the diagonal. The GUI entry and the export of the plot are a follow-up issue.
+
+**Enforcing tests** (all unmarked — required 3-OS matrix): `tests/test_fret_cloud_reference.py`
+and the record check `tests/test_matlab_reference.py::test_every_committed_output_matches_its_record`.
 
 ## (i) Corrected FRET vs MASH-FRET
 
@@ -952,6 +1047,35 @@ comparison can prove. A second committed extract holds the 17 molecules of one t
 **What it does not check.** The state limits hold for the pinned sidecar build and seed; a new
 measurement and the maintainer's acceptance are needed to move them. No MASH-FRET rate is compared,
 because none is stored.
+
+## Histogram bootstrap vs MASH-FRET
+
+**What it checks.** Tether's bootstrap of the FRET histogram, which resamples molecules as
+BOBA-FRET does (König et al., *PLoS ONE* 8:e84157, 2013, doi `10.1371/journal.pone.0084157`),
+against the BOBA-FRET bootstrap that MASH-FRET itself ran on the same traces ([#713](https://github.com/bioedca/tether/issues/713),
+[ADR-0108](adr/0108-mash-fret-s-stored-bootstrap-is-the-reference-for-tether-s-bootstrap.md)). The
+Path A extract of the previous section keeps that bootstrap: 100 samples of 17 molecules drawn from
+the tag's 17, each molecule weighted to sum 1, with each sample's histogram and its fit of three
+Gaussians. These stored values are the reference, so no MATLAB run is needed.
+
+**How.** `tests/test_mashfret_bootstrap.py` runs Tether's bootstrap on the same FRET values, with
+the same weights and 100 samples, for ten fixed seeds. Each compared value is a z-score: the
+difference from MASH-FRET divided by the seed-to-seed SD of the ten seeds, times
+`sqrt(1 + 1/10)`. The limit, in `schema/mashfret_bootstrap_limits.json`, is |z| ≤ 3 for every
+value.
+
+| Compared value | Largest measured \|z\| | Limit |
+|---|---|---|
+| SD of each histogram bin over the samples (26 bins) | 1.11 | 3 |
+| Mean of each Gaussian population (0.410, 0.237, 0.352 against 0.415, 0.246, 0.340) | 1.17 | 3 |
+| SD of each Gaussian population (0.111, 0.110, 0.098 against 0.106, 0.111, 0.107) | 2.20 | 3 |
+
+Six other sets of ten seeds gave a largest |z| of at most 2.69. A bootstrap that resamples frames in
+place of molecules gives |z| = 130 on the bin SD, and a test keeps that case.
+
+**What it does not check.** One tag of one project file. The population fit is test code with
+SciPy. On MASH-FRET's own samples it moves the population means by up to 0.010 from MASH-FRET's
+MATLAB fit, and that difference is inside each population z-score.
 
 ## RF2-ArfA data set of the tMAVEN authors
 
@@ -1293,6 +1417,12 @@ fault injections each break a limit: an aperture moved by 2 px lowers the donor 
 to 0.689, and an acceptor position moved by 2 px after the channel mapping raises its largest
 acceptor error to 2.390 px.
 
+The test also counts duplicates: Tether molecules that match a true molecule which an earlier
+Tether molecule already matched (#1006,
+[ADR-0107](adr/0107-the-mash-fret-extraction-test-counts-duplicate-molecules.md)). The count is 0
+in each scenario, and the limit is that count, so a molecule written twice breaks it. A test
+repeats each molecule and trace row of `easy` and requires the duplicate limit to break.
+
 ## External benchmark
 
 Tether's rate constants were compared against the ground truth and the reported inter-tool
@@ -1489,9 +1619,9 @@ evidence about the size of the difference and not a tolerance.
   actually run. The re-measure on the pinned build of 2026-11-15 closed that gap without moving
   a bound ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md));
   the ebFRET block has no such gap.
-- A frozen bound — in `$.tolerance` or a per-method row — can now be loosened only by a pull
-  request that edits both `schema/parity_tolerance.json` and the literal copy
-  [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+- A frozen bound — in `$.tolerance`, a per-method row or a transition-matrix ceiling — can now
+  be loosened only by a pull request that edits both `schema/parity_tolerance.json` and the
+  literal copy [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
   `tests/test_parity.py`; `test_frozen_bounds_match_the_accepted_copy` fails on either edit
   alone (see §(b)). Nothing pins `$.provisional` to its committed values.
 - The ebFRET gate tests **one fixed pair of seeds** (1 and 2,
@@ -1506,8 +1636,8 @@ evidence about the size of the difference and not a tolerance.
 - (b) has no per-trace vbFRET *parity* measurement against standalone tMAVEN, and its
   comparison with the original vbFRET_nov12 on measured traces is advisory, with no frozen
   tolerance (see "Measured traces with a stored vbFRET path"). (d) has no
-  real-data uplift number, (e) is missing the conjunctive α-agreement band and the γ
-  Deep-LASI-median oracle. Each is stated in its own section above with the ADR that
+  real-data uplift number, (e) is missing the γ Deep-LASI-median oracle, and its α band runs on
+  the workstation only. Each is stated in its own section above with the ADR that
   deferred it. (f) has no migration tests, which is not a gap: the specification makes them
   required only at the first schema-version step (see (f) above).
 - The specification states that Tether ships no synthetic-data simulator. In practice (e) and (g) are
@@ -1523,10 +1653,11 @@ evidence about the size of the difference and not a tolerance.
   but never mentions synthetic data, and neither ranker ADR
   ([ADR-0034](adr/0034-gradient-boosting-quality-ranker.md),
   [ADR-0038](adr/0038-provisional-prior-training-fold.md)) discusses validation data at all.
-  The specification allows synthesized known-truth fixtures in tests, and it lists these two
-  among its criteria not yet met, as not yet validated on real data
-  ([#546](https://github.com/bioedca/tether/issues/546),
-  [#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
+  The specification allows synthesized known-truth fixtures in tests. (e)'s α is now also checked
+  on real data, by the workstation band above
+  ([ADR-0133](adr/0133-the-leakage-band-runs-on-the-donor-only-sample-and-the-gamma-leg-stays-withheld.md));
+  (d)'s synthetic project file is listed among the criteria not yet met, as not yet validated on
+  real data ([#548](https://github.com/bioedca/tether/issues/548)). The real-data comparisons that do
   exist (oracles (a), (b), (c)) stay on real fixtures.
 - A reference that comes from an ALEX data set compares **apparent FRET from the
   donor-excitation channels only** — the donor and acceptor intensities under donor
@@ -1566,8 +1697,8 @@ documented gaps rather than fabricated values):
   patches from the import wizard (which opens the movie), and otherwise zero-fills; the
   movie link keeps crops re-cacheable.
 - **γ may be absent.** Remapped α/γ are injected only when γ is finite and positive;
-  otherwise the project degrades to the explicit apparent-E substrate — never a NaN E
-  (ADR-0003). The committed Cy3-only fixture exercises that path.
+  otherwise the project degrades to the explicit apparent-E substrate, so a missing γ never
+  gives a NaN E (ADR-0003). The committed Cy3-only fixture exercises that path.
 - δ (direct excitation) is inert 0 for single-laser Deep-LASI data, which has no ALEX
   channel to estimate it from.
 - A raw-`.txt`-sourced SMD has no coordinates and no patches, so it is imported as an
@@ -1583,3 +1714,8 @@ without a CUDA device, and `.github/workflows/deep-gpu.yml` is `workflow_dispatc
 by construction it never reports a pull-request status and can never become a required
 check. Treat deep-classifier output as an assistive ranking signal, not a validated
 measurement.
+
+The nightly CPU job also trains the default model on the public PySMACKS tutorial labels and
+checks frozen training numbers and a floor on the area under the ROC curve of a held-out part
+([ADR-0098](adr/0098-the-pysmacks-labels-are-the-deep-classifier-reference.md)). That floor is a
+regression check on one labeled set. It does not make the add-on part of the validated core.

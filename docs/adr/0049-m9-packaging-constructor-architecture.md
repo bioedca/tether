@@ -49,9 +49,9 @@ embeds them, so the produced installer is offline by construction; a secondary e
 
 - **A. `constructor` with rendered explicit locks + offline wheels + an `extra_envs` sidecar.**
   Base env from the **rendered per-platform explicit lock** (`conda-lock render` → `@EXPLICIT`), so
-  constructor installs the exact pinned URLs and never re-solves _(see the **base-env restructure**
+  constructor installs the exact pinned URLs and never re-solves *(see the **base-env restructure**
   correction below: constructor requires `conda` in `base` for `extra_envs`, so the GUI stack moved to
-  an `extra_envs` and `base` became a thin python+conda bootstrap — the pinned locks are unchanged)_;
+  an `extra_envs` and `base` became a thin python+conda bootstrap — the pinned locks are unchanged)*;
   the **`tether` wheel** bundled via
   `extra_files` and `pip install --no-index --no-deps` in a `post_install` script; the **trimmed
   sidecar** declared as a constructor `extra_envs` from the rendered `sidecar/conda-lock.yml`, with

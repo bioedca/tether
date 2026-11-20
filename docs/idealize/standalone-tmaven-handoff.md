@@ -28,6 +28,30 @@ that a Tether-exported SMD opens in standalone tMAVEN with its coordinate metada
 — the manual check that ADR-0010 records. ADR-0004 and
 ADR-0006 record why the sidecar is a separate environment.
 
+## Categories and tMAVEN classes
+
+tMAVEN keeps one whole-number class for each trace. Tether keeps a category name. The
+hand-off translates between them through the category list of each molecule's condition:
+
+| tMAVEN class | Tether category |
+|---|---|
+| `0` | no category |
+| `1` | the first category in the condition's list (hotkey **1**) |
+| `2` | the second category (hotkey **2**), and so on |
+
+Each molecule's category goes out as its class. An SMD you bring back unchanged shows no
+class change.
+
+If you change a class in tMAVEN, **Import return leg…** shows the category it names. Nothing
+is written until you accept it.
+
+A class that no category has is shown but cannot be accepted, and Tether never guesses a name
+for it. Add the category to the list first.
+
+The translation follows the list's current order. Reordering or removing categories while an
+SMD is out changes what its classes mean. Check the proposed categories before you accept.
+A category that left the list goes out as class `0`. A `0` coming back leaves it alone.
+
 ## Guided sidecar setup
 
 `scripts/setup_sidecar.py` turns a checkout into a working sidecar interpreter in one

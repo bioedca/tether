@@ -58,16 +58,20 @@ Run:
 tether extract tutorial_movie.tif -o tutorial.tether
 ```
 
-It finishes in a few seconds and prints two lines:
+It finishes in a few seconds and prints three lines:
 
 ```text
 Extracted 3 molecule(s) -> tutorial.tether
+  colocalization: partner-in-both kept 3 (donor-anchored would keep 3)
   donor side: not enough bleach events to check the donor side (0 found, 15 needed).
 ```
 
 Tether found the three molecules, matched each donor spot to its acceptor spot, and wrote
 their intensity traces into a new project file, `tutorial.tether`, next to the movie. That one
-file is where everything from here on is saved. The second line is the check that the donor
+file is where everything from here on is saved. The second line says that a molecule was
+kept only where an acceptor spot was found too, and that keeping every donor spot would
+give the same three here ([choosing the rule](cli.md#choose-the-colocalization-rule)). The
+third line is the check that the donor
 and acceptor halves are not swapped; it needs at least 15 bleach events in which one channel
 drops and the other clearly rises, so on three molecules it says it cannot tell, which is expected here. The [Command line](cli.md#tether-extract)
 reference lists the options `tether extract` accepts; this tutorial needs none of them.
@@ -91,7 +95,7 @@ Opened tutorial.tether — 3 molecule(s)
 
 The list on the left holds three molecules, `mol-0`, `mol-1` and `mol-2`, with `mol-0`
 selected. The large panel shows the selected molecule's trace: on top, the donor intensity
-in green, the acceptor intensity in red and their total in gray; underneath, its apparent
+in green, the acceptor intensity in magenta and their total in gray; underneath, its apparent
 FRET efficiency in blue.
 
 ## 5. Look at each trace
@@ -106,14 +110,14 @@ Molecule mol-1 (2/3)
 
 Look at all three:
 
-- **`mol-0`**: green and red stay level for the first half, then **both jump up together**
+- **`mol-0`**: green and magenta stay level for the first half, then **both jump up together**
   and stay up. The blue trace sits near 0.5 the whole time.
-- **`mol-1`**: red starts high and green low, then halfway through they **swap**. The blue
+- **`mol-1`**: magenta starts high and green low, then halfway through they **swap**. The blue
   trace steps down once, from about 0.75 to about 0.25.
-- **`mol-2`**: green and red swap places three times, so the blue trace steps between about
+- **`mol-2`**: green and magenta swap places three times, so the blue trace steps between about
   0.25 and about 0.75 four times in all.
 
-In `mol-1` and `mol-2` the green and red traces mirror each other: when one goes up, the
+In `mol-1` and `mol-2` the green and magenta traces mirror each other: when one goes up, the
 other goes down. That is what a change in FRET looks like. In `mol-0` they move the same way
 at the same moment, which is a change in brightness, not in FRET, so this is the molecule
 you will set aside.
@@ -169,8 +173,9 @@ describes.
 
 ## 8. Draw the population histogram
 
-Choose **Analysis → Population histogram…**. The window goes to its **Analyze** section, a
-**Population histogram** panel opens, and the status bar reads:
+Choose **View → Section → Analyze**. Each section has its own menus, and the **Analysis**
+menu is in this one. Choose **Analysis → Population histogram…**. A **Population histogram**
+panel opens, and the status bar reads:
 
 ```text
 Population histogram — 2 molecule(s), 48 frame(s)

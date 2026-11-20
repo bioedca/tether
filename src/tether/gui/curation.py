@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CATEGORY_SLOTS",
+    "CURATION_SCOPE",
     "UNCATEGORIZED_CLASS",
     "Command",
     "CurationAction",
@@ -64,18 +65,28 @@ __all__ = [
 #: tMAVEN class 0 is pinned to Tether's *uncategorized* null state (PRD §7.3 /
 #: §7.4): ``Space`` alone yields an accepted-but-uncategorized trace, and ``0``
 #: clears any named category back to it. Named categories are classes ``>= 1``.
+#: The same pin as [`tether.project.conditions.UNCATEGORIZED_CLASS`][], beside the
+#: persisted lookup; repeated here (and asserted equal by a test) so importing this
+#: Qt-free module stays free of h5py/numpy too.
 UNCATEGORIZED_CLASS = 0
 
-#: The number of categories addressable by the ``1``–``9`` hotkeys; categories
-#: beyond this are assigned via the overflow picker (exercised fully once the M4
-#: editable per-condition list lands).
+#: The keymap scope of the curation keys (#342). A section of the shell that declares it
+#: as its [`keymap_scope`][tether.gui.sections.SectionSpec] is where those keys act.
+CURATION_SCOPE = "curation"
+
+#: The number of categories addressable by the ``1``–``9`` hotkeys; a category
+#: beyond this is chosen in the overflow picker, which dispatches its class (the shell
+#: does not persist a category assignment yet). Hotkey ``n`` and the picker both
+#: name an integer class ``n``, the ``n``-th category: the rule the persisted
+#: [`ClassLookup`][tether.project.conditions.ClassLookup] stores (ADR-0125). The GUI
+#: may not import the core directly (ADR-0100), so a test pins the agreement.
 CATEGORY_SLOTS = 9
 
 
 class CurationAction(StrEnum):
     """A single curation action the keymap can dispatch to the controller.
 
-    A [`StrEnum`][enum.StrEnum] so an action round-trips through JSON as its value
+    A `StrEnum` so an action round-trips through JSON as its value
     (the keymap is user-persistable) and reads cleanly in logs/tests.
     """
 
@@ -517,6 +528,13 @@ class CurationEventFilter:
     scope. After a ``JUMP`` (camera round-trip) focus is returned to the
     registered dock widget, mirroring tMAVEN.
 
+    The keymap can also be scoped to a section of the shell (#342): ``scope_active``
+    is asked on each ``KeyPress`` that would dispatch a command, and while it returns
+    ``False`` the key is not dispatched and not consumed, so it keeps its native
+    meaning. The shell passes a predicate that is ``True`` only while the current
+    section declares the curation keymap scope. ``None`` (the default) keeps the keymap
+    always active.
+
     The exemption is keyed on the **focused** widget, not merely the event's
     target: a focused ``QLineEdit`` that *ignores* a key (e.g. ``Enter``, which it
     leaves for a default button) lets Qt propagate the event up to a non-text
@@ -546,10 +564,13 @@ class CurationEventFilter:
         focus_dock: QtWidgets.QWidget | None = None,
         scope_window: QtWidgets.QWidget | None = None,
         scope_widgets: tuple[QtWidgets.QWidget, ...] = (),
+        scope_active: Callable[[], bool] | None = None,
     ) -> None:
         from pyqtgraph.Qt import QtCore, QtWidgets
 
         self._controller = controller
+        # The section predicate (#342): while it returns False no chord dispatches.
+        self._scope_active = scope_active
         self._keymap = keymap if keymap is not None else Keymap.default()
         self._focus_dock = focus_dock
         self._scope_window = scope_window
@@ -604,11 +625,29 @@ class CurationEventFilter:
         """The underlying ``QObject`` (what ``installEventFilter`` receives)."""
         return self._qobject
 
+    @property
+    def active(self) -> bool:
+        """Whether a mapped chord dispatches now: ``scope_active()``, or ``True`` without one."""
+        return self._scope_active is None or bool(self._scope_active())
+
     def set_focus_dock(self, widget: QtWidgets.QWidget | None) -> None:
         """Register the dock to refocus after a ``JUMP`` (camera round-trip)."""
         self._focus_dock = widget
 
     # --- install / remove ----------------------------------------------------
+
+    def add_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Let the curation keys act in ``widget`` when it is a floating top-level window.
+
+        For a shell-owned dock built after this filter, such as the movie dock (#356):
+        docked, it is inside the main window already; floated, it is its own window.
+        """
+        if not any(widget is w for w in self._scope_widgets):
+            self._scope_widgets = (*self._scope_widgets, widget)
+
+    def remove_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Undo [`add_scope_widget`][tether.gui.curation.CurationEventFilter.add_scope_widget]."""
+        self._scope_widgets = tuple(w for w in self._scope_widgets if w is not widget)
 
     def install(self, app: QtCore.QCoreApplication | None = None) -> None:
         """Install on ``app`` (default: the running ``QApplication``)."""
@@ -703,6 +742,10 @@ class CurationEventFilter:
         command = self._keymap.command_for(key, modifiers)
         if command is None:
             return False  # unmapped: let the native widget handle it
+        if not self.active:
+            # The current section has no curation keys (#342): the key keeps its
+            # native meaning there and never reaches the controller.
+            return False
         # One physical hold must not append repeated accept/reject provenance rows.
         # Navigation still repeats so a curator can keep moving through the list.
         if event.isAutoRepeat() and command.action in {

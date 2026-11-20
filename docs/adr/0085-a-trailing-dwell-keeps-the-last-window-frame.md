@@ -37,6 +37,17 @@ The #707 live comparison (PR #800) measured the second case: 280 of the 281 wind
 committed SMD end before the movie does, and the largest total-variation distance against the
 routine was 0.0061.
 
+## Considered options
+
+- **A trailing window ends at the trace end, inclusive, and the tMAVEN-app gap is re-frozen**
+  (chosen).
+- **Keep the old rule and record both items as deliberate differences** (#806's docs-only
+  fallback).
+- **Match tMAVEN exactly, including the movie-end drop.**
+- **Copy the app's 0-padding border jumps.**
+
+Why each other option was set aside is under *Alternatives considered*, below.
+
 ## Decision
 
 1. **The trailing window ends at the trace end, inclusive.** A dwell with no later jump keeps every
@@ -73,7 +84,7 @@ routine was 0.0061.
   whose final window frame lands inside the time columns. No stored data changes: the heatmap is
   computed on demand and is not persisted in the HDF5 store.
 
-## Options considered
+## Alternatives considered
 
 - **Keep the old rule and record both items as deliberate differences** (#806's docs-only
   fallback). Rejected as the recommendation: it keeps dropping a valid frame inside the window, and
