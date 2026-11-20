@@ -974,12 +974,12 @@ def export_subset_tether(
     Copy for sharing (#620). The ``/labels`` rows, the condition audit log, the
     lock takeover log and the owner of each job record the user name (by default the
     operating-system login). With ``curator_alias`` set, every stored user name
-    ([`USER_NAME_FIELDS`][], and the ``user`` of a job owner, [`JSON_USER_KEYS`][]) is
+    ([`USER_NAME_FIELDS`][], and the ``user`` of a job owner, ``JSON_USER_KEYS``) is
     replaced by ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first
     met, so one person keeps one alias and multi-curator analysis still works. A full
-    file path, which can name the user ([`PATH_ATTRS`][]: the model file of each
-    ``/models`` reference), keeps only its file name. The
-    provenance records that names were replaced and how many, never the names. The
+    path in ``PATH_ATTRS`` can include the user name. Only its file name is kept, such
+    as for the model file of each ``/models`` reference. The provenance records that
+    names were replaced and how many, never the names. The
     option does not remove ``source_filename`` (a file name, not a path): a file name
     can still identify a sample.
 
