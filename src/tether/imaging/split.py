@@ -14,7 +14,7 @@ Conventions
 -----------
 * **Rotation** is one of ``{0, 90, 180, 270}`` degrees. ``processImage`` applies
   ``imrotate(I, -rotation_deg)``; for 90-degree multiples that is a lossless
-  [`numpy.rot90`][] (MATLAB ``imrotate(I, 90*k) == rot90(I, k)``, and MATLAB's
+  `numpy.rot90` (MATLAB ``imrotate(I, 90*k) == rot90(I, k)``, and MATLAB's
   ``rot90`` shares NumPy's counter-clockwise convention on ``[row, col]`` arrays),
   so a positive ``rotation_deg`` rotates the image *clockwise* by that angle.
 * **Flip** is ``[v, h]`` in ``{0, 1}``: ``v`` -> ``flipud`` (reverse rows),
@@ -34,6 +34,7 @@ slicing return views) -- callers that mutate must copy first; downstream readers
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -151,6 +152,11 @@ class ChannelGeometry:
     ``np.ndarray`` would make equality ambiguous and stay mutable in place). The
     bounds/value validation is [`process_image`][] (the single source), so the
     record stays a thin holder.
+
+    [`operations`][] is the same record as an **ordered list of operations**
+    (``rotate -> flip -> crop``), and [`apply`][] runs that list in order. The
+    list is the form a per-channel geometry recipe extends (#910 adds a whole-pixel
+    translation); this record keeps Deep-LASI's fixed ``processImage`` order.
     """
 
     crop: tuple[int, ...] | None = None
@@ -163,9 +169,34 @@ class ChannelGeometry:
             object.__setattr__(self, "crop", tuple(np.asarray(self.crop).ravel().tolist()))
         object.__setattr__(self, "flip", tuple(np.asarray(self.flip).ravel().tolist()))
 
+    @property
+    def operations(self) -> tuple[tuple[str, Any], ...]:
+        """The channel transform as an ordered ``((name, value), ...)`` list.
+
+        Always ``(("rotate", rotation_deg), ("flip", flip), ("crop", crop))`` --
+        Deep-LASI's ``processImage`` order (``tools/processImage.m``). An identity
+        step (rotation ``0``, flip ``(0, 0)``, crop ``None``) leaves the image as it is.
+        """
+        return (("rotate", self.rotation_deg), ("flip", self.flip), ("crop", self.crop))
+
     def apply(self, image: np.ndarray) -> np.ndarray:
-        """Split ``image`` (``(H, W)`` or ``(T, H, W)``) into this channel's sub-image."""
-        return process_image(image, rotation_deg=self.rotation_deg, crop=self.crop, flip=self.flip)
+        """Split ``image`` (``(H, W)`` or ``(T, H, W)``) into this channel's sub-image.
+
+        Runs [`operations`][] in order, each step through [`process_image`][]
+        (which validates it), so the result is the same as one ``process_image``
+        call with all three fields.
+        """
+        out = np.asarray(image)
+        for name, value in self.operations:
+            if name == "rotate":
+                out = process_image(out, rotation_deg=value)
+            elif name == "flip":
+                out = process_image(out, flip=value)
+            elif name == "crop":
+                out = process_image(out, crop=value)
+            else:  # pragma: no cover - the list above is closed
+                raise ValueError(f"unknown channel operation {name!r}")
+        return out
 
 
 def split_channels(

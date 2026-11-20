@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from tether.io.movie import MovieReader
     from tether.project.conditions import (
         CategoryList,
+        ClassLookup,
         ConditionSyncSummary,
         ConditionValidationReport,
         RekeyPreview,
@@ -388,7 +389,10 @@ class Project:
     def reject(self, molecule_key: str, **provenance: object) -> np.ndarray:
         """Reject a molecule (reversible sticky tag, `labels.reject`).
 
-        Refuses the canonical write if the file is locked by another writer (§5.4).
+        ``reason`` / ``note`` / ``value`` pass through to
+        [`labels.reject`][tether.project.labels.reject], which
+        records them in ``/labels/reject_log``. Refuses the canonical write if the file
+        is locked by another writer (§5.4).
         """
         from tether.project import labels
 
@@ -416,6 +420,12 @@ class Project:
         from tether.project import labels
 
         return labels.read_labels(self.path)
+
+    def reject_record(self, molecule_key: str) -> np.ndarray | None:
+        """The reason row of the molecule's current reject (`labels.reject_record_of`)."""
+        from tether.project import labels
+
+        return labels.reject_record_of(self.path, molecule_key)
 
     def rejected_molecule_keys(self) -> set[str]:
         """The molecules currently rejected (`labels.rejected_molecule_keys`)."""
@@ -529,6 +539,17 @@ class Project:
         from tether.project import conditions
 
         return conditions.read_category_list(self.path, condition_id)
+
+    def class_lookup(self, condition_id: str) -> ClassLookup:
+        """A condition's persisted tMAVEN class ↔ category lookup (§7.4; ADR-0125).
+
+        Delegates to
+        [`conditions.read_class_lookup`][tether.project.conditions.read_class_lookup];
+        read-only.
+        """
+        from tether.project import conditions
+
+        return conditions.read_class_lookup(self.path, condition_id)
 
     def set_category_list(self, condition_id: str, categories: object) -> CategoryList:
         """Replace a condition's whole ordered category list (`conditions.set_category_list`).

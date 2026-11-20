@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f".tdat: {paths['tdat']}")
     print(f".mat : {paths['mat']}")
 
-    from tether.project.extract import extract_movie
+    from tether.project.extract import ExtractOptions, extract_movie
     from tether.project.oracle import evaluate_project
 
     tmpdir = Path(tempfile.mkdtemp(prefix="m1-oracle-"))
@@ -119,7 +119,14 @@ def main(argv: list[str] | None = None) -> int:
     results = {}
     try:
         print("extracting via imported .tmap + .tdat detector settings ...")
-        summary = extract_movie(paths["movie"], out, tmap=paths["tmap"], tdat=paths["tdat"])
+        # The oracle's frozen numbers were made with the donor-anchored rule (ADR-0127).
+        summary = extract_movie(
+            paths["movie"],
+            out,
+            options=ExtractOptions(colocalization="donor-anchored"),
+            tmap=paths["tmap"],
+            tdat=paths["tdat"],
+        )
         print(
             f"  extracted molecules: {summary.n_molecules} "
             f"(registration={summary.registration_source}, detection={summary.detection_mode})"

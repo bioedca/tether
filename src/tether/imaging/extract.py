@@ -37,11 +37,20 @@ What it writes (PRD §5.1)
   molecule's ``frame_range`` delimits its valid native extent inside the pad;
   ``raw`` (uncorrected) feeds bleach detection (M3), ``corrected`` is the top-hat
   intensity, ``background`` the subtracted per-frame ring estimate.
+* **``/molecules/acceptor_detected``** — one ``int8`` per ``/molecules`` row, row-aligned
+  like the trace arrays: ``1`` where an acceptor spot was detected at the molecule's
+  mapped position, ``0`` where none was, and ``-1`` where it was not recorded (rows
+  written before #920, or by a path that does not detect acceptor spots). The rule
+  that chose the molecules is recorded per movie as ``colocalization`` in its settings
+  profile ([`read_colocalization_policies`][], ADR-0127).
 * **``/patches/{donor,acceptor}``** — one ``window×window`` temporal-mean image
   patch per molecule per channel, cached for movie-less curation + the static
   overlap view (PRD §5.1).
 * **``/settings/extraction``** — the effective aperture/integration parameters +
   app version, written once per experiment (provenance, NFR-REPRO).
+* **``/movies/layouts/<movie_id>``** — the movie's channel layout record (#908,
+  [`tether.imaging.layout.write_layout_record`][]), only when the caller's
+  [`MovieMetadata`][] carries one.
 
 Coordinate convention follows the rest of [`tether.imaging`][]: points are
 ``(N, 2)`` arrays of ``[x, y] = [col, row]`` in 0-based pixels; frame shapes are
@@ -67,6 +76,7 @@ from tether.imaging.aperture import (
 )
 from tether.imaging.calibrate import RegistrationMap
 from tether.imaging.coloc import ColocalizedMolecules
+from tether.imaging.layout import ChannelLayout, check_layout_slot, write_layout_record
 from tether.imaging.split import ChannelGeometry
 
 if TYPE_CHECKING:
@@ -75,12 +85,15 @@ if TYPE_CHECKING:
     from tether.io.filename import ParsedFilename
 
 __all__ = [
+    "ACCEPTOR_DETECTED_NOT_RECORDED",
     "MOLECULE_KEY_QUANTUM_PX",
     "MovieMetadata",
     "MoleculeTraces",
     "assert_appendable",
     "extract_molecules",
     "molecule_key",
+    "read_acceptor_detected",
+    "read_colocalization_policies",
     "read_molecules",
     "read_movie_settings",
     "read_patches",
@@ -115,6 +128,16 @@ _SETTINGS_GROUP = "settings"
 _EXTRACTION_SETTINGS = "extraction"
 #: Child of ``/settings/extraction`` holding one profile attribute per movie (ADR-0117).
 _MOVIE_SETTINGS = "movies"
+_MOLECULES_GROUP = "molecules"
+#: ``/molecules`` member holding the per-row acceptor-detection flag (#920, ADR-0127).
+_ACCEPTOR_DETECTED = "acceptor_detected"
+#: The flag of a row whose acceptor detection was never recorded (ADR-0127).
+ACCEPTOR_DETECTED_NOT_RECORDED = -1
+#: The settings-profile key naming the colocalization rule of a movie (ADR-0127).
+_COLOCALIZATION_KEY = "colocalization"
+#: The rule of a movie whose profile names none: every extraction before #920 was
+#: donor-anchored (ADR-0015), so an existing project reads as donor-anchored.
+_LEGACY_COLOCALIZATION = "donor-anchored"
 
 #: Sentinels written for the not-yet-computed M3 correction/bleach fields, so the
 #: apparent-E substrate is unambiguous (a finite-factor gate is applied before any
@@ -178,6 +201,8 @@ class MovieMetadata:
     from the source file. ``donor_geometry`` / ``acceptor_geometry`` carry the
     per-channel split (crop/rotation/flip); an absent geometry (or a full-frame
     crop) is written as a zero crop ``[0, 0, 0, 0]``, rotation 0, flip ``[0, 0]``.
+    ``channel_layout`` is the layout those geometries were resolved from (#908); when
+    set, it is stored as ``/movies/layouts/<movie_id>``, and ``None`` stores nothing.
     """
 
     movie_id: str
@@ -196,10 +221,18 @@ class MovieMetadata:
     mtime: float = 0.0
     offline_flag: int = 0
     head_tail_hash: str = ""
+    channel_layout: ChannelLayout | None = None
 
     def __post_init__(self) -> None:
         if not self.movie_id:
             raise ValueError("movie_id must be a non-empty string")
+        # write_layout_record reads the layout's attributes after the /movies row is
+        # appended, so a wrong type must fail here, before write_extraction mutates.
+        if self.channel_layout is not None and not isinstance(self.channel_layout, ChannelLayout):
+            raise TypeError(
+                "channel_layout must be a ChannelLayout or None, "
+                f"got {type(self.channel_layout).__name__}"
+            )
         for name in ("n_frames", "height", "width"):
             if int(getattr(self, name)) < 1:
                 raise ValueError(f"{name} must be >= 1, got {getattr(self, name)!r}")
@@ -602,7 +635,11 @@ def write_extraction(
     movie:
         Source + geometry provenance for the ``/movies`` row.
     molecules:
-        The donor-anchored molecule list (S7).
+        The colocalized molecule list (S7). When its acceptor detection was measured
+        ([`detection_recorded`][tether.imaging.coloc.ColocalizedMolecules.detection_recorded]),
+        its [`policy`][tether.imaging.coloc.ColocalizedMolecules.policy] is stamped into
+        the movie's settings profile under ``colocalization`` (ADR-0127), so the stored
+        rule is the one the molecules were kept by, whatever ``settings`` holds.
     traces:
         The integrated traces + patches ([`extract_molecules`][]), row-aligned
         with ``molecules``.
@@ -618,7 +655,9 @@ def write_extraction(
         Optional extra settings profile, JSON-serialized into
         ``/settings/extraction@profile_json`` on the first extraction and, for every
         movie, into ``/settings/extraction/movies@<movie_id>``
-        ([`read_movie_settings`][], #347, ADR-0117).
+        ([`read_movie_settings`][], #347, ADR-0117). A ``colocalization`` entry that
+        differs from the molecules' rule raises ``ValueError`` before anything is
+        written.
 
     Returns
     -------
@@ -643,16 +682,23 @@ def write_extraction(
         # so a rejected movie leaves the file untouched (h5py appends are not
         # transactional — a late raise would orphan a half-written movie's rows).
         _check_against_existing(f, project_path, movie, traces)
+        if movie.channel_layout is not None:
+            check_layout_slot(f["movies"], movie.movie_id)
         movie_row = _build_movie_row(movie)
         rows, mol_ids = _build_molecule_rows(movie, molecules, parsed, tags, traces.n_frames)
         _refuse_stored_molecule_keys(f, project_path, rows["molecule_key"])
-        profile_json = json.dumps(dict(settings), sort_keys=True) if settings else None
+        profile = _stamp_colocalization(settings, molecules)
+        profile_json = json.dumps(profile, sort_keys=True) if profile else None
 
         _append_compound_rows(f["movies"][TABLE], movie_row)
+        if movie.channel_layout is not None:
+            write_layout_record(f["movies"], movie.movie_id, movie.channel_layout)
         _write_settings_once(f, traces, profile_json)
         _write_movie_settings(f, movie.movie_id, profile_json)
         if molecules.n_molecules:
+            n_existing = int(f["molecules"][TABLE].shape[0])
             _append_compound_rows(f["molecules"][TABLE], rows)
+            _append_acceptor_detected(f[_MOLECULES_GROUP], n_existing, molecules)
             traces_grp = f[_TRACES_GROUP]
             patches_grp = f[_PATCHES_GROUP]
             for channel in _CHANNELS:
@@ -664,6 +710,61 @@ def write_extraction(
             _append_patches(patches_grp, "donor", traces.donor_patches)
             _append_patches(patches_grp, "acceptor", traces.acceptor_patches)
     return mol_ids
+
+
+def _stamp_colocalization(
+    settings: Mapping[str, Any] | None, molecules: ColocalizedMolecules
+) -> dict[str, Any]:
+    """Return the settings profile with the molecules' colocalization rule in it (ADR-0127).
+
+    A molecule list whose acceptor detection was measured came out of
+    [`colocalize`][tether.imaging.coloc.colocalize] under its ``policy``, so that rule
+    is recorded even when the caller passes no profile or one without the key; a
+    caller value that names a different rule is refused. A hand-built list (detection
+    not recorded) adds nothing, and its movie reads as ``donor-anchored``.
+    """
+    profile = dict(settings) if settings else {}
+    if not molecules.detection_recorded:
+        return profile
+    stated = profile.get(_COLOCALIZATION_KEY)
+    if stated is not None and stated != molecules.policy:
+        raise ValueError(
+            f"settings colocalization {stated!r} does not match the rule the molecules "
+            f"were kept by ({molecules.policy!r})"
+        )
+    profile[_COLOCALIZATION_KEY] = molecules.policy
+    return profile
+
+
+def _append_acceptor_detected(group: Any, n_existing: int, molecules: ColocalizedMolecules) -> None:
+    """Append one ``int8`` acceptor-detection flag per new molecule (#920, ADR-0127).
+
+    The dataset is created on first need. Rows that precede it -- molecules written
+    before #920, or appended by a path that records no flag -- read as
+    ``ACCEPTOR_DETECTED_NOT_RECORDED`` through the fill value, so an existing project
+    gains no invented value and its molecules are not changed. A molecule list whose
+    flag was not measured
+    ([`detection_recorded`][tether.imaging.coloc.ColocalizedMolecules.detection_recorded]
+    is ``False``) is stored as not recorded too.
+    """
+    if molecules.detection_recorded:
+        flags = np.asarray(molecules.acceptor_detected, dtype=bool).astype(np.int8)
+    else:
+        flags = np.full(molecules.n_molecules, ACCEPTOR_DETECTED_NOT_RECORDED, dtype=np.int8)
+    dataset = group.get(_ACCEPTOR_DETECTED)
+    if dataset is None:
+        dataset = group.create_dataset(
+            _ACCEPTOR_DETECTED,
+            shape=(n_existing,),
+            maxshape=(None,),
+            dtype=np.int8,
+            chunks=(4096,),
+            fillvalue=ACCEPTOR_DETECTED_NOT_RECORDED,
+        )
+    # A shorter flag column (rows appended by a path that writes none) is padded
+    # with the fill value up to the existing rows, so the new block stays aligned.
+    dataset.resize((n_existing + flags.shape[0],))
+    dataset[n_existing:] = flags
 
 
 def _validate_alignment(
@@ -782,6 +883,15 @@ def _assert_layers_aligned(f: Any, project_path: Path) -> None:
                 f"/{group}/{name} in {project_path.name} has {dataset.shape[0]} row(s) but "
                 f"/molecules has {n_rows}; a new movie's rows could not stay aligned"
             )
+    flags = f[_MOLECULES_GROUP].get(_ACCEPTOR_DETECTED)
+    if flags is not None and int(flags.shape[0]) > n_rows:
+        # Shorter is legal (unrecorded tail rows); longer means the flags of some
+        # rows belong to molecules that are no longer there.
+        raise ValueError(
+            f"/{_MOLECULES_GROUP}/{_ACCEPTOR_DETECTED} in {project_path.name} has "
+            f"{flags.shape[0]} row(s) but /molecules has {n_rows}; a new movie's rows "
+            "could not stay aligned"
+        )
 
 
 def _refuse_stored_molecule_keys(f: Any, project_path: Path, keys: np.ndarray) -> None:
@@ -882,6 +992,50 @@ def read_molecules(project_path: str | Path) -> np.ndarray:
 
     with h5py.File(Path(project_path), "r") as f:
         return f["molecules"][TABLE][:]
+
+
+def read_acceptor_detected(project_path: str | Path) -> np.ndarray:
+    """Read the per-molecule acceptor-detection flag, one ``int8`` per ``/molecules`` row.
+
+    ``1`` -- an acceptor spot was detected within the colocalization distance of the
+    molecule's mapped position; ``0`` -- none was; ``ACCEPTOR_DETECTED_NOT_RECORDED``
+    (``-1``) -- the flag was never recorded, as for every molecule of a project
+    extracted before #920 (ADR-0127). Row ``i`` is row ``i`` of ``/molecules``.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    with h5py.File(Path(project_path), "r") as f:
+        group = f[_MOLECULES_GROUP]
+        n_rows = int(group[TABLE].shape[0])
+        out = np.full(n_rows, ACCEPTOR_DETECTED_NOT_RECORDED, dtype=np.int8)
+        dataset = group.get(_ACCEPTOR_DETECTED)
+        if dataset is not None:
+            n = min(n_rows, int(dataset.shape[0]))
+            out[:n] = dataset[:n]
+    return out
+
+
+def read_colocalization_policies(project_path: str | Path) -> dict[str, str]:
+    """Return ``{movie_id: colocalization rule}`` for every movie of a project (ADR-0127).
+
+    The rule is the ``colocalization`` entry of the movie's settings profile
+    ([`read_movie_settings`][]). A movie whose profile names none was extracted before
+    #920, when every extraction was donor-anchored (ADR-0015), so it reads as
+    ``donor-anchored``: an existing project keeps the meaning it was written with.
+    """
+    import h5py  # noqa: PLC0415
+
+    from tether.io.schema import TABLE  # noqa: PLC0415
+
+    profiles = read_movie_settings(project_path)
+    with h5py.File(Path(project_path), "r") as f:
+        movie_ids = [_decode_key(v) for v in f["movies"][TABLE]["movie_id"][()]]
+    return {
+        movie_id: str(profiles.get(movie_id, {}).get(_COLOCALIZATION_KEY, _LEGACY_COLOCALIZATION))
+        for movie_id in movie_ids
+    }
 
 
 def read_traces(project_path: str | Path) -> dict[str, np.ndarray]:

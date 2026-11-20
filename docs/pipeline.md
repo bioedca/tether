@@ -70,9 +70,15 @@ plan memory for extraction by that rather than by the file size
 
 ### Split
 
-`tether.imaging.split` cuts each frame into its donor and acceptor halves.
+`tether.imaging.split` cuts each frame into its donor and acceptor channels. The movie's channel
+layout (`tether.imaging.layout`) says where each channel is. It is side by side (the default),
+top and bottom, or one free rectangle for each channel. Each channel can also have a recipe
+(`tether.imaging.recipe`, #910): rotate, flip, translate and crop steps, in order, with no
+resampling. The cut and the recipe become one rotate, flip and crop geometry, which the
+movie's row stores.
 
-- **Writes:** nothing on its own.
+- **Writes:** the layout record `/movies/layouts/<movie_id>`, with the movie's other records,
+  when the movie is extracted.
 
 ### Detect
 
@@ -96,9 +102,20 @@ confidence rather than silently trusted
 [ADR-0014](adr/0014-registration-map-rms-gate-and-over-gate.md)). If you supply Deep-LASI's own
 `.tmap` instead and its channels need only cropping, Tether uses that map as given: there are
 no paired spots to measure it against, so its residual is recorded as unknown and the gate is
-not applied. A `.tmap` that also rotates or flips a channel is refused for now
-([acquisition geometry](compatibility.md#acquisition-geometry);
+not applied. A `.tmap` that also rotates or flips a channel is applied in Deep-LASI's order:
+rotate, flip, then crop (#559). A movie whose frames cannot hold the map's channel geometry is
+refused, naming both ([acquisition geometry](compatibility.md#acquisition-geometry);
 [`tether.project.extract`](https://github.com/bioedca/tether/blob/main/src/tether/project/extract.py)).
+
+A map can also come from a bead slide. `tether.imaging.beadmap` takes one bead image, or a
+bead video reduced to one image over the frames you choose with a `max` or `mean`
+projection, and runs the same detection, prealign, pairing and fit on it. With one image it
+gives the same map as the steps above. It stores the source id, the frame range and the
+projection with the map, and a quality record: the RMS residual, the number of pairs, the
+residual of each pair, and the fraction of the field the pairs cover. A source with fewer
+than six bead spots in either half is refused
+([`min_bead_spots`](reference/parameters.md#registration-and-colocalization)). This is a
+Python entry point only for now: `tether extract` has no option to use such a map yet.
 
 - **Writes:** the registration map under `/calibration`, with its residual and source.
 - **Read more:** [registration](glossary.md#registration-tmap),
@@ -107,13 +124,16 @@ not applied. A `.tmap` that also rotates or flips a channel is refused for now
 ### Colocalize
 
 `tether.imaging.coloc` pairs each donor spot with the acceptor position the registration map
-predicts for it. The donor is the anchor: every donor spot whose aperture window fits
-inside both channels becomes a molecule, whether or not a separate acceptor spot was detected
-there; the ADR records why Tether chose the donor as the anchor
-([donor-anchored colocalization](glossary.md#donor-anchored-colocalization);
-[ADR-0015](adr/0015-donor-anchored-colocalization.md)).
+predicts for it, and keeps the donor spots whose aperture window fits inside both channels.
+By default it keeps only those with an acceptor spot detected near that position
+([partner-in-both](glossary.md#partner-in-both-colocalization)); with
+`--colocalization donor-anchored` it keeps them all
+([donor-anchored](glossary.md#donor-anchored-colocalization)). Either way the acceptor is
+read at the mapped position, and the molecule count of each rule is reported
+([ADR-0127](adr/0127-colocalization-policy-partner-in-both-by-default-or-donor-anchored.md)).
 
-- **Writes:** nothing on its own; the pairs are what extraction integrates.
+- **Writes:** nothing on its own; the pairs are what extraction integrates, and whether each
+  molecule's acceptor was detected is stored with it (`/molecules/acceptor_detected`).
 
 ### Extract
 
