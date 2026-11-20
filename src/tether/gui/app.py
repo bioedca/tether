@@ -232,6 +232,11 @@ def create_shell(
         raise
     file_open.setParent(shell.window)
     file_open.attach(shell.load_project)
+    # A startup project can replace the keymap warning before the window is visible.
+    keymap_error = shell.keymap_error
+    status = shell.status_message
+    if keymap_error is not None and status != keymap_error:
+        shell.window.statusBar().showMessage(f"{keymap_error} {status}")
     if screen is not None:
         screen.close_when_shown(shell.window)
     return app, shell

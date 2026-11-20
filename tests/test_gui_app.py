@@ -141,6 +141,35 @@ def test_valid_project_argument_opens_the_store(qtbot, tmp_path) -> None:
     shell.close()
 
 
+@pytest.mark.gui
+@_needs_qt
+def test_invalid_keymap_notice_survives_opening_a_startup_project(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    from tether.gui import curation
+    from tether.gui.app import create_shell
+
+    project = _three_molecule_store(tmp_path)
+    keymap_path = tmp_path / "keymap.json"
+    contents = b"{invalid json"
+    keymap_path.write_bytes(contents)
+    monkeypatch.setattr(curation, "default_keymap_path", lambda: keymap_path)
+
+    _app, shell = create_shell([str(project.path)], splash=False)
+    qtbot.addWidget(shell.window)
+    try:
+        assert shell.molecule_list.count() == 3
+        assert shell.keymap.bindings == curation.Keymap.default().bindings
+        notice = shell.keymap_error
+        assert notice is not None
+        assert str(keymap_path) in notice
+        assert shell.status_message.count(notice) == 1
+        assert f"Opened {project.path.name}" in shell.status_message
+        assert keymap_path.read_bytes() == contents
+    finally:
+        shell.close()
+
+
 def test_main_puts_the_env_folders_on_path_before_anything_loads(monkeypatch) -> None:
     """``main`` takes the PATH step first, then builds the shell (issue #579, ADR-0076).
 
