@@ -460,6 +460,17 @@ editable category names ([`_write_category_names`](https://github.com/bioedca/te
 `src/tether/project/conditions.py`). It appears only once a category list has been
 set; emptying the list resizes the dataset to zero rows rather than deleting it.
 
+Each of those datasets carries one attribute, `tmaven_class_lookup`. It is the condition's
+tMAVEN class to category lookup, stored as a JSON object. Its keys are the classes `"1"`,
+`"2"`, and so on. Its values are the category names in list order. Class `0` is not stored.
+It always means no category (`""`).
+
+The same writer rewrites the attribute with every list
+edit, so it never lags the names. The tMAVEN hand-off and its return leg read it through
+`read_class_lookup`. The curation hotkeys follow the same numbering. A list saved before the attribute existed reads as the
+lookup its order defines. A lookup that disagrees with the names beside it is refused
+([ADR-0125](../adr/0125-the-tmaven-class-lookup-follows-the-category-list.md)).
+
 A condition can span several projects ([ADR-0068](../adr/0068-a-project-holds-one-experiment.md)),
 and each project keeps its own copy of this list. `copy_category_list` in
 `src/tether/project/conditions.py` writes one project's list for a condition into another
