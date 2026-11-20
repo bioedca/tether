@@ -1367,9 +1367,13 @@ class TetherShell:
         #917.
         """
         from tether.gui.calibration import ChannelMapActions
+        from tether.gui.messages import Level
 
         self._channel_map = ChannelMapActions(
-            status=self._status, open_project=self.load_project, window=self._window
+            status=self._status,
+            open_project=self.load_project,
+            window=self._window,
+            warning=lambda message: self._status(message, Level.WARNING),
         )
         self._calibration_menu = menu
         self._act_make_map = menu.addAction("&Make channel map…")
