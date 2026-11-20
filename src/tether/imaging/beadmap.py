@@ -238,8 +238,7 @@ def project_frames(
     Parameters
     ----------
     video : numpy.ndarray
-        The bead video, shape ``(T, H, W)``, in camera counts. A memory map is
-        accepted and is read one block at a time.
+        The bead video or memory map, shape ``(T, H, W)``, in camera counts.
     frames : tuple of (int, int) or None, optional
         The 0-based half-open frame range ``(start, stop)``, in frames
         (PRD §11.1). ``stop`` is excluded. ``None`` (the default) uses every
@@ -256,8 +255,8 @@ def project_frames(
     Raises
     ------
     BeadMapError
-        If ``video`` is not 3-D, ``frames`` is not a pair of integers inside the
-        video, or ``projection`` is not ``"max"`` or ``"mean"``.
+        If ``video`` is not 3-D or has no frames, ``frames`` is an invalid
+        range, or ``projection`` is not ``"max"`` or ``"mean"``.
 
     Examples
     --------
@@ -466,8 +465,8 @@ def bead_map(
         The prealign that seeds the pairing, as in ``tether extract`` (default
         ``"translation"``).
     prealign_upsample : int, optional
-        The phase-correlation upsampling factor (default 10): the prealign is
-        resolved to ``1 / prealign_upsample`` pixels.
+        The phase-correlation upsampling factor (default 10) for the translation
+        step, which is resolved to ``1 / prealign_upsample`` pixels.
     prealign_low_sigma : float, optional
         The low Gaussian sigma of the similarity prealign's band-pass, in pixels
         (default 1.0).
@@ -647,8 +646,8 @@ def bead_map_from_file(
     """Make a map from a bead TIFF: a multi-frame video or a one-page image.
 
     The source id is ``"sha256:<hex>"`` of the file's bytes, so it names the
-    content and stays the same when the file moves; the file name is stamped as
-    ``bead_file``. A one-page TIFF is an image (no frame range, no projection);
+    content and stays the same when the file moves. The file name is the default
+    ``bead_file`` stamp. A one-page TIFF is an image (no frame range, no projection);
     a multi-page TIFF is a video reduced with ``frames`` and ``projection``. The
     video is projected block by block: an uncompressed file is memory-mapped, and
     a compressed one is decoded one block of the selected pages at a time, so a
@@ -676,15 +675,14 @@ def bead_map_from_file(
     Returns
     -------
     BeadMapResult
-        As [`bead_map`][] returns it, with the source id ``"sha256:<hex>"`` and
-        ``bead_file`` set to the file name.
+        The map, quality record, image and source record returned by [`bead_map`][].
 
     Raises
     ------
     BeadMapError
-        If the file is missing, is not a readable TIFF, has another layout, has
-        pages in other files, or changed while it was read; and for every error
-        of [`bead_map`][].
+        If the file is missing at entry, the TIFF cannot be opened, its layout
+        is unsupported or its pages span files, or its final state differs.
+        Exceptions from [`bead_map`][] propagate unchanged.
 
     Examples
     --------
