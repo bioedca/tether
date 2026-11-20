@@ -7,7 +7,7 @@ The **γ factor** is the fourth and last step of the accurate-FRET procedure
 It normalises the imbalance between the donor and acceptor dyes in their quantum
 yield and detection efficiency, turning the leakage-corrected proximity ratio into
 an absolute efficiency ``E = I_A,corr / (I_A,corr + γ · I_D,corr)``
-[McCann2010][Hellenkamp2018].
+[McCann2010], [Hellenkamp2018].
 
 The most effective, per-molecule route to γ is single-molecule **photobleaching**
 [McCann2010]: at the frame the **acceptor** photobleaches (but before the donor
@@ -64,6 +64,14 @@ Definitions and gates (PRD §11.2)
   population factor, [McCann2010]), withheld (``None``) below
   ``min_qualifying_traces`` (default 10, §11.2 row 820) so a factor is never emitted
   from too little data (PRD §7.2 total-failure path).
+* **Clean steps** (ADR-0134): among the traces that pass both segment gates — the
+  ones whose step changes are measured — a step is **clean** when the donor rose
+  (``ΔI_D > 0``) **and** the leakage-corrected acceptor dropped (``ΔI_A > 0``) over
+  the level windows the estimator used, the shape an acceptor bleach must have. When
+  fewer than ``DEFAULT_MIN_CLEAN_STEP_FRACTION`` of the evaluated steps are clean, the
+  ``(0, ceiling]`` gate may be keeping the positive tail of noise, and the median may
+  follow that noise rather than the dyes. [`few_clean_steps`][] flags it as a reason to
+  check γ, not as proof; it changes no γ value.
 
 Unlike leakage α (one per-condition factor applied to every molecule), γ is a
 **per-molecule** quantity with a **population-median fallback**: a qualifying
@@ -96,12 +104,14 @@ from tether.fret.leakage import (
 
 __all__ = [
     "DEFAULT_GAMMA_HALF_WINDOW",
+    "DEFAULT_MIN_CLEAN_STEP_FRACTION",
     "DEFAULT_MIN_QUALIFYING_TRACES",
     "DEFAULT_MIN_WINDOW_FRAMES",
     "GAMMA_CEILING",
     "GammaEstimate",
     "TraceGamma",
     "estimate_gamma",
+    "few_clean_steps",
     "gamma_windows",
     "trace_gamma",
 ]
@@ -116,6 +126,15 @@ GAMMA_CEILING: float = 5.0
 #: whole segment instead, ``[0, step)`` before the step and ``[step, donor_bleach)``
 #: after it, as Deep-LASI does.
 DEFAULT_GAMMA_HALF_WINDOW: int | None = 20
+
+#: Clean-step warning fraction (PRD §11.2, ADR-0134): a dataset γ is reported with a
+#: warning when fewer than this fraction of the evaluated acceptor-bleach steps are
+#: clean (donor rose and acceptor dropped). The warning changes no γ value.
+DEFAULT_MIN_CLEAN_STEP_FRACTION: float = 0.65
+
+#: The ``TraceGamma.reason`` values of a trace that passed both segment gates, so that
+#: its step changes ``ΔI_D`` and ``ΔI_A`` were measured.
+_STEP_MEASURED_REASONS = frozenset({"ok", "degenerate-donor", "out-of-range"})
 
 
 @dataclass(frozen=True)
@@ -145,6 +164,11 @@ class TraceGamma:
         not longer than ``min_window_frames``); ``"degenerate-donor"`` (donor does
         not rise across the step, ``ΔI_D <= 0``); ``"out-of-range"`` (γ outside
         ``(0, ceiling]``).
+    delta_donor, delta_acceptor
+        The donor's rise ``ΔI_D`` and the leakage-corrected acceptor's drop ``ΔI_A``
+        across the step, over ``pre_window`` and ``post_window``, measured before the
+        sign and ceiling gates. ``NaN`` when a segment gate failed and no step was
+        measured (``no-step``, ``short-pre``, ``short-post``).
     """
 
     gamma: float | None
@@ -154,11 +178,32 @@ class TraceGamma:
     n_pre: int
     n_post: int
     reason: str
+    delta_donor: float = float("nan")
+    delta_acceptor: float = float("nan")
 
     @property
     def qualifies(self) -> bool:
         """``True`` iff this trace contributes a valid γ to the dataset aggregate."""
         return self.gamma is not None
+
+    @property
+    def step_measured(self) -> bool:
+        """``True`` iff the trace passed both segment gates and its step was measured."""
+        return (
+            self.reason in _STEP_MEASURED_REASONS
+            and np.isfinite(self.delta_donor)
+            and np.isfinite(self.delta_acceptor)
+        )
+
+    @property
+    def step_clean(self) -> bool:
+        """``True`` iff the measured step has an acceptor bleach's shape (ADR-0134).
+
+        The donor rose (``ΔI_D > 0``) **and** the corrected acceptor dropped
+        (``ΔI_A > 0``). A clean step can still fail the ceiling; a step that is not
+        clean can never give a γ inside ``(0, ceiling]``.
+        """
+        return self.step_measured and self.delta_donor > 0.0 and self.delta_acceptor > 0.0
 
 
 @dataclass(frozen=True)
@@ -196,6 +241,16 @@ class GammaEstimate:
             return None
         own = self.per_trace[index].gamma
         return own if own is not None else self.gamma
+
+    @property
+    def n_step_evaluated(self) -> int:
+        """Traces whose acceptor-bleach step was measured (both segment gates passed)."""
+        return sum(1 for t in self.per_trace if t.step_measured)
+
+    @property
+    def n_step_clean(self) -> int:
+        """Measured steps where the donor rose and the acceptor dropped (ADR-0134)."""
+        return sum(1 for t in self.per_trace if t.step_clean)
 
     def is_fallback(self, index: int) -> bool:
         """``True`` iff molecule ``index`` took the median fallback (did not qualify).
@@ -320,16 +375,48 @@ def trace_gamma(
 
     da_delta = ia_pre - ia_post  # acceptor drops across the step
     dd_delta = id_post - id_pre  # donor rises (dequenched) across the step
+    steps = {"delta_donor": dd_delta, "delta_acceptor": da_delta}
     if dd_delta <= 0.0:
         # The donor did not rise — no measurable dequenching, so γ = ΔI_A/ΔI_D is
         # undefined (division by a non-positive jump). Gated out rather than emitting
         # a negative/infinite factor.
-        return TraceGamma(None, step, pre, post, n_pre, n_post, "degenerate-donor")
+        return TraceGamma(None, step, pre, post, n_pre, n_post, "degenerate-donor", **steps)
 
     gamma = da_delta / dd_delta
     if not (0.0 < gamma <= float(ceiling)):
-        return TraceGamma(None, step, pre, post, n_pre, n_post, "out-of-range")
-    return TraceGamma(gamma, step, pre, post, n_pre, n_post, "ok")
+        return TraceGamma(None, step, pre, post, n_pre, n_post, "out-of-range", **steps)
+    return TraceGamma(gamma, step, pre, post, n_pre, n_post, "ok", **steps)
+
+
+def few_clean_steps(
+    n_step_clean: int,
+    n_step_evaluated: int,
+    min_fraction: float = DEFAULT_MIN_CLEAN_STEP_FRACTION,
+) -> bool:
+    """``True`` when fewer than ``min_fraction`` of the evaluated steps are clean.
+
+    The γ of such a dataset may be the median of the positive tail of noise, so it is
+    reported with a warning to check it (PRD §7.2, ADR-0134). The flag is not proof: a
+    step whose donor did not rise never enters the median. This function changes no γ. With no
+    evaluated step there is nothing to judge and it returns ``False``; such a dataset
+    has no qualifying trace and its γ is withheld anyway.
+
+    Raises
+    ------
+    ValueError
+        If ``min_fraction`` is not a number in ``[0, 1]``, or a count is negative or the
+        clean count exceeds the evaluated one.
+    """
+    fraction = float(min_fraction)
+    if isinstance(min_fraction, bool) or not (0.0 <= fraction <= 1.0):
+        raise ValueError(f"min_fraction must be a number in [0, 1], got {min_fraction!r}")
+    if n_step_evaluated < 0 or not (0 <= n_step_clean <= n_step_evaluated):
+        raise ValueError(
+            f"need 0 <= n_step_clean <= n_step_evaluated, got {n_step_clean} and {n_step_evaluated}"
+        )
+    if n_step_evaluated == 0:
+        return False
+    return n_step_clean < fraction * n_step_evaluated
 
 
 def estimate_gamma(

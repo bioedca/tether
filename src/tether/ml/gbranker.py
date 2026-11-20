@@ -23,7 +23,7 @@ model specifically.
 Model choice — ``HistGradientBoostingClassifier``. Both scikit-learn's histogram gradient
 boosting and XGBoost [Chen2016] are in the base lock (added in #92) and either satisfies the
 "gradient-boosting ranker" spec; this module uses scikit-learn's
-[`HistGradientBoostingClassifier`][sklearn.ensemble.HistGradientBoostingClassifier] for three
+`HistGradientBoostingClassifier` for three
 properties this problem
 needs (ADR-0034):
 
@@ -259,7 +259,7 @@ def train_quality_ranker(
         The feature-column order (stored on the returned model so ``score``/``rank`` can
         validate their inputs).
     hyperparams:
-        Override the [`DEFAULT_HYPERPARAMS`][] (PRD §11.2).
+        Override the `DEFAULT_HYPERPARAMS` (PRD §11.2).
     sample_weight:
         Optional ``(n_labeled,)`` per-row training weights aligned to ``X``/``y`` — the **cold-start
         label-weighting** seam (PRD §7.5, ``w = w₀/(1+n_human)``): a human label is full weight, a

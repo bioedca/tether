@@ -70,7 +70,7 @@ def match_return_leg(
     which is the shared real-data region when tMAVEN has zero-padded traces to a
     common length (its ``concatenate_smds`` pads at the tail; PRD §5.2). A pair
     matches when ``|returned - store| <= atol + rtol*|store|`` everywhere in that
-    region (the [`numpy.allclose`][] predicate).
+    region (the `numpy.allclose` predicate).
 
     Parameters
     ----------

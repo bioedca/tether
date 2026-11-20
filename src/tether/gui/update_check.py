@@ -32,7 +32,7 @@ is not a version all give ``None``, never an exception, a dialog or a log line a
 a user sees. An air-gapped machine must not be able to tell the feature exists
 (ADR-0060, *Refuse-and-report has a limit worth stating plainly*).
 
-**Proxies.** The request goes through [`urllib.request`][], whose default
+**Proxies.** The request goes through `urllib.request`, whose default
 ``ProxyHandler`` honours ``HTTPS_PROXY`` / ``HTTP_PROXY`` / ``NO_PROXY`` (and, on Windows
 and macOS, the system proxy settings). TLS certificate and host-name verification use the
 interpreter's defaults and stay on.

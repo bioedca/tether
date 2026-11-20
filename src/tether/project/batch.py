@@ -146,7 +146,7 @@ class MovieJob:
     """One input movie and the ``.tether`` it extracts into.
 
     ``tmap`` / ``tdat`` are optional per-movie Deep-LASI imports (a condition
-    typically shares one ``.tmap``); paths are coerced to [`Path`][pathlib.Path].
+    typically shares one ``.tmap``); paths are coerced to `Path`.
     """
 
     movie_path: Path
@@ -336,7 +336,7 @@ class BatchLog:
     """An append-only structured event log (one JSON object per stage transition).
 
     Records are plain dicts (assertion-friendly in tests, JSONL-serializable). Each is
-    mirrored to a [`logging`][] logger as a human line and, if ``path`` is given,
+    mirrored to a `logging` logger as a human line and, if ``path`` is given,
     written as one JSON object per line. Usable as a context manager so the file
     handle is closed on exit.
 
@@ -818,6 +818,12 @@ def run_correct_stage(
             parts.append(f"α={lk.alpha:.3f}")
             if gm.applied and gm.gamma is not None:
                 parts.append(f"γ={gm.gamma:.3f}")
+                if gm.few_clean_steps:
+                    # Most measured steps lack an acceptor bleach's shape (ADR-0134).
+                    parts.append(
+                        f"γ from few clean steps: {gm.n_step_clean} of "
+                        f"{gm.n_step_evaluated} {_FLAG_MARK}"
+                    )
             else:
                 parts.append("γ withheld")
         else:
@@ -1118,7 +1124,7 @@ def run_batch(
         starts and ends (#648). It changes nothing that is recorded.
     _extract, _correct, _idealize
         Injectable stage runners (test seams). Default to
-        [`tether.project.extract.extract_movie`][], [`run_correct_stage`][], and
+        [`tether.project.extract.extract_movie`][], `run_correct_stage`, and
         [`tether.project.idealize.idealize_molecules`][] respectively.
     _probe
         Injectable startup-liveness probe (test seam) taking the ``supervision`` and

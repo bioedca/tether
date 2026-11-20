@@ -29,11 +29,11 @@ max_skipped = 19
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 33
+max_skipped = 34
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
-max_skipped = 36
+max_skipped = 37
 
 [jobs."sidecar / parity"]
 min_collected = 26
@@ -46,7 +46,7 @@ max_skipped = 2
 
 [jobs."large-fixtures"]
 min_collected = 12
-max_skipped = 1
+max_skipped = 11
 
 # --- Expected skips on the three required legs ---------------------------------------------
 
@@ -261,6 +261,13 @@ why = """Both parametrized cases plant a FIFO at the lock lifecycle guard path (
 no os.mkfifo. test (ubuntu-latest) and test (macos-latest) run them."""
 
 [[skip]]
+test = "tests/test_app_settings.py::test_a_fifo_where_the_file_should_be_reads_as_unset_without_blocking"
+reason = "os.mkfifo is not available here"
+jobs = ["test (windows-latest)"]
+why = """The test plants a FIFO at the settings file path (#1116); Windows has no os.mkfifo and no \
+FIFO can sit at a file path there. test (ubuntu-latest) and test (macos-latest) run it."""
+
+[[skip]]
 test = "tests/test_lock.py::test_second_user_steals_a_stale_lock_in_a_shared_project"
 reason = "needs root to run two real POSIX users"
 jobs = ["test (ubuntu-latest)", "test (macos-latest)", "test (windows-latest)"]
@@ -290,6 +297,14 @@ jobs = ["test (macos-latest)"]
 why = """A napari Viewer needs an OpenGL context, and Qt under QT_QPA_PLATFORM=offscreen on \
 macOS gives none (the cocoa GL backend crashes). test (ubuntu-latest) under xvfb and \
 test (windows-latest) run the test."""
+
+[[skip]]
+test = "tests/test_gui_trace_colors.py::test_the_movie_panel_spots_follow_the_trace_colors"
+reason = "napari Viewer needs Qt + a GL context"
+jobs = ["test (macos-latest)"]
+why = """The trace-color twin of the napari theme test above (#636), behind the same gate: a \
+napari Viewer needs an OpenGL context, which macOS offscreen Qt does not give. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run the test."""
 
 [[skip]]
 test = "tests/test_movie_panel.py::*"
@@ -348,6 +363,16 @@ stand-in lsregister. The macOS installer runs both under sh, and Windows has \
 no POSIX shell in the test environment. The Linux and macOS legs run them."""
 
 # --- large-fixtures -------------------------------------------------------------------------
-# Its one skip is the torch module above. The oracle (a) test and the two intake tests on the
-# private bundle of video 010 are `workstation` tests since #699 (ADR-0071): no CI job collects
-# them, and the workstation runner, where a skip fails, runs them.
+# Its skips are the torch module above and the ten live update-verifier tests at the end of
+# this file. The oracle (a) test and the two intake tests on the private bundle of video 010
+# are `workstation` tests since #699 (ADR-0071): no CI job collects them, and the workstation
+# runner, where a skip fails, runs them.
+
+[[skip]]
+test = "tests/test_update_verify_live.py::*"
+reason = "set TETHER_LIVE_GH and TETHER_LIVE_INSTALLER to run the live verifier tests"
+jobs = ["large-fixtures"]
+why = """The live update-verifier tests (#333) need a real gh and an ~800 MB release installer \
+downloaded by hand; the gated fixture tier holds neither, and an installer is far too large to \
+add to it. They are run by hand on a workstation with both set (PR #1262 records a run). The \
+required legs deselect them with `-m "not large"`, so they skip only here."""
