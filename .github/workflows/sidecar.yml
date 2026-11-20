@@ -63,15 +63,47 @@ on:
 permissions:
   contents: read
 
-# Main runs get their own groups so later merges cannot cancel or replace them (#1265).
-# A colon separates main groups from other refs, because Git refs cannot contain it.
+# Main runs get independent groups so later merges cannot cancel or replace them (#1265).
+# Manual dispatch gets an independent group here and applies the case-sensitive rule at parity.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format(':{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: >-
+    ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' &&
+    format(':dispatch:{0}', github.run_id) || github.ref == 'refs/heads/main' &&
+    format(':{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
 
 jobs:
+  classify-dispatch:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      is-main: ${{ steps.ref.outputs.is-main }}
+    steps:
+      - name: Compare the full ref case-sensitively
+        id: ref
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+
+          is_main = os.environ["GITHUB_REF"] == "refs/heads/main"
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"is-main={str(is_main).lower()}\n")
+
   parity:
     name: sidecar / parity
+    needs: classify-dispatch
+    # Automatic runs skip classification. Manual runs still report a failed classification below.
+    if: ${{ !cancelled() }}
+    # Only a classified non-main dispatch supersedes parity work on the same ref (#1265).
+    # The colon keeps all independent parity groups outside the ref namespace.
+    concurrency:
+      group: >-
+        ${{ needs.classify-dispatch.result == 'success' &&
+        needs.classify-dispatch.outputs.is-main == 'false' &&
+        format('{0}-{1}', github.workflow, github.ref) || format('{0}:parity:{1}', github.workflow, github.run_id) }}
+      cancel-in-progress: ${{ needs.classify-dispatch.result == 'success' && needs.classify-dispatch.outputs.is-main == 'false' }}
     runs-on: ubuntu-latest
     # The Windows-Defender JIT-scan stall that blocked M0.5 S1 is host-specific;
     # Linux runners are unaffected, but bound the job so a hung fit fails fast.
@@ -95,6 +127,12 @@ jobs:
       # is installed into the sidecar env here.
       TMAVEN_SPEC: "git+https://github.com/GonzalezBiophysicsLab/tmaven.git@10f4230"
     steps:
+      - name: Report a manual ref classification failure
+        if: >-
+          ${{ github.event_name == 'workflow_dispatch' && (needs.classify-dispatch.result != 'success' ||
+          (needs.classify-dispatch.outputs.is-main != 'true' && needs.classify-dispatch.outputs.is-main != 'false')) }}
+        shell: python
+        run: raise SystemExit("Could not classify the manual sidecar ref")
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
