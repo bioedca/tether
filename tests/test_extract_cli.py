@@ -590,15 +590,14 @@ def test_extract_undecodable_tmap_errors(tmp_path, monkeypatch, capsys) -> None:
 @pytest.mark.parametrize(
     "acceptor_rotation", [None, np.array([[90.0]])], ids=["unturned", "turned"]
 )
-def test_extract_fractional_tmap_crop_errors(
-    tmp_path, monkeypatch, capsys, acceptor_rotation
+@pytest.mark.parametrize("bad_value", [1.9, 1 + 0.5j], ids=["fraction", "complex"])
+def test_extract_non_integral_tmap_crop_errors(
+    tmp_path, monkeypatch, capsys, acceptor_rotation, bad_value
 ) -> None:
-    # #1190: a fractional crop is refused, never truncated; the CLI turns that into
-    # the clean "could not use --tmap" error (exit 1) and writes nothing.
     import tether.project.extract as ext
 
     channels = _synthetic_tmap_channels(acceptor_rotation=acceptor_rotation)
-    channels[1] = replace(channels[1], crop=np.array([[1.9, 49.0], [64.0, 96.0]]))
+    channels[1] = replace(channels[1], crop=np.array([[bad_value, 49.0], [64.0, 96.0]]))
     monkeypatch.setattr(ext, "read_tmap", lambda _path: channels)
     movie = _make_movie(tmp_path)
     tmap = _stub_tmap(tmp_path)

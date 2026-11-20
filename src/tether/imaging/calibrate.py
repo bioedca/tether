@@ -450,8 +450,9 @@ def registration_map_from_tmap(
     ``channel -> reference`` maps (0-based via the [`TmapChannel`][] helpers).
     Each channel's split geometry is carried from the ``.tmap`` (reference + moving):
     its crop and its decoded ``Rotation`` / ``Flip``, applied in ``processImage``
-    order (rotate -> flip -> crop) when the movie is split (#559). A stored rotation
-    or flip that does not decode raises `ValueError`. When
+    order (rotate -> flip -> crop) when the movie is split (#559). Crops require
+    real, finite whole numbers. An invalid crop raises `ValueError` naming the
+    channel (#1190). An invalid rotation or flip also raises `ValueError`. When
     matched control points
     (``reference_points`` / ``moving_points``, e.g. colocalized molecule pairs) are
     supplied, the imported map's RMS residual is measured at them and the same
@@ -547,20 +548,18 @@ def _tmap_channel_geometry(channel: TmapChannel) -> ChannelGeometry:
     then flip, then crop), so the stored polynomials are in that processed frame.
     Splitting the movie with the same three steps puts the detections in the frame
     the polynomials expect (PRD Appendix E Stages 1 and 12).
-
-    The crop is decoded as ``float64``; a value that is not finite or not a whole
-    number raises [`ValueError`][] naming the channel rather than being truncated
-    by an integer cast, which would split the movie at different pixels than the
-    ``.tmap`` names (#1190). A whole number stored as a float (``1.0``) loads.
     """
-    crop = np.asarray(channel.crop, dtype=np.float64).ravel()
-    if not (np.isfinite(crop).all() and bool(np.all(crop == np.round(crop)))):
+    crop = np.asarray(channel.crop)
+    kind = crop.dtype.kind
+    if kind not in "biu" and (
+        kind != "f" or not np.isfinite(crop).all() or not (crop == np.trunc(crop)).all()
+    ):
         raise ValueError(
-            f"channel {channel.channel_id} crop values must be whole numbers, "
-            f"got {np.asarray(channel.crop).tolist()}"
+            f"channel {channel.channel_id} crop values must be real, finite whole numbers, "
+            f"got {crop.tolist()}"
         )
     return ChannelGeometry(
-        crop=tuple(int(v) for v in crop),
+        crop=tuple(int(v) for v in crop.ravel()),
         rotation_deg=channel.rotation_deg,
         flip=channel.flip_vh,
     )

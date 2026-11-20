@@ -470,23 +470,22 @@ def test_imported_map_carries_tmap_rotation_and_flip() -> None:
 
 
 @pytest.mark.parametrize("turned", [False, True], ids=["unturned", "turned"])
-@pytest.mark.parametrize("bad_value", [1.9, np.nan, np.inf], ids=["fraction", "nan", "inf"])
-def test_imported_map_refuses_a_non_integral_crop(turned: bool, bad_value: float) -> None:
-    # #1190: a stored crop value that is not a whole number is refused, naming the
-    # channel, instead of being truncated by an int cast (1.9 -> 1 would split the
-    # movie at different pixels than the .tmap names). Turned or not, same refusal.
+@pytest.mark.parametrize(
+    "bad_value",
+    [1.9, np.nan, np.inf, 1 + 0.5j, complex(1, np.inf)],
+    ids=["fraction", "nan", "inf", "complex", "complex-inf"],
+)
+def test_imported_map_refuses_a_non_integral_crop(turned: bool, bad_value: float | complex) -> None:
     from dataclasses import replace
 
     reference, channels = _load_tmap_fixture()
     moving_id = next(cid for cid in channels if cid != reference)
-    crop = np.asarray(channels[moving_id].crop, dtype=np.float64).copy()
+    crop = channels[moving_id].crop.astype(np.result_type(bad_value, np.float64))
     crop.flat[0] = bad_value
-    bad = dict(channels)
-    bad[moving_id] = replace(channels[moving_id], crop=crop)
-    if turned:
-        bad[moving_id] = replace(bad[moving_id], rotation=np.array([[90.0]]))
+    rotation = np.array([[90.0]]) if turned else channels[moving_id].rotation
+    channels[moving_id] = replace(channels[moving_id], crop=crop, rotation=rotation)
     with pytest.raises(ValueError, match=rf"channel {moving_id} crop .*whole numbers"):
-        registration_map_from_tmap(bad, reference_channel=reference)
+        registration_map_from_tmap(channels, reference_channel=reference)
 
 
 def test_imported_map_accepts_an_integral_crop_stored_as_float() -> None:

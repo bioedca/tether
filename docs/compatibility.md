@@ -126,9 +126,8 @@ So a turned movie gives the same molecules as an unturned movie of the same scen
 ([`tests/test_extract_cli.py::test_extract_imported_tmap_applies_rotation_and_flip`](https://github.com/bioedca/tether/blob/main/tests/test_extract_cli.py)
 covers every rotation and flip, on either channel; #559). A `Rotation` or `Flip` that
 `processImage` could not have applied is refused with "could not use --tmap". That is an
-angle other than 0, 90, 180 or 270, or a flip value other than 0 or 1. A `Crop` value that
-is not a whole number is refused the same way, never cut down to one, because the movie
-would then be split at other pixels than the `.tmap` names (#1190). Empty or all-zero
+angle other than 0, 90, 180 or 270, or a flip value other than 0 or 1. A `Crop` value is
+refused the same way unless it is a real, finite whole number (#1190). Empty or all-zero
 values, which the reference UCKOPSB map stores, split by the crop alone. This is tested
 on synthetic movies only, since the reference data holds no real `.tmap` with a rotation
 or a flip.
