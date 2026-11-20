@@ -41,7 +41,7 @@ class TaskService:
         The interval of the main-thread poll, in milliseconds.
     indicator : object, optional
         The busy indicator, an object with ``start(name)`` and ``stop()`` such as
-        [`BusyIndicator`][tether.gui.indicators.BusyIndicator]. The default is ``None``, no
+        `BusyIndicator`. The default is ``None``, no
         indicator.
     """
 

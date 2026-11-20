@@ -49,19 +49,53 @@ Opened movie.tether — 412 molecule(s)
 If that line ends in `(read-only)` after the file name, another writer holds the project and
 nothing you mark will be saved. Close the other writer and open the project again.
 
+The **Movie** box above the list names each movie of the project by its file name. The
+**Movie** panel on the right shows the chosen movie. A green dot marks each donor spot, and a
+red dot marks each acceptor spot. The ring around each dot is the integration aperture, at the
+radius the extraction used. To show another movie, choose it in the **Movie** box.
+
+Tether looks for each movie file at the path recorded when the traces were extracted. A
+relative path is looked up in the project's folder first. A movie whose file was moved or
+deleted shows grayed out, with `(file missing)`. A movie file whose size or modification time
+changed since extraction shows grayed out, with `(file changed since extraction)`. The status
+line then ends with, for example, `1 of 1 movie(s) not shown`.
+
+Tether does not download a movie that is only in the cloud, such as a OneDrive file. Such a
+movie shows `(file not on this disk)`. Make the file available on this computer, then open the
+project again. A project imported without spot coordinates has no movie panel.
+
+A [round-trip reconstruction](../io/legacy-import.md#round-trip-reconstruction) of a
+Deep-LASI export does not record where each channel sits in the frame. Its movie shows
+without dots, marked `(spot positions not recorded)`.
+
 A project you opened before on this computer opens at the molecule you last had selected in it.
 
 ## 2. Move from trace to trace
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
-underneath.
+(green), acceptor (magenta) and their total (gray) on top, its apparent FRET efficiency (blue)
+underneath. Readers with a red-green color-vision deficiency can tell these colors apart. For a
+red acceptor, select **View → Trace colors → Classic green and red**. See
+[Trace colors](../reference/gui-theme.md#select-the-trace-colors).
+
+The bottom panel shows the donor–acceptor cross-correlation of the trace. While the total
+intensity stays about constant, a change in FRET raises one channel and lowers the other.
+The cross-correlation at lag 0 is then below zero. A change in the total intensity can make
+it positive even when FRET changes too.
+
+The lag axis uses the unit of the time axis, seconds or frames. It spans 50 frames either
+side of 0. A trace shorter than 51 frames shows a note in that panel instead of a curve.
+So does a trace with a missing value or a constant channel.
 
 1. Press **Right arrow** or **Down arrow** for the next molecule.
 2. Press **Left arrow** or **Up arrow** for the previous one.
 3. Or click a name in the list.
 
 **Curation → Keyboard shortcuts…** (also in the **Help** menu) shows every key at any time.
+
+The curation keys act only in the **Curate and correct** section. In **Prepare** and
+**Analyze** they change no molecule. There, **Help → Keyboard shortcuts…** lists no key. To
+curate again, choose **View → Section → Curate and correct**.
 
 The menu commands use your operating system's standard keys. Each key includes a modifier
 key or is a function key, so no menu command replaces a curation key. On macOS, use Cmd
@@ -189,7 +223,9 @@ none of it. It keeps it in a file named `preferences.json` in your own settings 
 - macOS: `~/Library/Application Support/MondragonLab/Tether/`
 - Linux: `~/.config/tether/`, or `$XDG_CONFIG_HOME/tether/` when that variable is set
 
-Delete that file and the application forgets all of it. Nothing else changes. To use another
+Delete that file and the application forgets all of it. Nothing else changes. Beside it sits
+an empty file, `preferences.json.lock`. It lets two open Tether windows take turns saving, so
+neither loses what the other saved. To use another
 file, set the environment variable `TETHER_PREFERENCES_FILE` to its full path.
 
 ## Next

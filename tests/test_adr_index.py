@@ -105,6 +105,26 @@ def test_every_adr_is_indexed() -> None:
     )
 
 
+def test_every_adr_keeps_the_considered_options_heading() -> None:
+    """Every numbered ADR keeps the template's ``## Considered options`` heading (#876).
+
+    ``0000-template.md`` puts the section between the drivers and the outcome, so a reader
+    can see which alternatives were weighed. Fifteen records had lost it before this guard.
+    It checks presence only, and a heading that goes on (``## Considered options and
+    decision``, ADR-0019 and ADR-0020) counts: some older records list the options after
+    their decision sections, and moving them would rewrite records this guard does not own.
+    """
+    missing = [
+        p.name
+        for p in _numbered_adrs()
+        if not re.search(r"^## Considered options\b", p.read_text(encoding="utf-8"), re.MULTILINE)
+    ]
+    assert not missing, (
+        "these ADR records have no '## Considered options' heading; add one that lists "
+        f"the options the record weighed (docs/adr/0000-template.md): {missing}"
+    )
+
+
 def test_index_rows_render_as_table_rows() -> None:
     """No blank line splits a table block, so every ADR row renders as a row.
 
@@ -391,3 +411,37 @@ def test_a_record_without_a_status_bullet_is_refused_not_invented(tmp_path, monk
 
     with pytest.raises(gen.IndexError_, match="Status"):
         gen.render()
+
+
+def test_a_wrapped_bullet_is_drafted_whole(tmp_path, monkeypatch) -> None:
+    """A Status or PRD anchor bullet that wraps continues on indented lines (#1117).
+
+    Taking only its first line cut the 0095 and 0109 cells mid-phrase, and the cut is sticky: once
+    written, a drafted cell is curated data and `--check` passes over it. The continuation is joined
+    with one space; a nested list item and the next bullet are not part of the field.
+    """
+    gen = _generator()
+    adr_dir = tmp_path / "adr"
+    adr_dir.mkdir()
+    (adr_dir / "0001-a.md").write_text(
+        "# 0001 — A\n\n"
+        "- **Status:** accepted (merging the pull request that lands this record is the\n"
+        "  maintainer's sign-off)\n"
+        "- **PRD anchor:** §7.7 FR-ANALYZE (population views), §7.5 (the\n"
+        "  curation filter)\n"
+        "  - a nested note that is not part of the anchor\n"
+        "- **Milestone:** M17\n",
+        encoding="utf-8",
+    )
+    idx = adr_dir / "README.md"
+    idx.write_text(_wrap(""), encoding="utf-8")
+    monkeypatch.setattr(gen, "ADR_DIR", adr_dir)
+    monkeypatch.setattr(gen, "INDEX", idx)
+
+    assert gen.main([]) == 0
+    line = next(ln for ln in idx.read_text(encoding="utf-8").splitlines() if "0001-a.md" in ln)
+    cells = [c.strip() for c in gen._CELL_RE.split(line)]
+    assert cells[-3] == (
+        "accepted (merging the pull request that lands this record is the maintainer's sign-off)"
+    )
+    assert cells[-2] == "§7.7 FR-ANALYZE (population views), §7.5 (the curation filter)"

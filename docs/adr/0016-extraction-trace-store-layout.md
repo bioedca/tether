@@ -44,6 +44,7 @@ this PR defines:
 ## Considered options
 
 **Trace layout (`/traces`).**
+
 - **A. Six rectangular `(n_molecules, max_n_frames)` arrays —
   `{donor,acceptor}_{raw,corrected,background}` — chunked + gzip, zero-padded to the
   experiment-max frame count as movies are appended; each molecule's `frame_range`
@@ -64,6 +65,7 @@ ample precision for disk-sum intensities; the FRET histogram / S9 oracle are
 scale-robust. Storage, not a scientific factor, so no Consensus gate.
 
 **Patch cache (`/patches`).**
+
 - **D. One `window×window` temporal-mean crop per molecule per channel.** Chosen —
   a denoised representative thumbnail for movie-less curation + the static overlap
   view (§5.1), cheap and sufficient.
@@ -71,6 +73,7 @@ scale-robust. Storage, not a scientific factor, so no Consensus gate.
   memmap round-trip (§5.2); large for no curation benefit.
 
 **`molecule_key` vs `molecule_id`.**
+
 - **F. `molecule_id` = fresh UUID (stable once assigned); `molecule_key` =
   `sha256(movie_sha256 | qx | qy)` with `donor_xy` quantized to 0.1 px.** Chosen —
   §5.1 distinguishes the two: `molecule_id` is the globally stable UUID, inherited
@@ -81,6 +84,7 @@ scale-robust. Storage, not a scientific factor, so no Consensus gate.
   salt.
 
 **Un-computed `/molecules` fields at extraction.**
+
 - **G. `alpha`/`gamma`/`correction_confidence`/`quality_class` = `NaN`; `delta` = 0
   (inert, ADR-0008); `bleach_frames` = `(−1, −1)`; `curation_label` = 0;
   `condition_id` = the provisional filename parse (= `condition_id_provisional`,
