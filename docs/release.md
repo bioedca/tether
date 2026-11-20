@@ -119,11 +119,11 @@ release**, not the binaries, and it is unaffected by any of the above.
     be **annotated** and its signature **verified by GitHub** (your SSH signing key
     registered as a *Signing Key* on the account), and its commit must be on `main`.
 
-    The tag is also read as a PEP 440 version. The package version comes from that
-    reading, not from SemVer. A tag that PEP 440 reads as a **post-release** is rejected.
-    For example, PEP 440 reads `v1.0.0-0` as `1.0.0.post0`, which sorts *after* `1.0.0`.
-    A tag that PEP 440 cannot read, such as `v1.0.0-foo`, is rejected too. Use a form
-    such as `-rc1`, `-a1`, `-b2` or `-dev`.
+    Hatch-vcs reads the tag with PEP 440 to set the package version. The release
+    check rejects tags that PEP 440 cannot parse or reads as **post-releases**.
+    PEP 440 cannot parse `v1.0.0-foo` and reads `v1.0.0-0` as `1.0.0.post0`,
+    which sorts *after* `1.0.0`. Use a prerelease form such as `-rc1`, `-a1`,
+    `-b2` or `-dev`.
 
     `release.yml`'s `verify` job checks those requirements at two different times. The
     **tag form** is checked on every run, a `dry_run` dispatch included, in the ungated
