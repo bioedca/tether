@@ -692,21 +692,22 @@ tether run [-h] [--dry-run] [--resume] recipe
 |---|---|---|
 | `recipe` | required | the recipe file (`.json`) |
 | `--dry-run` | off | print the steps, the inputs of each step and each approval step, and change nothing |
-| `--resume` | off | skip the steps that a run of this recipe completed, and go on from the first one that is not complete |
+| `--resume` | off | skip the completed steps at the start of the latest run and continue from the first unfinished step |
 
 Each step runs through its service command, in order, as a job stored in the project that
 the step writes (the `output` of `extract`, the `project` of `idealize`, the `into` of
 `batch`). The job's one part names the recipe by the SHA-256 of its text and the step by
-its number, so `--resume` finds where the last run ended. A step that writes no single
-project (`map`, a `batch` without `into`) stores no job. The run stops at the first step
-that fails. When no step of the recipe is complete, as for a changed recipe, `--resume`
-starts from the first step.
+its number. Tether also records progress in its per-user state for the recipe's path and
+contents. This includes successful steps that write no single project, such as `map` or
+`batch` without `into`. The run stops at the first failed step.
 
-A step that ran with a stage deferred is not complete. Its job is stored `failed`, and
-`--resume` runs that step again, so that the command's own checkpoint does just the
-deferred stage. A step that stores no job, such as a `batch` with an `out_dir`, stops the
-run when a stage is deferred, so `--resume` starts again from it. A relative path in the
-recipe is read from the folder of the recipe file.
+Running without `--resume` starts a new checkpoint. `--resume` retries the first unfinished
+step and runs every step after it again, since those steps can depend on its results.
+When no step is complete, as for a changed recipe, `--resume` starts from the first step.
+
+The run stops when a step defers a stage. If the step has a job, Tether stores it as `failed`.
+`--resume` runs that step again, so the command's own checkpoint can finish the deferred stage
+before the next recipe step starts. Tether reads relative paths from the recipe file's folder.
 
 A recipe is refused before anything runs when it is not valid: an unknown command, field
 or version, a value of the wrong type, a policy with a missing value, a **publish step**

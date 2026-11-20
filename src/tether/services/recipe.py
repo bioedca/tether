@@ -15,7 +15,8 @@ step is read from the folder of the recipe file.
 
 [`run_recipe`][] runs the steps in order, each through its service command and each as a
 stored job (ADR-0126) in the project the step writes. The job's one part names the recipe
-by its SHA-256 and the step by its number, so ``--resume`` knows where a stopped run ended.
+by its SHA-256 and the step by its number. A per-user checkpoint marks the completed
+prefix of the latest run, including steps that write no project.
 A command that reaches an approval step asks an [`ApprovalGate`][]: an approval already
 recorded lets it go on, a policy is the command's to apply, and with neither the run
 stops with [`ApprovalStop`][] (exit code ``4`` of ``tether run``). [`recipe_from_project`][]
@@ -33,8 +34,10 @@ import json
 import math
 import os
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from tether.services.base import (
     Request,
@@ -258,12 +261,14 @@ class Recipe:
     """A checked recipe: its identity (``sha256`` of the file text, ``version``) and steps.
 
     The paths of each request are already read from ``folder``, the folder of the file.
+    ``path`` identifies the source file when the recipe was read from disk.
     """
 
     folder: Path
     sha256: str
     version: int
     steps: tuple[RecipeStep, ...]
+    path: Path | None = None
 
 
 def _registry():  # noqa: ANN202 - the registry module
@@ -379,7 +384,8 @@ def read_recipe(path: str | Path) -> Recipe:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise RecipeError(f"cannot read the recipe {path}: {exc}") from exc
-    return recipe_from_text(text, folder=path.resolve().parent)
+    origin = path.resolve()
+    return dataclasses.replace(recipe_from_text(text, folder=origin.parent), path=origin)
 
 
 def recipe_to_text(requests: Sequence[Request], *, folder: str | Path) -> str:
@@ -455,35 +461,65 @@ def _done_parts(path: str) -> set[str]:
     return {part for part, state in latest.items() if state is JobState.DONE}
 
 
-def _checkpoint(recipe: Recipe) -> int:
-    """Return how many steps of ``recipe`` a run already completed, in order."""
+def _project_done(recipe: Recipe, step: RecipeStep, project: str) -> bool:
+    return Path(project).is_file() and recipe_part(recipe, step.number) in _done_parts(project)
+
+
+def _checkpoint_path(recipe: Recipe) -> Path:
+    from tether.project.lock import user_lock_dir  # noqa: PLC0415
+
+    origin = os.path.normcase(recipe.path or recipe.folder.resolve())
+    key = hashlib.sha256(os.fsencode(origin) + b"\0" + recipe.sha256.encode("utf-8"))
+    return user_lock_dir().parent / "recipe-runs" / f"{key.hexdigest()}.json"
+
+
+def _legacy_checkpoint(recipe: Recipe) -> int:
+    """Find the last completed project job when no recipe checkpoint exists."""
     for step in reversed(recipe.steps):
         project = _project_of(step.request)
-        if (
-            project
-            and Path(project).is_file()
-            and recipe_part(recipe, step.number) in (_done_parts(project))
-        ):
+        if project and _project_done(recipe, step, project):
             return step.number
     return 0
 
 
-def _stores_job(request: Request) -> bool:
-    project = _project_of(request)
-    return bool(project) and Path(project).is_file()
+def _resume_prefix(recipe: Recipe, path: Path) -> int:
+    """Find the first unfinished step, including a project that lost its completed job."""
+    has_checkpoint = True
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        completed = _legacy_checkpoint(recipe)
+        has_checkpoint = False
+    except (OSError, UnicodeError) as exc:
+        raise RecipeError(f"cannot read the recipe checkpoint: {exc}") from exc
+    else:
+        try:
+            completed = json.loads(text)["completed"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise RecipeError("the recipe checkpoint is invalid") from exc
+        if (
+            not isinstance(completed, int)
+            or isinstance(completed, bool)
+            or not 0 <= completed <= len(recipe.steps)
+        ):
+            raise RecipeError("the recipe checkpoint is invalid")
+
+    verified_projects: set[str] = set()
+    for step in reversed(recipe.steps[:completed]):
+        project = _project_of(step.request)
+        if project and project not in verified_projects:
+            if not _project_done(recipe, step, project):
+                completed = step.number - 1
+            elif has_checkpoint:
+                # A later completed step may have replaced the project and its job table.
+                verified_projects.add(project)
+    return completed
 
 
-def _skipped(recipe: Recipe, step: RecipeStep, start: int) -> bool:
-    """Whether ``--resume`` skips ``step``, given the checkpoint ``start``.
+def _save_checkpoint(path: Path, completed: int) -> None:
+    from tether.project.lock import _atomic_write_json  # noqa: PLC0415, PLC2701
 
-    A step up to the checkpoint is skipped, unless the project that stores its job holds
-    it not done: a step whose stage was deferred runs again.
-    """
-    if step.number > start:
-        return False
-    if not _stores_job(step.request):
-        return True
-    return recipe_part(recipe, step.number) in _done_parts(str(_project_of(step.request)))
+    _atomic_write_json(path, {"completed": completed}, tag=uuid4().hex)
 
 
 class _StepFailed(Exception):  # noqa: N818 - stored as the job's error text
@@ -692,30 +728,51 @@ def run_recipe(
     resume: bool = False,
     progress: Callable[[StepOutcome], None] | None = None,
 ) -> RecipeRun:
-    """Run the steps of ``recipe`` in order, each as a stored job; stop at a failure or stop.
+    """Run ``recipe`` in order until a step fails, defers a stage or needs approval.
 
-    With ``resume``, the steps that a run of the same recipe completed are skipped, and
-    the run goes on from the first step that is not complete. When no step of this recipe
-    is complete (a new or changed recipe, or a first step that stores no job and deferred a
-    stage), ``resume`` runs from the first step. ``progress`` is called with the outcome of
-    each step.
+    With ``resume``, the completed prefix of the latest run of the same recipe is
+    skipped. The first unfinished step and all following steps run again. Without
+    ``resume``, the new run starts with an empty checkpoint. ``progress`` is called
+    with the outcome of each step.
     """
-    start = _checkpoint(recipe) if resume else 0
+    from tether.project.lock import _lifecycle_guard  # noqa: PLC0415, PLC2701
+
+    checkpoint = _checkpoint_path(recipe)
+    with ExitStack() as stack:
+        try:
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            stack.enter_context(_lifecycle_guard(checkpoint))
+            completed = _resume_prefix(recipe, checkpoint) if resume else 0
+            _save_checkpoint(checkpoint, completed)
+        except OSError as exc:
+            raise RecipeError(f"cannot start a recipe checkpoint: {exc}") from exc
+        return _run_from_checkpoint(recipe, checkpoint, completed, progress)
+
+
+def _run_from_checkpoint(
+    recipe: Recipe,
+    checkpoint: Path,
+    start: int,
+    progress: Callable[[StepOutcome], None] | None,
+) -> RecipeRun:
     outcomes: list[StepOutcome] = []
     stop: ApprovalStop | None = None
     for step in recipe.steps:
-        if _skipped(recipe, step, start):
+        if step.number <= start:
             outcome = StepOutcome(step.number, step.request.COMMAND, "skipped")
         else:
             outcome, stop = _run_step(recipe, step)
+            if outcome.state == "done" and not outcome.deferred:
+                try:
+                    _save_checkpoint(checkpoint, step.number)
+                except OSError as exc:
+                    outcome = dataclasses.replace(
+                        outcome, state="failed", message=f"cannot record recipe progress: {exc}"
+                    )
         outcomes.append(outcome)
         if progress is not None:
             progress(outcome)
-        if outcome.state in ("failed", "stopped"):
-            break
-        if outcome.deferred and not _stores_job(step.request):
-            # Nothing records that this step is not complete, so a later step must not
-            # move the checkpoint past it: stop here, and --resume runs it again.
+        if outcome.state in ("failed", "stopped") or outcome.deferred:
             break
     return RecipeRun(recipe=recipe, steps=tuple(outcomes), stop=stop)
 
@@ -723,16 +780,16 @@ def run_recipe(
 def plan_recipe(recipe: Recipe, *, resume: bool = False) -> list[str]:
     """Return what ``tether run --dry-run`` prints: each step, its inputs and approval steps.
 
-    It reads the recipe and, with ``resume``, the job records; it writes nothing.
+    With ``resume``, it also reads the checkpoint and any relevant job records.
     """
     registry = _registry()
-    start = _checkpoint(recipe) if resume else 0
+    start = _resume_prefix(recipe, _checkpoint_path(recipe)) if resume else 0
     total = len(recipe.steps)
     lines = [f"recipe {recipe.sha256[:12]} (version {recipe.version}), {total} step(s)"]
     for step in recipe.steps:
         request = step.request
         entry = registry.command(request.COMMAND)
-        done = " (done; skipped by --resume)" if _skipped(recipe, step, start) else ""
+        done = " (done; skipped by --resume)" if step.number <= start else ""
         lines.append(f"step {step.number}/{total}: tether {request.COMMAND}{done}")
         for name in request.PATH_FIELDS:
             value = getattr(request, name)

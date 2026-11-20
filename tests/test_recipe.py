@@ -27,6 +27,7 @@ from tether.services.base import Request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_extract_cli import _make_movie  # noqa: E402, PLC2701 - the synthetic movie
+from test_map_file import _write_beads  # noqa: E402, PLC2701 - the synthetic bead image
 
 
 def _recipe(*steps: dict) -> str:
@@ -245,6 +246,45 @@ def test_a_failed_step_stops_the_run_with_exit_1(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     assert "step 1/2 extract: failed" in captured.out and "step 2/2" not in captured.out
     assert "--resume" in captured.err
+
+
+def test_resume_skips_a_completed_map_before_a_project_exists(tmp_path, capsys) -> None:
+    _write_beads(tmp_path / "beads.tif")
+    map_step = _step("map", source="beads.tif", output="beads.npz")
+    path = _write(tmp_path, _recipe(map_step, _step()))
+    output = tmp_path / "beads.npz"
+    project = tmp_path / "m.tether"
+
+    assert main(["run", str(path)]) == 1  # there is no movie yet
+    assert "step 1/2 map: done" in capsys.readouterr().out
+    assert output.is_file() and not project.exists()
+    written = output.read_bytes()
+
+    assert main(["run", str(path), "--dry-run", "--resume"]) == 0
+    plan = capsys.readouterr().out
+    assert "tether map (done; skipped by --resume)" in plan
+    assert not project.exists()
+
+    _make_movie(tmp_path, name="m.tif")
+    assert main(["run", str(path), "--resume"]) == 0
+    assert "step 1/2 map: skipped" in capsys.readouterr().out
+    assert output.read_bytes() == written
+    assert project.is_file()
+
+
+def test_resume_skips_completed_steps_when_a_later_step_replaced_the_project(tmp_path, capsys):
+    _make_movie(tmp_path, name="m.tif")
+    _make_movie(tmp_path, name="second.tif")
+    replace = _step("extract", movie="second.tif", output="m.tether", overwrite=True)
+    path = _write(tmp_path, _recipe(_step(), replace))
+    assert main(["run", str(path)]) == 0
+    capsys.readouterr()
+
+    (job,) = read_jobs(tmp_path / "m.tether")
+    assert job.parts == (rc.recipe_part(rc.read_recipe(path), 2),)
+    assert main(["run", str(path), "--resume"]) == 0
+    output = capsys.readouterr().out
+    assert "step 1/2 extract: skipped" in output and "step 2/2 extract: skipped" in output
 
 
 # --- approval steps (a test command that reaches gamma.approve) ---------------------------------
@@ -690,11 +730,12 @@ def test_a_step_with_a_deferred_stage_is_not_complete_and_resume_runs_it_again(
     _replace_run(monkeypatch, "calibrate", batch_like(1))
     assert main(["run", str(path)]) == 3
     assert "a stage was deferred" in capsys.readouterr().out
-    assert [j.stored_state for j in read_jobs(project)] == [JobState.FAILED] * 2
+    assert [Path(report).name for report in ran] == ["gamma.json"]
+    assert [j.stored_state for j in read_jobs(project)] == [JobState.FAILED]
     with pytest.raises(rc.RecipeError, match="no completed job"):
         rc.recipe_from_project(project)
 
-    # Only the first step deferred this time: the second is complete and is skipped later.
+    # Both steps can complete once the first step's deferred stage is available.
     _replace_run(monkeypatch, "calibrate", batch_like(0))
     assert main(["run", str(path), "--resume"]) == 0
     assert [j.stored_state for j in read_jobs(project)] == [JobState.DONE] * 2
@@ -717,11 +758,63 @@ def test_a_relative_sidecar_interpreter_is_read_from_the_recipe_folder(tmp_path)
         assert step["fields"]["sidecar_python"] == "env/bin/python"
 
 
-def test_resume_skips_a_step_that_stores_no_job_up_to_the_checkpoint(tmp_path) -> None:
+def test_resume_uses_existing_project_jobs_when_no_local_checkpoint_exists(
+    tmp_path, calibrate
+) -> None:
     step = _step("map", source="beads.tif", output="beads.npz")
-    recipe = rc.read_recipe(_write(tmp_path, _recipe(step)))
-    assert rc._skipped(recipe, recipe.steps[0], 1)
-    assert not rc._skipped(recipe, recipe.steps[0], 0)
+    recipe = rc.read_recipe(_write(tmp_path, _recipe(step, _calibrate_step())))
+    assert "(done; skipped by --resume)" not in "\n".join(rc.plan_recipe(recipe, resume=True))
+
+    project = tmp_path / "exp.tether"
+    rc._record(str(project), recipe.steps[1].request, rc.recipe_part(recipe, 2), "done", "")
+    assert rc.run_recipe(recipe, resume=True).steps == (
+        rc.StepOutcome(1, "map", "skipped"),
+        rc.StepOutcome(2, "calibrate", "skipped"),
+    )
+    project.unlink()
+    plan = "\n".join(rc.plan_recipe(recipe, resume=True))
+    assert "step 1/2: tether map (done; skipped by --resume)" in plan
+    assert "step 2/2: tether calibrate (done; skipped by --resume)" not in plan
+
+
+@pytest.mark.parametrize("checkpoint", ["not JSON", '{"completed": true}'])
+def test_resume_refuses_an_invalid_checkpoint(tmp_path, capsys, checkpoint) -> None:
+    path = _write(tmp_path, _recipe(_step()))
+    checkpoint_path = rc._checkpoint_path(rc.read_recipe(path))
+    checkpoint_path.parent.mkdir(parents=True)
+    checkpoint_path.write_text(checkpoint, encoding="utf-8")
+
+    assert main(["run", str(path), "--dry-run", "--resume"]) == 2
+    assert "the recipe checkpoint is invalid" in capsys.readouterr().err
+    assert checkpoint_path.read_text(encoding="utf-8") == checkpoint
+
+
+def test_resume_reports_an_unreadable_checkpoint(tmp_path, capsys) -> None:
+    path = _write(tmp_path, _recipe(_step()))
+    rc._checkpoint_path(rc.read_recipe(path)).mkdir(parents=True)
+    assert main(["run", str(path), "--dry-run", "--resume"]) == 2
+    assert "cannot read the recipe checkpoint" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("fail_at", [0, 1])
+def test_run_reports_checkpoint_write_failures(tmp_path, capsys, monkeypatch, fail_at) -> None:
+    _make_movie(tmp_path, name="m.tif")
+    path = _write(tmp_path, _recipe(_step()))
+    save = rc._save_checkpoint
+
+    def fail_write(checkpoint: Path, completed: int) -> None:
+        if completed == fail_at:
+            raise OSError("checkpoint storage is unavailable")
+        save(checkpoint, completed)
+
+    monkeypatch.setattr(rc, "_save_checkpoint", fail_write)
+    assert main(["run", str(path)]) == (2 if fail_at == 0 else 1)
+    result = capsys.readouterr()
+    if fail_at == 0:
+        assert "cannot start a recipe checkpoint" in result.err
+    else:
+        assert "cannot record recipe progress" in result.out
+    assert (tmp_path / "m.tether").exists() is bool(fail_at)
 
 
 def _fail_on(name: str):  # noqa: ANN202
@@ -752,6 +845,23 @@ def test_a_step_that_a_later_run_failed_is_not_complete_for_resume(
     _replace_run(monkeypatch, "calibrate", run)
     assert main(["run", str(path), "--resume"]) == 0
     assert run.ran == ["gamma.json"]  # the latest attempt failed, so it runs again
+
+
+def test_resume_reruns_later_steps_after_retrying_an_earlier_step(
+    tmp_path, calibrate, monkeypatch
+) -> None:
+    later = _step("calibrate", project="exp.tether", report="later.json")
+    path = _write(tmp_path, _recipe(_calibrate_step(), later))
+    _replace_run(monkeypatch, "calibrate", _fail_on("none"))
+    assert main(["run", str(path)]) == 0
+
+    _replace_run(monkeypatch, "calibrate", _fail_on("gamma.json"))
+    assert main(["run", str(path)]) == 1
+
+    retried = _fail_on("none")
+    _replace_run(monkeypatch, "calibrate", retried)
+    assert main(["run", str(path), "--resume"]) == 0
+    assert retried.ran == ["gamma.json", "later.json"]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

@@ -74,8 +74,9 @@ with exit code `1`. Fix the cause, and continue from that step:
 tether run recipe.json --resume
 ```
 
-`--resume` skips the steps that a run of this same recipe file completed. A changed recipe is a
-new recipe, so it starts again from its first step.
+`--resume` starts with the first unfinished step of the latest run. It runs all later steps
+again. The checkpoint also remembers completed steps that write no project, such as a map.
+A changed recipe starts from its first step.
 
 ## 4. When a step needs a person
 

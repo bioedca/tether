@@ -759,10 +759,10 @@ each evidence file name, the report's JSON and its PNG images, to its SHA-256), 
 (ISO-8601 UTC) and `app_version`. Only an approval writes a row: a policy whose rule does not
 approve writes none. The rows are append-only.
 
-A recipe run (`tether run`) stores the job of each step in `/settings/jobs` of the project that
-the step writes. The job has one part, a JSON object with `recipe_sha256`, `recipe_version` and
-`step` (the step number), which is how `--resume` finds where the last run ended. A step that
-stopped at an approval step is stored `cancelled`.
+A recipe run (`tether run`) stores each step's job in `/settings/jobs` of the project it writes.
+The job has one part, a JSON object with `recipe_sha256`, `recipe_version` and `step` (the step
+number). `--resume` checks project jobs against the recipe checkpoint in Tether's per-user state.
+A step that stopped at an approval step is stored `cancelled`.
 
 ## `/idealization` — one subgroup per fitted model
 
