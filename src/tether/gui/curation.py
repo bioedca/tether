@@ -65,15 +65,21 @@ __all__ = [
 #: tMAVEN class 0 is pinned to Tether's *uncategorized* null state (PRD §7.3 /
 #: §7.4): ``Space`` alone yields an accepted-but-uncategorized trace, and ``0``
 #: clears any named category back to it. Named categories are classes ``>= 1``.
+#: The same pin as [`tether.project.conditions.UNCATEGORIZED_CLASS`][], beside the
+#: persisted lookup; repeated here (and asserted equal by a test) so importing this
+#: Qt-free module stays free of h5py/numpy too.
 UNCATEGORIZED_CLASS = 0
 
 #: The keymap scope of the curation keys (#342). A section of the shell that declares it
 #: as its [`keymap_scope`][tether.gui.sections.SectionSpec] is where those keys act.
 CURATION_SCOPE = "curation"
 
-#: The number of categories addressable by the ``1``–``9`` hotkeys; categories
-#: beyond this are assigned via the overflow picker (exercised fully once the M4
-#: editable per-condition list lands).
+#: The number of categories addressable by the ``1``–``9`` hotkeys; a category
+#: beyond this is chosen in the overflow picker, which dispatches its class (the shell
+#: does not persist a category assignment yet). Hotkey ``n`` and the picker both
+#: name an integer class ``n``, the ``n``-th category: the rule the persisted
+#: [`ClassLookup`][tether.project.conditions.ClassLookup] stores (ADR-0125). The GUI
+#: may not import the core directly (ADR-0100), so a test pins the agreement.
 CATEGORY_SLOTS = 9
 
 
@@ -629,6 +635,19 @@ class CurationEventFilter:
         self._focus_dock = widget
 
     # --- install / remove ----------------------------------------------------
+
+    def add_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Let the curation keys act in ``widget`` when it is a floating top-level window.
+
+        For a shell-owned dock built after this filter, such as the movie dock (#356):
+        docked, it is inside the main window already; floated, it is its own window.
+        """
+        if not any(widget is w for w in self._scope_widgets):
+            self._scope_widgets = (*self._scope_widgets, widget)
+
+    def remove_scope_widget(self, widget: QtWidgets.QWidget) -> None:
+        """Undo [`add_scope_widget`][tether.gui.curation.CurationEventFilter.add_scope_widget]."""
+        self._scope_widgets = tuple(w for w in self._scope_widgets if w is not widget)
 
     def install(self, app: QtCore.QCoreApplication | None = None) -> None:
         """Install on ``app`` (default: the running ``QApplication``)."""
