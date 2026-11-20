@@ -4,10 +4,10 @@
 
 ``docs/reference/tether-provenance-schema.json`` is served so that a reader can check the
 ``<file>.provenance.json`` beside an export without Tether. It is written from the keys the
-exporters write; this module is what keeps it true. Each of the four exports writes a sidecar into
-``tmp_path`` and that sidecar must validate. The negative cases show the schema is not vacuous: a
-missing or unknown top-level key, an unknown store-export parameter, a non-UTC store timestamp and
-a figure sidecar without its three merged keys are each rejected.
+exporters write. Each export writes a sidecar into ``tmp_path`` and that sidecar must validate,
+including subset exports with curator aliases. The negative cases reject a missing or unknown
+top-level key, an unknown store-export parameter, a non-UTC store timestamp, incomplete or invalid
+curator alias metadata, and a figure sidecar missing its three merged keys.
 
 ``jsonschema`` (Draft 2020-12) is in the locked base stack as a transitive dependency; the module
 skips where it is absent rather than pretend to validate.
@@ -92,6 +92,34 @@ def test_every_export_writes_a_sidecar_that_validates(validator, sidecars) -> No
     for kind, payload in sidecars.items():
         assert payload["tether_export"] == kind
         assert _errors(validator, payload) == [], kind
+
+
+@pytest.fixture
+def aliased_subset_sidecar(tmp_path: Path) -> dict:
+    """Write a subset with one synthetic user name replaced."""
+    project, keys = build_store_with_model(tmp_path, _STATES, MEANS)
+    project.accept(keys[0], labeler="example-user")
+    result = export_subset_tether(project, tmp_path / "shared.tether", curator_alias="curator")
+    return json.loads(result.provenance_path.read_text(encoding="utf-8"))
+
+
+def test_aliased_subset_sidecar_validates(validator, aliased_subset_sidecar) -> None:
+    parameters = aliased_subset_sidecar["parameters"]
+    assert parameters["curator_alias"] == "curator"
+    assert parameters["names_aliased"] is True
+    assert parameters["n_aliased_names"] == 1
+    validator.validate(aliased_subset_sidecar)
+
+
+def test_subset_alias_metadata_is_complete_and_valid(validator, aliased_subset_sidecar) -> None:
+    invalid_values = {"curator_alias": "", "names_aliased": False, "n_aliased_names": -1}
+    for key, invalid in invalid_values.items():
+        changed = copy.deepcopy(aliased_subset_sidecar)
+        changed["parameters"].pop(key)
+        assert _errors(validator, changed), key
+
+        changed["parameters"][key] = invalid
+        assert _errors(validator, changed), key
 
 
 def test_a_missing_or_unknown_top_level_key_is_rejected(validator, sidecars) -> None:

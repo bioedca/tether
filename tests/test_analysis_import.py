@@ -421,3 +421,33 @@ def test_import_281mol_parity_fixture(tmp_path: Path) -> None:
     # analysis still works on the full population
     hist = population_apparent_e_histogram(out)
     assert hist.n_samples > 0
+
+
+def test_a_reimport_over_a_featured_project_carries_no_feature_cache(tmp_path: Path) -> None:
+    """An SMD import seeds windows on a fresh store, so it never keeps old features (#1112).
+
+    ``/features/table`` is sliced to each molecule's ``analysis_window``. The import
+    builds its store from scratch and publishes it over the destination, so a table
+    computed on the project it replaces cannot survive next to the newly seeded windows.
+    """
+    from tether.project.features import compute_features, feature_matrix
+
+    out = tmp_path / "ao.tether"
+    import_analysis_only_project(out, source=read_smd(_SMD4), source_name="smd_4mol.hdf5")
+    compute_features(out)
+    with h5py.File(out, "r") as f:
+        assert "table" in f["features"]
+
+    with lock.publish_lock(out) as guard:
+        import_analysis_only_project(
+            out,
+            source=read_smd(_FIXTURES / "smd_2mol.hdf5"),
+            source_name="smd_2mol.hdf5",
+            overwrite=True,
+            publish_guard=guard,
+        )
+
+    with h5py.File(out, "r") as f:
+        assert "table" not in f["features"]
+    with pytest.raises(KeyError, match="compute_features"):
+        feature_matrix(out)

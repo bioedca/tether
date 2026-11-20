@@ -82,7 +82,16 @@ Write a link to another Tether object as a Markdown reference link, the form of
   the name as Python finds it.
 - ``[`Movie`][tether.io.movie.Movie]`` links an object by its full path, and shows the text in
   the first brackets.
-- ``[`ValueError`][]`` links a builtin name.
+
+Link only a Tether object. Write a name from Python itself or from another project, such as
+`ValueError`, `numpy.histogram` or `h5py.File`, as a code span with no link. The site is built
+with no network access, so the generator has no list of the objects of other projects and
+cannot find the target. `mkdocs build --strict` then fails.
+[ADR-0111](../adr/0111-the-api-reference-links-only-tether-objects.md) records this decision.
+
+Separate two citation keys with a comma, as in `[McCann2010], [Hellenkamp2018]`. Two keys with
+no comma between them, as in `[McCann2010][Hellenkamp2018]`, are one Markdown link: the reader
+sees only the first key, and the build fails.
 
 Do not write a Sphinx role such as ``:func:`load_project` ``. A Markdown generator shows it as
 plain text. `tests/test_docstring_standard.py` fails on a Sphinx role in `src/tether`.

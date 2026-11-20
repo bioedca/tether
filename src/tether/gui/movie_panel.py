@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Embedded napari movie panel — the FR-ROUNDTRIP movie surface (PRD §4.1, §7.3).
 
-[`NapariMoviePanel`][] wraps a single [`napari.Viewer`][] that displays a
+[`NapariMoviePanel`][] wraps a single `napari.Viewer` that displays a
 lazy TIRF movie ([`tether.io.movie.MovieReader`][]) as a 2-D image layer with
 **donor/acceptor spot points + integration-aperture overlays**, and switches
 between **multiple movies** for a multi-movie experiment (PRD §7.3: "an embedded
@@ -16,10 +16,12 @@ overlays, with a movie switcher for multi-movie experiments").
   donor/acceptor spot coordinates — and
   [`set_active_movie`][tether.gui.movie_panel.NapariMoviePanel.set_active_movie] switches which is
   shown; [`switcher`][tether.gui.movie_panel.NapariMoviePanel.switcher] is a ready
-  [`QComboBox`][qtpy.QtWidgets.QComboBox] a host can
+  `QComboBox` a host can
   place to drive the switch. The napari Qt window is exposed as
   [`qt_window`][tether.gui.movie_panel.NapariMoviePanel.qt_window]
-  so the Tether shell can embed it (the shell embed lands in #356).
+  so the Tether shell can embed it: the shell docks it in Curate and correct and drives
+  [`set_active_movie`][tether.gui.movie_panel.NapariMoviePanel.set_active_movie] from its own
+  movie switcher, so it never builds this one (#356).
 * [`center_on`][tether.gui.movie_panel.NapariMoviePanel.center_on] and
   [`connect_spot_click`][tether.gui.movie_panel.NapariMoviePanel.connect_spot_click] are the napari
   half of the trace↔movie round-trip (PRD §7.3, §5.2; the shell wiring lands in #357):
@@ -247,8 +249,7 @@ class NapariMoviePanel:
     [`set_movie`][] a single [`MovieReader`][] or [`add_movie`][] several
     (each optionally with a [`MovieOverlay`][]) and [`set_active_movie`][]
     between them. Use as a context manager or call [`close`][]. The napari Qt
-    main window is exposed as [`qt_window`][] for embedding into the Tether shell
-    (#356).
+    main window is exposed as [`qt_window`][], which the Tether shell docks (#356).
     """
 
     def __init__(self, *, title: str = "Tether — movie", show: bool = False) -> None:
@@ -303,7 +304,7 @@ class NapariMoviePanel:
 
     @property
     def viewer(self) -> napari.Viewer:
-        """The underlying [`napari.Viewer`][]."""
+        """The underlying `napari.Viewer`."""
         return self._viewer
 
     @property
@@ -365,11 +366,13 @@ class NapariMoviePanel:
 
     @property
     def switcher(self) -> QComboBox:
-        """A [`QComboBox`][qtpy.QtWidgets.QComboBox] that switches the active movie.
+        """A `QComboBox` that switches the active movie.
 
         Lazily created and kept in sync with [`add_movie`][] /
         [`set_active_movie`][]; selecting an entry calls [`set_active_movie`][].
-        A host (the Tether shell, #356) places it in its chrome.
+        A host without a switcher of its own can place it in its chrome. The Tether
+        shell does not: its browser panel's switcher drives [`set_active_movie`][]
+        (#356), so the shell never builds this one.
         """
         from qtpy.QtWidgets import QComboBox
 
@@ -429,7 +432,15 @@ class NapariMoviePanel:
             self._switcher.addItem(entry.name)
             self._switcher.blockSignals(False)
         if self._active_index < 0:
-            self.set_active_movie(index)
+            try:
+                self.set_active_movie(index)
+            except Exception:
+                # A movie that cannot be shown leaves no trace: no movie was active, so it
+                # is the only one registered, and clearing removes it with any image or
+                # overlay layer it got as far as drawing. The next movie added becomes the
+                # active one.
+                self.clear_movies()
+                raise
         return index
 
     def set_active_movie(self, index: int):
