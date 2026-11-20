@@ -9,12 +9,13 @@ unmerged edits are inert and reviewed as code.
 `AGENTS.md` governs operations/safety; `docs/PRD.md` governs product/science; `CONTRIBUTING.md` and
 templates add detail. If they conflict, stop, choose the safe option, and ask.
 
-Two pages remain outside this file, and both are *conditional* — read them only when you are about
-to do the thing they govern: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR, and
-[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster. The **`tether-worker`** skill
-is conditional in the same way and required for work-item work (§Outcome and authority): it carries
-the peer-worker procedure — claim, worktree, handoff — and by its own first line neither restates
-nor relaxes anything here.
+Three pages sit outside this file, all *conditional* — read each only before doing what it
+governs: [`docs/agents/adr.md`](docs/agents/adr.md) before adding an ADR,
+[`docs/agents/hpc.md`](docs/agents/hpc.md) before touching a cluster, and
+[`handoff.md`](docs/agents/handoff.md) before writing to a PR in a Codex handoff. The
+**`tether-worker`** skill is conditional likewise and required for work-item work (§Outcome and
+authority): it carries the worker procedure and by its own first line neither restates nor relaxes
+anything here.
 
 **`<py>` is your lane's interpreter — `python3` in WSL bash, `python` in native PowerShell.** Naming
 one of them in this file would strand the other lane, so every command below writes `<py>` and you

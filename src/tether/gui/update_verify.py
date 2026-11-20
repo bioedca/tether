@@ -16,7 +16,7 @@ when every step before it passed:
    nothing else happens: no request, no ``gh``.
 2. **Local checks.** The version must be a stable ``MAJOR.MINOR.PATCH``, the file's name
    must be this platform's installer for that version, and the bundled ``gh``
-   (the caller passes [`tether._verifier.bundled_gh`][]) must report a version at or above
+   (the caller passes `tether._verifier.bundled_gh`) must report a version at or above
    [`GH_MIN_VERSION`][] (CVE-2025-25204 made ``gh attestation verify`` fail open below it).
 3. **Tether fetches.** The SHA-256 of the file, then one unauthenticated ``GET`` of
    [`ATTESTATIONS_API`][] for that digest, read as explicit UTF-8, and the Sigstore trusted
@@ -365,8 +365,8 @@ def channel_version(version: Version) -> tuple[int, int, int] | None:
 def platform_tag(system: str | None = None, machine: str | None = None) -> str | None:
     """Return this platform's installer-name suffix, e.g. ``Linux-x86_64.sh``, or ``None``.
 
-    ``system`` defaults to [`sys.platform`][] and ``machine`` to
-    [`platform.machine`][]. ``None`` means no installer is published for this platform.
+    ``system`` defaults to `sys.platform` and ``machine`` to
+    `platform.machine`. ``None`` means no installer is published for this platform.
     """
     system = sys.platform if system is None else system
     machine = _platform_mod.machine() if machine is None else machine
@@ -764,7 +764,7 @@ def verify_update(
 
     ``settings_file`` and ``override_file`` go to
     [`tether.gui.app_settings.update_check_state`][]. ``gh`` is required and is what
-    [`tether._verifier.bundled_gh`][] returns for this installed copy; ``None`` (no
+    `tether._verifier.bundled_gh` returns for this installed copy; ``None`` (no
     verifier, as in a development checkout) is *unavailable*. The caller looks it up
     because this GUI module does not import the core (ADR-0100). ``tag`` defaults to
     [`platform_tag`][]. ``fetch`` and ``runner`` are for tests.
