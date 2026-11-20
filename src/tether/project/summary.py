@@ -5,8 +5,8 @@
 [`read_project_summary`][] is the one function behind ``tether info``. It answers the
 questions a user asks after an extraction or a batch run — how many movies and molecules,
 how far curation has gone, whether corrections ran, which idealizations exist, who holds
-the lock — without the application and without a script. ``tether status`` (#896) is
-meant to read a project through the same function.
+the lock — without the application and without a script. ``tether status`` (#896) reads
+a project through the same function ([`tether.project.readiness`][]).
 
 The read is deliberately narrow:
 

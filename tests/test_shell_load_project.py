@@ -450,6 +450,81 @@ def test_read_only_reason_matches_banner_for_foreign_lock(shell, tmp_path) -> No
         assert lock.release(project.path, held)
 
 
+def test_open_names_onedrive_conflict_copies_in_a_non_blocking_banner(shell, tmp_path) -> None:
+    # #560 / PRD §5.4 detect-and-surface: both documented naming forms are named, the
+    # open still succeeds writable, and the copies are left exactly as they were.
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
+    onedrive = tmp_path / "exp-DESKTOP-AB12.tether"
+    numbered = tmp_path / "exp (1).tether"
+    onedrive.write_bytes(b"onedrive copy")
+    numbered.write_bytes(b"numbered copy")
+
+    opened = shell.load_project(project.path)
+
+    assert opened is not None
+    assert shell.curation_project is opened  # surfacing never blocks the open
+    banner = shell.conflict_copy_banner
+    assert not banner.isHidden()
+    assert banner.property("tetherRole") == "caution"
+    assert "exp-DESKTOP-AB12.tether" in banner.text()
+    assert "exp (1).tether" in banner.text()
+    assert "does not merge or delete them" in banner.text()
+    assert onedrive.read_bytes() == b"onedrive copy"
+    assert numbered.read_bytes() == b"numbered copy"
+
+
+def test_conflict_copy_banner_shows_a_markup_file_name_literally(
+    shell, tmp_path, monkeypatch
+) -> None:
+    # A file name may hold "<" and ">" on Linux and macOS; Qt's default AutoText would read
+    # "<b>" as rich text and hide it, so the banner must be plain text. Windows refuses such
+    # a name, so the detector is stubbed to report it rather than the file being created.
+    from pyqtgraph.Qt import QtCore
+
+    from tether.project import lock
+
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
+    monkeypatch.setattr(lock, "conflict_copies", lambda _p: [tmp_path / "exp-<b>BOX.tether"])
+
+    assert shell.load_project(project.path) is not None
+
+    banner = shell.conflict_copy_banner
+    assert banner.textFormat() == QtCore.Qt.TextFormat.PlainText
+    assert "exp-<b>BOX.tether" in banner.text()
+
+
+def test_open_without_conflict_copies_shows_no_banner(shell, tmp_path) -> None:
+    project, *_ = _round_trip_store(tmp_path, n=3, t=12, name="exp.tether")
+    (tmp_path / "other.tether").write_bytes(b"unrelated sibling")
+
+    assert shell.load_project(project.path) is not None
+
+    assert shell.conflict_copy_banner.isHidden()
+    assert shell.conflict_copy_banner.text() == ""
+
+
+def test_conflict_copy_banner_clears_on_close_and_on_a_clean_reopen(shell, tmp_path) -> None:
+    flagged_dir, clean_dir = tmp_path / "flagged", tmp_path / "clean"
+    flagged_dir.mkdir()
+    clean_dir.mkdir()
+    flagged, *_ = _round_trip_store(flagged_dir, n=3, t=12, name="exp.tether")
+    clean, *_ = _round_trip_store(clean_dir, n=3, t=12, name="exp.tether", seed=2)
+    (flagged_dir / "exp-LAPTOP-9.tether").write_bytes(b"copy")
+
+    assert shell.load_project(flagged.path) is not None
+    assert not shell.conflict_copy_banner.isHidden()
+
+    # Switching to a project with no copies must not leave the old warning up.
+    assert shell.load_project(clean.path) is not None
+    assert shell.conflict_copy_banner.isHidden()
+
+    assert shell.load_project(flagged.path) is not None
+    assert not shell.conflict_copy_banner.isHidden()
+    assert shell.close_project()
+    assert shell.conflict_copy_banner.isHidden()
+    assert shell.conflict_copy_banner.text() == ""
+
+
 @pytest.mark.parametrize("name", _SESSION_LOCK_ACCESSORS)
 def test_session_lock_accessors_have_no_setter(shell, name) -> None:
     from tether.gui.shell import TetherShell
@@ -1564,6 +1639,10 @@ def test_successful_curation_defers_open_population_histogram_refresh(
     assert dock.histogram.n_molecules == 3
     assert histogram_calls == 1
 
+    # Showing the histogram moved the window to Analyze, where the curation keys do not
+    # act (#342); the curator goes back to Curate and correct to curate. The open dock is
+    # still refreshed while its section is hidden (ADR-0116).
+    shell.set_section("curate")
     qtbot.keyClick(shell.molecule_list, QtCore.Qt.Key.Key_Backspace)
 
     assert histogram_calls == 1
@@ -1636,7 +1715,13 @@ def test_load_project_missing_file_is_fail_soft(shell, tmp_path) -> None:
 
 def test_file_menu_exposes_open_close_and_quit(shell) -> None:
     labels = [a.text() for a in shell.file_menu.actions() if not a.isSeparator()]
-    assert labels == ["&Open project…", "&Close project", "&Quit"]
+    assert labels == [
+        "&Open project…",
+        "Open &recent",
+        "&Close project",
+        "Curator &name…",
+        "&Quit",
+    ]
 
 
 def test_file_menu_open_action_opens_the_picked_project(shell, tmp_path, monkeypatch) -> None:

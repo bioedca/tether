@@ -169,6 +169,21 @@ Terminal=false
 Categories=Science;Biology;Education;
 MimeType=application/x-tether;
 EOF
+  # The .tether file type (issue #664, ADR-0118). The entry above already names the MIME
+  # type and takes the file as %f; this defines the type, so that the desktop knows that a
+  # *.tether file is one and opens it with the entry. The package text comes from the
+  # installed wheel (tether.gui.file_type.mime_package_xml), so this script and the module
+  # cannot name different types. It goes into the user's own MIME folder, and
+  # update-mime-database rebuilds that folder's database from its packages; docs/install.md
+  # names the file for the uninstall. No mimeapps.list is written: with no other program
+  # for the type, the entry is its default, and a choice the user made stays.
+  MIME_D="$HOME/.local/share/mime"
+  mkdir -p "$MIME_D/packages"
+  "$TETHER_PY" -c 'import sys; from tether.gui.file_type import mime_package_xml; sys.stdout.write(mime_package_xml())' \
+    > "$MIME_D/packages/tether.xml"
+  if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database "$MIME_D" >/dev/null 2>&1 || true
+  fi
   # Best-effort: a stale cache hides a brand-new entry until the next login.
   if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$APPS_D" >/dev/null 2>&1 || true

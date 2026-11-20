@@ -34,10 +34,15 @@ from tether.idealize import (
     within_tolerance,
 )
 from tether.idealize.parity import (
+    FREEZE_RESOLUTION,
     PROVISIONAL,
     SpreadSummary,
     canonical_state_path,
+    freeze_transition_matrix,
+    load_transition_matrix_tolerance,
     relative_elbo,
+    transition_matrix_abs_delta,
+    within_transition_matrix_tolerance,
 )
 
 FROZEN_JSON = Path(__file__).resolve().parents[1] / "schema" / "parity_tolerance.json"
@@ -476,6 +481,12 @@ _ACCEPTED_BOUNDS = {
         "viterbi_min_agreement": 0.9034,
         "relative_elbo_max": 0.01,
     },
+    "$.transition_matrix.tolerance_by_method.vbconhmm": {
+        "transition_matrix_abs_delta_max": 0.0001,
+    },
+    "$.transition_matrix.tolerance_by_method.ebhmm": {
+        "transition_matrix_abs_delta_max": 0.0441,
+    },
 }
 
 
@@ -484,6 +495,8 @@ def _frozen_bound_rows(data: dict) -> dict[str, dict]:
     rows = {"$.tolerance": data["tolerance"]}
     for method, row in data.get("tolerance_by_method", {}).items():
         rows[f"$.tolerance_by_method.{method}"] = row
+    for method, row in data.get("transition_matrix", {}).get("tolerance_by_method", {}).items():
+        rows[f"$.transition_matrix.tolerance_by_method.{method}"] = row
     return rows
 
 
@@ -646,3 +659,162 @@ def test_pooled_worst_is_the_aggregate_of_its_own_evidence():
                 f"{label}.pooled_worst.{metric} is {recorded!r}, but the worst of the "
                 f"{len(values)} recorded runs is {pooled_worst!r}"
             )
+
+
+# --------------------------------------------------------------------------- #
+# transition-matrix term (#545, ADR-0110)                                      #
+# --------------------------------------------------------------------------- #
+
+
+def _tm_model(means, norm_tmatrix):
+    model = _model(means)
+    model.norm_tmatrix = None if norm_tmatrix is None else np.asarray(norm_tmatrix, "float64")
+    return model
+
+
+def test_transition_matrix_delta_is_permutation_invariant():
+    # B is A with its two state labels swapped: rows and columns permute together.
+    a = _tm_model([0.1, 0.9], [[0.95, 0.05], [0.10, 0.90]])
+    b = _tm_model([0.9, 0.1], [[0.90, 0.10], [0.05, 0.95]])
+    assert transition_matrix_abs_delta(a, b) == 0.0
+    c = _tm_model([0.9, 0.1], [[0.88, 0.12], [0.05, 0.95]])
+    assert transition_matrix_abs_delta(a, c) == pytest.approx(0.02)
+
+
+def test_transition_matrix_delta_normalizes_a_raw_tmatrix():
+    a = _tm_model([0.1, 0.9], [[0.95, 0.05], [0.10, 0.90]])
+    b = _model([0.1, 0.9])
+    b.tmatrix = np.array([[95.0, 5.0], [10.0, 90.0]])  # counts, rows not normalized
+    assert transition_matrix_abs_delta(a, b) == pytest.approx(0.0, abs=1e-15)
+
+
+def test_transition_matrix_delta_is_inf_when_incomparable():
+    two = _tm_model([0.1, 0.9], [[0.95, 0.05], [0.10, 0.90]])
+    three = _tm_model([0.1, 0.5, 0.9], np.full((3, 3), 1 / 3))
+    assert transition_matrix_abs_delta(two, three) == float("inf")  # state counts differ
+    assert transition_matrix_abs_delta(two, _tm_model([0.1, 0.9], None)) == float("inf")
+    wrong_shape = _tm_model([0.1, 0.9], np.full((3, 3), 1 / 3))
+    assert transition_matrix_abs_delta(two, wrong_shape) == float("inf")
+    broken = _tm_model([0.1, 0.9], [[NAN, 0.05], [0.10, 0.90]])
+    assert transition_matrix_abs_delta(two, broken) == float("inf")
+    # A raw (not row-normalized) matrix that is not 2-D is malformed: inf, not an exception.
+    for raw in (np.array([0.95, 0.05]), np.array(0.9)):
+        flat = _model([0.1, 0.9])
+        flat.tmatrix = raw
+        assert transition_matrix_abs_delta(two, flat) == float("inf")
+    # Not a transition matrix: rows that are not probabilities score inf, even when both
+    # sides are equally wrong (two zero-filled matrices must not read as a perfect match).
+    zeros = np.zeros((2, 2))
+    assert transition_matrix_abs_delta(
+        _tm_model([0.1, 0.9], zeros), _tm_model([0.1, 0.9], zeros)
+    ) == (float("inf"))
+    for bad in ([[1.05, -0.05], [0.10, 0.90]], [[0.5, 0.4], [0.10, 0.90]]):
+        assert transition_matrix_abs_delta(two, _tm_model([0.1, 0.9], bad)) == float("inf")
+    negative = _model([0.1, 0.9])
+    negative.tmatrix = np.array([[96.0, -1.0], [10.0, 90.0]])  # positive row sums, negative entry
+    assert transition_matrix_abs_delta(two, negative) == float("inf")
+
+
+def test_compare_models_carries_the_transition_matrix_term():
+    ideal = [[0.1, 0.9, 0.9]]
+    a = _tm_model([0.1, 0.9], [[0.95, 0.05], [0.10, 0.90]])
+    a.idealized = np.asarray(ideal)
+    b = _tm_model([0.1, 0.9], [[0.94, 0.06], [0.10, 0.90]])
+    b.idealized = np.asarray(ideal)
+    assert compare_models(a, b).transition_matrix_abs_delta == pytest.approx(0.01)
+    # Not computed is inf, so a hand-built record can never pass the bound by default.
+    m = ParityMetrics(1.0, 0.0, 1.0, 0.0, 2, 2)
+    assert m.transition_matrix_abs_delta == float("inf")
+
+
+def test_within_transition_matrix_tolerance():
+    ok_m = ParityMetrics(1.0, 0.0, 1.0, 0.0, 2, 2, transition_matrix_abs_delta=0.001)
+    assert within_transition_matrix_tolerance(ok_m, 0.002) == (True, [])
+    ok, failures = within_transition_matrix_tolerance(ok_m, 0.0005)
+    assert not ok and "transition-matrix" in failures[0]
+    ok, failures = within_transition_matrix_tolerance(ParityMetrics(1.0, 0.0, 1.0, 0.0, 2, 2), 1.0)
+    assert not ok and "non-finite" in failures[0]
+
+
+def test_freeze_transition_matrix_rounds_up_and_never_below_one_step():
+    def spread(values):
+        return SpreadSummary("transition_matrix_abs_delta", "ceiling", values)
+
+    # 0.0123 × 1.5 = 0.01845 -> up to 0.0185 (round-to-nearest would also give it; 0.01841 not)
+    assert freeze_transition_matrix(spread([0.01, 0.0123])) == pytest.approx(0.0185)
+    assert freeze_transition_matrix(spread([0.01227])) == pytest.approx(0.0185)  # 0.018405 up
+    # An all-but-zero spread freezes one step of the resolution, not 0.0.
+    assert freeze_transition_matrix(spread([1e-9, 3e-9])) == FREEZE_RESOLUTION
+    assert freeze_transition_matrix(spread([0.0])) == FREEZE_RESOLUTION
+    # The frozen ceiling is never below the widened worst case.
+    for worst in (0.00011, 0.0123456, 0.031, 0.2):
+        assert freeze_transition_matrix(spread([worst])) >= worst * 1.5 - 1e-12
+    with pytest.raises(ValueError, match="non-finite"):
+        freeze_transition_matrix(spread([0.01, float("inf")]))
+    with pytest.raises(ValueError, match="ceiling"):
+        freeze_transition_matrix(SpreadSummary("x", "floor", [0.5]))
+
+
+#: The evidence behind each `$.transition_matrix` ceiling (#545, ADR-0110), pinned for the
+#: reason `_EXPECTED_EVIDENCE` is: deleting the run that set a ceiling, or re-labelling what
+#: it was measured against, is a re-freeze, never a silent edit. vbconhmm's term comes from
+#: the same runs as the default row's re-measure; ebFRET's from its own unseeded
+#: `--cross-seed` run of `smd_281mol`, the fixture its four-bound row was measured on.
+_EXPECTED_TM_EVIDENCE = {
+    "vbconhmm": _EXPECTED_EVIDENCE,
+    "ebhmm": _EXPECTED_EVIDENCE_BY_METHOD["ebhmm"],
+}
+_TM_METRIC = "transition_matrix_abs_delta"
+
+
+def test_transition_matrix_block_covers_its_own_evidence():
+    """Each transition-matrix ceiling is the freeze of its own recorded runs (#545, item 2).
+
+    For each method: the measured fixture set, SMD paths, anchors, state counts and
+    comparison counts match the pin; each summary is recomputed from its ``values``; every
+    value is within the ceiling; ``pooled_worst`` is the worst of all of them; the ceiling
+    *is* ``freeze_transition_matrix`` of that pooled spread under the block's recorded
+    margin; the loader returns it; and the runs were measured on the build of ``$.method``.
+    """
+    data = json.loads(FROZEN_JSON.read_text(encoding="utf-8"))
+    block = data["transition_matrix"]
+    assert block["metric"] == _TM_METRIC
+    assert block["freeze_policy"]["resolution"] == FREEZE_RESOLUTION
+    margin = block["freeze_policy"]["margin"]
+    assert set(block["tolerance_by_method"]) == set(block["measured_by_method"])
+    assert set(block["tolerance_by_method"]) == set(_EXPECTED_TM_EVIDENCE)
+    for method, measured in block["measured_by_method"].items():
+        ceiling = block["tolerance_by_method"][method]["transition_matrix_abs_delta_max"]
+        assert load_transition_matrix_tolerance(FROZEN_JSON, method) == ceiling
+        build = measured["method"]
+        assert build["model_type"] == method
+        for key in ("tmaven_commit", "sidecar_python_version"):
+            assert build[key] == data["method"][key], f"{method}: measured on another build"
+        n_runs = build["n_runs_per_fixture"]
+        expected = _EXPECTED_TM_EVIDENCE[method]
+        spread = measured["spread_by_fixture"]
+        assert set(spread) == set(expected), f"{method}: measured fixture set changed"
+        pooled = []
+        for name, fixture in spread.items():
+            pin = expected[name]
+            for key in ("smd", "reference", "nstates"):
+                assert fixture[key] == pin[key], f"{method}/{name}: frozen {key} changed"
+            anchored = pin["reference"] == _ANCHOR_REFERENCE
+            assert pin["n_comparisons"] == (n_runs - 1 if anchored else n_runs)
+            assert fixture["n_comparisons"] == pin["n_comparisons"]
+            assert set(fixture["metrics"]) == {_TM_METRIC}
+            summ = fixture["metrics"][_TM_METRIC]
+            assert summ["direction"] == "ceiling"
+            values = summ["values"]
+            assert len(values) == summ["n"] == pin["n_comparisons"]
+            recomputed = SpreadSummary(_TM_METRIC, "ceiling", values).as_dict()
+            for key in ("n", "min", "max", "worst"):
+                assert recomputed[key] == summ[key], f"{method}/{name}: stale {key}"
+            assert recomputed["mean"] == pytest.approx(summ["mean"], rel=1e-12)
+            assert all(v <= ceiling for v in values), f"{method}/{name}: above the ceiling"
+            pooled += values
+        worst = SpreadSummary(_TM_METRIC, "ceiling", pooled)
+        assert measured["pooled_worst"] == {_TM_METRIC: worst.worst}
+        assert ceiling == freeze_transition_matrix(worst, margin=margin), (
+            f"{method}: the ceiling is not the freeze of its own evidence"
+        )

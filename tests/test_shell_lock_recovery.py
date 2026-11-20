@@ -158,6 +158,40 @@ def test_running_process_on_this_computer_offers_nothing(shell, tmp_path, runnin
     assert shell.curation_project is None
 
 
+def test_banner_offers_recover_once_the_running_holder_stops(
+    shell, qtbot, tmp_path, monkeypatch
+) -> None:
+    """A running-holder verdict is judged again, so Recover appears after it stops (#1123)."""
+    from tether.gui import shell as shell_module
+    from tether.project import lock
+    from tether.project.lock import LockIdentity, RecoveryAction, local_identity
+
+    monkeypatch.setattr(shell_module, "_LOCK_RECOVERY_RECHECK_MAX_MS", 200)
+    project = _store(tmp_path)
+    me = local_identity()
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=child.pid))
+        assert shell.load_project(project.path) is not None
+        assert shell.lock_recovery.action is RecoveryAction.NONE
+        assert shell.lock_recovery.holder_running
+        assert shell.recover_button.isHidden()
+
+        qtbot.wait(500)  # several re-checks while it still runs: nothing is offered
+        assert shell.recover_button.isHidden()
+        assert "running Tether process on this computer" in shell.read_only_banner.text()
+    finally:
+        child.kill()
+        child.wait()
+
+    qtbot.waitUntil(lambda: not shell.recover_button.isHidden(), timeout=5_000)
+
+    assert shell.lock_recovery.action is RecoveryAction.RECOVER
+    assert "Recover" in shell.read_only_banner.text()
+    assert shell.recover_project_lock() is not None
+    assert lock.read_lock(project.path).identity == me
+
+
 def test_foreign_lock_that_is_not_stale_cannot_be_taken(shell, tmp_path) -> None:
     from tether.project import lock
     from tether.project.lock import RecoveryAction
@@ -422,6 +456,49 @@ def test_recheck_describes_the_current_holder(shell, tmp_path) -> None:
         assert shell.lock_recovery.owner == winner
     finally:
         lock.release(project.path, winner)
+
+
+def test_recover_keeps_the_opened_intensity_layer(shell, qtbot, tmp_path) -> None:
+    # #1097: the reopen after a recovery must use the quantity of the refused open,
+    # not load_project's "corrected" default, or the traces under curation change.
+    from pyqtgraph.Qt import QtCore
+
+    from tether.gui.shell import traces_from_store
+    from tether.project import lock
+    from tether.project.lock import LockIdentity, local_identity
+
+    project = _store(tmp_path)
+    raw = traces_from_store(project, intensity_quantity="raw")
+    corrected = traces_from_store(project, intensity_quantity="corrected")
+    assert not np.allclose(raw[0].donor, corrected[0].donor)  # the layers differ here
+    me = local_identity()
+    lock.acquire(project.path, identity=LockIdentity(host=me.host, user=me.user, pid=_dead_pid()))
+
+    assert shell.load_project(project.path, intensity_quantity="raw") is not None
+    assert shell.curation_project is None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+
+    qtbot.mouseClick(shell.recover_button, QtCore.Qt.MouseButton.LeftButton)
+
+    assert shell.curation_project is not None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+    np.testing.assert_array_equal(shell.trace_dock.trace.acceptor, raw[0].acceptor)
+
+
+def test_take_over_keeps_the_opened_intensity_layer(shell, tmp_path) -> None:
+    from tether.gui.shell import traces_from_store
+    from tether.project import lock
+
+    project = _store(tmp_path)
+    raw = traces_from_store(project, intensity_quantity="raw")
+    lock.acquire(project.path, identity=_foreign(), now=_stale_now())
+
+    assert shell.load_project(project.path, intensity_quantity="raw") is not None
+    assert shell.take_over_project_lock(confirmation=project.path.name) is not None
+
+    assert shell.curation_project is not None
+    np.testing.assert_array_equal(shell.trace_dock.trace.donor, raw[0].donor)
+    np.testing.assert_array_equal(shell.trace_dock.trace.acceptor, raw[0].acceptor)
 
 
 def test_takeover_stands_when_its_record_cannot_be_written(shell, tmp_path, monkeypatch) -> None:

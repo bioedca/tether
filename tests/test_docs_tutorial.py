@@ -48,6 +48,8 @@ _HAS_QT = all(importlib.util.find_spec(m) is not None for m in ("pyqtgraph", "Py
 _needs_qt = pytest.mark.skipif(not _HAS_QT, reason="pyqtgraph/PySide6 not installed")
 
 EXTRACT_LINE = "Extracted 3 molecule(s) -> tutorial.tether"
+#: The colocalization rule (#920): every tutorial donor spot has its acceptor spot.
+COLOC_LINE = "  colocalization: partner-in-both kept 3 (donor-anchored would keep 3)"
 #: The donor-side check (#646): three molecules are too few for it to judge.
 SIDE_CHECK_LINE = (
     "  donor side: not enough bleach events to check the donor side (0 found, 15 needed)."
@@ -112,8 +114,8 @@ def test_page_builds_the_project_from_the_movie() -> None:
 
 def test_extract_prints_the_line_the_page_quotes(tmp_path, monkeypatch, capsys) -> None:
     out = _extract(tmp_path, monkeypatch, capsys)
-    assert out.splitlines() == [EXTRACT_LINE, SIDE_CHECK_LINE]
-    assert f"```text\n{EXTRACT_LINE}\n{SIDE_CHECK_LINE}\n```" in _page()
+    assert out.splitlines() == [EXTRACT_LINE, COLOC_LINE, SIDE_CHECK_LINE]
+    assert f"```text\n{EXTRACT_LINE}\n{COLOC_LINE}\n{SIDE_CHECK_LINE}\n```" in _page()
     assert (tmp_path / "tutorial.tether").is_file()
 
 
@@ -152,7 +154,11 @@ def test_shell_steps_print_the_lines_the_page_quotes(qtbot, tmp_path, monkeypatc
     status = shell.window.statusBar()
     try:
         lst = shell.molecule_list
-        assert status.currentMessage() == OPEN_LINE
+        # The page quotes what a display shows. Without OpenGL (macOS offscreen in CI) the
+        # shell builds no movie panel and says why at the end of the same line (#356).
+        no_panel = shell_module._movie_panel_unavailable()
+        tail = f"; movie panel unavailable: {no_panel}" if no_panel else ""
+        assert status.currentMessage() == OPEN_LINE + tail
         assert [lst.item(i).text() for i in range(lst.count())] == ["mol-0", "mol-1", "mol-2"]
         assert lst.currentRow() == 0
 

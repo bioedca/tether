@@ -34,7 +34,7 @@ Two estimators are attached (both self-describing for NFR-REPRO):
   never a fabricated field) when the estimate is undefined — fewer than two in-range
   points, or a singular covariance (all points share one time or one E) — the guard the
   B3 KDE overlay uses.
-* **HDR percentile contours** [Hyndman1996][Haselsteiner2017] — the density threshold
+* **HDR percentile contours** [Hyndman1996], [Haselsteiner2017] — the density threshold
   ``level_p`` whose super-level set ``{f >= level_p}`` encloses coverage ``p`` of the
   cloud's mass, for each requested ``p`` (default 50% and 95%). Computed by the
   numerical-grid density-quantile method [Haselsteiner2017]: sort the grid cells by
@@ -50,7 +50,7 @@ Two further model-free lenses (PRD §7.7), the second half of the raw-cloud deli
 * **Alpha-shape support boundary** — the α-shape generalizes the convex hull to
   reconstruct a **non-convex** support, so the boundary traces where the population's
   signal actually lives (hugging separated bands) instead of the convex hull's
-  gap-spanning envelope [Edelsbrunner1983][PateiroLopez2010]. It is built from the
+  gap-spanning envelope [Edelsbrunner1983], [PateiroLopez2010]. It is built from the
   cloud's Delaunay triangulation: a triangle is kept when its circumradius does not
   exceed the threshold ``alpha``, and the boundary is the set of edges belonging to
   exactly one kept triangle. Because the time and E axes carry very different units,
@@ -213,7 +213,7 @@ class RawFretCloud:
     [`signal_centers`][] ``[j]``), or ``None`` when no KDE could be formed (fewer than
     two points, or a singular covariance). [`hdr_levels`][] holds the density
     threshold per [`hdr_coverages`][] entry (the ``f = level`` isocontour encloses
-    that coverage of the in-grid mass, [Hyndman1996][Haselsteiner2017]); it is ``None``
+    that coverage of the in-grid mass, [Hyndman1996], [Haselsteiner2017]); it is ``None``
     exactly when [`density`][] is. Because a smaller coverage encloses a
     higher-density core, the levels **decrease** as the aligned coverages increase.
     [`points`][] keeps **all** finite samples (the full scatter, so the GUI can show
@@ -267,7 +267,7 @@ def _hdr_levels_from_grid(
     Sorts the grid cells by density (descending), accumulates each cell's mass
     ``density * cell_area``, and for each coverage ``p`` returns the density at which the
     cumulative fraction of the **in-grid** mass first reaches ``p`` — the threshold whose
-    super-level set encloses coverage ``p`` [Hyndman1996][Haselsteiner2017]. Returns
+    super-level set encloses coverage ``p`` [Hyndman1996], [Haselsteiner2017]. Returns
     ``None`` when the grid carries no mass (an all-zero surface), so the empty case never
     yields a fabricated contour.
     """
@@ -300,7 +300,7 @@ def _kde_surface(
     ``(time_centers[i], signal_centers[j])`` and ``factor`` the bandwidth actually used.
     Returns ``None`` (never raises) when the estimate is degenerate — fewer than two
     points, or a singular covariance (all points collinear / one axis constant). scipy
-    raises [`LinAlgError`][numpy.linalg.LinAlgError] for some singular inputs but *silently*
+    raises `LinAlgError` for some singular inputs but *silently*
     returns a degenerate all-zero surface for others (e.g. a constant E axis), so both
     the raise and the resulting zero-mass grid are treated as "no surface" — the B3
     ``try/except`` guard, extended for the 2-D case so a misleading empty field is never
@@ -567,7 +567,7 @@ class AlphaShape:
     """The α-shape (concave support boundary) of a pooled ``(time, E)`` FRET cloud.
 
     The α-shape is the set of Delaunay triangles whose circumradius does not exceed
-    ``alpha`` [Edelsbrunner1983][PateiroLopez2010]; its boundary is the edges shared by
+    ``alpha`` [Edelsbrunner1983], [PateiroLopez2010]; its boundary is the edges shared by
     exactly one such triangle. Because the time and E axes carry different units, the
     circumradius test is applied in coordinates normalized so each axis spans ``[0, 1]``
     over the cloud's bounding box, so [`alpha`][] is a **dimensionless** threshold
@@ -818,7 +818,7 @@ def k_rmse_elbow(
 ) -> StateNumberElbow:
     """k-vs-RMSE elbow **hint** for the number of FRET states from pooled apparent-E.
 
-    Runs k-means ([`scipy.cluster.vq.kmeans`][], ``restarts`` restarts, keeping the
+    Runs k-means (`scipy.cluster.vq.kmeans`, ``restarts`` restarts, keeping the
     lowest-distortion codebook) on the 1-D ``values`` for each ``k`` in
     ``[k_min, k_max]`` and records the within-cluster RMSE. Clustering is on the **E
     values alone** — a state is an E *level* that persists over time, so the count of E
@@ -986,7 +986,7 @@ def population_fret_cloud_state_number_elbow(
     outliers do not create a spurious extra band. Returns a
     [`StateNumberElbow`][] whose [`elbow_k`][tether.analysis.cloud.StateNumberElbow.elbow_k] is a
     heuristic
-    suggestion, subordinate to the HMM/BIC state count [Schubert2022][McKinney2006].
+    suggestion, subordinate to the HMM/BIC state count [Schubert2022], [McKinney2006].
     """
     cloud = population_raw_fret_cloud(
         project,
