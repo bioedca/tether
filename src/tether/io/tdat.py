@@ -48,7 +48,7 @@ MCOS object blob, because each is a plain numeric leaf of ``temp/``:
   *leakage*, ``Alpha`` is acceptor *direct excitation*. [`remap_correction_factors`][]
   applies the PRD Appendix-B remap — Deep-LASI ``Beta`` → Tether ``alpha``
   (leakage, applied), Deep-LASI ``Alpha`` → Tether ``delta`` (direct excitation,
-  **inert 0** without ALEX [Lee2005][Hohlbein2014]), Deep-LASI ``Gamma`` → Tether
+  **inert 0** without ALEX [Lee2005], [Hohlbein2014]), Deep-LASI ``Gamma`` → Tether
   ``gamma`` — and retains the Deep-LASI values for provenance. Misattributing
   ``Beta`` would silently drop a real leakage correction (PRD §7.8).
 
@@ -235,7 +235,7 @@ def remap_correction_factors(
     Deep-LASI ``Beta`` (leakage) → Tether ``alpha``; Deep-LASI ``Alpha`` (direct
     excitation) → Tether ``delta``, forced **inert 0** because single-laser data
     cannot estimate direct excitation (it needs the acceptor-under-acceptor-
-    excitation channel that only ALEX provides [Lee2005][Hohlbein2014]); Deep-LASI
+    excitation channel that only ALEX provides [Lee2005], [Hohlbein2014]); Deep-LASI
     ``Gamma`` → Tether ``gamma``.
     """
     return TdatCorrections(
@@ -359,7 +359,7 @@ def read_detection_settings(path: str | PathLike[str]) -> TdatDetectionSettings:
     A lightweight companion to [`read_tdat`][] for the ``tether extract --tdat``
     auto-apply path: it reads only ``temp/ParticleDetectionMode`` (no coordinate or
     correction-factor decode), so a ``.tdat`` that lacks colocalization data still
-    yields its detection mode. Raises [`ValueError`][] for a non-TIRFdata
+    yields its detection mode. Raises `ValueError` for a non-TIRFdata
     container or an unsupported mode.
     """
     path = Path(path)
@@ -425,7 +425,7 @@ def read_movie_reference(path: str | PathLike[str]) -> TdatMovieReference | None
     coordinate, correction-factor, or detection-mode decode), so a ``.tdat`` with an
     unported detection mode — irrelevant to the movie reference — still yields it.
     Returns ``None`` (never raising on the decode) when no usable reference is
-    present; still raises [`ValueError`][] for a non-TIRFdata container.
+    present; still raises `ValueError` for a non-TIRFdata container.
     """
     path = Path(path)
     with h5py.File(path, "r") as file:
@@ -495,7 +495,7 @@ def read_tdat(path: str | PathLike[str]) -> Tdat:
     correction factors are remapped to the Tether scheme (PRD Appendix B) with the
     Deep-LASI originals retained; [`Tdat.detection`][] carries the
     [`TdatDetectionSettings`][] (the ``findPart`` mode the movie was detected
-    with). Raises [`ValueError`][] if the file is not a recognizable TIRFdata
+    with). Raises `ValueError` if the file is not a recognizable TIRFdata
     container (no ``temp`` struct) or carries an unsupported detection mode.
     """
     path = Path(path)

@@ -7,7 +7,7 @@ window is swept along one molecule's donor/acceptor intensity trace, the
 donor–acceptor cross-correlation is measured in each window, and contiguous runs
 of windows that are genuinely anti-phase are merged into events. During FRET a
 structural fluctuation raises one channel as it lowers the other — donor and
-acceptor signals are *anticorrelated* [Felekyan2012][Torres2007] — so a genuine
+acceptor signals are *anticorrelated* [Felekyan2012], [Torres2007] — so a genuine
 conformational/kinetic event shows up as a window where the two channels move in
 anti-phase. Where the population
 [`cross_correlation`][tether.analysis.crosscorr.cross_correlation] scores a *whole* trace with a

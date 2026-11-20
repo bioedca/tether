@@ -74,7 +74,7 @@ def object_reference_id(marker: object) -> int:
     ``marker`` is the ``[0xDD000000, ndims, dim1…, obj_id…, class_id]`` ``uint32``
     vector stored where a MATLAB v7.3 file references an MCOS object. Only **scalar**
     (1×1) object references are read here; a non-integer, non-scalar, or otherwise
-    malformed marker raises [`ValueError`][] so callers degrade to a default
+    malformed marker raises `ValueError` so callers degrade to a default
     rather than decode the wrong object.
     """
     raw = np.asarray(marker).reshape(-1)
@@ -123,7 +123,7 @@ def _decode_matlab_value(file: h5py.File, node: object) -> object:
     type) becomes a ``list`` of its recursively-decoded elements — so a nested cell
     like ``FilePath = {dir, {file}}`` round-trips to ``['dir', ['file']]``; a
     **char array** becomes its ``str``; anything else (a numeric leaf, an
-    object/struct [`h5py.Group`][], a null reference) becomes ``None``. Pure over
+    object/struct `h5py.Group`, a null reference) becomes ``None``. Pure over
     ``(file, node)`` so it is unit-testable against a synthetic HDF5 file without any
     MCOS metadata.
     """
@@ -140,7 +140,7 @@ class McosDecoder:
     """Resolve named properties of MCOS objects in a MATLAB v7.3 ``FileWrapper__``.
 
     Construct via [`from_file`][] (returns ``None`` when the file carries no MCOS
-    subsystem). The decoder holds a reference to the open [`h5py.File`][]; use it
+    subsystem). The decoder holds a reference to the open `h5py.File`; use it
     only while that file is open.
     """
 

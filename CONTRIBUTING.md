@@ -16,10 +16,10 @@ the site are Markdown files under `docs/`. `README.md`, `CONTRIBUTING.md` and `S
 at the top of the repository.
 
 1. Fork `bioedca/tether` on GitHub.
-2. Clone your fork.
+2. Clone your fork. In the command, `YOUR_GITHUB_USERNAME` is your GitHub username.
 
    ```bash
-   git clone https://github.com/<your-account>/tether.git
+   git clone https://github.com/YOUR_GITHUB_USERNAME/tether.git
    cd tether
    ```
 
@@ -581,12 +581,12 @@ Source: `docs/PRD.md` §12.2 and §12.6.
 
 ### The development model: solo, with CI and review gates
 
-Tether is currently maintained **solo, by the account `bioedca`, with CI and a fixed review lane
-as the merge gates**. Branch protection on `main` requires green required CI and a self-review
-checklist on every PR. [`AGENTS.md`, section "Review"](AGENTS.md#review) gives the review lane and
-its rules. The ruleset requires zero GitHub approval reviews. Load-bearing changes also need the
-qualified human or domain judgment that `AGENTS.md` names. If contributors join, this model scales
-up cleanly to required human reviews and `CODEOWNERS` (`docs/PRD.md` §12.3).
+`bioedca` maintains Tether alone. CI and a fixed review lane gate merges. Branch protection on
+`main` enforces the required CI checks. Complete the self-review checklist on every PR. The
+merger checks it during review. See the [review rules in `AGENTS.md`](AGENTS.md#review).
+
+The ruleset requires zero approvals. Load-bearing changes need the qualified human or domain
+judgment that `AGENTS.md` names. The model scales to required human reviews and `CODEOWNERS` as contributors join (PRD §12.3).
 
 `main` is **always releasable and protected**. Never push to `main` directly. Never merge, release
 or declare a PR ready while the required checks are red or pending.

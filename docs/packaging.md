@@ -22,8 +22,7 @@ required at install time.
 - The **Tether application environment** (installed under `envs/tether`) — the PySide6 shell,
   the pyqtgraph trace docks and the compute/IO stack — pinned to Tether's committed lock so
   every install is byte-for-byte reproducible. It also holds [napari](https://napari.org) for
-  the movie panel, which reaches the application with the planned
-  [trace curation section](https://github.com/bioedca/tether/milestone/18).
+  the application's movie panel.
 - An **isolated tMAVEN sidecar** environment (installed under `envs/sidecar`), which runs
   every idealization fit: the application's one-trace fit on the **I** key, the
   whole-project consensus VB-HMM fit of [`tether batch`](cli.md#tether-batch), and the
