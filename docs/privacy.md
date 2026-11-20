@@ -67,11 +67,13 @@ you allow it** (below).
   the source movie paths you selected (the lock file is a separate file and is not
   embedded in the project) — so treat shared project files as you would any working
   document. [Share and deposit a dataset](how-to/share-a-dataset.md#3-check-what-the-files-reveal)
-  shows how to see these fields before you make a file public. To share without the username,
-  export a subset with `curator_alias`: the copy leaves out the movie table and its paths, a
-  model file path keeps only its file name, and each username becomes an alias such as `curator-1`
-  ([Export results](how-to/export-results.md#share-a-subset-without-your-user-name)). The copy
-  still has the file name of each source movie.
+  shows how to see these fields before you make a file public. Export a subset with
+  `curator_alias` to replace user names in structured fields with aliases such as `curator-1`.
+  The subset excludes the movie table and its paths. A model reference keeps its file name.
+  The copy still has the file name of each source movie. Host names, job requests and errors,
+  and other free text can contain names or full paths. Check those fields before sharing.
+  [Export results](how-to/export-results.md#share-a-subset-without-your-user-name) describes
+  what the copy carries.
 - **What the application remembers.** So that you can carry on where you stopped, the
   desktop application keeps a small file, `preferences.json`, in your own settings folder.
   It holds the paths of the last ten projects you opened. For up to 50 projects it also

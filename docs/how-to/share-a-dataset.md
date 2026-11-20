@@ -128,10 +128,23 @@ The other files carry neither field:
 - The Deep-LASI trace matrix holds only numbers.
 - A provenance file names the source project by its file name only.
 
-If the names must not be public, export the subset with a curator alias. Add
-`curator_alias="curator"` to the `export_subset_tether` call in step 2. Each name then becomes
-`curator-1`, `curator-2`, and so on, also in the condition change log. One person keeps one
-alias. Run the check again: it prints only the aliases.
+To replace the curator names, run the subset export again. Use `overwrite=True` to
+replace the subset and its provenance file from step 2.
+
+```python
+export_subset_tether(
+    "tutorial.tether",
+    "deposit/accepted.tether",
+    molecule_keys=accepted,
+    include_raw=True,
+    curator_alias="curator",
+    overwrite=True,
+)
+show_identity("deposit/accepted.tether")
+```
+
+The curator check prints aliases such as `curator-1`. One person keeps the same alias
+in the labels and the condition change log.
 
 Your project file does not change, so do
 not deposit it. [Export results](export-results.md#share-a-subset-without-your-user-name) gives
