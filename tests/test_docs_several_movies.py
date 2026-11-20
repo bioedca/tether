@@ -147,11 +147,11 @@ def test_the_procedure_prints_what_the_page_shows(
 
     section = _section("how-to/extract-traces.md", _SECTION)
     (script,) = _fences(section, "python")
-    printed, info = _fences(section, "text")
-    with publish_lock(project) as guard:
-        summary = add_movie_to_project(project, second, publish_guard=guard)
-    line = f"Added {summary.n_molecules} molecule(s) as {summary.movie_id}"
-    assert 'print(f"Added {summary.n_molecules} molecule(s) as {summary.movie_id}")' in script
+    _, info = _fences(section, "text")
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    line = result.stdout.strip()
     assert _ADDED_RE.match(line), line
 
     capsys.readouterr()
