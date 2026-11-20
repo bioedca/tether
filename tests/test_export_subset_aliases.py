@@ -9,6 +9,7 @@ records that aliasing was used and how many names were replaced.
 
 from __future__ import annotations
 
+import getpass
 import hashlib
 import json
 import re
@@ -39,6 +40,7 @@ from tether.project.labels import default_labeler  # noqa: E402
 #: Distinct, unmistakable names, so a byte search cannot match by chance.
 ALICE = "alice-zq7-curator"
 BOB = "bob-xk4-curator"
+FIXTURE_LOGIN = "lab-user-yj8"
 
 #: A compound field whose name says it can record a person.
 _PERSON_FIELD = re.compile(
@@ -55,6 +57,14 @@ CAROL = "carol-vb2-curator"
 DAVE = "dave-mw3-curator"
 
 
+@pytest.fixture(autouse=True)
+def _login(monkeypatch, request):
+    """Use a stable login unless a raw-byte case selects another one."""
+    login = getattr(request, "param", FIXTURE_LOGIN)
+    if login is not None:
+        monkeypatch.setattr(getpass, "getuser", lambda: login)
+
+
 def _state_matrix() -> np.ndarray:
     return np.array(
         [
@@ -67,12 +77,12 @@ def _state_matrix() -> np.ndarray:
 
 
 def _source(tmp_path):
-    """A source with labels by two curators plus the OS login, and one audit row by Bob."""
+    """A source with labels by two curators plus the default labeler, and one audit row by Bob."""
     project, keys = build_store_with_model(tmp_path, _state_matrix(), MEANS)
     project.accept(keys[0], labeler=ALICE)
     project.reject(keys[1], labeler=BOB)
     project.accept(keys[1], labeler=ALICE)
-    project.accept(keys[2])  # default_labeler(): the OS login of the test run
+    project.accept(keys[2])  # resolves through default_labeler()
     project.sync_conditions()
     from_id = to_str(read_molecules(project.path)["condition_id"][0])
     C.rekey_condition(
@@ -124,8 +134,7 @@ def test_names_are_replaced_by_stable_aliases_in_first_met_order(tmp_path):
 
     export_subset_tether(project, out, include_rejected=True, curator_alias="curator")
 
-    os_user = default_labeler()
-    assert _label_labelers(project.path) == [ALICE, BOB, ALICE, os_user]
+    assert _label_labelers(project.path) == [ALICE, BOB, ALICE, FIXTURE_LOGIN]
     assert _label_labelers(out) == ["curator-1", "curator-2", "curator-1", "curator-3"]
     # The audit log uses the same map: Bob is curator-2 there too.
     assert _audit_labelers(out) == ["curator-2"]
@@ -137,24 +146,33 @@ def test_no_stored_value_equals_a_source_name(tmp_path):
 
     export_subset_tether(project, out, include_rejected=True, curator_alias="curator")
 
-    names = {ALICE, BOB, default_labeler()}
+    names = {ALICE, BOB, FIXTURE_LOGIN}
     assert not names & _every_stored_string(out)
 
 
+@pytest.mark.parametrize(
+    "_login", [None, "curator"], ids=["os-login", "curator-login"], indirect=True
+)
 def test_raw_bytes_of_an_aliased_copy_hold_no_source_name(tmp_path):
+    default_login = default_labeler()
+    prefix = "nym" if default_login in "curator-" else "curator"
     project, _ = _source(tmp_path)
     plain = tmp_path / "plain.tether"
     shared = tmp_path / "shared.tether"
 
     export_subset_tether(project, plain, include_rejected=True)
-    export_subset_tether(project, shared, include_rejected=True, curator_alias="curator")
+    result = export_subset_tether(project, shared, include_rejected=True, curator_alias=prefix)
 
-    os_user = default_labeler().encode()
-    for name in (ALICE.encode(), BOB.encode(), os_user):
-        assert name in plain.read_bytes()  # the search can see a name when it is there
-        assert name not in shared.read_bytes()
-        sidecar = shared.with_name(shared.name + ".provenance.json")
-        assert name not in sidecar.read_bytes()
+    assert _label_labelers(plain)[-1] == default_login
+    plain_bytes = plain.read_bytes()
+    shared_bytes = shared.read_bytes()
+    # The fixed JSON key itself contains "curator".
+    provenance_bytes = result.provenance_path.read_bytes().replace(b'"curator_alias":', b"")
+    for name in (ALICE, BOB, default_login):
+        encoded = name.encode()
+        assert encoded in plain_bytes  # the search can see a name when it is there
+        assert encoded not in shared_bytes
+        assert encoded not in provenance_bytes
 
 
 def test_provenance_records_the_count_and_no_name(tmp_path):
@@ -452,7 +470,7 @@ def _record_takeovers(project_path) -> None:
 
 
 def _record_jobs(project) -> None:
-    """One job run by this session (owner: the OS login), then one whose owner is Dave."""
+    """One job run by this session, then one whose owner is Dave."""
     from tether.project import jobs
     from tether.services import ExtractRequest
 
@@ -531,16 +549,15 @@ def test_job_owner_names_are_aliased(tmp_path):
 
     source = _job_owners(project.path)
     owners = _job_owners(shared)
-    # Labels give alice 1, bob 2, the OS login 3; the job run here is the OS login again.
+    # The first job's owner shares the alias of the default labeler.
     assert [o["user"] for o in owners] == ["curator-3", "curator-4"]
     for got, was in zip(owners, source, strict=True):
         assert {k: v for k, v in got.items() if k != "user"} == {
             k: v for k, v in was.items() if k != "user"
         }
-    assert [o["user"] for o in source] == [default_labeler(), DAVE]
+    assert [o["user"] for o in source] == [FIXTURE_LOGIN, DAVE]
     assert DAVE.encode() in plain.read_bytes()  # the search can see the name
-    # No byte search for the OS login here: the owner's host is copied as it is, and a
-    # CI runner's host name contains its login ("runner" in "runnervm…").
+    assert FIXTURE_LOGIN.encode() not in shared.read_bytes()
     assert DAVE.encode() not in shared.read_bytes()
     params = json.loads(result.provenance_path.read_text(encoding="utf-8"))["parameters"]
     assert params["n_aliased_names"] == 4
@@ -563,7 +580,7 @@ def test_lock_takeover_names_are_aliased(tmp_path):
     export_subset_tether(project, plain, include_rejected=True)
     result = export_subset_tether(project, shared, include_rejected=True, curator_alias="curator")
 
-    # Labels give alice 1, bob 2, the OS login 3; then the audit log, then the takeovers.
+    # Labels give alice 1, bob 2, the default labeler 3; then the audit log and takeovers.
     assert _takeovers(shared) == [("curator-2", "curator-4"), ("curator-2", "")]
     assert _takeovers(project.path) == [(BOB, CAROL), (BOB, "")]
     assert CAROL.encode() in plain.read_bytes()  # the search can see the name
