@@ -242,6 +242,11 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "n_reject_log_rows": {
+                "description": "The number of /labels/reject_log rows copied. Absent in subset exports made before this count was recorded.",
+                "type": "integer",
+                "minimum": 0
+              },
               "n_trace_layers": {
                 "type": "integer",
                 "minimum": 0
