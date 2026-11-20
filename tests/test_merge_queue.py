@@ -1,16 +1,11 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Offline tests for ``scripts/merge_queue.py`` (issue #1266, ADR-0135).
-
-Each test builds real git repositories in a temporary directory: a bare ``origin``, a ``dev``
-repository that writes ``main`` and the pull request branches, and a ``runner`` clone that the
-queue works in. GitHub is a fake transport that keeps its refs in that same ``origin``, so a
-request that ``join`` records is a request that ``git fetch`` reads. No test uses the network.
-"""
+"""Offline merge-queue tests with fake GitHub backed by a temporary Git origin."""
 
 from __future__ import annotations
 
 import ast
+import http.client
 import importlib.util
 import json
 import os
@@ -18,6 +13,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -64,7 +60,6 @@ class World:
         self.git = mq.Git(self.runner)
 
     def commit(self, branch: str, files: dict[str, str], start: str = "origin/main") -> str:
-        """Commit ``files`` on ``branch`` in ``dev`` (created from ``start``) and push it."""
         if _git(self.dev, "branch", "--list", branch):
             _git(self.dev, "checkout", "--quiet", branch)
         elif _git(self.dev, "branch", "--list", "main"):  # not the first commit of all
@@ -77,7 +72,6 @@ class World:
         return _git(self.dev, "rev-parse", "HEAD")
 
     def pull(self, number: int, files: dict[str, str]) -> str:
-        """Open pull request ``number`` with ``files`` changed, and return its head."""
         _git(self.dev, "fetch", "--quiet", "origin")
         head = self.commit(f"pr-{number}", files)
         pull = {"state": "open", "draft": False, "base": {"ref": "main"}}
@@ -232,6 +226,34 @@ def test_a_delete_that_github_rejects_is_an_error_and_not_an_absent_ref(world: W
         mq.leave(world.github, 12)
     assert main_exit(world, "leave", "--pr", "12") == 2
     assert world.origin_ref("refs/merge-queue/pr-12")
+
+
+@pytest.mark.parametrize("body", [b"<html>", b'{"state":"open"}'])
+def test_malformed_pull_data_is_an_error(body: bytes) -> None:
+    github = mq.GitHub(REPO, Mock(return_value=(200, body)))
+    with pytest.raises(mq.QueueError):
+        github.pull(1)
+
+
+@pytest.mark.parametrize(
+    "replies", [[(200, b"{}")], [(200, b'{"tree":{"sha":"tree"}}'), (201, b"[]")]]
+)
+def test_invalid_commit_data_is_an_error(replies: list[tuple[int, bytes]]) -> None:
+    github = mq.GitHub(REPO, Mock(side_effect=replies))
+    with pytest.raises(mq.QueueError):
+        github.create_request(1, "a" * 40, "squash")
+
+
+@pytest.mark.parametrize("body", [b'{"ref":"unknown"}', b"[null]"])
+def test_invalid_ref_lookup_does_not_report_an_absent_ref(body: bytes) -> None:
+    github = mq.GitHub(REPO, Mock(side_effect=[(422, b""), (200, body)]))
+    assert mq.main(["leave", "--pr", "1"], github=github) == 2
+
+
+@pytest.mark.parametrize("error", [TimeoutError(), http.client.IncompleteRead(b"{")])
+def test_transport_read_is_an_error(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
+    monkeypatch.setattr(mq.urllib.request, "urlopen", Mock(side_effect=error))
+    assert mq.main(["leave", "--pr", "1"], github=mq.GitHub(REPO, mq.urllib_transport(None))) == 2
 
 
 def test_each_candidate_tree_is_the_tree_of_the_squash_merges_in_order(world: World) -> None:

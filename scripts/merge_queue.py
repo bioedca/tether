@@ -2,24 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Record merge-queue requests and build the train of candidates (issue #1266, ADR-0135).
 
-This is part 1 of the merge queue of ``main``. It writes request refs and candidate branches.
-It writes nothing to a pull request and nothing to ``main``. ADR-0135 has the design. It runs
-on the bare runner Python, so it imports the standard library only.
-
-**A request is a ref.** ``refs/merge-queue/pr-N`` points at a commit whose only parent is the
-pinned head and whose message is the squash message. To create the ref is the mutex: ``201``
-for the first request, ``422`` for each later one. GitHub writes the commit, so its committer
-date, which orders the train, is server time.
-
-**The train is the requests in that order.** A candidate tree is ``git merge-tree --write-tree
-<candidate ahead> <head>``, which is the tree a squash merge puts on ``main`` (80 of the last 80
-merges, checked 2026-11-19). A candidate is pushed to ``mq/pr-N`` only when that branch does not
-already hold the same tree, so the evidence follows the tree.
+Part 1 runs on bare runner Python and writes only request refs and candidate branches.
 """
 
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -69,11 +58,7 @@ class Request:
 
 @dataclass(frozen=True)
 class Step:
-    """What ``plan`` decided for one request.
-
-    ``candidate`` has ``tree`` and ``commit``; ``held`` has ``blocked_by``, the pull request
-    ahead that it conflicts with; ``remove`` has ``reason``. ``paths`` are conflicting files.
-    """
+    """A candidate tree and commit, a hold with its blocker, or a removal with its reason."""
 
     pr: int
     state: str
@@ -98,7 +83,7 @@ def urllib_transport(token: str | None) -> Transport:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
                 return response.status, response.read()
         except urllib.error.HTTPError as error:
-            return error.code, error.read()
+            return error.code, b""
         except urllib.error.URLError as error:
             raise QueueError(f"{method} {url} failed: {error.reason}") from error
 
@@ -114,37 +99,59 @@ class GitHub:
         self._transport = transport
 
     def _call(
-        self, method: str, path: str, payload: Any = None, accept: Sequence[int] = (200, 201)
+        self, method: str, path: str, payload: Any = None, accept=(200, 201), expect=dict
     ) -> tuple[int, Any]:
         body = None if payload is None else json.dumps(payload).encode("utf-8")
         status, data = self._transport(method, self._base + path, body)
         if status not in accept:
             raise QueueError(f"{method} {self._base}{path} returned HTTP {status}")
-        try:
-            return status, json.loads(data or b"null")
-        except ValueError:
+        if expect is None or status == 404:
             return status, None
+        try:
+            reply = json.loads(data)
+        except ValueError as error:
+            raise QueueError(f"{method} {path} returned invalid JSON") from error
+        if not isinstance(reply, expect):
+            raise QueueError(f"{method} {path} did not return a JSON {expect.__name__}")
+        return status, reply
 
     def pull(self, number: int) -> dict[str, Any] | None:
         """Return pull request ``number``, or ``None`` when GitHub has none."""
         status, pull = self._call("GET", f"/pulls/{number}", accept=(200, 404))
-        return pull if status == 200 else None
+        if status == 404:
+            return None
+        match pull:
+            case {
+                "state": "open" | "closed",
+                "draft": bool(),
+                "base": {"ref": str()},
+                "head": {"sha": str(), "repo": None | {"full_name": str()}},
+            }:
+                return pull
+        raise QueueError(f"GitHub returned invalid pull request data for #{number}")
 
     def create_request(self, number: int, head: str, message: str) -> bool:
         """Record the request of pull request ``number``. ``False`` means it already has one."""
-        tree = self._call("GET", f"/git/commits/{head}")[1]["tree"]["sha"]
-        payload = {"message": message, "tree": tree, "parents": [head]}
-        commit = self._call("POST", "/git/commits", payload)[1]["sha"]
+        tree = self._call("GET", f"/git/commits/{head}")[1].get("tree")
+        if not isinstance(tree, dict) or not isinstance(tree.get("sha"), str):
+            raise QueueError(f"GitHub did not return a tree SHA for {head}")
+        payload = {"message": message, "tree": tree["sha"], "parents": [head]}
+        commit = self._call("POST", "/git/commits", payload)[1].get("sha")
+        if not isinstance(commit, str):
+            raise QueueError("GitHub did not return a SHA for the request commit")
         ref = {"ref": f"{REQUEST_PREFIX}{number}", "sha": commit}
-        return self._call("POST", "/git/refs", ref, accept=(201, 422))[0] == 201
+        return self._call("POST", "/git/refs", ref, accept=(201, 422), expect=None)[0] == 201
 
     def delete_ref(self, ref: str) -> bool:
         """Delete ``ref`` (``refs/...``). ``False`` means it did not exist."""
-        if self._call("DELETE", f"/git/{ref}", accept=(204, 404, 422))[0] == 204:
+        if self._call("DELETE", f"/git/{ref}", accept=(204, 404, 422), expect=None)[0] == 204:
             return True
         # GitHub answers 422 for an absent ref and also for a delete that it rejects, so look.
-        left = self._call("GET", f"/git/matching-refs/{ref.removeprefix('refs/')}")[1]
-        if any(found.get("ref") == ref for found in left or ()):
+        path = f"/git/matching-refs/{ref.removeprefix('refs/')}"
+        left = self._call("GET", path, expect=list)[1]
+        if not all(isinstance(found, dict) and isinstance(found.get("ref"), str) for found in left):
+            raise QueueError(f"GitHub returned invalid matching refs for {ref}")
+        if any(found["ref"] == ref for found in left):
             raise QueueError(f"GitHub did not delete {ref}")
         return False
 
@@ -185,11 +192,7 @@ class Git:
         return self.run("rev-parse", f"{commit}^{{tree}}").stdout.strip()
 
     def merge_tree(self, ours: str, theirs: str) -> tuple[str | None, tuple[str, ...]]:
-        """Merge ``theirs`` into ``ours`` without a work tree.
-
-        Return ``(tree, ())`` for a clean merge and ``(None, paths)`` for a conflict, where
-        ``paths`` are the conflicting files.
-        """
+        """Merge without a worktree and return ``(tree, ())`` or ``(None, conflict_paths)``."""
         done = self.run(
             "merge-tree", "--write-tree", "--name-only", "--no-messages", ours, theirs, ok=(0, 1)
         )
@@ -234,20 +237,13 @@ def read_requests(git: Git) -> list[Request]:
         shown = git.run("show", "-s", "--format=%P%x00%ct%x00%B", commit).stdout
         parents, joined, message = shown.split("\x00", 2)
         if not number.isdigit() or len(parents.split()) != 1:
-            # Not written by `join`. Stop: a train built around a bad request is not the train.
             raise QueueError(f"{ref} is not a merge-queue request (one parent, numeric name)")
         requests.append(Request(int(number), parents.strip(), message.rstrip("\n"), int(joined)))
     return sorted(requests, key=lambda r: (r.joined, r.pr))
 
 
 def join(github: GitHub, number: int, head: str, message: str) -> None:
-    """Record the request to merge pull request ``number`` at ``head`` with ``message``.
-
-    Raises
-    ------
-    Refused
-        The pull request cannot join. The message is the reason.
-    """
+    """Record the pinned head and squash message, or raise ``Refused`` with the reason."""
     if not _SHA.fullmatch(head):
         raise Refused("the head must be the full 40-hex commit that the review read")
     pull = github.pull(number)
@@ -279,18 +275,8 @@ def plan(
 ) -> list[Step]:
     """Decide one state for each request, in train order.
 
-    The result depends only on ``base``, ``requests``, ``pulls`` and the git objects.
-
-    Parameters
-    ----------
-    git
-        The checkout that holds ``base`` and every request head.
-    base
-        The commit of ``main``.
-    requests
-        The requests, the oldest first.
-    pulls
-        The pull request of each request as GitHub returns it, or ``None``.
+    ``git`` holds ``base`` (the commit of ``main``) and every request head. ``requests`` is
+    oldest first. ``pulls`` contains GitHub's response for each request, or ``None``.
     """
     steps: list[Step] = []
     train: list[tuple[int, str]] = []  # the candidates so far: (pull request, commit)
@@ -325,9 +311,7 @@ def plan(
 def build(git: Git, github: GitHub, steps: Sequence[Step], window: int) -> dict[str, list[int]]:
     """Make the candidate branches match the first ``window`` candidates of the train.
 
-    A branch that already holds the tree of its candidate is kept, with its runs. Every other
-    ``mq/pr-*`` branch is deleted: it has no request, or its pull request is held, is removed,
-    or is behind the window.
+    Keep branches whose trees match, with their runs, and remove branches outside the window.
     """
     wanted = {s.pr: s for s in [s for s in steps if s.state == CANDIDATE][:window]}
     existing = git.candidates()
@@ -418,6 +402,9 @@ def main(
         return 3
     except QueueError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 2
+    except (OSError, http.client.HTTPException, UnicodeError) as error:
+        print(f"error: {args.command} failed ({type(error).__name__})", file=sys.stderr)
         return 2
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
