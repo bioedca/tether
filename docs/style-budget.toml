@@ -106,7 +106,7 @@ retired = 3
 
 [pages."docs/how-to/curate-traces.md"]
 kind = "procedure"
-long_share = 4.0
+long_share = 3.0
 semicolons = 2
 long_paragraphs = 0
 retired = 0
