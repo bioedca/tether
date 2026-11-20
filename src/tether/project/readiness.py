@@ -390,13 +390,20 @@ def _job_status(job: JobRecord) -> JobStatus:
     )
 
 
-def _jobs_to_retry(jobs: tuple[JobStatus, ...]) -> list[JobStatus]:
-    """Failed or interrupted jobs that no later job of the same command finished."""
-    pending: list[JobStatus] = []
-    for i, job in enumerate(jobs):
+def _jobs_to_retry(jobs: list[JobRecord]) -> list[JobRecord]:
+    """Keep unsuccessful jobs whose latest attempt is still outstanding."""
+    # The store writes UTC timestamps at fixed precision, so they sort in time order.
+    finished: dict[str, str] = {}
+    for job in jobs:
+        if job.state == "done":
+            finished[job.command] = max(finished.get(job.command, ""), job.ended_utc)
+
+    pending: list[JobRecord] = []
+    for job in jobs:
         if job.state not in ("failed", "interrupted"):
             continue
-        if any(later.command == job.command and later.state == "done" for later in jobs[i + 1 :]):
+        attempt = job.ended_utc or job.started_utc
+        if attempt and finished.get(job.command, "") > attempt:
             continue
         pending.append(job)
     return pending
@@ -413,11 +420,11 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
     record and left unmarked was made from it as it is now, since an edit marks every
     record made from it at another identity; that holds when an edit is undone too.
     *The same scope* means: the new instance was made from the marked record's other
-    inputs, each of them or a record made in its place, and nothing else. Two trace
-    generations made from one map and two movies are two scopes, so remaking the first
-    after a map edit leaves the second stale, and a correction version made from
-    generations A and B is not replaced by one made from A alone (it is by one made from
-    A and B made again).
+    inputs, each still current or replaced by a record made in its place, and nothing
+    else. Two trace generations made from one map and two movies are two scopes, so
+    remaking the first after a map edit leaves the second stale, and a correction version
+    made from generations A and B is not replaced by one made from A alone (it is by one
+    made from A and B made again).
     """
     first: dict[tuple[str, str], Any] = {}
     for m in marks:
@@ -436,9 +443,9 @@ def _outstanding(marks: list[Any], recorded: list[Any]) -> list[Any]:
         direct = up == (mark.edited_node, mark.edited_instance)
         deeper = seen | {(node, instance)}
         in_place = {up[1]} if direct else replacements(*up, deeper)
-        # Each other input may be the same record, or a record made in its place.
+        # A marked input must itself be replaced before a dependent record is current.
         others = [
-            (n, {i} | replacements(n, i, deeper))
+            (n, replacements(n, i, deeper) if (n, i) in first else {i})
             for n, i in sorted(inputs_of.get((node, instance), set()) - {up})
         ]
         return {
@@ -471,12 +478,12 @@ def _same_scope(wanted: list[tuple[str, set[str]]], given: list[tuple[str, str]]
     )
 
 
-def _next_step(stages: tuple[StageReadiness, ...], jobs: tuple[JobStatus, ...]) -> NextStep:
+def _next_step(stages: tuple[StageReadiness, ...], jobs: list[JobRecord]) -> NextStep:
     """Choose the next step: a job to retry, a running job, a stale stage, a stage not done."""
     section_of = {s.key: s.section for s in stages}
     retry = _jobs_to_retry(jobs)
     if retry:
-        job = retry[0]
+        job = _job_status(retry[0])
         return NextStep(
             job.stage,
             section_of.get(job.stage or ""),
@@ -485,7 +492,7 @@ def _next_step(stages: tuple[StageReadiness, ...], jobs: tuple[JobStatus, ...]) 
         )
     running = [j for j in jobs if j.state == "running"]
     if running:  # never send the user to start what a job is doing now
-        job = running[0]
+        job = _job_status(running[0])
         return NextStep(
             job.stage,
             section_of.get(job.stage or ""),
@@ -524,7 +531,8 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
             t.event is correction_states.CorrectionEvent.FINISH_INITIAL_CURATION
             for t in correction_states.read_correction_transitions(store)
         )
-        job_records = tuple(_job_status(j) for j in jobs.read_jobs(store))
+        stored_jobs = jobs.read_jobs(store)
+        job_records = tuple(_job_status(j) for j in stored_jobs)
         marks = _outstanding(jobs.read_stale_marks(store), jobs.read_recorded_inputs(store))
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise ProjectReadinessError(f"{store}: could not be read ({exc})") from exc
@@ -584,5 +592,5 @@ def read_project_readiness(path: str | PathLike[str]) -> ProjectReadiness:
         correction_state=correction.state.value,
         stale=tuple(stale),
         jobs=job_records,
-        next_step=_next_step(stage_tuple, job_records),
+        next_step=_next_step(stage_tuple, stored_jobs),
     )

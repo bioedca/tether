@@ -858,9 +858,10 @@ The corrections stage also names the correction state of the project
 `BLEEDTHROUGH_REQUIRED`, `GAMMA_REVIEW`, `CALIBRATION_BLOCKED`, `CALIBRATION_APPROVED`,
 `CORRECTED_REVIEW`, `ANALYSIS_READY` and `CALIBRATION_STALE`.
 
-The next step is, in this order: a failed or interrupted job that no later job of the same
-command finished, else waiting for a running job, else the first stale stage, else the first
-stage that is not ready. A stage that is not available is never the next step.
+The next step first retries a failed or interrupted job unless a job of the same command
+finished successfully after its latest attempt. Then it looks for a running job to wait for,
+the first stale stage, or the first stage that is not ready, in that order. A stage that is
+not available is never the next step.
 
 The step for a stale fit is `tether idealize PROJECT --stale-only`, except for a fit imported
 from standalone tMAVEN, which that command never refits: for one, the step is to hand its

@@ -219,13 +219,31 @@ def test_a_project_with_an_interrupted_job(tmp_path: Path, capsys) -> None:
     assert out.rstrip().endswith(r.next_step.action)
 
 
-def test_a_later_finished_job_of_the_command_clears_the_retry(tmp_path: Path) -> None:
-    jobs_ = (
-        rd.JobStatus("a" * 32, "extract", "traces", "failed", 2, 1, "boom"),
-        rd.JobStatus("b" * 32, "extract", "traces", "done", 2, 2, ""),
-    )
-    assert rd._jobs_to_retry(jobs_) == []
-    assert rd._jobs_to_retry(jobs_[:1]) == [jobs_[0]]
+def test_a_success_clears_only_an_earlier_failed_attempt(tmp_path: Path, monkeypatch) -> None:
+    path = _store(tmp_path)
+    project = Project(path)
+    request = ExtractRequest(movie="m.tif", output="m.tether")
+    times = iter(f"2026-11-20T00:00:{second:02d}.000000+00:00" for second in range(10))
+    monkeypatch.setattr(jobs, "_now", lambda: next(times))
+
+    def fail(_part: str, _cancel: jobs.CancelToken) -> None:
+        raise ValueError("boom")
+
+    project.acquire_lock()
+    try:
+        first = jobs.submit_job(project, request, ("a",))
+        jobs.run_job(project, first.job_id, fail)
+        retry = f"retry the failed extract job {first.job_id[:8]} (0 of 1 parts are complete)"
+        assert rd.read_project_readiness(path).next_step.action == retry
+
+        second = jobs.submit_job(project, request, ("a",))
+        jobs.run_job(project, second.job_id, lambda _part, _cancel: None)
+        assert rd.read_project_readiness(path).next_step.action != retry
+
+        jobs.retry_job(project, first.job_id, fail)
+        assert rd.read_project_readiness(path).next_step.action == retry
+    finally:
+        project.release_lock()
 
 
 # --- stale marks, the correction state, an analysis-only import ----------------------------
@@ -348,21 +366,26 @@ def test_a_record_made_again_from_every_input_made_again_is_not_stale(tmp_path: 
             {("trace_generation", "a1"): "ha1", ("trace_generation", "b1"): "hb1"},
         )
         jobs.set_stale_marks(project, "map", "m1", "v2")
-        for gen, movie in (("a2", "A"), ("b2", "B")):
-            jobs.record_inputs(
-                project,
-                "trace_generation",
-                gen,
-                {("map", "m1"): "v2", ("source_movie", movie): f"s{movie}"},
-            )
-    r = rd.read_project_readiness(path)
-    assert [s.item for s in r.stale] == ["Correction version c1"]
-
-    with project.write_lock():
+        jobs.record_inputs(
+            project, "trace_generation", "a2", {("map", "m1"): "v2", ("source_movie", "A"): "sA"}
+        )
         jobs.record_inputs(
             project,
             "correction_version",
             "c2",
+            {("trace_generation", "a2"): "ha2", ("trace_generation", "b1"): "hb1"},
+        )
+    r = rd.read_project_readiness(path)
+    assert {s.item for s in r.stale} == {"Trace generation b1", "Correction version c1"}
+
+    with project.write_lock():
+        jobs.record_inputs(
+            project, "trace_generation", "b2", {("map", "m1"): "v2", ("source_movie", "B"): "sB"}
+        )
+        jobs.record_inputs(
+            project,
+            "correction_version",
+            "c3",
             {("trace_generation", "a2"): "ha2", ("trace_generation", "b2"): "hb2"},
         )
     after = rd.read_project_readiness(path)
