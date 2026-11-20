@@ -7,12 +7,13 @@ description: "Run tether extract and tether batch without the application window
 **Who this page is for.** Anyone driving Tether without the application window: scripting the
 pipeline, processing a night's worth of movies unattended, reproducing an
 extraction from recorded settings, or exporting results from many projects. Today the
-command line has seven subcommands: `tether extract` and `tether batch` write projects,
+command line has eight subcommands: `tether extract` and `tether batch` write projects,
 `tether idealize` fits the traces of a project that exists, `tether map create` writes a
 channel map file for later extractions, `tether info` only reads projects and prints a
-summary, `tether metadata` shows or gives the frame time, pixel size and channel roles of
-a project's movies, and `tether export` reads projects and writes the molecule table, the
-trace text file or a subset project.
+summary, `tether status` only reads a project and prints which steps are complete, which
+are stale and what to do next, `tether metadata` shows or gives the frame time, pixel size
+and channel roles of a project's movies, and `tether export` reads projects and writes the
+molecule table, the trace text file or a subset project.
 
 **A new movie starts here, for now.** The desktop application does not extract a movie
 yet. It opens a `.tether` project, imports a Deep-LASI acquisition, and is where you curate
@@ -886,6 +887,135 @@ value that the project does not record is `null`. The keys are:
 | `projects[].lock.age_s` | the age of the lock in seconds |
 | `projects[].lock.stale` | `true` when the lock is older than 30 minutes |
 
+## `tether status`
+
+Print the readiness of each step of a project: which steps are complete, which are stale and
+why, the jobs stored in the project, and the next step. The application reads the same
+function to know where a project is, so the command line and the window agree on the next
+step. Use it in a script to wait for a stage, or to see where to continue a project.
+
+```text
+tether status [-h] [--json] [--require STAGE] project
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `project` | *(required)* | the `.tether` project |
+| `--json` | off | print one JSON document instead of text, in the layout [below](#status-json-layout) |
+| `--require STAGE` | none | exit `3` unless the stage is ready (or not needed). Give it again for more stages. `STAGE` is one of the keys in the table below |
+
+**It does not change the project.** As for `tether info`, the project is opened read-only
+and no lock is taken, so this works on a project that another user holds. To say whether a
+fit is stale it reads the trace arrays the fit was made from, as `tether info --stale` does.
+
+The stages, in the order of the workflow, and the section of the application each one is in:
+
+| Stage key | Name | Section | Ready when |
+|---|---|---|---|
+| `sources` | sources and geometry | Prepare | the project has a movie |
+| `map` | map | Prepare | each movie has a map |
+| `traces` | trace generation | Prepare | the project has molecules |
+| `curation` | curation | Curate and correct | no molecule is undecided, or the initial curation was finished |
+| `corrections` | corrections | Curate and correct | the correction state is `ANALYSIS_READY` |
+| `analysis_sets` | analysis sets | Analyze | not available in this version ([#934](https://github.com/bioedca/tether/issues/934)) |
+| `fits` | fits | Analyze | the project has a fit and no fit is stale |
+| `results` | results | Analyze | not available in this version ([#943](https://github.com/bioedca/tether/issues/943)) |
+| `deposit` | deposit | Deposit | not available in this version ([#956](https://github.com/bioedca/tether/issues/956)) |
+
+Each stage has one of these states:
+
+- `ready`.
+- `not needed`: a project made from imported traces has no movie and no map.
+- `in progress` or `not started`.
+- `stale`: a record it depends on has changed, and the record has not been made again.
+- `blocked`: the correction state is `CALIBRATION_BLOCKED`.
+- `running`: a job of the stage is running now.
+- `not available in this version`: the feature of the stage has not landed yet.
+
+The corrections stage also names the correction state of the project
+([the correction states](reference/tether-format.md#correction-states),
+[ADR-0131](adr/0131-the-correction-states-are-a-transition-log-in-the-project.md)), one of
+`APPARENT_REVIEW`,
+`BLEEDTHROUGH_REQUIRED`, `GAMMA_REVIEW`, `CALIBRATION_BLOCKED`, `CALIBRATION_APPROVED`,
+`CORRECTED_REVIEW`, `ANALYSIS_READY` and `CALIBRATION_STALE`.
+
+The next step first retries a failed or interrupted job unless a job of the same command
+finished successfully after its latest attempt. Then it looks for a running job to wait for,
+the first stale stage, or the first stage that is not ready, in that order. A stage that is
+not available is never the next step.
+
+The step for a stale fit is `tether idealize PROJECT --stale-only`, except for a fit imported
+from standalone tMAVEN, which that command never refits: for one, the step is to hand its
+molecules to tMAVEN again and import the new fit.
+
+```console
+$ tether status out/movie_010.tether
+out/movie_010.tether
+  Prepare
+    sources and geometry: ready (1 movie)
+    map: ready (1 movie with a map)
+    trace generation: ready (214 molecules)
+  Curate and correct
+    curation: in progress (120 accepted, 30 rejected, 64 undecided)
+    corrections: not started (correction state APPARENT_REVIEW)
+  Analyze
+    analysis sets: not available in this version (#934)
+    fits: stale (1 model)
+    results: not available in this version (#943)
+  Deposit
+    deposit: not available in this version (#956)
+  stale: 1
+    fit vbconhmm: 3 of 184 molecules changed since the fit (their traces, window or correction factors)
+  jobs: none
+  next step: refit the stale models (tether idealize PROJECT --stale-only)
+```
+
+The exit codes:
+
+- `0`: the project was read, and each `--require` stage is ready.
+- `1`: the project could not be read. One line `tether status: <path>: <reason>` goes to stderr.
+- `2`: bad command-line arguments.
+- `3`: a `--require` stage is not ready. One line for each such stage goes to stderr, and
+  the document or the text is printed too.
+
+### Status JSON layout
+
+`--json` prints one JSON document. The layout has a version, `format_version`, with the same
+rule as `tether info`: a later version of Tether can add keys without a change to the version,
+and changes the version if it renames or removes a key, or changes the meaning of a value.
+
+| Key | Meaning |
+|---|---|
+| `format` | always `"tether-status"` |
+| `format_version` | the version of this layout (now `1`) |
+| `tether_version` | the version of Tether that printed the document |
+| `path` | the project path as given |
+| `stages` | one entry for each stage, in workflow order |
+| `stages[].key` | the stage key, as `--require` takes it |
+| `stages[].name` | the name the text output prints |
+| `stages[].section` | `prepare`, `curate`, `analyze` or `deposit` |
+| `stages[].state` | `ready`, `not_needed`, `in_progress`, `not_started`, `stale`, `blocked`, `running` or `not_available` |
+| `stages[].detail` | a short detail, for example the counts |
+| `stages[].action` | what to do when the stage is not done, or `""` when it is done or not available |
+| `stages[].issue` | for a stage that is not available, the issue that adds it, else `null` |
+| `correction_state` | the correction state, for example `"GAMMA_REVIEW"` |
+| `stale` | one entry for each stale record |
+| `stale[].stage` | the stage key of the record |
+| `stale[].item` | the record |
+| `stale[].reason` | why it is stale |
+| `jobs` | one entry for each job stored in the project, in the order they were made |
+| `jobs[].job_id` | the job identifier (the text output prints its first 8 characters) |
+| `jobs[].command` | the command the job runs, for example `extract` |
+| `jobs[].stage` | the stage key the job works on, or `null` |
+| `jobs[].state` | `queued`, `running`, `done`, `failed`, `cancelled` or `interrupted` |
+| `jobs[].n_parts` | how many parts the job has |
+| `jobs[].n_completed` | how many parts are complete |
+| `jobs[].error` | the error of a failed job, else `""` |
+| `next_step` | the next step |
+| `next_step.stage` | its stage key, or `null` when every available stage is ready |
+| `next_step.section` | its section, or `null` |
+| `next_step.action` | what to do |
+
 ## `tether idealize`
 
 Fit a hidden Markov model to the traces of a project that exists, without a Python script:
@@ -1230,6 +1360,8 @@ with. Two `tether batch` flags are positive fields: `--no-idealize` is
 | `2` | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** a refusal to start: invalid sidecar-supervision values or extraction options, a `--profile` that could not be used, `--tdat` beside a detection choice, a movie argument that gives no movie, or two input movies that no folder name tells apart | bad command-line arguments (argparse) | bad command-line arguments (argparse), **or** `--frame-time` and `--confirm-frame-time` in one call | bad command-line arguments (argparse), **or** a refusal to start: two projects that map to one export, `-o` a file where a folder is needed, or a `.txt` `-o` for `traces` |
 | `3` | never returned | no movie failed, and at least one requested stage was deferred for at least one movie | never returned | never returned | never returned |
 
+`tether status` has a code `3` of its own, for a `--require` stage that is not ready. Its
+codes are in [its section](#tether-status).
 `tether idealize` has a code `3` of its own, for a sidecar that cannot start. Its codes are
 in [its section](#tether-idealize).
 
