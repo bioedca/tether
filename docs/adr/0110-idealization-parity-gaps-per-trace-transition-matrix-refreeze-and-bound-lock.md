@@ -48,9 +48,14 @@ PRD §9.6 carried four idealization-parity criteria that the code did not meet:
 
 ## Considered options
 
-The record names one other option for each item it decides, in its own text. Items 1 and 2 add
-their options with their own sections.
+The record names one other option for each item it decides, in its own text. Item 1 adds its
+options with its own section.
 
+- Item 2, the transition-matrix term:
+  - **Its own block, `$.transition_matrix`, apart from the four-bound rows** (chosen).
+  - **A fifth bound in each `$.tolerance_by_method` row.** Set aside: every reader of
+    `load_frozen_tolerance` would change shape, and the rows' recorded evidence holds no
+    transition-matrix measurement.
 - Item 3, the default row:
   - **Re-measure on the pinned build and apply the freeze rule** (chosen; every bound stays).
   - **Keep the 2026-06-26 measurement on tMAVEN `71cfa1af` under CPython 3.9.23.** Set aside: it
@@ -62,10 +67,38 @@ their options with their own sections.
 
 ## Decision
 
-\#545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the
-issue's size budget). This record carries items 3 and 4, which land first; the transition-matrix
-term (item 2) and per-trace vbFRET (item 1) add their own sections here in the pull requests
-that implement them.
+Issue #545 lands in three pull requests, one after the other (maintainer decision of 2026-11-15, for the
+issue's size budget). Items 3 and 4 landed first; the second pull request adds the
+transition-matrix term (item 2); per-trace vbFRET (item 1) adds its own section here in the third.
+
+### 2. The transition-matrix term is a fifth quantity with its own block
+
+`transition_matrix_abs_delta(ref, test)` is the largest entry-wise `|Δ|` between the two
+row-normalized transition matrices (`norm_tmatrix`, the per-frame transition probabilities),
+both in canonical mean-sorted order; `inf` when the state counts differ or a matrix is missing,
+malformed or non-finite. `ParityMetrics` carries it (default `inf`, "not computed").
+
+It is frozen apart from the four-bound rows, under `$.transition_matrix`, with
+`load_transition_matrix_tolerance(path, method)` and `within_transition_matrix_tolerance`. The
+§11.2 row gives no provisional default for it, so the freeze is the ADR-0009 rule with the
+default absent: the measured worst case × 1.5, **rounded up** to the freeze resolution of the
+other bounds (four decimal places) and never below one step of it, `1e-4`
+(`freeze_transition_matrix`). Rounding up keeps the ceiling above the widened worst case; the
+one-step floor keeps an all-but-zero spread on one machine from freezing a ceiling another
+machine's rounding noise breaks.
+
+| Method | Evidence | Pooled worst | Frozen ceiling |
+| --- | --- | --- | --- |
+| `vbconhmm` | the item-3 runs: 19 cross-seed on `smd_4mol`, 20 against `model_281mol.hdf5` | 3.92e-09 | 0.0001 |
+| `ebhmm` | 20 unseeded fits on `smd_281mol`, 19 cross-seed comparisons | 0.0294 | 0.0441 |
+
+The ebFRET four-bound row of ADR-0043 is **not** re-measured: the transition-matrix term's
+ebFRET evidence is a separate run, and the 2026-07-08 evidence behind the four bounds is
+unchanged. That run's own four metrics stayed inside the frozen ebFRET row (worst state count
+0.690, ΔE 0.0061, Viterbi 0.965, relative ELBO 7.9e-4). They are recorded here only, not in
+the artifact. The live `sidecar / parity` arms assert the term on all three population
+comparisons (the 281-molecule fit against the reference, the 4-molecule cross-seed pair, and the
+ebFRET seed-1/seed-2 pair).
 
 ### 3. The default row is re-frozen on the pinned build, unchanged
 
@@ -79,20 +112,25 @@ worst cases of the 2026-06-26 measurement it replaces.
 
 ### 4. The frozen bounds are pinned outside the file
 
-`tests/test_parity.py::_ACCEPTED_BOUNDS` is a literal copy of every frozen bound: `$.tolerance`
-and each `$.tolerance_by_method` row.
+`tests/test_parity.py::_ACCEPTED_BOUNDS` is a literal copy of every frozen bound: `$.tolerance`,
+each `$.tolerance_by_method` row and each `$.transition_matrix.tolerance_by_method` row.
 `test_frozen_bounds_match_the_accepted_copy` fails on any difference, and names a widened bound
 as `WIDENED`; `test_widening_any_one_frozen_bound_fails` widens each bound alone and checks it is
 reported. A deliberate re-freeze changes both copies in one pull request, under an ADR.
 
 ## Consequences
 
-- Good: two of the four §9.6 rows close (the re-freeze and the loosened bound). Every frozen number
-  of `$.tolerance` is now measured on the build CI runs, and no frozen bound can move silently.
-- Neutral: the per-trace vbFRET and transition-matrix rows of §9.6 stay open until their pull
-  requests land.
+- Good: three of the four §9.6 rows close (transition matrix, re-freeze, loosened bound). Every
+  frozen number is now measured on the build CI runs, and none can move silently.
+- Neutral: the transition-matrix ceiling of `vbconhmm` (1e-4) is far above its measured spread
+  (≈ 4e-9) because of the resolution floor; the drift limit of #737 stays the tighter regression
+  check of the four bounds and does not cover this term.
+- Neutral: the per-trace vbFRET row of §9.6 stays open until its pull request lands.
 
 ## More information
 
-Code: `schema/parity_tolerance.json` (`$.refreeze`), `tests/test_parity.py` (`_ACCEPTED_BOUNDS`),
-`docs/validation.md` §(b), `tests/test_docs_validation_numbers.py`.
+Code: `schema/parity_tolerance.json` (`$.refreeze`, `$.transition_matrix`),
+`src/tether/idealize/parity.py` (`transition_matrix_abs_delta`, `freeze_transition_matrix`,
+`load_transition_matrix_tolerance`), `scripts/measure_parity.py`, `tests/test_parity.py`
+(`_ACCEPTED_BOUNDS`), `tests/test_parity_sidecar.py`, `docs/validation.md` §(b),
+`tests/test_docs_validation_numbers.py`.
