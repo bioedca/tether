@@ -120,14 +120,12 @@ def _cmd_one(args: argparse.Namespace) -> int:
     return 0
 
 
-def _stop_group(proc: subprocess.Popen) -> None:
-    """Kill ``proc``'s process group (POSIX) and ``proc``, then reap it."""
+def _kill_group(proc: subprocess.Popen) -> None:
+    """Kill ``proc`` and its process group on POSIX."""
     if hasattr(os, "killpg"):
         with contextlib.suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGKILL)
     proc.kill()
-    with contextlib.suppress(subprocess.TimeoutExpired):
-        proc.communicate(timeout=10)
 
 
 def run_child(cmd: list[str], timeout: float = CHILD_TIMEOUT_S) -> dict:
@@ -149,10 +147,14 @@ def run_child(cmd: list[str], timeout: float = CHILD_TIMEOUT_S) -> dict:
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        _stop_group(proc)
+        _kill_group(proc)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.communicate(timeout=10)
         return {"error": f"timed out after {timeout:g} s"}
     except BaseException:
-        _stop_group(proc)
+        # Closing the pipes and waiting avoids repeating a failing read.
+        with proc:
+            _kill_group(proc)
         raise
     lines = stdout.strip().splitlines()
     try:

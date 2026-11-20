@@ -234,6 +234,26 @@ def test_an_interrupt_also_stops_the_child_and_what_it_started(monkeypatch, tmp_
                 os.killpg(started[0].pid, signal.SIGKILL)
 
 
+def test_a_persistent_communication_error_is_re_raised_after_reaping(monkeypatch) -> None:
+    failure = OSError("pipe read failed")
+    attempts = []
+    real_popen = subprocess.Popen
+
+    class BrokenPipe(real_popen):  # type: ignore[misc, valid-type]
+        def communicate(self, *args, **kwargs):
+            attempts.append(self)
+            raise failure
+
+    monkeypatch.setattr(subprocess, "Popen", BrokenPipe)
+    with pytest.raises(OSError) as caught:
+        bench.run_child([sys.executable, "-c", "pass"])
+    returncode = attempts[0].returncode
+    attempts[0].wait(timeout=5)
+    assert caught.value is failure
+    assert len(attempts) == 1
+    assert returncode is not None
+
+
 def test_a_timed_out_case_is_not_run_again_on_the_same_tree(monkeypatch, tmp_path) -> None:
     # Three rounds of a hanging head would cost 3 timeouts per size; one is enough (#875).
     calls: list[str] = []
