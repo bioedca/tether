@@ -8,6 +8,8 @@ description: "For maintainers: how a version tag builds and publishes the Tether
 release. It assumes that you can sign a git tag and run `gh`. Users do not need this page. To
 install a published release, follow [Install Tether](install.md).
 
+<!-- markdownlint-configure-file { "MD046": { "style": "fenced" } } -->
+
 Tether ships **self-contained installers** for Windows, macOS and Linux.
 [`.github/workflows/release.yml`](https://github.com/bioedca/tether/blob/main/.github/workflows/release.yml)
 builds and publishes them
@@ -117,9 +119,9 @@ refuses to build without a signature on it that GitHub verified. That signature 
 
 4. Confirm that `HEAD`, the commit that you will tag, contains the post-merge gate.
 
-    ```bash
-    git merge-base --is-ancestor 6df78e4 HEAD && echo "gate present"
-    ```
+    <!-- markdownlint-disable MD046 -->
+
+        git merge-base --is-ancestor 6df78e4 HEAD && echo "gate present"
 
     The command prints `gate present`. If it prints nothing, do not tag this commit.
 
@@ -161,9 +163,7 @@ refuses to build without a signature on it that GitHub verified. That signature 
 
 6. Create a **signed, annotated** tag on the release commit.
 
-    ```bash
-    git tag -s v1.0.0 -m "Tether v1.0.0"
-    ```
+        git tag -s v1.0.0 -m "Tether v1.0.0"
 
     `git cat-file -t v1.0.0` then prints `tag`, which shows that the tag is annotated.
 
@@ -174,9 +174,9 @@ refuses to build without a signature on it that GitHub verified. That signature 
 7. Push the tag only after steps 1 to 6 pass. The push starts the pipeline that publishes the
    Release, and Zenodo archives a published Release with a DOI. Push the tag:
 
-    ```bash
-    git push origin v1.0.0
-    ```
+        git push origin v1.0.0
+
+    <!-- markdownlint-enable MD046 -->
 
     A `release` workflow run starts for the tag, in the Actions tab of the repository.
 
