@@ -301,6 +301,8 @@ class ExtractionSummary:
     #: The RMS gate the registration was judged against (px): the run's ``rms_gate``, or a
     #: map file's own ``gate_px`` (#353). ``None`` only for a summary built without it.
     rms_gate: float | None = None
+    #: The content SHA-256 stored for this movie when it was extracted.
+    movie_sha256: str | None = None
 
 
 def resolve_channel_layout(options: ExtractOptions) -> ChannelLayout:
@@ -911,6 +913,7 @@ def _summary(
         colocalization=extracted.molecules.policy,
         rule_counts=dict(extracted.molecules.rule_counts),
         rms_gate=float(reg_map.gate_px),
+        movie_sha256=extracted.sha256,
     )
 
 

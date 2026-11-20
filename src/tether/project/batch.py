@@ -1018,9 +1018,7 @@ class _Recorder:
     log: BatchLog
     stages: dict[str, StageResult] = field(default_factory=dict)
     canonical_write_safe: bool = True
-    #: The ``movie_id`` an ``--into`` run's extract stage left this movie under (#1243).
-    movie_id: str | None = None
-    #: That movie's content ``sha256`` in the project, when it could be read (#1243).
+    #: The movie's content hash when this run appended it or found it in the project.
     movie_sha256: str | None = None
 
     def record(
@@ -1897,8 +1895,6 @@ def _do_append(
 
     ``None`` means the movie is not in the project (its extract stage failed).
     """
-    from tether.project.batch_inputs import movie_in_project  # noqa: PLC0415
-
     try:
         _assert_output_not_newer(project)
     except Exception as exc:
@@ -1906,7 +1902,7 @@ def _do_append(
         return None
     # A movie already in the project is skipped without the writer lock, so a resume
     # does not wait on an open app session; the append reads it again under the lock.
-    existing = _movie_in_project(movie_in_project, project, job)
+    existing = _read_movie_match(project, job.movie_path)
     if existing is not None:
         return _skip_present(rec, project, existing)
     refuse = policy == POLICY_FAIL
@@ -1933,7 +1929,7 @@ def _do_append(
                 # that adds the movie (#1243).
                 guard()
                 _assert_output_not_newer(project)
-                existing = _movie_in_project(movie_in_project, project, job)
+                existing = _read_movie_match(project, job.movie_path)
                 if existing is None:
                     summary = append(
                         project,
@@ -1959,54 +1955,29 @@ def _do_append(
     )
     if getattr(summary, "low_confidence_registration", False):
         detail += f"; low-confidence registration {_FLAG_MARK}"
+    rec.movie_sha256 = getattr(summary, "movie_sha256", None)
     rec.record(STAGE_EXTRACT, STATUS_DONE, detail=detail)
-    rec.movie_id = str(getattr(summary, "movie_id", "")) or None
-    rec.movie_sha256 = _movie_content(project, rec.movie_id)
-    return rec.movie_id
+    return str(getattr(summary, "movie_id", "")) or None
 
 
-def _movie_content(project: Path, movie_id: str | None) -> str | None:
-    """Return the content ``sha256`` of ``movie_id`` in ``project``; ``None`` if unreadable."""
-    if movie_id is None:
-        return None
-    try:
-        import h5py  # noqa: PLC0415
+def _read_movie_match(project: Path, movie: Path) -> tuple[str, str] | None:
+    """Return the existing movie ID and hash; let the append report any read failure."""
+    from tether.project.batch_inputs import _find_movie_in_project  # noqa: PLC0415
 
-        from tether.io.schema import TABLE  # noqa: PLC0415
-
-        with h5py.File(project, "r") as f:
-            table = f["movies"][TABLE][:]
-        return next(
-            (_as_text(r["sha256"]).lower() for r in table if _as_text(r["movie_id"]) == movie_id),
-            None,
-        )
-    except Exception:
-        return None
+    with contextlib.suppress(Exception):
+        return _find_movie_in_project(project, movie)
+    return None
 
 
-def _movie_in_project(
-    lookup: Callable[[Path, Path], str | None], project: Path, job: MovieJob
-) -> str | None:
-    """Return the ``movie_id`` of ``job``'s movie in ``project``; ``None`` when it is not in it.
-
-    An unreadable project or movie reads as "not in it": the append then reports why.
-    """
-    try:
-        return lookup(project, job.movie_path)
-    except Exception:
-        return None
-
-
-def _skip_present(rec: _Recorder, project: Path, existing: str) -> str:
-    """Record the extract stage skipped, for a movie already in ``project``; return its id."""
+def _skip_present(rec: _Recorder, project: Path, match: tuple[str, str]) -> str:
+    """Record that this movie was already in the project and return its ID."""
+    movie_id, rec.movie_sha256 = match
     rec.record(
         STAGE_EXTRACT,
         STATUS_SKIPPED,
-        detail=f"already in {project.name} as movie {existing!r}",
+        detail=f"already in {project.name} as movie {movie_id!r}",
     )
-    rec.movie_id = existing
-    rec.movie_sha256 = _movie_content(project, existing)
-    return existing
+    return movie_id
 
 
 def _record_coverage(project: Path, covered: dict[str, str], guard: Callable[[], None]) -> None:
@@ -2115,7 +2086,8 @@ def _project_stages(
         # A movie whose content the locked project no longer holds (another writer
         # replaced the file since its extract stage) does not share the project's
         # stages (#1243). Content, not id: a replacement may hold the movie under
-        # another id, and a movie whose content could not be read is kept.
+        # another ID. The extract stage carries the hash it appended or matched, even
+        # if another writer replaced the project before this stage began.
         gone = {
             id(r)
             for r in extracted

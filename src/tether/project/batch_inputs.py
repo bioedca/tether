@@ -406,6 +406,12 @@ def movie_in_project(project: Path, movie: Path) -> str | None:
     OSError
         If the project or the movie cannot be read.
     """
+    match = _find_movie_in_project(project, movie)
+    return None if match is None else match[0]
+
+
+def _find_movie_in_project(project: Path, movie: Path) -> tuple[str, str] | None:
+    """Return the matching movie ID and content hash from the same project read."""
     if not os.path.lexists(project):
         return None
     import h5py  # noqa: PLC0415
@@ -423,7 +429,7 @@ def movie_in_project(project: Path, movie: Path) -> str | None:
     sha256 = _hash_movie(movie)[0]
     for row in candidates:
         if _text(row["sha256"]).lower() == sha256:
-            return _text(row["movie_id"])
+            return _text(row["movie_id"]), sha256
     return None
 
 

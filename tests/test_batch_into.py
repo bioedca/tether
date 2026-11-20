@@ -47,6 +47,7 @@ from tether.project.batch import (  # noqa: E402
     STATUS_FAILED,
     STATUS_NOT_REQUESTED,
     STATUS_SKIPPED,
+    BatchLog,
     MovieJob,
     run_batch_into,
 )
@@ -879,14 +880,24 @@ def test_a_movie_another_writer_appends_first_is_skipped(
 ) -> None:
     # #1243 item 1: membership is read again under the writer lock, so a movie another
     # writer appends after the first read is skipped rather than failed as a duplicate.
-    import tether.project.batch_inputs as inputs  # noqa: PLC0415
-
     first = _movie(tmp_path, "m0.tif", 300.0)
     second = _movie(tmp_path, "m1.tif", 360.0)
     project = tmp_path / "P.tether"
-    extract_movie(first, project, options=ExtractOptions(window=helpers._WINDOW))
-    answers = iter([None, "mov-elsewhere"])
-    monkeypatch.setattr(inputs, "movie_in_project", lambda _p, _m: next(answers))
+    options = ExtractOptions(window=helpers._WINDOW)
+    extract_movie(first, project, options=options)
+    real_lock = lock.publish_lock
+    appended_ids: list[str] = []
+
+    @contextlib.contextmanager
+    def append_before_claim(path, **kwargs):
+        if not appended_ids:
+            with real_lock(path, **kwargs) as guard:
+                appended = add_movie_to_project(path, second, options=options, publish_guard=guard)
+                appended_ids.append(appended.movie_id)
+        with real_lock(path, **kwargs) as guard:
+            yield guard
+
+    monkeypatch.setattr(lock, "publish_lock", append_before_claim)
 
     summary = run_batch_into(
         _into_jobs(project, second),
@@ -897,7 +908,7 @@ def test_a_movie_another_writer_appends_first_is_skipped(
 
     extract = summary.results[0].stages[STAGE_EXTRACT]
     assert extract.status == STATUS_SKIPPED
-    assert "'mov-elsewhere'" in extract.detail
+    assert repr(appended_ids[0]) in extract.detail
     assert summary.n_failed == 0
 
 
@@ -969,6 +980,45 @@ def test_a_movie_the_locked_project_no_longer_holds_gets_no_project_results(
     assert stages["m1"][STAGE_CORRECT].detail == "no longer in P.tether"
     assert stages["m1"][STAGE_IDEALIZE].status == STATUS_NOT_REQUESTED
     assert stages["m0"][STAGE_CORRECT].status == STATUS_SKIPPED
+
+
+@pytest.mark.parametrize(
+    ("existing", "expected_extract"),
+    [("absent", STATUS_DONE), ("append", STATUS_DONE), ("resume", STATUS_SKIPPED)],
+)
+def test_project_replacement_at_extract_completion_drops_the_missing_movie(
+    tmp_path: Path, existing: str, expected_extract: str
+) -> None:
+    first = _movie(tmp_path, "first.tif", 300.0)
+    missing = _movie(tmp_path, "missing.tif", 340.0)
+    project = tmp_path / "P.tether"
+    replacement = tmp_path / "replacement.tether"
+    extract_movie(first, replacement)
+    if existing != "absent":
+        extract_movie(first, project)
+    if existing == "resume":
+        with lock.publish_lock(project) as guard:
+            add_movie_to_project(project, missing, publish_guard=guard)
+
+    def replace_project(event):
+        if event["stage"] == STAGE_EXTRACT:
+            with lock.publish_lock(project) as guard:
+                guard()
+                replacement.replace(project)
+
+    with BatchLog(on_event=replace_project) as log:
+        result = run_batch_into(
+            _into_jobs(project, missing),
+            project,
+            log=log,
+            _correct=lambda *_a, **_k: pytest.fail("correct ran for the missing movie"),
+            _idealize=lambda *_a, **_k: pytest.fail("idealize ran for the missing movie"),
+        ).results[0]
+
+    assert not replacement.exists()
+    assert result.stages[STAGE_EXTRACT].status == expected_extract
+    assert result.stages[STAGE_CORRECT].status == STATUS_BLOCKED
+    assert result.stages[STAGE_IDEALIZE].status == STATUS_BLOCKED
 
 
 def test_a_run_without_the_provenance_stamp_still_records_what_its_stages_cover(
