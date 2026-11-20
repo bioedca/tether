@@ -57,10 +57,8 @@ class BatchRequest(ExtractionFields, Request):
     ``detection_threshold``, ``detection_block``, ``min_separation``, ``prealign``,
     ``prealign_upsample``, ``prealign_low_sigma``, ``prealign_high_sigma``, ``pair_tol``,
     ``rms_gate``, ``window``, ``coloc_distance``, ``colocalization``, ``disk_radius``,
-    ``ring_inner``, ``ring_outer`` and ``bg_window`` are inherited from
-    [`ExtractionFields`][tether.services.profile.ExtractionFields] and applied to every movie. The
-    ``Attributes`` section of that class gives the meaning and the unit of each; the
-    section below names the fields of this class.
+    ``ring_inner``, ``ring_outer`` and ``bg_window`` are inherited and documented in
+    [`ExtractionFields`][tether.services.profile.ExtractionFields].
 
     Attributes
     ----------
@@ -68,6 +66,8 @@ class BatchRequest(ExtractionFields, Request):
         The movies to process: each a file, a folder or a pattern; one or more.
     out_dir
         Directory for the per-movie ``.tether`` projects (created if absent).
+    into
+        Path to the single ``.tether`` project to create or append movies to.
     tmap
         Path to a shared imported Deep-LASI ``.tmap`` applied to every movie, or ``None``.
     tdat
@@ -77,13 +77,13 @@ class BatchRequest(ExtractionFields, Request):
     idealize
         Run the idealization stage; ``False`` is ``--no-idealize``.
     overwrite
-        Re-extract an incomplete output, or a completed extraction the ``fail`` policy
-        rejects.
+        With ``out_dir``, re-extract incomplete outputs and outputs the ``fail`` policy
+        rejects. Refused with ``into``.
     log
-        Path of the JSONL structured log; ``None`` is ``<out_dir>/batch-log.jsonl``.
+        Path of the JSONL log; ``None`` uses ``batch-log.jsonl`` in ``out_dir`` or
+        ``<project stem>-batch-log.jsonl`` beside the ``into`` project.
     max_restarts
-        Maximum automatic restarts of a movie's idealization after a transient sidecar
-        failure (a count; ``0`` disables restarts).
+        Maximum restarts after transient sidecar failure (a count; ``0`` disables them).
     sidecar_timeout
         Sidecar timeout for one idealization call, in seconds.
     sidecar_python
