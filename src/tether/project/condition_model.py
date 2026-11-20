@@ -198,7 +198,7 @@ def _to_str(value: object) -> str:
 def _file_attributes(path: Path) -> int:
     """The Windows file attributes of ``path`` (``0`` elsewhere). Metadata only: no byte read.
 
-    Raises [`FileNotFoundError`][] when the file does not exist.
+    Raises `FileNotFoundError` when the file does not exist.
     """
     return int(getattr(os.stat(path), "st_file_attributes", 0))
 

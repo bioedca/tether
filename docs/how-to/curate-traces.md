@@ -54,8 +54,19 @@ A project you opened before on this computer opens at the molecule you last had 
 ## 2. Move from trace to trace
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
-underneath.
+(green), acceptor (magenta) and their total (gray) on top, its apparent FRET efficiency (blue)
+underneath. Readers with a red-green color-vision deficiency can tell these colors apart. For a
+red acceptor, select **View → Trace colors → Classic green and red**. See
+[Trace colors](../reference/gui-theme.md#select-the-trace-colors).
+
+The bottom panel shows the donor–acceptor cross-correlation of the trace. While the total
+intensity stays about constant, a change in FRET raises one channel and lowers the other.
+The cross-correlation at lag 0 is then below zero. A change in the total intensity can make
+it positive even when FRET changes too.
+
+The lag axis uses the unit of the time axis, seconds or frames. It spans 50 frames either
+side of 0. A trace shorter than 51 frames shows a note in that panel instead of a curve.
+So does a trace with a missing value or a constant channel.
 
 1. Press **Right arrow** or **Down arrow** for the next molecule.
 2. Press **Left arrow** or **Up arrow** for the previous one.
@@ -193,7 +204,9 @@ none of it. It keeps it in a file named `preferences.json` in your own settings 
 - macOS: `~/Library/Application Support/MondragonLab/Tether/`
 - Linux: `~/.config/tether/`, or `$XDG_CONFIG_HOME/tether/` when that variable is set
 
-Delete that file and the application forgets all of it. Nothing else changes. To use another
+Delete that file and the application forgets all of it. Nothing else changes. Beside it sits
+an empty file, `preferences.json.lock`. It lets two open Tether windows take turns saving, so
+neither loses what the other saved. To use another
 file, set the environment variable `TETHER_PREFERENCES_FILE` to its full path.
 
 ## Next

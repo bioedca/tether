@@ -36,9 +36,9 @@ stamp travels in the sidecar rather than inline.
 
 The table exports are the orchestration layer: they read the store, derive E, and
 feed pure serializers ([`tether.io.deeplasi.write_deeplasi_txt`][], the stdlib
-[`csv`][]) — mirroring how [`tether.project.handoff`][] drives the SMD
+`csv`) — mirroring how [`tether.project.handoff`][] drives the SMD
 [`tether.idealize.write_smd`][] primitive. They are read-only on the store. The
-subset export is a filtered store-to-store copy ([`h5py`][]), also read-only on
+subset export is a filtered store-to-store copy (`h5py`), also read-only on
 the source.
 """
 
@@ -332,7 +332,7 @@ def export_molecule_table_csv(
 ) -> ExportResult:
     """Export one CSV row per molecule (the ``/molecules`` scalars + derived E).
 
-    Columns are [`MOLECULE_TABLE_COLUMNS`][]. Each row carries the stored
+    Columns are `MOLECULE_TABLE_COLUMNS`. Each row carries the stored
     per-molecule fields (identity, condition, correction factors α/γ/δ, photobleach
     frames, frame range, curation label, category, ML ``quality_class``, tags) plus a
     derived apparent-E summary — mean/median of ``A / (D + A)`` over the molecule's

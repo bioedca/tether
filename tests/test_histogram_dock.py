@@ -105,7 +105,9 @@ def test_dock_axis_conventions_and_fill(qtbot) -> None:
         # ``brush=`` passed to plot() is stored by pyqtgraph as ``fillBrush``.
         assert dock.curve.opts["stepMode"] == "center"
         assert dock.curve.opts["fillLevel"] == 0
-        assert _rgba(dock.curve.opts["fillBrush"]) == (40, 90, 220, 120)
+        from tether.gui import theme
+
+        assert _rgba(dock.curve.opts["fillBrush"]) == theme.rgba(theme.current().trace("fret"), 120)
 
         # x pinned to the histogram value_range (default [-0.25, 1.25]).
         (x_lo, x_hi), _ = dock.plot.viewRange()
