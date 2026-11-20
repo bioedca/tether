@@ -231,5 +231,24 @@ def test_the_doi_and_the_repository_are_the_ones_citation_cff_names() -> None:
     repo = re.search(r'^repository-code:\s*"([^"]+)"', cff, re.MULTILINE).group(1)
     assert repo == about.REPOSITORY_URL
     citing = (_REPO / "docs" / "citing.md").read_text(encoding="utf-8")
-    assert "Campos-Chávez E, Mondragon A. *Tether*. Zenodo." in citing
+    assert "Campos-Chávez E, Mondragón A. *Tether*. Zenodo." in citing
     assert f"https://doi.org/{about.CONCEPT_DOI}" in citing
+
+
+def test_the_citation_names_the_people_citation_cff_credits() -> None:
+    """The About box and ``docs/citing.md`` spell each author as ``CITATION.cff`` does (#535).
+
+    GitHub's **Cite this repository** button and Zenodo read ``family-names`` directly, so
+    a citation line that spells a name differently from the file credits a different
+    string. The maintainer confirmed ``Mondragón``, with the accent, on 2026-11-13.
+    """
+    from tether.gui import about
+
+    cff = (_REPO / "CITATION.cff").read_text(encoding="utf-8")
+    authors = cff.split("\nlicense:", 1)[0]
+    people = re.findall(r'given-names:\s*"([^"]+)"\s*\n\s*family-names:\s*"([^"]+)"', authors)
+    names = ", ".join(f"{family} {given[0]}" for given, family in people)
+    assert names == "Campos-Chávez E, Mondragón A"
+    assert about.CITATION.startswith(f"{names}. Tether. Zenodo. ")
+    citing = (_REPO / "docs" / "citing.md").read_text(encoding="utf-8")
+    assert f"> {names}. *Tether*. Zenodo." in citing

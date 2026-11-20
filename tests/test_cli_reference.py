@@ -51,9 +51,11 @@ PAGE = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 # it. Positionals (`movie`, `movies`) are checked separately below.
 _EXPECTED_OPTION_COUNTS = {
     "extract": 18,
-    "batch": 17,
+    "batch": 18,
     "map create": 6,
     "info": 2,
+    "status": 2,
+    "idealize": 12,
     "metadata": 5,
     "export table": 4,
     "export traces": 5,
@@ -220,8 +222,8 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """`extract`, `batch`, `map create` (#353), `info` (#655), `metadata` (#911) and the three
-    `export` forms (#658) get a section each.
+    """`extract`, `batch`, `idealize` (#657), `map create` (#353), `info` (#655), `metadata` (#911),
+    `status` (#896) and the three `export` forms (#658) get a section each.
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
@@ -233,7 +235,9 @@ def test_every_subcommand_is_documented() -> None:
         "batch",
         "map create",
         "info",
+        "idealize",
         "metadata",
+        "status",
         "export table",
         "export traces",
         "export subset",
@@ -439,6 +443,7 @@ def test_argparse_rejects_bad_arguments_with_code_2() -> None:
         ["extract", "movie.tif"],
         ["batch", "movie.tif"],
         ["info"],
+        ["idealize"],
         ["export"],
         ["export", "table", "movie.tether"],
     ):
