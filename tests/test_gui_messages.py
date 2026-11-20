@@ -78,6 +78,7 @@ def _rows(shell) -> list[tuple[str, str]]:
 
 
 def test_every_status_message_is_in_the_panel_with_time_and_level(shell) -> None:
+    startup = shell.window.statusBar().currentMessage()
     shell._status("Closed a.tether")
     shell._status("Open project failed: no such file")
     rows = _rows(shell)
@@ -88,8 +89,7 @@ def test_every_status_message_is_in_the_panel_with_time_and_level(shell) -> None
     table = shell.messages_panel.table
     stamp = table.topLevelItem(table.topLevelItemCount() - 1).text(0)
     assert len(stamp) == 8 and stamp[2] == stamp[5] == ":"  # HH:MM:SS
-    # The status bar's startup line is kept too.
-    assert rows[0] == ("Information", "Ready — Space accept · Backspace reject")
+    assert rows[0] == ("Information", startup)
 
 
 def test_the_messages_dock_is_hidden_by_default_and_in_the_view_menu(shell) -> None:
