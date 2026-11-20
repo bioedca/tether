@@ -920,9 +920,7 @@ class ClassLookup:
 
     tMAVEN stores a per-trace integer ``class``; Tether stores the free-text
     ``/molecules.category`` name. This is the one translation between them, read by
-    the tMAVEN hand-off and return leg ([`tether.project.handoff`][]). The curation
-    hotkeys ([`tether.gui.curation`][]) keep their own class names, which follow the
-    same rule; tests pin that agreement rather than the shell reading this lookup:
+    the tMAVEN hand-off and return leg ([`tether.project.handoff`][]) and the curation shortcuts:
 
     * class ``0`` ↔ ``""``, the *uncategorized* null state (always, on every
       condition, even one with no category list);

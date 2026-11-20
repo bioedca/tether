@@ -1,19 +1,8 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The category, analysis-window and photobleach keys write the project (#359, PRD §7.3).
+"""Headless tests for persistent curation shortcuts (#359, PRD §7.3).
 
-Each key goes through the #358 setters, and each test reads the value back **from the
-store** after the keystroke rather than trusting the status text:
-
-1. ``1``-``9`` and the overflow picker store the condition's category of that class;
-   ``0`` clears it. A class the condition does not hold is refused.
-2. ``-``/``=`` nudge the window start and ``[``/``]`` the end, ``R`` restores
-   ``frame_range``, ``P`` ends the window at the summed-intensity photobleach.
-3. Every one of them is refused while background idealization runs and on a
-   read-only project, with the banner's reason, and then changes nothing.
-4. A window edit moves the dock's window and redraws the idealization overlay inside it.
-
-All ``@pytest.mark.gui``, headless, over real ``.tether`` stores.
+Read values from real ``.tether`` stores after each keystroke.
 """
 
 from __future__ import annotations
@@ -164,18 +153,31 @@ def test_overflow_picker_lists_the_selected_molecules_condition(shell, tmp_path)
     ]
 
 
-def test_a_class_the_condition_lacks_is_refused(shell, tmp_path) -> None:
+def test_a_class_the_condition_lacks_is_refused(shell, qtbot, tmp_path) -> None:
     project, keys = _store(tmp_path)
     for condition_id in project.molecules_by_condition():
         project.set_category_list(condition_id, ["only", "two"])
     assert shell.load_project(project.path) is not None
     shell.molecule_list.setCurrentRow(0)
 
-    shell._assign_category(3)
+    _press(qtbot, shell, "Key_3")
 
     assert _category(project, keys[0]) == ""
     assert "Category 3 assignment unavailable" in shell.status_message
     assert "2 categories" in shell.status_message
+
+
+def test_an_inconsistent_persisted_class_lookup_refuses_assignment(shell, qtbot, tmp_path) -> None:
+    import h5py
+
+    project, keys = _loaded(shell, tmp_path)
+    condition = next(iter(project.molecules_by_condition()))
+    with h5py.File(project.path, "r+") as f:
+        f["conditions"]["categories"][condition].attrs["tmaven_class_lookup"] = '{"1":"class 2"}'
+    _press(qtbot, shell, "Key_1")
+    assert _category(project, keys[0]) == ""
+    assert "disagrees with its category list" in shell.status_message
+    assert shell._picker_categories() == []
 
 
 # --- analysis window -------------------------------------------------------------

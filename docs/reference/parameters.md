@@ -152,9 +152,7 @@ similarity; fewer than two is an error. Those thresholds are constants in
 Photobleaching is detected per channel with a Bayesian single-step change-point model, and the
 default analysis window runs from the start of the trace to the first bleach of the **summed**
 donor + acceptor intensity. An analysis window that has already been narrowed by hand is a manual
-override and is never overwritten by a later detection pass — but note that the only surfaces
-that narrow it are the tMAVEN return-leg reconcile and a legacy-SMD import, not the curation
-view (see the row below).
+override and is never overwritten by a later detection pass.
 
 | Parameter | Default | Units | Effect on the result | Set via | Recorded in `.tether` |
 | --- | --- | --- | --- | --- | --- |

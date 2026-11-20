@@ -2899,9 +2899,8 @@ class TetherShell:
     def _picker_categories(self) -> list[str]:
         """The category list the overflow picker offers.
 
-        With a writable project and a project molecule selected, that molecule's
-        condition's list, the one an assignment stores from (#359). Otherwise, or when
-        it cannot be read, the shell's ``categories`` argument.
+        A writable project supplies the selected molecule's persisted class lookup.
+        Without one, use the shell's ``categories`` argument.
         """
         project = self._curation_project
         row = self._molecule_list.currentRow()
@@ -2910,9 +2909,11 @@ class TetherShell:
             return list(self._categories)
         try:
             stored = stored_molecule(project.path, trace.molecule_key, row=row)
-            return list(project.category_list(stored.condition_id).categories)
-        except Exception:  # noqa: BLE001 - the picker still opens; assignment reports errors
-            return list(self._categories)
+            classes = project.class_lookup(stored.condition_id).classes
+            return [classes[index] for index in sorted(classes)]
+        except Exception as exc:  # noqa: BLE001 - show the lookup failure without guessing
+            self._status(f"Category lookup failed: {exc}")
+            return []
 
     def show_overflow_picker(self) -> OverflowCategoryPicker:
         """Open the overflow category picker; on accept, dispatch the assignment.
@@ -3397,12 +3398,9 @@ class TetherShell:
     def _writable_selection(self, verb: str) -> tuple[Project, int, TraceView, str] | None:
         """The writable project, list row, trace and lock nonce a curation write acts on.
 
-        Every per-molecule writer passes these gates in this order, and each refusal is
-        a status naming ``verb`` that changes nothing: background idealization owns the
-        HDF5 ([`_idealization_blocks_write`][]), the project is read-only (the banner's
-        reason) or none is loaded, or no project molecule is selected. The nonce is the
-        retained session's lock epoch; the writer passes it to [`_guard_session_write`][]
-        just before it writes. Returns ``None`` on a refusal.
+        Refuses writes during background idealization, in a read-only project,
+        or without a selected project molecule. Pass the returned lock nonce to
+        [`_guard_session_write`][] immediately before writing.
         """
         if self._idealization_blocks_write(verb):
             return None
@@ -3431,11 +3429,9 @@ class TetherShell:
     def _guard_session_write(self, project: Project, nonce: str) -> None:
         """Require the lock epoch ``nonce`` [`_writable_selection`][] read, just before a write.
 
-        A curation write reads the store first (``P`` also runs the bleach detector), and
-        the GUI thread cannot run its lock-refresh timer meanwhile. Another writer could
-        take the lock, write and release it in that time; the setters' own identity check
-        allows an unlocked file, so this binds the write to the epoch the gate saw, as the
-        idealizer and the return leg do. A lost lock turns the shell read-only and raises.
+        Another writer can take the lock while the bleach detector runs. The nonce
+        guards against that even if the other writer has since released the lock.
+        A lost lock turns the shell read-only and raises.
         """
         try:
             project._assert_held_lock(expected_nonce=nonce)
@@ -3446,9 +3442,9 @@ class TetherShell:
     def _assign_category(self, integer_class: int) -> None:
         """Store class ``integer_class`` of the molecule's condition list as its category.
 
-        Class ``N`` is the condition's ``N``-th category, the 0-based code ``N - 1`` of
-        its [`CategoryList`][tether.project.conditions.CategoryList] (§7.3); a class the
-        list does not hold is refused, never stored. The selection does not move.
+        The condition's persisted [`ClassLookup`][tether.project.conditions.ClassLookup]
+        maps class ``N`` to its ``N``-th category. An unmapped class leaves the store and
+        the selection unchanged.
         """
         verb = f"Category {integer_class} assignment"
         selection = self._writable_selection(verb)
@@ -3459,15 +3455,15 @@ class TetherShell:
         assert key is not None  # _writable_selection requires a project molecule
         try:
             stored = stored_molecule(project.path, key, row=row)
-            names = project.category_list(stored.condition_id).categories
+            classes = project.class_lookup(stored.condition_id).classes
         except Exception as exc:  # noqa: BLE001 - keep the GUI alive and surface the failure
             self._status(f"{verb} failed: {exc}")
             return
-        if not 1 <= integer_class <= len(names):
-            count = f"{len(names)} " + ("category" if len(names) == 1 else "categories")
+        name = classes.get(integer_class)
+        if name is None:
+            count = f"{len(classes)} " + ("category" if len(classes) == 1 else "categories")
             self._status(f"{verb} unavailable: its condition has {count}")
             return
-        name = names[integer_class - 1]
         try:
             self._guard_session_write(project, nonce)
             project.set_category(key, name, **self._labeler_kwargs())

@@ -155,12 +155,11 @@ def stored_molecule(
 def summed_bleach_frame(project_path: str | Path, molecule: StoredMolecule) -> int:
     """Return the absolute first frame of ``molecule``'s summed-intensity photobleach.
 
-    Reads the row's background-subtracted (``corrected``) donor and acceptor over its
-    ``frame_range`` and runs [`detect_photobleach`][tether.fret.photobleach.detect_photobleach]
-    with its frozen §11.2 priors, as
-    [`compute_photobleach`][tether.project.photobleach.compute_photobleach] does: raw traces
-    keep a background pedestal and never look bleached. ``frame_range[1]`` means the trace
-    does not bleach. Raises ``KeyError`` when the corrected layers are missing.
+    Runs the same summed-intensity detector and frozen §11.2 priors as
+    [`compute_photobleach`][tether.project.photobleach.compute_photobleach] on the
+    row's background-subtracted donor and acceptor over its ``frame_range``.
+    Returns ``frame_range[1]`` when no bleach is detected and raises ``KeyError``
+    when the corrected layers are missing.
     """
     import h5py  # noqa: PLC0415
     import numpy as np  # noqa: PLC0415
