@@ -477,18 +477,25 @@ def _write_top_bottom_movie(path: Path, *, seed: int = 0) -> None:
     side_by_side.unlink()
 
 
+@pytest.mark.parametrize("recipe", [None, "flip h, flip h"], ids=["plain", "with-recipe"])
 def test_a_top_bottom_layout_gets_the_layout_remedy_in_the_extract_summary_and_batch(
-    tmp_path,
+    tmp_path, recipe: str | None
 ) -> None:
     """The issue's reproduction: a wrong-way-round top/bottom movie through ``run_batch``."""
     pytest.importorskip("skimage")
     from tether.imaging.layout import ChannelLayout
+    from tether.imaging.recipe import ChannelRecipe
     from tether.project.batch import MovieJob, run_batch
     from tether.project.extract import ExtractOptions, extract_movie
 
     movie = tmp_path / "Bla_UCKOPSB_T-box_35pM_tRNA_600nM_011.tif"
     _write_top_bottom_movie(movie)
-    options = ExtractOptions(channel_layout=ChannelLayout(kind="top-bottom"))
+    options = ExtractOptions(
+        channel_layout=ChannelLayout(
+            kind="top-bottom",
+            donor_recipe=ChannelRecipe.parse(recipe) if recipe is not None else None,
+        )
+    )
 
     summary = extract_movie(movie, tmp_path / "direct.tether", options=options)
     assert summary.channel_layout == options.channel_layout
@@ -502,6 +509,9 @@ def test_a_top_bottom_layout_gets_the_layout_remedy_in_the_extract_summary_and_b
     report = result.format_report()
     assert "a top-bottom channel layout whose donor is bottom, not top" in report
     assert "--donor-side" not in report
+    if recipe is not None:
+        assert "donor_recipe and acceptor_recipe exchanged as well" in report
+        assert f"now donor_recipe '{recipe}', acceptor_recipe none" in report
 
 
 def _record(verdict: str, n_consistent: int, n_swapped: int) -> dict:
@@ -576,7 +586,7 @@ def test_batch_report_names_each_layout_remedy_and_never_donor_side(tmp_path) ->
     from tether.project.batch import MovieJob, run_batch
 
     swapped = _record("swapped", 0, 30)
-    records = {"stacked": swapped, "boxes": swapped, "broken": swapped}
+    records = dict.fromkeys(("stacked", "boxes", "broken", "broken-recipe"), swapped)
     layouts = {
         "stacked": {
             "kind": "top-bottom",
@@ -593,10 +603,11 @@ def test_batch_report_names_each_layout_remedy_and_never_donor_side(tmp_path) ->
         # A layout record that does not rebuild is unreadable, so the movie is silent
         # rather than told to change a setting it may not have.
         "broken": {"kind": "diagonal"},
+        "broken-recipe": {"kind": "top-bottom", "donor_recipe": {"steps": "rotate 180"}},
     }
     jobs = [
         MovieJob(movie_path=tmp_path / f"{stem}.tif", output_path=tmp_path / f"{stem}.tether")
-        for stem in ("stacked", "boxes", "broken")
+        for stem in records
     ]
     summary = run_batch(
         jobs, idealize=False, _extract=_side_stub(records, layouts), _correct=_ok_correct
@@ -609,5 +620,6 @@ def test_batch_report_names_each_layout_remedy_and_never_donor_side(tmp_path) ->
     assert "boxes: 30 of 30 bleach events" in report
     assert "donor_rect and acceptor_rect exchanged in the rectangles channel layout" in report
     assert "broken:" not in report
+    assert "broken-recipe:" not in report
     assert "--donor-side" not in report
     assert summary.n_failed == 0

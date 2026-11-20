@@ -671,19 +671,31 @@ def _donor_side_from_profile(profile: Any) -> dict[str, Any] | None:
 
     The extraction's channel layout (#908) rides along as ``extracted_channel_layout``,
     normalized through [`ChannelLayout`][tether.imaging.layout.ChannelLayout] so the
-    report can trust it; ``None`` when the extraction was given no layout. A stored
-    layout that does not rebuild raises ``ValueError``, which both readers turn into an
-    unreadable record, because the remedy would otherwise name the wrong setting (#1157).
+    report can trust it; ``None`` when the extraction was given no layout. Both readers
+    suppress the advisory when the stored layout cannot be rebuilt (#1157).
     """
     from tether.imaging.layout import ChannelLayout  # noqa: PLC0415
+    from tether.imaging.recipe import ChannelRecipe  # noqa: PLC0415
 
     record = profile.get("donor_side_check") if isinstance(profile, dict) else None
     if not isinstance(record, dict):
         return None
     raw_layout = profile.get("channel_layout")
-    if raw_layout is not None and not isinstance(raw_layout, dict):
+    layout = None
+    if isinstance(raw_layout, dict):
+        # The profile stores asdict(ExtractOptions), with recipes as step lists.
+        # ChannelLayout.from_dict expects each recipe in text form.
+        layout_data = dict(raw_layout)
+        for name in ("donor_recipe", "acceptor_recipe"):
+            recipe = layout_data.get(name)
+            if isinstance(recipe, dict):
+                steps = recipe.get("steps")
+                if not isinstance(steps, list):
+                    return None
+                layout_data[name] = str(ChannelRecipe(tuple(steps)))
+        layout = ChannelLayout.from_dict(layout_data).to_dict()
+    elif raw_layout is not None:
         return None
-    layout = None if raw_layout is None else ChannelLayout.from_dict(raw_layout).to_dict()
     return {
         **record,
         "extracted_donor_side": profile.get("donor_side", "left"),
