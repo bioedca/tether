@@ -40,13 +40,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
 import time
 from pathlib import Path
 
-from tether.idealize.parity import PROVISIONAL, freeze, measure_spread
+from tether.idealize.parity import (
+    PROVISIONAL,
+    TRANSITION_MATRIX_BOUND,
+    SpreadSummary,
+    freeze,
+    freeze_transition_matrix,
+    measure_spread,
+)
 
 #: Run inside the *sidecar* interpreter to identify the tMAVEN build that was
 #: compared against. ``direct_url.json`` is PEP 610 metadata that ``pip install
@@ -82,6 +90,8 @@ _FIXTURES = {
     },
 }
 
+#: The population methods, which also carry the transition-matrix term (ADR-0110).
+_POPULATION_METHODS = ("vbconhmm", "ebhmm")
 
 _REDACTED = "$TETHER_SIDECAR_PYTHON"
 _BUILD_PROVENANCE = (
@@ -180,6 +190,17 @@ def probe_sidecar_build(sidecar_python: str | None) -> dict[str, str]:
         return _unrecorded_build(_sanitized_probe_error(exc, sidecar_python))
 
 
+def _replace_nonfinite(value: object) -> object:
+    """Keep JSON evidence with null slots for non-finite measurements."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _replace_nonfinite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_nonfinite(item) for item in value]
+    return value
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--n-runs", type=int, default=20, help="self-reseeded fits per fixture")
@@ -236,6 +257,10 @@ def main() -> int:
         "relative_elbo": [],
     }
 
+    # The transition-matrix term of a population method (ADR-0110), per fixture.
+    transition_by_fixture: dict[str, dict] = {}
+    transition_values: list[float] = []
+
     for name in args.fixtures:
         cfg = _FIXTURES[name]
         reference = None if args.cross_seed else cfg["reference"]
@@ -261,10 +286,21 @@ def main() -> int:
         }
         for k, summ in spread.items():
             combined[k].extend(summ.values)
+        if args.model_type in _POPULATION_METHODS:
+            term = SpreadSummary(
+                "transition_matrix_abs_delta",
+                "ceiling",
+                [m.transition_matrix_abs_delta for m in per_run],
+            )
+            transition_values.extend(term.values)
+            transition_by_fixture[name] = {
+                key: per_fixture[name][key] for key in ("smd", "reference", "nstates")
+            } | {
+                "n_comparisons": len(per_run),
+                "metrics": {"transition_matrix_abs_delta": term.as_dict()},
+            }
 
     # Re-summarise the pooled values to feed freeze().
-    from tether.idealize.parity import SpreadSummary
-
     pooled = {
         "state_count_fraction": SpreadSummary(
             "state_count_fraction", "floor", combined["state_count_fraction"]
@@ -314,9 +350,33 @@ def main() -> int:
         "pooled_worst": {k: v.worst for k, v in pooled.items()},
         "spread_by_fixture": per_fixture,
     }
+    if transition_by_fixture:
+        # Not merged into the four-bound row: the term has its own block in the
+        # committed artifact, `$.transition_matrix` (ADR-0110). Carry it there by hand.
+        term = SpreadSummary("transition_matrix_abs_delta", "ceiling", transition_values)
+        try:
+            ceiling: float | None = freeze_transition_matrix(term, margin=args.margin)
+        except ValueError as exc:  # a non-finite run: keep the evidence, freeze nothing
+            print(f"transition-matrix term not frozen: {exc}")
+            ceiling = None
+        out["transition_matrix"] = {
+            "model_type": args.model_type,
+            TRANSITION_MATRIX_BOUND: ceiling,
+            "pooled_worst": {"transition_matrix_abs_delta": term.worst},
+            "spread_by_fixture": transition_by_fixture,
+        }
+        if ceiling is None:
+            out["transition_matrix"]["freeze_status"] = "not_frozen"
+
+    # A rejected population fit can also have non-finite four-bound metrics.
+    # Prepare all of its evidence for strict JSON without changing the freeze inputs.
+    strict = bool(transition_by_fixture)
+    artifact = _replace_nonfinite(out) if strict else out
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    out_path.write_text(
+        json.dumps(artifact, indent=2, allow_nan=not strict) + "\n", encoding="utf-8"
+    )
     print(f"\nFROZEN tolerance -> {out_path}")
     print(json.dumps(tolerance, indent=2))
     return 0

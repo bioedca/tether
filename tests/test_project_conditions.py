@@ -1056,3 +1056,49 @@ def test_class_lookup_refuses_a_malformed_or_disagreeing_attribute(
     # Rewriting the list restores one agreeing lookup.
     C.set_category_list(path, cid, ["x", "y"])
     assert dict(C.read_class_lookup(path, cid).classes) == {1: "x", 2: "y"}
+
+
+# --- #1145: a failed audit append leaves the log as it was ---------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reason", "bad\x00note"),
+        ("labeler", "bad\x00note"),
+        # fromisoformat accepts NUL as the date/time separator, so the stamp needs the check
+        ("timestamp", "2026-11-14\x0012:00:00+00:00"),
+    ],
+)
+def test_rekey_refuses_audit_text_with_nul_before_any_write(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    """HDF5 vlen strings refuse NUL; the re-key says so before it moves a molecule (#1145)."""
+    path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
+    key = parse_filename(_FILE_A10).key
+    with pytest.raises(ValueError, match=f"{field}.*NUL"):
+        C.rekey_condition(path, _BOGUS, key, **{field: value})
+    assert C.read_condition_audit(path).shape[0] == 0
+    assert _condition_id_of(path, "k0") == _BOGUS
+
+
+def test_failed_condition_audit_assignment_resizes_the_log_back(tmp_path: Path) -> None:
+    """Past the up-front check, a failing assignment still leaves no empty row (#1145)."""
+    path = _seed_raw(tmp_path, [("k0", _FILE_A10, _BOGUS)])
+    C.rekey_condition(path, _BOGUS, parse_filename(_FILE_A10).key)
+
+    with h5py.File(path, "r+") as f, pytest.raises(ValueError, match="NUL"):
+        C._append_condition_audit(
+            f,
+            event="rekey",
+            from_id="a",
+            to_id="b",
+            n_molecules=1,
+            labeler="ana",
+            timestamp="2026-11-14T12:00:00+00:00",
+            reason="bad\x00note",
+        )
+
+    audit = C.read_condition_audit(path)
+    assert audit.shape[0] == 1
+    assert C._to_str(audit["event"][0]) == "rekey"

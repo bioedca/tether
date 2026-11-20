@@ -121,6 +121,7 @@ def test_the_pages_show_tether_commands() -> None:
         "batch",
         "idealize",
         "export",
+        "info",
         "run",
         "approve",
     }
@@ -146,7 +147,7 @@ def test_every_tether_command_parses(name: str, argv: list[str]) -> None:
     if argv[0] == "tether-gui":
         assert len(argv) == 2 and argv[1].endswith(".tether"), (name, argv)
         return
-    assert argv[1] in {"extract", "batch", "idealize", "export", "run", "approve"}, (name, argv)
+    assert argv[1] in {"extract", "batch", "idealize", "export", "info", "run", "approve"}, argv
     parser = build_parser()
     command, first = _command_parser(argv)
     assert command is not parser, (name, argv)
