@@ -285,11 +285,14 @@ def test_the_empty_browser_panel_shows_no_stub_text(shell, tmp_path) -> None:
         assert term not in hint.lower()
     assert bool(shell.category_field.property("tetherTextEntry")) is True
 
-    # Opening a project enables the box (still without a fake item, #356 fills it);
-    # closing the project disables it again.
+    # Opening a project enables the box and fills it from /movies (#356), never with an
+    # invented id; closing the project empties and disables it again. This store records
+    # no movie file, so its one movie is listed by its movie_id and cannot be chosen.
     shell.load_project(_store(tmp_path).path)
     assert switcher.isEnabled()
     assert switcher.findText("movie-0") == -1
+    assert [switcher.itemData(i) for i in range(switcher.count())] == ["mov-1"]
+    assert switcher.itemText(0) == "mov-1 (no movie file recorded)"
     assert shell.close_project()
     assert not switcher.isEnabled()
     assert switcher.count() == 0

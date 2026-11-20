@@ -265,9 +265,9 @@ capability-sequenced, with no schedule commitment anywhere).
   among them (N3).
 - **`tether.gui`** — the PySide6 shell: one main window whose sections (Prepare, Curate and correct, Analyze;
   Deposit to come) are the pages of one stack ([ADR-0116](adr/0116-the-shell-hosts-its-sections-in-one-stack.md)),
-  with curation/labeling, annotation, and plot docks. The embedded napari movie panel
-  ([#356](https://github.com/bioedca/tether/issues/356)) and the multi-movie round-trip browser
-  ([#357](https://github.com/bioedca/tether/issues/357)) are not in the shell yet.
+  with curation/labeling, annotation, and plot docks, and the embedded napari movie panel with its movie switcher
+  ([#356](https://github.com/bioedca/tether/issues/356)). The multi-movie round-trip browser
+  ([#357](https://github.com/bioedca/tether/issues/357)) is not in the shell yet.
 - **`tether.project`** — the experiment/session model plus the batch runner and headless API; the GUI is a thin
   layer over this core.
 
@@ -557,7 +557,10 @@ never a standalone pass path (an OR would let two badly-disagreeing estimates bo
 defeating the oracle; §9 M3, §11.2). γ
 **shall** be obtained trace-wise across the acceptor-bleach step (acceptor drop / donor rise), each level averaged
 over a tolerance window (half-width pinned to 20 frames each side, configurable, or the whole segment each side as an
-option; §11.2; ADR-0130), aggregated by population median [McCann2010].
+option; §11.2; ADR-0130), aggregated by population median [McCann2010]. Among the molecules whose step passed
+both segment gates, the **clean** steps — donor rose **and** leakage-corrected acceptor dropped — **shall** be
+counted and stamped; when an applied γ rests on fewer than the §11.2 clean-step fraction of them, Tether **shall**
+report it with a warning, which changes no γ value (ADR-0134).
 Manual override of every factor **shall** be available.
 Corrections **shall** not be required to *view* traces: apparent-E analysis and histograms work without any
 photobleaching; only the α/γ corrections require bleach steps.
@@ -1021,8 +1024,11 @@ publication of a deposit**, which is never a recipe step (below).
 
 Introduced by **[ADR-0060](adr/0060-in-app-update-mechanism-and-integrity-model.md)**. In scope for 1.0; the
 sequence that delivers it is carried by the GitHub milestone that owns it, not by this document (§9).
-Only the check half exists so far: the opt-in release query and notice of
-[#248](https://github.com/bioedca/tether/issues/248), which downloads nothing and makes no channel decision.
+The check half exists: the opt-in release query and notice of
+[#248](https://github.com/bioedca/tether/issues/248), which downloads nothing and makes no channel decision. So does
+the verifier of [#333](https://github.com/bioedca/tether/issues/333) (`tether.gui.update_verify`), which makes the
+channel decision below; nothing calls it yet, because the download and the hand-off
+([#331](https://github.com/bioedca/tether/issues/331)) are still to come.
 
 The installed application **shall** be able to detect a newer **stable** release, download the installer for the
 running platform, **verify it against the GitHub build-provenance attestation**, and hand off to the OS installer.
@@ -1063,7 +1069,8 @@ FR-DEPOSIT (§7.14), which comes after `v1.0.0`, is the second, with its own bou
 lives on the published privacy policy (`docs/privacy.md`), not in this document, and the sole `socket` call in
 `src/tether/` is `gethostname()` in `project/lock.py`, which sends nothing. The exception is
 bounded: the requests go to **three** endpoints and no others — the GitHub **releases** and **attestations** APIs,
-and the **Sigstore TUF** trusted-root service — all unauthenticated and all public. Each destination necessarily
+and the **Sigstore TUF** trusted-root service (which `gh attestation trusted-root` reaches at
+`tuf-repo-cdn.sigstore.dev` and at GitHub's `tuf-repo.github.com`) — all unauthenticated and all public. Each destination necessarily
 observes the machine's **source IP address** and a **user-agent**, and the disclosure **shall** say so for all three
 rather than claiming "no identifier"; what Tether adds beyond that is nothing — no account, no installation id, no
 usage data, **no telemetry**. All three endpoints **shall** be named in the privacy disclosure and in the
@@ -1641,11 +1648,13 @@ this section.
 | γ acceptance ceiling | γ ≤ 5 | `deeplasi/functions/gui/TracesTab/createTracesPlotLayout.m:172` (in-scope 2-color single-row table; `:157` is the out-of-scope 3-color variant, same values) |
 | `min_window_frames` (per-trace bleach-window minimum) | 20 frames | `createTracesPlotLayout.m:172` (2-color single-row table default) |
 | `min_qualifying_traces` (per-dataset minimum before manual entry) | ≈ 10 molecules | Tether default |
+| γ clean-step warning fraction (`min_clean_step_fraction`) | 0.65 of the measured acceptor-bleach steps clean (donor rose and acceptor dropped), else an applied γ is reported with a warning; warn only, γ unchanged; `0` turns it off | Tether, from the #1233 step counts of the workstation run of 2026-11-19 on `1acd4f0`: clean fraction 0.70–0.77 where γ is within 1.2× Deep-LASI's (`lab-03`–`lab-05`), 0.21–0.58 where it is 2.7–3.0× (`lab-01`, `lab-02`, `lab-06`); about 0.5 when the acceptor drops and the donor change is only noise ([ADR-0134](adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)) |
 | Analysis window | auto = both-dyes-active (start → first bleach on summed intensity); manual per-trace override | Appendix B step 6 |
 | FRET-histogram bootstrap | 1000 resamples; 95% percentile CI (2.5/97.5); resample unit = **molecule**; default seed = 0 | [König2013] BOBA-FRET (also in MASH-FRET [Börner2018]); cross-sample variability ⇒ molecule is the resampled unit (§7.7, §9 M3) |
 | Successive-frame FRET cloud (§7.7) | grid of 200 × 200 nodes on [0, 1] on both axes; Gaussian kernel bandwidth 0.05 (apparent-E units, both axes); contour coverages 10 %, 20 %, …, 90 %; k-means with 4 centroids, the best of 5 k-means++ starts, at most 100 iterations, seed 0 | FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished (`FRET_cloud_contours_centroids.m`, SHA-256 in `scripts/reference/matlab/pins.toml`); the seed and the iteration cap are Tether's (ADR-0105) |
 | Lock staleness timeout | ≈ 30 min (wall-clock), then steal-confirm | Tether OneDrive policy (§5.4, §7.10) |
 | Update check (`DEFAULT_TIMEOUT_S`) | **off** until the first-run question is answered yes (ADR-0095 store); then one `GET` of `releases/latest` per application start, queued after the window is built and run on a background thread; timeout **5 s**; no retry; every failure silent | Tether (§7.12; ADR-0060, ADR-0095); `tether.gui.update_check`, #248 |
+| Update verification (`TRUSTED_ROOT_TIMEOUT_S`, `VERIFY_TIMEOUT_S`) | `gh attestation trusted-root` may take **30 s**, then the check is abandoned in silence (*could not run*); each offline `gh` call, `--version` and `attestation verify` (which hashes the installer), may take **120 s**, then the update is refused; the attestations `GET` uses the update check's timeout | Tether (§7.12; ADR-0060); `tether.gui.update_verify`, #333 |
 | Ranker success target (M5) | precision@k uplift ≥ 10 pts vs file order, prequential, median across videos | Tether default (§7.5, §9 M5) |
 | Quality-ranker model (M5) | scikit-learn `HistGradientBoostingClassifier` on `P(good)`; curation-tuned defaults `learning_rate=0.1`, `max_iter=100`, `max_leaf_nodes=15`, `min_samples_leaf=5`, `l2_regularization=1.0`, `early_stopping=off`, `random_state=0` | Tether (§7.5, §9 M5; ADR-0034); [Chen2016] gradient boosting, ranking by `P(good)` per the probability-ranking principle [Robertson1977]; leaf/regularization defaults smaller than sklearn stock for small curation label sets |
 | Per-trace UI latency budget | ≈ 100 ms render + navigate | Tether perf floor (§8 NFR-PERF) |

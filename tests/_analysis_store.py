@@ -162,7 +162,7 @@ def distinct_patches(n: int, *, channel_offset: float) -> np.ndarray:
 
 
 def _mols_traces_movie(
-    donor: np.ndarray, acceptor: np.ndarray
+    donor: np.ndarray, acceptor: np.ndarray, *, uri: str = ""
 ) -> tuple[ColocalizedMolecules, MoleculeTraces, MovieMetadata]:
     """The shared molecules + traces + movie metadata for both fixture store builders.
 
@@ -170,7 +170,8 @@ def _mols_traces_movie(
     :func:`build_store_with_channels` (explicit channels) both construct the same
     :class:`ColocalizedMolecules` / :class:`MoleculeTraces` / :class:`MovieMetadata` from
     a ``(n, n_frames)`` donor/acceptor pair — this is that shared block, so the two
-    builders cannot drift apart.
+    builders cannot drift apart. ``uri`` is the ``/movies`` row's movie file (empty: none
+    recorded, the default), for the shell's movie panel tests (#356).
     """
     n, n_frames = donor.shape
     coords = np.array([[12.0 + 1.7 * i, 14.0 + 2.3 * (i % 7)] for i in range(n)], dtype="float64")
@@ -198,6 +199,7 @@ def _mols_traces_movie(
         n_frames=n_frames,
         height=64,
         width=64,
+        uri=uri,
         donor_geometry=ChannelGeometry(crop=(1, 1, 64, 64)),
         acceptor_geometry=ChannelGeometry(crop=(1, 65, 64, 128)),
     )
@@ -298,6 +300,7 @@ def build_store_with_channels(
     windows: list[tuple[int, int]] | None = None,
     rejected: list[bool] | None = None,
     name: str = "chan.tether",
+    uri: str = "",
 ) -> tuple[Project, list[str]]:
     """A pre-idealization ``.tether`` seeded with **explicit** donor/acceptor channels.
 
@@ -307,15 +310,16 @@ def build_store_with_channels(
     writes **no** model — the substrate the pre-idealization channel views need
     (cross-correlation, the raw FRET cloud, the anticorrelation-event finder). ``windows``
     sets each molecule's ``analysis_window`` (default ``(0, n_frames)``); ``rejected[i]``
-    marks molecule ``i`` REJECTED for the §7.5 curation filter. Returns the opened project
-    and the molecule keys in store order.
+    marks molecule ``i`` REJECTED for the §7.5 curation filter. ``uri`` records the movie
+    file in the ``/movies`` row (default: none). Returns the opened project and the molecule
+    keys in store order.
     """
     donor = np.asarray(donor, dtype="float64")
     acceptor = np.asarray(acceptor, dtype="float64")
     if donor.shape != acceptor.shape or donor.ndim != 2:
         raise ValueError(f"donor and acceptor must be matching (n, t) arrays, got {donor.shape}")
     n = donor.shape[0]
-    mols, traces, movie = _mols_traces_movie(donor, acceptor)
+    mols, traces, movie = _mols_traces_movie(donor, acceptor, uri=uri)
     path = tmp_path / name
     create_project(path, overwrite=True)
     write_extraction(

@@ -74,9 +74,13 @@ needs_gl = pytest.mark.skipif(
 #: checks this against ``TetherShell().sections.ids``, so a new section cannot skip the contract.
 SECTION_IDS: tuple[str, ...] = ("prepare", "curate", "analyze")
 
-#: The sections whose page or docks build a napari ``Viewer``. None does today; the movie panel
-#: of #356 adds its section here, and the contract then skips it on macOS offscreen only.
-VIEWER_SECTIONS: frozenset[str] = frozenset()
+#: The sections whose page or docks build a napari ``Viewer``: Curate and correct, whose movie
+#: dock holds the napari movie panel (#356). The contract skips them on macOS offscreen only, and
+#: ``SectionShells`` gives them a project with a real movie so that dock is built.
+VIEWER_SECTIONS: frozenset[str] = frozenset({"curate"})
+
+#: The committed big-endian test movie, the movie file of a project built with ``movie=True``.
+MOVIE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "movie_be_64x64x50.tif"
 
 
 def section_marks(section_id: str) -> list[pytest.MarkDecorator]:
@@ -90,9 +94,13 @@ def section_params(section_ids: tuple[str, ...] = SECTION_IDS) -> list[Any]:
 
 
 def build_project(
-    tmp_path: Path, *, name: str = "harness.tether", n: int = 3, t: int = 12
+    tmp_path: Path, *, name: str = "harness.tether", n: int = 3, t: int = 12, movie: bool = False
 ) -> Project:
-    """A small extracted ``.tether`` of ``n`` molecules by ``t`` frames under ``tmp_path``."""
+    """A small extracted ``.tether`` of ``n`` molecules by ``t`` frames under ``tmp_path``.
+
+    ``movie=True`` records ``MOVIE_FIXTURE`` as the movie file, so opening the project in a
+    shell builds the napari movie panel (#356); only a ``needs_gl`` test may ask for it.
+    """
     import numpy as np
 
     from _analysis_store import build_store_with_channels
@@ -100,7 +108,8 @@ def build_project(
     rng = np.random.default_rng(344)
     donor = rng.uniform(400.0, 800.0, size=(n, t))
     acceptor = rng.uniform(200.0, 600.0, size=(n, t))
-    project, _keys = build_store_with_channels(tmp_path, donor, acceptor, name=name)
+    uri = str(MOVIE_FIXTURE) if movie else ""
+    project, _keys = build_store_with_channels(tmp_path, donor, acceptor, name=name, uri=uri)
     return project
 
 
@@ -121,6 +130,7 @@ class SectionShells:
         section: str | None = None,
         *,
         project: bool | str | os.PathLike[str] = True,
+        movie: bool | None = None,
         **shell_kwargs: Any,
     ) -> TetherShell:
         """A new shell showing ``section`` (``None``: the default section).
@@ -128,8 +138,10 @@ class SectionShells:
         ``project=True`` builds a temporary ``.tether`` and opens it writable; a path opens that
         file instead; ``False`` leaves the shell bare. With a project the lazily built docks are
         built as well (the overlap dock on opening, the histogram dock by showing it), so every
-        dock a section can hold is attached before the shell is parked. ``shell_kwargs`` go to
-        ``TetherShell``.
+        dock a section can hold is attached before the shell is parked. When ``movie`` is true
+        the built project records a real movie file, so the movie dock (#356) is built too;
+        ``None`` (the default) means "when ``section`` is in ``VIEWER_SECTIONS``", whose tests
+        carry ``needs_gl``. ``shell_kwargs`` go to ``TetherShell``.
         """
         from tether.gui.shell import TetherShell
 
@@ -142,7 +154,10 @@ class SectionShells:
         if project is not False:
             if project is True:
                 index = len(self._built)
-                path = build_project(self._tmp_path, name=f"harness-{index}.tether").path
+                with_movie = section in VIEWER_SECTIONS if movie is None else movie
+                path = build_project(
+                    self._tmp_path, name=f"harness-{index}.tether", movie=with_movie
+                ).path
             else:
                 path = Path(project)
             loaded = shell.load_project(path)
