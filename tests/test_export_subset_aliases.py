@@ -2,11 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The subset export's copy for sharing: ``curator_alias`` (#620, PRD §7.9).
 
-Headless (no Qt). A ``.tether`` records the curator's user name in two places: the
-``labeler`` of every ``/labels`` row and of every ``/settings/condition_audit`` row.
-With ``curator_alias`` the subset replaces each distinct name with a stable alias,
-records that it did so and how many names there were, and keeps no source name in
-its bytes. Without it the output is unchanged.
+Headless (no Qt). With ``curator_alias`` the subset replaces each distinct user
+name in the project's structured records with a stable alias. The provenance
+records that aliasing was used and how many names were replaced.
 """
 
 from __future__ import annotations
@@ -14,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -28,11 +27,11 @@ from tether.imaging.extract import read_molecules  # noqa: E402
 from tether.io import schema  # noqa: E402
 from tether.io.filename import ConditionKey  # noqa: E402
 from tether.project import conditions as C  # noqa: E402
+from tether.project import correction_states as CS  # noqa: E402
 from tether.project import export as E  # noqa: E402
 from tether.project.export import (  # noqa: E402
     JSON_USER_KEYS,
     PATH_ATTRS,
-    USER_NAME_FIELDS,
     export_subset_tether,
 )
 from tether.project.labels import default_labeler  # noqa: E402
@@ -41,9 +40,10 @@ from tether.project.labels import default_labeler  # noqa: E402
 ALICE = "alice-zq7-curator"
 BOB = "bob-xk4-curator"
 
-#: A compound field whose name says it records a person. A field that matches must be
-#: in USER_NAME_FIELDS, or the alias option would let that person's name through.
-_PERSON_FIELD = re.compile(r"label(l)?er|approv|confirm|review|curator|user|operator|author|_by$")
+#: A compound field whose name says it can record a person.
+_PERSON_FIELD = re.compile(
+    r"label(l)?er|approv|confirm|review|curator|user|operator|author|_by$|^actor$"
+)
 
 #: An attribute whose name says it stores a file or folder path. One that matches must be
 #: in PATH_ATTRS, or the alias option would let a home folder (a user name) through.
@@ -313,16 +313,16 @@ def test_a_blank_alias_is_refused(tmp_path, bad):
 
 
 def test_every_field_that_names_a_person_is_aliased(tmp_path):
-    """Guard: a compound field that records a person must be in USER_NAME_FIELDS.
+    """Guard: discover every compound field that can record a person.
 
     Scans the schema's table dtypes, the audit-log dtype, and every compound dataset of
-    a populated store (with a lock takeover log, which is written lazily), so a later
-    approver or reviewer field fails here until the alias option covers it (the #890
-    plan change: no approver name in the copy).
+    a populated store, including lazily written logs. A later approver or reviewer
+    field fails here until the alias option covers it.
     """
     project, _ = _source(tmp_path)
     _record_takeovers(project.path)  # written lazily, so the scan must see one
     _record_jobs(project)  # likewise
+    _record_correction_transitions(project)
     dtypes = [getattr(schema, n) for n in dir(schema) if n.endswith("_DTYPE") and n.isupper()] + [
         C._audit_dtype()
     ]
@@ -333,11 +333,10 @@ def test_every_field_that_names_a_person_is_aliased(tmp_path):
 
     with h5py.File(project.path, "r") as f:
         f.visititems(collect)
-    person_fields = {
-        field for dt in dtypes for field in (dt.names or ()) if _PERSON_FIELD.search(field)
-    }
-    assert person_fields  # the scan sees labeler, so it is looking in the right place
-    assert person_fields <= USER_NAME_FIELDS
+    assert any("actor" in (dtype.names or ()) for dtype in dtypes)
+    for dtype in dtypes:
+        person_fields = {field for field in (dtype.names or ()) if _PERSON_FIELD.search(field)}
+        assert person_fields <= set(E._name_fields(dtype))
 
 
 def test_every_json_key_that_names_a_person_is_aliased(tmp_path):
@@ -467,6 +466,52 @@ def _record_jobs(project) -> None:
         project.release_lock()
     owner = {"host": "lab-pc", "nonce": "n", "pid": 7, "user": DAVE}
     jobs._write_job(project.path, other.job_id, owner=json.dumps(owner, sort_keys=True))
+
+
+def _record_correction_transitions(project) -> None:
+    """Record two person actors and a policy whose text matches a labeler."""
+    project.acquire_lock()
+    try:
+        CS.send_event(project, CS.CorrectionEvent.FINISH_INITIAL_CURATION, CS.Actor.person(CAROL))
+        CS.send_event(
+            project,
+            CS.CorrectionEvent.CONFIRM_BLEEDTHROUGH,
+            CS.Actor.policy(BOB),
+            alpha=0.07,
+            source="donor-only sample",
+        )
+        CS.send_event(
+            project,
+            CS.CorrectionEvent.APPROVE,
+            CS.Actor.person(ALICE),
+            gamma=0.9,
+            factor_version="fv1",
+        )
+    finally:
+        project.release_lock()
+
+
+def test_correction_transition_person_names_are_aliased(tmp_path):
+    """Person actors share the label aliases and policy text keeps its value."""
+    project, _ = _source(tmp_path)
+    _record_correction_transitions(project)
+    plain = tmp_path / "plain.tether"
+    shared = tmp_path / "shared.tether"
+
+    export_subset_tether(project, plain, include_rejected=True)
+    result = export_subset_tether(project, shared, include_rejected=True, curator_alias="curator")
+
+    initial, policy, approval = CS.read_correction_transitions(project.path)
+    assert CS.read_correction_transitions(plain) == [initial, policy, approval]
+    assert CS.read_correction_transitions(shared) == [
+        replace(initial, actor=CS.Actor.person("curator-4")),
+        policy,
+        replace(approval, actor=CS.Actor.person("curator-1")),
+    ]
+    assert CAROL.encode() in plain.read_bytes()
+    assert CAROL.encode() not in shared.read_bytes()
+    params = json.loads(result.provenance_path.read_text(encoding="utf-8"))["parameters"]
+    assert params["n_aliased_names"] == 4
 
 
 def _job_owners(path) -> list[dict]:

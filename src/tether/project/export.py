@@ -622,12 +622,11 @@ def _copy_idealization(
     return written, skipped
 
 
-#: Compound-dataset fields that store a **person's name** (#620). The curator who
+#: Compound-dataset fields that always store a **person's name** (#620). The curator who
 #: labeled a molecule (``/labels`` ``labeler``), who re-keyed or merged a condition
 #: (``/settings/condition_audit`` ``labeler``), and who took over or lost a project lock
 #: (``/settings/lock_takeovers`` ``holder_user`` and ``ousted_user``, #626) are the stores
-#: today; a field added later that records a person (an approver, a reviewer) must be
-#: added here, and ``tests/test_export_subset_aliases.py`` fails until it is.
+#: today. A correction-transition ``actor`` holds a name only when ``by`` is ``person``.
 USER_NAME_FIELDS: frozenset[str] = frozenset({"labeler", "holder_user", "ousted_user"})
 
 #: Attributes that store a **full file path** (#620). A path can name the user (a home
@@ -647,8 +646,18 @@ JSON_USER_KEYS: dict[str, str] = {"owner": "user"}
 
 
 def _name_fields(dtype: np.dtype) -> list[str]:
-    """The [`USER_NAME_FIELDS`][] a compound ``dtype`` carries (``[]`` if none)."""
-    return [name for name in (dtype.names or ()) if name in USER_NAME_FIELDS]
+    """The fields in ``dtype`` that can store a user name."""
+    fields = dtype.names or ()
+    return [
+        field
+        for field in fields
+        if field in USER_NAME_FIELDS or (field == "actor" and "by" in fields)
+    ]
+
+
+def _stores_user_name(row: np.void, field: str) -> bool:
+    """Whether this name field holds a person identity in ``row``."""
+    return field != "actor" or _to_str(row["by"]) == "person"
 
 
 def _json_name_fields(dtype: np.dtype) -> list[str]:
@@ -678,7 +687,7 @@ def _row_names(rows: np.ndarray) -> list[str]:
     fields = _name_fields(rows.dtype)
     json_fields = _json_name_fields(rows.dtype)
     for row in rows:
-        names += [_to_str(row[field]) for field in fields]
+        names += [_to_str(row[field]) for field in fields if _stores_user_name(row, field)]
         for field in json_fields:
             obj = _json_object(_to_str(row[field]))
             if obj is not None and isinstance(obj.get(JSON_USER_KEYS[field]), str):
@@ -738,7 +747,12 @@ class _CuratorAliases:
         """
         out = rows.copy()
         for field in _name_fields(rows.dtype):
-            out[field] = [self._map.get(_to_str(v), _to_str(v)) for v in rows[field]]
+            out[field] = [
+                self._map.get(_to_str(row[field]), _to_str(row[field]))
+                if _stores_user_name(row, field)
+                else row[field]
+                for row in rows
+            ]
         for field in _json_name_fields(rows.dtype):
             out[field] = [self._json(_to_str(v), JSON_USER_KEYS[field]) for v in rows[field]]
         return out
@@ -776,9 +790,7 @@ def _copied_attr(key: str, value: object, aliases: _CuratorAliases | None) -> ob
 def _source_user_names(src: object, label_rows: np.ndarray) -> list[str]:
     """Every user name the copy would carry, in the order the copy writes them:
     the exported ``/labels`` rows first, then the verbatim metadata groups."""
-    names: list[str] = []
-    for field in _name_fields(label_rows.dtype):
-        names += [_to_str(v) for v in label_rows[field]]
+    names = _row_names(label_rows)
     for grp in _SUBSET_VERBATIM_GROUPS:
         if grp not in src:  # type: ignore[operator]
             continue
@@ -859,7 +871,7 @@ def _copy_verbatim_groups(src: object, dst: object, aliases: _CuratorAliases | N
     Preserves ``/conditions`` (+ its per-condition category lists and re-key audit),
     ``/settings`` (extraction provenance), ``/calibration``, and ``/models`` intact —
     small metadata that keeps the subset self-describing and referentially complete.
-    With ``aliases`` every user name in them (the condition audit log) is replaced.
+    With ``aliases`` the copy replaces the user names in those metadata groups.
     """
     for grp in _SUBSET_VERBATIM_GROUPS:
         if grp not in src:
@@ -971,17 +983,16 @@ def export_subset_tether(
     before staging). A ``<out_path>.provenance.json`` sidecar is written and the same
     provenance is stamped into the subset's root attributes.
 
-    Copy for sharing (#620). The ``/labels`` rows, the condition audit log, the
-    lock takeover log and the owner of each job record the user name (by default the
-    operating-system login). With ``curator_alias`` set, every stored user name
-    ([`USER_NAME_FIELDS`][], and the ``user`` of a job owner, ``JSON_USER_KEYS``) is
-    replaced by ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first
-    met, so one person keeps one alias and multi-curator analysis still works. A full
-    path in ``PATH_ATTRS`` can include the user name. Only its file name is kept, such
-    as for the model file of each ``/models`` reference. The provenance records that
-    names were replaced and how many, never the names. The
-    option does not remove ``source_filename`` (a file name, not a path): a file name
-    can still identify a sample.
+    Copy for sharing (#620). With ``curator_alias`` set, the copy replaces user names
+    in the labels, condition audit, lock takeover, job owner and correction transition
+    records. It replaces the actor of a person-authored transition and preserves the
+    policy text of a policy-authored transition. Each distinct user name becomes
+    ``<curator_alias>-1``, ``<curator_alias>-2``, … in the order first met, so one
+    person keeps one alias and multi-curator analysis still works. A full path in
+    ``PATH_ATTRS`` can include the user name. Only its file name is kept, such as for
+    the model file of each ``/models`` reference. The provenance records that aliasing
+    was used and the number of names replaced. The option does not remove
+    ``source_filename`` (a file name, not a path): a file name can still identify a sample.
 
     Parameters
     ----------

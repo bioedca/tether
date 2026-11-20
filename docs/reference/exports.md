@@ -369,16 +369,18 @@ row counts consistent, both patch channels present) **before** anything is writt
 | Raw **and** background traces, when `include_raw=False` | They ride as a set of four. Because `corrected = raw − background` exactly, keeping background alone would make raw reconstructable — omitting raw must omit background too |
 | Idealization models whose input layers are absent, or none of whose molecules were selected | Listed in the provenance file's `skipped_idealization_models`. A `raw`-fitted model is skipped when `include_raw=False` |
 
-**User names (`curator_alias`).** A project records a person's user name in four places:
+**User names (`curator_alias`).** A project records a person's user name in
 the `labeler` of each `/labels` row, the `labeler` of each `/settings/condition_audit`
 row (a condition re-key or merge), and the `holder_user` and `ousted_user` of each
-`/settings/lock_takeovers` row (a lock that was recovered or taken over). The fourth is
-the `user` inside the `owner` of each `/settings/jobs` row, the writer that last ran the
-job. By default each name is the operating-system login.
+`/settings/lock_takeovers` row (a lock that was recovered or taken over). Each
+`/settings/jobs` row stores the last writer's name in the `user` key of its `owner` object.
+A `/settings/correction_transitions` row stores a user name in `actor` when `by` is
+`person`. The `actor` of a `policy` row contains policy text and keeps its value.
+By default each user name is the operating-system login.
 
-The list of name fields is `tether.project.export.USER_NAME_FIELDS`. The JSON fields that hold a name under one key
-are listed in `tether.project.export.JSON_USER_KEYS`. Only that key changes, so the
-record keeps its shape.
+The plain fields are listed in `tether.project.export.USER_NAME_FIELDS`. The JSON fields
+that hold a name under one key are listed in `tether.project.export.JSON_USER_KEYS`.
+Only that key changes, so the record keeps its shape.
 
 | `curator_alias` | Result |
 |---|---|
@@ -390,15 +392,16 @@ each path in `tether.project.export.PATH_ATTRS` keeps only its file name. Today 
 `artifact_path` of each `/models/<condition_id>` reference, so the copy's reference names
 the model file but not its folder.
 
-A name-bearing table is written from its aliased rows, not copied and then changed, so the
-names are not in the bytes of the file. The count of names includes only the names in the
-copy: a name whose labels stay behind (for example on a rejected molecule) is not counted.
+A name-bearing table is written directly from its aliased rows so those fields store only
+their new values. The count covers the names in the records selected for export. A name
+whose only labels stay behind, for example on a rejected molecule, is excluded from the count.
 A blank prefix raises `ValueError`.
 
 The option does **not** remove `source_filename` or `tether_subset_of`. They are file
 names, not paths, and they are the origin record of each molecule. A file name can
-identify a sample, so read them before you share the copy. Free text, such as the `reason`
-of an audit row, is also copied as it is. So are the computer names (`holder_host`,
+identify a sample, so read them before you share the copy. Free text such as an audit
+`reason`, a correction transition's `detail`, and the text of a correction policy is
+copied as it is. So are the computer names (`holder_host`,
 `ousted_host`) of a lock takeover row and the `host` of a job owner. The `request` and
 `error` text of a job row are copied as they are too, and they can hold a full file path.
 
