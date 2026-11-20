@@ -152,7 +152,7 @@ the dwell inversion and the column reader.
 
 ## Amendment, 2026-11-17 — the mean dwell time of the double exponential (#1129)
 
-#1028 added `mean_dwell_time` and `DwellFit.mean_dwell_time`, so the step "Mean dwell time `tau`
+\#1028 added `mean_dwell_time` and `DwellFit.mean_dwell_time`, so the step "Mean dwell time `tau`
 of a double exponential and its error (the six `.out` files)" leaves the table of steps with no
 test. Two tests cover it:
 
