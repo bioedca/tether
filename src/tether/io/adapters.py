@@ -130,7 +130,7 @@ class MovieMetadata:
 
         ``metadata.with_user(frame_time=0.1)`` replaces the frame time, whatever its
         origin was, with ``0.1`` of origin ``"user"``. An unknown field name raises
-        [`TypeError`][].
+        `TypeError`.
         """
         names = {f.name for f in dataclasses.fields(self)}
         unknown = sorted(set(values) - names)
@@ -148,7 +148,7 @@ class MovieSource(Protocol):
     ``read_frames(start, stop)`` returns frames ``start`` to ``stop - 1`` as a
     ``(stop - start, height, width)`` array and must not load the full movie.
     A source is a context manager; [`close`][] is idempotent, and a read after it
-    raises [`ValueError`][].
+    raises `ValueError`.
     """
 
     @property
@@ -292,7 +292,7 @@ def select_adapter(path: str | PathLike[str]) -> MovieAdapter:
     Every adapter whose ``sniff`` accepts the first bytes is a candidate; of those,
     the one that claims the file's extension wins, else the first registered. A
     file that no adapter recognizes raises [`UnsupportedContainerError`][]. A
-    missing file raises [`FileNotFoundError`][].
+    missing file raises `FileNotFoundError`.
     """
     p = Path(path)
     adapters = registered_adapters()

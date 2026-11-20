@@ -101,6 +101,7 @@ Which tier each oracle's *headline* assertion lives in:
 | (f) Round-trip and schema integrity | required matrix (plus the required `schema-guard` job) | yes; the live tMAVEN-opens leg is `sidecar` |
 | (g) Photobleach detector | required matrix | yes; the live tMAVEN leg is `sidecar` |
 | (h) Histogram and cross-correlation vs smfret-analysis2 | required matrix | yes (committed verbatim reference files) |
+| Successive-frame FRET cloud vs the FRET_cloud script | required matrix | yes (committed frozen MATLAB output) |
 | (i) Corrected FRET vs MASH-FRET | required matrix (a committed extract) | yes; the full archive is checked by the workstation run |
 | MASH-FRET analyses: histogram, states, rates | required matrix (exact histogram) and `sidecar` (state limits), on a committed extract | the 37 stored histograms of the archive are checked by the workstation run |
 | Histogram bootstrap vs MASH-FRET | required matrix, on a committed extract | yes |
@@ -333,7 +334,8 @@ means the same tMAVEN commit on the same CPython, not an identical dependency se
 > such gap: it was measured on this build from the start. The script writes a full replacement of its `--out` file, so it was pointed at a
 > scratch file and only the re-measured `method`, `spread_by_fixture` and `pooled_worst` were
 > carried into the artifact; everything else in it — the per-method blocks, `$.coverage` with
-> its committed `"vbconhmm (vb Consensus HMM)"` quoted below — was kept by hand.
+> its committed `"vbconhmm (vb Consensus HMM)"` quoted below, and `$.transition_matrix` — was
+> kept by hand.
 
 **When upstream tMAVEN changes.** The parity tests use the pinned commit.
 `.github/workflows/sidecar-upstream.yml` runs the same tests each week with tMAVEN at the newest
@@ -353,7 +355,8 @@ the required `sidecar / parity` job — which executes them on every nightly run
 pull request touching an idealization path, and reports a "not applicable" pass otherwise):
 `test_281mol_fresh_fit_matches_reference_within_frozen_tolerance`,
 `test_4mol_cross_seed_matches_within_frozen_tolerance`,
-`test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`. On the required matrix,
+`test_281mol_ebfret_cross_seed_matches_within_frozen_tolerance`, which also assert the
+transition-matrix term (below). On the required matrix,
 `tests/test_parity.py` checks the artifact against itself:
 `test_frozen_artifact_covers_its_own_measured_evidence` requires *every* recorded per-run
 value to satisfy `$.tolerance` and requires `$.provisional` to still equal the `PROVISIONAL`
@@ -408,11 +411,29 @@ than the magnitude of any bound inside it, plus one ordering between two blocks:
 Widening any of the eight bounds to some *other* finite value was caught by nothing until #545,
 as long as the default state-count floor stayed above `0.5249`. Now
 `test_frozen_bounds_match_the_accepted_copy` holds a literal copy of every frozen bound — the
-eight above — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+eight above and the two transition-matrix ceilings — in [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
 `tests/test_parity.py`, outside the file, and fails on any difference; it names a widened bound
 `WIDENED`. `test_widening_any_one_frozen_bound_fails` widens each bound alone by 1e-4 and checks
 that it is reported. A deliberate re-freeze changes both copies in one pull request, under an ADR
 ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md)).
+
+**Transition matrix.** Consensus VB-HMM and ebFRET are also compared on their transition
+matrix: `transition_matrix_abs_delta` is the largest `|Δ|` between the two row-normalized
+matrices (`norm_tmatrix`, the per-frame transition probabilities), both in canonical
+mean-sorted order, and `inf` when the state counts differ or a matrix is missing. It is frozen
+apart from the four-bound rows, under `$.transition_matrix`, because the specification gives no
+provisional default for it: the measured worst case × 1.5, rounded up to the four decimal places
+of the other bounds and never below `0.0001` (`freeze_transition_matrix`).
+
+| Method | Evidence | Pooled worst | Frozen `transition_matrix_abs_delta_max` |
+| --- | --- | --- | --- |
+| `vbconhmm` | the re-measure above: 19 cross-seed comparisons on `smd_4mol`, 20 against `model_281mol.hdf5` | 3.915569757317883e-09 | 0.0001 |
+| `ebhmm` | 20 unseeded fits of `smd_281mol`, 19 cross-seed comparisons (2026-11-15) | 0.029381270392564246 | 0.0441 |
+
+The ebFRET four-bound row is not re-measured by this. Its 2026-07-08 evidence is unchanged.
+The three population arms of `tests/test_parity_sidecar.py` assert the term against these
+ceilings, and `test_transition_matrix_block_covers_its_own_evidence` checks the block against its
+own recorded runs on the required matrix.
 
 **Drift limit of the pinned build.** The two vbconhmm tests in `tests/test_parity_sidecar.py`
 also assert a second bound, much tighter than the frozen default row: a state-mean difference of
@@ -894,7 +915,7 @@ significant digits, and the rest is float64 round-off of the FFT and of the sums
 0.37 and 0.38 bins; with N / (N − k) as the only factor the cross-correlation misses by more
 than 1e-4.
 
-**Out of scope.** The successive-frame cloud (#710), the smoothed and filtered histogram
+**Out of scope.** The successive-frame cloud (the next section), the smoothed and filtered histogram
 columns, the heat map, trace selection and background subtraction. The files under
 `test-data/ground-truth/` of the same commit are not used: the commit's scripts do not
 reproduce them.
@@ -904,6 +925,53 @@ reproduce them.
 `test_tether_cross_correlation_equals_total_xc`,
 `test_the_lag_factor_alone_does_not_reach_the_file` and
 `test_the_fixtures_are_the_pinned_commit_of_smfret_analysis2`.
+
+### Successive-frame FRET cloud vs the FRET_cloud script
+
+**What is compared.** The successive-frame FRET cloud plots apparent E at frame *i* against
+apparent E at frame *i* + 1 ([#710](https://github.com/bioedca/tether/issues/710)). It is the plot of
+the laboratory's FRET_cloud scripts (FRET_cloud scripts, Eduardo Campos Chavez, 2025, unpublished).
+[ADR-0105](adr/0105-the-successive-frame-fret-cloud-and-its-script-reference.md) records the
+analysis and the reference.
+
+**Reference data.** The scripts are not public and are not in the repository.
+`scripts/reference/matlab/pins.toml` pins `FRET_cloud_contours_centroids.m` by its SHA-256, and
+`scripts/reference/matlab/fret_cloud.py` ran it unchanged, one time, in MATLAB R2023b (Statistics
+and Machine Learning Toolbox 23.2) on the 76 trace files of section (h), on 2026-11-15. The frozen
+output is under `tests/fixtures/reference/fret-cloud-scripts/sa2-traces/`: the 3800 pairs, the
+200 × 200 density, the nine contour levels, the four k-means centroids and the toolbox version,
+with a `provenance.json` that holds the citation, the script hash and the input hashes.
+
+The script reads column 4 of each file as E. Column 4 of these files is zero, so the run gave the script
+copies whose column 4 is `acceptor / (acceptor + donor)`, Tether's apparent E. The script uses the
+first 50 pairs of each file, so the test gives Tether the first 51 frames of each trace.
+
+**Results** (measured 2026-11-15. Each limit is the measurement rounded up to the next power of
+ten):
+
+| Quantity | Measured | Limit |
+|---|---|---|
+| Pairs | equal, bit for bit | equal |
+| Density, MATLAB's kernel cut applied, relative to the peak | 2.5e-15 | 1e-14 |
+| Contour levels from that density, relative | 2.2e-15 | 1e-14 |
+| Tether's density (no cut), relative to the peak | 1.1e-4 | 1e-3 |
+| Tether's contour levels (no cut), relative | 3.2e-4 | 1e-3 |
+| MATLAB's centroids after one Lloyd step of Tether | 0 | 1e-12 |
+| Within-cluster sum of squares, Tether's best run against MATLAB's, relative | 4.5e-7 | 1e-6 |
+| Centroids, Tether against MATLAB, in E | 8.0e-4 | 1e-3 |
+
+MATLAB's `mvksdensity` leaves out the part of each kernel that is more than 4 bandwidths from the
+pair on either axis. Tether keeps the whole Gaussian. With that cut applied in the test, the two
+densities agree to round-off, and the 5216 nodes where MATLAB's density is 0 are the nodes that no
+cut kernel reaches. So the cut is the whole difference. The k-means starts are random in both
+programs and come from different generators. MATLAB's run ended in a local minimum with a slightly
+smaller sum of squares than Tether's run with seed 0, so the centroid limits are not round-off.
+
+**Out of scope.** The scripts' heat map, their concatenated FRET-against-time plot and their R² of
+the centroids to the diagonal. The GUI entry and the export of the plot are a follow-up issue.
+
+**Enforcing tests** (all unmarked — required 3-OS matrix): `tests/test_fret_cloud_reference.py`
+and the record check `tests/test_matlab_reference.py::test_every_committed_output_matches_its_record`.
 
 ## (i) Corrected FRET vs MASH-FRET
 
@@ -1546,9 +1614,9 @@ evidence about the size of the difference and not a tolerance.
   actually run. The re-measure on the pinned build of 2026-11-15 closed that gap without moving
   a bound ([ADR-0110](adr/0110-idealization-parity-gaps-per-trace-transition-matrix-refreeze-and-bound-lock.md));
   the ebFRET block has no such gap.
-- A frozen bound — in `$.tolerance` or a per-method row — can now be loosened only by a pull
-  request that edits both `schema/parity_tolerance.json` and the literal copy
-  [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
+- A frozen bound — in `$.tolerance`, a per-method row or a transition-matrix ceiling — can now
+  be loosened only by a pull request that edits both `schema/parity_tolerance.json` and the
+  literal copy [`_ACCEPTED_BOUNDS`](https://github.com/bioedca/tether/blob/main/tests/test_parity.py) in
   `tests/test_parity.py`; `test_frozen_bounds_match_the_accepted_copy` fails on either edit
   alone (see §(b)). Nothing pins `$.provisional` to its committed values.
 - The ebFRET gate tests **one fixed pair of seeds** (1 and 2,

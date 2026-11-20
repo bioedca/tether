@@ -148,7 +148,7 @@ class MovieJob:
     """One input movie and the ``.tether`` it extracts into.
 
     ``tmap`` / ``tdat`` are optional per-movie Deep-LASI imports (a condition
-    typically shares one ``.tmap``); paths are coerced to [`Path`][pathlib.Path].
+    typically shares one ``.tmap``); paths are coerced to `Path`.
     """
 
     movie_path: Path
@@ -338,7 +338,7 @@ class BatchLog:
     """An append-only structured event log (one JSON object per stage transition).
 
     Records are plain dicts (assertion-friendly in tests, JSONL-serializable). Each is
-    mirrored to a [`logging`][] logger as a human line and, if ``path`` is given,
+    mirrored to a `logging` logger as a human line and, if ``path`` is given,
     written as one JSON object per line. Usable as a context manager so the file
     handle is closed on exit.
 
@@ -795,9 +795,15 @@ def run_correct_stage(
     factors to apparent E — never a NaN factor (PRD §7.2, §1.3 invariant 3).
 
     ``write_guard`` is an optional caller-owned lock/lease check carried into every
-    correction writer. Guarded leakage, gamma, and corrected-FRET passes stage their
-    complete data-plus-provenance update in a sibling project and publish only after a
-    final ownership check; ordinary unguarded callers retain in-place persistence.
+    correction writer. A guarded run copies the project **once** into a same-directory
+    sibling, runs all four passes in that sibling, and publishes the whole ordered
+    update with one ``os.replace`` after a final ownership check (#258). Each writer
+    still runs its own ``write_guard`` checks against the sibling. A pass that raises,
+    or an ownership check that fails, discards the sibling, so the canonical project
+    keeps none of the stage's passes rather than the ones before the failure; the
+    stage is not checkpointed until ``/settings/correction`` exists, so a re-run
+    starts it again from photobleach either way. Ordinary unguarded callers retain
+    in-place persistence.
 
     Returns a short human detail string for the log / summary.
 
@@ -808,25 +814,38 @@ def run_correct_stage(
         store ``r+`` on its own, so the guard belongs here rather than in any one of
         them (PRD §5.4).
     """
+    from tether.project._guarded_publish import guarded_project_write  # noqa: PLC0415
     from tether.project.correct import compute_corrected_fret  # noqa: PLC0415
     from tether.project.gamma import compute_gamma  # noqa: PLC0415
     from tether.project.leakage import compute_leakage_alpha  # noqa: PLC0415
     from tether.project.photobleach import compute_photobleach  # noqa: PLC0415
 
     _assert_output_not_newer(Path(project_path))
-    pb = compute_photobleach(project_path, write_guard=write_guard)
-    lk = compute_leakage_alpha(project_path, write_guard=write_guard)
-    parts = [f"pb {pb.n_donor_bleached}D/{pb.n_acceptor_bleached}A"]
-    if lk.applied and lk.alpha is not None:
-        gm = compute_gamma(project_path, write_guard=write_guard)
-        parts.append(f"α={lk.alpha:.3f}")
-        if gm.applied and gm.gamma is not None:
-            parts.append(f"γ={gm.gamma:.3f}")
+    # One staged sibling spans the four passes. Each writer is handed the sibling with
+    # the same guard; the nested guarded writes see it is already staged and write in
+    # place, so the copy and the publish happen once here (#258).
+    with guarded_project_write(
+        project_path, write_guard=write_guard, label="correct-stage"
+    ) as write_path:
+        pb = compute_photobleach(write_path, write_guard=write_guard)
+        lk = compute_leakage_alpha(write_path, write_guard=write_guard)
+        parts = [f"pb {pb.n_donor_bleached}D/{pb.n_acceptor_bleached}A"]
+        if lk.applied and lk.alpha is not None:
+            gm = compute_gamma(write_path, write_guard=write_guard)
+            parts.append(f"α={lk.alpha:.3f}")
+            if gm.applied and gm.gamma is not None:
+                parts.append(f"γ={gm.gamma:.3f}")
+                if gm.few_clean_steps:
+                    # Most measured steps lack an acceptor bleach's shape (ADR-0134).
+                    parts.append(
+                        f"γ from few clean steps: {gm.n_step_clean} of "
+                        f"{gm.n_step_evaluated} {_FLAG_MARK}"
+                    )
+            else:
+                parts.append("γ withheld")
         else:
-            parts.append("γ withheld")
-    else:
-        parts.append("α withheld")
-    cf = compute_corrected_fret(project_path, write_guard=write_guard)
+            parts.append("α withheld")
+        cf = compute_corrected_fret(write_path, write_guard=write_guard)
     if cf.total_failure and not cf.apparent_e_only:
         parts.append(f"apparent-E fallback ({cf.n_apparent} mol)")
     else:
@@ -1126,7 +1145,7 @@ def run_batch(
         starts and ends (#648). It changes nothing that is recorded.
     _extract, _correct, _idealize
         Injectable stage runners (test seams). Default to
-        [`tether.project.extract.extract_movie`][], [`run_correct_stage`][], and
+        [`tether.project.extract.extract_movie`][], `run_correct_stage`, and
         [`tether.project.idealize.idealize_molecules`][] respectively.
     _probe
         Injectable startup-liveness probe (test seam) taking the ``supervision`` and
