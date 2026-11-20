@@ -47,6 +47,7 @@ Two faithful-port questions had to be resolved, plus a scope question:
 ## Considered options
 
 **Pairing.**
+
 - **A. Mutual (one-to-one) nearest-neighbour within the gate** (cKDTree both
   directions; keep a pair only when each is the other's nearest within `tol`).
   Guarantees no point is double-assigned.
@@ -54,12 +55,14 @@ Two faithful-port questions had to be resolved, plus a scope question:
   the double-assignment bug — a wrong correspondence corrupts the fit.
 
 **Fit coordinates.**
+
 - **C. Fit on the original (un-prealigned) moving coords**; prealign only seeds
   matching. (Deep-LASI's actual behaviour.)
 - **D. Fit on the prealigned coords.** Bakes the coarse transform into the saved
   map and double-counts it — wrong.
 
 **Prealign scope (this PR).**
+
 - **E. Translation-only phase-correlation prealign now; defer the 4-DOF
   rotation+scale (Fourier-Mellin) to a follow-up (S5b).**
 - **F. Full 4-DOF Fourier-Mellin prealign in this PR.**

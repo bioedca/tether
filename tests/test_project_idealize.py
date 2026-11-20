@@ -39,7 +39,13 @@ from tether.imaging.extract import (  # noqa: E402
 from tether.imaging.register import PolyTransform2D  # noqa: E402
 from tether.imaging.split import ChannelGeometry  # noqa: E402
 from tether.io.filename import parse_filename  # noqa: E402
-from tether.io.schema import build_manifest, create_project, diff_manifest, introspect  # noqa: E402
+from tether.io.schema import (  # noqa: E402
+    TABLE,
+    build_manifest,
+    create_project,
+    diff_manifest,
+    introspect,
+)
 from tether.project.core import Project  # noqa: E402
 from tether.project.correct import (  # noqa: E402
     METHOD_APPARENT_TOGGLE,
@@ -57,6 +63,7 @@ from tether.project.idealize import (  # noqa: E402
     stale_molecule_keys,
     write_idealization_model,
 )
+from tether.project.labels import CurationLabel  # noqa: E402
 
 _PARSED = parse_filename("Bla_UCKOPSB_T-box_35pM_tRNA_600nM_010.tif")
 _WINDOW = 21
@@ -712,6 +719,32 @@ def test_reidealize_preserves_stored_cohort_after_member_is_rejected(tmp_path) -
 
     assert refreshed.molecule_keys == keys
     assert calls[0]["smd"].molecule_keys == keys
+
+
+def test_reidealize_leaves_out_a_rejected_row_that_shares_a_members_key(tmp_path) -> None:
+    """A refit keeps the stored rows, not every row that carries a stored key (§7.10).
+
+    Rows 0 and 1 share one ``molecule_key`` and row 1 is rejected, so the first fit
+    stores rows 0 and 2 only. Selecting the refit by key with rejected rows included
+    would add row 1; selecting by the stored ``molecule_id`` does not.
+    """
+    n, t = 3, 24
+    path = tmp_path / "e.tether"
+    proj, _ = _build_store(path, _step_trace(n, t), _step_trace(n, t) * 0.5)
+    with h5py.File(path, "r+") as f:
+        mol = f["molecules"][TABLE][:]
+        mol["molecule_key"][1] = mol["molecule_key"][0]
+        mol["curation_label"][1] = int(CurationLabel.REJECT)
+        f["molecules"][TABLE][:] = mol
+        ids = [_to_str(x) for x in mol["molecule_id"]]
+    first = idealize_molecules(proj, nstates=2, _runner=_make_runner({2: -1.0}, []))
+    assert first.molecule_ids == [ids[0], ids[2]]
+    calls: list[dict] = []
+
+    refreshed = reidealize(proj, "vbconhmm", _runner=_make_runner({2: -1.0}, calls))
+
+    assert refreshed.molecule_ids == [ids[0], ids[2]]
+    assert len(calls[0]["smd"].molecule_keys) == 2
 
 
 def test_reidealize_repeats_the_max_elbo_sweep_over_the_recorded_grid(tmp_path) -> None:

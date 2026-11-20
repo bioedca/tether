@@ -13,7 +13,10 @@ project's stored intensity traces and writes, into the **already-frozen**
   (Appendix B step 6 / §11.2), written **only where the window still equals the
   extraction default** (``analysis_window == frame_range``). A window a curator
   has already narrowed (``!= frame_range``) is a manual override and is left
-  untouched — manual bounds win over the auto default.
+  untouched — manual bounds win over the auto default. A changed window of a row
+  ``/features/table`` holds deletes that table first
+  (``tether.project.features.invalidate_features``), since its features were sliced
+  to the old window.
 
 Detection runs on the **background-subtracted** (``corrected``) traces by
 default: tMAVEN's model detects a decay to ``N(0)``, which only holds once the
@@ -77,6 +80,10 @@ class PhotobleachSummary:
     intensity_quantity: str
 
 
+def _to_str(value: object) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
 def compute_photobleach(
     project_path: str | Path,
     *,
@@ -122,6 +129,11 @@ def compute_photobleach(
     """
     import h5py  # noqa: PLC0415
 
+    from tether.project.features import (  # noqa: PLC0415
+        WINDOW_WRITE_GUARD,
+        invalidate_features,
+    )
+
     if intensity_quantity not in INTENSITY_QUANTITY_LAYERS:
         raise ValueError(
             f"intensity_quantity must be one of {sorted(INTENSITY_QUANTITY_LAYERS)}, "
@@ -134,10 +146,11 @@ def compute_photobleach(
     n_donor = 0
     n_acceptor = 0
     n_windows = 0
+    changed_ids: set[str] = set()
 
     if write_guard is not None:
         write_guard()
-    with h5py.File(path, "r+") as f:
+    with WINDOW_WRITE_GUARD, h5py.File(path, "r+") as f:
         traces_grp = f[_TRACES]
         for layer in (donor_layer, acceptor_layer):
             if layer not in traces_grp:
@@ -189,10 +202,15 @@ def compute_photobleach(
             )
             if still_default and sum_pb > start:
                 analysis_window[i] = (start, sum_pb)
-                n_windows += int(sum_pb < end)
+                if sum_pb < end:  # == end rewrites the same window: nothing changed
+                    n_windows += 1
+                    changed_ids.add(_to_str(table["molecule_id"][i]))
 
         if write_guard is not None:
             write_guard()
+        # Drop a feature cache sliced to the old windows before the new ones land, so a
+        # crash between the two costs a recompute, never features from stale frames.
+        invalidate_features(f, changed_ids)
         f[_MOLECULES][TABLE][:] = table
 
     return PhotobleachSummary(

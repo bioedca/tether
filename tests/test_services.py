@@ -53,10 +53,14 @@ _QT_MODULES = (
 _SAMPLE_ARGV: dict[str, list[str]] = {
     "extract": ["extract", "movie.tif", "-o", "out.tether"],
     "batch": ["batch", "a.tif", "b.tif", "-d", "out"],
+    "idealize": ["idealize", "p.tether"],
+    "map": ["map", "create", "beads.tif", "-o", "beads.npz"],
 }
 _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
     "extract": {"movie": "movie.tif", "output": "out.tether"},
     "batch": {"movies": ("a.tif", "b.tif"), "out_dir": "out"},
+    "idealize": {"project": "p.tether"},
+    "map": {"source": "beads.tif", "output": "beads.npz"},
 }
 
 
@@ -65,7 +69,7 @@ _SAMPLE_REQUIRED: dict[str, dict[str, Any]] = {
 
 def test_the_registry_names_each_command_once_with_its_types() -> None:
     names = [entry.name for entry in services.COMMANDS]
-    assert names == ["extract", "batch"]
+    assert names == ["extract", "batch", "idealize", "map"]
     assert len(set(names)) == len(names)
     for entry in services.COMMANDS:
         assert issubclass(entry.request_type, base.Request)
@@ -109,9 +113,9 @@ def test_every_registered_command_has_a_command_line_route() -> None:
     names = [entry.name for entry in services.COMMANDS]
     assert list(subparsers.choices)[: len(names)] == names
     # `tether info` (#655) only reads a project, `tether metadata` (#911) shows or edits
-    # stored movie metadata through `Project`, and `tether export` (#658) only reads:
-    # plain subcommands, not service commands.
-    assert list(subparsers.choices)[len(names) :] == ["info", "metadata", "export"]
+    # stored movie metadata through `Project`, `tether export` (#658) and `tether status`
+    # (#896) only read: plain subcommands, not service commands.
+    assert list(subparsers.choices)[len(names) :] == ["info", "metadata", "export", "status"]
 
 
 def test_a_registered_command_with_no_route_fails(monkeypatch) -> None:

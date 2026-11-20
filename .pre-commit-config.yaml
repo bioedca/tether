@@ -14,11 +14,12 @@ repos:
       # Frozen reference outputs (#700, ADR-0074), the kinSoft simulator settings (#717), the
       # smfret-analysis2 test data (#709) and the unchanged CC BY-NC-ND copies of the paper's
       # Source Data (#755, ADR-0083) are checked byte for byte against their SHA-256; a hook
-      # that rewrote their whitespace would break the record.
+      # that rewrote their whitespace would break the record. The same holds for the
+      # attestation answer and gh report the update verifier's tests replay verbatim (#333).
       - id: trailing-whitespace
-        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2|campos_chavez_2024|large/campos_chavez_2024|ha_sam_sah)/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2|campos_chavez_2024|large/campos_chavez_2024|ha_sam_sah|update_verify)/
       - id: end-of-file-fixer
-        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2|campos_chavez_2024|large/campos_chavez_2024|ha_sam_sah)/
+        exclude: ^tests/fixtures/(reference|kinsoft_simulator|smfret_analysis2|campos_chavez_2024|large/campos_chavez_2024|ha_sam_sah|update_verify)/
       - id: check-yaml
         # packaging/construct.yaml is a `constructor` recipe, not plain YAML: it
         # uses conda-build line selectors (`# [win]`) and Jinja, so the same key
@@ -49,3 +50,17 @@ repos:
     rev: v6.2.0
     hooks:
       - id: reuse
+
+  # Markdown structure (#185). The settings, and the paths it does not read, are in
+  # .markdownlint-cli2.yaml.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.24.1
+    hooks:
+      - id: markdownlint-cli2
+
+  # Misspellings in prose and code comments (#185). The settings are in .codespellrc;
+  # every suppressed word is in .codespell-ignore.
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.3
+    hooks:
+      - id: codespell

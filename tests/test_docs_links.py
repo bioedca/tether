@@ -104,8 +104,10 @@ would hide a broken link. A ``[a][b]`` in such a block is reported.
 
 from __future__ import annotations
 
+import ast
 import bisect
 import html
+import importlib.util
 import re
 import sys
 import unicodedata
@@ -121,6 +123,16 @@ _MKDOCS_YML = DOCS.parent / "mkdocs.yml"
 
 # `mkdocs.yml` `exclude_docs:` — not part of the site, so neither walked nor linkable.
 _EXCLUDED = {DOCS / "PRD.md"}
+
+# Files the site serves that are not under docs/: ``scripts/mkdocs_hooks.py`` adds each one to the
+# build from its repository path (#612). A link to one resolves when that source file exists.
+_hooks_spec = importlib.util.spec_from_file_location(
+    "mkdocs_hooks_links", DOCS.parent / "scripts" / "mkdocs_hooks.py"
+)
+assert _hooks_spec is not None and _hooks_spec.loader is not None
+_hooks = importlib.util.module_from_spec(_hooks_spec)
+_hooks_spec.loader.exec_module(_hooks)
+_GENERATED = {(DOCS / site).resolve(): source for site, source in _hooks.PUBLISHED_FILES.items()}
 
 _UNSUPPORTED = "unsupported Markdown form, the checker cannot vouch for it"
 
@@ -1080,7 +1092,48 @@ def _anchors(path: Path) -> frozenset[str]:
             ids.add(attrs["id"])
         if name == "a" and attrs.get("name"):
             ids.add(attrs["name"])
+    ids |= _api_anchors(path)
     return frozenset(ids)
+
+
+#: A mkdocstrings block (#179): ``::: tether.analysis.histogram`` at column zero.
+_API_BLOCK_RE = re.compile(r"^::: (tether(?:\.\w+)*)[ \t]*$", re.MULTILINE)
+#: A block the generator does not run: an HTML comment, or a fenced block at the root.
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,}).*?^\1[ \t]*$", re.DOTALL | re.MULTILINE)
+_SRC = DOCS.parent / "src"
+
+
+def _api_anchors(path: Path) -> set[str]:
+    """The anchors a generated API page serves for its modules and their ``__all__`` names.
+
+    mkdocstrings writes one heading for each rendered object, with the object's dotted path as
+    its ``id``. This reads the module's ``__all__`` with ``ast``, as the generator does, and
+    gives the module path and ``<module>.<name>`` for each listed name that the module itself
+    defines. Members of a class and re-exported names are not modelled, so a link to one of
+    them fails here; ``mkdocs build --strict`` checks the rendered anchors in full.
+    """
+    anchors: set[str] = set()
+    text = _FENCE_RE.sub("", _COMMENT_RE.sub("", path.read_text(encoding="utf-8")))
+    for dotted in _API_BLOCK_RE.findall(text):
+        base = _SRC.joinpath(*dotted.split("."))
+        source = base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
+        if not source.is_file():
+            continue
+        anchors.add(dotted)
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+            ):
+                names = ast.literal_eval(node.value)
+                anchors.update(f"{dotted}.{n}" for n in names if n in defined)
+    return anchors
 
 
 def _target_problem(source: Path, target: str) -> str | None:
@@ -1101,6 +1154,8 @@ def _target_problem(source: Path, target: str) -> str | None:
             return "target is outside docs/, so it is not part of the published site"
         if resolved in _EXCLUDED:
             return "target is excluded from the site by mkdocs.yml exclude_docs"
+        if resolved in _GENERATED:
+            return None if _GENERATED[resolved].is_file() else "the hook's source file is missing"
         if not resolved.exists():
             return "no such file"
         if resolved.is_dir():
@@ -1304,6 +1359,27 @@ def test_a_directory_link_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert len(out) == 2, out
     assert "'withreadme/'" in out[0] and "link withreadme/README.md" in out[0]
     assert "'bare/'" in out[1] and "no index page" in out[1]
+
+
+def test_an_api_page_serves_the_anchors_of_its_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``:::`` block serves its module and the ``__all__`` names the module defines (#179)."""
+    api = "# API\n\n::: tether.fret.gamma\n    options:\n      heading_level: 2\n"
+    good = "# A\n\n[g](api.md#tether.fret.gamma) and [f](api.md#tether.fret.gamma.estimate_gamma)\n"
+    bad = "# B\n\n[x](api.md#tether.fret.gamma.not_a_name) and [y](api.md#tether.fret.leakage)\n"
+    out = _check(tmp_path, monkeypatch, {"api.md": api, "good.md": good, "bad.md": bad})
+    assert [p.split(": ", 1)[0] for p in out] == ["docs/bad.md:3", "docs/bad.md:3"], out
+
+
+def test_a_fenced_or_commented_api_block_serves_no_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``:::`` line in a fence or an HTML comment is not run, so it makes no heading."""
+    api = "# API\n\n```\n::: tether.fret.gamma\n```\n\n<!--\n::: tether.fret.leakage\n-->\n"
+    page = "# A\n\n[g](api.md#tether.fret.gamma) and [l](api.md#tether.fret.leakage)\n"
+    out = _check(tmp_path, monkeypatch, {"api.md": api, "page.md": page})
+    assert [p.split(": ", 1)[0] for p in out] == ["docs/page.md:3", "docs/page.md:3"], out
 
 
 def test_raw_html_links_are_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

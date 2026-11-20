@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from tether.io.movie import MovieReader
     from tether.project.conditions import (
         CategoryList,
+        ClassLookup,
         ConditionSyncSummary,
         ConditionValidationReport,
         RekeyPreview,
@@ -538,6 +539,17 @@ class Project:
         from tether.project import conditions
 
         return conditions.read_category_list(self.path, condition_id)
+
+    def class_lookup(self, condition_id: str) -> ClassLookup:
+        """A condition's persisted tMAVEN class ↔ category lookup (§7.4; ADR-0125).
+
+        Delegates to
+        [`conditions.read_class_lookup`][tether.project.conditions.read_class_lookup];
+        read-only.
+        """
+        from tether.project import conditions
+
+        return conditions.read_class_lookup(self.path, condition_id)
 
     def set_category_list(self, condition_id: str, categories: object) -> CategoryList:
         """Replace a condition's whole ordered category list (`conditions.set_category_list`).

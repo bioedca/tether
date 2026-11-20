@@ -13,7 +13,7 @@ Tether estimates (PRD §7.2, Appendix B.2; ``background → leakage α → δ(=0
 
 with **apparent E** = the same formula at ``α = δ = 0, γ = 1`` — i.e. the raw
 proximity ratio ``A / (D + A)`` shown before any correction is available
-[McCann2010][Hellenkamp2018]. Keeping both in one module means the dock, the
+[McCann2010], [Hellenkamp2018]. Keeping both in one module means the dock, the
 corrections pipeline, and analysis all compute E exactly one way: apparent E is
 literally [`corrected_fret`][] with the identity factors, so there is no second
 definition to drift.
@@ -106,7 +106,7 @@ def apparent_fret(donor: np.ndarray, acceptor: np.ndarray) -> np.ndarray:
     The uncorrected efficiency shown before leakage/γ corrections are available —
     exactly [`corrected_fret`][] at the identity factors ``alpha=0, gamma=1``
     (PRD §7.4). Tether labels the FRET axis "apparent E" until M3 supplies the
-    correction factors [McCann2010][Hellenkamp2018].
+    correction factors [McCann2010], [Hellenkamp2018].
 
     Parameters
     ----------

@@ -174,10 +174,26 @@ class ExtractionProfile(ExtractionFields, Request):
 
     @classmethod
     def from_options(cls, options: ExtractOptions) -> ExtractionProfile:
-        """Return the profile of an [`ExtractOptions`][tether.project.extract.ExtractOptions]."""
+        """Return the profile of an [`ExtractOptions`][tether.project.extract.ExtractOptions].
+
+        Raises [`ExtractionError`][tether.project.extract.ExtractionError] for a channel
+        layout with a channel recipe (#910), which a profile cannot hold yet.
+        """
+        from tether.project.extract import ExtractionError
+
         names = {f.name for f in dataclasses.fields(ExtractionFields)} - set(LAYOUT_FIELDS)
         values: dict[str, Any] = {name: getattr(options, name) for name in names}
         layout = options.channel_layout
+        if layout is not None and (
+            layout.donor_recipe is not None or layout.acceptor_recipe is not None
+        ):
+            # A profile has no field for a channel recipe (#910); dropping it would save a
+            # profile that splits the movie differently from these options.
+            raise ExtractionError(
+                "an extraction profile cannot hold a channel recipe yet; the channel layout "
+                f"has donor recipe {layout.donor_recipe} and acceptor recipe "
+                f"{layout.acceptor_recipe}"
+            )
         if layout is not None:
             values.update(
                 channel_layout=layout.kind,
