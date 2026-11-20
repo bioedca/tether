@@ -54,6 +54,7 @@ _EXPECTED_OPTION_COUNTS = {
     "batch": 18,
     "map create": 6,
     "info": 2,
+    "status": 2,
     "idealize": 12,
     "metadata": 5,
     "export table": 4,
@@ -221,8 +222,8 @@ def test_the_reference_page_exists() -> None:
 
 
 def test_every_subcommand_is_documented() -> None:
-    """`extract`, `batch`, `idealize` (#657), `map create` (#353), `info` (#655), `metadata` (#911)
-    and the three `export` forms (#658) get a section each.
+    """`extract`, `batch`, `idealize` (#657), `map create` (#353), `info` (#655), `metadata` (#911),
+    `status` (#896) and the three `export` forms (#658) get a section each.
 
     They are the entire headless product surface; a further subcommand added later must
     either be documented or this fails.
@@ -236,6 +237,7 @@ def test_every_subcommand_is_documented() -> None:
         "info",
         "idealize",
         "metadata",
+        "status",
         "export table",
         "export traces",
         "export subset",
