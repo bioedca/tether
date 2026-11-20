@@ -99,43 +99,43 @@ retired = 0
 
 [pages."docs/how-to/extract-traces.md"]
 kind = "procedure"
-long_share = 16.8
+long_share = 13.6
 semicolons = 7
 long_paragraphs = 0
 retired = 3
 
 [pages."docs/how-to/curate-traces.md"]
 kind = "procedure"
-long_share = 7.5
+long_share = 6.8
 semicolons = 2
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/how-to/apply-corrections.md"]
 kind = "procedure"
-long_share = 31.8
+long_share = 29.9
 semicolons = 5
 long_paragraphs = 0
 retired = 0
 
 [pages."docs/how-to/idealize.md"]
 kind = "procedure"
-long_share = 14.9
+long_share = 14.1
 semicolons = 0
 long_paragraphs = 0
 retired = 1
 
 [pages."docs/how-to/analyze.md"]
 kind = "procedure"
-long_share = 32.8
-semicolons = 8
+long_share = 32.2
+semicolons = 7
 long_paragraphs = 1
 retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
-long_share = 23.6
-semicolons = 3
+long_share = 17.7
+semicolons = 2
 long_paragraphs = 0
 retired = 0
 
@@ -211,8 +211,8 @@ retired = 0
 
 [pages."docs/reference/tether-format.md"]
 kind = "descriptive"
-long_share = 24.1
-semicolons = 29
+long_share = 23.7
+semicolons = 28
 long_paragraphs = 0
 retired = 0
 
@@ -302,7 +302,7 @@ retired = 0
 
 [pages."docs/glossary.md"]
 kind = "descriptive"
-long_share = 23.1
+long_share = 22.8
 semicolons = 29
 long_paragraphs = 2
 retired = 2
