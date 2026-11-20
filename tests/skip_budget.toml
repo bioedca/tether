@@ -29,7 +29,7 @@ max_skipped = 19
 
 [jobs."test (macos-latest)"]
 min_collected = 4011
-max_skipped = 34
+max_skipped = 48
 
 [jobs."test (windows-latest)"]
 min_collected = 4011
@@ -310,9 +310,26 @@ test (ubuntu-latest) under xvfb and test (windows-latest) run the test."""
 test = "tests/test_movie_panel.py::*"
 reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
 jobs = ["test (macos-latest)"]
-why = """The six movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
+why = """The seven movie-panel tests open a napari Viewer, which needs an OpenGL context that Qt \
 under QT_QPA_PLATFORM=offscreen on macOS does not give. test (ubuntu-latest) under xvfb and \
 test (windows-latest) run them."""
+
+[[skip]]
+test = "tests/test_shell_movie_panel.py::*"
+reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
+jobs = ["test (macos-latest)"]
+why = """The nine tests that dock the shell's napari movie panel (#356) open a napari Viewer, \
+which needs an OpenGL context that Qt under QT_QPA_PLATFORM=offscreen on macOS does not give. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run them. The module's tests of an \
+unwired panel run on macOS too."""
+
+[[skip]]
+test = "tests/test_gui_section_contract.py::*[[]curate]"
+reason = "napari Viewer needs a GL context; macOS offscreen Qt has none (segfaults)"
+jobs = ["test (macos-latest)"]
+why = """Curate and correct is a VIEWER_SECTIONS entry since its movie dock holds the napari \
+movie panel (#356), so the four contract tests of that section carry needs_gl. \
+test (ubuntu-latest) under xvfb and test (windows-latest) run them."""
 
 [[skip]]
 test = "tests/test_roundtrip.py::*"
