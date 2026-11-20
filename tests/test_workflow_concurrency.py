@@ -27,7 +27,7 @@ import yaml  # provided by the base conda-lock (a mkdocs dependency)
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 GUARDED = ("ci.yml", "sidecar.yml", "schema-guard.yml")
 MAIN = "refs/heads/main"
-OTHER_REFS = ("refs/pull/1265/merge", "refs/heads/agent/issue-1265")
+OTHER_REFS = ("refs/pull/1265/merge", "refs/heads/agent/issue-1265", "refs/heads/main-102")
 
 _TOKEN = re.compile(r"\s*(?:('(?:[^']|'')*')|(\d+)|(==|!=|&&|\|\||[!(),])|([A-Za-z_][\w.-]*))")
 _INTERPOLATION = re.compile(r"\$\{\{(.*?)\}\}")
@@ -142,6 +142,8 @@ def test_every_other_ref_keeps_one_group_per_ref_and_cancels_superseded_runs(
     name = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8"))["name"]
     (earlier, _), (later, cancels) = _run(workflow, ref, 101), _run(workflow, ref, 102)
     assert earlier == later == f"{name}-{ref}"
+    main_group, _ = _run(workflow, MAIN, 102)
+    assert later.casefold() != main_group.casefold(), f"{workflow}: {ref} shares the main group"
     assert cancels is True, f"{workflow}: a new run on {ref} must cancel the superseded one"
 
 
@@ -151,6 +153,6 @@ def test_the_evaluator_reads_the_old_rule_as_cancelling_on_main() -> None:
     assert _resolve("${{ github.workflow }}-${{ github.ref }}", context) == "CI-refs/heads/main"
     assert _resolve("${{ github.ref != 'refs/heads/main' }}", context) is False
     assert (
-        _resolve("${{ github.ref == 'REFS/HEADS/MAIN' && format('-{0}', 7) || '' }}", context)
-        == "-7"
+        _resolve("${{ github.ref == 'REFS/HEADS/MAIN' && format(':{0}', 7) || '' }}", context)
+        == ":7"
     )

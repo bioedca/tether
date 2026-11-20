@@ -18,10 +18,10 @@ on:
 permissions:
   contents: read
 
-# On a pull request (or any ref but main) a new run supersedes the old one and cancels it. A run on
-# main gets a group of its own (run_id), so a later merge never cancels or replaces it (#1265).
+# Main runs get their own groups so later merges cannot cancel or replace them (#1265).
+# A colon separates main groups from other refs, because Git refs cannot contain it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format(':{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:

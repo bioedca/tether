@@ -48,10 +48,10 @@ release**, not the binaries, and it is unaffected by any of the above.
    sidecar cron can land a fresh `sidecar / parity` run on the very commit being released,
    and a verdict fetched an hour earlier would not see it turn red. Two operational
    consequences follow. A tag cut seconds after a merge is refused until the post-merge run
-   finishes on that commit. A following merge no longer cancels those checks (#1265). On
-   `main`, each run of these workflows has its own concurrency group. A commit whose checks
-   were canceled before then can never be released. Release from a later commit whose checks
-   ran to completion instead.
+   finishes on that commit. And because the producing workflows cancel an in-flight run
+   when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
+   were canceled by a following merge can never be released — release from a later commit
+   whose checks ran to completion instead.
 2. **Read every user page before the tag, and record the read.** A named person does this
    step. An AI tool cannot do this step. AI tools draft the user pages, and the review lane of a
    pull request has only AI reviewers. This read is part of the release sign-off that the agent
