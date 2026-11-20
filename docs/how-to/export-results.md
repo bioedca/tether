@@ -170,6 +170,28 @@ model fitted on raw traces. The provenance file names a model left out that way 
 `skipped_idealization_models`. It refuses to replace an existing file unless you add
 `--overwrite` (`overwrite=True`).
 
+### Share a subset without your user name
+
+The project records your operating-system user name with each label and with each
+condition change. To send a copy without the names, give a prefix:
+
+```python
+from tether.project.export import export_subset_tether
+
+export_subset_tether("movie.tether", "shared.tether", curator_alias="curator")
+```
+
+Each person becomes `curator-1`, `curator-2`, and so on. One person keeps one alias, so
+you can still compare curators in the copy. The `.provenance.json` file records that names
+were replaced and how many, but not the names. Your project does not change. The copy
+still has the file name of each source movie in `source_filename`. A file name can identify
+a sample, so read it before you share the copy
+([User names](../reference/exports.md#3-subset-tether)).
+
+The path of a model file keeps only the file name. A folder name can have your user name
+in it. A job record keeps the options of the command that ran. They can hold a full path,
+so read them too.
+
 A project imported for analysis only, from a Deep-LASI `.txt` or a tMAVEN SMD file, has no
 image crops, so it cannot be exported as a subset; the export stops with an error. Use the
 molecule table and the trace export for such a project instead

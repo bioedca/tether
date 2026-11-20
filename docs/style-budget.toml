@@ -134,7 +134,7 @@ retired = 0
 
 [pages."docs/how-to/export-results.md"]
 kind = "procedure"
-long_share = 20.9
+long_share = 17.7
 semicolons = 2
 long_paragraphs = 0
 retired = 0
@@ -155,7 +155,7 @@ retired = 0
 
 [pages."docs/idealize/standalone-tmaven-handoff.md"]
 kind = "procedure"
-long_share = 43.1
+long_share = 33.8
 semicolons = 4
 long_paragraphs = 0
 retired = 0
@@ -337,7 +337,7 @@ retired = 0
 
 [pages."docs/privacy.md"]
 kind = "descriptive"
-long_share = 9.7
+long_share = 7.6
 semicolons = 6
 long_paragraphs = 0
 retired = 0
