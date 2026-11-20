@@ -35,9 +35,10 @@ gallery](../analysis/parity-gallery.md); this page is how to make them.
 
 ## 1. Look at the histogram in the application window
 
-Open the project with `tether-gui movie.tether` and choose **Analysis → Population
-histogram…**. The window goes to its **Analyze** section and a panel opens with the
-histogram, and the status bar names how many molecules and frames went into it, for example:
+Open the project with `tether-gui movie.tether`, choose **View → Section → Analyze**, and
+then choose **Analysis → Population histogram…**. The **Analysis** menu shows only in the
+**Analyze** section. A panel opens with the histogram, and the status bar names how many
+molecules and frames went into it, for example:
 
 ```text
 Population histogram — 398 molecule(s), 71640 frame(s)

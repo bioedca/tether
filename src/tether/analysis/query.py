@@ -105,7 +105,7 @@ def _as_filter_set(values: Iterable[str] | None) -> frozenset[str] | None:
     (the never-silent contract; see the module docstring's filter semantics). Returns
     ``None`` for both ``None`` and an empty collection.
 
-    A bare ``str``/``bytes`` is rejected with [`TypeError`][]: it *is* iterable, so
+    A bare ``str``/``bytes`` is rejected with `TypeError`: it *is* iterable, so
     ``tags="blink"`` would otherwise iterate characters and silently match nothing —
     the same never-silent trap the emptiness handling avoids.
     """

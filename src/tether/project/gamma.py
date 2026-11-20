@@ -12,8 +12,9 @@ project's stored intensity traces and writes:
   (PRD §5.1, §7.2, Appendix B.2 step 4). That per-molecule/fallback split is what the
   later staleness scope re-stales on a γ-median shift.
 * ``/settings/gamma`` — an additive provenance group (like ``/settings/leakage``):
-  the effective gates, the dataset median, ``n_qualifying``, ``n_fallback``, and the
-  app version (NFR-REPRO). Recomputable — overwritten on each pass.
+  the effective gates, the dataset median, ``n_qualifying``, ``n_fallback``, the
+  clean-step counts and their warning (ADR-0134), and the app version (NFR-REPRO).
+  Recomputable — overwritten on each pass.
 
 γ is the last correction step (``background → leakage α → δ(=0) → γ``), so it needs
 both prerequisites in place:
@@ -36,6 +37,13 @@ step — the typical pure-FRET case lacking clean steps (PRD §7.2 total-failure
 §Data-gaps). The provenance group is still stamped (``withheld = True``) so the
 attempt is auditable.
 
+**Clean steps (ADR-0134).** Of the molecules whose step was measured (both segment
+gates passed), those where the donor rose and the acceptor dropped are counted. When
+an applied γ rests on fewer than ``min_clean_step_fraction`` clean steps, the summary
+and the stamp say so (``few_clean_steps``): the ``(0, ceiling]`` gate may then be keeping
+the positive tail of noise. The warning is a reason to check γ, not proof that it is wrong,
+and it changes no γ value.
+
 The single-writer ``.lock`` is the caller's responsibility, mirroring
 [`tether.project.leakage.compute_leakage_alpha`][] (a low-level ``r+`` writer; the
 [`Project`][tether.project.core.Project] facade / batch runner holds the lock).
@@ -52,10 +60,13 @@ import numpy as np
 
 from tether.fret.gamma import (
     DEFAULT_GAMMA_HALF_WINDOW,
+    DEFAULT_MIN_CLEAN_STEP_FRACTION,
     DEFAULT_MIN_QUALIFYING_TRACES,
     DEFAULT_MIN_WINDOW_FRAMES,
     GAMMA_CEILING,
+    _check_half_window,
     estimate_gamma,
+    few_clean_steps,
 )
 from tether.io.schema import TABLE
 from tether.project._guarded_publish import guarded_project_write
@@ -70,6 +81,11 @@ _GAMMA_SETTINGS = "gamma"
 
 #: ``/settings/gamma`` ``source`` value — the acceptor-bleach-step estimator's tag.
 GAMMA_SOURCE_ACCEPTOR_BLEACH_STEP = "acceptor-bleach-step"
+
+#: ``/settings/gamma`` ``level_window`` values (ADR-0130): the levels were averaged over
+#: the whole pre- and post-step segments, or over ``half_window`` frames each side.
+GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT = "whole-segment"
+GAMMA_LEVEL_WINDOW_HALF_WINDOW = "half-window"
 
 
 @dataclass(frozen=True)
@@ -95,6 +111,14 @@ class GammaSummary:
         Estimator provenance tag stamped into ``/settings/gamma``.
     intensity_quantity
         Which ``/traces`` layer the estimate ran on.
+    n_step_evaluated
+        Molecules whose acceptor-bleach step was measured (both segment gates passed).
+    n_step_clean
+        Of those, the steps where the donor rose and the acceptor dropped (ADR-0134).
+    few_clean_steps
+        ``True`` when γ was applied and fewer than ``min_clean_step_fraction`` of the
+        evaluated steps are clean: the γ is reported, but may rest largely on noise.
+        Always ``False`` when γ was withheld. Changes no γ value.
     """
 
     n_molecules: int
@@ -104,6 +128,9 @@ class GammaSummary:
     applied: bool
     source: str
     intensity_quantity: str
+    n_step_evaluated: int = 0
+    n_step_clean: int = 0
+    few_clean_steps: bool = False
 
 
 def _app_version() -> str:
@@ -120,10 +147,11 @@ def compute_gamma(
     project_path: str | Path,
     *,
     intensity_quantity: str = "corrected",
-    half_window: int = DEFAULT_GAMMA_HALF_WINDOW,
+    half_window: int | None = DEFAULT_GAMMA_HALF_WINDOW,
     min_window_frames: int = DEFAULT_MIN_WINDOW_FRAMES,
     ceiling: float = GAMMA_CEILING,
     min_qualifying_traces: int = DEFAULT_MIN_QUALIFYING_TRACES,
+    min_clean_step_fraction: float = DEFAULT_MIN_CLEAN_STEP_FRACTION,
     write_guard: Callable[[], None] | None = None,
 ) -> GammaSummary:
     """Estimate the dataset γ from acceptor-bleach steps and store it per molecule.
@@ -140,7 +168,10 @@ def compute_gamma(
         Which ``/traces`` layer to estimate on — ``"corrected"`` (default,
         background-subtracted) or ``"raw"``.
     half_window
-        γ level tolerance half-window each side of the step (PRD §11.2, default 3).
+        Frames averaged each side of the step for the γ levels (PRD §11.2, default
+        20 since ADR-0130). ``None`` averages the whole pre-step FRET segment and the
+        whole post-step donor-only segment instead. A zero or negative value raises
+        ``ValueError``.
     min_window_frames
         Reject unless both step segments are longer than this (PRD §11.2, default 20).
     ceiling
@@ -148,6 +179,10 @@ def compute_gamma(
     min_qualifying_traces
         Withhold the dataset γ below this many qualifying traces (PRD §11.2,
         default 10).
+    min_clean_step_fraction
+        Warn (``few_clean_steps``) when an applied γ rests on fewer than this fraction
+        of clean evaluated steps (PRD §11.2, default 0.65, ADR-0134). A value outside
+        ``[0, 1]`` raises ``ValueError``. Changes no γ value.
     write_guard
         Optional caller-owned lock/lease check. With a guard, the complete
         ``/molecules.gamma`` update and ``/settings/gamma`` stamp are written to a
@@ -162,7 +197,9 @@ def compute_gamma(
     Raises
     ------
     ValueError
-        If ``intensity_quantity`` is not a known ``/traces`` layer, or if a molecule's
+        If ``intensity_quantity`` is not a known ``/traces`` layer, ``half_window`` is
+        not a positive integer or ``None``, ``min_clean_step_fraction`` is outside
+        ``[0, 1]``, or if a molecule's
         ``bleach_frames`` are still the undetected sentinel (run
         [`compute_photobleach`][tether.project.photobleach.compute_photobleach] first), or if its
         ``alpha`` is the ``NaN`` "not computed" sentinel (run
@@ -178,6 +215,8 @@ def compute_gamma(
             f"got {intensity_quantity!r}"
         )
     donor_layer, acceptor_layer = INTENSITY_QUANTITY_LAYERS[intensity_quantity]
+    half_window = _check_half_window(half_window)
+    few_clean_steps(0, 0, min_clean_step_fraction)  # refuse a bad fraction before any write
     path = Path(project_path)
 
     with (
@@ -250,6 +289,12 @@ def compute_gamma(
         )
 
         applied = estimate.gamma is not None
+        n_step_evaluated = estimate.n_step_evaluated
+        n_step_clean = estimate.n_step_clean
+        # Only an applied γ can mislead; a withheld one is already reported as withheld.
+        warn_steps = applied and few_clean_steps(
+            n_step_clean, n_step_evaluated, min_clean_step_fraction
+        )
         n_fallback = 0
         if applied:
             # Per-molecule retention + median fallback: a qualifying molecule keeps
@@ -277,6 +322,10 @@ def compute_gamma(
             ceiling=ceiling,
             min_qualifying_traces=min_qualifying_traces,
             intensity_quantity=intensity_quantity,
+            n_step_evaluated=n_step_evaluated,
+            n_step_clean=n_step_clean,
+            min_clean_step_fraction=min_clean_step_fraction,
+            few_clean_steps=warn_steps,
         )
 
     return GammaSummary(
@@ -287,6 +336,9 @@ def compute_gamma(
         applied=applied,
         source=GAMMA_SOURCE_ACCEPTOR_BLEACH_STEP,
         intensity_quantity=intensity_quantity,
+        n_step_evaluated=n_step_evaluated,
+        n_step_clean=n_step_clean,
+        few_clean_steps=warn_steps,
     )
 
 
@@ -297,11 +349,15 @@ def _stamp_gamma_settings(
     n_qualifying: int,
     n_fallback: int,
     n_molecules: int,
-    half_window: int,
+    half_window: int | None,
     min_window_frames: int,
     ceiling: float,
     min_qualifying_traces: int,
     intensity_quantity: str,
+    n_step_evaluated: int,
+    n_step_clean: int,
+    min_clean_step_fraction: float,
+    few_clean_steps: bool,
 ) -> None:
     """Write the ``/settings/gamma`` provenance group (additive; recomputable).
 
@@ -321,9 +377,20 @@ def _stamp_gamma_settings(
     grp.attrs["n_qualifying"] = int(n_qualifying)
     grp.attrs["n_fallback"] = int(n_fallback)
     grp.attrs["n_molecules"] = int(n_molecules)
-    grp.attrs["half_window"] = int(half_window)
+    # ``half_window`` stays an int attribute (additive schema): 0 when the whole
+    # segments were averaged, which ``level_window`` names explicitly (ADR-0130).
+    grp.attrs["level_window"] = (
+        GAMMA_LEVEL_WINDOW_WHOLE_SEGMENT if half_window is None else GAMMA_LEVEL_WINDOW_HALF_WINDOW
+    )
+    grp.attrs["half_window"] = 0 if half_window is None else int(half_window)
     grp.attrs["min_window_frames"] = int(min_window_frames)
     grp.attrs["ceiling"] = float(ceiling)
     grp.attrs["min_qualifying_traces"] = int(min_qualifying_traces)
     grp.attrs["intensity_quantity"] = intensity_quantity
+    # The step-shape evidence behind γ (ADR-0134), additive: a project written before it
+    # has none of these four attributes.
+    grp.attrs["n_step_evaluated"] = int(n_step_evaluated)
+    grp.attrs["n_step_clean"] = int(n_step_clean)
+    grp.attrs["min_clean_step_fraction"] = float(min_clean_step_fraction)
+    grp.attrs["few_clean_steps"] = bool(few_clean_steps)
     grp.attrs["created_utc"] = datetime.now(UTC).isoformat()
