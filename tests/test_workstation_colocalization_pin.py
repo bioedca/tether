@@ -1,14 +1,6 @@
 # SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The workstation callers of ``extract_movie`` name the donor-anchored rule (#1231).
-
-The speed history (#723) and oracle (a) on more acquisitions (#715) run only on the
-workstation, so CI never extracts with them. This test reads their source instead. Both compare
-a run with numbers made under the donor-anchored rule: the earlier speed records, and the
-ADR-0022 limits. Since #1189 made partner-in-both the default (ADR-0127), a call that names no
-rule measures fewer molecules. That moved the 2026-11-18 speed record about three times and the
-lab-08 recall below 0.95, with no change of code speed or of detection.
-"""
+"""Check the workstation extraction pins in CI without private data (#1231, ADR-0127)."""
 
 from __future__ import annotations
 
@@ -23,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CALLERS = ("scripts/workstation/perf_stage.py", "tests/test_deeplasi_agreement.py")
 
 RULE = "donor-anchored"
+_PIN = f"options = ExtractOptions(colocalization={RULE!r})\n"
+_CALL = "extract_movie(m, o, options=options)"
 
 
 def _names_the_rule(node: ast.expr | None) -> bool:
@@ -40,6 +34,7 @@ def _names_the_rule(node: ast.expr | None) -> bool:
 
 
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_NAMED_BINDINGS = (*_SCOPES, ast.ClassDef, ast.ExceptHandler, ast.MatchAs, ast.MatchStar)
 
 
 def _own_nodes(scope: ast.AST):
@@ -50,6 +45,17 @@ def _own_nodes(scope: ast.AST):
         yield node
         if not isinstance(node, _SCOPES):
             todo.extend(ast.iter_child_nodes(node))
+
+
+def _other_binding(node: ast.AST, name: str) -> bool:
+    """Recognize bindings stored as strings instead of ``ast.Name`` nodes."""
+    if isinstance(node, ast.alias):
+        return node.name == "*" or (node.asname or node.name.partition(".")[0]) == name
+    if isinstance(node, ast.MatchMapping):
+        return node.rest == name
+    if isinstance(node, (ast.Global, ast.Nonlocal)):
+        return name in node.names
+    return isinstance(node, _NAMED_BINDINGS) and getattr(node, "name", None) == name
 
 
 def _binding(scope: ast.AST, name: str) -> bool | None:
@@ -63,7 +69,7 @@ def _binding(scope: ast.AST, name: str) -> bool | None:
     plain = {id(t) for a in nodes if isinstance(a, ast.Assign) for t in a.targets}
     found: bool | None = None
     for node in nodes:
-        if isinstance(node, _SCOPES) and getattr(node, "name", None) == name:
+        if _other_binding(node, name):
             return False
         if isinstance(node, ast.Assign):
             if any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
@@ -71,10 +77,10 @@ def _binding(scope: ast.AST, name: str) -> bool | None:
         elif (
             isinstance(node, ast.Name)
             and node.id == name
-            and isinstance(node.ctx, ast.Store)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
             and id(node) not in plain
         ):
-            return False  # a for target, with/as, walrus or augmented assignment
+            return False
     return found
 
 
@@ -99,9 +105,8 @@ def _extract_calls(tree: ast.AST) -> list[tuple[ast.Call, list[ast.AST]]]:
 def unpinned_calls(source: str) -> list[int]:
     """The line of each ``extract_movie`` call in *source* that does not name the rule.
 
-    A name passed as ``options`` counts when the nearest scope that binds it, the way Python
-    looks it up, binds it only to a donor-anchored ``ExtractOptions``. A parameter, a loop
-    target or any other binding counts as not pinned.
+    A name passed as ``options`` counts when its nearest binding scope contains only plain
+    assignments of donor-anchored ``ExtractOptions`` to that name.
     """
     lines = []
     for call, scopes in _extract_calls(ast.parse(source)):
@@ -136,18 +141,13 @@ def test_every_workstation_extraction_names_the_donor_anchored_rule(path: str) -
         "extract_movie(m, o)",
         "extract_movie(m, o, options=ExtractOptions())",
         "extract_movie(m, o, options=ExtractOptions(colocalization='partner-in-both'))",
-        "opts = ExtractOptions(colocalization='donor-anchored')\n"
-        "opts = ExtractOptions()\n"
-        "extract_movie(m, o, options=opts)",
-        "def unrelated():\n"
-        "    options = ExtractOptions(colocalization='donor-anchored')\n"
-        "def run(options=None):\n"
-        "    extract_movie(m, o, options=options)",
-        "options = ExtractOptions(colocalization='donor-anchored')\n"
-        "def run():\n"
-        "    options = ExtractOptions()\n"
-        "    extract_movie(m, o, options=options)",
+        _PIN + "options = ExtractOptions()\n" + _CALL,
+        "def unrelated():\n    " + _PIN + "def run(options=None):\n    " + _CALL,
+        _PIN + "def run():\n    options = ExtractOptions()\n    " + _CALL,
         "for options in (None,):\n    extract_movie(m, o, options=options)",
+        _PIN + "import pathlib as options\n" + _CALL,
+        _PIN + "try:\n    raise ValueError()\nexcept ValueError as options:\n    " + _CALL,
+        _PIN + "match ExtractOptions():\n    case options:\n        " + _CALL,
     ],
 )
 def test_the_check_finds_a_call_that_does_not_name_the_rule(source: str) -> None:
@@ -158,7 +158,7 @@ def test_the_check_finds_a_call_that_does_not_name_the_rule(source: str) -> None
     "source",
     [
         "extract_movie(m, o, options=ExtractOptions(colocalization='donor-anchored'))",
-        "opts = ExtractOptions(colocalization='donor-anchored')\nextract_movie(m, o, options=opts)",
+        _PIN + _CALL,
         "x.extract_movie(m, o, options=x.ExtractOptions(colocalization='donor-anchored'))",
         "def stage():\n"
         "    options = ExtractOptions(colocalization='donor-anchored')\n"
