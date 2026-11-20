@@ -881,10 +881,11 @@ def live_tmaven_commit(sidecar_workflow: str, release_workflow: str) -> str:
 def live_sidecar_python(lock: str, spec: str) -> str:
     """The CPython ``sidecar/conda-lock.yml`` resolves on every platform it declares.
 
-    Fails rather than choosing when the platforms disagree, when one lacks ``python``, or
-    when the resolved version is not one ``spec`` — ``sidecar/environment.yml``'s
-    ``python=`` — admits: a lock that no longer answers its own environment file states
-    no live interpreter.
+    Fails, naming the lockfile and showing what it parsed, when a ``python`` entry lacks
+    a ``version:`` or ``platform:`` line (#525). Fails rather than choosing when the
+    platforms disagree, when one lacks ``python``, or when the resolved version is not one
+    ``spec`` — ``sidecar/environment.yml``'s ``python=`` — admits: a lock that no longer
+    answers its own environment file states no live interpreter.
     """
     declared = _LOCK_PLATFORMS_RE.findall(lock)
     assert len(declared) == 1, "sidecar/conda-lock.yml must declare one metadata platforms list"
@@ -894,6 +895,10 @@ def live_sidecar_python(lock: str, spec: str) -> str:
         if name != "python":
             continue
         fields = dict(re.findall(r"^  (version|platform): (\S+)$", entry, re.MULTILINE))
+        assert {"version", "platform"} <= fields.keys(), (
+            "sidecar/conda-lock.yml has a python entry without a plain `version:` and "
+            f"`platform:` line; parsed {fields}"
+        )
         versions[fields["platform"]] = fields["version"].strip("'\"")
     assert sorted(versions) == sorted(platforms), (
         f"sidecar/conda-lock.yml resolves python on {sorted(versions)}, not on every "
@@ -960,11 +965,10 @@ _AT_SCOPE = " @ Scope third bullet"
 _SCOPE_SECTION = "Scope and known limitations"
 #: The paragraph naming the pin every live sidecar assertion uses.
 _LIVE_PIN_ANCHOR = ".github/workflows/sidecar.yml"
-#: (b)'s "Gap, stated plainly" blockquote that restates `$.pooled_worst`. §(b) has two
-#: blockquotes with that lead-in, so the anchor carries enough of it to name this one.
-#: Its code spans name script flags and paths rather than its subject, so this uses the
-#: lead-in fallback.
-_GAP_QUOTE_ANCHOR = "> Gap, stated plainly. The **default**"
+#: (b)'s "Re-freeze on the pinned build" blockquote that restates `$.pooled_worst` and
+#: the build it replaced (`$.refreeze.previous`, ADR-0110). Its code spans name script
+#: flags and paths rather than its subject, so this uses the lead-in fallback.
+_GAP_QUOTE_ANCHOR = "> Re-freeze on the pinned build. The **default**"
 #: The bullet list under "What the suite does still enforce against loosening".
 _SHIP_FLOOR_ANCHOR = "$.tolerance.state_count_min_fraction"
 #: The paragraph after it. Its only code spans are the value it restates and
@@ -981,6 +985,9 @@ _EBHMM_COLUMN = "`$.measured_by_method.ebhmm.method`"
 _M05_COMMIT = "$.method.tmaven_commit"
 _EBHMM_COMMIT = "$.measured_by_method.ebhmm.method.tmaven_commit"
 _M05_PYTHON = "$.method.sidecar_python_version"
+#: The build the default row was first measured on, kept by the re-freeze (ADR-0110).
+_PREV_COMMIT = "$.refreeze.previous.tmaven_commit"
+_PREV_PYTHON = "$.refreeze.previous.sidecar_python_version"
 _EBHMM_PYTHON = "$.measured_by_method.ebhmm.method.sidecar_python_version"
 _EBHMM_FLOOR = "$.tolerance_by_method.ebhmm.state_count_min_fraction"
 #: The live-build sources (#512). What the page says the live gate *runs* is read from the
@@ -1014,6 +1021,9 @@ def commit_cell(column: str, pointer: str, commit: object) -> Cell:
 _NO_GAP_RE = re.compile(r"\bthe ebFRET block has no such gap\b", re.IGNORECASE)
 _NO_GAP_REGIONS = ((_PARITY_SECTION, _GAP_QUOTE_ANCHOR), (_SCOPE_SECTION, _SCOPE_ANCHOR))
 _LIVE_BUILD_ROW = "Same tMAVEN commit and CPython as the live gate?"
+#: (b)'s transition-matrix table (#545, ADR-0110): its ceiling column names the table.
+_TM_COLUMN = "Frozen `transition_matrix_abs_delta_max`"
+_TM_METHODS = ("vbconhmm", "ebhmm")
 
 
 def no_gap_claims(text: str) -> list[str]:
@@ -1117,9 +1127,9 @@ def _restatement_pins() -> list[Pin]:
         )
         for template, source, value, render in (
             (
-                "measured against tMAVEN `{}`",
-                f"{_M05_COMMIT}[:8]",
-                at(PARITY, _M05_COMMIT),
+                "first measured against tMAVEN `{}`",
+                f"{_PREV_COMMIT}[:8]",
+                at(PARITY, _PREV_COMMIT),
                 short_commit,
             ),
             (
@@ -1128,7 +1138,14 @@ def _restatement_pins() -> list[Pin]:
                 LIVE_TMAVEN_COMMIT,
                 short_commit,
             ),
-            ("on CPython {}. That is", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
+            ("on CPython {}, 13", _PREV_PYTHON, at(PARITY, _PREV_PYTHON), None),
+            (
+                "measured on tMAVEN `{}`",
+                f"{_M05_COMMIT}[:8]",
+                at(PARITY, _M05_COMMIT),
+                short_commit,
+            ),
+            ("on CPython {}, the build", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
             (
                 "are {} on both floors",
                 " == ".join(floors),
@@ -1188,7 +1205,7 @@ def _restatement_pins() -> list[Pin]:
         Quote(
             _PARITY_SECTION,
             _WIDENING_ANCHOR,
-            "stays above `{}`",
+            "stayed above `{}`",
             f"{_EBHMM_FLOOR} @ (b) widening paragraph",
             floor,
             render=shortest,
@@ -1196,15 +1213,15 @@ def _restatement_pins() -> list[Pin]:
     ]
 
     # Scope and known limitations, third bullet -- both commits and both interpreters: the
-    # M0.5 build it was measured against from the artifact, the build CI runs from the
-    # live configuration.
+    # build the default row was first measured on from `$.refreeze.previous`, the build CI
+    # runs from the live configuration.
     pins += [
         Quote(_SCOPE_SECTION, _SCOPE_ANCHOR, template, f"{source}{_AT_SCOPE}", value, render=render)
         for template, source, value, render in (
             (
-                "measured against tMAVEN `{}`",
-                f"{_M05_COMMIT}[:8]",
-                at(PARITY, _M05_COMMIT),
+                "first measured against tMAVEN `{}`",
+                f"{_PREV_COMMIT}[:8]",
+                at(PARITY, _PREV_COMMIT),
                 short_commit,
             ),
             (
@@ -1215,7 +1232,7 @@ def _restatement_pins() -> list[Pin]:
             ),
             # The template stops at the dash: the "13 upstream commits" after it is declared
             # unpinned in EXCLUSIONS, so it may not ride inside this pin (#749).
-            ("on CPython {} —", _M05_PYTHON, at(PARITY, _M05_PYTHON), None),
+            ("on CPython {} —", _PREV_PYTHON, at(PARITY, _PREV_PYTHON), None),
             ("on CPython {} that CI", _LIVE_PYTHON, LIVE_SIDECAR_PYTHON, None),
         )
     ]
@@ -1378,6 +1395,32 @@ def _registry() -> list[Pin]:
         )
         for metric in _METRICS
     ]
+
+    # (b) — the transition-matrix table (#545, ADR-0110): each method's pooled worst case
+    # at full precision and its frozen ceiling.
+    tm = "$.transition_matrix"
+    for method in _TM_METHODS:
+        pins += [
+            Cell(
+                _PARITY_SECTION,
+                _TM_COLUMN,
+                method,
+                "Pooled worst",
+                f"{tm}.measured_by_method.{method}.pooled_worst.transition_matrix_abs_delta",
+                at(
+                    PARITY,
+                    f"{tm}.measured_by_method.{method}.pooled_worst.transition_matrix_abs_delta",
+                ),
+            ),
+            Cell(
+                _PARITY_SECTION,
+                _TM_COLUMN,
+                method,
+                _TM_COLUMN,
+                f"{tm}.tolerance_by_method.{method}.transition_matrix_abs_delta_max",
+                at(PARITY, f"{tm}.tolerance_by_method.{method}.transition_matrix_abs_delta_max"),
+            ),
+        ]
 
     # (b) — the ebFRET pooled-worst block, printed in a sentence instead of a table.
     ebhmm = "$.measured_by_method.ebhmm"
@@ -1859,8 +1902,16 @@ def test_documented_value_matches_its_source_artifact(pin: Pin) -> None:
 
 
 def test_every_frozen_bound_in_both_blocks_is_pinned() -> None:
-    """A bound added to either tolerance block may not go undocumented."""
-    for pointer in ("$.tolerance", "$.tolerance_by_method.ebhmm"):
+    """A bound added to either tolerance block, or a transition-matrix ceiling, may not go
+    undocumented (#545)."""
+    tm_rows = at(PARITY, "$.transition_matrix.tolerance_by_method")
+    assert isinstance(tm_rows, dict)
+    assert set(tm_rows) == set(_TM_METHODS), "a transition-matrix row is not on the page"
+    for pointer in (
+        "$.tolerance",
+        "$.tolerance_by_method.ebhmm",
+        *(f"$.transition_matrix.tolerance_by_method.{m}" for m in _TM_METHODS),
+    ):
         block = at(PARITY, pointer)
         assert isinstance(block, dict)
         pinned = {p.source for p in REGISTRY}
@@ -1870,7 +1921,11 @@ def test_every_frozen_bound_in_both_blocks_is_pinned() -> None:
 
 def test_every_pooled_worst_metric_in_both_blocks_is_pinned() -> None:
     pinned = {p.source for p in REGISTRY}
-    for pointer in ("$.pooled_worst", "$.measured_by_method.ebhmm.pooled_worst"):
+    for pointer in (
+        "$.pooled_worst",
+        "$.measured_by_method.ebhmm.pooled_worst",
+        *(f"$.transition_matrix.measured_by_method.{m}.pooled_worst" for m in _TM_METHODS),
+    ):
         block = at(PARITY, pointer)
         assert isinstance(block, dict)
         missing = sorted(k for k in block if f"{pointer}.{k}" not in pinned)
@@ -2261,8 +2316,10 @@ _ONE_VALUE_MISMATCHES: list[tuple[str, Callable[[str], str] | None]] = [
     (f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, CPython clause", None),
     (f"{_LIVE_PYTHON_SPEC}{_AT_LIVE_PIN}", None),
     (f"{_LIVE_PYTHON}{_AT_LIVE_PIN}, lock clause", None),
-    (f"{_M05_COMMIT}[:8]{_AT_GAP_QUOTE}", None),
+    (f"{_PREV_COMMIT}[:8]{_AT_GAP_QUOTE}", None),
     (f"{_LIVE_COMMIT}[:8]{_AT_GAP_QUOTE}", None),
+    (f"{_PREV_PYTHON}{_AT_GAP_QUOTE}", None),
+    (f"{_M05_COMMIT}[:8]{_AT_GAP_QUOTE}", None),
     (f"{_M05_PYTHON}{_AT_GAP_QUOTE}", None),
     (
         "$.pooled_worst.state_count_fraction == $.pooled_worst.viterbi_agreement" + _AT_GAP_QUOTE,
@@ -2275,9 +2332,9 @@ _ONE_VALUE_MISMATCHES: list[tuple[str, Callable[[str], str] | None]] = [
     (f"$.method.n_runs_per_fixture{_AT_GAP_QUOTE}", None),
     (f"{_EBHMM_FLOOR} @ (b) ship-floor bullet", None),
     (f"{_EBHMM_FLOOR} @ (b) widening paragraph", None),
-    (f"{_M05_COMMIT}[:8]{_AT_SCOPE}", None),
+    (f"{_PREV_COMMIT}[:8]{_AT_SCOPE}", None),
     (f"{_LIVE_COMMIT}[:8]{_AT_SCOPE}", None),
-    (f"{_M05_PYTHON}{_AT_SCOPE}", None),
+    (f"{_PREV_PYTHON}{_AT_SCOPE}", None),
     (f"{_LIVE_PYTHON}{_AT_SCOPE}", None),
 ]
 
@@ -2865,7 +2922,7 @@ def test_a_re_measured_commit_is_rejected_by_the_unchanged_page() -> None:
     abbreviated = [
         p for p in _restatement_pins() if isinstance(p, Quote) and p.render is short_commit
     ]
-    assert len(abbreviated) == 4
+    assert len(abbreviated) == 5
     for pin in abbreviated:
         assert satisfied(PAGE_TEXT, pin)
         moved_quote = pin._replace(value=_other_commit(pin.value))
@@ -2978,7 +3035,7 @@ def test_a_blockquote_pin_survives_a_rewrap_across_a_line_break() -> None:
     narrow = "\n".join(f"> {line}" for line in textwrap.wrap(_flat(rest), 24))
     rewrapped = _mutate(_PARITY_SECTION, region, f"{lead}\n{narrow}")
     pins = [p for p in REGISTRY if isinstance(p, Quote) and p.anchor == _GAP_QUOTE_ANCHOR]
-    assert len(pins) == 9
+    assert len(pins) == 11
     for pin in pins:
         assert satisfied(rewrapped, pin), f"{pin.source} broke on a re-wrap"
     wrapped = paragraph(rewrapped, _PARITY_SECTION, _GAP_QUOTE_ANCHOR)
@@ -3148,6 +3205,22 @@ def test_the_live_interpreter_is_the_one_the_lock_resolves_everywhere() -> None:
     assert live_sidecar_python_spec("dependencies:\n  - python=3.12.*\n") == "3.12.*"
 
 
+@pytest.mark.parametrize(
+    ("line", "kept"),
+    [("  version: 3.12.13\n", "platform"), ("  platform: win-64\n", "version")],
+    ids=["no-version", "no-platform"],
+)
+def test_a_python_lock_entry_without_version_or_platform_names_the_lockfile(
+    line: str, kept: str
+) -> None:
+    """A lost ``version:`` or ``platform:`` line names the lock, not a bare ``KeyError`` (#525)."""
+    entry = "- name: python\n  version: 3.12.13\n  manager: conda\n  platform: win-64\n"
+    assert _LOCK_SAMPLE.count(entry) == 1
+    broken = _LOCK_SAMPLE.replace(entry, entry.replace(line, ""))
+    with pytest.raises(AssertionError, match=r"sidecar/conda-lock\.yml .*parsed \{'" + kept):
+        live_sidecar_python(broken, "3.12.*")
+
+
 def test_the_ebfret_block_was_measured_on_the_live_build() -> None:
     """The page's "no such gap" claim, checked as a claim (#512).
 
@@ -3162,6 +3235,23 @@ def test_the_ebfret_block_was_measured_on_the_live_build() -> None:
         # the very rewrite the violation message asks for.
         assert len(no_gap_claims(PAGE_TEXT)) == 3
     assert no_gap_violations(PAGE_TEXT, measured, live) == []
+
+
+def test_the_default_row_says_yes_only_while_it_was_measured_on_the_live_build() -> None:
+    """The build table's "Yes" for `$.method`, checked as a claim (#545, ADR-0110).
+
+    The re-freeze moved the default row onto the build the live gate runs, and the table
+    says so. If the live pin advances past it, the cell must stop saying "Yes".
+    """
+    row = Cell(_PARITY_SECTION, _M05_COLUMN, _LIVE_BUILD_ROW, _M05_COLUMN, "", "")
+    says_yes = re.fullmatch(r"\**yes\**", cell_text(PAGE_TEXT, row).strip(), re.IGNORECASE)
+    measured = (at(PARITY, _M05_COMMIT), at(PARITY, _M05_PYTHON))
+    live = (LIVE_TMAVEN_COMMIT, LIVE_SIDECAR_PYTHON)
+    assert bool(says_yes) == (measured == live), (
+        f"the build table says {cell_text(PAGE_TEXT, row).strip()!r} for the default row, "
+        f"measured on @{measured[0]} / CPython {measured[1]}; the live gate runs "
+        f"@{live[0]} / CPython {live[1]}"
+    )
 
 
 def test_an_advanced_live_pin_fails_as_a_stale_sentence_not_a_value_mismatch() -> None:
@@ -3194,13 +3284,13 @@ def test_an_advanced_live_pin_fails_as_a_stale_sentence_not_a_value_mismatch() -
     assert len(problems) == 3
     assert all("'no such gap' sentence has gone stale" in p for p in problems)
     # Rewriting the three claims, as the message asks, clears it.
-    page = _mutate(_PARITY_SECTION, "The ebFRET block has no such gap.", "Now so is ebFRET.", page)
     page = _mutate(
-        _SCOPE_SECTION, "the ebFRET block has no such\n  gap.", "now so is ebFRET.", page
+        _PARITY_SECTION, "The ebFRET block has no\n> such gap:", "Neither block is now:", page
     )
+    page = _mutate(_SCOPE_SECTION, "the ebFRET block has no such gap.", "now so is ebFRET.", page)
     page = _mutate(
         _PARITY_SECTION,
-        f"| {_LIVE_BUILD_ROW} | **No** | Yes |",
+        f"| {_LIVE_BUILD_ROW} | Yes | Yes |",
         f"| {_LIVE_BUILD_ROW} | **No** | **No** |",
         page,
     )

@@ -14,8 +14,8 @@ this page adds them.
 If you made the project with `tether batch`, this has already run with the default
 settings. Use this page to check the result, or to run it again with settings of your own.
 Running photobleach detection a second time updates the bleach frames. It sets the analysis
-window only of a molecule whose window still spans the whole trace, such as one with no
-bleach found the first time, so a window the first pass shortened stays as it was; new α and
+window only of a molecule whose analysis window still spans the whole trace, such as one with no
+bleach found the first time, so an analysis window the first pass shortened stays as it was; new α and
 γ settings take full effect.
 
 ## Before you start
@@ -45,7 +45,7 @@ bleach found the first time, so a window the first pass shortened stays as it wa
   factor needs, so a factor can pass on half that many real traces.
 - No rejected molecules you distrust. The α and γ steps read every molecule in the project,
   whatever its curation label, so a trace you rejected still enters both estimates when its
-  bleach steps pass the checks above. If you rejected traces as contaminants or artefacts,
+  bleach steps pass the checks above. If you rejected traces as contaminants or artifacts,
   [leave them out first](#leave-out-the-molecules-you-rejected).
 - The donor half was right at extraction. Swapped channels make both factors meaningless; see
   step 5 of [Extract traces from a dual-view movie](extract-traces.md#5-check-that-it-worked).
@@ -90,6 +90,9 @@ print(f"alpha = {alpha.alpha} from {alpha.n_qualifying} molecules")
 if alpha.applied:
     gamma = compute_gamma(project)
     print(f"gamma = {gamma.gamma} from {gamma.n_qualifying} molecules")
+    print(f"{gamma.n_step_clean} of {gamma.n_step_evaluated} bleach steps clean")
+    if gamma.few_clean_steps:
+        print("warning: gamma rests on few clean bleach steps")
 
 result = compute_corrected_fret(project)
 print(f"{result.n_corrected} corrected, {result.n_apparent} left at apparent E")
@@ -109,7 +112,16 @@ Read the printed lines:
 2. `gamma = None` means γ was withheld for the same reason.
 3. The molecule counts after `from` are the molecules each factor rests on. A factor built on
    the bare minimum of 10 is a weaker basis than one built on hundreds.
-4. `0 corrected` means no molecule carries a correction.
+4. `warning: gamma rests on few clean bleach steps` is a reason to check γ. On a clean step the
+   donor rises as the acceptor drops. Here fewer than 65 % of the measured steps did. Noise
+   alone can make many steps read clean by chance, so this γ may rest largely on noise. It may
+   also be sound: a step whose donor did not rise never enters γ. The γ is still stored. Check
+   it, report it with that caveat, or use a γ measured another way (step 3). `tether batch`
+   writes the same warning in its log. The project records it as `few_clean_steps` in
+   `/settings/gamma`
+   ([`min_clean_step_fraction`](../reference/parameters.md#correction-factors),
+   [ADR-0134](../adr/0134-a-gamma-from-few-clean-acceptor-bleach-steps-is-reported-with-a-warning.md)).
+5. `0 corrected` means no molecule carries a correction.
 
 Then look at the molecules themselves. Export the molecule table, as in
 [Export results for a figure or another tool](export-results.md), and read its `alpha`,
@@ -148,9 +160,8 @@ To report a corrected efficiency, compute it from the exported factors, as
 
 The settings the α, γ and correction steps used are recorded in the project; photobleach
 detection records none of its own. If you run the steps again and α is withheld this time,
-γ is skipped, and the γ settings from the earlier run stay in the project although no
-molecule carries that γ any more. The molecules' own `alpha` and `gamma` values are the
-current result. [Analysis
+γ is skipped, and the α step removes the γ settings of the earlier run, because no molecule
+carries that γ any more. [Analysis
 parameters](../reference/parameters.md#correction-factors) lists them, with what each one
 changes.
 

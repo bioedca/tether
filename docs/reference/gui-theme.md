@@ -1,5 +1,5 @@
 ---
-description: "How to select the light or dark theme of the Tether window, and the trace colors with the checks they passed."
+description: "How to select the light or dark theme and the trace colors of the Tether application window, and the checks the trace colors passed."
 ---
 
 <!--
@@ -7,44 +7,67 @@ SPDX-FileCopyrightText: 2026 The Tether Authors <bioedca@u.northwestern.edu>
 SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
-# Window themes and trace colors
+# Application window themes and trace colors
 
-**Who this page is for.** Anyone who uses the Tether window and wants to change its theme, or
-who wants to know the trace colors and how they were checked. It assumes you can open the
-Tether window. It does not assume you know Qt or color science.
+**Who this page is for.** Anyone who wants to change the theme or the trace colors of the
+Tether application window. Also anyone who wants to know the trace colors and how they were
+checked. It assumes you can
+open the Tether application window. It does not assume you know Qt or color science.
 
-The Tether window has a light theme and a dark theme. This page tells you how to select a
-theme, and it records the colors of the traces and how they were checked.
+The Tether application window has a light theme and a dark theme, and two sets of trace colors.
+This page tells you how to select a theme and a set of trace colors. It also records the
+trace colors and how they were checked.
 
 ## Select a theme
 
 At the start, Tether uses the light or dark scheme of your operating system. When the
-operating system changes its scheme, the window changes too.
+operating system changes its scheme, the application window changes too.
 
 To select a theme yourself, use **View → Theme**:
 
 | Item | Result |
 |---|---|
-| System | The window follows the operating system. This is the default. |
-| Light | The window is always light. |
-| Dark | The window is always dark. |
+| System | The application window follows the operating system. This is the default. |
+| Light | The application window is always light. |
+| Dark | The application window is always dark. |
 
-The window, the plots and the movie viewer change immediately. You do not have to start
+The application window, the plots and the movie viewer change immediately. You do not have to start
 Tether again. Tether keeps your selection until you close it. A later version keeps it
 for the next session ([#330](https://github.com/bioedca/tether/issues/330)).
 
 If the operating system does not report a scheme, the System item gives the light theme.
 
-![The Tether window in the light theme, with a synthetic demonstration trace](../assets/gui/theme-light.png)
+![The Tether application window in the light theme, with a synthetic demonstration trace](../assets/gui/theme-light.png)
 
-![The Tether window in the dark theme, with the same synthetic demonstration trace](../assets/gui/theme-dark.png)
+![The Tether application window in the dark theme, with the same synthetic demonstration trace](../assets/gui/theme-dark.png)
 
-The two pictures show a synthetic trace, not measured data. They were made on Linux with
-the offscreen Qt platform.
+The two pictures show a synthetic trace, not measured data, in the default trace colors. They
+were made on Linux with the offscreen Qt platform.
+
+## Select the trace colors
+
+The donor, acceptor, FRET, total and idealized lines have their own colors. A new
+installation uses a set that persons with a red-green color-vision deficiency can tell apart:
+green donor, magenta acceptor, blue FRET. To use the classic green and red set, use
+**View → Trace colors**:
+
+| Item | Result |
+|---|---|
+| Color-blind safe (default) | Green donor, magenta acceptor, blue FRET. The set passes the color-vision check below. |
+| Classic green and red | Green donor, red acceptor, blue FRET, as in older versions of Tether. |
+
+The plots and the movie viewer change immediately. Tether keeps your selection for the next
+session, in the settings file outside the install folder
+([Settings Tether keeps outside the install folder](../install.md#settings-tether-keeps-outside-the-install-folder)).
+If Tether cannot write that file, your selection holds until you close Tether and the status
+bar says that it was not kept.
+
+The trace colors do not change the figures that Tether exports or any data. Each theme has
+its own value of each color (see [Trace colors](#trace-colors)).
 
 ## What the theme changes
 
-- **The window.** Tether uses the Qt Fusion style on all operating systems, with the colors
+- **The application window.** Tether uses the Qt Fusion style on all operating systems, with the colors
   of the theme. The selected item is ink on light, or chalk on dark. The brand has no
   accent color.
 - **The plots.** The background, the axes, the grid and the labels of each plot take the
@@ -57,7 +80,7 @@ the offscreen Qt platform.
 The theme does not change the figures that Tether exports. Exported figures are made
 with Matplotlib and have no brand element ([ADR-0044](../adr/0044-matplotlib-base-plot-export-backend.md)).
 
-The window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
+The application-window colors are the tokens in `src/tether/gui/assets/brand/tokens.json`
 (see [Brand](../brand.md)). The module `tether.gui.theme` is the only module in
 `src/tether/gui` that contains a color value. A test makes sure of this.
 
@@ -79,6 +102,15 @@ version (ink) and a dark version (chalk), and the icons change with the theme.
 | Conditions → Validate conditions | conditions |
 
 An icon is never the only sign of a function. Each menu item keeps its text.
+
+The **File**, **View** and **Help** menus show in every section. Each other menu shows only in
+its own section:
+
+| Section | Menus |
+|---|---|
+| Prepare | Import |
+| Curate and correct | Curation, Hand-off, Conditions |
+| Analyze | Analysis |
 
 **Busy indicator.** When a task runs and does not give a percentage, the right end of the
 status bar shows the busy indicator and the name of the task. Today this task is the
@@ -102,8 +134,8 @@ move.
 **Progress row.** The progress row is a row of beam dots for a task that gives a
 percentage. The dots fill from left to right, and the percentage is beside the row.
 Assistive technology reads the row as a progress bar with its value. In this version, no
-task gives a percentage, so the window does not show the row. The task service and the
-progress panel of a later version put the row in the window
+task gives a percentage, so the application window does not show the row. The task service and the
+progress panel of a later version put the row in the application window
 ([#343](https://github.com/bioedca/tether/issues/343),
 [#627](https://github.com/bioedca/tether/issues/627)).
 
@@ -118,12 +150,12 @@ The two pictures were made on Linux with the offscreen Qt platform.
 The colors of data are not brand colors. Tether has two sets of trace colors. Each set
 has one value for each theme.
 
+- **Safe** is a set for persons with a color-vision deficiency. It is the default
+  ([#636](https://github.com/bioedca/tether/issues/636)).
 - **Classic** is the set that Tether used before: green donor, red acceptor, blue FRET,
-  grey total. It is the default. The idealized line is now ink on light and chalk on
-  dark. Before, it was near-black on a black plot and you could not see it
-  ([#617](https://github.com/bioedca/tether/issues/617)).
-- **Safe** is a set for persons with a color-vision deficiency. A later change makes it
-  the default and adds a preference ([#636](https://github.com/bioedca/tether/issues/636)).
+  gray total. You can select it in **View → Trace colors**. The idealized line is now ink
+  on light and chalk on dark. Before, it was near-black on a black plot and you could not
+  see it ([#617](https://github.com/bioedca/tether/issues/617)).
 
 | Token | Classic, light | Classic, dark | Safe, light | Safe, dark |
 |---|---|---|---|---|
@@ -135,7 +167,7 @@ has one value for each theme.
 
 The ratio is the WCAG 2.x contrast against the plot background of the theme (`#fbfbfa`
 light, `#0d0f12` dark). Each trace color has a contrast of 3 : 1 or more. Each text
-color of the window has a contrast of 4.5 : 1 or more.
+color of the application window has a contrast of 4.5 : 1 or more.
 
 ### Sources of the safe set
 
@@ -177,4 +209,5 @@ colors failed the check: with deuteranopia, the total and the acceptor had a dif
 keeps this result.
 
 The classic set does not pass this check. With deuteranopia, the green donor and the red
-acceptor have a difference of 5.0. This is the reason for #636.
+acceptor have a difference of 5.0. This is why the safe set is the default and the classic
+set is only an option ([#636](https://github.com/bioedca/tether/issues/636)).

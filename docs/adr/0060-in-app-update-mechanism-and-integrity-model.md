@@ -18,7 +18,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
   stored. It does not, because the tree has no application settings store at all and the per-OS
   re-install behaviour that decides the right location has not been measured. Stating a location here
   would be a guess presented as a decision; [#330](https://github.com/bioedca/tether/issues/330)
-  measures it instead (§3).
+  measures it instead (§3). (Resolved 2026-11-14 by
+  [ADR-0095](0095-application-settings-live-outside-the-install-folder.md): the answer lives in
+  the user's own settings folder, outside the install folder, and the re-install behaviour is
+  measured on all three systems.)
 - **Date:** 2026-07-30
 - **Deciders:** bioedca — integrity model, consent and channel recorded 2026-07-27; decision 2's
   verifier *mechanism* selected during authoring on measured evidence (that 2026-07-27 comment had
@@ -69,6 +72,33 @@ those three?
   `docs/stability.md`'s "no downgrade path" is about a `.tether` file's `schema_version` under
   *Project file compatibility*, not about application versions — it does not license this claim, and
   an earlier draft cited it as though it did.)
+
+## Considered options
+
+Decision 1, the scope of an update:
+
+- **Detect, download, verify, then hand off to the OS installer** (chosen).
+- **Notify-only.**
+- **An in-place environment update from the released `conda-lock.yml`.**
+
+Decision 2, how the installer is verified (as amended below):
+
+- **The GitHub build-provenance attestation, checked by `gh attestation verify --bundle` with a
+  pinned `gh` that Tether ships as an `extra_files` artifact** (chosen by the amendment).
+- **Checksum only.**
+- **Shell out to a `gh` the user might have.**
+- **`sigstore-python`, in-process** (the mechanism decision 2 first named).
+- **`cosign`.**
+- **A conda-forge verifier in the base lock.**
+
+Decision 4, how "stable" is told apart from a prerelease:
+
+- **Derive it from the verified tag, and allowlist the exact tag form** (chosen).
+- **Trust the release API's `prerelease` flag.**
+- **Deny a SemVer prerelease component** in place of the allowlist.
+
+Decisions 3, 5 and 6 record no rejected alternative. Why each other option was set aside is
+under decision 4, *Considered and rejected* and *Why `gh` rather than `cosign`*, below.
 
 ## Decision outcome
 
@@ -190,7 +220,11 @@ form on its own. (Amended 2026-10-11 by [#380](https://github.com/bioedca/tether
 publishing side now enforces the same grammar: `release.yml`'s `verify` job rejects, on every run,
 any tag that is not `vMAJOR.MINOR.PATCH` with an optional `-<prerelease>` component — build metadata
 and leading zeros in the three numeric components included — and both places that decide prerelease status read it from that
-grammar's parsed prerelease component. The two forms are still not identical, and this record does
+grammar's parsed prerelease component. (Amended 2026-11-14 by
+[#498](https://github.com/bioedca/tether/issues/498).) That prerelease component is itself held to
+SemVer 2.0.0 §9: dot-separated, non-empty identifiers, each numeric with no leading zero or
+alphanumeric-with-hyphen holding at least one non-digit, so `v1.0.0-rc.01` and `v1.0.0-rc..1` are
+rejected rather than published as prereleases. The two forms are still not identical, and this record does
 not say they are: the publisher admits a prerelease component, which publishes as a GitHub
 prerelease, while this decision's allowlist admits no prerelease and no build metadata. Decision 4's
 substance is unchanged; the client remains an allowlist, and remains the stricter of the two.
@@ -399,7 +433,7 @@ So the sequence is fixed:
    (`gh attestation trusted-root`, which works unauthenticated — verified, exit 0, 34,634 bytes).
 2. Tether invokes the verifier, which now makes **no network call at all**:
 
-   ```
+   ```sh
    gh attestation verify <installer> \
      --bundle <bundle> --custom-trusted-root <root> \
      --repo bioedca/tether \
@@ -444,6 +478,32 @@ error; staying silent when verification actually failed is not.
 A site that allow-lists only the GitHub endpoints **silently disables verification** — correctly, by
 the rule above, but silently. That is a real operational trap, so the administrator documentation
 must list all three, not two.
+
+**What the implementation measured** (amended 2026-11-19 by
+[#333](https://github.com/bioedca/tether/issues/333), against the bundled `gh` 2.104.0 and the real
+`v1.0.0-rc1` Linux installer). Four facts refine this section without changing a decision:
+
+- **The third endpoint is served from two hosts.** `gh` initialises both the Sigstore public-good
+  and GitHub's own Sigstore instance, so its TUF client contacts `tuf-repo-cdn.sigstore.dev` **and**
+  `tuf-repo.github.com` (recorded through a proxy while verifying without `--custom-trusted-root`;
+  `gh attestation trusted-root --help` says its output covers both). Both are the "Sigstore TUF"
+  row above, and both must be listed for an administrator.
+- **`bundle_url` is never followed.** It names a fourth host
+  (`tmaproduction.blob.core.windows.net`, an Azure storage account) outside this table, so an
+  attestation with `bundle: null` is *could not run*, silent, and nothing is installed (maintainer's
+  decision on #333). Today's answers carry the inline bundle.
+- **`gh` 2.104.0 sends telemetry by default**, a per-command event with a device id. Tether runs it
+  with `GH_TELEMETRY=false` and `DO_NOT_TRACK=1`, with every token variable removed, and with a fresh
+  configuration and cache folder per check, so no fifth endpoint and no persistent identifier appear.
+- **"No attestation for these bytes" is *ran and failed*.** GitHub's HTTP 404, or an empty list, for
+  the file's digest is an answer about the file, not a failure to reach anyone, and a tampered or
+  corrupted download produces exactly it; it is reported. Every other failure in step 1 stays
+  *could not run*. Nothing is installed either way. The verify step also runs with every proxy
+  variable pointed at a closed local port, so "no network left in it" is enforced, not assumed.
+
+The privacy-page amendment (decision 5) lands with the pull request that first *calls* the verifier,
+which is the download and hand-off of #331: #333 adds the code, which nothing reaches yet, and a page
+describing requests the shipped application does not make would be false in the other direction.
 
 **Rate limit.** The unauthenticated attestations API allows **60 requests/hour per IP**. A lab behind
 one NAT can exhaust it, which lands in the silent-no-op branch above.

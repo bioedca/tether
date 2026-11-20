@@ -2,30 +2,33 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """pyqtgraph trace dock — the per-trace curation surface (PRD §7.3, Appendix C D1).
 
-:class:`TraceDock` is the keyboard-driven per-trace viewer at the heart of the
+[`TraceDock`][] is the keyboard-driven per-trace viewer at the heart of the
 FR-ROUNDTRIP browser: donor/acceptor/total intensity + the FRET time-series with
 its marginal histograms. It is tMAVEN's per-trace viewer (Appendix C, **D1**)
 reimagined as Tether's curation surface, so it keeps the familiar conventions —
 **donor green / acceptor red / FRET blue** (the ``classic`` data colours of
-:mod:`tether.gui.theme`, which also colours the plots for the light or dark theme
+[`tether.gui.theme`][], which also colours the plots for the light or dark theme
 and redraws them when the theme changes), the FRET axis fixed to ``0–1``, the
 x-axis in **seconds** (from the linked ``/movies`` row's ``frame_time``, when the
-movie declares one) with a **frame-index toggle**, and an idealization **step
-overlay** drawn over the FRET panel.
+movie declares one) with a **frame-index toggle**, an idealization **step
+overlay** drawn over the FRET panel, and a per-trace donor–acceptor
+**cross-correlation** panel (#363) — the curve
+[`tether.analysis.crosscorr.cross_correlation`][] returns for the displayed trace,
+on a lag axis in the same seconds or frames.
 
 At the MVP the FRET axis reads **"apparent E"**: the uncorrected proximity ratio
-``A / (D + A)`` (see :func:`tether.fret.apparent_fret`); leakage/gamma
+``A / (D + A)`` (see [`tether.fret.apparent_fret`][]); leakage/gamma
 corrections land at M3. The idealization **step overlay** is populated by
-one-click vbFRET (M2 S6) through :meth:`TraceDock.set_idealization`; it stays
+one-click vbFRET (M2 S6) through [`TraceDock.set_idealization`][]; it stays
 empty/hidden until a molecule is idealized, and is cleared when a new trace is
 shown so a stale path never bleeds onto the next molecule. tMAVEN visual-parity
 of this plot is verified with the M6 seven-plot gallery (§10), not in this PR.
 
-**Lazy Qt import.** As in :mod:`tether.gui.movie_panel`, pyqtgraph and its Qt
-binding are imported lazily inside :meth:`TraceDock.__init__`, so importing this
-module (and using the Qt-free :class:`TraceView` value object) costs no Qt — the
+**Lazy Qt import.** As in [`tether.gui.movie_panel`][], pyqtgraph and its Qt
+binding are imported lazily inside [`TraceDock.__init__`][], so importing this
+module (and using the Qt-free [`TraceView`][] value object) costs no Qt — the
 pure trace/efficiency logic stays testable headless. Constructing a
-:class:`TraceDock` needs a live ``QApplication`` (the embedding shell, ``qtbot``,
+[`TraceDock`][] needs a live ``QApplication`` (the embedding shell, ``qtbot``,
 or ``pyqtgraph.mkQApp`` provides one).
 """
 
@@ -46,7 +49,9 @@ if TYPE_CHECKING:
     import pyqtgraph as pg
     from pyqtgraph.Qt import QtWidgets
 
-__all__ = ["TimeMode", "TraceDock", "TraceView", "trace_from_smd"]
+    from tether.analysis.crosscorr import CrossCorrelation
+
+__all__ = ["DEFAULT_CROSSCORR_MAX_LAG", "TimeMode", "TraceDock", "TraceView", "trace_from_smd"]
 
 TimeMode = Literal["seconds", "frames"]
 
@@ -59,6 +64,15 @@ _FRET_LABEL = "apparent E"
 _FRET_RANGE = (0.0, 1.0)
 _N_HIST_BINS = 40
 
+#: How many frames either side of lag 0 the cross-correlation panel shows (#363).
+#: A rendering default: the panel truncates the curve
+#: [`tether.analysis.crosscorr.cross_correlation`][] returns, which changes neither its
+#: values nor its ``lag0``, and the dock stores nothing. A trace with fewer than
+#: ``max_lag + 1`` frames cannot fill that axis and shows an empty state instead.
+DEFAULT_CROSSCORR_MAX_LAG = 50
+_CROSSCORR_LABEL = "cross-correlation"
+_CROSSCORR_RANGE = (-1.0, 1.0)  # a Pearson-normalized curve lies in [-1, 1]
+
 
 @dataclass(frozen=True, eq=False)
 class TraceView:
@@ -67,7 +81,7 @@ class TraceView:
     A thin, immutable value object decoupling the dock from any particular data
     source (an SMD file, a ``.tether`` ``/traces`` slice, a simulator): a caller
     resolves a molecule to its donor/acceptor arrays and its movie ``frame_time``
-    and hands over a :class:`TraceView`. Apparent E and the total-intensity trace
+    and hands over a [`TraceView`][]. Apparent E and the total-intensity trace
     are derived here so the dock stays purely presentational.
 
     Parameters
@@ -139,7 +153,7 @@ class TraceView:
     def time_axis(self, mode: TimeMode) -> np.ndarray:
         """Return the x-axis for ``mode``: frame index, or seconds if available.
 
-        ``"seconds"`` requires :attr:`frame_time`; without it the frame-index
+        ``"seconds"`` requires [`frame_time`][]; without it the frame-index
         axis is returned regardless, so the caller never plots a bogus time axis.
         """
         frames = np.arange(self.n_frames, dtype=np.float64)
@@ -194,23 +208,58 @@ def _step_edges(centers: np.ndarray, step: float) -> np.ndarray:
 class TraceDock:
     """A pyqtgraph per-trace viewer: intensity + apparent-E + marginal histograms.
 
-    Construct (needs a ``QApplication``), then :meth:`set_trace` a
-    :class:`TraceView`. Embed :attr:`widget` (a ``QWidget``) into the Tether
+    Construct (needs a ``QApplication``), then [`set_trace`][] a
+    [`TraceView`][]. Embed [`widget`][] (a ``QWidget``) into the Tether
     shell, or drive it in a ``qtbot`` test. Use as a context manager or call
-    :meth:`close`.
+    [`close`][].
 
-    Layout is a 2x2 pyqtgraph grid: intensity time-series (top-left) over the
-    FRET time-series (bottom-left, x-linked), each with its marginal histogram in
-    the right column (y-linked). The FRET panel carries the reserved idealization
-    step overlay.
+    Layout is a three-row pyqtgraph grid. The intensity time-series (top-left) sits
+    over the FRET time-series (middle-left, x-linked), each with its marginal
+    histogram in the right column (y-linked). The FRET panel carries the
+    idealization step overlay. The bottom-left panel is the trace's donor–acceptor
+    cross-correlation against lag; it is **not** x-linked to the panels above,
+    because its axis is a lag (centred on zero, ``±max_lag``) rather than a time in
+    the trace, though it shares their seconds or frames unit.
+
+    Parameters
+    ----------
+    seconds_by_default
+        Start with the seconds axis when the trace has a ``frame_time``.
+    crosscorr_max_lag
+        Frames either side of lag 0 on the cross-correlation panel
+        (default [`DEFAULT_CROSSCORR_MAX_LAG`][]). A positive integer.
+
+    Raises
+    ------
+    ValueError
+        ``crosscorr_max_lag`` is not a positive integer.
     """
 
-    def __init__(self, *, seconds_by_default: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        seconds_by_default: bool = True,
+        crosscorr_max_lag: int = DEFAULT_CROSSCORR_MAX_LAG,
+    ) -> None:
+        if (
+            isinstance(crosscorr_max_lag, bool)
+            or not isinstance(crosscorr_max_lag, int | np.integer)
+            or int(crosscorr_max_lag) < 1
+        ):
+            raise ValueError(
+                f"crosscorr_max_lag must be a positive integer, got {crosscorr_max_lag!r}"
+            )
+
         import pyqtgraph as pg
         from pyqtgraph.Qt import QtWidgets
 
         self._pg = pg
         self._trace: TraceView | None = None
+        self._crosscorr_max_lag = int(crosscorr_max_lag)
+        # The current trace's cross-correlation, or None with the reason in
+        # _crosscorr_message (no trace, too short, non-finite, a flat channel).
+        self._crosscorr: CrossCorrelation | None = None
+        self._crosscorr_message: str | None = None
         # The current idealization step path (per-frame FRET level, NaN outside the
         # analysis window), or None when nothing is idealized. Kept so a seconds/
         # frame-index toggle re-lays the overlay on the new x-axis (see _render).
@@ -265,10 +314,31 @@ class TraceDock:
         self._fret_hist.setYLink(self._fret_plot)
         self._fret_hist.getAxis("left").setStyle(showValues=False)
 
-        # Give the time-series column the bulk of the width.
+        # --- row 2: the trace's donor-acceptor cross-correlation (#363) ------
+        # Deliberately not x-linked: the axis is a lag centred on 0, not a time.
+        self._crosscorr_plot = self._graphics.addPlot(row=2, col=0)
+        self._crosscorr_plot.setLabel("left", _CROSSCORR_LABEL)
+        self._crosscorr_plot.showGrid(x=True, y=True, alpha=0.2)
+        self._crosscorr_plot.setYRange(*_CROSSCORR_RANGE, padding=0)
+        self._crosscorr_plot.enableAutoRange(axis="y", enable=False)
+        self._crosscorr_zero = pg.InfiniteLine(pos=0.0, angle=0, movable=False)
+        self._crosscorr_lag0 = pg.InfiniteLine(pos=0.0, angle=90, movable=False)
+        self._crosscorr_plot.addItem(self._crosscorr_zero, ignoreBounds=True)
+        self._crosscorr_plot.addItem(self._crosscorr_lag0, ignoreBounds=True)
+        # The empty state: a centred note naming why there is no curve.
+        self._crosscorr_text = pg.TextItem("", anchor=(0.5, 0.5))
+        self._crosscorr_plot.addItem(self._crosscorr_text, ignoreBounds=True)
+        self._crosscorr_text.setPos(0.0, 0.0)
+        self._crosscorr_text.setVisible(False)
+
+        # Give the time-series column the bulk of the width, and the two time-series
+        # rows the bulk of the height.
         layout = self._graphics.ci.layout
         layout.setColumnStretchFactor(0, 4)
         layout.setColumnStretchFactor(1, 1)
+        layout.setRowStretchFactor(0, 2)
+        layout.setRowStretchFactor(1, 2)
+        layout.setRowStretchFactor(2, 1)
 
         # --- persistent curves (updated in place by set_trace) ---------------
         # Pens come from the theme in apply_theme, which runs below and on each
@@ -280,6 +350,8 @@ class TraceDock:
         # Reserved idealization step overlay (empty/hidden until M2 S6).
         self._idealization_curve = self._fret_plot.plot([], [], stepMode="center")
         self._idealization_curve.setVisible(False)
+        self._crosscorr_curve = self._crosscorr_plot.plot([], [])
+        self._set_crosscorr_axis_label()
 
         # Marginal-histogram bar items (created lazily; replaced on each update).
         self._intensity_bars: Any | None = None
@@ -300,11 +372,21 @@ class TraceDock:
             (self._total_curve, "total", 1.0),
             (self._fret_curve, "fret", 1.0),
             (self._idealization_curve, "idealized", 1.5),
+            (self._crosscorr_curve, "total", 1.5),
         ):
             curve.setPen(pg.mkPen(active.trace(token), width=width))
+        reference = pg.mkPen(active.color("plot-axis"), width=1.0, style=self._dash_line())
+        self._crosscorr_zero.setPen(reference)
+        self._crosscorr_lag0.setPen(reference)
+        self._crosscorr_text.setColor(active.color("text"))
         for bars in (self._intensity_bars, self._fret_bars):
             if bars is not None:
                 bars.setOpts(brush=self._bar_brush())
+
+    def _dash_line(self) -> Any:
+        from pyqtgraph.Qt import QtCore
+
+        return QtCore.Qt.PenStyle.DashLine
 
     def _bar_brush(self) -> tuple[int, int, int, int]:
         return theme.rgba(self._theme.color("plot-axis"), _MARGINAL_ALPHA)
@@ -347,6 +429,35 @@ class TraceDock:
         return self._fret_hist
 
     @property
+    def crosscorr_plot(self) -> pg.PlotItem:
+        """The bottom-left ``PlotItem``: the trace's donor–acceptor cross-correlation vs lag."""
+        return self._crosscorr_plot
+
+    @property
+    def crosscorr_curve(self) -> pg.PlotDataItem:
+        """The cross-correlation curve; empty while the panel shows its empty state."""
+        return self._crosscorr_curve
+
+    @property
+    def crosscorr(self) -> CrossCorrelation | None:
+        """The displayed trace's cross-correlation, or ``None`` when none is drawn.
+
+        ``None`` with no trace, or when [`crosscorr_message`][] says why the trace
+        has no curve to show. The lags are in frames whatever the time mode.
+        """
+        return self._crosscorr
+
+    @property
+    def crosscorr_message(self) -> str | None:
+        """The panel's empty-state note, or ``None`` while it shows a curve or no trace."""
+        return self._crosscorr_message
+
+    @property
+    def crosscorr_max_lag(self) -> int:
+        """Frames either side of lag 0 on the cross-correlation panel."""
+        return self._crosscorr_max_lag
+
+    @property
     def donor_curve(self) -> pg.PlotDataItem:
         """The green donor-intensity curve (a.u.) in the intensity panel."""
         return self._donor_curve
@@ -368,7 +479,7 @@ class TraceDock:
 
     @property
     def idealization_curve(self) -> pg.PlotDataItem:
-        """The idealized-path step overlay (empty/hidden until :meth:`set_idealization`)."""
+        """The idealized-path step overlay (empty/hidden until [`set_idealization`][])."""
         return self._idealization_curve
 
     @property
@@ -378,7 +489,7 @@ class TraceDock:
 
     @property
     def trace(self) -> TraceView | None:
-        """The currently displayed :class:`TraceView`, or ``None``."""
+        """The currently displayed [`TraceView`][], or ``None``."""
         return self._trace
 
     @property
@@ -403,6 +514,9 @@ class TraceDock:
         # A new molecule invalidates any prior idealization overlay (_render below
         # hides it via _render_idealization); one-click idealize repopulates it.
         self._idealized = None
+        # The cross-correlation depends only on the trace, so it is computed once
+        # here; a time-mode toggle only re-lays its lag axis (_render_crosscorr).
+        self._crosscorr, self._crosscorr_message = self._compute_crosscorr(trace)
 
         # The seconds toggle is only meaningful when a frame_time is known.
         self._time_checkbox.blockSignals(True)
@@ -435,13 +549,18 @@ class TraceDock:
             curve.setData([], [])
         self._idealization_curve.setData([], [])
         self._idealization_curve.setVisible(False)
+        self._crosscorr = None
+        self._crosscorr_message = None
+        self._crosscorr_curve.setData([], [])
+        self._crosscorr_text.setVisible(False)
+        self._set_crosscorr_axis_label()
         self._remove_bars()
 
     def set_idealization(self, idealized: np.ndarray) -> None:
         """Draw the idealized FRET **step overlay** over the FRET panel (§7.4).
 
         ``idealized`` is the per-frame idealized FRET level for the *current* trace
-        (the row :func:`tether.project.idealize.idealize_molecules` returns), NaN
+        (the row [`tether.project.idealize.idealize_molecules`][] returns), NaN
         outside the molecule's analysis window. It must be a 1-D array matching the
         displayed trace length. Only the (contiguous) in-window finite span is
         drawn, as a centred step aligned to the FRET curve's x-axis; a toggle
@@ -506,6 +625,60 @@ class TraceDock:
         # Re-lay the idealization overlay on the (possibly new) x-axis so a
         # seconds/frame-index toggle moves it in lock-step with the FRET curve.
         self._render_idealization()
+        self._render_crosscorr()
+
+    def _compute_crosscorr(self, trace: TraceView) -> tuple[CrossCorrelation | None, str | None]:
+        """Return ``(curve, None)`` for ``trace``, or ``(None, note)`` when there is none.
+
+        The maths is [`tether.analysis.crosscorr.cross_correlation`][]'s; this only
+        decides when to ask it. Each refusal is a named empty state rather than a
+        crash or a fabricated curve: a trace shorter than ``max_lag + 1`` frames, a
+        non-finite frame (the function raises on one), or a flat channel (the
+        function returns ``NaN`` at every lag).
+        """
+        # Imported here, like Qt, so importing this module stays as light as before:
+        # the Qt-free TraceView is imported by environments that never draw a panel.
+        from tether.analysis.crosscorr import cross_correlation
+
+        max_lag = self._crosscorr_max_lag
+        n = trace.n_frames
+        if n < max_lag + 1:
+            return None, (
+                f"Trace too short for cross-correlation: {n} frame{'s' if n != 1 else ''}, "
+                f"needs at least {max_lag + 1} for lags of ±{max_lag} frames"
+            )
+        if not (np.isfinite(trace.donor).all() and np.isfinite(trace.acceptor).all()):
+            return None, "No cross-correlation: the trace has non-finite frames"
+        cc = cross_correlation(trace.donor, trace.acceptor, max_lag=max_lag)
+        if not np.isfinite(cc.values).any():
+            return None, "No cross-correlation: a channel is constant, so it is undefined"
+        return cc, None
+
+    def _set_crosscorr_axis_label(self) -> None:
+        seconds = self.time_mode == "seconds" and self.seconds_available
+        self._crosscorr_plot.setLabel("bottom", "Lag", units="s" if seconds else "frames")
+        # A lag in frames is a count: no SI prefix ("kframes") on a long axis.
+        self._crosscorr_plot.getAxis("bottom").enableAutoSIPrefix(seconds)
+
+    def _render_crosscorr(self) -> None:
+        """Draw the cross-correlation on the lag axis of the current time mode.
+
+        Lags are frames; the seconds axis multiplies them by the same per-frame step
+        as the time-series panels ([`_axis_step`][]), so one unit reads across the
+        dock. With no curve the panel keeps its ``±max_lag`` axis and shows its note.
+        """
+        self._set_crosscorr_axis_label()
+        step = self._axis_step()
+        half = self._crosscorr_max_lag * step
+        cc = self._crosscorr
+        if cc is None:
+            self._crosscorr_curve.setData([], [])
+            self._crosscorr_text.setText(self._crosscorr_message or "")
+            self._crosscorr_text.setVisible(self._crosscorr_message is not None)
+        else:
+            self._crosscorr_curve.setData(cc.lags.astype(np.float64) * step, cc.values)
+            self._crosscorr_text.setVisible(False)
+        self._crosscorr_plot.setXRange(-half, half, padding=0)
 
     def _axis_step(self) -> float:
         """The x-axis spacing between adjacent frames in the effective time mode."""
@@ -590,10 +763,10 @@ def trace_from_smd(
     name: str | None = None,
     molecule_key: str | None = None,
 ) -> TraceView:
-    """Build a :class:`TraceView` from an SMD ``raw`` array's molecule ``index``.
+    """Build a [`TraceView`][] from an SMD ``raw`` array's molecule ``index``.
 
     ``raw`` is the ``(n_molecules, n_frames, 2)`` array from
-    :func:`tether.idealize.smd.read_smd` (``[..., 0]`` donor, ``[..., 1]``
+    [`tether.idealize.smd.read_smd`][] (``[..., 0]`` donor, ``[..., 1]``
     acceptor). A convenience for wiring a stored/handed-off trace into the dock;
     pass ``molecule_key`` to keep the trace's store identity for one-click idealize.
     """

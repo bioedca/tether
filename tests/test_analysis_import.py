@@ -314,9 +314,10 @@ def test_refuses_to_clobber_then_overwrites_with_a_new_source(tmp_path: Path) ->
         import_analysis_only_project(out, source=smd4, source_name="smd_4mol.hdf5")
 
     # overwrite=True replaces it with the *different* source — the persisted store changes
-    summary = import_analysis_only_project(
-        out, source=smd2, source_name="smd_2mol.hdf5", overwrite=True
-    )
+    with lock.publish_lock(out) as guard:
+        summary = import_analysis_only_project(
+            out, source=smd2, source_name="smd_2mol.hdf5", overwrite=True, publish_guard=guard
+        )
     assert summary.n_molecules == smd2.n_molecules == 2
     assert _read_molecules(out).shape[0] == 2  # the store on disk actually changed
     assert read_analysis_only_marker(out).source == "smd_2mol.hdf5"
@@ -336,8 +337,10 @@ def test_overwrite_failure_leaves_the_original_intact(tmp_path: Path, monkeypatc
 
     # fail after the temp store is built but before os.replace publishes it
     monkeypatch.setattr(ai_module, "compute_corrected_fret", _boom)
-    with pytest.raises(RuntimeError, match="injected"):
-        import_analysis_only_project(out, source=smd2, source_name="smd_2mol.hdf5", overwrite=True)
+    with pytest.raises(RuntimeError, match="injected"), lock.publish_lock(out) as guard:
+        import_analysis_only_project(
+            out, source=smd2, source_name="smd_2mol.hdf5", overwrite=True, publish_guard=guard
+        )
 
     # the original 4-molecule project is untouched, and no .tmp sibling was left behind
     assert _read_molecules(out).shape[0] == 4
@@ -350,8 +353,21 @@ def test_overwrite_refuses_a_foreign_locked_project(tmp_path: Path) -> None:
     out = tmp_path / "ao.tether"
     import_analysis_only_project(out, source=smd, source_name="smd_4mol.hdf5")
     lock.acquire(out, identity=lock.LockIdentity(host="OTHER", user="bob", pid=999))
-    with pytest.raises(lock.LockedError):
+    with pytest.raises(lock.LockedError), lock.publish_lock(out) as guard:
+        import_analysis_only_project(
+            out, source=smd, source_name="smd_4mol.hdf5", overwrite=True, publish_guard=guard
+        )
+
+
+def test_overwrite_without_a_publish_guard_is_refused(tmp_path: Path) -> None:
+    """Replacing an existing project needs its writer lock (#346, ADR-0112)."""
+    smd = read_smd(_SMD4)
+    out = tmp_path / "ao.tether"
+    import_analysis_only_project(out, source=smd, source_name="smd_4mol.hdf5")
+    before = lock.file_identity(out)
+    with pytest.raises(lock.PublishGuardRequiredError):
         import_analysis_only_project(out, source=smd, source_name="smd_4mol.hdf5", overwrite=True)
+    assert lock.file_identity(out) == before
 
 
 def test_rejects_empty_source(tmp_path: Path) -> None:
@@ -405,3 +421,33 @@ def test_import_281mol_parity_fixture(tmp_path: Path) -> None:
     # analysis still works on the full population
     hist = population_apparent_e_histogram(out)
     assert hist.n_samples > 0
+
+
+def test_a_reimport_over_a_featured_project_carries_no_feature_cache(tmp_path: Path) -> None:
+    """An SMD import seeds windows on a fresh store, so it never keeps old features (#1112).
+
+    ``/features/table`` is sliced to each molecule's ``analysis_window``. The import
+    builds its store from scratch and publishes it over the destination, so a table
+    computed on the project it replaces cannot survive next to the newly seeded windows.
+    """
+    from tether.project.features import compute_features, feature_matrix
+
+    out = tmp_path / "ao.tether"
+    import_analysis_only_project(out, source=read_smd(_SMD4), source_name="smd_4mol.hdf5")
+    compute_features(out)
+    with h5py.File(out, "r") as f:
+        assert "table" in f["features"]
+
+    with lock.publish_lock(out) as guard:
+        import_analysis_only_project(
+            out,
+            source=read_smd(_FIXTURES / "smd_2mol.hdf5"),
+            source_name="smd_2mol.hdf5",
+            overwrite=True,
+            publish_guard=guard,
+        )
+
+    with h5py.File(out, "r") as f:
+        assert "table" not in f["features"]
+    with pytest.raises(KeyError, match="compute_features"):
+        feature_matrix(out)

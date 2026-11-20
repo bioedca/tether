@@ -11,13 +11,14 @@ Under donor excitation, when the acceptor bleaches the donor stops transferring 
 so the acceptor signal steps **down** to background while the donor signal steps **up**
 (the donor is no longer quenched). When the donor bleaches, the acceptor loses its only
 excitation and both signals step down together. These are the steps the per-molecule
-γ estimate is built on [Roy2008] [McCann2010] [Hellenkamp2018]; :mod:`tether.fret.gamma`
+γ estimate is built on [Roy2008], [McCann2010], [Hellenkamp2018]; [`tether.fret.gamma`][]
 reads the same acceptor-bleach step.
 
 The rule (signed off by the maintainer on #646)
 -----------------------------------------------
-For each molecule, the native single-step detector (:func:`tether.fret.photobleach.
-detect_photobleach`) gives a first-bleach frame per channel. A molecule is an
+For each molecule, the native single-step detector
+([`tether.fret.photobleach.detect_photobleach`][]) gives a first-bleach frame per channel. A
+molecule is an
 **event** when one channel bleaches at least ``min_frames`` before the other, so the
 other is still emitting after the step, and the other then bleaches too, at least
 ``min_frames`` before the trace ends. That is the whole bleach sequence the rule names:
@@ -236,7 +237,7 @@ def side_check_verdict(n_consistent: int, n_swapped: int, min_events: int, major
 
 @dataclass(frozen=True)
 class DonorSideCheck:
-    """The outcome of :func:`check_donor_side` for one movie.
+    """The outcome of [`check_donor_side`][] for one movie.
 
     Attributes
     ----------
@@ -284,15 +285,23 @@ class DonorSideCheck:
 
     @classmethod
     def from_dict(cls, record: dict[str, object]) -> DonorSideCheck:
-        """Rebuild a check from :meth:`to_dict` output; unknown keys are ignored."""
+        """Rebuild a check from [`to_dict`][] output; unknown keys are ignored."""
         names = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in record.items() if k in names})  # type: ignore[arg-type]
 
-    def describe(self, *, donor_side: str = "left", imported_map: bool = False) -> str:
+    def describe(
+        self,
+        *,
+        donor_side: str = "left",
+        imported_map: bool = False,
+        map_file: str | None = None,
+    ) -> str:
         """One plain sentence for the operator, with the evidence and the remedy.
 
         ``donor_side`` is the side the movie was extracted with; ``imported_map`` says
         the split came from an imported ``.tmap``, where ``--donor-side`` does not apply.
+        ``map_file`` names the saved ``.npz`` map file (``--map``, #353) the split came
+        from; it takes precedence over ``imported_map``, and the remedy then names it.
         """
         if self.verdict == VERDICT_NOT_RUN:
             return f"the donor-side check did not run ({self.reason})"
@@ -303,7 +312,13 @@ class DonorSideCheck:
             )
         evidence = f"{self.n_swapped} of {self.n_events} bleach events"
         if self.verdict == VERDICT_SWAPPED:
-            if imported_map:
+            if map_file is not None:
+                remedy = (
+                    f"check the channel order of the map file {map_file} (make it again "
+                    "with tether map create and the right --donor-side), or extract again "
+                    "without --map and with the right --donor-side"
+                )
+            elif imported_map:
                 remedy = (
                     "check the channel order of the .tmap, or extract again without --tmap "
                     "and with the right --donor-side"

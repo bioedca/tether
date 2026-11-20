@@ -50,7 +50,7 @@ release**, not the binaries, and it is unaffected by any of the above.
    consequences follow. A tag cut seconds after a merge is refused until the post-merge run
    finishes on that commit. And because the producing workflows cancel an in-flight run
    when the next merge lands (`cancel-in-progress` keyed on the ref), a commit whose checks
-   were cancelled by a following merge can never be released — release from a later commit
+   were canceled by a following merge can never be released — release from a later commit
    whose checks ran to completion instead.
 2. **Read every user page before the tag, and record the read.** A named person does this
    step. An AI tool cannot do this step. AI tools draft the user pages, and the review lane of a
@@ -109,7 +109,11 @@ release**, not the binaries, and it is unaffected by any of the above.
     The tag must have the form `vMAJOR.MINOR.PATCH` (PRD §12.7): three numeric components
     with no leading zeros, optionally followed by a `-<prerelease>` component such as
     `-rc1`, and nothing else — no build metadata (`+…`), and no fourth component, so
-    `v1.0.0.0` is rejected. A tag with a `-<prerelease>` component publishes as a GitHub
+    `v1.0.0.0` is rejected. The `-<prerelease>` component follows SemVer 2.0.0 §9: one or
+    more identifiers separated by dots, none of them empty, each either a number with no
+    leading zero or a run of letters, digits and hyphens that holds at least one letter or
+    hyphen. So `-rc1`, `-rc.1`, `-0` and `-alpha-1` are accepted, and `-01`, `-rc.01`,
+    `-rc..1`, `-.rc1` and `-rc1.` are rejected. A tag with a `-<prerelease>` component publishes as a GitHub
     **prerelease** and does not repoint the documentation site; that verdict is read from
     the parsed tag's prerelease component, not from a search for a hyphen. The tag must also
     be **annotated** and its signature **verified by GitHub** (your SSH signing key
@@ -250,6 +254,32 @@ The published attestation names all four installers as subjects. Each invocation
 independently hashes its local installer and enforces the GitHub repository, signer
 workflow, source tag, and source commit shown above; verifying one local file does not
 checksum the other three.
+
+##### Offline, the way Tether's updater verifies
+
+The commands above let `gh` fetch the attestation and the trusted root, so they need a
+signed-in `gh`. Tether's updater (`tether.gui.update_verify`, #333) fetches both itself, with
+no token. Then it runs `gh` with no network at all. To do the same by hand, set `$digest` to
+the installer's SHA-256 from the manifest:
+
+```bash
+curl -fsS -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/bioedca/tether/attestations/sha256:$digest" \
+  | python3 -c 'import json, sys
+for a in json.load(sys.stdin)["attestations"]:
+    print(json.dumps(a["bundle"]))' > bundle.jsonl
+gh attestation trusted-root > trusted_root.jsonl
+gh attestation verify Tether-1.0.0-rc1-Linux-x86_64.sh \
+  --bundle bundle.jsonl --custom-trusted-root trusted_root.jsonl \
+  --repo bioedca/tether \
+  --signer-workflow bioedca/tether/.github/workflows/release.yml \
+  --deny-self-hosted-runners
+```
+
+The last command needs no network and no sign-in. The updater also passes `--source-ref
+refs/tags/vX.Y.Z` for the version it offers. It installs only a release whose certificate
+names a `vMAJOR.MINOR.PATCH` tag, so it refuses every `rc` above. The attestation must also
+name the downloaded file as this platform's installer.
 
 #### Documentation status
 
@@ -491,7 +521,7 @@ and users get a SmartScreen or Gatekeeper warning on Windows and macOS.
 [ADR-0059](adr/0059-ship-v1-unsigned-with-provenance-as-the-integrity-anchor.md) records
 the decision and the priced alternatives so they are not re-researched. In short:
 
-- **SignPath Foundation declined** `bioedca/tether` on 2026-07-26 — the programme wants
+- **SignPath Foundation declined** `bioedca/tether` on 2026-07-26 — the program wants
   public-visibility signals (stars, forks, contributors, external references, institutional
   backing) a pre-1.0 project by one maintainer does not have. A paid subscription was offered.
 - **Apple Developer ID** is out of budget at $99/yr, and enabling it was never one setting

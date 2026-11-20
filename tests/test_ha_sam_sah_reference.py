@@ -60,7 +60,7 @@ def lab_histogram() -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def traces() -> dict[str, Traces]:
-    return {name: read_traces(_path(name)) for name in TRACE_NAMES}
+    return {name: read_traces(_path(name), order="donor-first") for name in TRACE_NAMES}
 
 
 def _bins(centres: np.ndarray) -> tuple[int, tuple[float, float]]:
@@ -146,7 +146,7 @@ def test_the_reader_refuses_a_file_whose_size_is_not_the_header_size(tmp_path):
         path = tmp_path / "broken.traces"
         path.write_bytes(broken)
         with pytest.raises(ValueError, match=r"B"):
-            read_traces(path)
+            read_traces(path, order="donor-first")
 
 
 def test_the_donor_is_the_first_channel_of_each_molecule(traces, counts):

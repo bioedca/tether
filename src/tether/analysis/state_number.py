@@ -8,9 +8,9 @@ fit it reads ``hmm.mu.size`` and histograms those per-trace state counts. That p
 reads a data structure Tether does not persist — Tether always fits a **consensus /
 global** model (one shared state count, one ``/idealization/{model}`` for the whole
 population) and stores each molecule's **Viterbi state path**, not an independent
-per-trace HMM (:class:`tether.project.idealize.StoredIdealization`).
+per-trace HMM ([`tether.project.idealize.StoredIdealization`][]).
 
-So, exactly as the B1 real TDP (:mod:`tether.analysis.tdp`) rebuilds a model-plot
+So, exactly as the B1 real TDP ([`tether.analysis.tdp`][]) rebuilds a model-plot
 from persisted Viterbi paths rather than the fitted transition matrix, Tether's C1
 is the **empirical** analogue: each molecule's state number is the count of
 **distinct states its Viterbi path actually occupies**. A trace that only ever sits
@@ -18,11 +18,11 @@ in one level shows 1 state even though the consensus model has three; a trace th
 visits 0↔1↔2 shows 3. This is the only per-trace state-count heterogeneity a
 consensus model produces, and it answers the same scientific question C1 exists for
 — how many conformational states does each molecule visit — from Tether's data model
-[McKinney2006][vandeMeent2014].
+[McKinney2006], [vandeMeent2014].
 
-:func:`state_number_counts` is the pure-array core (an iterable of per-molecule
-integer Viterbi paths → a :class:`StateNumberCounts` bar-chart table);
-:func:`population_state_number` is the ``.tether`` store entry point that pulls each
+[`state_number_counts`][] is the pure-array core (an iterable of per-molecule
+integer Viterbi paths → a [`StateNumberCounts`][] bar-chart table);
+[`population_state_number`][] is the ``.tether`` store entry point that pulls each
 accepted, **fresh** molecule's state path and applies the §7.5 curation filter.
 
 References
@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
     from os import PathLike
 
+    from tether.analysis.selection import Selection
     from tether.project.core import Project
 
     ProjectRef = Project | str | PathLike[str]
@@ -73,10 +74,10 @@ class StateNumberCounts:
 
     ``counts[i]`` is the number of molecules whose Viterbi path occupies exactly
     ``states[i]`` distinct states — the height of bar ``states[i]`` in the C1 chart.
-    ``states`` spans ``[states_low, states_high]``. :attr:`n_molecules` counts every
-    molecule with at least one occupied state; :attr:`n_in_range` (= ``counts.sum()``)
+    ``states`` spans ``[states_low, states_high]``. [`n_molecules`][] counts every
+    molecule with at least one occupied state; [`n_in_range`][] (= ``counts.sum()``)
     counts only those whose state number fell inside the bars, and
-    :attr:`n_out_of_range` records the rest, so a clipped x-axis never silently hides
+    [`n_out_of_range`][] records the rest, so a clipped x-axis never silently hides
     molecules.
     """
 
@@ -95,7 +96,7 @@ class StateNumberCounts:
 
 
 def occupied_state_count(state_path: np.ndarray) -> int:
-    """Number of **distinct** non-:data:`~tether.idealize.NO_STATE` states in a path.
+    """Number of **distinct** non-[`NO_STATE`][tether.idealize.driver.NO_STATE] states in a path.
 
     ``state_path`` is one molecule's integer Viterbi path (``NO_STATE`` outside the
     window / at interior gaps). Returns how many different states it actually visits —
@@ -114,10 +115,10 @@ def state_number_counts(
     states_low: int = DEFAULT_STATE_NUMBER_LOW,
     states_high: int | None = None,
 ) -> StateNumberCounts:
-    """Bar-chart per-molecule occupied-state counts into a :class:`StateNumberCounts`.
+    """Bar-chart per-molecule occupied-state counts into a [`StateNumberCounts`][].
 
     Each element of ``state_chunks`` is one molecule's integer Viterbi path
-    (:data:`~tether.idealize.NO_STATE` outside its window). Molecules with **zero**
+    ([`NO_STATE`][tether.idealize.driver.NO_STATE] outside its window). Molecules with **zero**
     occupied states (an all-gap path) contribute nothing — the analogue of tMAVEN
     counting only traces that carry a model. The distinct-state count of every
     remaining molecule is tallied into the bars ``[states_low, states_high]``.
@@ -186,7 +187,7 @@ def population_state_number(
     project: ProjectRef,
     model_name: str,
     *,
-    molecule_keys: list[str] | None = None,
+    molecule_keys: Selection = None,
     states_low: int = DEFAULT_STATE_NUMBER_LOW,
     states_high: int | None = None,
     include_rejected: bool = False,
@@ -195,22 +196,22 @@ def population_state_number(
     """State-number bar chart from a ``.tether`` store (§10 C1; Appendix C C1; PRD §7.7).
 
     Reads each accepted, **fresh** molecule's Viterbi state path from
-    ``/idealization/{model_name}`` and feeds them to :func:`state_number_counts`.
+    ``/idealization/{model_name}`` and feeds them to [`state_number_counts`][].
     STALE molecules are excluded (PRD §5.1) unless ``include_stale``; rejected
     molecules are excluded unless ``include_rejected`` (§7.5) — the same selection
-    contract as the B1 TDP (:func:`tether.analysis.tdp.population_transition_density`).
+    contract as the B1 TDP ([`tether.analysis.tdp.population_transition_density`][]).
 
     Parameters
     ----------
     project
-        A :class:`~tether.project.core.Project` or a path to a ``.tether`` store.
+        A [`Project`][tether.project.core.Project] or a path to a ``.tether`` store.
     model_name
         Which ``/idealization/{model_name}`` supplies the state paths.
     molecule_keys
         Restrict to these ``molecule_key`` values (``None`` = all), intersected with
         the fresh + curation filters.
     states_low, states_high
-        Passed through to :func:`state_number_counts`.
+        Passed through to [`state_number_counts`][].
     include_rejected
         Keep rejected molecules (default excludes them, §7.5).
     include_stale
@@ -225,17 +226,9 @@ def population_state_number(
     KeyError
         No ``/idealization/{model_name}`` in the store.
     """
-    from tether.analysis._store import windowed_states
-    from tether.project.idealize import live_molecule_keys
+    from tether.analysis._store import fresh_selection, windowed_states
 
-    keys = molecule_keys
-    if not include_stale:
-        live = live_molecule_keys(project, model_name)
-        if molecule_keys is None:
-            keys = live
-        else:
-            live_set = set(live)
-            keys = [k for k in molecule_keys if k in live_set]
+    keys = fresh_selection(project, model_name, molecule_keys, include_stale)
 
     states = windowed_states(project, model_name, keys, include_rejected)
     return state_number_counts(states, states_low=states_low, states_high=states_high)

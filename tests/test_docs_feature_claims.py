@@ -128,6 +128,24 @@ def _gui_imports() -> set[str]:
     return found
 
 
+def _gui_calls(method: str) -> bool:
+    """Whether any ``src/tether/gui`` file calls ``<something>.method(...)`` at run time.
+
+    The category keys persist once the shell writes through ``Project.set_category``
+    (#359). The setter existing on ``Project`` (#358) is not enough: until the shell calls
+    it, the keys still report "unavailable".
+    """
+    for path in sorted(GUI.glob("*.py")):
+        for node in _runtime_nodes(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == method
+            ):
+                return True
+    return False
+
+
 def _project_methods() -> set[str]:
     tree = ast.parse(PROJECT_CORE.read_text(encoding="utf-8"))
     for node in tree.body:
@@ -138,8 +156,8 @@ def _project_methods() -> set[str]:
 
 def _in_application(label: str, imports: set[str]) -> bool:
     prefixes = BINDINGS[label]
-    if prefixes is None:  # "Category keys": the keys persist once Project.set_category exists.
-        return "set_category" in _project_methods()
+    if prefixes is None:  # "Category keys": the keys persist once the GUI calls set_category.
+        return _gui_calls("set_category")
     return any(name == p or name.startswith(p + ".") for p in prefixes for name in imports)
 
 
@@ -212,7 +230,10 @@ def test_the_guards_see_the_wording_they_replaced() -> None:
     assert "embedded napari movie panel" in _flat(old)
     old_list = "## What it does\n\n### In the application today\n\n- **Movie panel** — embedded\n"
     assert _groups(old_list)[IN_APP] == ["Movie panel"]
-    assert not _in_application("Movie panel", _gui_imports())
+    # A feature still planned shows that the import check can say "not in the application";
+    # the movie panel itself has been in since #356.
+    assert not _in_application("Trace ⇄ movie round trip", _gui_imports())
+    assert _in_application("Movie panel", _gui_imports())
     assert _in_application("Population histogram", _gui_imports())
 
 
@@ -248,3 +269,10 @@ def test_a_type_only_import_is_not_a_gui_import() -> None:
         "tether.project.handoff",
     }
     assert not found & type_only
+
+
+def test_the_category_keys_bind_to_the_gui_call_not_the_setter() -> None:
+    """The setter (#358) alone does not make the keys work; the shell's call (#359) does."""
+    assert "set_category" in _project_methods()
+    assert _gui_calls("_unavailable"), "the call finder must see a call the shell makes"
+    assert _in_application("Category keys", _gui_imports()) == _gui_calls("set_category")

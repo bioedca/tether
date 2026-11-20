@@ -1,13 +1,29 @@
 {
   "schema_version": 1,
   "frozen_at_milestone": "M0.5",
-  "measured_utc": "2026-06-26",
+  "measured_utc": "2026-11-15",
+  "refreeze": {
+    "adr": "ADR-0110",
+    "issue": "#545",
+    "rule": "Re-measured on the pinned build under the unchanged $.freeze_policy. Every bound stayed: the measured worst cases are again 1.0 on both floors and below 1e-8 on both ceilings, so the freeze again confirms $.provisional.",
+    "previous": {
+      "measured_utc": "2026-06-26",
+      "sidecar_python_version": "3.9.23",
+      "tmaven_commit": "71cfa1afcaaa1038a821bc198c30e67a321067a2",
+      "pooled_worst": {
+        "state_count_fraction": 1.0,
+        "state_mean_abs_delta": 8.34719832143449e-09,
+        "viterbi_agreement": 1.0,
+        "relative_elbo": 1.0024658100238614e-09
+      }
+    }
+  },
   "method": {
     "model_type": "vbconhmm",
     "n_runs_per_fixture": 20,
-    "sidecar_python_version": "3.9.23",
-    "tmaven_commit": "71cfa1afcaaa1038a821bc198c30e67a321067a2",
-    "build_provenance": "Replaces an absolute workstation interpreter path, which named a machine but identified no build. The M0.5 run predates automatic build capture (scripts/measure_parity.py now probes both fields at measure time), so these two values were recovered on 2026-07-20 from the interpreter that path still resolves to on the ratifying workstation - platform.python_version() and the tMAVEN distribution's PEP 610 direct_url.json - and the environment is not guaranteed unchanged since 2026-06-26. That tMAVEN checkout is an EARLIER upstream commit than the one the project pins for CI, installers and every live sidecar assertion (10f4230b6d13c6d2ad67b05d801696b4a40eff4a; see NOTICE, scripts/setup_sidecar.py, .github/workflows/sidecar.yml) - 13 upstream commits behind it, with tmaven/controllers/modeler/ changed in between. The interpreter differs too: the shipped sidecar stack pins python 3.12.* (sidecar/environment.yml), resolving to 3.12.13 in sidecar/conda-lock.yml. So this top-level tolerance was NOT measured on the build the live sidecar assertions run against; the ebhmm block under measured_by_method WAS. Mitigation: the measured worst cases here are 1.0 on both floors and 8.35e-09 / 1.00e-09 against ceilings of 0.02 / 0.01 (see pooled_worst), and the freeze only CONFIRMED the provisional PRD 11.2 defaults rather than widening them (tolerance == provisional), so no bound was derived from the older build's numbers. Re-measuring is a deliberate re-freeze and needs an ADR.",
+    "sidecar_python_version": "3.12.13",
+    "tmaven_commit": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+    "build_provenance": "The measurement-time build probe obtains sidecar_python_version by executing platform.python_version() and tmaven_commit from the installed tMAVEN distribution's PEP 610 direct_url.json vcs_info.commit_id inside the configured sidecar interpreter; the interpreter path is intentionally not recorded. Measured on 2026-11-15 with scripts/measure_parity.py --n-runs 20 (no --cross-seed) on the pinned build that CI, the installers and every live sidecar assertion run (NOTICE, scripts/setup_sidecar.py, .github/workflows/sidecar.yml); this is the re-freeze of ADR-0110 (#545). The row measured on the earlier build is kept under $.refreeze.previous.",
     "note": "tMAVEN self-reseeds; parity is statistical, never bit-exact (PRD \u00a77.4)."
   },
   "coverage": {
@@ -18,7 +34,7 @@
       "vbFRET (per-trace, M2)",
       "consensus VB-HMM (M6)"
     ],
-    "note": "The top-level tolerance is the vbconhmm cross-seed spread (measured at M0.5), applied by default to the vb Consensus HMM path (the committed reference-model type + fixture type) and per-trace vbFRET. ebFRET is measured and frozen SEPARATELY under tolerance_by_method/measured_by_method (its per-trace state selection is more seed-variable). See ADR-0009 (metrics + freeze) and ADR-0043 (per-method ratification)."
+    "note": "The top-level tolerance is the vbconhmm cross-seed spread (measured at M0.5, re-measured on the pinned build on 2026-11-15, ADR-0110), applied by default to the vb Consensus HMM path (the committed reference-model type + fixture type) and per-trace vbFRET. ebFRET is measured and frozen SEPARATELY under tolerance_by_method/measured_by_method (its per-trace state selection is more seed-variable). The transition-matrix term of vbconhmm and ebFRET has its own block, $.transition_matrix. See ADR-0009 (metrics + freeze), ADR-0043 (per-method ratification) and ADR-0110 (re-freeze and the transition-matrix term)."
   },
   "freeze_policy": "frozen = more permissive of (provisional \u00a711.2 default, measured worst-case \u00b1 margin); margin=0.5: ceilings \u00d7(1+margin), floors \u2212margin\u00b7(1\u2212worst).",
   "provisional": {
@@ -35,9 +51,9 @@
   },
   "pooled_worst": {
     "state_count_fraction": 1.0,
-    "state_mean_abs_delta": 8.34719832143449e-09,
+    "state_mean_abs_delta": 6.807253372098643e-09,
     "viterbi_agreement": 1.0,
-    "relative_elbo": 1.0024658100238614e-09
+    "relative_elbo": 5.878506758245325e-10
   },
   "spread_by_fixture": {
     "smd_4mol": {
@@ -78,30 +94,30 @@
         "state_mean_abs_delta": {
           "direction": "ceiling",
           "n": 19,
-          "min": 1.9223400649082123e-11,
-          "max": 2.201829496506491e-09,
-          "mean": 7.758715833548392e-10,
-          "worst": 2.201829496506491e-09,
+          "min": 1.586907272255189e-10,
+          "max": 1.2911580693497626e-09,
+          "mean": 6.94142036248174e-10,
+          "worst": 1.2911580693497626e-09,
           "values": [
-            4.2087622276199e-10,
-            1.7583023925737962e-10,
-            2.201829496506491e-09,
-            1.1760636908775268e-10,
-            1.3424404921025257e-09,
-            5.349006793053945e-10,
-            6.550306963504227e-10,
-            7.207610064341452e-10,
-            6.106434247143966e-10,
-            1.9223400649082123e-11,
-            6.927936002654178e-10,
-            2.0569378422763407e-09,
-            5.253735224641787e-10,
-            5.574886108306032e-10,
-            1.7653025707886627e-09,
-            6.262277363333624e-10,
-            5.745113274002733e-10,
-            9.525433775081638e-10,
-            1.9123946870536201e-10
+            2.5891067068073426e-10,
+            7.37337635392521e-10,
+            1.1467473637338799e-09,
+            1.9346069191072957e-10,
+            8.809694085343267e-10,
+            7.281475422615813e-10,
+            1.2911580693497626e-09,
+            4.603231129607366e-10,
+            6.162051979785588e-10,
+            1.0379298531759673e-09,
+            4.488047711248555e-10,
+            1.586907272255189e-10,
+            1.2817042982504745e-09,
+            4.526904406887411e-10,
+            1.05481923196038e-09,
+            9.851961468854142e-10,
+            2.605514692888278e-10,
+            4.925212460094031e-10,
+            7.025308113028927e-10
           ]
         },
         "viterbi_agreement": {
@@ -136,30 +152,30 @@
         "relative_elbo": {
           "direction": "ceiling",
           "n": 19,
-          "min": 8.743412134829667e-12,
-          "max": 1.0024658100238614e-09,
-          "mean": 3.532439178153071e-10,
-          "worst": 1.0024658100238614e-09,
+          "min": 7.224896494909361e-11,
+          "max": 5.878506758245325e-10,
+          "mean": 3.160328389478605e-10,
+          "worst": 5.878506758245325e-10,
           "values": [
-            1.9161244028905393e-10,
-            8.006431832919801e-11,
-            1.0024658100238614e-09,
-            5.3547528378798385e-11,
-            6.111895832639448e-10,
-            2.4353727740585505e-10,
-            2.9822742682038487e-10,
-            3.2816309700820093e-10,
-            2.780110934053968e-10,
-            8.743412134829667e-12,
-            3.1541332495248915e-10,
-            9.364951010691284e-10,
-            2.3920111783741796e-10,
-            2.5381778688637103e-10,
-            8.037162230429527e-10,
-            2.851295043974292e-10,
-            2.6156551206969126e-10,
-            4.33676655378067e-10,
-            8.705722579776398e-11
+            1.178730888644131e-10,
+            3.3570087959908136e-10,
+            5.221063352064247e-10,
+            8.807729479996785e-11,
+            4.01092321761732e-10,
+            3.315098575420725e-10,
+            5.878506758245325e-10,
+            2.0958549440901155e-10,
+            2.805504222870855e-10,
+            4.725579804664219e-10,
+            2.043269224425671e-10,
+            7.224896494909361e-11,
+            5.835419781734675e-10,
+            2.06095264521185e-10,
+            4.802479586276105e-10,
+            4.4854304808249765e-10,
+            1.186255966981588e-10,
+            2.242370683193251e-10,
+            3.1985278743470153e-10
           ]
         }
       }
@@ -203,31 +219,31 @@
         "state_mean_abs_delta": {
           "direction": "ceiling",
           "n": 20,
-          "min": 2.5552449045562753e-11,
-          "max": 8.34719832143449e-09,
-          "mean": 1.746180811057485e-09,
-          "worst": 8.34719832143449e-09,
+          "min": 5.940636871315519e-12,
+          "max": 6.807253372098643e-09,
+          "mean": 2.455226302822133e-09,
+          "worst": 6.807253372098643e-09,
           "values": [
-            4.82856166161838e-09,
-            2.6693424137747e-09,
-            2.9773356002849027e-10,
-            5.730864671704694e-10,
-            5.300958005882705e-10,
-            8.012567831450212e-10,
-            8.34719832143449e-09,
-            2.706990742673554e-10,
-            3.0085033353444146e-09,
-            1.391752491031184e-09,
-            5.7891524907205394e-11,
-            5.151124526925344e-10,
-            2.049176939245001e-10,
-            3.3158616408179853e-09,
-            1.052606057871941e-09,
-            1.0881542333862626e-09,
-            2.5552449045562753e-11,
-            3.4661087333631713e-09,
-            1.5737754432976203e-09,
-            9.054060834401412e-10
+            3.3342384964107907e-09,
+            5.83645964891133e-10,
+            5.940636871315519e-12,
+            4.756577853815003e-09,
+            1.7581747169259643e-09,
+            4.000857589669948e-09,
+            1.2272391436418673e-09,
+            6.1053736510885415e-09,
+            2.088255457444177e-09,
+            6.121536610947942e-10,
+            9.168406589488143e-10,
+            3.072274878945791e-09,
+            8.551703234438435e-10,
+            7.818046210417151e-11,
+            6.807253372098643e-09,
+            4.604646663963763e-10,
+            6.2124385080686295e-09,
+            3.115210422954817e-09,
+            2.2793078535698896e-09,
+            8.349277380581555e-10
           ]
         },
         "viterbi_agreement": {
@@ -263,31 +279,31 @@
         "relative_elbo": {
           "direction": "ceiling",
           "n": 20,
-          "min": 1.5263701272894e-13,
-          "max": 1.6966508120374786e-10,
-          "mean": 1.898813188240463e-11,
-          "worst": 1.6966508120374786e-10,
+          "min": 8.749892449429681e-15,
+          "max": 1.4440511391251653e-10,
+          "mean": 3.053173860360183e-11,
+          "worst": 1.4440511391251653e-10,
           "values": [
-            5.884497114295892e-11,
-            2.125484985404572e-11,
-            5.580486962191819e-13,
-            3.0029630886442664e-12,
-            3.2378490903978454e-12,
-            3.0012131101543804e-12,
-            1.6966508120374786e-10,
-            9.73376924485444e-13,
-            2.195581346027225e-11,
-            9.073832912113012e-12,
-            5.331601132519152e-13,
-            4.009395162383112e-12,
-            1.5263701272894e-13,
-            3.0567652051055377e-11,
-            2.233361437203318e-12,
-            8.178038367345843e-12,
-            5.00299406052946e-13,
-            3.24020183925647e-11,
-            1.6090080004229024e-12,
-            8.009068222044635e-12
+            3.10329518873106e-11,
+            3.0840454253423148e-12,
+            8.749892449429681e-15,
+            6.762227992206347e-11,
+            4.446889784854595e-12,
+            3.945987608432911e-11,
+            6.893748597823998e-12,
+            1.0140736464780137e-10,
+            3.5345676654607276e-12,
+            4.064616705841735e-12,
+            2.789465712878182e-12,
+            3.0397709695482003e-11,
+            9.0627497150104e-12,
+            9.140720978837539e-13,
+            1.4440511391251653e-10,
+            2.7882990605515914e-12,
+            1.0324561983039933e-10,
+            3.0549763382047654e-11,
+            2.1946091357550663e-11,
+            2.9807966944390446e-12
           ]
         }
       }
@@ -450,6 +466,169 @@
               ]
             }
           }
+        }
+      }
+    }
+  },
+  "transition_matrix": {
+    "adr": "ADR-0110",
+    "issue": "#545",
+    "metric": "transition_matrix_abs_delta",
+    "definition": "The largest entry-wise |delta| between the two row-normalized transition matrices (norm_tmatrix, the per-frame transition probabilities), both in canonical mean-sorted state order; inf when the state counts differ or a matrix is missing, malformed or non-finite (parity.transition_matrix_abs_delta).",
+    "freeze_policy": {
+      "margin": 0.5,
+      "resolution": 0.0001,
+      "rule": "The specification gives no provisional default for this term, so the ceiling is the measured pooled worst case x (1 + margin), rounded UP to the resolution (the four decimal places of the other bounds) and never below one step of it (parity.freeze_transition_matrix)."
+    },
+    "tolerance_by_method": {
+      "vbconhmm": {
+        "transition_matrix_abs_delta_max": 0.0001
+      },
+      "ebhmm": {
+        "transition_matrix_abs_delta_max": 0.0441
+      }
+    },
+    "measured_by_method": {
+      "vbconhmm": {
+        "measured_utc": "2026-11-15",
+        "method": {
+          "model_type": "vbconhmm",
+          "n_runs_per_fixture": 20,
+          "sidecar_python_version": "3.12.13",
+          "tmaven_commit": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+          "build_provenance": "The measurement-time build probe obtains sidecar_python_version by executing platform.python_version() and tmaven_commit from the installed tMAVEN distribution's PEP 610 direct_url.json vcs_info.commit_id inside the configured sidecar interpreter; the interpreter path is intentionally not recorded. Command: scripts/measure_parity.py --n-runs 20 --model-type vbconhmm (no --cross-seed: smd_4mol anchored on its own run 00, smd_281mol on tests/fixtures/large/model_281mol.hdf5) -- the same runs as the 2026-11-15 re-measure of $.tolerance."
+        },
+        "spread_by_fixture": {
+          "smd_4mol": {
+            "smd": "tests/fixtures/smd_4mol.hdf5",
+            "reference": "cross-seed (run00 anchor)",
+            "nstates": 2,
+            "n_comparisons": 19,
+            "metrics": {
+              "transition_matrix_abs_delta": {
+                "direction": "ceiling",
+                "n": 19,
+                "min": 4.812474863058469e-10,
+                "max": 3.915569757317883e-09,
+                "mean": 2.1050527174817487e-09,
+                "worst": 3.915569757317883e-09,
+                "values": [
+                  7.851735928099401e-10,
+                  2.23604346670514e-09,
+                  3.4776227453292563e-09,
+                  5.866931385156704e-10,
+                  2.671629939846043e-09,
+                  2.2081658185985065e-09,
+                  3.915569757317883e-09,
+                  1.3959777344502156e-09,
+                  1.8686992370176014e-09,
+                  3.1476204975788846e-09,
+                  1.3610396889379706e-09,
+                  4.812474863058469e-10,
+                  3.8868952501047715e-09,
+                  1.3728224113052079e-09,
+                  3.1988368620616825e-09,
+                  2.9877020857327352e-09,
+                  7.901508180391259e-10,
+                  1.4936211573113312e-09,
+                  2.1304899441854097e-09
+                ]
+              }
+            }
+          },
+          "smd_281mol": {
+            "smd": "tests/fixtures/large/smd_281mol.hdf5",
+            "reference": "tests/fixtures/large/model_281mol.hdf5",
+            "nstates": 4,
+            "n_comparisons": 20,
+            "metrics": {
+              "transition_matrix_abs_delta": {
+                "direction": "ceiling",
+                "n": 20,
+                "min": 1.2188930420542476e-12,
+                "max": 1.3618935285064637e-09,
+                "mean": 4.995679529773422e-10,
+                "worst": 1.3618935285064637e-09,
+                "values": [
+                  6.812196085004274e-10,
+                  1.189850301619444e-10,
+                  1.2188930420542476e-12,
+                  9.562570249532776e-10,
+                  3.564077193096704e-10,
+                  8.177990923341483e-10,
+                  2.5019449706453756e-10,
+                  1.253663239192404e-09,
+                  4.233991351965116e-10,
+                  1.2475882132934046e-10,
+                  1.857396979276782e-10,
+                  6.280533454416926e-10,
+                  1.7482771827448396e-10,
+                  1.5816240678256932e-11,
+                  1.3618935285064637e-09,
+                  9.384197585671217e-11,
+                  1.2756894533783036e-09,
+                  6.366972053750697e-10,
+                  4.657783429784512e-10,
+                  1.691184900454168e-10
+                ]
+              }
+            }
+          }
+        },
+        "pooled_worst": {
+          "transition_matrix_abs_delta": 3.915569757317883e-09
+        }
+      },
+      "ebhmm": {
+        "measured_utc": "2026-11-15",
+        "method": {
+          "model_type": "ebhmm",
+          "n_runs_per_fixture": 20,
+          "sidecar_python_version": "3.12.13",
+          "tmaven_commit": "10f4230b6d13c6d2ad67b05d801696b4a40eff4a",
+          "build_provenance": "The measurement-time build probe obtains sidecar_python_version by executing platform.python_version() and tmaven_commit from the installed tMAVEN distribution's PEP 610 direct_url.json vcs_info.commit_id inside the configured sidecar interpreter; the interpreter path is intentionally not recorded. Command: scripts/measure_parity.py --n-runs 20 --model-type ebhmm --cross-seed --fixtures smd_281mol (unseeded fits, smd_281mol anchored on its own run 00)."
+        },
+        "spread_by_fixture": {
+          "smd_281mol": {
+            "smd": "tests/fixtures/large/smd_281mol.hdf5",
+            "reference": "cross-seed (run00 anchor)",
+            "nstates": 4,
+            "n_comparisons": 19,
+            "metrics": {
+              "transition_matrix_abs_delta": {
+                "direction": "ceiling",
+                "n": 19,
+                "min": 0.006634903003117976,
+                "max": 0.029381270392564246,
+                "mean": 0.02245963167103822,
+                "worst": 0.029381270392564246,
+                "values": [
+                  0.02716339307665297,
+                  0.026970166722564387,
+                  0.02756749949601145,
+                  0.029381270392564246,
+                  0.012721218322196859,
+                  0.027890293647560294,
+                  0.02921786064203083,
+                  0.02738528568981513,
+                  0.011919936921074736,
+                  0.02922361778716115,
+                  0.010899909472437797,
+                  0.010940366591961515,
+                  0.028474696820953715,
+                  0.012663487921867667,
+                  0.027076292496849952,
+                  0.006634903003117976,
+                  0.02924738749330369,
+                  0.029107896468369754,
+                  0.022247518783232056
+                ]
+              }
+            }
+          }
+        },
+        "pooled_worst": {
+          "transition_matrix_abs_delta": 0.029381270392564246
         }
       }
     }

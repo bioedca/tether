@@ -42,6 +42,7 @@ Two questions block a clean, atomic PR:
 ## Considered options
 
 **Registration source for PR-B.**
+
 - **A. Native auto-registration: detect both halves → phase-correlation prealign
   (`estimate_translation_prealign`, ADR-0012) → mutual-NN `pair_control_points` →
   `fit_registration_map`, `on_over_gate="warn"`.** Chosen. Composes shipped
@@ -57,6 +58,7 @@ Two questions block a clean, atomic PR:
   full movie, and the oracle that validates that exact path all come together.
 
 **Acceptance oracle.**
+
 - **C. Defer the recall/Pearson/RMS oracle + `large-fixtures.yml` to PR-C.** Chosen
   — see the data-gap above; PR-C wires the gated full-movie leg (never a required
   check) + a small default-CI leg and closes M1 (tag `v0.1.0`). This PR asserts
@@ -64,6 +66,7 @@ Two questions block a clean, atomic PR:
   accuracy.
 
 **Code placement.**
+
 - **D. Orchestration in `tether.project.extract.extract_movie`; argparse glue in
   `tether.cli`; heavy imports lazy under the `extract` handler.** Chosen — scope is
   `project` (PR title), the layering `project → imaging → io` stays a DAG, and

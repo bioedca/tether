@@ -8,8 +8,8 @@ cell array, referenced from the data tree by *object-reference markers*: a
 ``[0xDD000000, ndims, dims…, object_id, class_id]`` ``uint32`` vector carrying an
 HDF5 ``MATLAB_class`` attribute naming the class. The bulk numeric leaves of a
 ``.tdat`` sit in plain ``#refs#`` datasets and are read without this module
-(:mod:`tether.io.tdat`), but a handful of payloads M1 import needs — here the
-per-channel :class:`~tether.io.tdat.TdatDetectionSettings` ``DetectionThreshold``
+([`tether.io.tdat`][]), but a handful of payloads M1 import needs — here the
+per-channel [`TdatDetectionSettings`][tether.io.tdat.TdatDetectionSettings] ``DetectionThreshold``
 (``TIRFdata.m:63``, "% of max") — are MCOS object *properties*, reachable only
 through the ``FileWrapper__`` blob.
 
@@ -19,16 +19,20 @@ whole object graph. The ``FileWrapper__`` metadata format is undocumented by
 MathWorks; the layout below was reverse-engineered against the real UCKOPSB
 ``.tdat`` and cross-checked against independent anchors (each channel's colour
 index ``'G'``/``'R'``, its crop rectangle, and empty rotation/flip — all matching
-the companion ``.tmap`` decoded in :mod:`tether.io.register`).
+the companion ``.tmap`` decoded in `tether.io.register`).
 
 FileWrapper metadata layout (the FileWrapper's first cell, a ``uint8`` blob; all
 values little-endian ``uint32`` unless noted):
 
-* **8-word header** ``[version, n_names, off1, off2, off3, off4, off5, off6]`` —
-  the ``off*`` are byte offsets into the blob delimiting the regions below.
-* **names** — NUL-terminated ASCII field/class names in ``[32 : off1]``. The two
-  short leading tokens are a binary sub-header (not names); the following
-  ``n_names`` tokens are the **1-based** name table (field/class id → name).
+* **10-word header** ``[version, n_names, off1, off2, off3, off4, off5, off6, w8, w9]``
+  — the ``off*`` are byte offsets into the blob delimiting the regions below. The
+  last two words are not read: in metadata version 4 they are not zero, and in
+  version 3 (the public Deep-LASI files of Zenodo record 7561162) both are zero.
+* **names** — NUL-terminated ASCII field/class names in ``[40 : off1]``, directly
+  after the header: the first ``n_names`` names are the **1-based** name table
+  (field/class id → name). The table is read from byte 40 in both versions; it is
+  not found by counting tokens after byte 32, because two zero words give no token
+  (#874).
 * **class table** — ``[off1 : off2]``, 4 ``uint32`` per class (row 0 is the null
   class); a class's name is ``names[col1]``.
 * **type-1 property segments** — ``[off2 : off3]`` (unused for the properties
@@ -54,9 +58,9 @@ import numpy as np
 __all__ = ["McosDecoder", "object_reference_id"]
 
 _OBJECT_REF_MARKER = 0xDD000000  # first word of an MCOS object-reference vector
-_HEADER_WORDS = 8  # 8 uint32 metadata header words
-_NAMES_START = _HEADER_WORDS * 4  # names region begins at byte 32
-_NAME_HEADER_TOKENS = 2  # two binary tokens precede the field-name strings
+_OFFSET_WORDS = 8  # version, n_names and the six region byte-offsets
+_HEADER_WORDS = 10  # the header has two more uint32 words, which are not read
+_NAMES_START = _HEADER_WORDS * 4  # names region begins at byte 40 (versions 3 and 4)
 _OBJECT_ROW = 6  # uint32 per object-table row
 _TYPE2_SKIP = 1  # leading skip word before the first type-2 segment
 _PTYPE_HEAP = 1  # property stored as a FileWrapper heap-cell reference
@@ -70,7 +74,7 @@ def object_reference_id(marker: object) -> int:
     ``marker`` is the ``[0xDD000000, ndims, dim1…, obj_id…, class_id]`` ``uint32``
     vector stored where a MATLAB v7.3 file references an MCOS object. Only **scalar**
     (1×1) object references are read here; a non-integer, non-scalar, or otherwise
-    malformed marker raises :class:`ValueError` so callers degrade to a default
+    malformed marker raises `ValueError` so callers degrade to a default
     rather than decode the wrong object.
     """
     raw = np.asarray(marker).reshape(-1)
@@ -119,7 +123,7 @@ def _decode_matlab_value(file: h5py.File, node: object) -> object:
     type) becomes a ``list`` of its recursively-decoded elements — so a nested cell
     like ``FilePath = {dir, {file}}`` round-trips to ``['dir', ['file']]``; a
     **char array** becomes its ``str``; anything else (a numeric leaf, an
-    object/struct :class:`h5py.Group`, a null reference) becomes ``None``. Pure over
+    object/struct `h5py.Group`, a null reference) becomes ``None``. Pure over
     ``(file, node)`` so it is unit-testable against a synthetic HDF5 file without any
     MCOS metadata.
     """
@@ -135,8 +139,8 @@ def _decode_matlab_value(file: h5py.File, node: object) -> object:
 class McosDecoder:
     """Resolve named properties of MCOS objects in a MATLAB v7.3 ``FileWrapper__``.
 
-    Construct via :meth:`from_file` (returns ``None`` when the file carries no MCOS
-    subsystem). The decoder holds a reference to the open :class:`h5py.File`; use it
+    Construct via [`from_file`][] (returns ``None`` when the file carries no MCOS
+    subsystem). The decoder holds a reference to the open `h5py.File`; use it
     only while that file is open.
     """
 
@@ -167,13 +171,13 @@ class McosDecoder:
         if words.size < _HEADER_WORDS:
             raise ValueError("MCOS metadata too short for its header")
         n_names = int(words[1])
-        offsets = [int(x) for x in words[2:_HEADER_WORDS]]  # 6 region byte-offsets
+        offsets = [int(x) for x in words[2:_OFFSET_WORDS]]  # 6 region byte-offsets
         if n_names <= 0 or offsets[0] <= _NAMES_START or offsets[3] > meta.size:
             raise ValueError("MCOS metadata header offsets are out of range")
 
-        # Name table: the two leading binary tokens are a sub-header, not names.
+        # Name table: it starts directly after the 10-word header, at byte 40.
         tokens = [t for t in meta[_NAMES_START : offsets[0]].tobytes().split(b"\x00") if t]
-        names = [t.decode("ascii", "replace") for t in tokens[_NAME_HEADER_TOKENS:]]
+        names = [t.decode("ascii", "replace") for t in tokens]
         if len(names) < n_names:
             raise ValueError(f"MCOS name table has {len(names)} names, header declares {n_names}")
         self._field_id = {name: i + 1 for i, name in enumerate(names[:n_names])}  # 1-based
@@ -238,10 +242,10 @@ class McosDecoder:
     def property_value(self, object_id: int, field_name: str) -> object:
         """Return ``object_id``'s ``field_name`` decoded to plain Python, or ``None``.
 
-        The string/cell counterpart to :meth:`property_scalar`: a ``char`` property
+        The string/cell counterpart to [`property_scalar`][]: a ``char`` property
         decodes to ``str``, a MATLAB ``cell`` (including a nested one) to a ``list``,
         and an absent/unset/non-character property to ``None`` (see
-        :func:`_decode_matlab_value`). Used to recover the ``TIRFdata`` per-channel
+        `_decode_matlab_value`). Used to recover the ``TIRFdata`` per-channel
         ``FilePath = {dir, {movie}}`` embedded movie reference (PRD §7.8).
         """
         return _decode_matlab_value(self._file, self.property_dataset(object_id, field_name))
@@ -249,7 +253,7 @@ class McosDecoder:
     def property_scalar(self, object_id: int, field_name: str) -> float | None:
         """Return ``object_id``'s ``field_name`` as a finite scalar ``float``, or ``None``.
 
-        ``None`` when the property is absent/unset (see :meth:`property_dataset`) or
+        ``None`` when the property is absent/unset (see [`property_dataset`][]) or
         is not a single finite number — an empty ``[]`` default, a non-numeric, or a
         non-scalar value never yields a bogus threshold.
         """
