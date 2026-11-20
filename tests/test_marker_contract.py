@@ -2089,9 +2089,9 @@ TAG_REJECT = (
 )
 #: Tags TAG_ERE admits -- valid SemVer 2.0.0 prereleases, so #498's grammar must keep matching
 #: them -- that the resolve step's PEP 440 check then rejects (issue #1003, rule (b)). The first
-#: four read as post-releases that sort AFTER `1.0.0` (`1.0.0-0` is `1.0.0.post0`; `-r1` and
-#: `-post1` are PEP 440's other post spellings; `-rc1.post1` is a prerelease AND a post-release,
-#: and a post-release reading is what fails). The rest do not parse as PEP 440 at all.
+#: four read as post-releases. `v1.0.0-0` reads as `1.0.0.post0`, after `1.0.0`.
+#: `-rc1.post1` reads as `1.0.0rc1.post1`, before `1.0.0`, and still has the post-release
+#: flag. The rest do not parse as PEP 440 at all.
 TAG_PEP440_REJECT = (
     "v1.0.0-0",
     "v1.0.0-1",

@@ -165,7 +165,7 @@ jobs:
             printf '::error::release tag %q does not parse as a PEP 440 version, so hatch-vcs cannot stamp the package version from it\n' "$tag"
             false
           elif [ "$reading" = "post-release" ]; then
-            printf '::error::release tag %q reads as a PEP 440 post-release, which sorts after the stable release; use a prerelease such as -rc1\n' "$tag"
+            printf '::error::release tag %q reads as a PEP 440 post-release. Use a prerelease form such as -rc1\n' "$tag"
             false
           elif [ "$reading" != "ok" ]; then
             printf '::error::the PEP 440 check of release tag %q gave no verdict\n' "$tag"
