@@ -27,6 +27,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.imaging.layout
 
+::: tether.imaging.recipe
+
 ::: tether.imaging.register
 
 ::: tether.imaging.side_check

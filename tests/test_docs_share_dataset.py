@@ -9,8 +9,8 @@ This module pins the rest of #598's acceptance criteria:
 
 * every Python block on the page runs, in order and in one namespace, against the tutorial
   project that ``docs/tutorial.md`` builds and curates, and prints what the page says it
-  prints: the full project shows the movie path and the curator, the subset shows only the
-  curator;
+  prints. The full project shows the movie path and the curator, and the subset shows the
+  curator followed by its alias after replacement;
 * the page keeps the parts the issue asks for: the raw-movie recommendation and its fallback,
   Zenodo and CC BY 4.0 as examples, a README template, a data availability statement and the
   verified Lerner et al. 2021 reference;
@@ -74,7 +74,7 @@ def test_every_python_block_runs_on_the_tutorial_project(tmp_path, monkeypatch, 
         accept("tutorial.tether", key, labeler=CURATOR)
 
     blocks = _python_blocks()
-    assert len(blocks) == 2, "the page's Python blocks changed; update this test with them"
+    assert len(blocks) == 3, "the guide must show the aliased replacement export"
     namespace: dict[str, object] = {"__name__": "share_a_dataset"}
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
@@ -87,8 +87,7 @@ def test_every_python_block_runs_on_the_tutorial_project(tmp_path, monkeypatch, 
     # The full project: one movie line with its relative path and checksum, then the curator.
     assert re.fullmatch(r"movie path: tutorial_movie\.tif sha256: [0-9a-f]{64}", lines[1]), lines
     assert lines[2] == curators, lines
-    # The subset: no movie row, so no movie line, and the curator names are kept.
-    assert lines[3:] == [curators], lines
+    assert lines[3:] == [curators, "curators: ['curator-1']"], lines
     for name in ("accepted.tether", "accepted.csv"):
         assert (tmp_path / "deposit" / name).is_file(), name
         assert (tmp_path / "deposit" / f"{name}.provenance.json").is_file(), name
