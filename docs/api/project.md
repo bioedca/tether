@@ -81,6 +81,8 @@ It needs no write access to `bioedca/tether`.
 
 ::: tether.project.ranking
 
+::: tether.project.readiness
+
 ::: tether.project.reconstruct
 
 ::: tether.project.summary
