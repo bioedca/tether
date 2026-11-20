@@ -72,7 +72,10 @@ def test_each_section_has_the_menus_its_specs_declare(shell) -> None:
         menus = shell.section_menus(spec.id)
         assert [m.title() for m in menus] == [m.title for m in spec.menus]
         assert [m.objectName() for m in menus] == [f"{spec.id}-{m.id}-menu" for m in spec.menus]
-    assert [_plain(m.title()) for m in shell.section_menus("prepare")] == ["Import"]
+    assert [_plain(m.title()) for m in shell.section_menus("prepare")] == [
+        "Import",
+        "Calibration",
+    ]
     assert [_plain(m.title()) for m in shell.section_menus("curate")] == [
         "Curation",
         "Hand-off",
