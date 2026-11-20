@@ -680,6 +680,8 @@ class TetherShell:
         self._trace_dock = TraceDock()
         # The path of the project load_project opened, or None (no project open).
         self._project_path: Path | None = None
+        # The readiness of each stage of the open project (#896), read on each open.
+        self._readiness: Any | None = None
         # The intensity_quantity that open used, so a lock recovery reopens the same
         # trace layer rather than load_project's default (#1097).
         self._intensity_quantity = "corrected"
@@ -950,6 +952,25 @@ class TetherShell:
         self._view_menu.addSeparator()
         self._act_reset_layout = self._view_menu.addAction("&Reset layout")
         self._act_reset_layout.triggered.connect(self.reset_layout)
+
+        # View -> Trace colors (#636): the colour-blind-safe set is the default; the
+        # classic green and red set is the option. The choice is kept in the settings
+        # store (ADR-0123) and create_shell applies it at the next start.
+        self._trace_colors_menu = self._view_menu.addMenu("Trace &colors")
+        self._trace_colors_group = QtGui.QActionGroup(self._window)
+        self._trace_colors_actions: dict[str, Any] = {}
+        for value, label in (
+            ("safe", "Color-blind &safe (default)"),
+            ("classic", "&Classic green and red"),
+        ):
+            action = self._trace_colors_menu.addAction(label)
+            action.setCheckable(True)
+            action.setData(value)
+            self._trace_colors_group.addAction(action)
+            action.triggered.connect(lambda _checked=False, v=value: self.set_trace_colors(v))
+            self._trace_colors_actions[value] = action
+        self._trace_colors_menu.aboutToShow.connect(self._sync_trace_colors_menu)
+        self._sync_trace_colors_menu()
 
         # Help menu (#629): the installed version's documentation, the shortcut
         # cheat-sheet (the same action as Curation's), the log folder once a log
@@ -1359,13 +1380,33 @@ class TetherShell:
 
     @property
     def view_menu(self) -> QtWidgets.QMenu:
-        """The ``&View`` menu; its ``&Theme`` submenu selects System, Light or Dark."""
+        """The ``&View`` menu: ``&Theme`` (System, Light, Dark) and ``Trace &colors``."""
         return self._view_menu
 
     @property
     def theme_actions(self) -> dict[str, Any]:
         """The checkable **View → Theme** actions, by mode (``system``/``light``/``dark``)."""
         return dict(self._theme_actions)
+
+    @property
+    def trace_colors_actions(self) -> dict[str, Any]:
+        """The checkable **View → Trace colors** actions, by palette (``safe``/``classic``)."""
+        return dict(self._trace_colors_actions)
+
+    def set_trace_colors(self, name: str) -> None:
+        """Draw the traces in the palette ``name`` now and keep the choice for later starts.
+
+        The plots change at once. If the settings store cannot be written, the choice
+        still holds for this session and the status bar says it was not kept.
+        """
+        from tether.gui import app_settings, theme
+
+        theme.set_trace_palette(name)
+        self._sync_trace_colors_menu()
+        try:
+            app_settings.record_trace_colors(name)
+        except OSError as exc:
+            self._status(f"Trace colors changed for this session only; not saved: {exc}")
 
     @property
     def section_titles(self) -> list[QtWidgets.QLabel]:
@@ -1396,6 +1437,11 @@ class TetherShell:
         from tether.gui import theme
 
         self._theme_actions[theme.mode()].setChecked(True)
+
+    def _sync_trace_colors_menu(self) -> None:
+        from tether.gui import theme
+
+        self._trace_colors_actions[theme.trace_palette()].setChecked(True)
 
     @property
     def read_only_banner(self) -> QtWidgets.QLabel:
@@ -2021,6 +2067,7 @@ class TetherShell:
         # The project being replaced keeps the molecule it shows now (#628).
         self._remember_position()
         self._project_path = Path(proj_path)
+        self.refresh_readiness()
         self._intensity_quantity = intensity_quantity
         self._act_close_project.setEnabled(True)
         self._movie_switcher.setEnabled(True)
@@ -2448,6 +2495,29 @@ class TetherShell:
         """The path of the open project, or ``None`` when no project is open."""
         return self._project_path
 
+    @property
+    def readiness(self) -> Any | None:
+        """The readiness record of the open project, or ``None`` (#896).
+
+        It is [`project_status`][tether.services.status.project_status], the function that
+        ``tether status`` prints, read when the project opened or at the last
+        [`refresh_readiness`][]. ``None`` when no project is open or the read failed.
+        """
+        return self._readiness
+
+    def refresh_readiness(self) -> Any | None:
+        """Read the readiness of the open project again and return it (#896)."""
+        from tether.services.status import project_status
+
+        if self._project_path is None:
+            self._readiness = None
+        else:
+            try:
+                self._readiness = project_status(self._project_path)
+            except Exception:  # noqa: BLE001 - an open never fails on this read
+                self._readiness = None
+        return self._readiness
+
     def close_project(self) -> bool:
         """Close the open project and release its session lock; show the start page.
 
@@ -2476,6 +2546,7 @@ class TetherShell:
         self._conditions = None
         self._reset_store_docks()
         self._project_path = None
+        self._readiness = None
         self._act_close_project.setEnabled(False)
         self._movie_switcher.setEnabled(False)
         self.set_molecules([])
@@ -3465,7 +3536,7 @@ def _applied_summary(applied: AppliedReconcile) -> str:
 
 
 class _StoreHandoff:
-    """Store-backed [`HandoffSeam`][] over [`tether.project.handoff`][].
+    """Store-backed `HandoffSeam` over [`tether.project.handoff`][].
 
     Binds one project + intensity quantity so all three legs use the same ``/traces``
     layer; see [`make_store_handoff`][]. Each op imports its ``handoff`` function
@@ -3551,7 +3622,7 @@ def make_store_handoff(
     model_name: str | None = None,
     overwrite: bool = False,
 ) -> HandoffSeam:
-    """Build the store-backed [`HandoffSeam`][] for a [`TetherShell`][].
+    """Build the store-backed `HandoffSeam` for a [`TetherShell`][].
 
     Binds one ``.tether`` project + intensity quantity across all three legs so the
     outbound SMD and the return-leg intensity match use the **same** ``/traces`` layer

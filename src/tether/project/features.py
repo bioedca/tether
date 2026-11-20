@@ -468,7 +468,7 @@ def _window_snapshot_from(f: object) -> dict[str, tuple[int, int]]:
 def read_features(project: ProjectRef) -> np.ndarray:
     """Read ``/features/table`` back as a structured array (a copy, store order).
 
-    Raises [`KeyError`][] if no feature table has been written.
+    Raises `KeyError` if no feature table has been written.
     """
     import h5py
 
@@ -491,7 +491,7 @@ def feature_matrix(project: ProjectRef) -> StoredFeatures:
     order is authoritative even if [`FEATURE_NAMES`][tether.ml.features.FEATURE_NAMES] later
     grows (a stale cache is read faithfully, then recomputed on demand).
 
-    Raises [`KeyError`][] if no feature table has been written.
+    Raises `KeyError` if no feature table has been written.
     """
     import h5py
 
@@ -534,7 +534,7 @@ def build_project_similarity_index(project: ProjectRef) -> SimilarityIndex:
 
     The store-integrated entry to [`tether.ml.similarity.build_similarity_index`][]:
     the curation dock builds this once per condition/video and reuses it across queries.
-    Read-only; raises [`KeyError`][] if no feature table has been written.
+    Read-only; raises `KeyError` if no feature table has been written.
     """
     from tether.ml.similarity import build_similarity_index
 

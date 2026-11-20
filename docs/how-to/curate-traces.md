@@ -54,8 +54,10 @@ A project you opened before on this computer opens at the molecule you last had 
 ## 2. Move from trace to trace
 
 The list on the left holds every molecule. The large panel shows the selected one: donor
-(green), acceptor (red) and their total (gray) on top, its apparent FRET efficiency (blue)
-underneath.
+(green), acceptor (magenta) and their total (gray) on top, its apparent FRET efficiency (blue)
+underneath. Readers with a red-green color-vision deficiency can tell these colors apart. For a
+red acceptor, select **View → Trace colors → Classic green and red**. See
+[Trace colors](../reference/gui-theme.md#select-the-trace-colors).
 
 The bottom panel shows the donor–acceptor cross-correlation of the trace. While the total
 intensity stays about constant, a change in FRET raises one channel and lowers the other.

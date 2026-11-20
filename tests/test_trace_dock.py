@@ -8,7 +8,7 @@ Two layers, mirroring ``test_movie_panel``:
   marginal-histogram helper, and the SMD adapter — these run in the default
   matrix because ``tether.gui.trace_dock`` imports pyqtgraph/Qt lazily.
 * **``@pytest.mark.gui``** smokes that construct a real :class:`TraceDock` with
-  ``qtbot`` and assert the display contract: donor(green)/acceptor(red)/total +
+  ``qtbot`` and assert the display contract: donor/acceptor/total colours (#636) +
   FRET(blue) curves render a committed fixture trace, the FRET axis is labelled
   **"apparent E"** and pinned to ``0–1``, the seconds/frame-index toggle works,
   and the idealization step overlay is drawn by ``set_idealization`` (empty/hidden
@@ -164,16 +164,30 @@ def test_dock_renders_fixture_trace(qtbot) -> None:
 @pytest.mark.gui
 @_needs_qt
 def test_dock_axis_conventions_and_colors(qtbot) -> None:
+    from tether.gui import theme
     from tether.gui.trace_dock import TraceDock
 
     with TraceDock() as dock:
         qtbot.addWidget(dock.widget)
-        # Donor green, acceptor red, FRET blue (PRD §7.3).
-        assert _rgb(dock.donor_curve.opts["pen"]) == (0, 170, 0)
-        assert _rgb(dock.acceptor_curve.opts["pen"]) == (220, 45, 45)
-        assert _rgb(dock.fret_curve.opts["pen"]) == (40, 90, 220)
-        # Total present as a third intensity curve, drawn in neutral grey.
-        assert _rgb(dock.total_curve.opts["pen"]) == (140, 140, 140)
+        # The default is the colour-blind-safe set of the active theme (PRD §7.3, #636):
+        # green donor, magenta acceptor, blue FRET, and a neutral total.
+        safe = theme.TRACE_PALETTES["safe"][theme.current().name]
+        for curve, token in (
+            (dock.donor_curve, "donor"),
+            (dock.acceptor_curve, "acceptor"),
+            (dock.fret_curve, "fret"),
+            (dock.total_curve, "total"),
+        ):
+            assert _rgb(curve.opts["pen"]) == theme.rgba(safe[token])[:3], token
+        # The classic preference: donor green, acceptor red, FRET blue, total grey.
+        try:
+            theme.set_trace_palette("classic")
+            assert _rgb(dock.donor_curve.opts["pen"]) == (0, 170, 0)
+            assert _rgb(dock.acceptor_curve.opts["pen"]) == (220, 45, 45)
+            assert _rgb(dock.fret_curve.opts["pen"]) == (40, 90, 220)
+            assert _rgb(dock.total_curve.opts["pen"]) == (140, 140, 140)
+        finally:
+            theme.set_trace_palette(theme.DEFAULT_TRACE_PALETTE)
 
 
 @pytest.mark.gui

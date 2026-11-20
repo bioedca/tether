@@ -370,24 +370,45 @@ def test_a_bad_curator_name_changes_nothing_and_says_why(launch) -> None:
     assert shell.status_message.startswith("Curator name not changed:")
 
 
-def test_the_condition_dialog_writes_its_audit_entry_as_the_curator(launch, monkeypatch) -> None:
-    from tether.gui import conditions as gui_conditions
+def test_the_condition_dialog_writes_its_audit_entry_as_the_curator(launch, tmp_path) -> None:
+    """The shell builds the real dialog and a correction made in it is audited as the curator.
 
-    seen: dict[str, object] = {}
+    Nothing is stubbed (#1196): the shell's own menu slot builds the real
+    ``ConditionValidationDialog`` and runs its modal loop, and a timer makes the correction
+    inside that loop and closes it, so the test fails if the shell stops passing ``labeler``
+    or the dialog stops forwarding it to the re-key.
+    """
+    from pyqtgraph.Qt import QtCore
 
-    class _Dialog:
-        def __init__(self, project, **kwargs) -> None:
-            seen.update(kwargs)
+    from tether.io.filename import ConditionKey
+    from tether.project import conditions as C
+    from tether.project.core import Project
 
-        def exec(self) -> None:
-            return None
-
+    path = _store(tmp_path)
     shell = launch()
+    shell.load_project(path)
     shell.set_curator_name("Ana")
-    monkeypatch.setattr(gui_conditions, "ConditionValidationDialog", _Dialog)
-    shell._conditions = object()
+    corrected = ConditionKey(construct_variant="Corrected", ligand="tRNA")
+    seen: list[object] = []
+
+    def _correct_then_close() -> None:
+        dialog = shell._active_conditions_dialog
+        seen.append(type(dialog).__name__)
+        try:
+            (from_id,) = dialog.row_condition_ids()
+            seen.append(dialog.apply_correction(from_id, corrected))
+        finally:
+            # Close the modal loop on every path, so a regression fails the test, not hangs it.
+            dialog.dialog.accept()
+
+    QtCore.QTimer.singleShot(0, _correct_then_close)
     shell._validate_conditions_dialog()
-    assert seen["labeler"] == "Ana"
+
+    assert seen[0] == "ConditionValidationDialog"
+    assert seen[1] is not None
+    audit = Project.open(path).read_condition_audit()
+    assert [C._to_str(v) for v in audit["labeler"]] == ["Ana"]
+    assert C._to_str(audit["to_condition_id"][0]) == corrected.condition_id()
 
 
 # --- nothing in the project file, and nothing without a preferences file --------------------
