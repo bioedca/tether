@@ -152,7 +152,7 @@ the dwell inversion and the column reader.
 
 ### 2026-11-17 — The smoothed transition density (#1029, #1130)
 
-#1029 added `smooth_transition_density`, the array `checkTDP.py` computes after `histogram2d`: a
+Issue #1029 added `smooth_transition_density`, the array `checkTDP.py` computes after `histogram2d`: a
 Gaussian filter of 1 bin, a bicubic spline through the bin centres onto 800 x 800 points from -0.25
 to 1.25 with negative values set to 0, and a division by the maximum. It is compared one step past
 the TDP counts above, with the same rule.
